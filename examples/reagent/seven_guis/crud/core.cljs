@@ -26,39 +26,56 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA
 ;; ============================================================================
 
+;; EP-0010 (Causal World Inputs): a person's `:id` is written into durable
+;; app-db (`[:crud :people]`) and used as the selection / React `:key`, so it
+;; must be a function of prior frame-state — never an ambient `(random-uuid)` at
+;; the durable-write site (an event-stream replay would mint different ids). The
+;; id is an internal handle, so we mint it deterministically as a monotonic
+;; `:int` from a db-held `:next-id` counter — the todomvc `allocate-next-id`
+;; idiom, matching sibling 7GUIs `circle_drawer` — rather than a uuid.
 (def Person
   [:map
-   [:id      :uuid]
+   [:id      :int]
    [:name    :string]
    [:surname :string]])
 
 (def CrudState
   [:map
    [:people       [:vector Person]]
+   [:next-id      :int]                      ;; deterministic id allocator (EP-0010)
    [:filter-text  :string]
-   [:selected-id  [:maybe :uuid]]
+   [:selected-id  [:maybe :int]]
    [:draft        [:map
                    [:name    :string]
                    [:surname :string]]]])
 
-(rf/reg-app-schema [:crud] CrudState)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
+;; schema binds to the app frame whose commits it validates.
+(with-frame :rf/default
+  (rf/reg-app-schema [:crud] CrudState))
 
 ;; ============================================================================
 ;; EVENTS
 ;; ============================================================================
 
 (rf/reg-event :crud/initialise
-  {:doc "Seed the list with the 7GUIs reference data."}
+  {:doc "Seed the list with the 7GUIs reference data. Ids are deterministic
+         monotonic ints (EP-0010) so a fresh-event-stream replay reproduces
+         the same durable people. `:next-id` is the allocator for subsequent
+         Create."}
   (fn handler-crud-initialise [{:keys [db]} _]
-    {:db (assoc db :crud {:people      [{:id (random-uuid) :name "Hans"  :surname "Emil"}
-                                   {:id (random-uuid) :name "Max"   :surname "Mustermann"}
-                                   {:id (random-uuid) :name "Roman" :surname "Tisch"}]
+    {:db (assoc db :crud {:people      [{:id 1 :name "Hans"  :surname "Emil"}
+                                   {:id 2 :name "Max"   :surname "Mustermann"}
+                                   {:id 3 :name "Roman" :surname "Tisch"}]
+                     :next-id     4
                      :filter-text ""
                      :selected-id nil
                      :draft       {:name "" :surname ""}})}))
@@ -70,7 +87,7 @@
 
 (rf/reg-event :crud/select
   {:doc "User clicked a list entry. Populates the draft from the selected person."
-   :schema [:cat [:= :crud/select] :uuid]}
+   :schema [:cat [:= :crud/select] :int]}
   (fn handler-crud-select [{:keys [db]} [_ id]]
     {:db (let [people (get-in db [:crud :people])
           person (first (filter #(= id (:id %)) people))]
@@ -87,12 +104,17 @@
     {:db (assoc-in db [:crud :draft :surname] s)}))
 
 (rf/reg-event :crud/create
-  {:doc "Add a new person from the draft. Selects the new entry."}
+  {:doc "Add a new person from the draft. Selects the new entry. The id is
+         minted deterministically from the db-held `:next-id` counter (EP-0010
+         causal world inputs — a durable id must be a function of prior
+         frame-state, not an ambient `(random-uuid)` read), then the counter is
+         bumped."}
   (fn handler-crud-create [{:keys [db]} _]
-    {:db (let [new-id (random-uuid)
+    {:db (let [new-id (get-in db [:crud :next-id])
           {:keys [name surname]} (get-in db [:crud :draft])]
       (-> db
           (update-in [:crud :people] conj {:id new-id :name name :surname surname})
+          (assoc-in  [:crud :next-id] (inc new-id))
           (assoc-in  [:crud :selected-id] new-id)))}))
 
 (rf/reg-event :crud/update
@@ -171,7 +193,7 @@
       [:select.list {:size      6
                      :data-testid "crud-list"
                      :value     (or selected-id "")
-                     :on-change #(dispatch [:crud/select (uuid (.. % -target -value))])}
+                     :on-change #(dispatch [:crud/select (js/parseInt (.. % -target -value) 10)])}
        (for [{:keys [id name surname]} people]
          ^{:key id}
          [:option {:value id} (str surname ", " name)])]

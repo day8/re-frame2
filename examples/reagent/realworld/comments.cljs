@@ -29,8 +29,25 @@
 (defn comment-path [slug]
   (str (article-path slug) "/comments"))
 
-(defn temp-comment-id []
-  (str "temp-" (random-uuid)))
+;; ============================================================================
+;; RECORDABLE COEFFECTS  (EP-0017)
+;; ============================================================================
+;;
+;; The optimistic temp-id is written into durable app-db (the optimistic card is
+;; conj'd into `[:comments :data]`) AND used as a join key — it correlates the
+;; optimistic card with its eventual save (`:comment-form/submit-success`) or
+;; rollback (`:comment-form/submit-error`). Per EP-0010 a value that is written
+;; durably OR used as a join key MUST be folded from a recordable coeffect, not
+;; read ambiently at the write site — otherwise replay mints a different id and
+;; the correlation no longer matches. The EP-0017 authoring surface is a
+;; RECORDABLE `reg-cofx`: the generator runs at context-assembly, the minted id
+;; is recorded onto the causal token, and replay re-presents it verbatim.
+;; `:comment-form/submit` DECLARES it via `:rf.cofx/requires` and reads it flat
+;; from the coeffects map — the handler stays pure and replayable.
+(rf/reg-cofx :realworld/temp-comment-id
+  {:recordable? true
+   :doc "Replayable optimistic temp-id for a newly-posted comment (EP-0017)."}
+  (fn [] (str "temp-" (random-uuid))))
 
 ;; ============================================================================
 ;; INITIALISATION
@@ -151,14 +168,16 @@
   {:doc "Optimistically post a new comment. NO retry — the user clicked
          once. The temp-id correlates the optimistic UI card with the
          eventual save / rollback (Spec 014 - explicit on-success/on-failure
-         where the partial event vector pre-populates correlation args)."
-   :rf.http/decode-schemas [schema/CommentResponse]}
-  (fn [{:keys [db] rt :rf.db/runtime} _]
+         where the partial event vector pre-populates correlation args). The
+         temp-id is FOLDED from a recordable coeffect (EP-0017 — see the
+         `:realworld/temp-comment-id` reg-cofx above), never minted ambiently."
+   :rf.http/decode-schemas [schema/CommentResponse]
+   :rf.cofx/requires [:realworld/temp-comment-id]}
+  (fn [{:keys [db] rt :rf.db/runtime temp-id :realworld/temp-comment-id} _]
     (let [slug      (get-in rt [:rf.runtime/routing :current :params :slug])
           draft     (get-in db [:comment-form :draft])
           body      (str/trim (or (:body draft) ""))
           user      (get-in db [:auth :user])
-          temp-id   (temp-comment-id)
           temp-card {:id        temp-id
                      :createdAt "pending"
                      :updatedAt "pending"

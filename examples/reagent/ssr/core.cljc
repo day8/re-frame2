@@ -80,12 +80,30 @@
 ;; ============================================================================
 ;; SCHEMA
 ;; ============================================================================
-
-(rf/reg-app-schema [:articles]
-  [:vector [:map
-            [:id    :string]
-            [:title :string]
-            [:body  :string]]])
+;;
+;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local and
+;; raises `:rf.error/no-frame-context` under no frame scope — so a bare ns-load
+;; registration is wrong, and (rf2-9wc2ed) a naive `with-frame :rf/default`
+;; would bind the schema to the client frame ONLY, leaving the per-request
+;; SERVER frames (where the SSR commits actually validate) unschema'd. SSR has
+;; TWO frame families: the per-request server frame (gensym, in
+;; `handle-request`) and the FIXED client hydration frame (`app-frame` →
+;; `:rf/default`, in `run`). The schema is the same contract for both, so we
+;; hold it as a value and register it explicitly against EACH frame at its
+;; entry point (server: per request; client: at boot) with the `{:frame …}`
+;; override. Holding it as a def also keeps ns-load side-effect-free — the
+;; entry namespace loads without any ambient frame fixture.
+;; `[:maybe …]` because the slice is ABSENT (nil) until `:articles/loaded`
+;; commits — the per-request server frame's `:rf/server-init` commits an
+;; articles-free db first (it only kicks off the managed-HTTP fetch), and the
+;; client frame starts empty before hydration. A bare `[:vector …]` would reject
+;; that legitimate intermediate `nil` and roll the commit back (rf2-9wc2ed: the
+;; bug was masked precisely because validation never ran on these frames).
+(def ArticlesSchema
+  [:maybe [:vector [:map
+                    [:id    :string]
+                    [:title :string]
+                    [:body  :string]]]])
 
 ;; ============================================================================
 ;; FX
@@ -242,6 +260,15 @@
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (ssr/set-request! fid request)
+           ;; Register the app schema AGAINST THIS per-request server frame
+           ;; (rf2-9wc2ed) BEFORE `:on-create` fires `:rf/server-init` — the
+           ;; per-request frame is where the server-side `:articles` commit
+           ;; actually validates, so the schema must bind here, not only on the
+           ;; client frame. `reg-frame` runs the `:on-create` cascade
+           ;; synchronously before returning, so the schema must be in place
+           ;; first; we register it under the gensym `fid` and only then create
+           ;; the frame.
+           _   (rf/reg-app-schema [:articles] ArticlesSchema {:frame fid})
            f   (rf/reg-frame fid
                  {:doc       "ssr-example per-request frame"
                   :platform  :server
@@ -394,6 +421,13 @@
      ;; fxs fire (Spec 011 §The :rf/hydrate event).
      (rf/reg-frame app-frame {:doc      "ssr-example client app-frame"
                               :platform :client})
+     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME (rf2-9wc2ed) so
+     ;; the hydrated `:articles` commit + every post-hydration interactive
+     ;; commit validate on the client too — the symmetric counterpart of the
+     ;; per-request registration in `handle-request`. `{:frame app-frame}` is
+     ;; the explicit override; `reg-app-schema` is a no-op-safe re-registration
+     ;; on hot-reload.
+     (rf/reg-app-schema [:articles] ArticlesSchema {:frame app-frame})
      ;; `ssr/hydrate!` is the framework client-boot helper (Spec 011
      ;; §Client-side hydration boot helper). It READs the `__rf_payload`
      ;; script, dispatch-syncs `[:rf/hydrate payload]` to install the

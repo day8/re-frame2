@@ -29,7 +29,7 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -61,7 +61,12 @@
    [:undo      [:vector :any]]                  ;; stack of prior :circles values
    [:redo      [:vector :any]]])
 
-(rf/reg-app-schema [:drawer] DrawerState)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
+;; schema binds to the app frame whose commits it validates.
+(with-frame :rf/default
+  (rf/reg-app-schema [:drawer] DrawerState))
 
 ;; ============================================================================
 ;; UNDO INTERCEPTOR

@@ -140,6 +140,28 @@
   (rf/reg-app-schema [:new-todo] NewTodoSlice))
 
 ;; ============================================================================
+;; RECORDABLE COEFFECTS  (EP-0017)
+;; ============================================================================
+;;
+;; A submitted todo's `:id` is written into durable machine runtime-data
+;; (`:data :items`) and used as a React `:key` / join handle. Per EP-0010 a
+;; durable id must be a FOLDED FACT, never an ambient `(random-uuid)` read at
+;; the write site (a fresh-event-stream replay would mint a different id and the
+;; snapshot/keys would not reproduce). The EP-0017 authoring surface for an
+;; app-owned generator is a RECORDABLE `reg-cofx`: the generator runs at
+;; context-assembly, the minted value is recorded onto the causal token, and
+;; replay re-presents it verbatim (mint-policy `:strict` re-feeds the recorded
+;; value instead of re-minting). `:new-todo/submit` DECLARES it via
+;; `:rf.cofx/requires` and reads it flat from the coeffects map — the handler
+;; stays pure and replayable. A uuid is valid EDN (`#uuid`), so it is a legal
+;; recordable value; the generator runs in slice B and the minted uuid is
+;; recorded onto the token (matching the `gen-todos` seed-data id type).
+(rf/reg-cofx :new-todo/todo-id
+  {:recordable? true
+   :doc "Replayable fresh id for a newly-submitted todo (EP-0017)."}
+  (fn [] (random-uuid)))
+
+;; ============================================================================
 ;; FX  (test-friendly stubs)
 ;; ============================================================================
 ;;
@@ -420,10 +442,14 @@
          region lands in :incorrect). If valid → append to the
          machine's :data items via :fetch-succeeded, clear the draft,
          and broadcast :submit-valid (the :form region lands in
-         :correct)."}
+         :correct)."
+   ;; EP-0017: the new todo's durable id is FOLDED from a recordable
+   ;; coeffect, never read ambiently at the write site (see the
+   ;; `:new-todo/todo-id` reg-cofx above) — replay re-presents it.
+   :rf.cofx/requires [:new-todo/todo-id]}
   ;; EP-0001 (rf2-vzld77): the machine snapshot is durable runtime-db state —
   ;; read it from the `:rf.db/runtime` coeffect.
-  (fn handler-new-todo-submit [{:keys [db] rt :rf.db/runtime} _]
+  (fn handler-new-todo-submit [{:keys [db] rt :rf.db/runtime new-id :new-todo/todo-id} _]
     (let [draft  (get-in db [:new-todo :draft])
           errors (validate-new-todo draft)
           items  (get-in rt [:rf.runtime/machines :snapshots :ui/nine-states :data :items])]
@@ -438,7 +464,7 @@
         ;; items: bump through :loading → :resolving so the :always-cascade
         ;; re-picks the cardinality bucket against the new count.
         (let [new-items (conj (vec items)
-                              {:id     (random-uuid)
+                              {:id     new-id
                                :title  (:title draft)
                                :done?  false})]
           {:db (-> db

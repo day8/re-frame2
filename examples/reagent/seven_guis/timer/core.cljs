@@ -28,7 +28,7 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (def tick-ms
   "Wall-clock delay between successive timer ticks. Kebab-case per the
@@ -47,7 +47,12 @@
    [:tick-active? :boolean]             ;; whether a tick is in flight
    [:tick-gen :int]])                   ;; generation token; bumped on Reset to retire stale ticks
 
-(rf/reg-app-schema [:timer] TimerState)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
+;; schema binds to the app frame whose commits it validates.
+(with-frame :rf/default
+  (rf/reg-app-schema [:timer] TimerState))
 
 ;; ============================================================================
 ;; EVENTS
