@@ -1297,13 +1297,18 @@
           :mode     (if sync? :sync :queued)})))))
 
 (defn restore-epoch!
-  "Tool: `restore-epoch`. Rewind a frame's `app-db` to the named
-  epoch's `:db-after` via `rf/restore-epoch!`. The framework's wrapper
-  returns `true` on success and `false` on any of the six documented
-  failure modes (per Tool-Pair §Time-travel — Restore — each emits a
-  structured `:rf.epoch/*` error trace and leaves `app-db` unchanged);
-  this accessor projects that boolean onto the wire-shape the MCP
-  catalogue ships:
+  "Tool: `restore-epoch`. Rewind a frame to the named epoch's canonical
+  `:frame-state-after` via `rf/restore-epoch!` — the WHOLE frame-state,
+  reinstalling app-db AND runtime-db (machine snapshots, the route
+  slice, elision declarations, SSR metadata) as two partitions in ONE
+  atomic write (epoch · `restore-epoch!`). `:frame-state-after` is the
+  only restore source; the retained `:db-after` is an OPTIONAL app-db
+  projection used for diffs, NOT the restore source. The framework's
+  wrapper returns `true` on success and `false` on any of the six
+  documented failure modes (per Tool-Pair §Time-travel — Restore — each
+  emits a structured `:rf.epoch/*` error trace and leaves the
+  frame-state unchanged); this accessor projects that boolean onto the
+  wire-shape the MCP catalogue ships:
 
       {:ok? true  :frame <id> :epoch-id <uuid> :origin <kw>}
       {:ok? false :frame <id> :epoch-id <uuid> :origin <kw>

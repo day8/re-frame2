@@ -20,7 +20,7 @@
       │   :shop/cart                                                    │
       │     owns      :app-db [:cart]                                   │
       │     requires  :rf.capability/http                               │
-      │     registers 1 event · 1 sub                                   │
+      │     registers 2 descriptors (event · sub)                       │
 
   ## The provenance graduation (rf2-at0oen — the seam SHIPPED)
 
@@ -151,7 +151,8 @@
 
 (defn- registers-summary
   "A compact rendering of the registry kinds a module owns —
-  `1 event · 1 sub`. Pure string."
+  `2 descriptors (event · sub)` (the count, then the dot-joined kinds in
+  parens; singular `1 descriptor` for one). Pure string."
   [module-row]
   (let [{:keys [registration-kinds registration-count]} module-row]
     (if (seq registration-kinds)

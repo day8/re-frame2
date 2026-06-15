@@ -103,9 +103,12 @@ Nine read-only accessors. Every one returns a map; success is `:ok? true`; failu
 
 - **Signature**:
   ```clojure
-  (get-app-db-diff opts) → {:ok? true :frame <id> :epoch-id <uuid> :diff {:before … :after …}}
+  (get-app-db-diff opts) → {:ok? true :frame <id> :epoch-id <uuid>
+                            :diff {:added [{:path … :value …}]
+                                   :removed [{:path … :value …}]
+                                   :changed [{:path … :before … :after …}]}}
   ```
-- **Description**: Reads `:db-before` + `:db-after` off a named epoch record. Heavy nested-diff projection lives on the MCP server side; this accessor returns the raw before / after pair.
+- **Description**: Reads `:db-before` + `:db-after` off a named epoch record and projects the changed-paths slice diff via the canonical Editscript-A* engine. Returns only the changed paths' slices — each `:added` / `:removed` carries one `:value`, each `:changed` carries `:before` + `:after`, all keyed by their `:path` into app-db and wire-elided per-slice — NOT two whole before / after snapshots. Heavier nested-diff projection lives on the MCP server side.
 
 ### `get-machine-state`
 

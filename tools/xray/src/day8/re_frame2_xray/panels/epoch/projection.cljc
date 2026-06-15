@@ -5,7 +5,7 @@
 
   The Epoch panel (rf2-sc3r1) is a faithful visual projection of a
   single epoch's trace stream — DISPATCH → COEFFECTS → HANDLER → FLOW
-  → FX → SUBSCRIPTIONS → VIEWS as a numbered cascade. Each step is
+  → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS as a numbered cascade. Each step is
   CONDITIONAL — a step is present iff the matching trace events
   surfaced in this epoch:
 
