@@ -16,7 +16,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 
 | Namespace | Role | Surfaces |
 |---|---|---|
-| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `reset-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `sub-topology`, `compute-sub`, `machine-transition` |
+| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `reset-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `subscribe-once`, `sub-topology`, `compute-sub`, `machine-transition` |
 | `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals`, `assert-db-equals`, `poll-until` |
 | `re-frame.test-helpers` | View-assertion helpers (hiccup-walk + `testid` authoring) + single-frame e2e fixture (view-tree axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid`, `with-app-fixture`, `expect-text`, `wait-until` |
 
@@ -210,6 +210,26 @@ When NOT to use Pattern 5:
 - **Multi-frame setups** (Xray, Story, cross-frame tests) — Pattern 1 / 2 with explicit `rf/with-frame` calls each frame is clearer; the fixture stash is single-slot by design.
 - **Tests that don't render** — the install + frame lifecycle of Pattern 5 is overkill for pure-event tests. Reach for `(rf/with-new-frame [f (rf/make-frame opts)] ...)` and skip the view-stash entirely.
 
+### Pattern 6 — pure event-handler simulation (no frame)
+
+Under the one event form ([EP-0018](../docs/EP/EP-0018-one-event-registration.md)), every event handler is a plain **two-arg function** — `(fn [coeffects event-vec] effects-map)` — that takes a coeffects map and the event vector and returns the closed effects map (`{:db … :fx [...]}`) or `nil` (per [002 §The event handler contract](002-Frames.md#the-event-handler-contract)). Because it is just a function, the handler under test can be called **directly** with a hand-built coeffects map and asserted on the returned effects map — no frame, no router, no `app-db`, exactly as Pattern 4 does for `machine-transition`:
+
+```clojure
+(defn create-handler                                  ;; the named fn registered with reg-event
+  [{:keys [db rf/time-ms]} [_ {:keys [text]}]]
+  {:db (assoc-in db [:todos :last] {:text text :created-at time-ms})})
+
+(rf/reg-event :todo/create {:rf.cofx/requires [:rf/time-ms]} create-handler)
+
+(deftest create-handler-pure
+  (let [effects (create-handler {:db {} :rf/time-ms 1781078400123}    ;; coeffects in
+                                [:todo/create {:text "milk"}])]
+    (is (= {:text "milk" :created-at 1781078400123}                   ;; effects out
+           (get-in effects [:db :todos :last])))))
+```
+
+Hand-build the coeffects map (`:db`, the declared `:rf.cofx/requires` leaves flat, `:event` if the body reads it) and assert on the **returned effects map** — `:db`, `:fx`, any reserved effect. This is the cheapest event-handler test: it bypasses interceptor assembly, drain, and commit entirely, isolating the fold's logic the way Pattern 4 isolates a transition. Reach for it for a pure reducer whose logic is the whole point; reach for the dispatch-driven form ([Pattern 1](#pattern-1--anonymous-fixture-per-test) / [§Asserting on effects](#asserting-on-effects-without-firing-them)) when the test needs the real coeffect assembly, interceptor chain, or `:fx` cascade to run.
+
 ### HTTP test surfaces — single namespace
 
 The managed-HTTP artefact (Spec 014) ships its entire test surface in a single namespace, `re-frame.http-test-support`. The previous split — macros in `re-frame.http-managed`, registration gate in `re-frame.http-test-support` — was closed per (audit-of-audits #15): one require, one home, namespace name matches content.
@@ -236,7 +256,95 @@ Four ways to "reset between tests" ship in `re-frame.test-support`. They form a 
 
 `make-reset-runtime-fixture` is a **factory**: the call shape is `(make-reset-runtime-fixture opts) → fixture-fn`. Use the returned fn in `(use-fixtures :each ...)`. Contrast `with-fresh-registrar`, which takes a thunk and runs it directly — the names differ deliberately to mark the call-shape axis.
 
+## Hermetic-realm testing — fresh realm + injected capabilities
+
+The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. A **runtime realm** (per [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container), EP-0013) offers a different isolation axis: construct a realm with **its own registrar atom**, install exactly the program under test into it, and dispose it on teardown — there is no process-global registrar to clear, because the test never touched one.
+
+```clojure
+;; A hermetic test realm — the program and exactly the capabilities it needs,
+;; with no process-global state to clear or restore.
+(deftest cart-checkout
+  (let [realm (rf/realm {:id           :test/cart
+                         :adapter      :plain-atom
+                         :capabilities {:rf.capability/http   fake-http
+                                        :rf.capability/clock  fixed-clock
+                                        :rf.capability/random seeded-random}})]
+    (try
+      ;; Seat the app value (built with rf/module / rf/app) into the realm.
+      ;; install! seats the app's :frame descriptors into the target realm,
+      ;; stamping each frame with the realm.
+      (rf/install! realm cart-app)
+      ;; The realm is CARRIED — an explicit :realm dispatch opt (or the realm
+      ;; the carried frame already belongs to); there is no with-realm and no
+      ;; ambient default (per 002 §Frames reference realms). :realm is an
+      ;; :rf/dispatch-opts key (Spec-Schemas) resolved to the envelope's
+      ;; :rf.realm/id.
+      (rf/dispatch-sync [:cart/checkout] {:frame :cart :realm :test/cart})
+      (is (= :complete (get-in (rf/app-db-value :cart) [:cart :state])))
+      (finally
+        (rf/dispose-realm! :test/cart)))))         ;; drop the realm + its registrar for GC
+```
+
+**Capability injection is the explicit dependency seam.** A realm's `:capabilities` map names the runtime services a feature depends on — `:rf.capability/http` (request execution), `:rf.capability/clock` (time), `:rf.capability/random` (id/randomness generation), and the rest (per [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps)). A hermetic test injects test doubles for exactly those it needs; `install!` capability-checks first, failing with `:rf.error/missing-capability` (naming the realm + capability) *before* any registrar mutation if the app `:requires` a capability the realm does not supply. This is the **injectable** alternative to process-global stubs discovered by namespace load order.
+
+**The public surface** (all from `re-frame.core`, per [API §App values and composition](API.md#app-values-and-composition-ep-0013)): `(rf/realm {:id … :adapter … :capabilities {…}})` constructs + registers a hermetic-by-default realm; `(rf/install! realm app)` seats an immutable app value (built with `rf/module` / `rf/app`) into it; `(rf/dispose-realm! realm-or-id)` drops it (the default realm is never disposed — a no-op). Live event / sub / fx / cofx resolution routes through the owning frame's realm registrar (the realm-routed resolution path is shipped), so two realms can hold different handlers for the same id without collision.
+
+**Reconciling with the snapshot/restore ladder.** Both isolate; pick by what the test needs:
+
+| Approach | Isolation mechanism | Reach for it when |
+|---|---|---|
+| **L1–L3 snapshot/restore** ([§Fixture-granularity ladder](#fixture-granularity-ladder)) | capture + restore the **process-global (default-realm) registrar** and per-process state | the default-realm `reg-*` sugar is the program under test — the common single-app suite. L3 is the cheap default. |
+| **Hermetic realm** (this section) | a **fresh realm with its own registrar**; nothing process-global is touched | parallel-app / multi-tenant isolation; two adapters in one process (two realms); a test that wants explicit capability injection rather than global stubbing; the fastest hermetic-test payoff per EP-0013. |
+
+A suite that needs neither global cleanup nor capability injection stays on L3; a suite that wants a truly isolated program with injected doubles constructs a realm.
+
+> **Disambiguation — realm `install!` vs the `with-app-fixture` `:install` hook.** These are unrelated despite the shared word. `rf/install!` (this section) **seats an app value into a realm** — it lowers an immutable program description (modules + capability requirements) into a realm's registrar. The `:install` key on [Pattern 5](#pattern-5--single-frame-e2e-fixture)'s `with-app-fixture` opts map is a **zero-arg app `install!` fn** the test author supplies — typically the app's own `install!` that runs `reg-event` / `reg-sub` / `reg-view` calls into the (default-realm) global registrar. Pattern 5's `:install` is the long-standing single-frame e2e hook; it is **not** `rf/install!` and does not construct or seat a realm. A test using Pattern 5's `:install` rolls its registrations back with L3's `make-reset-runtime-fixture`; a test using `rf/install!` rolls back by disposing the realm.
+
 ## Per-test stubbing patterns
+
+### Stubbing coeffects — supply exact world facts in the dispatch envelope
+
+A handler that folds a **recordable coeffect** — wall-clock time, a generated id, browser location, a storage read (per [002 §Recordable coeffects](002-Frames.md#recordable-coeffects)) — is deterministic with respect to the facts on its causal token. A test makes those facts exact by supplying them in the dispatch envelope's `:rf.cofx` map, **not** by stubbing an fx or overriding an interceptor:
+
+```clojure
+(rf/reg-event :todo/create
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [text]}]]
+    {:db (assoc-in db [:todos :last] {:text text :created-at time-ms})}))
+
+(deftest todo-stamps-supplied-time
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:todo/create {:text "milk"}]
+                      {:rf.cofx {:rf/time-ms 1781078400123}})
+    (is (= 1781078400123
+           (get-in (rf/app-db-value f) [:todos :last :created-at])))))
+```
+
+The `:rf.cofx` dispatch opt is the canonical "make this fact exact" affordance:
+
+- **Envelope-supply, not fx-stub.** Deterministic time / id / location is supplied *on the token*, never injected via `:fx-overrides` or `:interceptor-overrides` — those tier-stub the effect/chain, not the fold's input. (See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired): the durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`, supplied here.)
+- **Supplied verbatim, never overwritten.** Values in the supplied `:rf.cofx` map are preserved exactly as given; the runtime fills only the framework-required `:rf/time-ms` when the caller omits it, and never overwrites a value the test supplied (per [002 §Supplied values win](002-Frames.md#declaration-and-delivery--rfcofxrequires)). This is the same path replay fixtures, SSR hydration, and host integrations use.
+- **Flat, fact-name → value.** The map is flat (`{:rf/time-ms … :app/fact …}`), no grouping sub-maps; a handler receives exactly the leaves it declared in `:rf.cofx/requires`.
+
+The grades, the registrar (`reg-cofx`, value-returning + graded), and the satisfaction algorithm are owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded); the envelope field, delivery, and stamping rules are owned by [002 §Recordable coeffects](002-Frames.md#recordable-coeffects). This Spec only records the test idiom: supply the fact, assert the durable write.
+
+### The `:test` frame preset — strict-mint by default
+
+A test frame declares its intent — and gets the deterministic defaults — with `{:preset :test}` (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)). The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (the canonical Spec 014 HTTP fx redirected to its canned-success stub so test frames never reach the network), `:drain-depth 100` (the framework default, surfaced so tooling reads "this is a test frame" from `frame-meta`), and **`:rf.cofx/mint-policy :strict`**.
+
+```clojure
+(rf/reg-frame :test/auth-flow {:preset :test})
+;; or anonymous:
+(rf/with-new-frame [f (rf/make-frame {:preset :test :on-create [:auth/init-idle]})]
+  ...)
+```
+
+**Strict mint is the failure mode that matters in tests.** Under `:rf.cofx/mint-policy :strict`, a handler that **declares** a generator-backed recordable coeffect (`:rf.cofx/requires [:app/new-id]` where `:app/new-id` is a `reg-cofx` with a value-returning supplier) but for which the token carries **no** supplied value is **`:rf.error/missing-required-cofx`** — the generator does **not** run, no fresh per-run value is minted (per [002 §Mint policies](002-Frames.md#mint-policies)). The deterministic path is the default; nondeterminism is opt-in:
+
+- A test that genuinely wants a fresh generated value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}` — a per-call dispatch opt, or a per-frame override (user-supplied keys win over the preset expansion).
+- `:rf/time-ms` always succeeds even under `:strict` (the router stamp guarantees it); the strict failure fires only for *declared-absent, generator-backed* facts.
+
+This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/missing-required-cofx` rather than a silently-green test that minted a different value than production will — supply the fact in `:rf.cofx` (above) or opt into `:explicit-live`.
 
 ### Stubbing an HTTP fx for an entire frame
 
@@ -261,11 +369,24 @@ Four ways to "reset between tests" ship in `re-frame.test-support`. They form a 
 
 ### Disabling a logging interceptor in tests
 
+Under EP-0022, `:interceptor-overrides` is **reference-based**: keys are interceptor **references** (a bare keyword matches that registered interceptor; a parameterized `[id arg]` 2-vector matches the full reference), and values are either a replacement reference or `nil` to remove the matched interceptor (per [002 §`:interceptor-overrides` — exact-reference substitution](002-Frames.md#interceptor-overrides--exact-reference-substitution)). The keys are never inline interceptor values — the matched interceptor was registered via `reg-interceptor` and is referenced by id:
+
 ```clojure
+;; Bare-keyword reference — remove the registered :my-app/logger interceptor.
 (rf/reg-frame :test/silent
   {:on-create             [:test/init]
    :interceptor-overrides {:my-app/logger nil}})       ;; nil removes the interceptor
+
+;; Parameterized [id arg] reference — match the exact factory-built interceptor.
+;; A chain entry [:rf.interceptor/path [:cart]] is matched (and here replaced)
+;; by its full reference, NOT by the bare :rf.interceptor/path id — an id-only
+;; key could not say which parameterization it meant.
+(rf/reg-frame :test/cart
+  {:interceptor-overrides {[:rf.interceptor/path [:cart]] :test/recording-path
+                           :my-app/audit                  nil}})
 ```
+
+Matching is by the canonical (CEDN-1) reference, so a parameterized override must spell the exact `[id arg]` it targets; a replacement value is itself a registered reference resolved through the same registrar. Per-call overrides (in the `dispatch-sync` opts map) win over per-frame on key conflict (per [002 §`:interceptor-overrides`](002-Frames.md#interceptor-overrides--replace-or-remove-interceptors-by-exact-reference)).
 
 ### Recording dispatched events without firing handlers
 
@@ -536,6 +657,8 @@ Earlier ranks are cheaper and catch a tighter bug class; later ranks catch view-
 ```clojure
 (is (= :authenticated (:state @(rf/sub-machine :auth/state-machine {:frame :test-frame}))))
 ```
+
+`sub-machine` is **not** one of the three test-surface namespaces above — it ships from `re-frame.machines` (sugar over the framework `:rf/machine` sub, per [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-sub-machine)). A test reaching it `:require`s `[re-frame.machines :as machines]` (shown here through the `rf/` alias for brevity). For a non-reactive storage-layer read, `(get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :auth/state-machine])` reads the snapshot directly from runtime-db with no subscription. Pure transition logic is tested without a frame at all via `machine-transition` ([Pattern 4](#pattern-4--pure-machine-simulation-no-frame)).
 
 ### Asserting on effects (without firing them)
 
@@ -836,7 +959,7 @@ The canonical helper inventory is the union of three namespaces:
 | `dispatch-sequence` | `re-frame.test-support` | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame-id)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
 | `assert-path-equals` / `assert-db-equals` | `re-frame.test-support` | `(assert-path-equals path expected-val)` for a path check, `(assert-db-equals expected-db)` for a full-db check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). **The `assert-*-equals` fn-family shares a name root with the `:rf.assert/*` event-vector family** (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, …) used inside a Story `:script` block — that surface lives in Spec 007 §Play functions (`:rf.assert/*` is registered, enumerable, and reserved under `:rf.assert/*` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The fn-side is the in-process `clojure.test` sync surface (reports via `do-report`); the event-side is dispatches handled by the story library's test runner (rendered as a checked-step list in dev/docs, fail loudly in test mode, simulation breakpoints in agent mode). Same intent (db-shape assertion), shared `path-equals` root so a reader navigating between the two surfaces does not need a translation table — see [007 §Play functions](007-Stories.md#play-functions). |
 | `poll-until` | `re-frame.test-support` | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` with `:rf.test/poll-timeout true` on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |
-| `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `make-reset-runtime-fixture` | `re-frame.test-support` | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. `make-reset-runtime-fixture` is a **factory**: `(make-reset-runtime-fixture opts) → fixture-fn` returns the fn used in `(use-fixtures :each ...)`; the `-factory` suffix marks the call shape (contrast `with-fresh-registrar`, which takes a thunk and runs it directly). The four-rung granularity ladder is documented in [§Fixture-granularity ladder](#fixture-granularity-ladder). |
+| `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `make-reset-runtime-fixture` | `re-frame.test-support` | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. `make-reset-runtime-fixture` is a **factory**: `(make-reset-runtime-fixture opts) → fixture-fn` returns the fn used in `(use-fixtures :each ...)`; the `make-…` prefix marks the call shape (contrast `with-fresh-registrar`, which takes a thunk and runs it directly). The four-rung granularity ladder is documented in [§Fixture-granularity ladder](#fixture-granularity-ladder). |
 | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` | `re-frame.test-helpers` | Hiccup-walk view-assertion surface — call the view-fn directly, walk the returned hiccup, assert on content or invoke a handler. JVM-runnable; no JSDOM, no React, no `act()`. Full inventory and contract: [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers). |
 | `with-app-fixture`, `expect-text`, `wait-until` | `re-frame.test-helpers` | Single-frame e2e fixture trio. `with-app-fixture` brackets a body with a fresh frame + `:install` hook + `:root-view` stash; `expect-text` walks the stashed view for a testid'd node and asserts text content; `wait-until` polls a condition or a testid's text until a deadline elapses (JVM-sync / CLJS-Promise). Compresses the 5-line single-frame e2e pattern to 2 lines. See [§Pattern 5 — single-frame e2e fixture](#pattern-5--single-frame-e2e-fixture). |
 
@@ -912,7 +1035,7 @@ Timer-semantics sleeps that must stay (grace-period elapse, throttle/debounce, "
 
 ### `re-frame-test` library compatibility
 
-re-frame2 does **not** ship a `run-test-sync` shim — the macro existed in v1 to wrap a test body in a synchronous drain, and v2's `dispatch-sync` is already settle-by-default, so the shim was pure migration tax. Existing `re-frame-test` users rewrite the body to inline `dispatch-sync` calls under the per-test `make-reset-runtime-fixture` (or `with-fresh-registrar` for ad-hoc bodies); see [MIGRATION §M-52](../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture). The other two re-frame-test helpers ship in `re-frame.test-support`: `dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` so the fn-side shares a name root with the `:rf.assert/*` event-family used in a Story `:script` block. The require move is a mechanical `re-frame.test → re-frame.test-support` namespace rename per [MIGRATION §M-25](../migration/from-re-frame-v1/README.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
+re-frame2 does **not** ship a `run-test-sync` shim — `dispatch-sync` is already settle-by-default, so the v1 macro was pure migration tax. The full disposition (the `run-test-sync` rewrite, the `dispatch-sequence` / `assert-state` → `assert-path-equals` + `assert-db-equals` split, and the `re-frame.test` → `re-frame.test-support` namespace rename) is stated once in [§`re-frame-test` (existing community library)](#re-frame-test-existing-community-library) under Test-framework adapters; this entry records it as a resolved decision and does not restate it.
 
 ### Headless rendering for visual regression
 
