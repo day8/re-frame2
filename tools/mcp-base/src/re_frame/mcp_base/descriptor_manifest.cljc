@@ -52,7 +52,11 @@
   integer ballpark of the response payload size (nil when a tool
   declares no hint — forward-compatible, the slot still renders so the
   row shape is uniform). Both are read from the RAW registry descriptor
-  exactly like the other facets.
+  exactly like the other facets. The `:required`-subset-of-`:input-keys`
+  relation is ENFORCED by `descriptor->row` (it throws on a descriptor
+  whose required keys are absent from its properties) — nothing in the
+  raw shape forces it, since the two slots are read from independent
+  descriptor sources.
 
   WIRE-SPLICED INPUTS (rf2-cwhod2). re-frame2-pair-mcp splices the
   universal `max-tokens` (and, for read tools, `cache`) knobs onto every
@@ -177,16 +181,38 @@
   `gated-keys` is a SET of input-key strings the server KNOWS it gates
   (e.g. story-mcp's `#{\"include-sensitive\"}`) — config-independent (the
   static slot set, not a read of the live gate atom), so the projection
-  stays deterministic + byte-stable."
+  stays deterministic + byte-stable.
+
+  ## Required-subset invariant
+
+  The row contract (this ns's spec) states `:required` is a SORTED
+  SUBSET of `:input-keys`. The two slots are read from INDEPENDENT
+  descriptor sources — `:input-keys` from `:inputSchema :properties`,
+  `:required` from `:inputSchema :required` — so nothing in the raw
+  shape forces the subset relation. A descriptor that names a required
+  argument absent from its advertised properties would emit an
+  inconsistent row (`:input-keys [\"known\"]` with `:required
+  [\"missing\"]`), blessing a mandatory argument the input surface never
+  declares and breaking the default/gate-open surface derivation
+  downstream. This fn now ENFORCES the invariant: a descriptor whose
+  required keys are not a subset of its property keys is REJECTED with an
+  `ex-info` naming the offending tool + the missing keys, rather than
+  emitting a self-inconsistent row."
   ([descriptor] (descriptor->row descriptor #{}))
   ([{:keys [name description inputSchema outputSchema annotations typicalTokens]} gated-keys]
    (let [input-keys (sorted-string-keys (:properties inputSchema))
+         required   (sorted-string-vec (:required inputSchema))
+         missing    (vec (sort (set/difference (set required) (set input-keys))))
          gated      (set (or gated-keys #{}))]
+     (when (seq missing)
+       (throw (ex-info (str "descriptor->row: required keys not a subset of input keys for tool "
+                            (pr-str name) " — missing from :inputSchema :properties: " (pr-str missing))
+                       {:tool name :required required :input-keys input-keys :missing missing})))
      {:name             name
       :description      description
       :input-keys       input-keys
       :gated-input-keys (filterv gated input-keys)
-      :required         (sorted-string-vec (:required inputSchema))
+      :required         required
       :output?          (some? outputSchema)
       :annotations      (sorted-string-keys annotations)
       :typicalTokens    typicalTokens})))
