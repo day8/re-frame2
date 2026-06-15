@@ -18,6 +18,7 @@
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope. Pure substrate — no runtime fixture needed."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.error :as error]
             [re-frame.reply :as reply]))
 
 ;; ---------------------------------------------------------------------------
@@ -560,3 +561,49 @@
       (is (= :ok (:status summary)) "identity facts still ride verbatim")
       (is (= :rf/redacted (:value summary))
           "the shared walker fails closed when no frame policy is reachable"))))
+
+;; ---------------------------------------------------------------------------
+;; Group 5 — Spec 009 thrown-error shape (rf2-tqlwzr). Every reply throw now
+;; routes through the central builder: it exposes the canonical `:rf.error/id`
+;; discriminator (alongside the preserved reply-specific `:rf.error/kind`), a
+;; human `:reason` sentence, a `:where`, and a message that LEADS with the
+;; sentence and TRAILS with the `[:rf.error/<id>]` token (never a bare keyword).
+;; ---------------------------------------------------------------------------
+
+(defn- catch-ex-info [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e)))
+
+(deftest reply-throws-carry-canonical-rf-error-id
+  (testing "the standardized :rf.error/id discriminator is present AND equals
+            the preserved reply-specific :rf.error/kind on every reply throw"
+    (doseq [[label thunk category]
+            [["invalid short-form target"
+              #(reply/normalize-target {:event :x}) :rf.reply/invalid-target]
+             ["non-map reply"
+              #(reply/validate-reply 42)            :rf.reply/non-map-reply]
+             ["unknown delivery mode"
+              #(reply/complete {:event [:x] :delivery :weird} {:status :ok})
+              :rf.reply/unknown-delivery]]]
+      (let [e    (catch-ex-info thunk)
+            data (ex-data e)]
+        (is (some? e) (str label " throws"))
+        (is (= category (:rf.error/id data))
+            (str label " exposes the canonical :rf.error/id"))
+        (is (= category (:rf.error/kind data))
+            (str label " preserves the reply-specific :rf.error/kind"))
+        (is (= :rf/reply-to (:where data))
+            (str label " names the public :rf/reply-to surface"))))))
+
+(deftest reply-throw-message-is-actionable-not-a-bare-keyword
+  ;; one actionable message path: a non-map reply's message LEADS with the
+  ;; human sentence and TRAILS with the [:rf.error/<id>] token.
+  (let [e   (catch-ex-info #(reply/validate-reply 42))
+        msg (ex-message e)]
+    (is (some? e))
+    (is (not (error/keyword-only-message? msg))
+        "the message is a human sentence, never a bare keyword (Spec 009 rule 1)")
+    (is (error/message-has-id-token? msg)
+        "the message carries the [:rf.error/<id>] greppability token (rule 4)")
+    (is (string? (:reason (ex-data e)))
+        ":reason is the required human sentence")))
