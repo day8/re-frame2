@@ -636,6 +636,13 @@
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            :on-spawn-actions {:record (fn [{data :data}] data)}}
           handler (machines/make-machine-handler machine)]
+      ;; rf2-ywv74m — the spawned child TYPE must be REGISTERED before it is
+      ;; spawned (the implicit "spec-less spawn" path is removed; an
+      ;; unregistered `:machine-id` now rejects fail-closed with
+      ;; `:rf.error/machine-spawn-unregistered-type`). Register a minimal
+      ;; `:worker` child so each spawn is accepted and fires its
+      ;; `:rf.machine.spawn/spawned` trace.
+      (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
       (rf/reg-frame :left  {:doc "left"})
       (rf/reg-frame :right {:doc "right"})
       (rf/reg-event :flow handler)
@@ -674,6 +681,12 @@
   (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
     (let [traces (atom [])]
       (rf/register-listener! ::spawn (fn [ev] (swap! traces conj ev)))
+      ;; rf2-ywv74m — register the spawned child TYPE before the spawn fx; the
+      ;; implicit "spec-less spawn" path is removed and an unregistered
+      ;; `:machine-id` now rejects fail-closed
+      ;; (`:rf.error/machine-spawn-unregistered-type`), so the spawn/destroy
+      ;; traces would never fire.
+      (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
       (rf/reg-event :do-spawn
         (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
                                             :id-prefix  :worker

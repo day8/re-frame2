@@ -133,7 +133,20 @@
     ;; the parsed catalogue.
     :rf.error/reg-event-db-removed
     :rf.error/reg-event-fx-removed
-    :rf.error/reg-event-ctx-removed})
+    :rf.error/reg-event-ctx-removed
+    ;; rf2-ywv74m: the machine fail-closed spawn reject graduated `always-on`
+    ;; in the Spec 009 catalogue. A runtime `:rf.machine/spawn` (or `:spawn-all`
+    ;; per-child) naming an UNREGISTERED machine TYPE (no inline `:definition`)
+    ;; is rejected fail-closed and emits this NON-EVENT union record via the
+    ;; `:error-emit/dispatch-error-record` hook so an off-box shipper sees a
+    ;; refused spawn under `goog.DEBUG=false`. The emit SITE lives in the
+    ;; `machines` artefact (`machines/lifecycle_fx/spawn.cljc`); this leg drives
+    ;; the category through `dispatch-on-error!` (the `:else` axis below) to
+    ;; prove the listener fan-out, so the literal pins the catalogue's always-on
+    ;; set regardless of the artefact wiring. The JVM companion
+    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
+    ;; the parsed catalogue.
+    :rf.error/machine-spawn-unregistered-type})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
