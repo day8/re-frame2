@@ -102,6 +102,7 @@
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
+            [re-frame.projection :as projection]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -291,6 +292,46 @@
     ;; arm and the construction arm produce the same structured error
     ;; shape — tests can assert on one keyword and cover both surfaces.
     (validate-policy-opts! opts)))
+
+;; ---- ssr-hydration egress projection of the app-db slice (rf2-bt9kct) -----
+;;
+;; Per EP-0015 §14 + Spec 015 §Projection: SSR/hydration is ALLOWLIST-FIRST
+;; (the `apply-policy` `:payload` contract above), and frame classification
+;; COMPOSES as defense-in-depth — after allowlisting, the surviving slice is
+;; run through the centralized record-level boundary primitive
+;; `re-frame.projection/project-egress` under the `:rf.egress/ssr-hydration`
+;; profile, seeded at the request frame. So a frame that declares
+;; `:sensitive {:app-db [[:session :token]]}` and ships `:session` (via the
+;; allowlist OR `:rf.ssr.payload/whole-app-db`) redacts the nested token before
+;; it serializes into `:rf/app-db`, instead of shipping the raw secret.
+;;
+;; project-egress on a kindless map walks it as a tree-shaped VALUE via
+;; `elide-wire-value`, which resolves the frame's elision registry from the
+;; explicit `:frame` opt. EP-0002 / EP-0015 issue 1 fail-closed: an
+;; unresolvable / never-registered frame redacts the WHOLE value to
+;; `:rf/redacted` rather than borrow another frame's policy — so a missing
+;; frame policy fails CLOSED here too (a server render always carries the live
+;; request frame, so the projection runs against real declarations).
+
+(defn project-app-db-egress
+  "Run the already-allowlisted `db-slice` through the centralized
+  `:rf.egress/ssr-hydration` egress projection seeded at `frame-id`, so a
+  frame-classified `:sensitive` / `:large` path inside an allowlisted (or
+  whole-app-db) slice redacts / elides as defense-in-depth before it serializes
+  into the hydration `:rf/app-db` (EP-0015 §14). Defers to
+  `re-frame.projection/project-egress` (over the shared `elide-wire-value`
+  walker) — never a family-private elider.
+
+  Fail-closed (EP-0002 / EP-0015 issue 1): an unresolvable / never-registered
+  `frame-id` redacts the whole slice to `:rf/redacted` rather than ship it under
+  no policy. A server render carries the live request frame, so the projection
+  runs against that frame's real declarations; a nil `frame-id` is the same
+  fail-closed case (no frame policy ⇒ whole-value redaction)."
+  [db-slice frame-id]
+  (projection/project-egress
+    db-slice
+    {:frame             frame-id
+     :rf.egress/profile :rf.egress/ssr-hydration}))
 
 ;; ---- runtime-db projection (EP-0001 rf2-30kzz2) --------------------------
 ;;

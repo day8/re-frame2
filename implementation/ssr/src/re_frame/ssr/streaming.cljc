@@ -191,6 +191,59 @@
             {}
             (keys only-in-after))))
 
+;; ---- streaming hydration-delta egress projection (rf2-uc3cs4) -------------
+;;
+;; A per-boundary hydration delta is BROWSER-DELIVERED hydration state — it
+;; arrives in the stream BEFORE the final `__rf_payload` and the client merges
+;; it into the live app-db. `subtree-delta` computes it as the raw changed/new
+;; top-level keys each mapped to the FULL `after-db` value, so without
+;; projection a continuation that mutates `:secret` streams `{:secret …}` even
+;; when the handler's `:payload` allowlist names only public keys, and a changed
+;; sensitive CHILD under an allowed top-level key rides raw. That violates
+;; EP-0015 §14: production browser egress is ALLOWLIST-FIRST and then centrally
+;; projected under `:rf.egress/ssr-hydration` — the SAME contract the final
+;; `__rf_payload`'s `:rf/app-db` already obeys (rf2-bt9kct).
+;;
+;; `project-delta` applies that SAME two-step boundary to the raw delta:
+;;
+;;   1. ALLOWLIST — `payload-policy/apply-policy` over the delta map, so an
+;;      off-allowlist changed key (`:secret`) is dropped (a vector `:payload`
+;;      selects only the named keys; `:rf.ssr.payload/whole-app-db` keeps them
+;;      all — the deliberate whole-db opt-in);
+;;   2. PROJECT — `payload-policy/project-app-db-egress` under the request
+;;      frame, so a frame-sensitive child inside an allowed changed key redacts
+;;      (fail-closed against a missing frame policy, exactly like the final
+;;      payload).
+;;
+;; Pure (the policy + projection are pure over the supplied delta + frame). The
+;; Ring host adapter calls this on each non-empty delta BEFORE serialising the
+;; `data-rf2-suspense-hydrate` EDN script (mirroring how it filters the final
+;; payload through the same `payload-policy`).
+
+(defn project-delta
+  "Project a streaming per-subtree hydration `delta` (from `render-continuation`)
+  for browser egress before it serialises into the `data-rf2-suspense-hydrate`
+  EDN script (rf2-uc3cs4). Applies the handler's `:payload` allowlist
+  (`payload-policy/apply-policy`) then the centralized `:rf.egress/ssr-hydration`
+  projection under `frame-id` (`payload-policy/project-app-db-egress`) — the
+  SAME allowlist-first-then-project boundary the final `__rf_payload` obeys, so
+  an off-allowlist changed key is dropped and a frame-sensitive child inside an
+  allowed changed key redacts. `policy-opts` carries the `:payload` policy
+  (validated at handler-construction time, so a malformed policy never reaches
+  here). A nil / empty delta returns `{}` (nothing to hydrate). Pure."
+  [delta frame-id {:as policy-opts}]
+  (if-not (seq delta)
+    {}
+    (let [allowed (payload-policy/apply-policy delta policy-opts)]
+      ;; An allowlist that drops every changed key yields an empty map — there
+      ;; is nothing to project (and projecting `{}` against a fail-closed
+      ;; unresolvable frame would redact the empty map to the scalar
+      ;; `:rf/redacted` sentinel, which the host's `(seq …)` emit guard cannot
+      ;; walk). Short-circuit to `{}` so the host emits no delta script.
+      (if (seq allowed)
+        (payload-policy/project-app-db-egress allowed frame-id)
+        {}))))
+
 ;; ---- continuation registry (per-request, transient) -----------------------
 ;;
 ;; The walker owns a per-call mutable seq accumulator. We do NOT use a
@@ -612,7 +665,15 @@
         runtime-db (frame/frame-runtime-db-value frame-id)]
     (payload-policy/build-payload
      frame-id
-     (payload-policy/apply-policy app-db policy-opts)
+     ;; rf2-bt9kct — allowlist FIRST (`apply-policy`), THEN run the surviving
+     ;; slice through the centralized `:rf.egress/ssr-hydration` projection
+     ;; seeded at the request frame (defense-in-depth, EP-0015 §14) — symmetric
+     ;; with the non-streaming `re-frame.ssr.ring.payload/build-payload` so a
+     ;; frame-sensitive child inside an allowlisted key never rides the final
+     ;; `__rf_payload` raw.
+     (payload-policy/project-app-db-egress
+      (payload-policy/apply-policy app-db policy-opts)
+      frame-id)
      render-hash
      (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db)))))
 
