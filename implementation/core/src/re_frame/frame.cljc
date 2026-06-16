@@ -441,6 +441,87 @@
     (trace/emit-error! :rf.error/no-frame-context payload)
     payload))
 
+;; ---- :rf.error/bad-frame-provider-arg — a bad explicit target -------------
+;;
+;; Distinct from `:rf.error/no-frame-context` (rf2-9kpigo). A public
+;; `frame-provider` whose `:frame` is non-nil but NOT a keyword has carried
+;; an explicit-but-malformed target — `{:frame "app"}`, `{:frame 7}`,
+;; `{:frame ['x]}`. Frame ids are keywords (Spec 002 §Frame identity is a
+;; value; `frame-provider` is "keyword in"), so a non-keyword `:frame` is a
+;; CONFIGURATION ERROR at the provider boundary, not an absence.
+;;
+;; This is reported as its OWN category so the three states stay distinct:
+;;   - absence (nil `:frame`)            → `:rf.error/no-frame-context`
+;;   - bad public provider argument      → `:rf.error/bad-frame-provider-arg`
+;;   - a disturbed React-context read    → `:rf.error/frame-context-corrupted`
+;;
+;; Without this, the lower-level reader's `coerce-context-value` would
+;; stringify-coerce a `{:frame "app"}` prop back into `:app` and silently
+;; route descendants to a registered `:app` frame — the bug rf2-9kpigo
+;; describes. Validating at the public provider entry points stops the bad
+;; value from ever reaching React Context. The raw-hiccup compatibility
+;; coercion at the reader boundary is intentionally preserved (the public
+;; surfaces never write a non-keyword value, so prop-stringified keywords
+;; reaching the reader only ever originate from raw `[:> Provider …]` mounts).
+
+(defn bad-frame-provider-arg-payload
+  "Build the canonical `:rf.error/bad-frame-provider-arg` payload for a
+  public `frame-provider` call whose `:frame` is non-nil but not a keyword.
+  `received` is the offending value; `extra` (optional) merges call-site
+  detail (`:where`)."
+  ([received] (bad-frame-provider-arg-payload received nil))
+  ([received extra]
+   (merge {:rf.error/id :rf.error/bad-frame-provider-arg
+           :received    received
+           :recovery    :supply-keyword-frame
+           :reason      "frame-provider :frame must be a keyword frame id (e.g. :todo); a non-keyword value is a bad public provider argument, not a carried frame."}
+          extra)))
+
+(defn emit-bad-frame-provider-arg!
+  "Surface `:rf.error/bad-frame-provider-arg` through the always-on error
+  axis AND the dev-only trace surface, then return the payload. Mirrors
+  `emit-no-frame-context!`: production-survivable so a bad provider arg is
+  observable where the dev trace is elided."
+  [payload]
+  (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+    (dispatch-on-error!
+      :rf.error/bad-frame-provider-arg
+      nil                                ;; no event vector — a provider misuse, not a dispatch throw
+      nil                                ;; no event-id
+      nil                                ;; no frame — the supplied target is invalid
+      nil                                ;; no exception — invalid arg, not a throw
+      0                                  ;; elapsed-ms
+      (interop/now-ms)))                 ;; time
+  (trace/emit-error! :rf.error/bad-frame-provider-arg payload)
+  payload)
+
+(defn require-keyword-frame-provider-arg!
+  "Validate a public `frame-provider`'s `:frame` arg (rf2-9kpigo). Returns
+  `frame-kw` unchanged when it is a keyword. A nil value routes to the
+  existing `:rf.error/no-frame-context` path (absence — the provider
+  establishes no usable scope). A non-nil non-keyword value emits + throws
+  the distinct `:rf.error/bad-frame-provider-arg` so the bad explicit
+  target fails loudly at the provider rather than being silently coerced to
+  a registered keyword frame by the lower-level context reader.
+
+  `where` (sym/kw) names the validating call site for the payload. The nil
+  branch threads `where` + a `:supply-frame` recovery into the
+  no-frame-context payload, matching each provider surface's prior nil
+  handling."
+  [frame-kw where]
+  (cond
+    (keyword? frame-kw) frame-kw
+    (nil? frame-kw)
+    (let [payload (no-frame-context-payload
+                    :frame-provider
+                    {:where where :recovery :supply-frame})]
+      (emit-no-frame-context! payload)
+      (throw (ex-info (str (:rf.error/id payload)) payload)))
+    :else
+    (let [payload (bad-frame-provider-arg-payload frame-kw {:where where})]
+      (emit-bad-frame-provider-arg! payload)
+      (throw (ex-info (str (:rf.error/id payload)) payload)))))
+
 (defn require-current-frame!
   "Return the frame stamp (id) the in-effect scope carries, or raise/emit
   `:rf.error/no-frame-context` when the token carries no stamp. This is the

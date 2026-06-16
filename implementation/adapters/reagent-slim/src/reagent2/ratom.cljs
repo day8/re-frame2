@@ -418,17 +418,32 @@
 
   IDisposable
   (dispose! [this]
-    (let [s  state
-          wg watching]
+    ;; Idempotent + re-entrant safe (rf2-1bzlai). The Reaction keeps the
+    ;; fixed nine-field stock-Reagent shape (IMPL-SPEC §3.2 — no extra
+    ;; disposed-flag field), so idempotence rides the callback holders
+    ;; themselves: snapshot `on-dispose` / `on-dispose-arr` and CLEAR them
+    ;; (set to nil) BEFORE firing. A second `dispose!`, or a re-entrant
+    ;; `dispose!` fired from inside one of these callbacks, then observes
+    ;; nil holders and re-fires nothing — the callbacks run exactly once in
+    ;; registration order (the `on-dispose` kwarg first, then the
+    ;; `add-on-dispose!` array). Watch removal stays naturally idempotent:
+    ;; `watching` is nil'd here, so a re-entrant call walks `(set nil)` (no
+    ;; watches) and `-remove-watch` of an already-removed key is a no-op.
+    (let [s   state
+          wg  watching
+          od  on-dispose
+          oda on-dispose-arr]
       (set! watching nil)
       (set! state nil)
       (set! auto-run nil)
       (set! dirty? true)
+      (set! (.-on-dispose this) nil)
+      (set! (.-on-dispose-arr this) nil)
       (doseq [w (set wg)]
         (-remove-watch w this))
-      (when (some? on-dispose)
-        (on-dispose s))
-      (when-some [a on-dispose-arr]
+      (when (some? od)
+        (od s))
+      (when-some [a oda]
         (dotimes [i (alength a)]
           ((aget a i) this)))))
 

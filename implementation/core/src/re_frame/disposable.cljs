@@ -48,5 +48,7 @@
      `-dispose` time.")
   (-dispose [this]
     "Tear down `this` synchronously: unwire any source watches and fire
-     every registered on-dispose callback. Idempotent — a second
-     `-dispose` is a no-op."))
+     every registered on-dispose callback. Idempotent AND re-entrant safe
+     (rf2-1bzlai) — a second `-dispose`, or a `-dispose` re-entered from
+     inside an on-dispose callback, is a no-op: the callback set fires
+     exactly once in registration order and source watches release once."))

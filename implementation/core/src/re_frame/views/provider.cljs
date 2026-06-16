@@ -88,15 +88,19 @@
   descendants resolve to the named frame. Per Spec 002 §What
   `frame-provider` is (CLJS reference).
 
-  `:frame` is REQUIRED (EP-0002 carried invariant). There is NO
-  `(or (:frame props) :rf/default)` floor: an explicit
+  `:frame` is REQUIRED (EP-0002 carried invariant) and must be a KEYWORD
+  frame id. There is NO `(or (:frame props) :rf/default)` floor: an explicit
   `(rf/frame-provider {} …)` with no frame establishes no usable scope.
   Per Spec 002 §Frame target resolution the runtime never synthesises a
   frame from absence — a missing `:frame` is a CONFIGURATION ERROR. It
   emits `:rf.error/no-frame-context` through the always-on error axis and
   throws, so a tooling-generated or hand-authored tree that elides the
   frame fails loudly at the provider rather than silently scoping every
-  descendant call to a conventional default.
+  descendant call to a conventional default. A non-nil but non-keyword
+  `:frame` (a string / number / …) is the distinct bad-public-argument
+  error: it emits `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo),
+  so a typo like `{:frame \"app\"}` fails loudly rather than being silently
+  coerced to `:app` by the lower-level context reader.
 
   Reagent call shape:
 
@@ -114,14 +118,14 @@
   `build-frame-provider` is the lower-level substrate hook; this fn is
   the canonical user-facing surface."
   [props & children]
-  (let [frame-kw (:frame props)]
-    (when (nil? frame-kw)
-      (let [payload (frame/no-frame-context-payload
-                      :frame-provider
-                      {:where 're-frame.views.provider/frame-provider
-                       :recovery :supply-frame})]
-        (frame/emit-no-frame-context! payload)
-        (throw (ex-info (str (:rf.error/id payload)) payload))))
+  ;; rf2-9kpigo: reject a non-keyword, non-nil `:frame` BEFORE it reaches
+  ;; React Context. A nil routes to `:rf.error/no-frame-context` (absence);
+  ;; a non-keyword (string / number / …) routes to the distinct
+  ;; `:rf.error/bad-frame-provider-arg`, so a typo like `{:frame "app"}` is
+  ;; not silently coerced to `:app` by the lower-level context reader.
+  (let [frame-kw (frame/require-keyword-frame-provider-arg!
+                   (:frame props)
+                   're-frame.views.provider/frame-provider)]
     (into [(build-frame-provider) frame-kw] children)))
 
 ;; ---- in-flight Reagent component -----------------------------------------

@@ -75,6 +75,16 @@
     :rf.error/sub-input-fn-bad-return
     :rf.error/no-such-handler
     :rf.error/no-frame-context
+    ;; rf2-9kpigo: the bad-frame-provider-arg reject graduated `always-on` in
+    ;; the Spec 009 catalogue. A public `frame-provider` whose `:frame` is
+    ;; non-nil but not a keyword is a bad public provider argument; it fires in
+    ;; production too (a corrupt provider config is a correctness contract,
+    ;; like `:rf.error/no-frame-context`), so it rides the always-on axis via
+    ;; `frame/emit-bad-frame-provider-arg!` → `dispatch-on-error!`. This leg
+    ;; drives it through the `:else` per-event axis to prove the listener
+    ;; fan-out; the JVM companion keeps the literal == the catalogue's
+    ;; always-on set.
+    :rf.error/bad-frame-provider-arg
     :rf.error/override-fallthrough
     :rf.error/reserved-fx-override
     :rf.error/no-such-fx

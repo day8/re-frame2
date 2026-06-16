@@ -1082,6 +1082,21 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:rf.trace/dispatch-id        {:optional true} :any]
    [:rf.trace/parent-dispatch-id {:optional true} :any]])
 
+(def BadFrameProviderArgTags
+  ;; `:rf.error/bad-frame-provider-arg` — a public `frame-provider`'s `:frame`
+  ;; was non-nil but not a keyword (rf2-9kpigo). A bad public provider
+  ;; argument, distinct from absence (`:rf.error/no-frame-context`) and from a
+  ;; disturbed reader-side read (`:rf.error/frame-context-corrupted`). The
+  ;; error is itself frameless (no usable `:frame` — the supplied target is the
+  ;; invalid value). `:where` is the validating provider call site (a symbol).
+  ;; Per the 009 error catalogue row and [002 §Frame target resolution].
+  [:map
+   [:category :keyword]                              ;; [:= :rf.error/bad-frame-provider-arg] in a closed schema
+   [:received :any]                                  ;; the offending non-keyword value
+   [:where    {:optional true} :any]                 ;; the validating provider call site (symbol)
+   [:recovery {:optional true} :keyword]             ;; :supply-keyword-frame
+   [:reason   {:optional true} :string]])
+
 (def EffectMapShapeTags
   [:map
    [:category          :keyword]
