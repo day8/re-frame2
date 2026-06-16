@@ -126,10 +126,10 @@
    ;; The optimistic-rollback trace reservation (EP-0003 §Mutations:
    ;; "the mutation trace shape should reserve room for them now: affected
    ;; resource keys, patch summaries, snapshot ids, rollback result, and
-   ;; reconciliation refetches"). Optimistic itself is DEFERRED — these slots
-   ;; are populated descriptively (what the success path touched) so the
-   ;; later optimistic slice fills the symmetric rollback half without a
-   ;; shape change. nil until the success path runs.
+   ;; reconciliation refetches"). EP-0019 slice 2 fills the optimistic-apply
+   ;; half: the `:patch-summary` `:snapshot-id` / `:rollback` slots carry the
+   ;; recorded snapshot-inverse the SETTLE slice replays (commit / rollback /
+   ;; reconcile). nil until the execute (phase 1.5) / success path writes them.
    :affected-keys nil
    :patch-summary nil})
 
@@ -302,6 +302,99 @@
         ;; per-entry :revision write identity UNCONDITIONALLY — including the
         ;; `=`-shared branch and a freshly-seeded entry (base revision 0 -> 1).
         state/bump-revision)))
+
+;; ---- optimistic apply (phase 1.5) — snapshot inverse (EP-0019 D1/D2) -------
+;;
+;; An `:optimistic` / `:optimistic-tags` plan applies a FORWARD patch to the
+;; resource cache BEFORE the request settles (phase 1.5). The runtime records
+;; the truthful INVERSE per touched entry — a SNAPSHOT of the whole entry as it
+;; stood immediately BEFORE the forward patch (`:before`, structural-shared;
+;; `:absent` for a missing entry) plus its `:revision` at apply time — on the
+;; mutation INSTANCE row's `:patch-summary` `:rollback` slot. The author writes
+;; the forward patch only; the runtime owns the inverse (truthful by
+;; construction, no author drift — EP-0019 Decision 1 §Why not a forward+inverse
+;; pair). These are the PURE pieces; the impure phase-1.5 swap lives in
+;; `mutation-events`.
+
+(def absent-snapshot
+  "The `:before` sentinel for an optimistic apply against a key with NO entry
+  (EP-0019 Open Issue 6 — optimistic SEED of an absent key, or an optimistic
+  REMOVE that vanishes a card). A rollback of an `:absent` snapshot REMOVES the
+  entry (restores the absence). Distinct from a `nil` entry value so the settle
+  protocol can tell \"there was nothing here\" from \"we did not snapshot\"."
+  :rf.optimistic/absent)
+
+(defn snapshot-entry
+  "PURE: capture the truthful optimistic INVERSE of a single touched entry — the
+  WHOLE entry as it stood immediately before the forward patch, by reference
+  (structural sharing; the cache already shares structure on `=`). Returns the
+  entry itself for an existing entry (so a rollback restores it verbatim,
+  including its `:status` / `:data` / freshness timers / `:revision`), or the
+  `absent-snapshot` sentinel for a missing entry (a rollback then removes it).
+  Per EP-0019 Decision 2 (inverse = entry snapshot, not value diff)."
+  [entry]
+  (if (some? entry) entry absent-snapshot))
+
+(defn apply-optimistic-patch
+  "PURE: apply a FORWARD optimistic `patch-fn` `(fn [old-data] -> new-data)` to a
+  resource entry's `:data`, settling it `:loaded`/fresh and bumping the per-entry
+  `:revision` (the optimistic apply IS an authoritative durable write a later
+  rollback could clobber — EP-0019 Decision 2 / byl7bk Open Issue 5). NO mutation
+  result — the reply does not exist yet (phase 1.5).
+
+  Three forms fall out of the snapshot inverse (EP-0019 Open Issue 6):
+  - an EXISTING entry — patch its `old-data` through `patch-fn` (an optimistic
+    PATCH; structural-shared on `=`);
+  - an ABSENT entry — SEED it `:loaded` with `(patch-fn nil)` (an optimistic
+    PUT/seed of an absent key); `resource-id` / `scoped-key` / `tags` stamp the
+    fresh entry exactly as `populate-entry` does;
+  - a `nil` `patch-fn` — an optimistic REMOVE (the caller dissocs the entry; this
+    fn is not called for that form).
+
+  `clock-ms` / `stale-at` re-stamp freshness; `tags` (opt) stamps a freshly
+  seeded entry's tags (so a later invalidation can reach it). Per EP-0019
+  Decision 1 / §Optimistic mutations."
+  [entry patch-fn resource-id {:keys [clock-ms stale-at tags scoped-key]}]
+  (let [base   (or entry (state/empty-entry resource-id scoped-key))
+        old    (:data base)
+        new    (patch-fn old)
+        shared (if (and (some? old) (= old new)) old new)]
+    (-> base
+        (assoc
+          :resource/id    (:resource/id base resource-id)
+          :resource/key   (or (:resource/key base) scoped-key)
+          :data           shared
+          :status         :loaded
+          :error          nil
+          :refresh-error  nil
+          :loaded-at      clock-ms
+          :stale-at       stale-at
+          :invalidated-at nil
+          ;; an EXISTING entry KEEPS its own tags (an optimistic patch does not
+          ;; relabel); a freshly SEEDED entry (no prior entry) takes the
+          ;; resource's `tags` so a later invalidation can reach it.
+          :tags           (if entry (:tags entry) (or tags #{})))
+        ;; EP-0019 Decision 2: the optimistic apply is an authoritative durable
+        ;; write — it bumps the per-entry `:revision` write identity, so the
+        ;; recorded inverse's `:revision` (observed BEFORE this bump) lets the
+        ;; settle-time conflict check detect a competing write.
+        state/bump-revision)))
+
+(defn record-optimistic-entry
+  "PURE: the recorded INVERSE shape for ONE touched entry on the instance row's
+  `:patch-summary` `:rollback` slot (EP-0019 Decision 2). Carries the canonical
+  `:resource/key` (the EP-0012 canonical-identity scoped key), the `:revision`
+  observed at apply time (the conflict-check basis the settle slice compares),
+  the `:before` snapshot (structural-shared entry, or the `absent-snapshot`
+  sentinel), and `:forward` — a small descriptive summary of the applied forward
+  op (`:patch` / `:seed` / `:remove`) for the trace. The settle slice replays
+  `:before` (revision-permitting) or invalidates on conflict; it does NOT consume
+  the live entry value here. Per EP-0019 Decision 2 / §Optimistic mutations."
+  [scoped-key before-entry forward]
+  {:resource/key scoped-key
+   :revision     (state/entry-revision (when (not= before-entry absent-snapshot) before-entry))
+   :before       before-entry
+   :forward      forward})
 
 ;; ---- fail-closed boundary validation (Spec 016 §Resource identity / -------
 ;;       EP-0003 §Mutations)

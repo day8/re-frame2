@@ -113,7 +113,34 @@
                     "Spec 016 §Mutations.")
                {:mutation-id       mutation-id
                 :invalidate-timing timing
-                :valid             invalidate-timings}))))
+                :valid             invalidate-timings})))
+    ;; EP-0019 Rider 3 — `:optimistic` / `:optimistic-tags` are INCOMPATIBLE
+    ;; with `:invalidate-timing :before-request`. A `:before-request` timing
+    ;; STALES the touched entries before the request; composing that with an
+    ;; optimistic apply that immediately RE-POPULATES the same entries is
+    ;; contradictory (stale-then-optimistic-fresh). Reject it LOUDLY at the
+    ;; authoring boundary (a registration error, NOT a silent precedence rule);
+    ;; optimistic writes use the default `:after-success` timing. Per Spec 016
+    ;; §Optimistic mutations / EP-0019 Rider 3.
+    (when (and (= :before-request timing)
+               (or (contains? spec :optimistic) (contains? spec :optimistic-tags)))
+      (throw (registration-error
+               :rf.error/mutation-optimistic-before-request
+               'rf/reg-mutation
+               (str "mutation " mutation-id " declares an optimistic plan "
+                    "(:optimistic / :optimistic-tags) together with "
+                    ":invalidate-timing :before-request — these are "
+                    "INCOMPATIBLE. A :before-request invalidation STALES the "
+                    "touched entries before the request, and an optimistic "
+                    "apply immediately RE-POPULATES the same entries: the two "
+                    "are contradictory (stale-then-optimistic-fresh). Optimistic "
+                    "writes use the default :after-success timing — drop the "
+                    ":invalidate-timing :before-request (or drop the optimistic "
+                    "plan). Per Spec 016 §Optimistic mutations / EP-0019 Rider 3.")
+               {:mutation-id       mutation-id
+                :invalidate-timing timing
+                :has-optimistic?   (contains? spec :optimistic)
+                :has-optimistic-tags? (contains? spec :optimistic-tags)}))))
   nil)
 
 ;; ---- reg-mutation / clear-mutation ---------------------------------------
@@ -142,6 +169,25 @@
     best-effort aborted + its work row settled `:cancelled` (as
     `:rf.resource/remove` does), and the key flows into the reply
     `:affected-keys`;
+  - **`:optimistic`** — `(fn [params] -> {target patch-fn})` — the FORWARD
+    optimistic plan applied to the resource cache BEFORE the request settles
+    (phase 1.5, EP-0019 Decision 1). NOTE the signature has NO `result` (the
+    reply does not exist yet). Each KEY is the same map-form exact target
+    `{:resource :params :scope}`; each `patch-fn` is `(fn [old-data] -> new-data)`
+    (or `nil` for an optimistic REMOVE, EP-0019 Open Issue 6). The runtime
+    SNAPSHOTS each touched entry (the truthful inverse) + its `:revision` before
+    applying — the author writes the forward patch only. Each target's scope is
+    FAIL-CLOSED (a `{:from-db …}` resolving nil drops the target — Rider 2);
+  - **`:optimistic-tags`** — `(fn [params] -> [{:scope … :tags #{…} :patch fn}])`
+    — the TAG-ADDRESSED optimistic twin (EP-0019 Decision 4): each descriptor
+    optimistically patches EVERY cached entry carrying the descriptor's tags in
+    its resolved scope (the cross-view-consistency demand). Reuses the same tag
+    index + per-target scope descriptors as `:invalidates`; each matched entry
+    gets the same snapshot-inverse + revision treatment;
+  - **`:on-conflict`** — `:invalidate` (default) | `:force` — the EP-0019
+    Decision 3 rollback conflict rule (consumed by the SETTLE slice; recorded
+    here on the spec). `:invalidate` refetches the authoritative value on a
+    contested rollback; `:force` restores the recorded inverse anyway;
   - **`:scope`** — the cache scope the invalidation / patch defaults to
     (same scope rules as resources; OPTIONAL — defaults from the execute
     payload, else `:rf.scope/global`);
@@ -188,9 +234,9 @@
 
 (defn mutation-meta
   "Return the registered mutation's spec map (`:request`, `:params-schema`,
-  `:invalidates`, `:patches`, `:populates`, `:removes`, `:scope`,
-  `:invalidate-timing`, `:transport`, `:doc`, source coords) for `mutation-id`,
-  or nil if no
+  `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`,
+  `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`,
+  `:transport`, `:doc`, source coords) for `mutation-id`, or nil if no
   mutation is registered under that id. The introspection counterpart of
   `resource-meta`. Per EP-0003 §Mutations / Xray."
   [mutation-id]

@@ -311,6 +311,191 @@
         resolved)
       [runtime-db #{} [] (vec nil-ids)])))
 
+;; ---- optimistic apply (phase 1.5) — EP-0019 Decisions 1, 2, 4 -------------
+;;
+;; An `:optimistic` / `:optimistic-tags` plan applies a FORWARD patch to the
+;; resource cache BEFORE the request settles (phase 1.5 of the mutation phase
+;; order). For each touched entry the runtime SNAPSHOTS the truthful inverse
+;; (`mstate/snapshot-entry` — the whole entry by reference, or the `:absent`
+;; sentinel) + its `:revision` at apply time, applies the forward patch
+;; (`mstate/apply-optimistic-patch`, which bumps the entry's `:revision`), and
+;; records the inverse on the instance row's `:patch-summary` `:rollback` slot.
+;; The SETTLE slice (next) consumes that recorded inverse + slice-1's
+;; `state/revision-conflict?` to commit / rollback / reconcile.
+;;
+;; `:optimistic` is the EXACT-target twin of `:patches` (the same map-form
+;; targets, the same `resolve-exact-target-scope` + `validate-target-map!`
+;; fail-closed boundary). `:optimistic-tags` is the TAG-ADDRESSED twin of the
+;; per-target `:invalidates` descriptors (the same tag index +
+;; `resolve-descriptor-scope`); each tag-matched entry gets the same
+;; snapshot-inverse treatment. Both are FAIL-CLOSED on a nil-resolving
+;; `{:from-db …}` scope (Rider 2 — an optimistic apply WRITES the cache, so it
+;; has a leak boundary a read does).
+
+;; `resolve-descriptor-scope` is defined below (the scoped-invalidation section);
+;; `optimistic-tag-targets` reuses it (one scope-resolution currency across the
+;; optimistic + invalidation tag-addressed paths).
+(declare resolve-descriptor-scope)
+
+(defn- mint-snapshot-id
+  "PURE: derive the opaque optimistic `:snapshot-id` identifying ONE phase-1.5
+  apply (EP-0019 Decision 2). Derived from the instance id + generation (both
+  recorded causal facts), so it reproduces on replay for free — no host call, no
+  ambient counter. A re-execute under the same instance mints a NEW generation,
+  hence a NEW snapshot id, so the SETTLE slice's stale-suppression discards the
+  superseded apply's inverse correctly."
+  [instance-id generation]
+  [:rf.mutation/snapshot instance-id generation])
+
+(defn- optimistic-exact-targets
+  "Resolve the `:optimistic` plan `(fn [params] -> {target patch-fn})` into the
+  canonical-keyed map `{scoped-key patch-fn-or-nil}` at execute time (EP-0019
+  Decision 1). Each KEY is a map-form exact target resolved + canonicalized
+  through the SAME fail-closed boundary `:patches` uses
+  (`resolve-exact-target-scope` + `validate-target-map!`), so a nil-resolving
+  `{:from-db …}` scope DROPS that target (Rider 2). A `nil` patch-fn value is an
+  optimistic REMOVE (Open Issue 6). Returns `[canonical-map nil-resolved-ids]`,
+  or `[nil []]` when the mutation declares no `:optimistic`. `params` is the
+  canonical execute-time params (NO result — the reply does not exist yet)."
+  [optimistic-fn params mut-scope db where]
+  (if-not optimistic-fn
+    [nil []]
+    (mstate/validate-target-map!
+      (optimistic-fn params)
+      #(resolve-exact-target-scope % mut-scope db where)
+      registry/resource-meta :optimistic where)))
+
+(defn- normalize-optimistic-tag-descriptors
+  "PURE: normalize the `:optimistic-tags` plan `(fn [params] -> descriptors)`
+  into the canonical descriptor vector `[{:scope … :tags #{…} :patch fn}]`
+  (EP-0019 Decision 4). Accepts a single descriptor map or a vector of them;
+  each MUST carry a `:patch` fn `(fn [old-data] -> new-data)` (the forward
+  optimistic op for every tag-matched entry) and a `:tags` collection. The
+  `:scope` defaults to `:rf.scope/same` (resolved at execute time). Fails CLOSED
+  on a non-map descriptor / a non-collection `:tags` / a missing `:patch`
+  (reusing the `:invalidates` descriptor-error shape, `:arm :optimistic-tags`).
+  A nil / empty raw plan yields an empty vector."
+  [raw where]
+  (let [one (fn [descriptor]
+              (when-not (map? descriptor)
+                (throw (mstate/invalidation-descriptor-error
+                         where
+                         (str "an :optimistic-tags descriptor must be a map "
+                              "{:scope … :tags #{…} :patch (fn [old] new)}; got "
+                              (pr-str descriptor) ". Per Spec 016 §Optimistic "
+                              "mutations / EP-0019 Decision 4.")
+                         raw {:descriptor (pr-str descriptor)})))
+              (let [{:keys [scope tags patch]} descriptor]
+                (when-not (and (some? tags) (coll? tags))
+                  (throw (mstate/invalidation-descriptor-error
+                           where
+                           (str "an :optimistic-tags descriptor must carry a "
+                                "non-nil :tags collection; got " (pr-str tags)
+                                " in " (pr-str descriptor) ". Per Spec 016 "
+                                "§Optimistic mutations.")
+                           raw {:descriptor (pr-str descriptor) :tags (pr-str tags)})))
+                (when-not (fn? patch)
+                  (throw (mstate/invalidation-descriptor-error
+                           where
+                           (str "an :optimistic-tags descriptor must carry a "
+                                ":patch fn (fn [old-data] -> new-data); got "
+                                (pr-str patch) " in " (pr-str descriptor)
+                                ". Per Spec 016 §Optimistic mutations.")
+                           raw {:descriptor (pr-str descriptor) :patch (pr-str patch)})))
+                {:scope (if (contains? descriptor :scope) scope mstate/same-scope-marker)
+                 :tags  (state/normalize-tag-set tags)
+                 :patch patch}))]
+    (cond
+      (or (nil? raw) (and (coll? raw) (empty? raw))) []
+      (map? raw)                                     [(one raw)]
+      (and (coll? raw) (every? map? raw))            (mapv one raw)
+      :else
+      (throw (mstate/invalidation-descriptor-error
+               where
+               (str "an :optimistic-tags result must be a descriptor map or a "
+                    "vector of descriptor maps {:scope … :tags #{…} :patch fn}; "
+                    "got " (pr-str raw) ". Per Spec 016 §Optimistic mutations.")
+               raw {})))))
+
+(defn- optimistic-tag-targets
+  "Resolve the `:optimistic-tags` plan into the per-tag-matched-key target map
+  `{scoped-key patch-fn}` at execute time (EP-0019 Decision 4). For each
+  descriptor: resolve its OWN scope (`resolve-descriptor-scope` — `:rf.scope/same`
+  / concrete / `{:from-db …}`, FAIL-CLOSED on nil), then match every cache entry
+  carrying the descriptor's tags IN that scope (the SHARED
+  `events/match-invalidation-keys` — the same matcher the invalidation engine
+  uses, EP-0014 one tag index). Each matched entry's scoped key maps to the
+  descriptor's `:patch` fn. A later descriptor matching the same key wins
+  (last-write). Cross-scope optimistic patching is NOT offered (the optimistic
+  surface is exact-key or tag-within-named-scope only — §Security). Returns
+  `[{scoped-key patch-fn} nil-resolved-ids]`. `entries` is the execute-time
+  cache `:entries` map."
+  [descriptors entries mut-scope db where]
+  (reduce
+    (fn [[m nils] {:keys [scope tags patch]}]
+      (let [[outcome scope-or-id] (resolve-descriptor-scope
+                                    {:scope scope} mut-scope db where)]
+        (case outcome
+          :nil-resolved [m (conj nils scope-or-id)]
+          ;; cross-scope is unreachable (a descriptor has no :cross-scope? here)
+          :cross-scope  [m nils]
+          :resolved
+          (let [{:keys [matched]} (events/match-invalidation-keys
+                                    entries scope-or-id false (set tags) #{})]
+            [(reduce (fn [m' sk] (assoc m' sk patch)) m matched) nils]))))
+    [{} []]
+    descriptors))
+
+(defn- forward-summary
+  "PURE: the small descriptive `:forward` summary recorded on the inverse for the
+  trace (EP-0019 Decision 2): `:remove` for a nil patch-fn (optimistic remove),
+  `:seed` for a patch over an absent entry (optimistic seed), else `:patch`."
+  [patch-fn before-entry]
+  (cond
+    (nil? patch-fn)                               :remove
+    (= before-entry mstate/absent-snapshot)       :seed
+    :else                                         :patch))
+
+(defn- apply-optimistic
+  "Apply the resolved optimistic target map `{scoped-key patch-fn-or-nil}` to the
+  cache `runtime-db` at execute time (phase 1.5, EP-0019 Decisions 1/2). For each
+  key: SNAPSHOT the entry before (`mstate/snapshot-entry` — the truthful inverse),
+  record `{:resource/key :revision :before :forward}` (`mstate/record-optimistic-
+  entry`), then either DISSOC the entry (a nil patch-fn = optimistic remove) or
+  apply the forward patch + bump revision (`mstate/apply-optimistic-patch`). A
+  remove of an absent key records the `:absent` inverse and no-ops the cache.
+  Returns `[runtime-db' affected-keys inverse-vec]` — `inverse-vec` is the
+  recorded `:rollback` slot the instance row carries (in apply order). Indexes are
+  recomputed by the caller (a seed may create entries / tags)."
+  [runtime-db target-map clock-ms]
+  (reduce-kv
+    (fn [[db' ks inverses] scoped-key patch-fn]
+      (let [entry  (get-in db' (state/entry-path scoped-key))
+            before (mstate/snapshot-entry entry)
+            fwd    (forward-summary patch-fn before)
+            inverse (mstate/record-optimistic-entry scoped-key before fwd)
+            db''   (if (nil? patch-fn)
+                     ;; optimistic REMOVE — dissoc by the byte key-id
+                     (update-in db' (state/entries-path) dissoc (state/key-id scoped-key))
+                     (let [[_scope resource-id _p] scoped-key
+                           rspec    (registry/resource-meta resource-id)
+                           stale-at (stale-at-for rspec clock-ms)
+                           tags-fn  (:tags rspec)
+                           ;; a freshly-seeded entry needs its resource's tags
+                           ;; (so a later invalidation can reach it). An existing
+                           ;; entry keeps its own (apply-optimistic-patch prefers
+                           ;; the base entry's tags).
+                           [_s _r rparams] scoped-key
+                           tags     (when tags-fn (set (tags-fn rparams nil)))
+                           entry'   (mstate/apply-optimistic-patch
+                                      entry patch-fn resource-id
+                                      {:clock-ms clock-ms :stale-at stale-at
+                                       :tags tags :scoped-key scoped-key})]
+                       (assoc-in db' (state/entry-path scoped-key) entry')))]
+        [db'' (conj ks scoped-key) (conj inverses inverse)]))
+    [runtime-db #{} []]
+    target-map))
+
 ;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
 ;;
 ;; The mutation `:invalidates` arm now lowers TWO public forms — the bare
@@ -722,6 +907,15 @@
   `:before-request` invalidation timing fires its `:invalidates` BEFORE the
   request is lowered (a rare timing for pessimistic stale-then-write).
 
+  EP-0019 PHASE 1.5 — when the mutation declares an `:optimistic` /
+  `:optimistic-tags` plan (and the call did NOT opt out with
+  `{:optimistic? false}`, Q4), the FORWARD optimistic patch is applied to the
+  resource cache BEFORE the request is lowered: each touched entry is
+  snapshotted (the truthful inverse) + its `:revision` recorded on the instance
+  row's `:patch-summary` `:rollback` slot, the forward patch applied, and the
+  entry's `:revision` bumped. Emits `:rf.mutation/optimistic-applied`. The SETTLE
+  slice consumes that recorded inverse (commit / rollback / reconcile).
+
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
@@ -851,9 +1045,80 @@
                       :frame-id     frame-id
                       :generation   generation
                       :where        where})
-        rdb'       (-> runtime-db
+        rdb0       (-> runtime-db
                        (assoc-in (mstate/instance-path instance-id) instance')
-                       (work-ledger/put-record work-id record))]
+                       (work-ledger/put-record work-id record))
+        ;; EP-0019 PHASE 1.5 — the FORWARD optimistic apply, BEFORE the request
+        ;; lowers. Per-call opt-out (Q4): `{:optimistic? false}` forces the
+        ;; pessimistic path for one call (the registration plan is otherwise
+        ;; always-on). Resolve the `:optimistic` exact targets + the
+        ;; `:optimistic-tags` tag-matched targets (each fail-closed on a
+        ;; nil-resolving `{:from-db …}` scope — Rider 2), snapshot + apply each,
+        ;; recording the truthful inverse on the instance row. The apply runs
+        ;; against `rdb0` (which already carries the fresh `:pending` instance)
+        ;; — but a `:before-request` timing makes this contradictory and is
+        ;; rejected at registration (Rider 3), so a mutation reaching here with
+        ;; an optimistic plan never also runs a before-plan.
+        opt-out?    (and (contains? payload :optimistic?) (false? (:optimistic? payload)))
+        has-opt?    (and (not opt-out?)
+                         (or (:optimistic spec) (:optimistic-tags spec)))
+        opt-entries (when has-opt? (get-in rdb0 (state/entries-path)))
+        [exact-tm exact-nils]
+        (when has-opt?
+          (optimistic-exact-targets (:optimistic spec) cparams cscope app-db where))
+        [tag-tm tag-nils]
+        (when has-opt?
+          (optimistic-tag-targets
+            (normalize-optimistic-tag-descriptors
+              (when-let [f (:optimistic-tags spec)] (f cparams)) where)
+            opt-entries cscope app-db where))
+        ;; exact targets first, then tag-matched (a tag-matched key that is also
+        ;; an exact target keeps the exact patch-fn — exact wins, it is the more
+        ;; specific declaration). A nil exact patch-fn (optimistic remove) is
+        ;; preserved by `merge`.
+        opt-target-map (when has-opt? (merge tag-tm exact-tm))
+        opt-nil-ids    (-> (vec exact-nils) (into tag-nils))
+        ;; "the apply happened" = there was an optimistic plan AND the call did
+        ;; not opt out — even if EVERY target fail-closed-dropped (we still
+        ;; record the `:target-unresolved` evidence + emit the trace).
+        opt-applied?   (boolean (and has-opt? (or (seq opt-target-map) (seq opt-nil-ids))))
+        snapshot-id    (when opt-applied? (mint-snapshot-id instance-id generation))
+        [rdb1 opt-ks opt-inverse]
+        (if (seq opt-target-map)
+          (apply-optimistic rdb0 opt-target-map started-at)
+          [rdb0 #{} []])
+        ;; record the snapshot inverse on the instance row's reserved
+        ;; `:patch-summary` `:snapshot-id` / `:rollback` slots (the SETTLE slice
+        ;; replays them). The `:target-unresolved` carries the fail-closed
+        ;; nil-resolved `{:from-db …}` optimistic targets (recorded even when
+        ;; ALL targets dropped — the evidence must survive).
+        rdb'       (if opt-applied?
+                     (-> rdb1
+                         (assoc-in (conj (mstate/instance-path instance-id) :patch-summary)
+                                   {:snapshot-id       snapshot-id
+                                    :rollback          opt-inverse
+                                    :optimistic-keys   (vec opt-ks)
+                                    :target-unresolved (vec opt-nil-ids)
+                                    ;; the SETTLE slice fills these:
+                                    :reconciliation-refetches nil})
+                         ;; a seed / remove may have created / dropped entries +
+                         ;; tags — recompute the reverse indexes.
+                         (update state/resources-key state/recompute-indexes))
+                     rdb1)]
+    (when opt-applied?
+      (trace/emit! :rf.event :rf.mutation/optimistic-applied
+                   {:rf.frame/id frame-id :mutation mutation :instance instance-id
+                    :work/id work-id :generation generation :scope cscope
+                    :snapshot-id snapshot-id
+                    :affected-keys (vec opt-ks)
+                    ;; per-key revision observed at apply time (the conflict-check
+                    ;; basis the SETTLE slice compares) + the forward op shape.
+                    :revisions (mapv (fn [{:keys [resource/key revision forward]}]
+                                       {:resource/key key :revision revision :forward forward})
+                                     opt-inverse)
+                    :tag-matched-keys (vec (keys tag-tm))
+                    :target-unresolved (vec opt-nil-ids)
+                    :cause [:mutation mutation instance-id]}))
     (trace/emit! :rf.event :rf.mutation/started
                  (cond-> {:rf.frame/id frame-id :mutation mutation :instance instance-id
                           :work/id work-id :generation generation :scope cscope
