@@ -895,7 +895,8 @@
   ;;
   ;; rf2-6cq3u: previously the `perf-counter.core` entry-point lived in a
   ;; tool-owned testbed (tools/xray/testbeds/perf_counter/) carrying a
-  ;; deliberately non-canonical `reg-event-fx :db + :fx` init shape, which
+  ;; deliberately non-canonical pre-EP-0018 event-registration init shape
+  ;; (a `:db` + `:fx` handler under the retired event-fx registrar), which
   ;; only the now-deleted browser smoke (rf2-e3j8l, Wave 4) needed —
   ;; that smoke's User-Timing assertions migrated to pure CLJS at
   ;; implementation/core/test/re_frame/performance_emit_nightly_test.cljs

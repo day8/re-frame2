@@ -1152,7 +1152,7 @@
 ;; 7f. No spurious `:rf.event/db-changed` on a no-write event — the
 ;;     deferred-install contract (rf2-q1sbo).
 ;;
-;; A `reg-event-fx` handler that returns NO `:db` (only `:fx`), whose
+;; A `reg-event` handler that returns NO `:db` (only `:fx`), whose
 ;; flows' inputs are all unchanged (so every flow SKIPS), produces no
 ;; `:db` effect at all → the deferred install is a no-op → ZERO
 ;; `:rf.event/db-changed` must be emitted. A spurious db-changed on a
@@ -1161,7 +1161,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest no-db-changed-on-no-write-event-with-stable-flows
-  (testing "a reg-event-fx returning only :fx [] (no :db), with flows whose
+  (testing "a reg-event returning only :fx [] (no :db), with flows whose
             inputs are unchanged, emits ZERO :rf.event/db-changed"
     (rf/reg-fx :test/noop (fn [& _] nil))
     ;; Seed :n so the flow computes once on the seed drain.

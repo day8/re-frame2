@@ -15,8 +15,8 @@
     1. Synchronous direct `rf/dispatch` from inside the handler body.
     2. `js/setTimeout` deferred direct `rf/dispatch` from inside the
        handler body (the rf2-yf97 case).
-    3. `:fx [[:dispatch ...]]` from a `reg-event-fx` handler (the
-       documented workaround).
+    3. `:fx [[:dispatch ...]]` from a `reg-event` handler returning an
+       `:fx` effects map (the documented workaround).
     4. `:fx [[:dispatch-later {:ms 0 :event ...}]]` and the
        `(:dispatch (rf/frame-handle))` capture-at-creation affordance.
 
@@ -87,7 +87,7 @@
 
 ;; ---- 1. Synchronous direct rf/dispatch ------------------------------------
 ;;
-;; A reg-event-fx handler running on :tenant-a calls (rf/dispatch [:landed])
+;; A reg-event handler running on :tenant-a calls (rf/dispatch [:landed])
 ;; in its body and returns no fx. The expectation: the queued :landed
 ;; event lands on :tenant-a (the in-flight handler's frame), not
 ;; :rf/default.
