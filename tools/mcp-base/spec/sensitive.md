@@ -56,7 +56,9 @@ The count feeds the indicator-field slot the agent reads to know the payload was
 
 Walks a snapshot map keyed by frame and, for each per-frame map, applies the strip-fn to the `:traces` and `:epochs` slices only. Returns `[scrubbed-snapshot total-dropped]`. Non-map slices and non-snapshot inputs pass through unchanged.
 
-The walk is **shallow by design** (per rf2-zq0n1 / rf2-3cted): it strips sensitive trace events from `:traces` / `:epochs` but **leaves `:app-db`, `:sub-cache`, and `:machines` untouched**. App-db payload redaction is `redact-interceptor`'s job at *write-time*, not the forwarder's job at *read-time* — `scrub-snapshot` does NOT descend into arbitrary sub-trees and does NOT redact app-db values. (A reviewer should not assume app-db redaction happens here; it does not.)
+`scrub-snapshot` is a **trace/epoch sensitivity filter only — NOT the complete snapshot privacy boundary.** The walk is **shallow by design** (per rf2-zq0n1 / rf2-3cted): it strips sensitive trace events from `:traces` / `:epochs` but **leaves `:app-db`, `:sub-cache`, and `:machines` untouched** — it does NOT descend into arbitrary sub-trees and does NOT redact app-db values. Its OUTPUT is therefore **not** already-projected full-snapshot output.
+
+Per [EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md), the public privacy model is registration-owned `:sensitive` / `:large` classification plus centralized `project-egress` (under a named `:rf.egress/*` profile) at the egress boundary; the write-time `redact-interceptor` that earlier owned app-db payload redaction has been **removed**. So the **caller's egress pipeline** must run `project-egress` over the non-trace slices with the frame's known policy **before** the snapshot crosses an MCP/tool boundary. A consumer must NOT treat `scrub-snapshot` output as sufficient, and must NOT look for a write-time interceptor to have handled app-db redaction — it does not happen here, and there is no longer a write-time interceptor that does it.
 
 Two arities:
 

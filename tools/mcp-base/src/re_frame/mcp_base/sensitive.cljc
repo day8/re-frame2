@@ -252,12 +252,26 @@
   total-dropped]`. Non-map slices and non-snapshot inputs pass
   through unchanged.
 
-  Per rf2-zq0n1 / rf2-3cted, sensitive trace events are stripped from
-  `:traces` and `:epochs` but `:app-db`, `:sub-cache`, `:machines`
-  are LEFT ALONE — app-db payload redaction is `redact-interceptor`'s job
-  at write-time, not the forwarder's job at read-time. Re-asserted
-  by the snapshot-scrubber tests in every MCP that emits per-frame
-  snapshots.
+  ## What this is — and is NOT (EP-0015)
+
+  This is a TRACE/EPOCH sensitivity FILTER only — NOT the complete
+  snapshot privacy boundary. Sensitive trace events are stripped from
+  the `:traces` and `:epochs` slices, but the value-carrying slices
+  `:app-db`, `:sub-cache`, and `:machines` are LEFT ALONE: the walk is
+  shallow by design (rf2-zq0n1 / rf2-3cted) and does NOT descend into
+  arbitrary sub-trees or redact app-db values.
+
+  Consequently the OUTPUT is NOT already-projected full-snapshot output.
+  Per EP-0015 the public privacy model is registration-owned `:sensitive`
+  / `:large` classification plus centralized `project-egress` (under a
+  named `:rf.egress/*` profile) at the egress boundary — the write-time
+  `redact-interceptor` that earlier owned app-db payload redaction has
+  been REMOVED. So the CALLER's egress pipeline must run `project-egress`
+  over the non-trace slices with the frame's known policy BEFORE the
+  snapshot crosses an MCP/tool boundary; do not treat `scrub-snapshot`
+  output as sufficient and do not look for a write-time interceptor to
+  have handled it. Re-asserted by the snapshot-scrubber tests in every
+  MCP that emits per-frame snapshots.
 
   ## Strip-fn parameter (rf2-zpmmr)
 
