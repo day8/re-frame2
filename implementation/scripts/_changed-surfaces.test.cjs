@@ -677,6 +677,147 @@ test('adapter-testbed-smokes workflow remains scoped to EXAMPLES_FILTER=adapters
   );
 });
 
+// rf2-dxndhc — resources + cross-conformance tier routing false-green
+// fix (review wave rf2-ks67un). The resources artefact and the three
+// EP cross-conformance tiers (reply / derivation / event) are live
+// implementation test surfaces on the root CLJS/test classpath
+// (implementation/deps.edn + shadow-cljs.edn), but the classifier had
+// NO case for them — a PR touching only one left every output false, so
+// the aggregator could pass with the relevant JVM + consolidated
+// node-test gates skipped. These assertions lock the new routing.
+
+test('implementation/resources/* arms implementation_jvm + the CLJS surfaces (rf2-dxndhc)', () => {
+  const result = classify('implementation/resources/src/re_frame/resources.cljc');
+  assert.equal(
+    result.implementation_jvm,
+    'true',
+    'a resources source change must run the jvm-resources suite (its own :test alias)',
+  );
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+});
+
+test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test (rf2-dxndhc)', () => {
+  const result = classify('implementation/resources/deps.edn');
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+const CONFORMANCE_TIERS = [
+  'implementation/reply-conformance/test/re_frame/reply_vocabulary_conformance_cljs_test.cljc',
+  'implementation/derivation-conformance/test/re_frame/derivation_algebra_conformance_cljs_test.cljc',
+  'implementation/event-conformance/test/re_frame/event_model_conformance_cljs_test.cljc',
+];
+for (const file of CONFORMANCE_TIERS) {
+  test(`${file} arms implementation_jvm + cljs_node_test (cross-conformance tier, rf2-dxndhc)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      'a conformance-tier change must run the JVM :clj-arm job for that tier',
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      'a conformance-tier change must run the consolidated :node-test :cljs arm',
+    );
+  });
+}
+
+test('a src-less conformance tier does NOT widen production bundles (no bundle_isolation/cljs_browser) (rf2-dxndhc scope)', () => {
+  // The tiers ship no production src (no Maven artefact), so — like the
+  // security tier — they must NOT fire the bundle/browser/prod gates.
+  const result = classify('implementation/reply-conformance/test/foo.cljc');
+  assert.equal(result.bundle_isolation, 'false');
+  assert.equal(result.cljs_browser, 'false');
+  assert.equal(result.cljs_prod, 'false');
+});
+
+test('jvm-resources is job-level gated on implementation_jvm (rf2-dxndhc)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-resources');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+  );
+});
+
+for (const job of [
+  'jvm-reply-conformance',
+  'jvm-derivation-conformance',
+  'jvm-event-conformance',
+]) {
+  test(`${job} is job-level gated on implementation_jvm (rf2-dxndhc)`, () => {
+    const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), job);
+    assert.match(block, /needs: detect_changed_surfaces/);
+    assert.match(
+      block,
+      /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+    );
+  });
+}
+
+test('all-required-passed aggregator needs the four new implementation_jvm jobs (rf2-dxndhc)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  for (const job of [
+    'jvm-resources',
+    'jvm-reply-conformance',
+    'jvm-derivation-conformance',
+    'jvm-event-conformance',
+  ]) {
+    assert.match(
+      block,
+      new RegExp(`- ${job}\\r?\\n`),
+      `aggregator must list ${job} in needs:`,
+    );
+  }
+});
+
+// rf2-am7grp — quiet-reporter routing false-green fix (review wave
+// rf2-ks67un). implementation/test-quiet is the test-runtime
+// quiet-reporter artefact: the JVM runner (runner.clj, the :main-opts of
+// every per-artefact :test alias) AND the CLJS shadow-node runner (the
+// :node-test build's :main). The classifier had NO test-quiet/** case,
+// so a PR changing the reporter implementation, its runners, its
+// deps.edn, or its contract tests left every output false — both the JVM
+// quiet-runner contract and the CLJS node-test quiet reporter contract
+// skipped, with js-harness-self-tests (JS script policy/helper tests
+// only) the sole insufficient verifier. These assertions lock the new
+// routing onto implementation_jvm + cljs_node_test.
+
+const TEST_QUIET_FILES = [
+  'implementation/test-quiet/src/re_frame/test_quiet/runner.clj',
+  'implementation/test-quiet/src/re_frame/test_quiet/shadow_node.cljs',
+  'implementation/test-quiet/deps.edn',
+  'implementation/test-quiet/test/re_frame/test_quiet_runner_contract_test.clj',
+  'implementation/test-quiet/test/re_frame/test_quiet_shadow_node_cljs_test.cljs',
+];
+for (const file of TEST_QUIET_FILES) {
+  test(`${file} arms implementation_jvm + cljs_node_test (quiet reporter, rf2-am7grp)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'true',
+      'a quiet-reporter change must re-run the per-artefact :test aliases (which route through the JVM quiet runner)',
+    );
+    assert.equal(
+      result.cljs_node_test,
+      'true',
+      'a quiet-reporter change must run the consolidated :node-test build (whose :main is the CLJS quiet runner)',
+    );
+  });
+}
+
+test('test-quiet routing does NOT broaden docs/spec-only or unrelated surfaces (rf2-am7grp scope)', () => {
+  // Scoped to src/test/deps.edn under test-quiet; a generic spec/docs
+  // change stays off the implementation gates entirely.
+  const result = classify('spec/006-ReactiveSubstrate.md');
+  assert.equal(result.implementation_jvm, 'false');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {

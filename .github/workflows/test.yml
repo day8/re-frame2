@@ -1038,6 +1038,191 @@ jobs:
       - name: Run JVM tests (epoch artefact)
         run: clojure -M:test
 
+  jvm-resources:
+    name: JVM resources (clojure -M:test)
+    # rf2-dxndhc — closes the gap surfaced by the rf2-ks67un review. The
+    # resources artefact (day8/re-frame2-resources, EP-0003) is on the
+    # root CLJS/test classpath (implementation/deps.edn +
+    # shadow-cljs.edn) and ships its own JVM `:test` alias (414 tests:
+    # the resource lifecycle FSM, work-ledger substrate, managed-HTTP
+    # lowering, invalidation/GC/owners, mutations, and the routing +
+    # SSR/hydration integrations), yet no PR-CI job ran it on the JVM and
+    # scripts/test-jvm-implementation.sh omitted it. A resources-only PR
+    # could pass with this suite skipped. Gated on implementation_jvm
+    # (now armed for implementation/resources/* by report-changed-
+    # surfaces.sh), mirroring every sibling per-feature jvm-* job.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/resources
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-resources-${{ hashFiles('implementation/resources/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/routing/deps.edn', 'implementation/ssr/deps.edn', 'implementation/http/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-resources-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (resources artefact)
+        run: clojure -M:test
+
+  jvm-reply-conformance:
+    name: JVM reply-conformance (clojure -M:test)
+    # rf2-dxndhc — the EP-0011 cross-family reply-VOCABULARY-consistency
+    # tier is a src-less `.cljc` test surface on the root test classpath.
+    # Its own `:test` alias runs the SAME `.cljc` namespaces under the JVM
+    # so the `:clj` reader-conditional arms (the EDN round-trip
+    # `read-string`) are exercised — previously only the always-on
+    # `:node-test` gate ran the `:cljs` side, and no PR job armed the JVM
+    # `:clj` arm on a tier-only change. Mirrors the security tier.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/reply-conformance
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-reply-conformance-${{ hashFiles('implementation/reply-conformance/deps.edn', 'implementation/core/deps.edn', 'implementation/http/deps.edn', 'implementation/resources/deps.edn', 'implementation/machines/deps.edn', 'implementation/routing/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-reply-conformance-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (reply-conformance tier)
+        run: clojure -M:test
+
+  jvm-derivation-conformance:
+    name: JVM derivation-conformance (clojure -M:test)
+    # rf2-dxndhc — the EP-0014 derivation/process-ALGEBRA conformance tier
+    # is a src-less `.cljc` test surface on the root test classpath. Its
+    # own `:test` alias runs the SAME `.cljc` namespaces under the JVM so
+    # the `:clj`-side composition (JVM default-contributors auto-resolution,
+    # the pure-data algebra views, the whole-value law over JVM data) is
+    # exercised — previously only the always-on `:node-test` gate ran the
+    # `:cljs` side. Mirrors the security tier.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/derivation-conformance
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-derivation-conformance-${{ hashFiles('implementation/derivation-conformance/deps.edn', 'implementation/core/deps.edn', 'implementation/flows/deps.edn', 'implementation/resources/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn', 'implementation/schemas/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-derivation-conformance-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (derivation-conformance tier)
+        run: clojure -M:test
+
+  jvm-event-conformance:
+    name: JVM event-conformance (clojure -M:test)
+    # rf2-dxndhc — the EP-0018 one-form event-MODEL conformance tier is a
+    # src-less `.cljc` test surface on the root test classpath. Its own
+    # `:test` alias runs the SAME `.cljc` namespaces under the JVM so the
+    # `:clj`-only arms are exercised: the `^:no-doc`-meta facade probe
+    # (reads `(meta (var …))` over the public re-frame.core vars — JVM-only)
+    # and the `:clj` host throw type (clojure.lang.ExceptionInfo) for the
+    # retired-name removal errors — previously only the always-on
+    # `:node-test` gate ran the `:cljs` side. Mirrors the security tier.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/event-conformance
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-event-conformance-${{ hashFiles('implementation/event-conformance/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-event-conformance-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (event-conformance tier)
+        run: clojure -M:test
+
   cljs:
     name: CLJS (shadow-cljs :node-test)
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
@@ -2819,6 +3004,10 @@ jobs:
       - jvm-security
       - jvm-ssr-ring
       - jvm-epoch
+      - jvm-resources
+      - jvm-reply-conformance
+      - jvm-derivation-conformance
+      - jvm-event-conformance
       - cljs
       - js-harness-self-tests
       - cljs-browser

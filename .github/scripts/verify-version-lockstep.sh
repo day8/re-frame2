@@ -87,14 +87,25 @@ declare -A ARTEFACT_PATHS=(
   [flows]="flows"
   [http]="http"
   [ssr]="ssr"
+  [ssr-ring]="ssr-ring"
+  [resources]="resources"
   [epoch]="epoch"
 )
 
-ARTEFACTS=(core schemas reagent reagent-slim uix helix machines routing flows http ssr epoch)
+# rf2-qmhysc — resources + ssr-ring both declare publishable
+# :clein/build artefacts (day8/re-frame2-resources, day8/re-frame2-ssr-ring)
+# and ship in the release/deploy matrix, so they MUST participate in the
+# lockstep contract. They were previously omitted: version/local-root
+# drift in those two publishable artefacts was unguarded, and the summary
+# under-counted (it said "all 15"). The fail-on-drift inventory check
+# below now also asserts that EVERY implementation/*/deps.edn carrying a
+# :clein/build alias appears in this list, so a future publishable
+# artefact cannot be omitted unnoticed.
+ARTEFACTS=(core schemas reagent reagent-slim uix helix machines routing flows http ssr ssr-ring resources epoch)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent reagent-slim uix helix machines routing flows http ssr epoch)
+NON_CORE=(schemas reagent reagent-slim uix helix machines routing flows http ssr ssr-ring resources epoch)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
@@ -181,11 +192,68 @@ for artefact in "${NON_CORE[@]}"; do
   else
     expected_local_root='day8/re-frame2 {:local/root "../core"}'
   fi
-  if ! grep -qF "${expected_local_root}" "${deps_file}"; then
+  # rf2-qmhysc — collapse runs of whitespace before matching. ssr-ring's
+  # deps.edn (newly in NON_CORE) column-aligns its dep map
+  # (`day8/re-frame2     {:local/root …}`), so a single-space literal
+  # grep -qF would spuriously report drift. Mirrors the tools/* loop's
+  # `tr -s` normalisation below; the rewrite step in release.yml keys off
+  # the `:local/root "<path>"` substring, which the normalisation
+  # preserves.
+  normalised_core="$(tr -s '[:space:]' ' ' < "${deps_file}")"
+  if ! grep -qF "${expected_local_root}" <<< "${normalised_core}"; then
     echo "::error file=${rel_label}::expected '${expected_local_root}' (lockstep contract; the release workflow rewrites this to :mvn/version at deploy time)"
     errors=$((errors + 1))
   fi
 done
+
+# rf2-qmhysc — ssr-ring is the one implementation artefact whose
+# PUBLISHED :deps reference a SECOND in-repo framework artefact besides
+# core: it depends on both day8/re-frame2 {:local/root "../core"} (checked
+# in the NON_CORE loop above) AND day8/re-frame2-ssr {:local/root "../ssr"}
+# (the Ring/Pedestal host adapter sits on top of the ssr renderer). The
+# release workflow must rewrite BOTH :local/root coordinates to
+# :mvn/version at deploy time, so the in-repo source must declare both —
+# assert the ssr reference here.
+SSR_RING_DEPS="${REPO_ROOT}/implementation/ssr-ring/deps.edn"
+if [[ -f "${SSR_RING_DEPS}" ]]; then
+  normalised_ssr_ring="$(tr -s '[:space:]' ' ' < "${SSR_RING_DEPS}")"
+  if ! grep -qF 'day8/re-frame2-ssr {:local/root "../ssr"}' <<< "${normalised_ssr_ring}"; then
+    echo "::error file=implementation/ssr-ring/deps.edn::expected 'day8/re-frame2-ssr {:local/root \"../ssr\"}' (lockstep contract; ssr-ring depends on ssr and the release workflow rewrites this to :mvn/version at deploy time)"
+    errors=$((errors + 1))
+  fi
+fi
+
+# rf2-qmhysc — inventory drift guard. The whole risk this script exists
+# to close is "a publishable artefact ships at a stale version / broken
+# :local/root because it was never wired into the lockstep inventory" —
+# exactly how resources + ssr-ring slipped through before. Make that
+# class of omission impossible to reintroduce silently: every
+# implementation/*/deps.edn carrying a :clein/build alias MUST appear in
+# the ARTEFACT_PATHS list above. A new publishable artefact added without
+# a matching ARTEFACTS entry fails the build here.
+declare -A KNOWN_IMPL_PATHS=()
+for artefact in "${ARTEFACTS[@]}"; do
+  KNOWN_IMPL_PATHS["${ARTEFACT_PATHS[$artefact]}"]=1
+done
+# Adapters live under implementation/adapters/<name>/; their subpaths are
+# already registered (adapters/reagent, …). Walk both the flat
+# per-feature dirs and the adapters/ dir for :clein/build.
+while IFS= read -r deps_file; do
+  [[ -f "${deps_file}" ]] || continue
+  # Strip `;;` line comments before matching so a deps.edn that only
+  # MENTIONS :clein/build in prose (e.g. implementation/adapters/test-react/
+  # whose header documents that it deliberately carries NO :clein/build) is
+  # not mis-detected as publishable.
+  sed 's/;;.*$//' "${deps_file}" | grep -qF ':clein/build' || continue
+  # Derive the subpath relative to implementation/ (e.g. "resources" or
+  # "adapters/reagent").
+  subpath="${deps_file#"${REPO_ROOT}/implementation/"}"
+  subpath="${subpath%/deps.edn}"
+  if [[ -z "${KNOWN_IMPL_PATHS[$subpath]:-}" ]]; then
+    echo "::error file=implementation/${subpath}/deps.edn::implementation/${subpath} declares a :clein/build (publishable) artefact but is NOT in the lockstep ARTEFACTS inventory — add it to ARTEFACT_PATHS / ARTEFACTS / NON_CORE in this script AND to the release.yml deploy matrix + release notes (rf2-qmhysc)"
+    errors=$((errors + 1))
+  fi
+done < <(find "${REPO_ROOT}/implementation" -mindepth 2 -maxdepth 3 -name deps.edn)
 
 # Tools/* deployable jars (rf2-lwtke). Each tools/<name>/deps.edn that
 # carries a :clein/build alias publishes to Clojars at the same lockstep

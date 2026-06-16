@@ -469,9 +469,11 @@ must re-run the matrix).
 | S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
 | S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent-slim/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
 | S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
-| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` (note: `schemas/*` also fires `template_expensive`; `machines/*` also fires `playground` — see S5a) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,resources,epoch}/*`, `implementation/deps.edn` (note: `schemas/*` also fires `template_expensive`; `machines/*` also fires `playground` — see S5a; `resources/*` added rf2-dxndhc) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
 | S5a | `implementation/machines/*` (rf2-2h1yhk — the SCI bundle bakes in the machines artefact + its reserved `:rf.machine/*` lifecycle keywords, so a keyword rename can stale the committed `playground-rf2.js`; in ADDITION to the S5 columns it fires `playground`) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   | ✓ |
 | S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
+| S6a | `implementation/{reply-conformance,derivation-conformance,event-conformance}/*` (rf2-dxndhc — src-less `.cljc` cross-conformance tiers; the JVM `:clj`-arm jobs fire on `implementation_jvm`, the always-on `:node-test` `:cljs` arm on `cljs_node_test`; no production src so no bundle/browser/prod columns — mirrors the `security` tier) | ✓ |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |   |
+| S6b | `implementation/test-quiet/{src,test}/**`, `implementation/test-quiet/deps.edn` (rf2-am7grp — the quiet-reporter artefact: the JVM runner is the `:main-opts` of every per-artefact `:test` alias, the CLJS shadow-node runner is the `:node-test` build's `:main`; fires both so the JVM + CLJS quiet-reporter contracts run) | ✓ |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |   |
 | S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
 | S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
 | S8a | `examples/scripts/{serve-and-run-examples-tests,run-examples-tests,spec-helpers,examples-filter}.cjs` (orchestrator + runner + helpers + shared example-set manifest — rf2-bxdk8 + rf2-cjp0i + rf2-l72e2) |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |   |   |
@@ -492,7 +494,7 @@ PR time; one row per output here so the table stays scannable).
 
 | Output | Jobs |
 |---|---|
-| `implementation_jvm` | JVM artefact unit suites ×9 (`jvm-core`, `jvm-flows`, `jvm-schemas`, `jvm-machines`, `jvm-routing`, `jvm-http`, `jvm-ssr`, `jvm-ssr-ring`, `jvm-epoch`) |
+| `implementation_jvm` | JVM artefact unit suites ×13 (`jvm-core`, `jvm-flows`, `jvm-schemas`, `jvm-machines`, `jvm-routing`, `jvm-http`, `jvm-ssr`, `jvm-ssr-ring`, `jvm-resources`, `jvm-epoch`, plus the src-less cross-conformance tiers `jvm-reply-conformance`, `jvm-derivation-conformance`, `jvm-event-conformance` — rf2-dxndhc; note `jvm-security` is also armed by `implementation_jvm` but is listed under [Diagnostic / skip-ok gates]) |
 | `adapter_diagnostic` | Adapter classpath probes ×4 (`jvm-reagent`, `jvm-reagent-slim`, `jvm-uix`, `jvm-helix`) |
 | `cljs_node_test` | `cljs` (the `CLJS (shadow-cljs :node-test)` job — consolidated CLJS unit suite: `shadow-cljs compile node-test` + `node out/node-test.js`, covering core + every adapter + every feature artefact + the `tools/{story,xray}/{src,test}` source paths). |
 | `cljs_browser` | `cljs-browser` (the `CLJS (shadow-cljs :browser-test, headless Chromium)` job — DOM `:browser-test` build served + driven by the Playwright runner; a distinct job from `cljs`, split off node-test gating in rf2-f79t8). |

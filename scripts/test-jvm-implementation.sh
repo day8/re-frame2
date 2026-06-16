@@ -18,6 +18,15 @@ artefacts=(
   implementation/ssr
   implementation/ssr-ring
   implementation/epoch
+  # rf2-dxndhc — the resources artefact (day8/re-frame2-resources,
+  # EP-0003) ships its own JVM `:test` alias (the resource lifecycle FSM,
+  # the work-ledger substrate, managed-HTTP lowering, invalidation/GC/
+  # owners, mutations, and the routing + SSR/hydration integrations under
+  # test-only :local/root deps). It was omitted from this local rigorous
+  # sweep even though every sibling per-feature artefact is listed; a
+  # resources-only change therefore skipped the JVM tier locally. Added
+  # here alongside the matching jvm-resources PR-CI job (test.yml).
+  implementation/resources
   # rf2-gj2ae — the adversarial-property security tier is `.cljc` and
   # advertises a cross-runtime contract (e.g. `re-frame.security.gen`'s
   # JVM `:clj` `long`-multiply vs the CLJS `Math.imul` arm, pinned by

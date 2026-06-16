@@ -255,7 +255,7 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/security/*|implementation/deps.edn)
+      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/deps.edn)
         # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
         # artefact changes are covered by their own JVM + CLJS unit
         # suites (implementation_jvm, cljs_browser, cljs_prod) and by
@@ -263,6 +263,18 @@ else
         # adapter-testbed-smokes only catch adapter-mount-specific bugs
         # (createRoot lifecycle, hydration, real concurrent scheduling).
         # Nightly + post-merge gate runs the full matrix.
+        #
+        # rf2-dxndhc — implementation/resources/* (the EP-0003
+        # day8/re-frame2-resources artefact, on the root CLJS/test
+        # classpath via implementation/deps.edn + shadow-cljs.edn) was
+        # NOT routed here before: a PR touching only resources/* left
+        # every output false, so the aggregator could pass with the
+        # jvm-resources suite + the consolidated :node-test resources
+        # surface both skipped. It is a published, src-carrying
+        # per-feature artefact exactly like schemas/ssr/…, so it gets the
+        # full per-feature treatment (implementation_jvm fires the
+        # jvm-resources job added in test.yml; cljs_node_test/cljs_browser/
+        # cljs_prod/bundle_isolation cover its CLJS surface + isolation).
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
@@ -306,6 +318,54 @@ else
         case "$file" in
           implementation/machines/*) playground=true ;;
         esac
+        ;;
+      implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*)
+        # rf2-dxndhc — the three EP cross-conformance tiers
+        # (reply-conformance / derivation-conformance / event-conformance)
+        # are src-less `.cljc` TEST surfaces on the root test classpath
+        # (implementation/deps.edn + shadow-cljs.edn list them). They run
+        # in BOTH runtimes: the always-on consolidated `:node-test` gate
+        # (the `cljs` job, gated on cljs_node_test) runs the `:cljs` arms,
+        # and each tier's own `:test` alias runs the SAME `.cljc`
+        # namespaces under the JVM to exercise the `:clj` reader-conditional
+        # arms (the JVM jobs added in test.yml, gated on implementation_jvm;
+        # mirrors the security tier). Before rf2-dxndhc a PR touching only
+        # one of these tiers left every output false, so the aggregator
+        # could pass with both the JVM `:clj`-arm job AND the consolidated
+        # node-test surface skipped. They ship NO production src (no Maven
+        # artefact), so they do NOT widen any production bundle — hence no
+        # cljs_browser / cljs_prod / bundle_isolation here (the security
+        # tier, the precedent, is likewise off those).
+        implementation_jvm=true
+        cljs_node_test=true
+        ;;
+      implementation/test-quiet/src/*|implementation/test-quiet/test/*|implementation/test-quiet/deps.edn)
+        # rf2-am7grp — implementation/test-quiet is the test-runtime
+        # quiet-reporter artefact (day8/re-frame2-test-quiet, rf2-try1x):
+        # the JVM runner (re-frame.test-quiet.runner, runner.clj — the
+        # `:main-opts` of EVERY per-artefact `:test` alias) AND the CLJS
+        # shadow-node runner (re-frame.test-quiet.shadow-node, the
+        # `:node-test` build's `:main` in implementation/shadow-cljs.edn).
+        # Before this case the classifier had NO rule for test-quiet/**,
+        # so a PR changing the quiet reporter implementation, its runners,
+        # its deps.edn, or its contract tests left every output false — the
+        # JVM quiet-runner contract (test_quiet_runner_contract_test.clj,
+        # test_quiet_pin*_test.clj) and the CLJS node-test quiet reporter
+        # contract (test_quiet_shadow_node_cljs_test.cljs, the green/red
+        # fixture cljs tests) BOTH skipped, leaving js-harness-self-tests
+        # (which only runs the JS script policy/helper tests, never the
+        # quiet reporter's own :test or the consolidated :node-test pins)
+        # as the sole — insufficient — verifier.
+        #
+        # Fire implementation_jvm so the per-artefact JVM `:test` aliases
+        # (which route through the quiet runner) re-run the runner contract
+        # at PR time, and cljs_node_test so the consolidated `:node-test`
+        # build (whose `:main` IS the CLJS quiet runner) exercises the
+        # shadow-node reporter + its contract tests. Scoped to src/test/
+        # deps.edn only; no broadening onto unrelated docs/spec paths and
+        # no reliance on js-harness-self-tests as the sole verifier.
+        implementation_jvm=true
+        cljs_node_test=true
         ;;
       spec/conformance/fixtures/*)
         # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
