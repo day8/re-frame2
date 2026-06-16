@@ -214,6 +214,51 @@
      :cljs (try (resolve 'malli.core/validate)
                 (catch :default _ nil))))
 
+(defn- patch-shape
+  "Value-free shape summary of one (malformed) patch tuple, for an
+  egress-safe diagnostic. A patch is `[<path> <op> <value?>]`; the
+  `<value>` at position 2 is the app-db leaf the egress policy expects
+  to stay projected, so it is DELIBERATELY excluded. The path is a
+  vector of structural keys (the breadcrumb the encoder walked), the op
+  is a grammar keyword, and the arity disambiguates assoc/dissoc — all
+  value-free. A non-vector patch reports only its type."
+  [patch]
+  (if (vector? patch)
+    {:path  (when (vector? (nth patch 0 nil)) (nth patch 0 nil))
+     :op    (let [op (nth patch 1 nil)] (when (keyword? op) op))
+     :arity (count patch)}
+    {:type (some-> patch type pr-str)}))
+
+(defn- section-shape
+  "Value-free shape summary of one (malformed) section map. A section is
+  `{:section-path [...] :section-kind k :patches [...]}`; the nested
+  `:patches` can carry app-db leaf values, so it is excluded — only the
+  structural breadcrumb, the kind keyword, and a value-free patch count
+  are reported. A non-map section reports only its type."
+  [section]
+  (if (map? section)
+    {:section-path (let [p (:section-path section)] (when (vector? p) p))
+     :section-kind (let [k (:section-kind section)] (when (keyword? k) k))
+     :patch-count  (let [ps (:patches section)] (when (counted? ps) (count ps)))}
+    {:type (some-> section type pr-str)}))
+
+(defn- first-bad
+  "Walk `data` (the offending sequential batch) and return
+  `[bad-index element-summary]` for the FIRST element that fails
+  `element-schema`, using `summarize` to render a value-free shape of
+  that element. Returns `nil` when `data` is not a sequential batch or
+  when no individual element is at fault (the batch shape itself —
+  e.g. a non-sequential value — is the violation; the count/shape slots
+  already convey that). `summarize` never receives or emits the raw leaf
+  value, so the result is egress-safe."
+  [validate element-schema data summarize]
+  (when (sequential? data)
+    (loop [i 0 xs (seq data)]
+      (when xs
+        (if (validate element-schema (first xs))
+          (recur (inc i) (next xs))
+          [i (summarize (first xs))])))))
+
 (defn- validate-against!
   "Shared soft-pass Malli gate behind `validate-patches!` /
   `validate-sections!`. Validates `data` against `schema` and throws
@@ -224,21 +269,37 @@
 
   `where` is the calling-site symbol threaded through to the ex-info
   `:where` slot so it reflects the ACTUAL wire boundary that tripped
-  (rf2-4ypau) rather than a hardcoded one side. `data-key` names the
-  ex-data slot the offending value rides under (`:patches` /
-  `:sections`) so an operator reading the ex-data finds it under the
-  shape it expected. Returns nil."
-  [schema data where error-id reason data-key]
+  (rf2-4ypau) rather than a hardcoded one side.
+
+  ## Egress-safe diagnostics (EP-0015)
+
+  The diff-encode wire carries epoch `:db-before` / `:db-after`
+  payloads, so the VALUE side of an `:assoc` patch (and any map a
+  section's `:patches` carries) can be an app-db leaf the egress policy
+  expects to stay projected / redacted. The thrown diagnostic must NOT
+  smuggle that value back out — neither under a `:patches` / `:sections`
+  ex-data slot, nor in the exception message, nor in any value reachable
+  via `pr-str`. So the offending `data` is NEVER stored raw. Instead the
+  diagnostic carries value-FREE shape: the error id, boundary `:where`,
+  `:recovery`, `:reason`, the static grammar `:schema` (the encoder's
+  own definition — no app-db content), a `:count` of the batch, and —
+  when the batch is sequential — the first failing element's
+  `:bad-index` and a value-free `:shape` (path / op / kind / arity /
+  type, never the leaf value). This mirrors `assoc-in-safe`, which
+  reports path + parent TYPE instead of the parent VALUE."
+  [schema element-schema data where error-id reason summarize]
   (when validate-patches?
     (when-let [validate (resolve-malli-validate)]
       (when-not (validate schema data)
-        (throw (ex-info (str error-id)
-                        {:rf.error/id error-id
-                         :where       where
-                         :recovery    :no-recovery
-                         :reason      reason
-                         :schema      schema
-                         data-key     data})))))
+        (let [[bad-index shape] (first-bad validate element-schema data summarize)]
+          (throw (ex-info (str error-id)
+                          (cond-> {:rf.error/id error-id
+                                   :where       where
+                                   :recovery    :no-recovery
+                                   :reason      reason
+                                   :schema      schema
+                                   :count       (when (counted? data) (count data))}
+                            bad-index (assoc :bad-index bad-index :shape shape))))))))
   nil)
 
 (defn- validate-patches!
@@ -253,12 +314,13 @@
   `'mcp-base/apply-patches` from the decoder. Both boundaries call
   this; hardcoding one side misattributes a decode-side throw to the
   encoder and misleads operator triage about which side of the wire
-  drifted."
+  drifted. The thrown diagnostic is value-free (EP-0015): it reports the
+  first bad patch's path / op / arity, never the patch VALUE."
   [patches where]
-  (validate-against! patches-schema patches where
+  (validate-against! patches-schema patch-schema patches where
                      :rf.error/bad-diff-patches
                      "diff-encode patch grammar violated"
-                     :patches))
+                     patch-shape))
 
 (defn- validate-sections!
   "Validate `sections` against `sections-schema` and throw ex-info on
@@ -270,12 +332,14 @@
   (rf2-4ypau): `'mcp-base/diff-encode-db-after` from the encoder
   (after the section-grouping pass, rf2-qeous), `'mcp-base/decode-db-after`
   from the decoder. Both boundaries call this; hardcoding one side
-  misattributes a decode-side throw to the encoder."
+  misattributes a decode-side throw to the encoder. The thrown
+  diagnostic is value-free (EP-0015): it reports the first bad section's
+  breadcrumb / kind / patch-count, never the nested patch VALUEs."
   [sections where]
-  (validate-against! sections-schema sections where
+  (validate-against! sections-schema section-schema sections where
                      :rf.error/bad-diff-sections
                      "diff-encode section grammar violated"
-                     :sections))
+                     section-shape))
 
 (declare collect-patches-into)
 

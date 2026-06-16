@@ -1,7 +1,8 @@
 (ns re-frame.mcp-base.diff-encode-test
   "Tests for the path-keyed structural diff used at the MCP wire
   boundary (rf2-1wdzp, shared across both servers via rf2-vw4sq)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.mcp-base.diff-encode :as de]))
 
@@ -525,6 +526,87 @@
         (catch clojure.lang.ExceptionInfo e
           (is (= 'mcp-base/apply-patches (:where (ex-data e)))
               "decoder caller threads its own site"))))))
+
+;; ---------------------------------------------------------------------------
+;; Sanitized validation diagnostics (EP-0015 egress-policy).
+;;
+;; The diff-encode wire boundary carries epoch :db-before/:db-after
+;; payloads, so the *value* side of an `:assoc` patch (and any map a
+;; section's :patches carries) can be an app-db leaf the egress policy
+;; expects to stay projected / redacted. A malformed patch/section that
+;; trips the Malli gate must not smuggle that value back out through the
+;; exception — neither in the message, the ex-data, nor the pr-str of the
+;; thrown data. The replacement diagnostic carries value-FREE shape only
+;; (error id, boundary, recovery, reason, schema identity, count, and the
+;; first bad index / path / op / element type), mirroring `assoc-in-safe`
+;; which reports path + parent TYPE rather than the parent VALUE.
+;; ---------------------------------------------------------------------------
+
+(defn- secret-absent?
+  "True when `secret` appears nowhere in the thrown ExceptionInfo's
+  message, the pr-str of its ex-data, or the pr-str of any individual
+  ex-data value — the three egress surfaces a diagnostic can leak from."
+  [^clojure.lang.ExceptionInfo e secret]
+  (let [data (ex-data e)]
+    (and (not (clojure.string/includes? (str (.getMessage e)) secret))
+         (not (clojure.string/includes? (pr-str data) secret))
+         (every? (fn [[_ v]] (not (clojure.string/includes? (pr-str v) secret)))
+                 data))))
+
+(deftest validate-patches!-diagnostics-omit-raw-patch-values
+  ;; A malformed patch whose VALUE side is an obvious secret must not
+  ;; appear anywhere reachable from the thrown exception.
+  (let [secret "s3cr3t-token-DO-NOT-LEAK"
+        ;; Malformed: 3-element :dissoc tuple is rejected by the grammar,
+        ;; but the trailing element carries the secret payload.
+        bad    [[[:user :api-key] :dissoc secret]]]
+    (try
+      (#'de/validate-patches! bad 'mcp-base/diff-encode-db-after)
+      (is false "expected the grammar gate to throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/bad-diff-patches (:rf.error/id (ex-data e))))
+        (is (secret-absent? e secret)
+            "the raw patch value must not leak via message / ex-data / pr-str")
+        ;; Value-free shape info is retained for triage.
+        (let [data (ex-data e)]
+          (is (= 'mcp-base/diff-encode-db-after (:where data)))
+          (is (= :no-recovery (:recovery data)))
+          (is (string? (:reason data)))
+          (is (nil? (:patches data)) "the raw :patches slot is gone")
+          (is (= 1 (:count data)) "value-free count of the offending batch")
+          (is (= 0 (:bad-index data)) "first bad element index"))))))
+
+(deftest validate-patches!-diagnostics-omit-secret-map-leaf
+  ;; The :assoc VALUE can itself be a map of secrets; even a well-typed
+  ;; tuple that fails for an unrelated reason (bad op) must not carry it.
+  (let [secret "pw-9f3a-LEAK"
+        bad    [[[:session] :replace {:password secret :token secret}]]]
+    (try
+      (#'de/validate-patches! bad 'mcp-base/apply-patches)
+      (is false "expected throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (secret-absent? e secret)
+            "a secret map carried as the patch value must not leak")
+        (is (= 'mcp-base/apply-patches (:where (ex-data e))))))))
+
+(deftest validate-sections!-diagnostics-omit-raw-section-values
+  ;; A section's nested :patches can carry secret values; a malformed
+  ;; section that trips the sections gate must not leak them.
+  (let [secret "section-secret-XYZ-LEAK"
+        bad    [{:section-path :not-a-vector ;; malformed → trips the gate
+                 :section-kind :modified
+                 :patches      [[[:creds :password] :assoc secret]]}]]
+    (try
+      (#'de/validate-sections! bad 'mcp-base/decode-db-after)
+      (is false "expected the sections gate to throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/bad-diff-sections (:rf.error/id (ex-data e))))
+        (is (secret-absent? e secret)
+            "the raw section/patch value must not leak via message / ex-data / pr-str")
+        (let [data (ex-data e)]
+          (is (nil? (:sections data)) "the raw :sections slot is gone")
+          (is (= 1 (:count data)))
+          (is (= 0 (:bad-index data))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Decoder-boundary validation (rf2-8e61v / F17).
