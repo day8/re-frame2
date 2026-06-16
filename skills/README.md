@@ -224,9 +224,10 @@ Skills do not run independently of re-frame2's CI; their workflows have
 been removed in favour of release coordination through re-frame2's own
 release pipeline. See each skill's `RELEASING.md` (where present) for
 historical npm publish mechanics. Deterministic structural tests for
-`re-frame2-pair/` and `shared/` are wired into `.github/workflows/test.yml`
-only when those skill paths change; behavioural replay fixtures remain
-manual/diagnostic and are not required PR coverage.
+`re-frame2-pair/`, `shared/`, and `re-frame2-setup/` are wired into
+`.github/workflows/test.yml` only when those skill paths change;
+behavioural replay fixtures remain manual/diagnostic and are not required
+PR coverage.
 
 ### Leaf size discipline
 
@@ -336,14 +337,18 @@ rather than theoretical attacks.
   `--label`): keep them agent-authored / from a fixed set, never
   interpolated from evidence.
 
-### Test-fixture discipline — only `re-frame2-pair/` and `shared/` ship tests
+### Test-fixture discipline — which skills ship tests
 
-Of the skills in this corpus, **only [`re-frame2-pair/`](./re-frame2-pair/)
-and [`shared/`](./shared/) ship a `tests/` directory** (see
+Of the skills in this corpus, **three ship a `tests/` directory**:
+[`re-frame2-pair/`](./re-frame2-pair/), [`shared/`](./shared/), and
+[`re-frame2-setup/`](./re-frame2-setup/) (see
 [`re-frame2-pair/tests/`](./re-frame2-pair/tests/) —
 `e2e/`, `fixture/`, `prompts/`, `runtime/`, `shim/` —
-and [`shared/tests/`](./shared/tests/) —
-`retro_protocol_test.clj` + `fixtures/`). The asymmetry is intentional,
+[`shared/tests/`](./shared/tests/) —
+`retro_protocol_test.clj` + `fixtures/` — and
+[`re-frame2-setup/tests/`](./re-frame2-setup/tests/) —
+`setup_drift_test.clj`). Each earns its tests under the Rule of thumb
+below; the rest of the corpus does not. The asymmetry is intentional,
 not an oversight. Future skill-authors: do not add a `tests/` dir to a
 pure-doc skill on cargo-cult grounds.
 
@@ -355,8 +360,8 @@ spin up a fixture app, run the tool surface, assert observable effects.
 Regressions in the runtime helper namespace or the Tool-Pair consumer
 contract show up as test failures; the fixtures exist to catch them.
 
-**Why the other skills don't ship tests.** Every other skill in this
-corpus is **pure documentation** — orchestrator `SKILL.md` plus reference
+**Why the remaining skills don't ship tests.** The rest of the corpus is
+**pure documentation** — orchestrator `SKILL.md` plus reference
 leaves under `reference/`, `patterns/`, `decision-trees/`, etc. There is
 no runtime surface to assert against. The quality gate for pure-doc
 skills is the authoring conventions catalogued elsewhere in this README
@@ -374,9 +379,23 @@ pins load-bearing phrasings; the document-runnable fixtures
 ([`shared/tests/fixtures/`](./shared/tests/fixtures/)) cover the
 behavioural axis.
 
+**Why `re-frame2-setup/` is the third exception.** The setup skill is
+prose, but the prose is a **contract boundary**: it teaches load-bearing
+generator/build coordinates (the build-discipline lockstep framing,
+template-pin parity across substrates, the dev/prod CSP split, the
+schema-missing-is-loud contract, the canonical `shadow-cljs.edn` block,
+and so on) that must stay in lockstep with the generator template and the
+spec. A silent drift in any of those phrasings would teach a setup that
+no longer matches the framework. The structural drift guard
+([`re-frame2-setup/tests/setup_drift_test.clj`](./re-frame2-setup/tests/setup_drift_test.clj))
+pins those coordinates so the drift surfaces as a test failure instead of
+shipped misinformation. This is the same Rule-of-thumb clause (b) backstop
+as `shared/` — a contract boundary whose prose locks justify a regression
+suite — applied to a coordination surface rather than a security one.
+
 **Rule of thumb.** A skill warrants a `tests/` dir iff (a) it ships an
 executable surface (scripts, MCP server, runtime helpers, structured
-tool-call shapes), or (b) it is a **security boundary** whose prose
-locks justify a regression backstop. If the skill is
-leaves-plus-orchestrator on a non-security surface, the authoring
+tool-call shapes), or (b) it is a **security or contract boundary** whose
+prose locks justify a regression backstop. If the skill is
+leaves-plus-orchestrator on a non-boundary surface, the authoring
 conventions are the test.
