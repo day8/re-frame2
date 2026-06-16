@@ -148,9 +148,14 @@
     (is (= [] (get-in out [:stories :traces])))))
 
 (deftest scrub-snapshot-leaves-non-trace-slices-alone
-  ;; App-db payload redaction is `redact-interceptor`'s job, not the
-  ;; forwarder's. The scrubber must NOT touch :app-db / :sub-cache /
-  ;; :machines even when they carry literal "sensitive"-looking shapes.
+  ;; `scrub-snapshot` is a TRACE/EPOCH sensitivity filter only — NOT the
+  ;; complete snapshot privacy boundary. It deliberately does not descend
+  ;; into :app-db / :sub-cache / :machines, so those slices pass through
+  ;; UNPROJECTED. The caller's egress pipeline (EP-0015 `project-egress`
+  ;; under the frame's classification + an `:rf.egress/*` profile) is
+  ;; responsible for projecting those non-trace slices BEFORE they cross
+  ;; an MCP/tool boundary. This test pins the shallow-by-design contract:
+  ;; the scrubber output is NOT already-projected full-snapshot output.
   (let [snap {:rf/default
               {:app-db    {:password "still-here" :sensitive? true}
                :sub-cache {:user/profile {:sensitive? true :data "x"}}
@@ -158,11 +163,36 @@
                :traces    [{:id 1}]}}
         [out _] (sensitive/scrub-snapshot snap false)]
     (is (= {:password "still-here" :sensitive? true}
-           (get-in out [:rf/default :app-db])))
+           (get-in out [:rf/default :app-db]))
+        "non-trace slices ride through raw — the CALLER's egress projector must project them")
     (is (= {:user/profile {:sensitive? true :data "x"}}
            (get-in out [:rf/default :sub-cache])))
     (is (= {:auth {:state :idle}}
            (get-in out [:rf/default :machines])))))
+
+(deftest scrub-snapshot-is-not-a-full-snapshot-projector
+  ;; rf2-cj75yv: a consumer must not mistake `scrub-snapshot` output for
+  ;; already-projected full-snapshot output. The function does ONE thing —
+  ;; filter sensitive trace events out of :traces / :epochs — and leaves
+  ;; the value-carrying slices (:app-db / :sub-cache / :machines) exactly
+  ;; as it found them. There is NO write-time redaction model standing in
+  ;; for the egress projection EP-0015 requires; this test fails loudly if
+  ;; a future change starts redacting non-trace payloads here (which would
+  ;; wrongly imply the scrubber is the complete privacy boundary) OR stops
+  ;; filtering traces (its actual job).
+  (let [secret-db {:password "leak-me" :token {:value "abc"}}
+        snap      {:rf/default
+                   {:app-db   secret-db
+                    :traces   [{:id 1 :sensitive? true} {:id 2}]}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    ;; The trace filter DID run (its job): the sensitive trace event is gone.
+    (is (= 1 dropped) "sensitive trace event was dropped")
+    (is (= [{:id 2}] (get-in out [:rf/default :traces])))
+    ;; The value-carrying slice is byte-identical — UNPROJECTED. A caller
+    ;; that ships this slice off-box without running `project-egress` over
+    ;; it leaks `secret-db`; the scrubber explicitly does not own that.
+    (is (identical? secret-db (get-in out [:rf/default :app-db]))
+        "scrub-snapshot leaves :app-db unprojected — it is NOT a full-snapshot privacy boundary")))
 
 (deftest scrub-snapshot-include-opt-in-passes-everything
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true}
