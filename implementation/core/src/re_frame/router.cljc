@@ -9,6 +9,7 @@
   any further external event is processed for that frame, and before any
   view re-renders."
   (:require [re-frame.frame :as frame]
+            [re-frame.elision :as elision]
             [re-frame.live-frame :as live-frame]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
@@ -1172,6 +1173,21 @@
                          "diagnostic).")}))
     (if (or app-effect? rt-effect?)
       (let [emit-event (privacy/redacted-event-from-ctx ctx)
+            ;; rf2-gom797: a whole-value `:rf.db/runtime` effect REPLACES the
+            ;; runtime-db partition (decision #5), but the elision declaration
+            ;; registry at `[:rf.runtime/elision]` is a CROSS-CUTTING durable
+            ;; subsystem child written OUT-OF-BAND by `reg-flow` / `add-marks` /
+            ;; frame-classification — not by the event returning the effect. An
+            ;; effect that seeds an unrelated subsystem (e.g.
+            ;; `:rf.runtime/routing`) and omits `:rf.runtime/elision` would
+            ;; otherwise drop the registry on commit, silently losing every
+            ;; declaration that correctly redacted PRE-commit. Reconcile the
+            ;; effect value against the pre-commit runtime-db so the registry
+            ;; survives unless the effect speaks about it explicitly (a
+            ;; full-frame install / deliberate clear is honoured verbatim).
+            new-runtime-db (when rt-effect?
+                             (elision/reconcile-runtime-db-effect
+                               (:rf.db/runtime effects) runtime-before))
             ;; Map the EFFECT keys (:db / :rf.db/runtime) to the frame-state
             ;; PARTITION keys (:rf.db/app / :rf.db/runtime). `:db` scopes to
             ;; the app-db partition; `:rf.db/runtime` to runtime-db. A
@@ -1179,8 +1195,7 @@
             ;; `commit-frame-transition!`. `new-db` is the nil-coerced value.
             partitions (cond-> {}
                          app-effect? (assoc frame/app-partition-key     new-db)
-                         rt-effect?  (assoc frame/runtime-partition-key (:rf.db/runtime effects)))
-            new-runtime-db (:rf.db/runtime effects)
+                         rt-effect?  (assoc frame/runtime-partition-key new-runtime-db))
             ;; ONE atomic frame-state install. Returns the set of partition
             ;; keys that actually changed by `=`.
             changed    (frame/commit-frame-transition! frame partitions)
