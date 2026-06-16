@@ -8,8 +8,8 @@
     project-all        -- one fused reducer pass producing the
                           `:sub-runs`, `:renders`, `:effects` slots.
     find-trigger-event -- one walk extracting `:event-id` + `:event`
-                          + `:dispatch-id` from the cascade's first
-                          `:event/run-start`, with a `:event-id`-only
+                          + `:dispatch-id` + `:rf.cofx` from the cascade's
+                          first `:event/run-start`, with a `:event-id`-only
                           fallback.
 
   Per rf2-0wi86 Phase-2 seam B: this namespace owns the cascade-buffer
@@ -647,8 +647,20 @@
 
 (defn find-trigger-event
   "Walk the buffered events to find the first :event/run-start trace.
-  That carries the `:event`, `:event-id` AND `:dispatch-id` for the
-  cascade.
+  That carries the `:event`, `:event-id`, `:dispatch-id` AND the
+  post-generation `:rf.cofx` replay token for the cascade.
+
+  Per rf2-1xdotm: the run-start's `:rf.event/cofx` tag is the POST-
+  GENERATION flat `:rf.cofx` map (the causal cofx as it was after the
+  router's declared-only delivery ran — every generator-backed recordable
+  fact minted at processing-start written back into the in-flight
+  `:rf.cofx`, plus the framework `:rf/time-ms`). It is surfaced here so
+  `build-record` can pin it as a first-class `:rf.cofx` slot, and a
+  Tool-Pair replay can re-present the EXACT facts the original run consumed
+  under `:rf.cofx/mint-policy :strict` (EP-0017 §Recordable coeffects +
+  Tool-Pair §Replay-mint-policy). The slot is dev-only at the source (the
+  run-start emit is gated on `interop/debug-enabled?`) and absent on the
+  fallback arm (a no-run-start cascade carried no delivered cofx).
 
   When the cascade had no successful event handler (e.g. an unknown
   event id or a frame-destroyed dispatch), no :run-start fires; fall
@@ -687,10 +699,14 @@
                 ;; Tag-key reads use the :rf.* namespaced scheme
                 ;; (rf2-y4qpy.2); the run-start's :dispatch-id is surfaced
                 ;; as a first-class return slot (rf2-rly4a) read off the
-                ;; namespaced :rf.trace/dispatch-id tag.
+                ;; namespaced :rf.trace/dispatch-id tag. Per rf2-1xdotm the
+                ;; post-generation `:rf.cofx` replay token rides the run-start
+                ;; under `:rf.event/cofx` (dev-only at source) and is surfaced
+                ;; here so `build-record` pins it as a first-class slot.
                 (reduced {:run-start {:event-id    (:rf.trace/event-id tags)
                                       :event       (:rf.event/v tags)
-                                      :dispatch-id (:rf.trace/dispatch-id tags)}})
+                                      :dispatch-id (:rf.trace/dispatch-id tags)
+                                      :rf.cofx     (:rf.event/cofx tags)}})
                 ;; Capture the first :event-id we see as the fallback.
                 ;; Per rf2-7kxxx: do NOT fabricate `:event` — when the
                 ;; tag is absent we leave the field nil so downstream
