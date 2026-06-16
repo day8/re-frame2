@@ -126,20 +126,33 @@
     (let [xray-gen    (image-assembly/assemble [(reads/xray-image)] combined-pool)
           target-gen  (image-assembly/assemble [target-image] combined-pool)
           xray-keys   (reads/resolver-keyset xray-gen)
-          target-keys (reads/resolver-keyset target-gen)]
+          target-keys (reads/resolver-keyset target-gen)
+          ;; The APPLICATION-owned keysets exclude the framework standard the
+          ;; assembly unions into EVERY generation (`:rf.interceptor/path`,
+          ;; stamped :standard true; rf2-32siq3.41) — a framework standard is
+          ;; shared by every frame by construction, NOT a leak between images.
+          xray-app    (reads/application-resolver-keyset xray-gen)
+          target-app  (reads/application-resolver-keyset target-gen)]
       ;; Each frame resolves ITS own ids.
       (is (contains? xray-keys [:event :rf.xray/refresh])
           "Xray's frame resolves Xray's own [kind id]")
       (is (contains? target-keys [:event :counter/inc])
           "the target's frame resolves the target's own [kind id]")
-      ;; Bidirectional non-leakage: no Xray id in the target's keyset, and no
-      ;; target id in Xray's keyset.
-      (is (empty? (set/intersection xray-keys target-keys))
-          "the two resolver keysets are disjoint")
-      (is (every? (fn [[_ id]] (not= "rf.xray" (namespace id))) target-keys)
+      ;; The framework standard rides into BOTH generations (the rf2-32siq3.41
+      ;; fix: the standard registry is no longer empty) — shared by construction,
+      ;; so it is excluded from the leak comparison rather than flagged.
+      (is (contains? xray-keys [:interceptor :rf.interceptor/path])
+          "the framework standard is unioned into Xray's generation")
+      (is (contains? target-keys [:interceptor :rf.interceptor/path])
+          "the framework standard is unioned into the target's generation too")
+      ;; Bidirectional non-leakage on the APPLICATION-owned keysets: no Xray app
+      ;; id in the target's app keyset, and no target app id in Xray's.
+      (is (empty? (set/intersection xray-app target-app))
+          "the two APPLICATION-owned resolver keysets are disjoint")
+      (is (every? (fn [[_ id]] (not= "rf.xray" (namespace id))) target-app)
           "no :rf.xray/* id leaked INTO the target frame's image")
-      (is (every? (fn [[_ id]] (= "rf.xray" (namespace id))) xray-keys)
-          "no target id leaked INTO Xray's image"))))
+      (is (every? (fn [[_ id]] (= "rf.xray" (namespace id))) xray-app)
+          "no target id leaked INTO Xray's image (app-owned ids are all :rf.xray/*)"))))
 
 ;; ---- live reads of the real registry (fail-soft seam) --------------------
 
@@ -150,14 +163,26 @@
     ;; registered under an :id so it enters the live-frame registry.
     (live-frame/make-frame {:id :app/main :images [target-image]} target-pool)
     (let [data (reads/image-view-data)
-          row  (first (filter #(= :app/main (:frame-id %)) (:frames data)))]
+          row  (first (filter #(= :app/main (:frame-id %)) (:frames data)))
+          kids (set (map (juxt :kind :id) (:descriptors (:image row))))]
       (is (true? (:images? data)) "a live image-loaded frame → :images? true")
       (is (some? row) "the registered frame is projected")
-      (is (= 2 (:descriptor-count (:image row)))
-          "the frame's resolved image carries its [kind id] descriptors")
-      (is (contains? (set (map (juxt :kind :id) (:descriptors (:image row))))
-                     [:event :counter/inc])
-          "the resolved descriptor set is the frame's image as a value"))))
+      ;; EP-0023 §Image: the resolved generation = the 2 selected application
+      ;; descriptors + the framework-standard registrations the assembly unions
+      ;; into EVERY generation (`:rf.interceptor/path`, stamped :standard true;
+      ;; rf2-32siq3.41) — so the frame resolves 3 [kind id] entries, not 2.
+      (is (= 3 (:descriptor-count (:image row)))
+          "the frame's resolved image carries its 2 app descriptors + the
+           framework standard the assembly unions in")
+      (is (contains? kids [:event :counter/inc])
+          "the resolved descriptor set is the frame's image as a value")
+      (is (contains? kids [:interceptor :rf.interceptor/path])
+          "the framework standard :rf.interceptor/path rides into the generation")
+      (let [std-row (first (filter #(= [:interceptor :rf.interceptor/path]
+                                       [(:kind %) (:id %)])
+                                   (:descriptors (:image row))))]
+        (is (= :rf.prov/standard (:kind (:provenance std-row)))
+            "the standard is surfaced with the framework-standard provenance marker")))))
 
 (deftest live-reads-fail-soft-empty-registry
   (testing "an empty live-frame registry projects to the honest no-image state"

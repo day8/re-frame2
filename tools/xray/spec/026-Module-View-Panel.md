@@ -306,9 +306,18 @@ shared registration state:
 `image_view_reads/xray-image-isolated-from?` is the registration-disjointness
 predicate, and the proof is on the **REAL non-leakage invariant**, not a proxy:
 it **assembles BOTH images into sealed generations and compares their
-`:rf.gen/resolver` KEYSETS** (the `[kind id]` pairs each frame would resolve),
-returning true iff those keysets are DISJOINT. This is stronger than comparing
-the `:rf.image/include-ns` selector STRINGS (the prior proxy): different globs
+APPLICATION-OWNED `:rf.gen/resolver` KEYSETS** (the `[kind id]` pairs each frame
+would resolve, EXCLUDING the framework-standard registrations), returning true
+iff those application-owned keysets are DISJOINT. The exclusion is load-bearing
+(rf2-32siq3.41): EP-0023 assembly unions the framework standards (e.g.
+`[:interceptor :rf.interceptor/path]`, stamped `:standard true`) into **every**
+resolved generation, so a framework standard is shared by every frame *by
+construction* — it is the framework, not a leak between two application images.
+Comparing the full keysets would therefore report a false-positive overlap on
+the shared standard; `application_resolver_keyset` filters the `:standard true`
+descriptors out before the comparison, so the predicate measures the genuine
+application-registration leak. This is stronger than comparing the
+`:rf.image/include-ns` selector STRINGS (the prior proxy): different globs
 can select OVERLAPPING namespaces, and inline `:registrations` carry no
 `:include-ns` selector at all, yet either can introduce a shared `[kind id]` —
 the keyset comparison catches both, the string comparison neither. The
@@ -321,8 +330,9 @@ live source store — the production-runtime check) and an explicit-pool arity
 form). The `image_view_reads_cljs_test` asserts the isolation **bidirectionally**
 against assembled generations — including the load-bearing case where two
 DIFFERENT globs select OVERLAPPING namespaces (a constructed overlap the string
-proxy would mislabel isolated, the keyset check correctly reports NOT isolated)
-— the assertion the .29 dogfooding review verifies.
+proxy would mislabel isolated, the keyset check correctly reports NOT isolated),
+and that the framework standard rides into BOTH generations yet is excluded from
+the leak comparison — the assertion the .29 dogfooding review verifies.
 
 ### §8.2 Demand-gating & empty state
 
@@ -363,10 +373,15 @@ does not flip `:images?` (there is no image content to show).
   core surfaces (`re-frame.live-frame` / `re-frame.image` /
   `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor
   (`xray-image` · `xray-image-id` · `xray-source-glob` · `resolver-keyset` ·
-  `xray-image-isolated-from?`). `resolver-keyset` is the `[kind id]`-keyset
-  reader the strengthened predicate compares; `xray-image-isolated-from?`
-  assembles both images and compares those keysets (live-store + explicit-pool
-  arities, fail-soft to a conservative `false`). Xray may require these core
+  `application-resolver-keyset` · `xray-image-isolated-from?`).
+  `resolver-keyset` is the full `[kind id]`-keyset reader (every resolved
+  registration, framework standards included — what the FRAMES section
+  displays); `application-resolver-keyset` is the application-owned subset
+  (excluding the `:standard true` framework standards the assembly unions into
+  every generation — rf2-32siq3.41) that the disjointness predicate compares;
+  `xray-image-isolated-from?` assembles both images and compares those
+  application-owned keysets (live-store + explicit-pool arities, fail-soft to a
+  conservative `false`). Xray may require these core
   namespaces directly — bundle isolation forbids `implementation/` requiring
   from `tools/`, not the reverse, the same pattern Xray uses for
   `re-frame.frame` / `re-frame.registrar`. (The read seam's fail-soft is
