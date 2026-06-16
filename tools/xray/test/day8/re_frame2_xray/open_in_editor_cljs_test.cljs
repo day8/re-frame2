@@ -15,7 +15,7 @@
     e2e suite can target it.
   - `open-chip` hides when a `{:custom ...}` template resolves to a
     scheme outside `editor-uri/allowed-editor-uri-schemes`.
-  - rf2-g5q8d — `:rf.xray/open-in-editor` reg-event-fx produces a
+  - rf2-g5q8d — the `:rf.xray/open-in-editor` reg-event handler produces a
     `:rf.editor/open` fx with a URI resolved through the rf2-cm93v
     allowlist; runs on the `:rf/xray` frame without contaminating
     the host."
@@ -319,7 +319,7 @@
 ;; Per the rf2-3vucz audit, the four Xray panels (trace, issues-ribbon,
 ;; mcp-server, hydration-debugger) dispatch `[:rf.xray/open-in-editor
 ;; coord]` when their source-coord affordance is clicked. Pre-rf2-g5q8d
-;; the handler was a stub reg-event-db that recorded the coord into
+;; the handler was a stub db-only reg-event that recorded the coord into
 ;; app-db and never opened anything — load-bearing UX silently broken.
 ;;
 ;; The block below pins the contract of the rewired event-fx + fx pair:
@@ -486,7 +486,7 @@
           (is (= pre-db post-db)
               "Xray's app-db is untouched by the click — no
                `:last-open-in-editor-coord` etc. (the prior stub
-               reg-event-db's behaviour, removed by rf2-g5q8d)"))))))
+               db-only handler's behaviour, removed by rf2-g5q8d)"))))))
 
 (deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
   (testing "rf2-wn3bh — `:rf.editor/open` is invoked with the structured

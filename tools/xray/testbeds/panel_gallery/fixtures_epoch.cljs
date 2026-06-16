@@ -464,11 +464,11 @@
   [opts]
   [(epoch-record opts)])
 
-;; ---- VARIANT 1: vanilla reg-event-db cascade ----------------------------
+;; ---- VARIANT 1: vanilla db-only cascade ---------------------------------
 ;;
-;; Section coverage: DISPATCH + COEFFECT + HANDLER (reg-event-db
+;; Section coverage: DISPATCH + COEFFECT + HANDLER (:db-only effect-shape
 ;; flavour, with the `:db` FULL+DIFF sub-section) + SIDE EFFECTS (`:db`
-;; ✓ row — a bare reg-event-db that returns ONLY `:db` now lights the
+;; ✓ row — a bare db-only handler that returns ONLY `:db` now lights the
 ;; SIDE EFFECTS step's `:db` sub-step because `db-commit?` keys off
 ;; `:rf.event/db-changed`, rf2-kt6js) + SUBSCRIPTIONS + VIEWS. The
 ;; simplest possible counter-inc-style cascade — three subs / two views
@@ -481,7 +481,8 @@
 ;; the `— db-after not available` placeholder.
 
 (defn vanilla-db-history
-  "Vanilla `reg-event-db` cascade. One user-cofx, a single db path
+  "Vanilla `:db-only` cascade (a `reg-event` handler that returns only
+  `:db`). One user-cofx, a single db path
   mutation, two subs (one changed, one cached-unchanged), one view
   render. Carries db snapshots + t1 so the HANDLER `:db` diff + the
   SIDE EFFECTS `:db` ✓ row render against the current panel."
@@ -535,9 +536,9 @@
 ;; rf2-4wywy — db snapshots + t1 so the HANDLER `:db` FULL+DIFF block
 ;; renders alongside the SIDE EFFECTS `:db` ✓ row.
 
-(defn reg-event-fx-history
-  "`reg-event-fx` cascade that returns `:db` + a three-entry `:fx`
-  vector (a ran effect, an overridden effect, a platform-skipped
+(defn effectful-history
+  "`:effectful` cascade (a `reg-event` handler that returns `:db` + a
+  three-entry `:fx` vector — a ran effect, an overridden effect, a platform-skipped
   effect) + a stray top-level `:analytics` effect the runtime drops.
   Exercises the SIDE EFFECTS flat ledger (rf2-j630b) — the `:db` →
   app-db row, each per-effect glyph variant, and the `other` not-run
@@ -1149,7 +1150,7 @@
 ;;     fx throw does NOT roll the committed `:db` back; rf2-wnvid).
 
 (defn fx-exception-history
-  "`reg-event-fx` cascade whose `:db` committed cleanly but a post-commit
+  "`:effectful` cascade whose `:db` committed cleanly but a post-commit
   `:fx` handler (`:email/send`) threw. Exercises the SIDE EFFECTS step's
   per-`:fx`-row 'Exception Thrown' card (`attach-to-fx-error-row`), the
   row's ✗ tick, the `1 threw` header chip, and the NO-'Rolled back'

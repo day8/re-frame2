@@ -151,7 +151,7 @@ to find them. Two surfaces:
   highlighted, the schema source-coord linked.
 - **Per-violation drilldown** — click a schema-violation row → opens the
   Epoch panel for the cascade that produced it; the violating handler's
-  `reg-event-*` registration is linked.
+  `reg-event` registration is linked.
 
 This applies to: app-db shape violations, event coercion failures,
 fx-args validation failures, route param/query validation failures,

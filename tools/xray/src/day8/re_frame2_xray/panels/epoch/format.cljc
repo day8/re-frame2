@@ -642,21 +642,21 @@
 
   EP-0018 collapsed the three public event registrars onto the ONE public
   `reg-event` form, so the verb the panel surfaces is `reg-event` for BOTH
-  the db-only and the fx-bearing event flavours — the panel no longer names
-  the retired `reg-event-db` / `reg-event-fx` spellings. The internal
-  `:reg-event-db` / `:reg-event-fx` discriminator (read off the trace stream
+  the db-only and the fx-bearing event flavours. The internal
+  `:db-only` / `:effectful` discriminator (read off the trace stream
   by `projection/handler-flavour`) still drives WHICH sections the HANDLER
   body renders (a `:db`-only diff vs a `:db` diff plus per-fx blocks) — that
-  observed effect-shape distinction is real and useful — but it is an
-  internal classification, not a user-facing registrar name.
+  observed effect-shape distinction is real and useful — but it is a
+  behavior-based internal classification (what the handler returned), not a
+  user-facing registrar name.
 
   `:reg-machine` keeps its own verb: machines are a distinct registration
   concept (`reg-machine`), untouched by the event-registration collapse."
   [flavour]
   (case flavour
-    :reg-event-db  "reg-event"
-    :reg-event-fx  "reg-event"
-    :reg-machine   "reg-machine"
+    :db-only      "reg-event"
+    :effectful    "reg-event"
+    :reg-machine  "reg-machine"
     (str flavour)))
 
 (def machine-start-marker

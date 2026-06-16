@@ -259,7 +259,7 @@
          EP-0001 (rf2-vzld77 / rf2-tj6w9l): the route slice is durable
          routing RUNTIME-DB state at `[:rf.runtime/routing :current]`, no
          longer in app-db `:rf/runtime`. An event handler reads it off the
-         `:rf.db/runtime` coeffect every `reg-event-fx` receives — the
+         `:rf.db/runtime` coeffect every event handler receives — the
          canonical `:on-match` loader idiom (mirrors the realworld
          example's `:profile/load`)."}
   (fn handler-load-profile [{:keys [db] rt :rf.db/runtime} _ev]

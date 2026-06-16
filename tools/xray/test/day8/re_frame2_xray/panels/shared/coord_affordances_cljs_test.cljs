@@ -7,7 +7,7 @@
 
   `click_to_source_consolidation_test.clj` is a SOURCE-TEXT guard (it
   greps for bespoke dispatches). `open_in_editor_cljs_test.cljs` covers
-  the reg-event-fx RECEIVER and the static `open-chip` anchor — NOT the
+  the reg-event RECEIVER and the static `open-chip` anchor — NOT the
   rendering / click branches of these two shared helpers. So the
   load-bearing render contract was never exercised:
 

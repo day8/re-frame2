@@ -180,7 +180,7 @@ Every implementation leaf SHOULD ship at least one smoke test in its own
 
 - **View leaves** (Reagent fns rendering hiccup): render once, assert no
   throw and a key `data-testid` hook is present in the produced tree.
-- **Events leaves** (one or more `reg-event-*` calls inside `install!`):
+- **Events leaves** (one or more `reg-event` calls inside `install!`):
   call `install!`, dispatch one happy-path event, assert the resulting
   app-db transition.
 - **Subs leaves** (one or more `reg-sub` calls inside `install!`): call

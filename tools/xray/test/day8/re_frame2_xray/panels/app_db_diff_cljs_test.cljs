@@ -112,7 +112,7 @@
   RUNTIME-DB partition (EP-0001 rf2-tj6w9l — the App-DB panel sources its
   reserved AREAS from the runtime-db partition via
   `:rf.xray/target-frame-runtime-db`). A framework-authority
-  `reg-event-fx` returning the reserved `:rf.db/runtime` effect installs
+  `reg-event` handler returning the reserved `:rf.db/runtime` effect installs
   the partition (the same path the machines / routing lifecycle-fx write);
   `:rf/machine? true` marks it framework-authority so the runtime-write
   diagnostic does not fire."
@@ -352,7 +352,7 @@
             equality at each level — we use `assoc-in` so the
             unchanged :cart subtree keeps its PersistentHashMap
             identity across epoch boundaries (mirrors how host
-            reg-event-db handlers build successor app-dbs)."
+            db-only reg-event handlers build successor app-dbs)."
     (let [db-0 {}
           db-1 (assoc-in db-0 [:cart :items] [])
           db-2 (assoc-in db-1 [:cart :items] [{:id 7}])

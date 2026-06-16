@@ -1527,8 +1527,8 @@
       (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id]))))))
 
 (deftest event-open-in-editor-routes-through-editor-fx
-  (testing "rf2-g5q8d — `:rf.xray/open-in-editor` is now a reg-event-fx
-            that resolves the coord through the rf2-cm93v allowlist and
+  (testing "rf2-g5q8d — `:rf.xray/open-in-editor` is now a reg-event handler
+            that returns `:fx` — it resolves the coord through the rf2-cm93v allowlist and
             fires `:rf.editor/open`. It does NOT write to app-db (the
             click is pure navigation; the prior stub's
             `:last-open-in-editor-coord` slot is gone). Detailed

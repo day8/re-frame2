@@ -693,7 +693,7 @@
       (is @prevented "Esc was consumed — preventDefault called")
       (is @stopped   "Esc was consumed — stopPropagation called"))
     ;; The dismiss dispatch is synchronous (`rf/dispatch` queues, but the
-    ;; reg-event-db lands on the next router tick); drain via dispatch-sync
+    ;; reg-event handler lands on the next router tick); drain via dispatch-sync
     ;; on a no-op to flush, then assert. Use dispatch-sync directly to be
     ;; deterministic.
     (rf/with-frame :rf/xray

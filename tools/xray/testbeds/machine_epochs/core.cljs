@@ -223,7 +223,7 @@
   ;; EP-0001 (rf2-vzld77 / rf2-wxu4l3): the machines runtime — `:snapshots`
   ;; AND the parent→child `:spawned` join-state map — is durable framework
   ;; RUNTIME-DB state at `[:rf.runtime/machines …]`, NOT app-db. Read the
-  ;; spawned child id off the `:rf.db/runtime` coeffect every `reg-event-fx`
+  ;; spawned child id off the `:rf.db/runtime` coeffect every event handler
   ;; receives (the canonical idiom — mirrors the routing `:on-match` loader
   ;; reading the route slice off `:rf.db/runtime`). The former app-db read
   ;; resolved nil (app-db never holds `:spawned`), so the assert no-op'd /

@@ -66,14 +66,15 @@
             longer repeated in the HANDLER header (the DISPATCH step's
             header already names it) — that assertion is retired."
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :no-such/handler
+                :flavour :db-only :event-id :no-such/handler
                 :fx [] :machine nil}
           tree (view/render-handler-step step)
           header-text (text-of tree "rf-xray-epoch-handler-header")]
       ;; EP-0018 — the HANDLER verb is now `reg-event` for both the db-only
-      ;; and fx-bearing event flavours (the panel no longer names the retired
-      ;; `reg-event-db` / `reg-event-fx` spellings). The internal `:flavour`
-      ;; discriminator keyword (`:reg-event-db`, fed above) is unchanged.
+      ;; and fx-bearing event flavours (the panel never names a retired
+      ;; registrar spelling). The internal `:flavour` discriminator keyword
+      ;; is behavior-based (`:db-only`, fed above) — observed effect shape,
+      ;; not a registrar name.
       (is (string/includes? header-text "reg-event"))
       ;; The body's first slot is now the source block — never a
       ;; duplicate flavour pill.
@@ -200,7 +201,7 @@
             `:source-coords` (rf2-vqja2, supersedes the flat
             `:rf.machine/state-coords` index of rf2-npvsx)."
     (rf/with-frame :rf/default
-      ;; A machine is registered as a `reg-event-fx` carrying
+      ;; A machine is registered as a `reg-event` handler carrying
       ;; `:rf/machine? true` + the stamped spec (with co-located state-node
       ;; `:source-coords`, rf2-vqja2) under `:rf/machine`. The view
       ;; navigates from the state-path to the state-node via the spec-path
@@ -673,7 +674,7 @@
 
 (deftest handler-db-diff-always-renders-for-non-machine-handlers-test
   (testing "rf2-93436 — `:db diff` sub-section is ALWAYS present
-            inside the HANDLER body for reg-event-db / reg-event-fx.
+            inside the HANDLER body for :db-only / :effectful flavours.
 
             rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]`
             mode toggle retired. FULL+DIFF is the single rendering, so
@@ -683,11 +684,11 @@
             `:full` / `:full+diff` per-mode descendants."
     (epoch-orchestrator/install!)
     (frame/reg-frame :rf/xray {})
-    (testing "reg-event-db with empty diff still renders the slot"
+    (testing ":db-only with empty diff still renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
-                      :flavour :reg-event-db :event-id :nop
+                      :flavour :db-only :event-id :nop
                       :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
@@ -695,27 +696,27 @@
         (is (= "full+diff"
                (-> slot second :data-rf-xray-diff-mode))
             "FULL+DIFF is the single rendering post-rf2-vv3m6")))
-    (testing "reg-event-db with populated diff renders the slot"
+    (testing ":db-only with populated diff renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
-                      :flavour :reg-event-db :event-id :counter/inc
+                      :flavour :db-only :event-id :counter/inc
                       :db-post-handler {:counter {:value 6}} :db-write? true
                       :fx [] :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot))
         (is (= "true" (-> slot second :data-rf-xray-db-write))
             "a handler that wrote :db reports db-write? true")))
-    (testing "reg-event-fx with empty diff still renders the slot"
+    (testing ":effectful with empty diff still renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
-                      :flavour :reg-event-fx :event-id :navigate
+                      :flavour :effectful :event-id :navigate
                       :fx [{:fx-id :navigate :value "/x"}]
                       :machine nil}))
             slot (th/find-by-testid tree "rf-xray-epoch-handler-db-diff")]
         (is (some? slot)
-            "even reg-event-fx that returned no :db gets the sub-section")))))
+            "even an :effectful handler that returned no :db gets the sub-section")))))
 
 (deftest handler-db-no-write-renders-placeholder-not-phantom-test
   (testing "rf2-wnvid — PHANTOM-`:db` fix. A handler that wrote NO :db
@@ -730,7 +731,7 @@
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
-                      :flavour :reg-event-db :event-id :standard-epochs/throw-handler
+                      :flavour :db-only :event-id :standard-epochs/throw-handler
                       :db-write? false :fx [] :machine nil
                       :status :error
                       :errors [{:operation :rf.error/handler-exception
@@ -745,7 +746,7 @@
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
                      {:step :handler :badge :HANDLER :step-number 3
-                      :flavour :reg-event-fx :event-id :navigate
+                      :flavour :effectful :event-id :navigate
                       :db-write? false
                       :fx [{:fx-id :navigate :value "/x"}] :machine nil}))]
         (is (string/includes?
@@ -822,7 +823,7 @@
             than collapsing silently — operator learns where to
             look and when the substrate hasn't captured."
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :no-such/handler
+                :flavour :db-only :event-id :no-such/handler
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
@@ -1901,12 +1902,12 @@
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-empty"))
           "empty-state line renders"))))
 
-(deftest vanilla-reg-event-db-cascade-unchanged-by-rf2-u69j7-test
-  (testing "rf2-u69j7 acceptance #4 — a vanilla `reg-event-db` cascade
+(deftest vanilla-db-only-cascade-unchanged-by-rf2-u69j7-test
+  (testing "rf2-u69j7 acceptance #4 — a vanilla `:db-only` cascade
             renders the existing pipeline UNCHANGED (the redesign is
             machine-specific; non-machine rendering must not regress)."
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :counter/inc
+                :flavour :db-only :event-id :counter/inc
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-db-diff"))
@@ -1921,7 +1922,7 @@
             chrome when over 16ms"
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-db :event-id :rf.test.epoch.view/slow-handler
+                  :flavour :db-only :event-id :rf.test.epoch.view/slow-handler
                   :fx [] :machine nil
                   :duration-ms 42})]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-duration-long"))
@@ -1932,7 +1933,7 @@
   (testing "rf2-nqt3d — a fast step keeps the bare-duration chip"
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-db :event-id :rf.test.epoch.view/fast-handler
+                  :flavour :db-only :event-id :rf.test.epoch.view/fast-handler
                   :fx [] :machine nil
                   :duration-ms 0.1})]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-duration"))
@@ -1944,10 +1945,10 @@
             canonical `edn/code-block` widget"
     (rf/with-frame :rf/default
       (rf/reg-event :rf.test.epoch.view/srctest-handler
-                       {:rf.handler/source "(reg-event-db :rf.test.epoch.view/srctest-handler\n  (fn [db _] (assoc db :ok true)))"}
+                       {:rf.handler/source "(reg-event :rf.test.epoch.view/srctest-handler\n  (fn [{:keys [db]} _] {:db (assoc db :ok true)}))"}
                        (fn [{:keys [db]} _] {:db db}))
       (let [step {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-db
+                  :flavour :db-only
                   :event-id :rf.test.epoch.view/srctest-handler
                   :fx [] :machine nil}
             tree (view/render-handler-step step)]
@@ -1960,7 +1961,7 @@
 ;;
 ;; The dedicated `file:line + [open]` sub-header alongside the SOURCE
 ;; label was retired in commit ee9def224. The HANDLER step's verb
-;; itself (e.g. `reg-event-fx`) IS now the click-to-source hyperlink
+;; itself (e.g. `reg-event`) IS now the click-to-source hyperlink
 ;; (`handler-verb-link` in view.cljs); the source-block leads with the
 ;; code body directly. The positive-affordance test
 ;; (`handler-source-renders-file-line-and-open-affordance-test`) is
@@ -1981,7 +1982,7 @@
             handler at all."
     (rf/with-frame :rf/default
       (let [step {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :reg-event-db
+                  :flavour :db-only
                   :event-id :rf.test.epoch.view/ehd8v-never-registered
                   :fx [] :machine nil}
             tree (view/render-handler-step step)]
@@ -2046,7 +2047,7 @@
             edn-inspector with `:default-expanded-depth 16`."
     (let [tree    (view/render-handler-step
                     {:step :handler :badge :HANDLER :step-number 3
-                     :flavour :reg-event-fx :event-id :do/it
+                     :flavour :effectful :event-id :do/it
                      :fx-vec  [[:dispatch [:foo 1]]
                                [:http/get {:url "/x"}]]
                      :other-effects {:navigate "/home"}
@@ -2197,7 +2198,7 @@
     (let [steps [{:step :dispatch :badge :DISPATCH :step-number 1
                   :event [:counter/inc] :source :ui :coord nil}
                  {:step :handler :badge :HANDLER :step-number 2
-                  :flavour :reg-event-db :event-id :counter/inc
+                  :flavour :db-only :event-id :counter/inc
                   :fx [] :machine nil}]
           tree  (view/pipeline-view steps)
           step-seq (pipeline-steps-seq tree)]
@@ -3112,7 +3113,7 @@
             an attached exception renders the inline error card AND the
             header's ✗ status glyph"
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :standard-epochs/throw-handler
+                :flavour :db-only :event-id :standard-epochs/throw-handler
                 :fx [] :machine nil
                 :status :error
                 :errors [{:operation :rf.error/handler-exception
@@ -3136,7 +3137,7 @@
             card and no per-stage status glyph (the glyph retired rf2-9wq0v
             — a clean stage is silent now, not an all-tick row)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :counter/inc
+                :flavour :db-only :event-id :counter/inc
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-status"))
@@ -3399,7 +3400,7 @@
     (let [tree (rf/with-frame :rf/xray
                  (view/render-handler-step
                    {:step :handler :badge :HANDLER :step-number 4
-                    :flavour :reg-event-db :event-id :standard-epochs/throw-interceptor
+                    :flavour :db-only :event-id :standard-epochs/throw-interceptor
                     :db-write? true :fx [] :machine nil
                     :status :skipped}))]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-skipped"))
@@ -3465,7 +3466,7 @@
   (testing "rf2-4yrr6 — an EVENT handler (non-machine) STILL renders its
             source block (only the machine case is suppressed)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-event-db :event-id :no-such/handler
+                :flavour :db-only :event-id :no-such/handler
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))

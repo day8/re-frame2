@@ -704,7 +704,7 @@ registered? what consumes it?"
 Today the catalogue enumerates names + roles. The next-step affordance
 is **per-id metadata stamped at registration**:
 
-- **Source coords** — every `reg-sub` / `reg-event-*` / `reg-fx`
+- **Source coords** — every `reg-sub` / `reg-event` / `reg-fx`
   registration carries a `:source-coord` stamp (per Spec 001 + 006).
   Xray's own registrations should expose theirs through this
   catalogue so a human reader can jump directly to the registration

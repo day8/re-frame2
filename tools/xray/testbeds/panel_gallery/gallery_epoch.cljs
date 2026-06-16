@@ -87,12 +87,12 @@
      :tags       #{:dev :feature/xray-epoch}
      :substrates #{:reagent}})
 
-  ;; ----- 1. vanilla reg-event-db cascade -----------------------------
+  ;; ----- 1. vanilla db-only cascade ----------------------------------
   (story/reg-variant :story.xray.epoch/vanilla-db
-    {:doc        "Vanilla `reg-event-db` cascade — counter-inc shape.
+    {:doc        "Vanilla `:db-only` cascade — counter-inc shape.
                  Exercises DISPATCH + COEFFECT + HANDLER (db FULL+DIFF
                  sub-section) + SIDE EFFECTS (flat ledger with a single
-                 `:db` ✓ → app-db row — a bare reg-event-db that returns
+                 `:db` ✓ → app-db row — a bare db-only handler that returns
                  only `:db` still lights the step, rf2-kt6js / rf2-j630b)
                  + SUBSCRIPTIONS + VIEWS."
      :events     [[:rf.xray/sync-epoch-history (fixtures/vanilla-db-history)]]
@@ -113,7 +113,7 @@
                  `{:db :fx}`). After the badge: ONE overall ✓/✗ glyph
                  (AND-of-rows; the skipped + dropped rows are NEUTRAL, so
                  this all-actioned ledger reads ✓). No post-commit labels."
-     :events     [[:rf.xray/sync-epoch-history (fixtures/reg-event-fx-history)]]
+     :events     [[:rf.xray/sync-epoch-history (fixtures/effectful-history)]]
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
@@ -168,7 +168,7 @@
 
   ;; ----- 4b. fx-handler-threw EXCEPTION (rf2-ahhgn · rf2-j630b) ------
   (story/reg-variant :story.xray.epoch/fx-exception
-    {:doc        "`reg-event-fx` cascade whose `:db` committed cleanly
+    {:doc        "`:effectful` cascade whose `:db` committed cleanly
                  but a post-commit `:fx` handler (`:email/send`) threw
                  (`:rf.error/fx-handler-exception`). Exercises the flat
                  ledger's per-row exception: `:db` ✓ leads, then the `:fx`
