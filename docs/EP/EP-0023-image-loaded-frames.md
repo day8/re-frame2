@@ -1573,6 +1573,8 @@ That keeps the API small: `rf/image` makes image values; `:images` supplies one 
 
 `rf/make-frame` returns the live frame object in all cases. When `:id` is supplied, it also registers that object in the process-local live-frame registry under that id and fails if the id is already live. When `:id` is absent, the frame is local-only: callers keep the returned object and pass it directly to dispatch, subscribe, test helpers, or `rf/frame-state-value`. The absence of `:id` is not a default-id path.
 
+`rf/make-frame` is the EP-0023 object constructor and accepts only the EP-0023 frame-creation opts: `:images`, `:id`, `:initial-db`, `:capabilities`, `:adapter`. Seed frame **state** with `:initial-db` (image is a behaviour concern; state is a frame concern). A record-only config key — the EP-0013 record-construction surface `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, and similar — fails loud (`:rf.error/make-frame-record-only-key`) rather than being silently dropped. That record-config surface lives on the advanced `re-frame.frame/make-frame` (the EP-0013 record constructor, which returns a gensym id); reach for it directly only when you genuinely need the record path. This is the collapse-finale repoint: `rf/make-frame` was migrated off the keyword-returning record constructor onto the object constructor once every record caller had moved, and the dual-export transition guard was retired.
+
 Reload uses the same `:images` spelling:
 
 ```clojure

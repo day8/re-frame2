@@ -43,13 +43,14 @@
   ;; --- Experiment in a throw-away frame -----------------------------------
   ;;
   ;; `with-new-frame` is the eval-bind-run-destroy form: it evaluates the
-  ;; expr (here `make-frame`), binds the new frame-id to the symbol, runs
-  ;; the body under that frame's scope, then destroys the frame on exit
-  ;; (success or exception) — the live `:rf/default` frame is untouched.
-  ;; `:on-create` seeds the fresh frame's app-db before the body runs.
+  ;; expr (here `make-frame`), binds the new frame to the symbol, runs the
+  ;; body under that frame's scope, then destroys the frame on exit (success
+  ;; or exception) — the live `:rf/default` frame is untouched. `rf/make-frame`
+  ;; returns the live frame OBJECT (EP-0023); `:initial-db` seeds the fresh
+  ;; frame's app-db before the body runs.
   ;; (Use `with-frame <keyword>` to PIN an EXISTING frame, as above; use
   ;; `with-new-frame [sym expr]` to CREATE one — see Spec 002 §with-frame.)
-  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/initialise]})]
+  (rf/with-new-frame [f (rf/make-frame {:initial-db {:counter/value 0}})]
     (rf/dispatch-sync [:counter/increment])
     @(rf/subscribe [:counter/value]))
   )

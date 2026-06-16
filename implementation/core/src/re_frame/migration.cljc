@@ -25,14 +25,17 @@
       `(realm, frame)` address calls this to learn — with an actionable error —
       that a frame id already live in a DIFFERENT realm cannot be reused under
       the EP-0023 model. Fail-loud `:rf.error/cross-realm-frame-id`.
-    * `assert-no-dual-make-frame!` — the TRANSITION-WINDOW guard. The public
-      `make-frame` name is migrating from the EP-0013 RECORD constructor
+    * `assert-no-dual-make-frame!` — the transition-window guard, now a RETIRED
+      REGRESSION PIN (EP-0023 collapse FINALE, rf2-32siq3.48). The public
+      `make-frame` name MIGRATED from the EP-0013 RECORD constructor
       (`re-frame.frame/make-frame`, returns a gensym id) to the EP-0023 OBJECT
-      constructor (`re-frame.live-frame/make-frame`, returns the frame object).
-      Per the bead NOTES, if BOTH signatures are ever exported under one public
-      name during the window, that is an ambiguous public surface — this guard
-      fails loud `:rf.error/make-frame-dual-export` rather than letting two
-      incompatible `make-frame` contracts ship behind one name.
+      constructor (`re-frame.live-frame/make-frame`, returns the frame object):
+      `rf/make-frame` is now repointed onto the object path, so the facade
+      exports exactly one `make-frame` and the window is CLOSED. The guard fn is
+      no longer wired live; it survives only as a regression pin so the invariant
+      stays enforceable — if BOTH signatures are ever wired under one public name
+      again, it still fails loud `:rf.error/make-frame-dual-export` rather than
+      letting two incompatible `make-frame` contracts ship behind one name.
 
   ## What this slice does NOT do (the make-frame name-collapse)
 
@@ -252,29 +255,33 @@
 ;; assert-no-dual-make-frame! — the transition-window guard
 ;; ===========================================================================
 ;;
-;; The public `make-frame` name is migrating from the EP-0013 RECORD constructor
-;; to the EP-0023 OBJECT constructor (bead NOTES). The two have INVERTED
-;; contracts (id-returning vs object-returning), so exporting BOTH behind one
-;; public name would ship an ambiguous surface. Until the name-collapse ruling
-;; (the filed follow-up bead) lands, the facade exports exactly one `make-frame`
-;; (the EP-0013 record version). This guard makes the invariant ENFORCEABLE: it
-;; throws if both constructors are ever wired to a single public name during the
-;; window. It is parameterised on the two exported vars so a test can drive both
-;; the safe (one export) and the unsafe (dual export) cases without mutating the
-;; live facade.
+;; The public `make-frame` name MIGRATED from the EP-0013 RECORD constructor to
+;; the EP-0023 OBJECT constructor (bead NOTES). The two have INVERTED contracts
+;; (id-returning vs object-returning), so exporting BOTH behind one public name
+;; would ship an ambiguous surface. The name-collapse landed (rf2-32siq3.48 — the
+;; collapse FINALE): `rf/make-frame` is now the OBJECT constructor and the facade
+;; exports exactly one `make-frame`, so the transition window is CLOSED. This
+;; guard is now a RETIRED REGRESSION PIN — no longer wired live, but kept so the
+;; invariant stays ENFORCEABLE: it throws if both constructors are ever wired to
+;; a single public name again. It is parameterised on the two exported vars so a
+;; test can drive both the safe (one export) and the unsafe (dual export) cases
+;; without mutating the live facade.
 
 (defn assert-no-dual-make-frame!
   "Fail loud with `:rf.error/make-frame-dual-export` when BOTH the EP-0013 RECORD
   `make-frame` and the EP-0023 OBJECT `make-frame` are exported under one public
-  name during the transition window (bead rf2-32siq3.11 NOTES — \"add a
-  diagnostic if both signatures are ever exported simultaneously during the
-  transition window\"). `record-export` / `object-export` are the two candidate
-  exports (vars, fns, or nil when not exported). A dual export is an AMBIGUOUS
-  public surface — the two constructors have inverted return contracts
-  (id-returning vs object-returning), so one public `make-frame` cannot mean
-  both. Returns nil when at most one is exported (the safe window state). The
-  name-collapse + caller migration is the filed follow-up bead; this guard keeps
-  the window safe until that ruling lands."
+  name (bead rf2-32siq3.11 NOTES — \"add a diagnostic if both signatures are ever
+  exported simultaneously during the transition window\"). `record-export` /
+  `object-export` are the two candidate exports (vars, fns, or nil when not
+  exported). A dual export is an AMBIGUOUS public surface — the two constructors
+  have inverted return contracts (id-returning vs object-returning), so one
+  public `make-frame` cannot mean both. Returns nil when at most one is exported.
+
+  RETIRED REGRESSION PIN (EP-0023 collapse FINALE, rf2-32siq3.48): the
+  name-collapse landed — `rf/make-frame` is now the OBJECT constructor and the
+  facade exports exactly one `make-frame`, so this guard is no longer wired into
+  the live facade. It survives so the invariant stays enforceable if the dual
+  export is ever reintroduced."
   [record-export object-export]
   (when (and (some? record-export) (some? object-export))
     (error/throw-error!
