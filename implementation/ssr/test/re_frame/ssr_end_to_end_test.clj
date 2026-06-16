@@ -33,6 +33,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.trace :as trace]))
@@ -119,7 +120,7 @@
               ^{:key id} [:li [:h3 title] [:p body]])]])))
 
     ;; ---- (1) per-request server frame -------------------------------------
-    (let [server-frame (rf/make-frame
+    (let [server-frame (frame/make-frame
                          {:doc          "SSR request frame"
                           :platform     :server
                           :on-create    [:rf/server-init {:uri "/articles"}]
@@ -166,7 +167,7 @@
               "payload carries the resolved render-tree hash")
 
           ;; ---- (6) hydration on a separate "client" frame ---------------
-          (let [client-frame (rf/make-frame
+          (let [client-frame (frame/make-frame
                                {:doc      "Hydrated client frame"
                                 :platform :client})
                 ;; rf2-nv3mua: in a real SSR deployment the server and client
@@ -263,7 +264,7 @@
           {:fx [[:rf.server/set-status 401]
                 [:rf.server/set-status 403]]}))                          ;; second write replaces
 
-      (let [f (rf/make-frame {:platform :server})]
+      (let [f (frame/make-frame {:platform :server})]
         (rf/register-listener! ::status (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/forbid] {:frame f})
         (rf/unregister-listener! ::status)
@@ -302,7 +303,7 @@
                                       :value   "off"
                                       :max-age 0}]]}))
 
-    (let [f (rf/make-frame {:platform :server})]
+    (let [f (frame/make-frame {:platform :server})]
       (rf/dispatch-sync [:auth/establish] {:frame f})
 
       (let [cookies (:cookies (get-response f))]
@@ -336,7 +337,7 @@
       (fn [_ _]
         {:fx [[:rf.server/delete-cookie {:name "session" :path "/"}]]}))
 
-    (let [f (rf/make-frame {:platform :server})]
+    (let [f (frame/make-frame {:platform :server})]
       (rf/dispatch-sync [:auth/logout] {:frame f})
       (let [[c] (:cookies (get-response f))]
         (is (= "session" (:name c)))
@@ -362,7 +363,7 @@
         {:fx [[:rf.server/append-header {:name "Set-Cookie" :value "a=1"}]
               [:rf.server/append-header {:name "Set-Cookie" :value "b=2"}]]}))
 
-    (let [f (rf/make-frame {:platform :server})]
+    (let [f (frame/make-frame {:platform :server})]
       (rf/dispatch-sync [:hdr/set-then-replace] {:frame f})
       (rf/dispatch-sync [:hdr/append-twice]     {:frame f})
       (let [hdrs  (:headers (get-response f))
@@ -439,7 +440,7 @@
                {:name  "X-Forwarded-For"
                 :value "1.2.3.4\r\nSet-Cookie: admin=1"}]]}))
 
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:hdr/inject-crlf] {:frame f})))]
       (expect-fx-error-keyword!
@@ -451,7 +452,7 @@
       (rf/reg-event :hdr/probe-injection
         (fn [_ _]
           {:fx [[:rf.server/set-header {:name "X-Probe" :value hostile}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:hdr/probe-injection] {:frame f})))]
         (expect-fx-error-keyword!
@@ -466,7 +467,7 @@
         {:fx [[:rf.server/append-header
                {:name  "X-Audit"
                 :value "ok\r\nSet-Cookie: forged=1"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:hdr/append-crlf] {:frame f})))]
       (expect-fx-error-keyword!
@@ -482,7 +483,7 @@
       (fn [_ _]
         {:fx [[:rf.server/redirect
                {:location "https://example.com\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:redirect/crlf-in-location] {:frame f})))]
       (expect-fx-error-keyword!
@@ -502,7 +503,7 @@
       (fn [_ _]
         {:fx [[:rf.server/redirect {:to "/ok"}]]}))
     (doseq [ev [:redirect/via-url :redirect/via-to]]
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [ev] {:frame f})))]
         (expect-fx-error-keyword!
@@ -518,7 +519,7 @@
     (rf/reg-event :redirect/retired-spelling
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/login"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:redirect/retired-spelling] {:frame f})))
           ex     (some (fn [ev]
@@ -554,7 +555,7 @@
       (rf/reg-event :redirect/malformed
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:redirect/malformed] {:frame f})))]
         (expect-fx-error-keyword!
@@ -577,7 +578,7 @@
       (rf/reg-event :redirect/well-formed
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
-      (let [f    (rf/make-frame {:platform :server :on-create [:redirect/well-formed]})
+      (let [f    (frame/make-frame {:platform :server :on-create [:redirect/well-formed]})
             resp (get-response f)]
         (is (= loc (-> resp :redirect :location))
             (str "well-formed redirect :location survives the structural gate: " loc))))))
@@ -593,7 +594,7 @@
               [:rf.server/set-header {:name "X-Whitespace"
                                       :value "tab\there space"}]
               [:rf.server/redirect    {:location "https://example.com/path?q=1&r=2"}]]}))
-    (let [f (rf/make-frame {:platform :server :on-create [:hdr/clean]})
+    (let [f (frame/make-frame {:platform :server :on-create [:hdr/clean]})
           resp (get-response f)
           hdrs (:headers resp)]
       (is (some (fn [[k v]]
@@ -615,7 +616,7 @@
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
 
-    (let [f (rf/make-frame {:platform     :server
+    (let [f (frame/make-frame {:platform     :server
                             :on-create    [:auth/check-session]})]
       (let [resp     (get-response f)
             redirect (:redirect resp)]
@@ -644,7 +645,7 @@
     (rf/reg-event :auth/check-no-status
       (fn [_ _]
         {:fx [[:rf.server/redirect {:location "/login"}]]}))
-    (let [f (rf/make-frame {:platform  :server
+    (let [f (frame/make-frame {:platform  :server
                             :on-create [:auth/check-no-status]})]
       (is (= 302 (-> (get-response f) :redirect :status))
           ":rf.server/redirect defaults :status to 302 per Spec 011 §Redirect"))))
@@ -664,7 +665,7 @@
   (testing "routing's :rf.error/no-such-handler → default projector → 404"
     (rf/reg-route :route/home {:path "/"})
     (let [project-error  ssr/project-error
-          f              (rf/make-frame
+          f              (frame/make-frame
                            {:platform :server
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
@@ -704,7 +705,7 @@
     (let [project-error  ssr/project-error
           traces         (atom [])
           _              (rf/register-listener! ::he (fn [ev] (swap! traces conj ev)))
-          f              (rf/make-frame
+          f              (frame/make-frame
                            {:platform :server
                             :on-create [:rf/server-init]
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
@@ -729,7 +730,7 @@
 (deftest ssr-error-projector-dev-mode-includes-details
   (testing ":dev-error-detail? true puts the raw trace under :details"
     (let [project-error ssr/project-error
-          f             (rf/make-frame
+          f             (frame/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? true}})
@@ -766,7 +767,7 @@
            :retryable? false})))
 
     (let [project-error ssr/project-error
-          f             (rf/make-frame
+          f             (frame/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :myapp/public-error
                                  :dev-error-detail? false}})]
@@ -793,7 +794,7 @@
         (throw (ex-info "projector bug" {}))))
 
     (let [project-error ssr/project-error
-          f             (rf/make-frame
+          f             (frame/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :myapp/buggy-projector
                                  :dev-error-detail? false}})
@@ -816,7 +817,7 @@
       (fn [_trace-event] {:wrong :shape}))
 
     (let [project-error ssr/project-error
-          f             (rf/make-frame
+          f             (frame/make-frame
                           {:platform :server
                            :ssr {:public-error-id   :myapp/bad-shape}})
           traces        (atom [])
@@ -880,7 +881,7 @@
             peek-response (pure read) and only stamps :status when
             flush-response! / get-response drains it."
     (rf/reg-route :route/home {:path "/"})
-    (let [f (rf/make-frame
+    (let [f (frame/make-frame
               {:platform :server
                :ssr {:public-error-id   :rf.ssr/default-error-projector
                      :dev-error-detail? false}})]
@@ -916,7 +917,7 @@
       (fn [_ _]
         {:fx [[:rf.server/set-status 201]
               [:rf.server/set-status 202]]}))
-    (let [f (rf/make-frame {:platform :server})]
+    (let [f (frame/make-frame {:platform :server})]
       (rf/dispatch-sync [:resp/multi-status] {:frame f})
       (doseq [[label resp] [["peek-response"  (ssr/peek-response f)]
                             ["get-response"   (ssr/get-response f)]]]
@@ -934,7 +935,7 @@
     ;; project. (The trace still fires; the projector just isn't called
     ;; for a client frame's response slot.)
     (rf/reg-route :route/home {:path "/"})
-    (let [client-f (rf/make-frame {:platform :client})]
+    (let [client-f (frame/make-frame {:platform :client})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
                         {:frame client-f})
       (let [resp (get-response client-f)]
@@ -955,7 +956,7 @@
           {:fx [[:rf.server/redirect {:status 302 :location "/login"}]
                 [:rf.server/redirect {:status 301 :location "/canonical"}]]}))
 
-      (let [f (rf/make-frame {:platform :server})]
+      (let [f (frame/make-frame {:platform :server})]
         (rf/register-listener! ::redir (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/double-redirect] {:frame f})
         (rf/unregister-listener! ::redir)
@@ -1008,7 +1009,7 @@
                      :rf/runtime-db  {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
                      :rf/render-hash "head-hash-server-A"}
           traces    (atom [])
-          f         (rf/make-frame {:platform :client})]
+          f         (frame/make-frame {:platform :client})]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame f})
       (is (= "head-hash-server-A"
              (get-in (rf/runtime-db-value f) [:rf.runtime/ssr :hydration :server-hash]))
@@ -1148,7 +1149,7 @@
   (testing "rf2-dl9yg TC9: a synthetic error trace tagged with a server frame
             → error-projection-listener buffers → get-response flushes → response
             :status carries the default projector's 500"
-    (let [f (rf/make-frame
+    (let [f (frame/make-frame
               {:platform :server
                :ssr      {:public-error-id   :rf.ssr/default-error-projector
                           :dev-error-detail? false}})]
@@ -1242,7 +1243,7 @@
     (rf/reg-event :retired/url-redirect
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/dashboard"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:retired/url-redirect] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1258,7 +1259,7 @@
     (rf/reg-event :retired/to-redirect
       (fn [_ _]
         {:fx [[:rf.server/redirect {:to "/welcome" :status 301}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:retired/to-redirect] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1291,7 +1292,7 @@
 
     (let [traces (atom [])
           _      (rf/register-listener! ::rpe (fn [ev] (swap! traces conj ev)))
-          f      (rf/make-frame
+          f      (frame/make-frame
                    {:platform  :server
                     :on-create [:redirect-then-error]
                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -1363,7 +1364,7 @@
         ;; not a legal scheme-specific character).
         {:fx [[:rf.server/safe-redirect
                {:location "https://example.com/path with space"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/unparseable] {:frame f})))
           resp   (get-response f)]
@@ -1382,7 +1383,7 @@
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "javascript:alert(1)"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/javascript] {:frame f})))
           hits   (filter #(= :rf.error/safe-redirect-scheme-rejected
@@ -1401,7 +1402,7 @@
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "data:text/html,<script>alert(1)</script>"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/data] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
@@ -1415,7 +1416,7 @@
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "vbscript:msgbox(\"x\")"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/vbscript] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
@@ -1430,7 +1431,7 @@
       (rf/reg-event :sr/probe-case
         (fn [_ _]
           {:fx [[:rf.server/safe-redirect {:location hostile}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-safe-redirect-traces!
                      (fn [] (rf/dispatch-sync [:sr/probe-case] {:frame f})))]
         (is (some #(= :rf.error/safe-redirect-scheme-rejected (:operation %))
@@ -1447,7 +1448,7 @@
         {:fx [[:rf.server/safe-redirect
                {:location       "https://evil.example.com/phish"
                 :relative-only? true}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/abs-with-relative-only] {:frame f})))
           hits   (filter #(= :rf.error/safe-redirect-host-disallowed
@@ -1471,7 +1472,7 @@
         {:fx [[:rf.server/safe-redirect
                {:location       "/dashboard"
                 :relative-only? true}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/relative-ok] {:frame f})))
           resp   (get-response f)]
@@ -1492,7 +1493,7 @@
         {:fx [[:rf.server/safe-redirect
                {:location "https://evil.example.com/phish"
                 :allow    ["app.example.com" "alt.example.com"]}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/not-in-allow] {:frame f})))
           hits   (filter #(= :rf.error/safe-redirect-host-disallowed
@@ -1518,7 +1519,7 @@
         {:fx [[:rf.server/safe-redirect
                {:location "https://app.example.com/dashboard"
                 :allow    ["app.example.com" "alt.example.com"]}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/in-allow] {:frame f})))
           resp   (get-response f)]
@@ -1537,7 +1538,7 @@
         {:fx [[:rf.server/safe-redirect
                {:location "https://APP.Example.COM/dashboard"
                 :allow    ["app.example.com" "alt.example.com"]}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/in-allow-mixed-case] {:frame f})))
           resp   (get-response f)]
@@ -1559,7 +1560,7 @@
         ;; parser-fail must fire FIRST because step 1 runs before step 2.
         {:fx [[:rf.server/safe-redirect
                {:location "javascript: not a real url "}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/order-parse-first] {:frame f})))
           ops    (mapv :operation traces)]
@@ -1577,7 +1578,7 @@
     (rf/reg-event :sr/empty
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location ""}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/empty] {:frame f})))]
       (is (some #(= :rf.error/safe-redirect-invalid-url (:operation %))
@@ -1611,7 +1612,7 @@
         (fn [_ _]
           {:fx [[:rf.server/safe-redirect
                  (merge {:location "http:evil.example.com"} policy)]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-safe-redirect-traces!
                      (fn [] (rf/dispatch-sync [:sr/opaque-http] {:frame f})))]
         (is (seq traces)
@@ -1628,7 +1629,7 @@
     (rf/reg-event :sr/opaque-https
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "https:evil.example.com"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/opaque-https] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-invalid-url (:operation %))
@@ -1645,7 +1646,7 @@
     (rf/reg-event :sr/mailto
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "mailto:user@example.com"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f})))]
       (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
@@ -1662,7 +1663,7 @@
     (rf/reg-event :sr/ftp
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "ftp:example.com"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/ftp] {:frame f})))]
       (is (some #(= :rf.error/safe-redirect-scheme-rejected (:operation %))
@@ -1682,7 +1683,7 @@
         (fn [_ _]
           {:fx [[:rf.server/safe-redirect
                  (merge {:location "//evil.example.com/path"} policy)]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-safe-redirect-traces!
                      (fn [] (rf/dispatch-sync [:sr/protocol-relative] {:frame f})))]
         (is (some #(and (= :rf.error/safe-redirect-host-disallowed (:operation %))
@@ -1701,7 +1702,7 @@
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "/account/settings" :relative-only? true}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/relative-control] {:frame f})))
           resp   (get-response f)]
@@ -1721,7 +1722,7 @@
         {:fx [[:rf.server/safe-redirect
                {:location "https://app.example.com/dashboard"
                 :allow    ["app.example.com"]}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/abs-control] {:frame f})))
           resp   (get-response f)]
@@ -1741,7 +1742,7 @@
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "/path\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:sr/crlf] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1845,7 +1846,7 @@
         {:fx [[:rf.server/set-header
                {:name  "X-Test\r\nSet-Cookie: evil=1"
                 :value "ok"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:hdr/crlf-in-name] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1858,7 +1859,7 @@
       (rf/reg-event :hdr/probe-name
         (fn [_ _]
           {:fx [[:rf.server/set-header {:name hostile :value "ok"}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:hdr/probe-name] {:frame f})))]
         (expect-fx-error-keyword!
@@ -1873,7 +1874,7 @@
         {:fx [[:rf.server/append-header
                {:name  "X-Audit\r\nSet-Cookie: forged=1"
                 :value "ok"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:hdr/append-crlf-name] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1888,7 +1889,7 @@
         {:fx [[:rf.server/set-cookie
                {:name  "session\r\nSet-Cookie: stolen=1"
                 :value "abc"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-name] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1902,7 +1903,7 @@
         {:fx [[:rf.server/set-cookie
                {:name  "session"
                 :value "abc\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-value] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1917,7 +1918,7 @@
                {:name  "session"
                 :value "abc"
                 :path  "/\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-path] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1932,7 +1933,7 @@
                {:name   "session"
                 :value  "abc"
                 :domain "example.com\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-domain] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1946,7 +1947,7 @@
       (fn [_ _]
         {:fx [[:rf.server/delete-cookie
                {:name "session" :path "/admin\r\nbad"}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/del-crlf-path] {:frame f})))]
       (expect-fx-error-keyword!
@@ -1969,7 +1970,7 @@
                  {:name    "session"
                   :value   "x"
                   :max-age "3600\r\nSet-Cookie: admin=1; Path=/"}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:ck/crlf-in-max-age] {:frame f})))]
         (expect-fx-error-keyword!
@@ -1985,7 +1986,7 @@
                  {:name      "session"
                   :value     "x"
                   :same-site "Lax\r\nSet-Cookie: admin=1"}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:ck/crlf-in-same-site] {:frame f})))]
         (expect-fx-error-keyword!
@@ -1999,7 +2000,7 @@
                  {:name    "session"
                   :value   "x"
                   :expires "Wed, 09 Jun 2027 10:18:14 GMT\r\nSet-Cookie: admin=1"}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:ck/crlf-in-expires] {:frame f})))]
         (expect-fx-error-keyword!
@@ -2012,7 +2013,7 @@
           (fn [_ _]
             {:fx [[:rf.server/set-cookie
                    {:name "s" :value "x" :max-age hostile}]]}))
-        (let [f      (rf/make-frame {:platform :server})
+        (let [f      (frame/make-frame {:platform :server})
               traces (capture-fx-traces!
                        (fn [] (rf/dispatch-sync [:ck/probe-max-age] {:frame f})))]
           (expect-fx-error-keyword!
@@ -2033,7 +2034,7 @@
                 :same-site "Strict"
                 :path      "/"
                 :expires   "Wed, 09 Jun 2027 10:18:14 GMT"}]]}))
-    (let [f       (rf/make-frame {:platform :server :on-create [:ck/clean-attrs]})
+    (let [f       (frame/make-frame {:platform :server :on-create [:ck/clean-attrs]})
           cookies (:cookies (get-response f))]
       (is (= 1 (count cookies))
           "the clean cookie lands on the accumulator")
@@ -2056,7 +2057,7 @@
                                        :path    "/"
                                        :domain  "example.com"}]
               [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
-    (let [f (rf/make-frame {:platform :server :on-create [:clean/all]})
+    (let [f (frame/make-frame {:platform :server :on-create [:clean/all]})
           resp (get-response f)]
       (is (some (fn [[k _]] (= "Cache-Control"   k)) (:headers resp)))
       (is (some (fn [[k _]] (= "X-Forwarded-For" k)) (:headers resp)))
@@ -2140,7 +2141,7 @@
       ;; defect into a proper 400.
       (rf/reg-event :bad/status
         (fn [_ _] {:fx [[:rf.server/set-status "not-an-int"]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/status] {:frame f})))
             status (:status (get-response f))]
@@ -2159,7 +2160,7 @@
     (testing ":rf.server/set-header missing :value → rejected + skipped"
       (rf/reg-event :bad/header
         (fn [_ _] {:fx [[:rf.server/set-header {:name "X-Foo"}]]}))   ;; :value absent
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/header] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2170,7 +2171,7 @@
     (testing ":rf.server/append-header with non-string :value → rejected"
       (rf/reg-event :bad/append
         (fn [_ _] {:fx [[:rf.server/append-header {:name "X-Bar" :value 42}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/append] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2179,7 +2180,7 @@
     (testing ":rf.server/set-cookie missing :value → rejected via [:ref :rf.server/cookie]"
       (rf/reg-event :bad/cookie
         (fn [_ _] {:fx [[:rf.server/set-cookie {:name "session"}]]})) ;; :value absent
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/cookie] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2193,7 +2194,7 @@
       (rf/reg-event :bad/cookie-samesite
         (fn [_ _] {:fx [[:rf.server/set-cookie
                          {:name "s" :value "v" :same-site :bogus}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/cookie-samesite] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2202,7 +2203,7 @@
     (testing ":rf.server/delete-cookie missing :name → rejected"
       (rf/reg-event :bad/delete
         (fn [_ _] {:fx [[:rf.server/delete-cookie {:path "/"}]]}))    ;; :name absent
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/delete] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2223,7 +2224,7 @@
       ;; shape check and does NOT reject the no-target redirect.
       (rf/reg-event :soft/redirect-no-target
         (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:soft/redirect-no-target] {:frame f})))]
         (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
@@ -2241,7 +2242,7 @@
     (testing ":rf.server/redirect with non-int :status → rejected"
       (rf/reg-event :bad/redirect-status
         (fn [_ _] {:fx [[:rf.server/redirect {:location "/x" :status "oops"}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/redirect-status] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2259,7 +2260,7 @@
       (rf/reg-event :bad/safe-redirect-status
         (fn [_ _] {:fx [[:rf.server/safe-redirect
                          {:location "/ok" :status "not-int"}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/safe-redirect-status] {:frame f})))
             resp   (get-response f)]
@@ -2278,7 +2279,7 @@
       ;; fails the shape gate.
       (rf/reg-event :bad/safe-redirect-no-location
         (fn [_ _] {:fx [[:rf.server/safe-redirect {:status 302}]]}))
-      (let [f      (rf/make-frame {:platform :server})
+      (let [f      (frame/make-frame {:platform :server})
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/safe-redirect-no-location] {:frame f})))]
         (expect-fx-args-schema-failure!
@@ -2300,7 +2301,7 @@
                                        :secure true :http-only true}]
               [:rf.server/delete-cookie {:name "stale" :path "/"}]
               [:rf.server/redirect    {:location "/dashboard" :status 302}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-schema-failures!
                    (fn [] (rf/dispatch-sync [:good/all] {:frame f})))
           resp   (get-response f)]
@@ -2330,7 +2331,7 @@
                 :status         302
                 :relative-only? false
                 :allow          ["app.example.com"]}]]}))
-    (let [f      (rf/make-frame {:platform :server})
+    (let [f      (frame/make-frame {:platform :server})
           traces (capture-schema-failures!
                    (fn [] (rf/dispatch-sync [:good/safe-redirect] {:frame f})))
           resp   (get-response f)]
@@ -2385,7 +2386,7 @@
 
       (let [traces (atom [])]
         (rf/register-listener! ::ssr (fn [ev] (swap! traces conj ev)))
-        (let [f  (rf/make-frame
+        (let [f  (frame/make-frame
                    {:on-create    [:rf/server-init {:uri "/articles"}]
                     :fx-overrides {:http/get :http/get.canned-articles}})
               db (rf/app-db-value f)]
