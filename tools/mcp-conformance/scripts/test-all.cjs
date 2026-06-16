@@ -64,6 +64,10 @@ const TESTS = [
     argv: ['--test', 'test/port-file-escape.test.cjs'],
   },
   {
+    name: 'dedup-envelope decoder — cyclic-cache throws + acyclic happy path (rf2-87h71e)',
+    argv: ['--test', 'test/dedup-envelope.test.cjs'],
+  },
+  {
     name: 'callTool coverage ratchet unit tests (rf2-ke5n56)',
     argv: ['--test', 'test/call-coverage-ratchet.test.cjs'],
   },
@@ -86,6 +90,10 @@ const TESTS = [
   {
     name: 're-frame2-pair-mcp live-redaction (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
     argv: ['test/live-re-frame2-pair-redaction.cjs'],
+  },
+  {
+    name: 're-frame2-pair-mcp live-iserror — :ok? false ⇒ isError read-dom/read-ui (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-re-frame2-pair-iserror.cjs'],
   },
   {
     name: 'story-mcp end-to-end',

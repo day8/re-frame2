@@ -223,6 +223,19 @@ const INNER_TESTS = [
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-redaction.cjs'),
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE EGRESS-PROTECTION CONFORMANCE GREEN',
   },
+  {
+    // rf2-87h71e — pin the universal `:ok? false ⇒ isError:true` contract
+    // on the read-family GENUINE error envelopes (read-dom/read-ui
+    // bad-selector). Drives a malformed CSS selector against the live
+    // runtime so `querySelectorAll` throws and the runtime fn returns a
+    // structured `{:ok? false :reason :rf.error/...-bad-selector}` — then
+    // asserts the SDK response is isError. This is the live SDK-boundary
+    // gate that would have caught rf2-q7cavs RED (the degraded walk only
+    // ever exercised the :nrepl-port-not-found shape).
+    name: 'live isError-on-:ok?-false conformance (read-dom/read-ui bad selector)',
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-iserror.cjs'),
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE ISERROR-ON-OK-FALSE CONFORMANCE GREEN',
+  },
 ];
 
 function recordLine(line, stream = 'stdout') {

@@ -1146,7 +1146,7 @@
      :reason :missing-selector}}
 
    {:fixture/id    :read-dom/bad-selector
-    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError inside dom-read)."
+    :fixture/doc   "read-dom forwards the browser-side :rf.error/read-dom-bad-selector envelope (querySelectorAll threw SyntaxError inside dom-read) as an :isError envelope — a thrown malformed-selector is a caller FAULT, so per spec/003-Tool-Catalogue.md §381 (\"every :ok? false is isError:true\") map-result-or-blank branches its map arm on :ok? (rf2-q7cavs). Keeping it isError also keeps the transient failure OUT of the response cache (cache eligibility bypasses isError)."
     :fixture/tool  "read-dom"
     :fixture/args  {:selector "###"}
     :fixture/eval-script
@@ -1155,7 +1155,7 @@
                                    :selector "###" :message "bad selector"}]
      [:default                    nil]]
     :fixture/expect
-    {:isError? false
+    {:isError? true
      :edn-submap {:ok? false :reason :rf.error/read-dom-bad-selector}}}
 
    ;; ---------- subscribe (missing-arg only — streaming path not simulated here)

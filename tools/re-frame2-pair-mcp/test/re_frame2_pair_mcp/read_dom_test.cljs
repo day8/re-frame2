@@ -341,6 +341,13 @@
                  (done))))))
 
 (deftest bad-selector-error-forwarded
+  ;; rf2-q7cavs — a genuine `:ok? false` runtime failure envelope (a
+  ;; thrown malformed-selector) MUST ride as `:isError true`, per
+  ;; spec/003-Tool-Catalogue.md §381 ("every `:ok? false` is
+  ;; `isError:true`"). Before the fix, `map-result-or-blank` routed ANY
+  ;; map through `ok-text`, so this failure shipped `isError:false` —
+  ;; violating the contract AND making the transient failure
+  ;; cache-eligible (could mask a later success).
   (async done
     (let [canned {:ok? false :reason :rf.error/read-dom-bad-selector
                   :selector "###" :message "bad selector"}]
@@ -348,9 +355,13 @@
             (fn []
               (read-dom/read-dom-tool (fresh-conn) #js {:selector "###"})))
           (.then (fn [r]
+                   (is (tu/error? r)
+                       "a thrown bad-selector failure is flagged isError")
                    (let [edn (tu/extract-edn r)]
                      (is (false? (:ok? edn)))
-                     (is (= :rf.error/read-dom-bad-selector (:reason edn))))
+                     (is (= :rf.error/read-dom-bad-selector (:reason edn)))
+                     (is (= :app (:build edn))
+                         "the failure envelope is :build-stamped too"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

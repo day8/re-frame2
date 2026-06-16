@@ -63,6 +63,15 @@ function isCacheRefString(v) {
   return typeof v === 'string' && v.startsWith(CACHE_NS_PREFIX);
 }
 
+// Distinct in-progress sentinel (rf2-87h71e LOW). Installed in the memo
+// while a cache entry is mid-expansion so a cyclic ref that re-enters
+// `expandEntry` resolves to THIS sentinel rather than to `undefined` —
+// letting the cycle be detected and rejected LOUDLY instead of silently
+// corrupting the reconstruction with an `undefined` hole. A unique object
+// identity (not a value) so it can never collide with a real expanded
+// payload.
+const EXPANDING = Symbol('dedup-envelope/expanding');
+
 function expandCache(cache) {
   // Memoise expanded cache entries so shared subtrees stay
   // structurally shared in the reconstruction (and to terminate on
@@ -86,18 +95,36 @@ function expandCache(cache) {
   }
 
   function expandEntry(cacheId) {
-    if (memo.has(cacheId)) return memo.get(cacheId);
+    if (memo.has(cacheId)) {
+      const memoized = memo.get(cacheId);
+      // A ref that resolves to the in-progress sentinel is a CYCLE: this
+      // entry is still mid-expansion higher up the stack. Real de-dupe
+      // caches are acyclic — refs always point at strictly-smaller
+      // subtrees — so a cycle is a malformed / adversarial table. Fail
+      // LOUD rather than returning `undefined` (silent corruption); a
+      // conformance decoder must reject malformed input (rf2-87h71e LOW).
+      if (memoized === EXPANDING) {
+        throw new Error(
+          'dedup-envelope: cyclic dedup cache — reference ' + cacheId +
+            ' forms a cycle (entry refers back to itself while expanding). ' +
+            'Real de-dupe caches are acyclic; refusing to decode a malformed ' +
+            'cache table rather than returning a corrupt undefined hole.',
+        );
+      }
+      return memoized;
+    }
     if (!Object.prototype.hasOwnProperty.call(cache, cacheId)) {
       throw new Error(
         'dedup-envelope: cache reference ' + cacheId +
           ' has no matching entry in the dedup table',
       );
     }
-    // Install a placeholder before recursing so a (hypothetical) cycle
-    // can short-circuit without blowing the stack. Real de-dupe caches
-    // are acyclic — refs always point at strictly-smaller subtrees —
-    // but the cheap defensive memo costs nothing.
-    memo.set(cacheId, undefined);
+    // Install the in-progress sentinel before recursing so a cyclic ref
+    // re-entering this entry is DETECTED (above) and thrown — not blown up
+    // as a stack overflow, and not silently short-circuited to `undefined`.
+    // Real de-dupe caches are acyclic; the cheap defensive guard costs
+    // nothing and now fails loud on adversarial input.
+    memo.set(cacheId, EXPANDING);
     const expanded = expandValue(cache[cacheId]);
     memo.set(cacheId, expanded);
     return expanded;

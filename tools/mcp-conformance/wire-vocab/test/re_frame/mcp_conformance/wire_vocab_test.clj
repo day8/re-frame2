@@ -186,6 +186,48 @@
               (str key " is multi-server (" servers
                    ") so >=2 fixtures required, got " n)))))))
 
+(deftest every-multi-server-marker-fixtures-cover-each-server
+  ;; rf2-87h71e LOW — the per-server fixture-coverage claim in the header
+  ;; (guard #2) was NOT enforced. `every-canonical-marker-has-required-
+  ;; fixture-count` asserts only `(count fixtures) >= 2` for a multi-server
+  ;; marker — never that the fixtures cover DISTINCT servers. So
+  ;; `:rf.mcp/overflow` (3 fixtures: 2 re-frame2-pair variants + 1
+  ;; story-mcp) would still pass with the `:story-mcp` fixture dropped
+  ;; (leaving 2 pair fixtures), silently losing the cross-server emission
+  ;; pin. This gate asserts that for EVERY server in `:servers`, at least
+  ;; one fixture is tagged for it — keyed by the catalogue's fixture-key
+  ;; naming convention: every fixture key starts with its server's name
+  ;; (`:re-frame2-pair-mcp...`, `:story-mcp...`). A dropped per-server
+  ;; fixture now trips RED directly.
+  (let [;; The servers the catalogue knows about, longest-first so a
+        ;; prefix match resolves the most specific server (no overlap
+        ;; today, but order-stable regardless).
+        known-servers (->> canonical-markers
+                           (mapcat :servers)
+                           distinct
+                           (sort-by (comp - count name)))
+        ;; Resolve a fixture key to the server whose name prefixes it.
+        ;; Returns nil for an un-prefixed key — which the assertion below
+        ;; treats as a fixture that covers NO declared server (a naming
+        ;; violation surfaces as a missing-server failure).
+        fixture-server (fn [fixture-key]
+                         (let [fname (name fixture-key)]
+                           (first (filter #(or (= fname (name %))
+                                               (str/starts-with? fname (str (name %) "-")))
+                                          known-servers))))]
+    (doseq [{:keys [key fixtures servers]} canonical-markers]
+      (testing (str "marker " key " — per-server fixture coverage")
+        (let [covered (into #{} (keep fixture-server) (keys fixtures))]
+          (doseq [server servers]
+            (is (contains? covered server)
+                (str key " declares server " server " in :servers but no "
+                     "fixture is tagged for it (fixture keys must start "
+                     "with the server name; got fixtures "
+                     (vec (keys fixtures)) " covering servers " covered "). "
+                     "rf2-87h71e: a multi-server marker's per-server "
+                     "fixture-coverage claim must be enforced, not just the "
+                     ">=2 count."))))))))
+
 (deftest overflow-empty-body-is-rejected
   ;; rf2-kn8cj (refactor-audit r2 of rf2-azk9c §F-VOCAB-2): the previous
   ;; `ReFrame2PairOverflowBody` schema marked every slot except `:limit`
