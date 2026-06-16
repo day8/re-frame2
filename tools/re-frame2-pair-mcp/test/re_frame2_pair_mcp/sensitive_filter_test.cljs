@@ -160,9 +160,15 @@
     (is (= [] (get-in out [:stories :traces])))))
 
 (deftest snapshot-scrubber-leaves-non-trace-slices-alone
-  ;; App-db payload redaction is `redact-interceptor`'s job, not the
-  ;; forwarder's. The scrubber must NOT touch :app-db / :sub-cache /
-  ;; :machines even when they carry literal "sensitive"-looking shapes.
+  ;; The CLIENT-SIDE scrubber's sole job is dropping whole sensitive
+  ;; trace / epoch ITEMS; it must NOT touch :app-db / :sub-cache /
+  ;; :machines. Those slices are projected UPSTREAM, server-side, before
+  ;; they reach this scrubber: :app-db / :sub-cache through
+  ;; `re-frame.core/elide-wire-value`, and the :machines runtime-db slice
+  ;; fail-closed to `:rf/redacted` by default (EP-0015 / EP-0001 — Spec 011
+  ;; §Off-box redaction; the retired `redact-interceptor` is NOT involved).
+  ;; Here the slices arrive already-projected, so the scrubber passes them
+  ;; through verbatim even when they carry literal "sensitive"-looking shapes.
   (let [snap {:rf/default
               {:app-db    {:password "still-here" :sensitive? true}
                :sub-cache {:user/profile {:sensitive? true :data "x"}}
