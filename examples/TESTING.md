@@ -348,7 +348,7 @@ counter + login examples deliberately register the **same app-global
 registry ids** as their Reagent siblings — and, like Exception 1, the
 id-identity *is* the cross-substrate parity demonstration, not an
 oversight (this carve-out also originates in the per-example
-[`examples/uix/README.md` §Shared registry ids](uix/README.md#shared-registry-ids--deliberate-build-isolated),
+[`examples/uix/README.md` §Shared registration ids](uix/README.md#shared-registration-ids--deliberate-build-isolated),
 which now defers here as the canonical statement):
 
 > **[`examples/reagent/counter`](reagent/counter/) +
