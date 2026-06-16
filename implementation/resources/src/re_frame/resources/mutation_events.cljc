@@ -496,6 +496,124 @@
     [runtime-db #{} []]
     target-map))
 
+;; ---- the settle protocol (phase 4) — commit / rollback / reconcile --------
+;;
+;; The SETTLE slice (EP-0019 Decision 3) consumes the recorded inverse on the
+;; instance row's `:patch-summary` `:rollback` slot + slice-1's
+;; `state/revision-conflict?` to deterministically dispose each optimistic apply
+;; when its mutation reply settles:
+;;
+;;   - SUCCESS (`:rf.mutation/optimistic-reconciled`) — the authoritative
+;;     `:populates` / `:patches` overwrite the optimistic value; the recorded
+;;     inverse is DISCARDED (the commit superseded it). The success handler
+;;     already applies the cache consequences; the settle here only RECORDS the
+;;     reconcile (which optimistic keys the authoritative write owned) + emits
+;;     the trace + fills the instance row's `:reconciliation-refetches` slot.
+;;   - FAILURE / accepted cancel / restore-DANGLE
+;;     (`:rf.mutation/optimistic-rolled-back`) — per recorded inverse, the
+;;     conflict-aware rollback: an UNMOVED `:revision` restores the recorded
+;;     `:before` verbatim; a MOVED `:revision` defers to `:on-conflict`
+;;     (`:invalidate` default — mark stale + refetch; `:force` — restore anyway).
+;;   - STALE / superseded — handled by the existing stale-suppression branch
+;;     (the inverse is discarded, never replayed; the newer apply recorded the
+;;     truthful inverse). The settle below never runs on a suppressed reply.
+;;
+;; These pieces compute the rolled-back runtime-db + the per-key dispositions
+;; (for the trace + the `:reconciliation-refetches` evidence) + the
+;; per-conflicted-key invalidation fx; the pure decision lives in
+;; `mstate/rollback-entry-disposition` / `mstate/restore-before`.
+
+(defn- recorded-rollback
+  "The recorded optimistic inverse vector (`mstate/record-optimistic-entry`
+  shapes) the phase-1.5 apply wrote on the live instance's `:patch-summary`
+  `:rollback` slot, or nil when this mutation ran no optimistic apply. Read off
+  the live instance row (NOT the reply) — the inverse is durable instance state."
+  [inst]
+  (-> inst :patch-summary :rollback seq))
+
+(defn- invalidate-conflicted-key-fx
+  "Build the `[:dispatch [:rf.resource/invalidate-tags …]]` fx that recovers
+  authoritative truth for ONE conflicted rollback key under `:on-conflict
+  :invalidate` (EP-0019 Decision 3). Marks the entry stale in its OWN scope by
+  ITS OWN tags (the read path then refetches the authoritative value), through
+  the SAME single scoped invalidation engine the success path uses — never a
+  blind restore of the stale recorded inverse. Reads the entry's CURRENT tags +
+  scope from `runtime-db` (the moved entry the concurrent write left, NOT the
+  stale snapshot). Returns nil when the (moved) entry has since vanished or
+  carries no tags — there is nothing to invalidate (the read path will reload on
+  the next ensure). `scoped-key` is `[scope resource-id params]`."
+  [runtime-db scoped-key cause]
+  (let [entry (get-in runtime-db (state/entry-path scoped-key))
+        tags  (seq (:tags entry))
+        scope (first scoped-key)]
+    (when (and entry tags (some? scope))
+      [:dispatch [:rf.resource/invalidate-tags
+                  {:scope scope :tags (set tags) :cause cause}]])))
+
+(defn- settle-optimistic-rollback
+  "ROLL BACK the recorded optimistic apply on a FAILED / cancelled / dangled
+  mutation reply (EP-0019 Decision 3). For each recorded inverse, decide the
+  conflict-aware disposition (`mstate/rollback-entry-disposition` against the
+  CURRENT entry + the resolved `on-conflict` policy), then either RESTORE the
+  recorded `:before` verbatim (`mstate/restore-before` — an unmoved revision, or
+  `:force`) or leave the moved entry in place and emit a scoped invalidation that
+  refetches the authoritative value (`:invalidate`, the default). Recomputes the
+  reverse indexes once after the restore pass (a restore may re-create / drop
+  entries + tags).
+
+  `inverse` is the recorded `:rollback` vector; `runtime-db` is the live cache at
+  settle time; `on-conflict` is the resolved policy; `cause` is the invalidation
+  `:cause`. Returns `{:runtime-db <rdb'> :dispositions [<disp> …] :invalidate-fx
+  [<fx> …] :restored-keys [<sk> …] :conflicted-keys [<sk> …] :refetched-keys
+  [<sk> …]}`. PURE w.r.t. trace (the caller emits `:rf.mutation/optimistic-
+  rolled-back`)."
+  [inverse runtime-db on-conflict cause]
+  (let [dispositions (mapv (fn [{scoped-key :resource/key :as recorded}]
+                             (mstate/rollback-entry-disposition
+                               (get-in runtime-db (state/entry-path scoped-key))
+                               recorded on-conflict))
+                           inverse)
+        ;; apply every :restore disposition to the cache (an :invalidate
+        ;; disposition leaves the moved entry in place — the read path recovers).
+        restored?    #(= :restore (:disposition %))
+        rdb'         (reduce (fn [rdb disp]
+                               (if (restored? disp)
+                                 (mstate/restore-before rdb disp)
+                                 rdb))
+                             runtime-db dispositions)
+        rdb''        (update rdb' state/resources-key state/recompute-indexes)
+        ;; one scoped invalidation per :invalidate (conflicted, non-:force) key,
+        ;; computed against the ROLLED-BACK runtime-db (`rdb''` — the restores are
+        ;; in, so the invalidate reads the moved entries that stayed). Drops a key
+        ;; whose moved entry vanished / has no tags (nothing to invalidate).
+        inval-fxs    (into []
+                           (keep (fn [{scoped-key :resource/key :keys [disposition]}]
+                                   (when (= :invalidate disposition)
+                                     (invalidate-conflicted-key-fx rdb'' scoped-key cause))))
+                           dispositions)]
+    {:runtime-db      rdb''
+     :dispositions    dispositions
+     :invalidate-fx   inval-fxs
+     :restored-keys   (into [] (comp (filter restored?) (map :resource/key)) dispositions)
+     :conflicted-keys (into [] (comp (filter :conflict?) (map :resource/key)) dispositions)
+     :refetched-keys  (into [] (comp (filter #(= :invalidate (:disposition %)))
+                                     (map :resource/key)) dispositions)}))
+
+(defn- rollback-trace-dispositions
+  "PURE: the per-key disposition rows for the `:rf.mutation/optimistic-rolled-back`
+  trace (EP-0019 §Surfacing to tooling): each `{:resource/key :restored (bool)
+  :conflict (bool) :on-conflict (:invalidate|:force when conflicted)}`. A
+  `:restore` disposition reports `:restored true`; an `:invalidate` reports
+  `:restored false` (the read path will refetch). `:conflict` mirrors whether the
+  entry's revision moved."
+  [dispositions on-conflict]
+  (mapv (fn [{scoped-key :resource/key :keys [disposition conflict?]}]
+          (cond-> {:resource/key scoped-key
+                   :restored     (= :restore disposition)
+                   :conflict     (boolean conflict?)}
+            conflict? (assoc :on-conflict on-conflict)))
+        dispositions))
+
 ;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
 ;;
 ;; The mutation `:invalidates` arm now lowers TWO public forms — the bare
@@ -1471,18 +1589,53 @@
             ;; the keys POPULATED, PATCHED, REMOVED, OR MARKED STALE by the
             ;; accepted reply — the union of all four (rf2-fi6tda.2 + .3).
             affected    (vec (distinct (concat patched-ks populated-ks removed-ks invalidated-ks)))
-            patch-summary {:patched   (vec patched-ks)
-                           :populated (vec populated-ks)
-                           :removed   (vec removed-ks)
-                           :invalidated      invalidated-ks
-                           :invalidated-tags (vec (or inv-tags #{}))
-                           ;; EP-0016 Rider 2 fail-closed evidence: map-form
-                           ;; populate/patch/remove targets whose {:from-db …}
-                           ;; scope resolved nil were DROPPED (never written
-                           ;; under an implicit global).
-                           :target-unresolved (vec target-nil-ids)
-                           ;; reserved for the later optimistic slice:
-                           :snapshot-id nil :rollback nil :reconciliation-refetches nil}
+            ;; EP-0019 PHASE 4 — COMMIT the optimistic apply. An accepted `:ok`
+            ;; reply settles the optimistic value AUTHORITATIVELY: the
+            ;; `:populates` / `:patches` above already OVERWROTE the optimistic
+            ;; value with the server's, so the recorded inverse is DISCARDED (the
+            ;; commit superseded it — no rollback). The reconcile only RECORDS the
+            ;; evidence: the snapshot id, which optimistic keys the authoritative
+            ;; write owned (populate / patch / remove), and the
+            ;; `:reconciliation-refetches` — the optimistic keys NOT settled by an
+            ;; authoritative populate/patch but marked stale by this mutation's
+            ;; invalidation (the read path refetches them; a populated key is
+            ;; EXEMPT per Rider 1, so it never lands here). nil when this mutation
+            ;; ran no optimistic apply.
+            opt-summary  (:patch-summary inst)
+            opt-applied? (some? (:snapshot-id opt-summary))
+            opt-keys     (when opt-applied?
+                           (set (map :resource/key (:rollback opt-summary))))
+            authoritative-keys (set/union patched-ks populated-ks (set removed-ks))
+            ;; the optimistic keys an authoritative populate/patch/remove owned
+            ;; (the commit overwrote the optimistic value with the server's).
+            committed-keys     (when opt-applied?
+                                 (vec (filter authoritative-keys opt-keys)))
+            ;; the optimistic keys this mutation's invalidation marked stale (so
+            ;; the read path will refetch the authoritative value) — the truthful
+            ;; `:reconciliation-refetches`.
+            invalidated-set    (set invalidated-ks)
+            reconciliation-refetches (when opt-applied?
+                                       (vec (filter invalidated-set opt-keys)))
+            patch-summary (cond-> {:patched   (vec patched-ks)
+                                   :populated (vec populated-ks)
+                                   :removed   (vec removed-ks)
+                                   :invalidated      invalidated-ks
+                                   :invalidated-tags (vec (or inv-tags #{}))
+                                   ;; EP-0016 Rider 2 fail-closed evidence: map-form
+                                   ;; populate/patch/remove targets whose {:from-db …}
+                                   ;; scope resolved nil were DROPPED (never written
+                                   ;; under an implicit global).
+                                   :target-unresolved (vec target-nil-ids)
+                                   ;; pessimistic write: the optimistic slots stay nil.
+                                   :snapshot-id nil :rollback nil
+                                   :reconciliation-refetches nil}
+                            ;; EP-0019 — FILL the reserved optimistic slots on a
+                            ;; committed optimistic write.
+                            opt-applied?
+                            (assoc :snapshot-id (:snapshot-id opt-summary)
+                                   :rollback    (:rollback opt-summary)
+                                   :committed   committed-keys
+                                   :reconciliation-refetches reconciliation-refetches))
             inst'       (mstate/instance-succeeded
                           inst {:result result :settled-at clock-ms
                                 :affected-keys affected :patch-summary patch-summary})
@@ -1558,6 +1711,22 @@
                        ;; exempted from this mutation's refetch) rides the same
                        ;; facet (Spec 016 §Populate is an authoritative load).
                        inv-plan (assoc :invalidation (plan-trace inv-plan populated-ks rdb3))))
+        ;; EP-0019 — the optimistic RECONCILE trace (phase 4, ok). Emitted only
+        ;; when this mutation ran an optimistic apply: which optimistic keys the
+        ;; authoritative populate/patch/remove COMMITTED (overwrote the optimistic
+        ;; value with the server's) + the `:reconciliation-refetches` (optimistic
+        ;; keys this mutation's invalidation marked stale → the read path
+        ;; refetches). The recorded inverse was DISCARDED (the commit superseded
+        ;; it — no rollback on success).
+        (when opt-applied?
+          (trace/emit! :rf.event :rf.mutation/optimistic-reconciled
+                       {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
+                        :work/id work-id :generation generation
+                        :snapshot-id (:snapshot-id opt-summary)
+                        :optimistic-keys (vec opt-keys)
+                        :committed committed-keys
+                        :reconciliation-refetches reconciliation-refetches
+                        :cause [:mutation mutation-id instance-id]}))
         ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — for each
         ;; dispatched descriptor that matched NO entry in its resolved scope while
         ;; the same tags DO match an entry in a DIFFERENT scope, emit the loud
@@ -1641,6 +1810,27 @@
             ;; the reply completion time (off the reply token, never a fresh
             ;; ambient read).
             clock-ms completed-at
+            cause    [:mutation mutation-id instance-id]
+            ;; EP-0019 PHASE 4 — ROLL BACK the recorded optimistic apply. An
+            ;; accepted `:error` (and an accepted terminal `:cancelled`) reply is
+            ;; the deterministic ROLLBACK boundary: for each recorded inverse the
+            ;; conflict-aware rule restores the truthful `:before` (an unmoved
+            ;; `:revision`) or, on a CONFLICT (a competing authoritative write
+            ;; bumped the entry's `:revision` since the apply), defers to
+            ;; `:on-conflict` — `:invalidate` (default) marks the moved entry
+            ;; stale + refetches the authoritative value (never resurrecting the
+            ;; stale inverse), `:force` restores the inverse anyway (single-writer
+            ;; last-write-wins, with the tooling warning below). Runs BEFORE the
+            ;; failure-time invalidation so that pass reads the ROLLED-BACK cache.
+            ;; A purely-pessimistic mutation (no recorded inverse) skips this.
+            rollback-inverse (recorded-rollback inst)
+            on-conflict      (mstate/on-conflict-policy spec)
+            rolled  (when rollback-inverse
+                      (settle-optimistic-rollback rollback-inverse runtime-db on-conflict cause))
+            ;; the cache the failure-time invalidation + the final instance write
+            ;; settle against — the rolled-back cache when an optimistic apply
+            ;; existed, else the unchanged reply cache.
+            settle-db (or (:runtime-db rolled) runtime-db)
             ;; failure-time invalidation (only when the timing opts in):
             ;; some mutations invalidate on failure to force a re-read of
             ;; the authoritative server state after a rejected write. EP-0016
@@ -1652,20 +1842,36 @@
             ;; there are no populated keys to exempt (Rider 1 is a success-path
             ;; concept) — the empty exempt set keeps the failure-time
             ;; invalidation a plain pass.
-            inv-fxs  (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id] #{}))
+            inv-fxs  (when inv-plan (plan->fx inv-plan cause #{}))
             inv-tags (when inv-plan (plan-tags inv-plan))
             ;; rf2-fi6tda.2 — an `:after-failure` invalidation marks tagged
             ;; keys stale; those keys ARE affected and must flow into
             ;; `:affected-keys` (the failure path previously recorded an empty
-            ;; vector). Computed against the (unchanged) settle-time entries via
+            ;; vector). Computed against the ROLLED-BACK settle-time entries via
             ;; the SHARED match the dispatched invalidate-tags will use.
             invalidated-ks (when inv-plan
-                             (vec (:invalidated-keys (plan-key-evidence inv-plan #{} runtime-db))))
-            affected (vec (or invalidated-ks []))
-            inst'    (mstate/instance-failed
-                       inst {:error error :settled-at clock-ms
-                             :affected-keys affected})
-            rdb'     (-> runtime-db
+                             (vec (:invalidated-keys (plan-key-evidence inv-plan #{} settle-db))))
+            ;; EP-0019 — the keys the rollback refetched on conflict ride the
+            ;; instance row's reserved `:reconciliation-refetches` slot + flow
+            ;; into the reply `:affected-keys` (a conflict-invalidated key IS
+            ;; affected). The restored keys are also affected.
+            refetched-ks (vec (:refetched-keys rolled))
+            restored-ks  (vec (:restored-keys rolled))
+            affected (vec (distinct (concat invalidated-ks restored-ks refetched-ks)))
+            ;; EP-0019 — fill the reserved `:patch-summary` slots on the failed
+            ;; instance row so Xray's mutation view can show that the optimistic
+            ;; apply rolled back, per-key restored-vs-conflict, and which keys
+            ;; refetched. nil when this mutation ran no optimistic apply.
+            rolled-summary (when rolled
+                             (assoc (:patch-summary inst)
+                                    :rollback                 (rollback-trace-dispositions
+                                                                (:dispositions rolled) on-conflict)
+                                    :reconciliation-refetches refetched-ks))
+            inst'    (cond-> (mstate/instance-failed
+                               inst {:error error :settled-at clock-ms
+                                     :affected-keys affected})
+                       rolled-summary (assoc :patch-summary rolled-summary))
+            rdb'     (-> settle-db
                          (assoc-in (mstate/instance-path instance-id) inst')
                          (work-ledger/update-record
                            work-id work-ledger/mark-terminal
@@ -1689,6 +1895,41 @@
                                 :instance-id instance-id :scope scope
                                 :affected-keys affected}))]
         (work-ledger/clear-handle! frame-id work-id)
+        ;; EP-0019 — the optimistic rollback trace (phase 4, error/cancel).
+        ;; Carries the snapshot id, per-key restored-vs-conflict disposition (the
+        ;; `:on-conflict` rule applied on a conflict), and the refetched keys.
+        ;; Emitted only when this mutation ran an optimistic apply.
+        (when rolled
+          (trace/emit! :rf.event :rf.mutation/optimistic-rolled-back
+                       {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
+                        :work/id work-id :generation generation
+                        :snapshot-id (-> inst :patch-summary :snapshot-id)
+                        :on-conflict on-conflict
+                        :dispositions (rollback-trace-dispositions
+                                        (:dispositions rolled) on-conflict)
+                        :restored restored-ks
+                        :conflicted (vec (:conflicted-keys rolled))
+                        :refetched refetched-ks
+                        :cause cause})
+          ;; `:force` on a CONFLICTED key restored a STALE inverse over a
+          ;; concurrent authoritative write — the deliberate single-writer
+          ;; escape, but a tooling warning so an unexpected clobber is loud.
+          (when (and (= :force on-conflict) (seq (:conflicted-keys rolled)))
+            (trace/emit! :warning :rf.warning/optimistic-force-clobber
+                         {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
+                          :forced-keys (vec (:conflicted-keys rolled))
+                          :recovery :review-on-conflict
+                          :reason (str "mutation " (pr-str mutation-id)
+                                       " rolled back with :on-conflict :force over "
+                                       (count (:conflicted-keys rolled))
+                                       " entry(ies) whose :revision MOVED since the "
+                                       "optimistic apply — :force restored the recorded "
+                                       "(now-stale) :before, CLOBBERING a concurrent "
+                                       "authoritative write. :force is the single-writer "
+                                       "last-write-wins escape; if these entries can be "
+                                       "written concurrently, use the :invalidate default "
+                                       "(refetch the authoritative value on conflict). Per "
+                                       "Spec 016 §Optimistic settle / EP-0019 Decision 3.")})))
         (trace/emit! :rf.event :rf.mutation/failed
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                               :work/id work-id :generation generation :error error
@@ -1698,16 +1939,15 @@
                        ;; evidence rides the failed-settlement trace (no
                        ;; populated keys on a failure, so the Rider 1 exempt
                        ;; set is empty).
-                       inv-plan (assoc :invalidation (plan-trace inv-plan #{} runtime-db))))
+                       inv-plan (assoc :invalidation (plan-trace inv-plan #{} settle-db))))
         ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — also fires
         ;; on the `:after-failure` / `:after-settle` invalidation timing (a write
         ;; that invalidates on failure to force a re-read of authoritative server
-        ;; state can mis-scope exactly as a success-time one). A failure applies
-        ;; no patch/populate, so the settle-time entries are the unchanged
-        ;; `runtime-db`.
+        ;; state can mis-scope exactly as a success-time one). Computed against
+        ;; the ROLLED-BACK settle-time entries the dispatched invalidate-tags see.
         (maybe-warn-scope-mismatch!
           inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
-                    :mut-scope scope :entries (get-in runtime-db (state/entries-path))})
+                    :mut-scope scope :entries (get-in settle-db (state/entries-path))})
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/failed` so the
         ;; `:rf.mutation/replied` row truthfully follows settlement in the phase
         ;; order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.
@@ -1716,6 +1956,10 @@
                         :instance-id instance-id :work-id work-id
                         :status (:status reply) :reply-to reply-to})
         {:rf.db/runtime rdb'
+         ;; EP-0019: the conflict-rollback invalidations (the `:invalidate`
+         ;; disposition's refetch dispatches) run alongside any failure-time
+         ;; invalidation, before the continuation.
          :fx (cond-> []
+               (seq (:invalidate-fx rolled)) (into (:invalidate-fx rolled))
                inv-fxs (into inv-fxs)
                cont-fx (conj cont-fx))}))))

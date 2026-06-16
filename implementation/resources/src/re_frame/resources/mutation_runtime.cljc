@@ -380,21 +380,199 @@
         ;; settle-time conflict check detect a competing write.
         state/bump-revision)))
 
+(def applied-removed-revision
+  "The `:applied-revision` sentinel for an optimistic REMOVE (the apply dissoc'd
+  the entry, so it left NO revision behind). The settle conflict check treats a
+  still-absent entry (current revision 0) as UNMOVED for a remove, and a
+  RE-CREATED entry (a competing write seeded the key) as MOVED. Distinct from a
+  numeric applied revision (a patch/seed left the entry at a concrete count)."
+  :rf.optimistic/removed)
+
 (defn record-optimistic-entry
   "PURE: the recorded INVERSE shape for ONE touched entry on the instance row's
   `:patch-summary` `:rollback` slot (EP-0019 Decision 2). Carries the canonical
   `:resource/key` (the EP-0012 canonical-identity scoped key), the `:revision`
-  observed at apply time (the conflict-check basis the settle slice compares),
-  the `:before` snapshot (structural-shared entry, or the `absent-snapshot`
-  sentinel), and `:forward` — a small descriptive summary of the applied forward
-  op (`:patch` / `:seed` / `:remove`) for the trace. The settle slice replays
-  `:before` (revision-permitting) or invalidates on conflict; it does NOT consume
-  the live entry value here. Per EP-0019 Decision 2 / §Optimistic mutations."
-  [scoped-key before-entry forward]
-  {:resource/key scoped-key
-   :revision     (state/entry-revision (when (not= before-entry absent-snapshot) before-entry))
-   :before       before-entry
-   :forward      forward})
+  observed at apply time (the conflict-check trace basis — the entry's revision
+  BEFORE this apply's own bump), the `:applied-revision` (the revision the apply
+  LEFT the entry at — the settle-time conflict baseline; the apply's own +1 bump
+  is NOT a conflict, only a write landing BEYOND it is), the `:before` snapshot
+  (structural-shared entry, or the `absent-snapshot` sentinel), and `:forward` —
+  a small descriptive summary of the applied forward op (`:patch` / `:seed` /
+  `:remove`) for the trace. The settle slice replays `:before` (revision-
+  permitting) or invalidates on conflict; it does NOT consume the live entry
+  value here.
+
+  3-arity (slice 2 shape — `:applied-revision` derived from `before` + forward):
+  a patch/seed bumps the before-revision by one; a remove leaves no revision.
+  4-arity: the caller supplies the observed post-apply `applied-revision`
+  explicitly (the apply already computed it). Per EP-0019 Decision 2 / §Optimistic
+  settle."
+  ([scoped-key before-entry forward]
+   (let [observed (state/entry-revision
+                    (when (not= before-entry absent-snapshot) before-entry))
+         applied  (if (= forward :remove) applied-removed-revision (inc observed))]
+     (record-optimistic-entry scoped-key before-entry forward observed applied)))
+  ([scoped-key before-entry forward observed-revision applied-revision]
+   {:resource/key     scoped-key
+    :revision         observed-revision
+    :applied-revision applied-revision
+    :before           before-entry
+    :forward          forward}))
+
+;; ---- the settle protocol (phase 4) — commit / rollback / reconcile ---------
+;;
+;; The SETTLE slice (EP-0019 Decision 3) consumes the recorded inverse +
+;; slice-1's `state/revision-conflict?` to decide, per touched entry, the
+;; deterministic terminal disposition of an optimistic apply:
+;;
+;;   - on mutation SUCCESS  -> COMMIT (the optimistic value is overwritten by
+;;     the authoritative `:populates` / `:patches`; the recorded inverse is
+;;     discarded — `:reconciled`);
+;;   - on mutation FAILURE / accepted cancel / restore-DANGLE -> ROLL BACK,
+;;     conflict-aware: if the entry's `:revision` is UNMOVED since the apply,
+;;     restore the recorded `:before` verbatim; if it MOVED, `:on-conflict`
+;;     governs — `:invalidate` (default) marks the entry stale to recover
+;;     authoritative truth via the read path, `:force` restores the (stale)
+;;     inverse anyway (single-writer last-write-wins, with a tooling warning);
+;;   - on a STALE / superseded reply -> NEITHER (the inverse is discarded; the
+;;     newer generation's apply already recorded the truthful inverse).
+;;
+;; These are the PURE pieces (the per-entry decision + the cache transform); the
+;; impure swap (the `:on-conflict` invalidation dispatch, the trace emit) lives
+;; in `mutation-events`. The settle is keyed on the work-id + generation
+;; acceptance verdict + the per-entry revision — both canonical recorded facts,
+;; so there is NO wall-clock race in the decision (EP-0019 §Determinism summary).
+
+(def on-conflict-policies
+  "The closed `:on-conflict` rollback-conflict-rule enum (EP-0019 Decision 3).
+  `:invalidate` (the default + recommended) defers a CONTESTED rollback to the
+  read path — it marks the moved entry stale and lets a refetch recover the
+  authoritative value, never resurrecting a stale inverse (the deterministic,
+  always-correct choice, and re-frame2's deliberate divergence from
+  TanStack/SWR's unconditional context restore). `:force` restores the recorded
+  inverse even on conflict (last-write-wins by the rolling-back mutation, for
+  entries the author KNOWS are single-writer) — tooling warns it can clobber a
+  concurrent write."
+  #{:invalidate :force})
+
+(defn on-conflict-policy
+  "The resolved `:on-conflict` policy for a mutation `spec`, defaulting to
+  `:invalidate` (EP-0019 Decision 3 — the read path is the recovery authority on
+  a contested rollback). An unknown / nil value falls to the default; the closed
+  enum is enforced at registration. Per Spec 016 §Optimistic settle."
+  [spec]
+  (let [p (:on-conflict spec)]
+    (if (contains? on-conflict-policies p) p :invalidate)))
+
+(defn optimistic-conflict?
+  "PURE: did an authoritative durable write land on the entry BETWEEN the
+  optimistic apply and the reply settling (EP-0019 Decision 3)? The apply LEFT
+  the entry at `applied-revision` (a numeric revision for a patch/seed, or the
+  `applied-removed-revision` sentinel for a remove); a CONFLICT is the entry
+  moving AWAY from that baseline — the apply's OWN +1 bump is expected and is NOT
+  a conflict, only a competing write beyond it is. A canonical-identity
+  comparison over the monotone `:revision`, never a value diff:
+
+  - patch / seed (`applied-revision` numeric) -> conflict iff the entry's current
+    revision ≠ the applied revision (a competing write bumped it further, or the
+    entry was removed-then-reseeded landing at a different count);
+  - remove (`applied-revision` = `:removed`) -> conflict iff the entry was
+    RE-CREATED (a competing write seeded the key the apply had removed); a
+    still-absent entry is UNMOVED (no conflict — the remove stands)."
+  [current-entry applied-revision]
+  (if (= applied-revision applied-removed-revision)
+    (some? current-entry)
+    (not= (state/entry-revision current-entry) applied-revision)))
+
+(defn rollback-entry-disposition
+  "PURE: decide ONE recorded inverse entry's rollback disposition at settle time
+  (EP-0019 Decision 3 conflict rule). `current-entry` is the entry as it stands
+  NOW in the cache (nil for a missing key); `recorded` is the
+  `record-optimistic-entry` inverse (`{:resource/key :revision :applied-revision
+  :before :forward}`); `on-conflict` is the resolved policy
+  (`:invalidate` | `:force`). Returns a disposition map:
+
+    {:resource/key <scoped-key>
+     :disposition  :restore | :invalidate
+     :conflict?    <bool>          ;; whether the entry moved since the apply
+     :before       <entry|:absent> ;; the snapshot to restore (when :restore)
+     :forward      <:patch|:seed|:remove>}
+
+  - no conflict (entry UNMOVED since the apply left it) -> `:restore` the
+    recorded `:before` verbatim (the truthful, conflict-free rollback — `:absent`
+    removes the entry);
+  - conflict (entry MOVED) + `:force` -> `:restore` the (stale) inverse anyway,
+    `:conflict? true` (the caller warns);
+  - conflict + `:invalidate` (default) -> `:invalidate`: do NOT restore; the
+    caller marks the entry stale + refetches the authoritative value.
+
+  Per EP-0019 §Decision 3 / §Optimistic settle."
+  [current-entry {:keys [resource/key applied-revision before forward]} on-conflict]
+  (let [conflict? (optimistic-conflict? current-entry applied-revision)]
+    {:resource/key key
+     :disposition  (if (and conflict? (not= :force on-conflict)) :invalidate :restore)
+     :conflict?    conflict?
+     :before       before
+     :forward      forward}))
+
+(defn restore-before
+  "PURE: apply ONE `:restore` rollback disposition to the cache `runtime-db` —
+  restore the recorded `:before` entry verbatim at its scoped key (structural-
+  shared; the snapshot was captured by reference), or REMOVE the entry (dissoc by
+  the byte `key-id`) when `:before` is the `absent-snapshot` sentinel (the apply
+  had seeded an absent key — rollback restores the absence). Pure
+  `(runtime-db, disposition) -> runtime-db'`. The caller recomputes the reverse
+  indexes after the whole settle pass (a restore may re-create / drop entries +
+  tags). Per EP-0019 Decision 3 (restore the exact entry that existed)."
+  [runtime-db {scoped-key :resource/key :keys [before]}]
+  (if (= before absent-snapshot)
+    (update-in runtime-db (state/entries-path) dissoc (state/key-id scoped-key))
+    (assoc-in runtime-db (state/entry-path scoped-key) before)))
+
+(defn dangle-rollback-optimistic
+  "PURE: roll back a restored PENDING optimistic mutation INSTANCE's recorded
+  apply on epoch restore (EP-0019 Open Issue 3 / Q3 GUARD). A `:pending`
+  optimistic write dangles to a terminal `:error` on restore (`instance-dangled`)
+  — the entry shows the optimistic value with no in-flight write to confirm it,
+  which is an accepted-error-shaped terminal, so it triggers the SAME
+  conflict-aware rollback as a failed reply.
+
+  THE LOAD-BEARING ORDERING (Q3): this runs INSIDE the restore reconciler's
+  single pure pass over `runtime-db`, NOT as a second post-restore dispatched
+  event — a dispatched `:invalidate` could RACE a fresh load the restored
+  timeline issues. So a CONFLICT (the entry's `:revision` moved) marks the entry
+  durably STALE in place (`state/entry-invalidate` — `:invalidated-at` set, the
+  read path refetches on the next live-owner ensure) rather than dispatching an
+  invalidation; an UNMOVED revision restores the recorded `:before` verbatim
+  (`restore-before`). `:on-conflict :force` restores the (stale) inverse even on
+  conflict. There is no dispatch, no racing event, no second pass.
+
+  `inst` is the (already-dangled) instance row; `runtime-db` is the cache; `spec`
+  the mutation spec (for `:on-conflict`, nil → `:invalidate`); `settled-at` the
+  restore's causal time (the durable stale `:invalidated-at` stamp). Returns
+  `[runtime-db' rolled-back-keys]` (the keys touched by the rollback — for the
+  deferred restore trace). A non-optimistic dangled instance is a no-op
+  (`[runtime-db []]`). Per EP-0019 Decision 3 / Open Issue 3 / Spec 016
+  §Restore and replay."
+  [runtime-db inst spec settled-at]
+  (let [inverse (-> inst :patch-summary :rollback)]
+    (if-not (seq inverse)
+      [runtime-db []]
+      (let [on-conflict (on-conflict-policy spec)
+            rdb' (reduce
+                   (fn [rdb {scoped-key :resource/key :as recorded}]
+                     (let [{:keys [disposition]}
+                           (rollback-entry-disposition
+                             (get-in rdb (state/entry-path scoped-key)) recorded on-conflict)]
+                       (case disposition
+                         :restore    (restore-before rdb recorded)
+                         ;; CONFLICT + :invalidate — mark the moved entry stale
+                         ;; durably IN THE PASS (no dispatch; the read path
+                         ;; recovers on the next ensure — the Q3 no-race rule).
+                         :invalidate (update-in rdb (state/entry-path scoped-key)
+                                                state/entry-invalidate settled-at))))
+                   runtime-db inverse)]
+        [rdb' (mapv :resource/key inverse)]))))
 
 ;; ---- fail-closed boundary validation (Spec 016 §Resource identity / -------
 ;;       EP-0003 §Mutations)

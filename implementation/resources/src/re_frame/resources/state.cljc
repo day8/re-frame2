@@ -711,6 +711,21 @@
   [entry recorded-revision]
   (not= (entry-revision entry) (or recorded-revision 0)))
 
+(defn entry-invalidate
+  "Pure: mark `entry` durably STALE (set the `:invalidated-at` fact to
+  `invalidated-at`) and bump the per-entry `:revision` (marking an entry stale
+  moves its freshness — an authoritative durable write a later optimistic
+  rollback could clobber, so it bumps the write identity; bias to over-bump,
+  EP-0019 / byl7bk). The single home for the durable stale mark the scoped
+  invalidation engine and the EP-0019 restore-dangle conflict-rollback share, so
+  a `:stale?` sub derives `true` from `:invalidated-at` identically whether the
+  staleness came from an invalidation pass or a dangle-inside-reconciler. A nil
+  entry is returned unchanged. Per Spec 016 §Invalidation / §Status semantics."
+  [entry invalidated-at]
+  (if entry
+    (bump-revision (assoc entry :invalidated-at invalidated-at))
+    entry))
+
 ;; ---- entry transitions (Spec 016 §Status semantics / §Structural sharing) -
 ;;
 ;; Pure functions `(entry, …) -> entry`. They transition through

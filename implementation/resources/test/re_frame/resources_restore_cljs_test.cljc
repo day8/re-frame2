@@ -328,7 +328,8 @@
       (is (= :success (get-in rdb' [mstate/mutations-key :inst-s :status]))
           "the terminal instance is untouched")))
   (testing "no mutation instances → no-op"
-    (is (= [{} []] (ssr/dangle-pending-mutations! {} 9999)))))
+    ;; EP-0019 Q3 — the return is now `[rdb dangled rolled-back-keys]`.
+    (is (= [{} [] []] (ssr/dangle-pending-mutations! {} 9999)))))
 
 (deftest reconcile-on-restore-dangles-pending-mutation-instances
   (testing "reconcile-on-restore reconciles the :rf.runtime/mutations slice too"

@@ -810,15 +810,15 @@
         ;; on the byte key-id — write straight to the entries-path slot.
         ;; EP-0019 / byl7bk: marking an entry stale is an authoritative durable
         ;; write a later optimistic rollback could clobber (it moves the entry's
-        ;; freshness), so bump the per-entry :revision write identity in the
-        ;; SAME swap — biasing to over-bump (a false conflict costs one refetch;
-        ;; a missed one is silent corruption).
+        ;; freshness), so `state/entry-invalidate` bumps the per-entry :revision
+        ;; write identity in the SAME swap — biasing to over-bump (a false
+        ;; conflict costs one refetch; a missed one is silent corruption). The
+        ;; SHARED durable stale mark the EP-0019 restore-dangle conflict-rollback
+        ;; also uses (one home, identical `:stale?` derivation).
         rdb'       (reduce
                      (fn [db k-id]
                        (update-in db (state/entry-path-by-id k-id)
-                                  (fn [e] (when e
-                                            (state/bump-revision
-                                              (assoc e :invalidated-at invalidated-at))))))
+                                  state/entry-invalidate invalidated-at))
                      runtime-db matched-ids)
         ;; per-entry decision: active-owner entries refetch (Spec 016
         ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
