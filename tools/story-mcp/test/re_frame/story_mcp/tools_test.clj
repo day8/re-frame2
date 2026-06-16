@@ -2684,6 +2684,19 @@
     (coll? tree)    (boolean (some #(tree-contains? % needle) tree))
     :else           false))
 
+(defn- tree-contains-marker?
+  "Deep search for a `:rf.size/large-elided` marker map anywhere in `tree`
+  (rf2-9o5ixx). The marker is `{:rf.size/large-elided {…}}`; this asserts a
+  large value was elided regardless of which slot/position it landed in."
+  [tree]
+  (cond
+    (and (map? tree) (contains? tree :rf.size/large-elided)) true
+    (map? tree)  (boolean (some (fn [[k v]] (or (tree-contains-marker? k)
+                                                (tree-contains-marker? v)))
+                                tree))
+    (coll? tree) (boolean (some tree-contains-marker? tree))
+    :else        false))
+
 (deftest scrub-rendered-redacts-sensitive-value-in-derived-tree
   (testing "a value at a declared-sensitive app-db path is redacted wherever it appears in the derived tree"
     (with-clean-frame [vid :story.button/primary]
@@ -2918,6 +2931,103 @@
               "benign 0 attribute values survive untouched")
           (is (= 0 (get-in out [2 1 :data-level]))
               "benign 0 leaves deep in the tree survive"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-9o5ixx — frame-declared :large values must elide in derived slots, not
+;; only in :app-db. EP-0015 treats sensitive + large as peer egress axes; the
+;; derived-tree scrubber redacted only the sensitive axis, so a :large blob
+;; re-keyed into :rendered-hiccup / :snapshot / evidence / explain value slots
+;; crossed the off-box boundary RAW, and the :elided-large count under-reported.
+;; ---------------------------------------------------------------------------
+
+(deftest scrub-rendered-large-value-elides-in-derived-tree
+  (testing "rf2-9o5ixx: a value at a declared-:large app-db path is elided to
+            :rf.size/large-elided wherever it is re-keyed into the derived tree
+            — not only in the :app-db slot"
+    (with-clean-frame [vid :story.button/primary]
+      ;; A large blob lives at [:blob]; the view renders it into [:pre blob].
+      ;; The :app-db egress elides [:blob] to the marker, but the rendered copy
+      ;; must elide too rather than crossing raw.
+      (let [blob   (vec (range 5000))           ; a big, unique payload
+            db     {:public "ok" :blob blob}
+            hiccup [:div [:pre blob] [:span "label"]]]
+        (seed-app-db! vid db)
+        (declare-large! vid [:blob])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out blob))
+              "the large blob MUST NOT survive verbatim in the derived tree")
+          (is (tree-contains-marker? out)
+              "the re-keyed large value is replaced with the :rf.size/large-elided marker")
+          (is (tree-contains? out "label")
+              "benign leaves are preserved"))))))
+
+(deftest scrub-frame-value-large-value-elides
+  (testing "rf2-9o5ixx: the non-live captured/runtime scrub (scrub-frame-value)
+            also elides a declared-:large value re-keyed into its payload"
+    (with-clean-frame [vid :story.button/primary]
+      (let [blob   (vec (range 5000))
+            db     {:public "ok" :blob blob}
+            ;; a captured-event-style payload that echoes the blob
+            tree   [[:evt/load {:payload blob}]]]
+        (seed-app-db! vid db)
+        (declare-large! vid [:blob])
+        (let [scrub-frame-value (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-frame-value)
+              out               (scrub-frame-value tree vid false)]
+          (is (not (tree-contains? out blob))
+              "the large blob MUST NOT survive verbatim in the captured payload")
+          (is (tree-contains-marker? out)
+              "the re-keyed large value is elided to the :rf.size/large-elided marker"))))))
+
+(deftest scrub-explain-values-large-value-elides
+  (testing "rf2-9o5ixx: explain value slots elide a declared-:large value that
+            is re-surfaced into :effective-args / :network etc."
+    (with-clean-frame [vid :story.button/primary]
+      (let [blob    (vec (range 5000))
+            db      {:public "ok" :blob blob}
+            explain {:effective-args {:rows blob}     ; runtime value slot
+                     :source-chain   [:a :b]}]        ; plan-STRUCTURE slot (public)
+        (seed-app-db! vid db)
+        (declare-large! vid [:blob])
+        (let [scrub-explain-values (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-explain-values)
+              out                  (scrub-explain-values explain vid [:effective-args] false)]
+          (is (not (tree-contains? (:effective-args out) blob))
+              "the large blob MUST NOT survive in the explain value slot")
+          (is (tree-contains-marker? (:effective-args out))
+              "the re-keyed large value is elided to the :rf.size/large-elided marker")
+          (is (= [:a :b] (:source-chain out))
+              "plan-STRUCTURE slots are untouched (intentionally public)"))))))
+
+(deftest scrub-rendered-large-include?-true-forwards-raw
+  (testing "rf2-9o5ixx: include? true forwards the raw large value (the
+            trusted-local opt-out covers BOTH axes)"
+    (with-clean-frame [vid :story.button/primary]
+      (let [blob   (vec (range 5000))
+            db     {:blob blob}
+            hiccup [:pre blob]]
+        (seed-app-db! vid db)
+        (declare-large! vid [:blob])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid true)]
+          (is (identical? hiccup out) "include? true returns the input unchanged")
+          (is (tree-contains? out blob) "the opt-out forwards the raw large value"))))))
+
+(deftest scrub-rendered-sensitive-wins-over-large
+  (testing "rf2-9o5ixx: a value that is BOTH sensitive and large redacts to
+            :rf/redacted (sensitive wins), never the large marker"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The same blob sits at a sensitive path AND a large path.
+      (let [blob   (vec (range 5000))
+            db     {:secret blob :cache blob}
+            hiccup [:pre blob]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:secret])
+        (declare-large! vid [:cache])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out blob)) "the blob does not survive")
+          (is (tree-contains? out :rf/redacted)
+              "sensitive wins — the leaf redacts to :rf/redacted, not the large marker"))))))
 
 ;; The two integration tests below pin the WIRING — that `preview-variant`
 ;; and `run-variant` route `:rendered-hiccup` / `:effective-args` / `:snapshot`

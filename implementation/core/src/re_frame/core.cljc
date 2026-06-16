@@ -2712,6 +2712,41 @@
   §Projection."}
   redact-matching-values           elision/redact-matching-values)
 
+(def ^{:doc "Value-elide a DERIVED tree against the live values at the frame's
+  declared-`:large` app-db paths, before wire egress (rf2-9o5ixx). The
+  LARGE-axis dual of `redact-derived-values` (EP-0015: sensitive + large are
+  peer egress axes): where `elide-wire-value` elides a large slot by app-db
+  PATH, this collects the large VALUES from the source db and substitutes any
+  matching leaf in the derived tree (a large blob re-keyed into rendered
+  hiccup / snapshot / evidence / explain value slots at a non-app-db position)
+  with the `:rf.size/large-elided` marker. No non-unique-secret guard (a large
+  payload has no short-scalar collateral hazard; a re-keyed copy must elide
+  wherever it lands); a sensitive-declared value is left to the sensitive
+  engine (sensitive wins — run sensitive redaction FIRST). `(redact-derived-
+  large-values tree source-db frame-id wire-opts)` — `wire-opts` is the egress
+  floor (`:frame` supplied automatically). Per Spec 015 §Projection."}
+  redact-derived-large-values      elision/redact-derived-large-values)
+
+(def ^{:doc "The `{large-value marker}` map for the frame's declared-`:large`
+  app-db paths, read from a raw source db: each key the whole blob, each value
+  the `:rf.size/large-elided` marker `elide-wire-value` would emit for it under
+  `wire-opts`. The large-axis dual of `elision-collect-sensitive-values`,
+  exposed for tools driving the large value-match over MULTIPLE derived slots
+  from one collection pass (pair it with `redact-matching-large-values`).
+  `(elision-large-value-marker-map source-db frame-id wire-opts)`. Per Spec 015
+  §Projection."}
+  elision-large-value-marker-map   elision/large-value-marker-map)
+
+(def ^{:doc "Walk a derived tree, substituting any leaf `=` to a key of a
+  pre-collected `{large-value marker}` map with that key's `:rf.size/large-
+  elided` marker (the redaction arm of the large value-match dual, rf2-9o5ixx).
+  Recurses maps/vectors/sets/seqs; map keys walked too; returns the tree
+  unchanged when the map is empty. Use with a map from
+  `elision-large-value-marker-map` to elide MULTIPLE derived slots from one
+  collection pass. `(redact-matching-large-values tree marker-map)`. Per
+  Spec 015 §Projection."}
+  redact-matching-large-values     elision/redact-matching-large-values)
+
 (def ^{:doc "Project a sequence of raw trace events into one cascade
   record per `:dispatch-id`. Pure data — JVM and CLJS. Used by
   `re-frame-10x`, Xray, and other tools that present cascade-level

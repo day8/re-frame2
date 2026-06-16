@@ -270,10 +270,13 @@ Plan-derived data — no run, no live `:app-db` slice — but the plan
 RESOLVES author args into runtime VALUES, so the value-bearing slots
 (`:effective-args` / `:args` / `:substitutions` / `:network` route
 replies / `:db-seed` / `:sub-overrides` override values / `:setup-order`
-+ `:script-order` step payloads) are value-redacted against the variant
-frame's declared-sensitive values at egress (rf2-12f2q, rf2-q8ebq.1) via
-the shared `egress/scrub-explain-values` step — the SAME value-based
-redaction the live tools apply. The remaining plan-STRUCTURE slots
++ `:script-order` step payloads) are value-scrubbed against the variant
+frame's frame declarations at egress (rf2-12f2q, rf2-q8ebq.1, rf2-9o5ixx)
+via the shared `egress/scrub-explain-values` step — on BOTH egress axes
+(EP-0015 peer axes): a leaf equal to a declared-`:sensitive?` value becomes
+`:rf/redacted`, a leaf equal to a declared-`:large` value becomes the
+`:rf.size/large-elided` marker (sensitive wins where both apply) — the SAME
+value-based scrub the live tools apply. The remaining plan-STRUCTURE slots
 (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
 `:strict-conflicts` / `:tags` / …) are author-published discovery
 metadata and pass through unredacted. Pass `:include-sensitive true`
@@ -385,8 +388,10 @@ produce distinct hashes — the same tuple input `run-variant` /
 The `:violations` vec is live runtime DOM state — each axe-core node
 carries `:html` (the violating element's outerHTML), so a value
 rendered into the DOM lands verbatim there. `:violations` is
-value-redacted against the variant frame's declared-`:sensitive?`
-values by default; `:include-sensitive true` opts out, following the
+value-scrubbed against the variant frame's frame declarations by default
+on BOTH egress axes (rf2-9o5ixx): a leaf equal to a declared-`:sensitive?`
+value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value
+becomes the `:rf.size/large-elided` marker; `:include-sensitive true` opts out, following the
 same `--allow-sensitive-reads` boot gate as `preview-variant`
 (rf2-g9fje) — one of the six value-surfacing tools that carry the
 opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,

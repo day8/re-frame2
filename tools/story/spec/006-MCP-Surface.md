@@ -88,10 +88,20 @@ data, so the egress classifies each payload as runtime/captured VALUE
   that carries observed runtime state or a captured/plan-resolved value
   is run through the egress scrubbers (path-based
   `re-frame.core/elide-wire-value` for `:app-db`; value-based redaction
-  via the framework `re-frame.core/redact-derived-values` against the
-  variant frame's declared-`:sensitive?` values for derived / non-live
-  trees — the value-match engine is centralized in `re-frame.elision`,
-  EP-0015 issue 2). This covers the live-state tools' `:app-db` /
+  for derived / non-live trees). EP-0015 treats `:sensitive` and `:large`
+  as PEER egress axes, so a derived tree is scrubbed on BOTH: the
+  framework `re-frame.core/redact-derived-values` substitutes any leaf
+  equal to a declared-`:sensitive?` value with `:rf/redacted`, and
+  `re-frame.core/redact-derived-large-values` substitutes any leaf equal
+  to a declared-`:large` value with the `:rf.size/large-elided` marker —
+  so a large blob declared at, e.g., `[:blob]` and re-keyed into
+  `:rendered-hiccup` / `:snapshot` / evidence / `:effective-args` elides
+  on the wire rather than crossing raw, and the `:elided-large` indicator
+  count sees those derived-slot markers. Sensitive WINS over large (the
+  sensitive pass runs first; a value declared both redacts to
+  `:rf/redacted`). Both value-match engines are centralized in
+  `re-frame.elision` (the duals of `elide-wire-value`, EP-0015 issue 2 /
+  rf2-9o5ixx). This covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion
   records (`preview-variant` / `run-variant` / `read-failures`),
   `run-a11y`'s `:violations` (axe-core nodes — the violating element's
