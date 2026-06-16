@@ -879,6 +879,19 @@
   pending-reprojection?
   (atom false))
 
+(defonce ^{:private true
+           :doc "Process-local RE-ENTRANCY guard: true WHILE a reprojection flush
+  is running. `reproject-live-frames!` re-assembles + swaps generations only — it
+  must never `reg-*`, so it must never re-arm the hook. But the EP-0023 collapse
+  (rf2-32siq3.32) made `make-frame` create a backing runnable RECORD via
+  `frame/reg-frame` (a `register!`), so the auto-reprojection hook now fires on
+  `:frame` registrations too. Were a flush to ever provoke a `register!`
+  (defensively — none is expected), this guard makes the hook a NO-OP during the
+  flush so a flush can never schedule its own successor. A plain atom — flush
+  bookkeeping, not reactive state."}
+  reprojecting?
+  (atom false))
+
 (defn flush-pending-reprojection!
   "If a `reg-*` source-store change has marked the projection dirty, clear the
   flag and reproject EVERY registered live frame ONCE against the current source
@@ -891,11 +904,19 @@
   reprojection to have happened by a known point) invoke this to force the
   pending reprojection through deterministically rather than awaiting the
   deferred tick. The dirty-flag clear is read-then-reset so a re-entrant
-  `reg-*` during reprojection re-arms a fresh flush rather than being lost."
+  `reg-*` during reprojection re-arms a fresh flush rather than being lost.
+
+  The reproject runs under the `reprojecting?` RE-ENTRANCY guard: any
+  `register!` the reproject provokes (the EP-0023 collapse made `make-frame`'s
+  backing `reg-frame` fire the hook; reproject itself never `reg-*`s, but this
+  is defensive) sees the guard set and is a NO-OP, so a flush can never schedule
+  its own successor — bounding the work to ONE reprojection per pending mark."
   []
   (if @pending-reprojection?
     (do (reset! pending-reprojection? false)
-        (reproject-live-frames!))
+        (reset! reprojecting? true)
+        (try (reproject-live-frames!)
+             (finally (reset! reprojecting? false))))
     {}))
 
 (defn- deferred-flush!
@@ -923,12 +944,37 @@
   most ONE deferred flush — reprojecting ONCE at the batch boundary, not per
   `reg-*`. `compare-and-set!` makes the schedule-decision atomic against the
   burst. The scheduled body is the error-swallowing `deferred-flush!` (a
-  background tick has no caller to surface a throw to). Returns nil."
+  background tick has no caller to surface a throw to).
+
+  TWO short-circuits keep this off the hot path so an ordinary registration
+  burst with no live image frames costs essentially nothing (rf2-h4q6cy fix):
+
+    * NO-LIVE-FRAME skip — reprojection only ever touches PUBLIC-id live frames
+      (`reproject-live-frames!` enumerates `live-frame-ids`). With none live the
+      flush would be a guaranteed no-op, so there is nothing to mark dirty or
+      schedule. This is the dominant case: every `reg-event` / `reg-sub` /
+      `reg-fx` — and the `reg-frame` of EVERY runnable frame's backing record
+      since the EP-0023 collapse (rf2-32siq3.32) — funnels through `register!`
+      and so fires this hook, but the overwhelming majority run while NO explicit
+      `:id` frame is live (app boot, every handler-only test). Marking +
+      scheduling on each would flood `interop/next-tick` with one no-op flush per
+      registration — the bundle has thousands — interleaving expensive deferred
+      callbacks with the async test runner's own scheduling and never settling
+      (the observed CI node-test / browser hang). Skipping when nothing is
+      reprojectable removes the flood; a `reg-*` while a live image frame DOES
+      exist (the headline-guarantee case) still marks + schedules.
+
+    * RE-ENTRANCY skip — a `register!` that fires WHILE a flush is running
+      (`reprojecting?` set) does not re-arm: a flush can never schedule its own
+      successor, so the work is bounded to ONE reprojection per pending mark
+      regardless of any registration the reproject path provokes."
   []
-  ;; Only the transition false→true schedules — the burst's subsequent calls
-  ;; observe the flag already true and add no second tick.
-  (when (compare-and-set! pending-reprojection? false true)
-    (interop/next-tick deferred-flush!))
+  (when (and (not @reprojecting?)
+             (seq (live-frame-ids)))
+    ;; Only the transition false→true schedules — the burst's subsequent calls
+    ;; observe the flag already true and add no second tick.
+    (when (compare-and-set! pending-reprojection? false true)
+      (interop/next-tick deferred-flush!)))
   nil)
 
 (defn reproject-on-registration-change!
