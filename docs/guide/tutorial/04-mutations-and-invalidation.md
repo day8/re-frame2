@@ -103,9 +103,46 @@ Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. T
 
     You don't have to spot this by eye. In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only (elided from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the trace stream or in Xray.
 
-!!! note "Honest limits on `:populates`"
+!!! tip "Make it optimistic: the heart flips *before* the reply"
 
-    `:populates` is a *forward-only* seed — optimistic rollback is a deferred feature, not a current one. Here that's harmless, because populate runs only on success. But don't reach for populate expecting TanStack-style optimistic updates that revert on failure; that shape isn't available yet.
+    `:populates` runs on success — the heart flips the moment the server confirms. For a tiny, reversible change like a favorite, you usually want the flip *immediately on click*, then a revert if the write fails. That's an **optimistic mutation**, and it's a registration key, not a call-site dance.
+
+    Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:invalidates` says "these tags went *stale*," `:optimistic-tags` says "patch every entry carrying these tags, *now*, before the request":
+
+    ```clojure
+    (rf/reg-mutation :conduit/favorite
+      {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
+       :params-schema [:map [:slug :string]]
+       :scope         :rf.scope/global
+       :request       (fn [{:keys [slug]} _ctx]
+                        {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
+                         :decode  schema/ArticleResponse})
+       ;; FORWARD: flip the heart + bump the count on every entry tagged
+       ;; [:article slug] — the detail, every list, the session feed — at once.
+       :optimistic-tags (fn [{:keys [slug]}]
+                          [{:scope :rf.scope/global
+                            :tags  #{[:article slug]}
+                            :patch (fn [data] (favorite-patch true slug data))}
+                           {:scope {:from-db :conduit/session}
+                            :tags  #{[:feed]}
+                            :patch (fn [data] (favorite-patch true slug data))}])
+       ;; COMMIT on :ok — the reply's authoritative Article overwrites the guess.
+       :populates     (fn [{:keys [slug]} result]
+                        {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
+                         result})
+       :invalidates   (fn [{:keys [slug]} _result]
+                        [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
+                         {:scope {:from-db :conduit/session} :tags #{[:feed]}}])
+       :on-conflict   :invalidate})
+    ```
+
+    Three things make this safe, and none of them are your job:
+
+    - **The runtime records the inverse.** You write only the *forward* `:patch` (`favorite-patch` toggles the flag and steps the count, handling both the detail's `{:article …}` and a list's `{:articles […]}` shape). The runtime snapshots each touched entry's prior value, so a rollback restores exactly what was there — never a reconstruction that can drift from the forward patch.
+    - **The reply settles deterministically.** An `:ok` reply **commits** (the `:populates` seed overwrites the optimistic value with the server's exact count, then `:invalidates` reconciles the lists). An `:error` reply **rolls back** — the heart flips back everywhere, verbatim. No `:on-failure` handler, no `app-db` undo flag.
+    - **A contested rollback refetches, it doesn't clobber.** If a *concurrent* write moved a touched entry while yours was in flight, `:on-conflict :invalidate` (the default) marks that entry stale and lets the read path fetch the authoritative value, rather than restoring a now-stale snapshot. This is re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore — on a contested rollback, the read path is the recovery authority.
+
+    The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue. **Coming from TanStack/RTK/SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace ([`:rf.mutation/optimistic-applied`](../../../spec/016-Resources.md#optimistic-mutations) → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic surface lives in [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); `examples/reagent/realworld_resources/mutations.cljs` runs exactly this favorite.
 
 ## Fire it, watch the instance
 
@@ -136,7 +173,7 @@ A resource is "a sub you read and a cause you fire." A mutation is the mirror im
      [:i.ion-heart] " " favoritesCount]))
 ```
 
-Pause on the `:instance` id, because this is where people get tripped up. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, which means you can click hearts on three cards in quick succession and they can never clobber each other. The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` sub — a subscription being a read of derived state — which returns `{:pending? :success? :error? :settled? :result :error}`. That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no `:saving?` flag to maintain.
+Pause on the `:instance` id, because this is where people get tripped up. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, which means you can click hearts on three cards in quick succession and they can never clobber each other. The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` sub — a subscription being a read of derived state — which returns `{:pending? :success? :error? :settled? :result :error :optimistic?}`. That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no `:saving?` flag to maintain. (The `:optimistic?` flag is for the optimistic variant in the note above — true while an unconfirmed optimistic value is showing.)
 
 Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
 
