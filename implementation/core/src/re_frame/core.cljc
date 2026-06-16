@@ -123,6 +123,16 @@
             ;; constructs an image leaves the constructor as Closure-DCE dead
             ;; code.
             [re-frame.image :as image]
+            ;; EP-0023 (rf2-32siq3.11): the EP-0013 -> EP-0023 migration shims +
+            ;; diagnostics ns. Carries the surface dispositions as inspectable
+            ;; data plus the fail-loud migration diagnostics (cross-realm
+            ;; duplicate-frame-id, the make-frame dual-export transition guard).
+            ;; A leaf over `re-frame.error` / `re-frame.realm` /
+            ;; `re-frame.live-frame` (all already in the core spine); re-exported
+            ;; below as `rf/migration-map` / `rf/migration-explain` / the two
+            ;; `assert-*` guards. An app that never reaches a superseded EP-0013
+            ;; surface leaves them as Closure-DCE dead code.
+            [re-frame.migration :as migration]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
@@ -715,11 +725,63 @@
   `:images` vector. See `re-frame.image/image`."}
   image    image/image)
 
+;; ---- EP-0013 -> EP-0023 migration shims + diagnostics (rf2-32siq3.11) -----
+;;
+;; EP-0023 moves the PUBLIC model to `image -> frame -> event stream` while
+;; RETAINING EP-0013's realm machinery as an internal substrate (EP-0023
+;; §Backwards Compatibility). These surfaces help a codebase migrate off the
+;; superseded EP-0013 public names (`rf/app`, `rf/module`, the realm-targeted
+;; install/query surfaces, the `(realm, frame)` address) without a silent break:
+;; the migration map + `explain` are inspectable guidance, the two `assert-*`
+;; forms are fail-loud diagnostics. See `re-frame.migration`.
+
+(def ^{:doc "The EP-0013 -> EP-0023 surface dispositions as inspectable data —
+  `{surface-kw {:status … :replacement … :guidance …}}` (EP-0023 §Backwards
+  Compatibility). One entry per superseded / re-expressed / retained-internal
+  EP-0013 public name: `:rf/app`, `:rf/module`, `:rf/install!`, `:rf/reinstall!`,
+  `:rf/installed-app`, `:rf/realm`, the `(realm, frame)` address
+  (`:rf.realm/frame-address`), and the realm-scoped registrar queries
+  (`:rf.realm/scoped-query`). The public model is `image -> frame -> event
+  stream`; the realm substrate is retained internally where it still earns its
+  keep. See `re-frame.migration/migration-map`."}
+  migration-map     migration/migration-map)
+
+(def ^{:doc "Return the one-line EP-0013 -> EP-0023 migration guidance string
+  for an EP-0013 public-name keyword (`:rf/app`, `:rf/module`, `:rf/install!`,
+  `:rf/realm`, `:rf.realm/frame-address`, `:rf.realm/scoped-query`), or nil for
+  an unknown surface (EP-0023 §Backwards Compatibility). Reads `migration-map`.
+  See `re-frame.migration/explain`."}
+  migration-explain migration/explain)
+
+(def ^{:doc "Fail loud with `:rf.error/cross-realm-frame-id` when a frame id is
+  already live in a realm OTHER than the target — the EP-0013 -> EP-0023
+  duplicate-frame-id migration break (EP-0023 §Id Spaces). EP-0013's
+  `(realm, frame)` addressing let the same public frame id coexist in two
+  realms; the EP-0023 public model has ONE process-local frame-id space, so a
+  caller adopting the EP-0023 frame-id contract calls this to surface — with an
+  actionable error naming the conflicting realms + the fix (distinct ids, or a
+  direct frame object in local scope) — a reuse the new model forbids. Returns
+  the frame id when there is no cross-realm collision. A CALLER-INVOKED
+  diagnostic: it does NOT mutate the shipped `reg-frame` path (which legitimately
+  allows the same id across realms for the retained internal substrate). See
+  `re-frame.migration/assert-process-local-frame-id!`."}
+  assert-process-local-frame-id! migration/assert-process-local-frame-id!)
+
 ;; ---- frame management ----------------------------------------------------
 
 (def ^{:doc "Anonymous-instance frame creation — generates a gensym'd id
   under `:rf.frame/...` and returns it. Per Spec 002 §Per-instance frames.
-  Use `reg-frame` to create a frame with a caller-supplied id."}
+  Use `reg-frame` to create a frame with a caller-supplied id.
+
+  EP-0023 TRANSITION: this is the EP-0013 RECORD constructor (returns a gensym
+  id). EP-0023's public model is the OBJECT constructor
+  (`re-frame.live-frame/make-frame`, returns the live frame object, accepts
+  `:images` / `:id`). The two have INVERTED return contracts, so the facade
+  exports exactly ONE `make-frame` during the migration window; the
+  name-collapse + caller migration (record/object unification) is the EP-0023
+  follow-up that rules the unified contract. `re-frame.migration/`
+  `assert-no-dual-make-frame!` is the guard that fails loud if both are ever
+  exported under one name. See EP-0023 §Backwards Compatibility."}
   make-frame    frame/make-frame)
 
 (def ^{:doc "Atomic `destroy-frame!` + `reg-frame` with the same config —
@@ -1618,7 +1680,14 @@
   owner-qualified (`:rf.module/owns` / `:rf.module/requires`, EP-0007 /
   EP-0017 v5); the structural section keys (`:id`, `:events`, `:subs`, …) stay
   bare. The reserved-vocabulary `rf/module` constructor. Per spec/API.md
-  §App values and composition (EP-0013)."}
+  §App values and composition (EP-0013).
+
+  EP-0023 MIGRATION: `rf/module` is re-expressed as an IMAGE FRAGMENT — a
+  feature namespace registers ordinary `reg-*` forms and an `rf/image` selects
+  them by `:include-ns` provenance glob; no separate public module noun is
+  needed for the core model. `rf/module` is retained as an internal/migration
+  surface. See `(rf/migration-explain :rf/module)` and EP-0023 §Backwards
+  Compatibility."}
   module app-value/module)
 
 (def ^{:doc "Construct an APP value by composing module values — `(app {:id …
@@ -1627,7 +1696,14 @@
   `:rf.error/app-composition-collision` (the ex-data names every colliding
   source) rather than last-writer-wins. INERT data — an app value is pure
   until a stage-7 `install!` seats it. The reserved-vocabulary `rf/app`
-  constructor. Per spec/API.md §App values and composition (EP-0013)."}
+  constructor. Per spec/API.md §App values and composition (EP-0013).
+
+  EP-0023 MIGRATION: `rf/app` is publicly REPLACED by `rf/image` — the selected
+  registration-set value a frame loads. Construct an image
+  (`(rf/image {:include-ns [...]})`) and supply it to `make-frame` via
+  `:images`, instead of composing modules into an app value. `rf/app` is
+  retained as an internal/migration surface. See
+  `(rf/migration-explain :rf/app)` and EP-0023 §Backwards Compatibility."}
   app app-value/app)
 
 (defn app-registrations
@@ -1924,7 +2000,13 @@
   seated app value at the realm boundary; returns the realm map. The explicit
   seating path — the ordinary `reg-*` sugar path (which updates the default
   realm's program in place) is UNCHANGED. Per spec/API.md §App values and
-  composition (EP-0013)."}
+  composition (EP-0013).
+
+  EP-0023 MIGRATION: `rf/install!` is RETAINED as an internal/migration/tooling
+  surface — it is no longer the taught public vocabulary. The public path is
+  `make-frame` with `:images`; the realm registrar remains the backing
+  installation substrate during migration. See
+  `(rf/migration-explain :rf/install!)` and EP-0023 §Backwards Compatibility."}
   install! app-value/install!)
 
 (def ^{:doc "Hot-reload a realm by replacing its installed app value —
@@ -1936,7 +2018,12 @@
   the capability check on the new app. Returns the diff value
   `{:realm :reason :added :changed :removed}` (`:reason` echoes `opts`,
   default `:hot-reload`). Descriptor-only slice — live-instance migration is a
-  later slice. Per spec/API.md §App values and composition (EP-0013)."}
+  later slice. Per spec/API.md §App values and composition (EP-0013).
+
+  EP-0023 MIGRATION: `rf/reinstall!` is RETAINED as an internal/migration
+  surface. The public hot-reload path is `reload-images!` against a FRAME target,
+  which swaps the frame's image generation while preserving frame memory. See
+  `(rf/migration-explain :rf/reinstall!)` and EP-0023 §Backwards Compatibility."}
   reinstall! app-value/reinstall!)
 
 ;; ---- the public realm constructor (EP-0013 D1 stage 9) -------------------
@@ -1961,7 +2048,14 @@
   process — a duplicate `:id` THROWS `:rf.error/realm-id-conflict`. Returns the
   realm map (composes: `(-> (rf/realm {:id …}) (rf/install! app))`). The
   reserved-vocabulary `rf/realm` constructor (ruled `rf/realm`, never
-  `rf/runtime`). Per spec/API.md §App values and composition (EP-0013)."}
+  `rf/runtime`). Per spec/API.md §App values and composition (EP-0013).
+
+  EP-0023 MIGRATION: `rf/realm` is RETAINED as the INTERNAL installation
+  substrate — it stops being the beginner-facing public architecture. The public
+  model targets a FRAME (a process-local frame id, or a direct frame object for
+  tests); the frame determines the image generation used for registration
+  resolution. See `(rf/migration-explain :rf/realm)` and EP-0023 §Backwards
+  Compatibility."}
   realm realm/construct-realm)
 
 (def ^{:doc "Dispose a constructed realm — `(dispose-realm! realm-or-id)` drops
@@ -2005,7 +2099,13 @@
   `realm-ids` / `frame-realm` — the realm-aware-tool read surface (it unblocks the
   Xray Module-view's MODULES section, EP-0013 disposition 6). It does NOT route
   live dispatch through a non-default realm (the deferred runtime-routing slice).
-  Per spec/API.md §App values and composition (EP-0013)."}
+  Per spec/API.md §App values and composition (EP-0013).
+
+  EP-0023 MIGRATION: `rf/installed-app` is RETAINED as a tooling/migration
+  surface. The public model inspects a FRAME's resolved image generation; tools
+  may still read the internal installation boundary but should label it as
+  implementation structure. See `(rf/migration-explain :rf/installed-app)` and
+  EP-0023 §Backwards Compatibility."}
   installed-app realm/installed-app)
 
 ;; ---- interceptors --------------------------------------------------------
