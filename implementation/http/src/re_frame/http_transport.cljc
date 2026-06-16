@@ -618,7 +618,13 @@
   `:url` / `:sensitive?` shape every cancellation path expects, so
   `:rf.http/managed-abort`, `abort-on-actor-destroy`, and `supersede!`
   all cancel a sleeping request through their existing `:abort-fn`
-  dispatch with no path-specific code.
+  dispatch with no path-specific code. It ALSO carries the sleeping
+  attempt's `:origin-event` / `:issuance` / `:attempt` identity facts
+  (rf2-hbus90), mirroring the live-fetch handle (rf2-azcmd3), so a
+  `supersede!` during the backoff window can build the SUPERSEDED
+  attempt's canonical `:status :stale` reply-envelope trace with the
+  correct carried work-id (issuance/attempt preserved) rather than a
+  default first-attempt id.
 
   `interop/set-timeout!` / `interop/clear-timeout!` are defined on both
   platforms (CLJS: `js/setTimeout` / `js/clearTimeout`; JVM:
@@ -676,7 +682,25 @@
                       ;; actor-destroy abort trace (emitted from the registry
                       ;; ns, distant from the fx ctx) can resolve the frame's
                       ;; frame-local HTTP carriers for the URL redaction.
-                      :frame      (:frame ctx)})
+                      :frame      (:frame ctx)
+                      ;; rf2-hbus90 — carry the SLEEPING attempt's reply-ctx
+                      ;; identity facts on the backoff handle, exactly as the
+                      ;; live-fetch handle in `run-attempt!` does (rf2-azcmd3).
+                      ;; `supersede!` returns this handle when a same-id
+                      ;; request supersedes the request DURING its backoff
+                      ;; window, and `emit-superseded-stale-trace!` builds the
+                      ;; carried (superseded) work-id from the handle's
+                      ;; `:origin-event` / `:issuance` / `:attempt`. Without
+                      ;; these the carried work-id defaulted to issuance 1 /
+                      ;; attempt 1 — a phantom first-attempt id that breaks
+                      ;; reply-envelope/trace correlation whenever the sleeping
+                      ;; retry is at attempt > 1 (or issuance > 1). The handle
+                      ;; represents the just-failed attempt (`ctx`'s `:attempt`
+                      ;; / `:issuance`); the timer's `(update :attempt inc)`
+                      ;; advances to the NEXT attempt only when it fires.
+                      :origin-event (:origin-event ctx)
+                      :issuance     (:issuance ctx)
+                      :attempt      (:attempt ctx)})
         ;; rf2-meq28 — publish the stamped handle so the abort-fn closure
         ;; (defined above, before `handle` was bound) can pass it to the
         ;; 2-arg `clear-in-flight!` via `@handle-cell`. The reset! happens

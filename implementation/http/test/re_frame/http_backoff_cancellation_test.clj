@@ -35,6 +35,9 @@
    1. :rf.http/managed-abort during backoff   → no retry, registry clear
    2. abort-on-actor-destroy during backoff   → no retry, registry clear
    3. supersede (same request-id) during backoff → old retry suppressed
+   3b. supersede during backoff (rf2-hbus90)  → the stale-suppressed trace
+       carries the SLEEPING retry attempt's work-id (issuance/attempt
+       preserved), not a default `1 1`
    4. GUARD: an uncancelled backoff still retries (no regression)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -46,7 +49,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as test-support]
+            [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -297,6 +301,89 @@
         (is (every? #(not= :request-id-superseded (get-in % [:failure :reason])) @replies)
             "the superseded request's reply is suppressed (rf2-lxd3); no :request-id-superseded reply is dispatched to the user")
         (finally
+          (stop-server! srv)
+          (stop-server! new-srv))))))
+
+;; ---- (3b) supersede during backoff carries the sleeping attempt's work-id --
+
+(deftest supersede-during-backoff-stale-trace-carries-sleeping-attempt-work-id
+  (testing "rf2-hbus90 — superseding a request that is SLEEPING in its retry backoff window records a :rf.http/stale-suppressed trace whose carried work-id is the sleeping retry attempt's work-id (issuance/attempt preserved), distinct from the superseding attempt's"
+    (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
+          ;; The superseding request targets a different blocking endpoint so
+          ;; it stays in-flight while we inspect the emitted stale trace.
+          new-srv (start-counting-500-server!)
+          replies (atom [])
+          traces  (atom [])
+          lid     ::supersede-backoff-stale]
+      (try
+        (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf/reg-event :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event :issue-old
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
+                    :decode     :json
+                    :retry      retry-config
+                    :request-id :shared
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        ;; The superseding request: same :request-id, no retry, fresh endpoint.
+        ;; It allocates issuance 2 under :shared, so its work-id is
+        ;; [:rf.work/http :shared 2 1].
+        (rf/reg-event :issue-new
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" (:port new-srv) "/")}
+                    :decode     :json
+                    :request-id :shared
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue-old])
+        ;; Drive the old request THROUGH attempt #1 (500 → backoff) and into
+        ;; attempt #2's backoff window: wait for 2 server hits (attempt #1 and
+        ;; the retried attempt #2), then settle so attempt #2's 500 has
+        ;; classified and `maybe-retry!` has re-armed the backoff timer. The
+        ;; sleeping handle now represents attempt #2 (issuance 1, attempt 2).
+        (await-condition! #(>= (.get hits) 2))
+        (Thread/sleep 150)
+        (is (contains? (registry/in-flight-snapshot) :shared)
+            "the old request is still registered, sleeping in attempt #2's backoff window")
+        ;; Supersede with a fresh same-id request squarely inside that window.
+        (rf/dispatch-sync [:issue-new])
+        (test-support/poll-until
+          #(some (fn [ev] (= :rf.http/stale-suppressed (:operation ev))) @traces)
+          {:timeout-ms 5000 :label "supersede-backoff-stale"})
+        (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
+          (is (= 1 (count stale)) "exactly one stale-suppression row for the superseded sleeping attempt")
+          (let [tags (:tags (first stale))]
+            (is (= :stale (:rf.reply/status tags)))
+            (is (= :suppressed (:rf.reply/work-status tags)))
+            (is (= :http (:work/kind tags)))
+            ;; THE BUG (rf2-hbus90): the carried work-id must be the SLEEPING
+            ;; retry attempt's work-id — issuance 1, attempt 2. The pre-fix
+            ;; backoff handle dropped :issuance / :attempt, so the carried id
+            ;; defaulted to [:rf.work/http :shared 1 1] (a phantom attempt #1).
+            (is (= [:rf.work/http :shared 1 2] (:work/id (:rf.reply/carried tags)))
+                "carried work-id reflects the superseded SLEEPING retry attempt (attempt 2), not a default attempt 1")
+            ;; current = the superseding attempt's work-id (issuance 2, attempt 1).
+            (is (= [:rf.work/http :shared 2 1] (:work/id (:rf.reply/current tags)))
+                "current work-id is the superseding fresh issuance")
+            (is (not= (:work/id (:rf.reply/carried tags))
+                      (:work/id (:rf.reply/current tags)))
+                "carried (superseded) and current (superseding) work-ids are =-distinct")
+            ;; The canonical join key reads the carried (superseded) work-id.
+            (is (= [:rf.work/http :shared 1 2] (:work/id tags)))))
+        ;; The OLD server must NEVER receive a third hit — its sleeping retry
+        ;; was cancelled by the supersede (existing rf2-wj8vv behaviour kept).
+        (Thread/sleep (long (+ backoff-ms 600)))
+        (is (= 2 (.get hits))
+            "the OLD request's backoff retry MUST NOT fire after being superseded (exactly attempts #1 + #2 hit the server)")
+        ;; The superseded request's app reply is suppressed (rf2-lxd3).
+        (is (every? #(not= :request-id-superseded (get-in % [:failure :reason])) @replies)
+            "no :request-id-superseded reply is dispatched to the user")
+        (finally
+          (trace/unregister-listener! lid)
           (stop-server! srv)
           (stop-server! new-srv))))))
 
