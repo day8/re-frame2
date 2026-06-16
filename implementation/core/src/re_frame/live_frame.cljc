@@ -391,7 +391,17 @@
   an absent map provides nothing, EP-0013 fail-loud parity). Returns the sealed
   generation. The shared resolution `make-frame` and `reload-images!` both use,
   so a reload resolves with byte-identical semantics to creation. Fail-loud on a
-  non-vector `:images`, an assembly error, or a missing capability."
+  non-vector `:images`, an assembly error, or a missing capability.
+
+  An ABSENT or EMPTY `:images` is the DEFAULT-IMAGE path (EP-0023 §Default Image
+  Semantics): nil `images` normalizes to `[]`, and `assemble` routes an empty
+  `:images` vector through `assemble-default` — the implicit selector over the
+  WHOLE source store (+ the framework standards), NOT the framework standards
+  alone. So a frame created with no explicit images runs every `reg-*`-authored
+  descriptor in the (live or supplied) source store, and a cross-namespace
+  same-`[kind id]` collision in that default projection FAILS LOUD here at
+  make-frame time (`:rf.error/image-duplicate-id`) exactly as an explicit
+  image's collision does — load order never silently decides the survivor."
   [images capabilities descriptors]
   (let [images     (if (some? images) (validate-images! images) [])
         generation (if (nil? descriptors)
@@ -422,8 +432,15 @@
                    image values are resolved into ONE sealed image generation via
                    `re-frame.image-assembly/assemble`; a non-vector `:images`
                    fails loud (`:rf.error/make-frame-bad-images`). Optional — a
-                   frame created with no `:images` resolves the framework
-                   standard set alone (the default-image path is a later slice).
+                   frame created with NO `:images` (absent or `[]`) runs the
+                   DEFAULT IMAGE (EP-0023 §Default Image Semantics): the implicit
+                   selector over the WHOLE source store (+ the framework
+                   standards), so it resolves every `reg-*`-authored registration,
+                   NOT the framework standards alone. The default projection
+                   FAILS LOUD on a cross-namespace same-`[kind id]` collision
+                   (`:rf.error/image-duplicate-id`) — load order never decides
+                   the survivor (a product wanting same ids with different
+                   meanings uses explicit images with disjoint selectors).
     :id            the frame id (optional). When supplied, the returned object is
                    registered in the PROCESS-LOCAL LIVE-FRAME REGISTRY under this
                    id; a duplicate live id fails loud
