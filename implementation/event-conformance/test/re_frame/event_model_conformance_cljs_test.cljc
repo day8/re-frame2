@@ -54,6 +54,7 @@
             [re-frame.core :as rf]
             [re-frame.cofx :as cofx]
             [re-frame.error-emit :as error-emit]
+            [re-frame.late-bind :as late-bind]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -350,6 +351,150 @@
     (is (= :rf.error/unregistered-cofx
            (thrown-error-id #(rf/dispatch-sync [:evt-conf/bad-requires])))
         "an unregistered declared cofx raises :rf.error/unregistered-cofx")))
+
+(deftest reg-event-malformed-requires-is-cofx-request-invalid
+  (testing "EP-0017 §8 error matrix (rf2-fiiwbb) — a malformed `:rf.cofx/requires`
+            declaration is the registration-time hard error
+            `:rf.error/cofx-request-invalid` (DISTINCT from the unregistered-id
+            typo case, `:rf.error/unregistered-cofx`, above). `:rf.cofx/requires`
+            must be a VECTOR of ids; a non-vector value (e.g. a bare keyword) and
+            a vector carrying a non-id entry (e.g. a number) both fail at
+            registration — typos die before dispatch semantics apply. This locks
+            the request-shape leg of the public error matrix the existing tier
+            pinned only partially. A regression that silently accepted a
+            malformed requires (delivering nothing, or a nil) turns this RED"
+    ;; A non-vector :rf.cofx/requires value.
+    (is (= :rf.error/cofx-request-invalid
+           (thrown-error-id
+             #(rf/reg-event :evt-conf/requires-not-vector
+                {:rf.cofx/requires :evt-conf/not-a-vector}
+                (fn [_ _] {}))))
+        "a non-vector :rf.cofx/requires is :rf.error/cofx-request-invalid at registration")
+    ;; A vector carrying a non-id (non-keyword, non-`[id arg]`) entry.
+    (is (= :rf.error/cofx-request-invalid
+           (thrown-error-id
+             #(rf/reg-event :evt-conf/requires-bad-entry
+                {:rf.cofx/requires [42]}
+                (fn [_ _] {}))))
+        "a non-id entry in :rf.cofx/requires is :rf.error/cofx-request-invalid at registration")))
+
+(deftest reg-cofx-malformed-grade-metadata-is-cofx-registration-invalid
+  (testing "EP-0017 §2/§8 error matrix (rf2-fiiwbb) — malformed `reg-cofx` GRADE
+            metadata is the registration-time hard error
+            `:rf.error/cofx-registration-invalid` (DISTINCT from
+            `:rf.error/cofx-name-collision`, which is reserved for genuine
+            duplicate ownership). The three malformed-grade shapes the supplier /
+            grade contract rejects: (1) `:provided?` without `:recordable?` (a
+            provided fact is recordable by definition); (2) a `:provided?` fact
+            carrying a supplier (silently ignored at delivery — the contradiction
+            is rejected at the call site); (3) an ambient (non-provided) fact
+            with NO supplier (it could never produce a value). This locks the
+            reg-cofx grade-validation leg the existing tier did not exercise. A
+            regression that registered any of these malformed grades (surfacing
+            as an opaque host NPE at delivery) turns this RED"
+    ;; (1) :provided? without :recordable?
+    (is (= :rf.error/cofx-registration-invalid
+           (thrown-error-id
+             #(rf/reg-cofx :evt-conf/provided-not-recordable {:provided? true})))
+        ":provided? without :recordable? is :rf.error/cofx-registration-invalid")
+    ;; (2) :provided? WITH a supplier (the silently-ignored contradiction).
+    (is (= :rf.error/cofx-registration-invalid
+           (thrown-error-id
+             #(rf/reg-cofx :evt-conf/provided-with-supplier
+                {:recordable? true :provided? true}
+                (fn [] :ignored))))
+        "a :provided? fact carrying a supplier is :rf.error/cofx-registration-invalid")
+    ;; (3) ambient (non-provided) fact with NO supplier.
+    (is (= :rf.error/cofx-registration-invalid
+           (thrown-error-id
+             #(rf/reg-cofx :evt-conf/ambient-no-supplier {:doc "no supplier"})))
+        "an ambient fact with no supplier is :rf.error/cofx-registration-invalid")))
+
+(deftest supplied-recordable-non-edn-value-is-cofx-value-invalid
+  (testing "EP-0017 §2/§5/§8 error matrix (rf2-fiiwbb) — a SUPPLIED recordable
+            value that fails the STRUCTURAL-EDN check (a host handle — a
+            function, atom, or other non-EDN object — stuffed into `:rf.cofx`)
+            is `:rf.error/cofx-value-invalid` with `reason
+            :non-edn-recordable-value`. Recordable coeffect values ride the
+            durable causal record (epoch ledger, replay, SSR payload, Xray) and
+            MUST be ordinary EDN data that reads back unchanged. The error fires
+            at the dispatch boundary BEFORE the handler. This locks the
+            structural-EDN half of the supplied-value validation matrix. A
+            regression that let a host handle reach the durable token (failing
+            far away at replay / Xray time, not at the boundary) turns this RED"
+    (let [fired? (atom false)]
+      (rf/reg-cofx :evt-conf/host-fact {:recordable? true :provided? true})
+      (rf/reg-event :evt-conf/reads-host-fact
+        {:rf.cofx/requires [:evt-conf/host-fact]}
+        (fn [_ _] (reset! fired? true) {}))
+      ;; Supply a HOST HANDLE (a function — never recordable EDN) as the value.
+      (let [thrown (thrown-error-id
+                     #(rf/dispatch-sync [:evt-conf/reads-host-fact]
+                                        {:rf.cofx {:evt-conf/host-fact (fn [] :a-host-handle)}}))]
+        (is (= :rf.error/cofx-value-invalid thrown)
+            "a supplied non-EDN recordable value is :rf.error/cofx-value-invalid")
+        (is (false? @fired?)
+            "the handler never ran — the boundary structural-EDN check halts before the handler")))))
+
+(deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
+  (testing "EP-0017 §5/§8 + disposition 9 (rf2-fiiwbb) — a SUPPLIED recordable
+            value that fails its `reg-cofx` `:schema` is the
+            `:rf.error/cofx-value-invalid` hard error, and it fires in
+            PRODUCTION as well as dev (the production-hard-error contract — an
+            out-of-contract recordable value folded into the durable ledger is
+            corrupt state, the `:dispatched-at` precedent). The `:schema` check
+            routes through the shared `set-schema-validator!` seam (Spec 010
+            §Non-Malli validators): a registered validator covers this surface
+            even without the Malli schemas artefact. Here we register a tiny
+            non-Malli validator directly via the late-bind seam and prove a
+            supplied value the validator rejects is the hard error; a value it
+            accepts is delivered. The `validate-recordable-value!` path is
+            ALWAYS-ON (not dev-gated), so this locks the production contract. A
+            regression that downgraded schema validation to a dev-only diagnostic
+            (or skipped it for supplied values) turns this RED"
+    ;; Register a tiny NON-Malli validator + explainer via the same late-bind
+    ;; seam `re-frame.schemas` publishes (Spec 010): the schema is `[:enum …]`,
+    ;; the validator accepts only the listed values. Restored in the finally so
+    ;; no hook leaks between tests.
+    (let [prev-validate (late-bind/get-fn :schemas/validate-with-registered-fn)
+          prev-explain  (late-bind/get-fn :schemas/explain-with-registered-fn)]
+      (try
+        (late-bind/set-fn! :schemas/validate-with-registered-fn
+          (fn [schema value]
+            ;; schema shape `[:enum a b …]` → membership check.
+            (and (vector? schema)
+                 (= :enum (first schema))
+                 (contains? (set (rest schema)) value))))
+        (late-bind/set-fn! :schemas/explain-with-registered-fn
+          (fn [schema value] {:schema schema :value value :failed true}))
+        (let [delivered (atom ::unset)]
+          (rf/reg-cofx :evt-conf/graded-fact
+            {:recordable? true :provided? true
+             :schema [:enum :allowed-a :allowed-b]})
+          (rf/reg-event :evt-conf/reads-graded-fact
+            {:rf.cofx/requires [:evt-conf/graded-fact]}
+            (fn [{:keys [evt-conf/graded-fact]} _] (reset! delivered graded-fact) {}))
+          ;; A value the validator REJECTS → :rf.error/cofx-value-invalid.
+          (is (= :rf.error/cofx-value-invalid
+                 (thrown-error-id
+                   #(rf/dispatch-sync [:evt-conf/reads-graded-fact]
+                                      {:rf.cofx {:evt-conf/graded-fact :not-allowed}})))
+              "a supplied recordable value failing its :schema is :rf.error/cofx-value-invalid")
+          ;; A value the validator ACCEPTS → delivered flat (validation is a pass).
+          (rf/dispatch-sync [:evt-conf/reads-graded-fact]
+                            {:rf.cofx {:evt-conf/graded-fact :allowed-a}})
+          (is (= :allowed-a @delivered)
+              "a supplied recordable value satisfying its :schema is delivered flat (validation passes)"))
+        (finally
+          ;; Restore the prior hooks (nil = no validator) so no leak.
+          (if prev-validate
+            (late-bind/set-fn! :schemas/validate-with-registered-fn prev-validate)
+            (swap! late-bind/hooks dissoc :schemas/validate-with-registered-fn))
+          (if prev-explain
+            (late-bind/set-fn! :schemas/explain-with-registered-fn prev-explain)
+            (swap! late-bind/hooks dissoc :schemas/explain-with-registered-fn))
+          (late-bind/invalidate-cache! :schemas/validate-with-registered-fn)
+          (late-bind/invalidate-cache! :schemas/explain-with-registered-fn))))))
 
 (deftest reg-event-undeclared-cofx-is-not-staged
   (testing "EP-0017 declared-only delivery on reg-event: an UNdeclared recordable
