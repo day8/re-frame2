@@ -309,7 +309,7 @@
 ;; `re-frame.events` throwing stubs, so a stale `(rf/reg-event-db …)` call site
 ;; resolves to a real var and fails LOUDLY with an actionable hard error naming
 ;; the replacement (`:rf.error/reg-event-db-removed` / `-fx-removed` names
-;; `reg-event`; `-ctx-removed` names `->interceptor`) — NOT an opaque "no such
+;; `reg-event`; `-ctx-removed` names `reg-interceptor`) — NOT an opaque "no such
 ;; var", NOT a working alias. They are plain `def` aliases (no macro / no
 ;; source-coord capture — they register nothing), platform-neutral so the stub
 ;; throws identically on JVM and CLJS. `^:no-doc` drops them from the API
@@ -331,9 +331,11 @@
 (def ^{:no-doc true
        :doc "DEMOTED to framework-internal in EP-0018. Calling public
   `reg-event-ctx` raises `:rf.error/reg-event-ctx-removed`, naming
-  `->interceptor` as the public replacement for application full-context
-  work. See `re-frame.events/reg-event-ctx` and spec/001-Registration.md
-  §The retired event-registration names."}
+  `reg-interceptor` as the public replacement for application full-context
+  work (register the interceptor by id, then reference it from a `reg-event`
+  registration's `:interceptors` chain; `->interceptor` is internal-only
+  post-EP-0022). See `re-frame.events/reg-event-ctx` and
+  spec/001-Registration.md §The retired event-registration names."}
   reg-event-ctx events/reg-event-ctx)
 
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
@@ -355,8 +357,11 @@
        partition) is reserved by convention for framework /
        runtime-extension authority. Coeffects are declared uniformly via
        `:rf.cofx/requires`. Full-context work is expressed with an
-       interceptor (`->interceptor`). Captures source-coords (Spec 001) at
-       this call site. Additionally captures the whole `(reg-event :id ...)`
+       interceptor authored via `reg-interceptor` and referenced by id from
+       this registration's `:interceptors` chain (`->interceptor` is the
+       internal lowering constructor post-EP-0022, not the authoring form).
+       Captures source-coords (Spec 001) at this call site. Additionally
+       captures the whole `(reg-event :id ...)`
        form as a string under the handler's `:rf.handler/source` meta
        (Spec 009, rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +
        `goog.DEBUG=false` production builds. See
