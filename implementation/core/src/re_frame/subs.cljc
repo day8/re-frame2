@@ -945,6 +945,17 @@
                  :event-id (first query-v)})
               query-v))
   ([frame-id query-v]
+   ;; EP-0023 (rf2-32siq3.32): the 2-arity target may be a frame-id KEYWORD or a
+   ;; live frame OBJECT (`(rf/subscribe frame query-v)` — `rf/make-frame`'s
+   ;; return value). Normalize an object to its runnable-id ADDRESS so the
+   ;; sub-cache lookup (`(frame/frame frame-id)`), the realm-registrar binding,
+   ;; the override seam, and the error payloads all key the backing record
+   ;; unchanged; a keyword passes through. The generation-resolution seam
+   ;; (`frame-resolution-target`) then re-resolves the frame's image from this id
+   ;; via the live-frame registry — so an object target builds against its OWN
+   ;; image, byte-identical to the keyword form. Mirrors the dispatch-side
+   ;; normalization in `re-frame.router/build-envelope`.
+   (let [frame-id (frame/frame-target->id frame-id)]
    ;; rf2-9hoos (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
    ;; can carry the view's OWN read-set (`:deref-subs`). No-op outside a
@@ -1093,7 +1104,7 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v)))))))))))) ;; close fn + call-with-frame-resolution (rf2-uejnt3) + fn + call-with-frame-realm-registrar (rf2-a15n62)
+             (compute-and-cache! frame-id query-v))))))))))))) ;; close fn + call-with-frame-resolution (rf2-uejnt3) + fn + call-with-frame-realm-registrar (rf2-a15n62) + normalize-target let (rf2-32siq3.32)
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then

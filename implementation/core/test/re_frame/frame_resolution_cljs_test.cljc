@@ -30,6 +30,7 @@
             [re-frame.image-assembly :as asm]
             [re-frame.registrar      :as registrar]
             [re-frame.test-support   :as test-support]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.live-frame     :as lf]))
 
 ;; ---------------------------------------------------------------------------
@@ -41,8 +42,14 @@
 ;; CLJS has no `(require … :reload)` to reinstate them — see
 ;; `re-frame.test-support`). Snapshot/restore rolls back THIS test's
 ;; registrations (`:app/boot`, `:global/only`, …) while leaving framework state
-;; intact, run-order-independently. No adapter is installed — these tests never
-;; render; they exercise pure `(kind, id)` resolution.
+;; intact, run-order-independently.
+;;
+;; EP-0023 collapse slice 1 (rf2-32siq3.32): `make-frame` now returns a RUNNABLE
+;; image-loaded frame OBJECT — it creates its backing runnable record (app-db /
+;; queue / sub-cache) via `reg-frame`, which needs a substrate adapter — so the
+;; plain-atom adapter is installed. These cases still exercise pure `(kind, id)`
+;; resolution through the manual `call-with-frame-resolution` seam (they do not
+;; run a cascade), but constructing the frame now allocates a state container.
 ;;
 ;; The EP-0023 framework-standard registry and the live-frame registry are this
 ;; wave's OWN process-state defonce atoms (not framework ns-load state a sibling
@@ -51,7 +58,7 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {})
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
     (asm/clear-standards!)
     (lf/clear-live-frames!)

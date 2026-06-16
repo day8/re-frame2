@@ -17,17 +17,19 @@
   cascade with `call-with-frame-resolution` (rf2-uejnt3). A realm-only / no-image
   frame is unaffected (absence-is-default).
 
-  ## Why two registries, one id
+  ## One runnable image-loaded frame (EP-0023 collapse slice 1, rf2-32siq3.32)
 
-  The runnable frame RECORD (the EP-0013 substrate that owns app-db / queue /
-  sub-cache, created by `reg-frame`) and the EP-0023 live-frame OBJECT (which
-  carries the resolved image generation, created by `make-frame {:id …}`) are
-  DELIBERATELY SEPARATE registries (per `re-frame.live-frame` docstring). This
-  suite registers BOTH under the same id `:counter/main`: the router drains the
-  frame record; `process-event!` derives the generation from the live-frame
-  object of the same id. That is exactly the wiring rf2-uejnt3 ships — the .9/.10
-  unification of the two into one runnable image-loaded frame object is a later
-  slice; this slice only invokes the resolution seam at the live entry.
+  `make-frame` now returns a SINGLE runnable image-loaded frame OBJECT: it
+  creates its own backing runnable record (app-db / queue / sub-cache /
+  lifecycle, via `reg-frame`) keyed by the frame's runnable-id AND carries the
+  resolved image generation, so an event stream runs against an image with no
+  separate `reg-frame` pairing. The cases below still call `reg-frame` first
+  (harmless — `make-frame {:id :counter/main}` surgical-updates the same record);
+  the router drains that record and `process-event!` derives the generation from
+  the live-frame object of the same id. The `two-frames-from-one-image-keep-…`
+  test exercises the collapse directly — two RUNNABLE objects built from ONE
+  image keep INDEPENDENT app-db + sub-cache (the previously-impossible proof, no
+  `reg-frame` in sight).
 
   Fixtures snapshot/restore the registrar via `make-reset-runtime-fixture`
   (NOT `registrar/clear-all!`, per the .9 isolation note) and clear the
@@ -79,13 +81,18 @@
           :id               id}))
 
 (defn- sub-desc
-  "An image-resolver descriptor for a sub id whose computation is `compute-fn`
-  (`(fn [db query-v] …)`). `reg-sub` stores the computation under `:handler-fn`,
-  so a generation-routed `registrar/lookup :sub` returns this verbatim."
+  "An image-resolver descriptor for a LAYER-1 (app-db reader) sub id whose
+  computation is `compute-fn` (`(fn [db query-v] …)`). `reg-sub` stores the
+  computation under `:handler-fn` and stamps `:input-kind :db` so the sub-cache
+  feeds it the frame's app-db projection as the single signal; a generation-
+  routed `registrar/lookup :sub` returns this verbatim, so the descriptor must
+  carry `:input-kind` to be recognized as a layer-1 reader (a sub that ignores
+  `db` works without it, but one that READS app-db needs the discriminator)."
   [provenance-ns id compute-fn]
   {:rf.provenance/ns provenance-ns
    :kind             :sub
    :id               id
+   :input-kind       :db
    :handler-fn       compute-fn})
 
 ;; ===========================================================================
@@ -232,3 +239,93 @@
         (is (= :image (:step db))
             "the CHILD dispatch re-derived the generation and resolved the
              image's step handler too (coherent across the cascade)")))))
+
+;; ===========================================================================
+;; 6. THE COLLAPSE HEADLINE (EP-0023 collapse slice 1, rf2-32siq3.32) — two
+;;    RUNNABLE objects built from ONE image keep INDEPENDENT app-db + sub-cache.
+;;    This is the previously-impossible `.31 blocker-1` proof: before the
+;;    collapse a `make-frame` object had NO runnable state, so it could not run
+;;    an event stream at all without a paired `reg-frame` record. Now ONE object
+;;    carries both the image generation AND its own runnable record.
+;; ===========================================================================
+
+(deftest two-frames-from-one-image-keep-independent-state
+  (testing "two runnable frames built from the SAME image — NO reg-frame, NO
+            shared id — maintain INDEPENDENT app-db and sub-cache: each frame's
+            event stream mutates only its own state, and each frame's subscribe
+            builds its own reaction (EP-0023 §Frame — the live frame object owns
+            app-db + subscription cache; two frames that run the same generation
+            still have independent state)"
+    ;; ONE image carries the runnable inc handler + the value sub. A GLOBAL
+    ;; version of each exists only so we can prove the image's impl ran (not the
+    ;; global) — neither frame is paired with a reg-frame.
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
+    (rf/reg-sub   :counter/value (fn [_db _] :global))
+    (let [pool [(event-desc "ex.counter" :counter/inc
+                            (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+                (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
+          img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})
+          ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
+          ;; DIFFERENT initial-db. No reg-frame, no shared frame id.
+          fa   (lf/make-frame {:images [img] :initial-db {:n 0}}   pool)
+          fb   (lf/make-frame {:images [img] :initial-db {:n 100}} pool)]
+      ;; The objects are distinct runnable frames sharing one image generation.
+      (is (lf/frame-object? fa))
+      (is (lf/frame-object? fb))
+      (is (= (lf/frame-generation fa) (lf/frame-generation fb))
+          "both frames run the SAME resolved image generation (shared value)")
+      (is (not= (:rf.frame/runnable-id fa) (:rf.frame/runnable-id fb))
+          "yet they are distinct runnable frames (distinct backing records)")
+      ;; Independent app-db: divergent event streams over divergent seeds. The
+      ;; frame OBJECT is the dispatch target via the `{:frame …}` opt (the
+      ;; canonical object-accepting form — build-envelope normalizes the object
+      ;; to its runnable-id; the positional `(dispatch frame event)` sugar is
+      ;; slice-2 facade work).
+      (rf/dispatch-sync [:counter/inc] {:frame fa})
+      (rf/dispatch-sync [:counter/inc] {:frame fa})
+      (rf/dispatch-sync [:counter/inc] {:frame fb})
+      (is (= 2 (:n (rf/app-db-value fa)))
+          "frame A: seeded 0, inc'd twice — the IMAGE handler ran on A's OWN app-db")
+      (is (= 101 (:n (rf/app-db-value fb)))
+          "frame B: seeded 100, inc'd once — fully isolated from A")
+      (is (not= :global (:n (rf/app-db-value fa)))
+          "the IMAGE inc ran, not the global (generation routed to the frame's image)")
+      ;; Independent subscribe: each frame builds its OWN reaction over its OWN
+      ;; app-db, and the two reactions are NOT the same cached object.
+      (let [ra  (rf/subscribe fa [:counter/value])
+            ra2 (rf/subscribe fa [:counter/value])
+            rb  (rf/subscribe fb [:counter/value])]
+        (is (= 2 @ra)   "frame A's sub reads A's own app-db")
+        (is (= 101 @rb) "frame B's sub reads B's own app-db")
+        (is (identical? ra ra2)
+            "A's repeat subscribe HITS A's own sub-cache (same reaction)")
+        (is (not (identical? ra rb))
+            "A and B build DISTINCT reactions — independent sub-caches")))))
+
+;; ===========================================================================
+;; 7. DIRECT-OBJECT RUNNABILITY (the spec harness form) — a no-id object is
+;;    runnable end-to-end without any reg-frame pairing (EP-0023 §Frame).
+;; ===========================================================================
+
+(deftest direct-no-id-object-is-runnable-end-to-end
+  (testing "the spec's local-harness form: a no-id frame OBJECT is dispatched +
+            subscribed directly (object via the `{:frame …}` opt for dispatch and
+            as the 2-arity subscribe target) and runs the image's handlers
+            against the object's OWN runnable state — NO reg-frame, NO frame id
+            (EP-0023 §Frame — a direct object is a local reference a harness uses
+            directly)"
+    (let [pool  [(event-desc "ex.counter" :counter/inc
+                             (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
+          img   (image/image {:include-ns ["ex.counter"]})
+          frame (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+      (rf/dispatch-sync [:counter/inc] {:frame frame})
+      (is (= 1 @(rf/subscribe frame [:counter/value]))
+          "the direct object ran the image's inc and read its own seeded app-db")
+      (testing "app-db-value + frame-state-value accept the object directly"
+        (is (= 1 (:n (rf/app-db-value frame))))
+        (is (= {:n 1} (:rf.db/app (rf/frame-state-value frame)))))
+      (testing "destroy-frame! accepts the object and tears its record down"
+        (rf/destroy-frame! frame)
+        (is (nil? (rf/app-db-value frame))
+            "after destroy the object's backing record is gone")))))

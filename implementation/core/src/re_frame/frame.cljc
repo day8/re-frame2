@@ -82,6 +82,68 @@
   "Reserved frame-state key naming the runtime-db partition (`:rf.db/runtime`)."
   :rf.db/runtime)
 
+;; ---- EP-0023 runnable frame OBJECT marker + target normalization ----------
+;;
+;; EP-0023 collapse slice 1 (rf2-32siq3.32): `re-frame.live-frame/make-frame`
+;; returns a SINGLE runnable image-loaded frame OBJECT — a map carrying the
+;; resolved image generation AND a reference (`:rf.frame/runnable-id`) to the
+;; backing EP-0013 runnable RECORD this ns owns in `frames`. The object IS the
+;; public live frame; its runnable interior (app-db / runtime-db / queue /
+;; sub-cache / lifecycle) is the record reached by the runnable-id (EP-0023
+;; §Frame — "the live frame object owns app-db, runtime-db, event queue and
+;; drain state, subscription cache, ... a reference to the resolved image
+;; generation it is running").
+;;
+;; The PUBLIC target a dispatch / subscribe / destroy / app-db read addresses is
+;; a frame — usually a frame id KEYWORD, sometimes a direct frame OBJECT
+;; (EP-0023 §Frame). Every runnable subsystem resolves per-frame state through a
+;; frame-id ADDRESS keyed into `frames` (the universal chokepoint: the router
+;; queue/drain, `commit-frame-transition!`, the sub-cache, cofx, elision, …).
+;; So an OBJECT target is normalized to its runnable-id ADDRESS at the public
+;; entry, and every bare-`frame-id`-keyed operation downstream stays
+;; byte-identical. `live-frame` discriminates an object from a keyword
+;; STRUCTURALLY (the `:rf.frame/object` marker) so this ns needs no require on
+;; `live-frame` (which would cycle — `live-frame` requires THIS ns).
+
+(def ^:const object-marker
+  "Reserved frame-object marker key. A `true` value at this key on a map means
+  \"this is a live frame OBJECT\" (EP-0023 §Frame). Mirrors
+  `re-frame.live-frame/object-marker`; held here so the target normalizer can
+  recognize an object structurally without a (cyclic) `live-frame` require."
+  :rf.frame/object)
+
+(def ^:const runnable-id-key
+  "Reserved key on a runnable frame OBJECT naming the frame-id ADDRESS of its
+  backing runnable record in `frames` (EP-0023 collapse slice 1, rf2-32siq3.32).
+  For an `:id`-bearing object this equals the public `:rf.frame/id`; for a
+  no-id (direct) object it is a process-unique `:rf.frame/<gensym>` so the
+  object is still runnable (its record is addressable) while bypassing the
+  PUBLIC live-frame id space (EP-0023 §Frame — direct frame objects bypass the
+  registry)."
+  :rf.frame/runnable-id)
+
+(defn frame-target->id
+  "Normalize a public frame TARGET — a frame-id KEYWORD or a live frame OBJECT —
+  to the frame-id ADDRESS its runnable record is keyed by in `frames` (EP-0023
+  §Frame, rf2-32siq3.32). A frame OBJECT (carrying `:rf.frame/object true`)
+  yields its `:rf.frame/runnable-id`; any other target (a keyword id, or a nil /
+  malformed value) is returned UNCHANGED — so every existing keyword-target
+  caller is byte-identical. Pure. The single seam dispatch / subscribe / destroy
+  / app-db-read normalize a frame object through before keying `frames`."
+  [target]
+  (if (and (map? target) (get target object-marker))
+    (get target runnable-id-key)
+    target))
+
+(defn anon-frame-id
+  "Mint a process-unique anonymous frame-id under the reserved `:rf.frame/`
+  namespace — the address a no-id frame's runnable record is keyed by. Same
+  scheme as the EP-0013 `make-frame` anonymous instance id, so tooling that
+  filters `:rf.frame/*` ids sees runnable-object and EP-0013-anonymous frames
+  uniformly. INTERNAL — used by `re-frame.live-frame/make-frame`."
+  []
+  (keyword "rf.frame" (str (gensym ""))))
+
 (defonce
   ^{:doc "Map of frame-ADDRESS → frame-record. Per-process (one global frame
   registry). EP-0013 step 4 (rf2-a15n62): the key is a FRAME ADDRESS — the bare
@@ -1916,8 +1978,19 @@
   destroy is the existing pattern (a destroyed frame's `(frame id)`
   lookup already returns nil, so a *later* `destroy-frame!` short-
   circuits at the outer `when-let`); the in-flight guard closes the
-  RE-ENTRANT window before `mark-frame-destroyed!` flips the flag."
-  [id]
+  RE-ENTRANT window before `mark-frame-destroyed!` flips the flag.
+
+  EP-0023 (rf2-32siq3.32): the target may be a frame-id KEYWORD or a live frame
+  OBJECT (`re-frame.live-frame/make-frame`'s return value). An object is
+  normalized to its runnable-id ADDRESS via `frame-target->id` so the whole
+  recipe keys the backing record unchanged; after teardown the object's PUBLIC
+  live-frame registry entry is forgotten through the `:live-frame/forget!`
+  late-bind hook (a static `live-frame` require would cycle)."
+  [target]
+  ;; EP-0023 (rf2-32siq3.32): accept a frame OBJECT or a frame-id keyword.
+  ;; Normalize an object to its runnable-id address so every keyed teardown
+  ;; step below targets the backing record; a keyword passes through unchanged.
+  (let [id (frame-target->id target)]
   ;; Re-entrancy guard: short-circuit if we're already destroying this id.
   ;; Silent no-op (idempotent destroy is already a no-op pattern; no new
   ;; trace event needed per rf2-r1ciy decision).
@@ -2056,6 +2129,14 @@
         ;; still flows through the live stream cleanly. Routed via
         ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
         (safe-call-hook! :trace.tooling/release-frame-ring! id)
+        ;; EP-0023 (rf2-32siq3.32): forget the PUBLIC live-frame registry entry
+        ;; for this frame so destroying an EP-0023 image-loaded frame frees its
+        ;; public id for re-use (the teardown counterpart of `make-frame`'s
+        ;; registration). Routed via late-bind (`live-frame` requires THIS ns, so
+        ;; a static back-require would cycle); the hook keys by the frame-id, and
+        ;; no-ops for an id that never entered the live-frame registry (every
+        ;; EP-0013 / no-id-object frame). Best-effort, like the cleanup hooks.
+        (safe-call-hook! :live-frame/forget! id)
         (dissoc-frame! fkey)
         (unregister-frame! frame-rid id)
         (notify-epoch-listeners! id cascade-fs-before fs-at-destroy cascade-time-ms)
@@ -2085,7 +2166,7 @@
           ;; Always clear the in-flight marker — even if a downstream step
           ;; throws unexpectedly, future `destroy-frame!` calls for `id`
           ;; (after a fresh `reg-frame`) must not see a stale entry.
-          (swap! destroying-frames disj fkey)))))))))))
+          (swap! destroying-frames disj fkey))))))))))))
 
 (defn reset-frame!
   "destroy-frame! followed by reg-frame with the same config. Per Spec 002

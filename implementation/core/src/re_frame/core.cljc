@@ -1579,9 +1579,13 @@
   "Return the current `app-db` VALUE (a plain map) for the named frame,
   or `nil` if not registered. Value-form accessor (no deref, no
   container) — pairs with `app-db-container` (the container accessor).
-  Per Spec 002 §The public registrar query API."
+  Per Spec 002 §The public registrar query API.
+
+  EP-0023 (rf2-32siq3.32): the argument may be a frame-id KEYWORD or a live
+  frame OBJECT (`rf/make-frame`'s return value); an object is normalized to its
+  runnable-id address via `frame/frame-target->id`."
   [frame-id]
-  (frame/frame-app-db-value frame-id))
+  (frame/frame-app-db-value (frame/frame-target->id frame-id)))
 
 (defn runtime-db-value
   "Return the current `runtime-db` partition VALUE for the named frame —
@@ -1592,9 +1596,11 @@
   EP-0001 (rf2-q4i9ko + rf2-adwcv6): the physical runtime-db partition is
   live. A fresh frame's runtime-db starts `{}`; reads return the current
   `:rf.db/runtime` projection off the one-container frame-state. Per Spec
-  002 §The two-partition frame contract and API.md `runtime-db-value`."
+  002 §The two-partition frame contract and API.md `runtime-db-value`.
+
+  EP-0023 (rf2-32siq3.32): accepts a frame-id keyword or a live frame object."
   [frame-id]
-  (frame/frame-runtime-db-value frame-id))
+  (frame/frame-runtime-db-value (frame/frame-target->id frame-id)))
 
 (defn frame-state-value
   "Return the coherent frame-state projection for the named frame —
@@ -1606,9 +1612,11 @@
   frame state off the one physical frame-state container. A fresh frame's
   state is `{:rf.db/app {} :rf.db/runtime {}}`; the `:rf.db/runtime` slot
   equals `runtime-db-value`. Per Spec 002 §The two-partition frame
-  contract and API.md `frame-state-value`."
+  contract and API.md `frame-state-value`.
+
+  EP-0023 (rf2-32siq3.32): accepts a frame-id keyword or a live frame object."
   [frame-id]
-  (frame/frame-state-value frame-id))
+  (frame/frame-state-value (frame/frame-target->id frame-id)))
 
 (defn snapshot-of
   "Return the value at `path` in a frame's app-db — convenience over
@@ -1621,9 +1629,10 @@
   Per Spec 002 §The public registrar query API."
   ([path] (snapshot-of path nil))
   ([path opts]
-   (let [frame-id (or (:frame opts)
-                      (frame/require-current-frame!
-                        :snapshot-of {:where 're-frame.core/snapshot-of}))]
+   (let [frame-id (frame/frame-target->id
+                    (or (:frame opts)
+                        (frame/require-current-frame!
+                          :snapshot-of {:where 're-frame.core/snapshot-of})))]
      (get-in (frame/frame-app-db-value frame-id) path))))
 
 ;; Per rf2-bmzq0: `sub-topology` and `sub-cache-snapshot` live in
