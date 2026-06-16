@@ -128,7 +128,7 @@ skills/re-frame2-implementor/
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── evals/evals.json (trigger-accuracy fixtures for the description)
 ├── references/
-│ ├── cardinal-rules.md (the ten rules in prose + anti-pattern corollaries)
+│ ├── cardinal-rules.md (the eleven rules in prose + anti-pattern corollaries)
 │ ├── kickoff-prompt.md (paste-ready prompt)
 │ ├── phase-1-decisions.md (Phase 1 walkthrough)
 │ ├── decision-record.md (fill-in template)

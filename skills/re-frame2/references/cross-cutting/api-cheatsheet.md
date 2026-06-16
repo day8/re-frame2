@@ -51,11 +51,11 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 |---|---|
 | `rf/sub-machine` | `(machine-id)` → reaction `{:state :data :tags}` |
 | `rf/machine-has-tag?` | `(machine-id tag)` → reaction (boolean) |
-| `rf/machines` / `rf/machine-meta` | id list / registered spec |
-| `rf/machine-by-system-id` | `(system-id)` / `(... frame-id)` |
+| `re-frame.machines/machines` / `re-frame.machines/machine-meta` | id list / registered spec — owned-ns surface, **not** on the `rf/` façade |
+| `re-frame.machines/machine-by-system-id` | `(system-id)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade |
 | `rf/dispatch-to-system` | `(system-id event)` / `(... frame-id)` |
-| `rf/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure |
-| `rf/make-machine-handler` | `(machine)` → event-fx handler |
+| `re-frame.machines/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure — owned-ns surface, **not** on the `rf/` façade |
+| `re-frame.machines/make-machine-handler` | `(machine)` → event-fx handler — owned-ns surface, **not** on the `rf/` façade |
 
 ## Images and frames (EP-0023, `re-frame.core`)
 
