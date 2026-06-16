@@ -19,6 +19,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.machines]
+            [re-frame.image :as image]
             [re-frame.routing :as routing]
             ;; rf2-q4i9ko — replace-app-db! delegates to the epoch artefact's
             ;; replace-app-db! (synthetic-epoch recording); load it so the
@@ -527,3 +528,29 @@
         "register-observability-sink! returns the sink-id on install")
     (is (nil? (rf/unregister-observability-sink! :rn.sinks/test))
         "unregister-observability-sink! is the confirmed inverse — returns nil")))
+
+;; ===========================================================================
+;; rf2-32siq3.17 — EP-0023 `rf/image` facade export
+;; ===========================================================================
+
+(deftest image-resolves-on-the-facade
+  (testing "re-frame.core/image is the public `rf/image` constructor — it
+            resolves to the re-frame.image/image var and builds an image value
+            through the facade (EP-0023 §Image, §Public API)"
+    ;; The facade var IS the constructor — `rf/image` and
+    ;; `re-frame.image/image` are the identical fn.
+    (is (identical? @#'rf/image @#'image/image)
+        "rf/image aliases re-frame.image/image (same constructor var value)")
+    ;; And it actually constructs the normalized, INERT image value through the
+    ;; facade — a `rf/image` call is data, not registration.
+    (let [img (rf/image {:id :docs.counter/v2
+                         :include-ns ["docs.quickstart.counter.v2"]})]
+      (is (= :docs.counter/v2 (:rf.image/id img))
+          "the :id is normalized to the owner-qualified :rf.image/id slot")
+      (is (= ["docs.quickstart.counter.v2"] (:rf.image/include-ns img))
+          ":include-ns is carried as the glob-pattern vector")
+      (is (= [] (:rf.image/inline img))
+          "no :registrations → empty inline-descriptor vector")
+      (is (= img (rf/image {:id :docs.counter/v2
+                            :include-ns ["docs.quickstart.counter.v2"]}))
+          "PURE: equal spec maps return equal image values"))))

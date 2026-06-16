@@ -377,6 +377,21 @@
   ["re-frame.core" "reg-interceptor*"]    {:tier :advanced    :owner "001" :status "EP-0022"}
   ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "v1"}
+  ;; EP-0023 (rf2-32siq3.17 — image-loaded frames): `image` is the public
+  ;; `rf/image` CONSTRUCTOR — it builds an IMAGE value, the selected
+  ;; registration-set value a frame resolves against (EP-0023 §Image, §Public
+  ;; API). CLASSIFICATION (EP-0015 diff-time rule): a deliberate public
+  ;; constructor. Tier `:advanced`, not `:front-porch` — EP-0023 is explicit
+  ;; that "most code should not have to name an image" (the ordinary `reg-*` +
+  ;; default-image path stays implicit); explicit images are for the advanced
+  ;; cases where the default visible registration set stops being enough
+  ;; (multiple surfaces on one page, progressive docs examples, Xray-beside-
+  ;; target, library packaging, test/story overrides). Same tier + owning Spec
+  ;; (002 — Frames, EP-0023's frame/image normative home) as its sibling
+  ;; advanced frame-construction input `make-frame`, which consumes the image
+  ;; via `:images`. Status `EP-0023` (proposal-stage surface; the row exists
+  ;; ahead of the spec/API.md projection, which EP-0023 graduates separately).
+  ["re-frame.core" "image"]               {:tier :advanced    :owner "002" :status "EP-0023"}
   ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}
   ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "004" :status "v1"}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"}
