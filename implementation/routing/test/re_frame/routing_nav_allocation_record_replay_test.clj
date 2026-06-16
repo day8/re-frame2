@@ -274,3 +274,84 @@
     ;; pending-nav generator runs but its commit fx only fires on a block.
     (is (nil? (:pending-nav-counter (nav-counters/counter-snapshot :rf/default)))
         "a clean commit never advances the pending-nav allocator (no block branch taken)")))
+
+;; ===========================================================================
+;; rf2-ps05ug — a malformed-but-PRESENT recorded allocation fails LOUDLY.
+;;
+;; THE HOLE (pre-rf2-ps05ug): both allocation cofx were registered with
+;; `:recordable? true` but NO `:schema`. `validate-recordable-value!`
+;; (cofx.cljc) is a no-op when the registration declares no `:schema`, so a
+;; supplied/replayed value that is structurally EDN but semantically wrong
+;; (`{:token nil :counter "bad"}`, `{:id nil :counter nil}`) was NOT missing
+;; → strict replay did not re-mint and did not throw. The handler folded the
+;; nil/wrong token / pending-nav id into DURABLE runtime-db and the host
+;; counter bump silently no-op'd, corrupting stale-suppression / continue-
+;; cancel instead of surfacing `:rf.error/cofx-value-invalid`.
+;;
+;; THE FIX: a concrete `:schema` on each registration —
+;;   :rf.route/nav-allocation         [:map [:token :string] [:counter :int]]
+;;   :rf.route/pending-nav-allocation [:map [:id    :string] [:counter :int]]
+;; so the supplied/replayed branch validates the present value and throws
+;; `:rf.error/cofx-value-invalid` BEFORE the handler writes the route slice /
+;; pending-navigation slot. (The schemas Malli validator is LIVE on this test
+;; classpath — `routing-test-support` requires `re-frame.schemas`, whose
+;; facade wires the default Malli hooks on load, rf2-v96fh — so these assert
+;; the REAL validation path, not a vacuous no-validator pass.)
+;; ===========================================================================
+
+(deftest strict-replay-fails-on-malformed-present-pending-nav-allocation
+  (testing "rf2-ps05ug: a PRESENT-but-malformed recorded pending-nav allocation
+            fails with :rf.error/cofx-value-invalid BEFORE the handler writes
+            pending-nav state (NOT folded in as a trusted value)"
+    (block-fixture!)
+    (let [ex (try (rf/dispatch-sync [:rf/url-requested {:url "/home"}]
+                                    {:rf.cofx {:rf.route/pending-nav-allocation
+                                               {:id nil :counter "bad"}}
+                                     :rf.cofx/mint-policy :strict})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a malformed present allocation throws (does not silently fold)")
+      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
+          "the throw is :rf.error/cofx-value-invalid")
+      (is (= :rf.route/pending-nav-allocation (:rf.cofx/id (ex-data ex)))
+          "the error names the failing allocation cofx")
+      ;; The block handler never ran: the malformed `:id` was rejected at the
+      ;; cofx boundary BEFORE the can-leave block could fold a nil/corrupt
+      ;; pending-nav id into the durable runtime-db slot. No pending-navigation
+      ;; was written (the throw aborted the dispatch before the block branch).
+      (is (nil? (pending-id))
+          "no (corrupt) pending-nav id was folded into durable runtime-db"))))
+
+(deftest strict-replay-fails-on-malformed-present-nav-allocation
+  (testing "rf2-ps05ug: a PRESENT-but-malformed recorded nav-token allocation
+            fails with :rf.error/cofx-value-invalid BEFORE the commit handler
+            writes the :nav-token into the durable route slice"
+    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (let [ex (try (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
+                                    {:rf.cofx {:rf.route/nav-allocation
+                                               {:token nil :counter "bad"}}
+                                     :rf.cofx/mint-policy :strict})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a malformed present allocation throws (does not silently fold)")
+      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
+          "the throw is :rf.error/cofx-value-invalid")
+      (is (= :rf.route/nav-allocation (:rf.cofx/id (ex-data ex)))
+          "the error names the failing allocation cofx")
+      ;; The commit handler never ran: no :nav-token (let alone a nil one) was
+      ;; folded into the durable route slice.
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/routing :current :nav-token]))
+          "no nil nav-token was folded into the durable route slice"))))
+
+(deftest live-allocation-still-conforms-to-schema
+  (testing "rf2-ps05ug acceptance: the live generator's produced allocation
+            conforms to the new :schema, so the schema is transparent to the
+            ordinary (non-replay) path"
+    (rf/reg-route :route/a {:path "/a"})
+    ;; A live navigation runs the generator (well-formed `{:token \"nav-1\"
+    ;; :counter 1}`) and commits cleanly — no cofx-value-invalid throw.
+    (rf/dispatch-sync [:rf.route/transitioned "/a"])
+    (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+                           [:rf.runtime/routing :current :nav-token]))
+        "the live generator's well-formed allocation passes the schema and commits")))

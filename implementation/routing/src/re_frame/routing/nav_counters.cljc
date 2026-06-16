@@ -199,8 +199,19 @@
 
 (def nav-allocation-cofx-meta
   "Metadata for the `:rf.route/nav-allocation` cofx registration: a
-  RECORDABLE generator-backed allocation of a fresh nav-token (rf2-vcop6y)."
+  RECORDABLE generator-backed allocation of a fresh nav-token (rf2-vcop6y).
+
+  Carries a `:schema` (rf2-ps05ug, EP-0017 §5): the generator produces
+  `{:token \"nav-N\" :counter N}` and the commit handler folds `:token`
+  into the durable route slice + rides `:counter` on the host high-water
+  bump fx, so a supplied/replayed value MUST be shape-validated. Without
+  the schema, `validate-recordable-value!` is a no-op and a malformed-but-
+  present replayed fact (e.g. `{:token nil :counter \"bad\"}`) is delivered
+  as trusted — a nil/wrong nav-token then corrupts stale-suppression and
+  the host counter bump silently no-ops. The schema makes such a fact fail
+  loudly with `:rf.error/cofx-value-invalid` BEFORE it reaches the handler."
   {:recordable? true
+   :schema [:map [:token :string] [:counter :int]]
    :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
 minted at processing-start from the active frame's host nav-token
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
@@ -229,8 +240,19 @@ Recorded so record+replay re-presents the same nav-token verbatim
   "Metadata for the `:rf.route/pending-nav-allocation` cofx registration: a
   RECORDABLE generator-backed allocation of a fresh pending-nav id
   (rf2-vcop6y). A DISTINCT allocator from `:rf.route/nav-allocation`
-  (rf2-oosjmh)."
+  (rf2-oosjmh).
+
+  Carries a `:schema` (rf2-ps05ug, EP-0017 §5): the generator produces
+  `{:id \"pn-N\" :counter N}` and the can-leave block handler folds `:id`
+  into the durable pending-navigation slot + rides `:counter` on the host
+  high-water bump fx, so a supplied/replayed value MUST be shape-validated.
+  Without the schema, a malformed-but-present replayed fact (e.g.
+  `{:id nil :counter nil}`) is delivered as trusted — a nil pending-nav id
+  then makes a recorded `[:rf.route/continue \"pn-N\"]` no-op (the
+  navigation stays blocked forever). The schema makes such a fact fail
+  loudly with `:rf.error/cofx-value-invalid` BEFORE it reaches the handler."
   {:recordable? true
+   :schema [:map [:id :string] [:counter :int]]
    :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
 minted at processing-start from the active frame's host pending-nav
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
