@@ -113,6 +113,35 @@
          (not (fn? decode))
          (not (and (keyword? decode) (contains? keyword-decode-modes decode))))))
 
+(defn introspectable-schema-decode?
+  "True iff `decode` is a Malli-schema `:decode` the shared schema walker can
+  actually INTROSPECT for per-slot marks — i.e. the raw EDN VECTOR form
+  (`[op props? children...]`, the shape `(rf/reg-app-schema …)` users write).
+
+  This is NARROWER than `schema-decode?` (rf2-y1pgdl). `schema-decode?` is
+  true for ANY non-mode/non-fn `:decode`, including OPAQUE schema values the
+  walker treats as a leaf and returns `{}` marks for:
+
+    - a KEYWORD REGISTRY REF (`:my-app/token-schema`) — a bare keyword is a
+      valid Malli schema (registry ref), but the walker (per Spec 010 §The
+      `:schema` value is opaque to re-frame) MUST NOT consult the registry /
+      validator, so it cannot see the ref'd schema's per-slot marks;
+    - a COMPILED `m/schema` object / a map / any non-vector non-keyword form
+      — also an opaque leaf to the pure-data walker.
+
+  An opaque-leaf decode returns NO `:sensitive?` / `:large?` paths even when
+  the underlying schema DOES mark slots sensitive. Treating it as
+  `schema-decode?` → `:classify` would ride the body UNCHANGED off-box — the
+  EP-0015 issue 5 fail-OPEN leak. The off-box egress therefore gates on this
+  predicate (fail-CLOSED to `:omit` for an opaque schema); only an
+  introspectable vector form earns `:classify`. The on-box dev-trace
+  per-slot classification (`classify-decoded`) still keys on `schema-decode?`
+  — it is a harmless no-op on an opaque leaf, and the local operator sees
+  their own raw process anyway."
+  [decode]
+  (and (schema-decode? decode)
+       (vector? decode)))
+
 ;; ---------------------------------------------------------------------------
 ;; Per-slot marks from the `:decode` schema (the shared walker hooks).
 ;; ---------------------------------------------------------------------------
@@ -169,12 +198,20 @@
   "Classify how a decoded response body MAY ride an OFF-BOX egress, reading
   the request's `:decode`. Returns one of:
 
-    :classify  — the body has a Malli `:decode` schema; ride it with the
-                 schema's per-slot marks applied (`off-box-classify-body`);
+    :classify  — the body has an INTROSPECTABLE Malli `:decode` schema (the
+                 raw EDN VECTOR form); ride it with the schema's per-slot
+                 marks applied (`off-box-classify-body`);
     :omit      — the body is UNSCHEMATIZED (`:auto` / `:json` / `:text` /
-                 binary / custom fn); whole-sensitive, omitted entirely.
+                 binary / custom fn) OR carries an OPAQUE schema the walker
+                 cannot inspect (a keyword registry ref / a compiled
+                 `m/schema` object); whole-sensitive, omitted entirely.
 
-  An unschematized body fails CLOSED off-box (EP-0015 issue 5). Pure.
+  An unschematized body OR an opaque-schema body fails CLOSED off-box
+  (EP-0015 issue 5 — fail-closed when classification is UNKNOWN; rf2-y1pgdl).
+  An opaque keyword registry ref returns NO per-slot marks from the shared
+  walker (Spec 010 forbids resolving the registry), so `:classify` would ride
+  its body unchanged — the fail-open leak. Off-box gates on
+  `introspectable-schema-decode?` (vector form only). Pure.
 
   This is the policy the HTTP trace-emit site stamps forward onto the
   `:rf.http/replied` / `:rf.http/accept-failure` trace event (under
@@ -183,7 +220,7 @@
   re-reading the request's `:decode` (a request-private artefact never on the
   trace event)."
   [decode]
-  (if (schema-decode? decode) :classify :omit))
+  (if (introspectable-schema-decode? decode) :classify :omit))
 
 ;; ---------------------------------------------------------------------------
 ;; Apply the schema's per-slot marks to a decoded body value.
@@ -226,19 +263,24 @@
   the request's `:decode` disposition (EP-0015 issue 5, fail-closed):
 
     - UNSCHEMATIZED `:decode` (`:auto` / `:json` / `:text` / binary / custom
-      fn): the body is whole-sensitive and OMITTED entirely — replaced with
-      the `off-box-body-marker` (`:rf/redacted`). The local operator's raw
-      view does NOT cross the trust boundary.
+      fn) OR an OPAQUE schema the walker cannot inspect (a keyword registry
+      ref `:my-app/token-schema` / a compiled `m/schema` object): the body is
+      whole-sensitive and OMITTED entirely — replaced with the
+      `off-box-body-marker` (`:rf/redacted`). The local operator's raw view
+      does NOT cross the trust boundary; an opaque ref whose marks the walker
+      cannot see fails CLOSED rather than riding unchanged (rf2-y1pgdl — the
+      EP-0015 issue 5 fail-open leak).
 
-    - Malli-SCHEMA `:decode`: the body rides CLASSIFIED — the per-slot
-      `:sensitive?` / `:large?` marks applied via `classify-decoded` (the
-      same shared walker the dev trace uses), letting the non-sensitive
-      structure through while sensitive slots redact and large slots elide.
+    - INTROSPECTABLE Malli-SCHEMA `:decode` (the raw EDN VECTOR form): the
+      body rides CLASSIFIED — the per-slot `:sensitive?` / `:large?` marks
+      applied via `classify-decoded` (the same shared walker the dev trace
+      uses), letting the non-sensitive structure through while sensitive
+      slots redact and large slots elide.
 
   This is the projection the off-box trace-events egress
   (`re-frame.epoch.tool-pair`) applies to an `:rf.http/*` trace event's body
   slot, gated on the disposition the emit site stamped forward. Pure."
   [decoded decode]
-  (if (schema-decode? decode)
+  (if (introspectable-schema-decode? decode)
     (classify-decoded decoded decode)
     off-box-body-marker))

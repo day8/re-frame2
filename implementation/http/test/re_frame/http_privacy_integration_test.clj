@@ -556,6 +556,17 @@
         (finally
           (stop-server! srv))))))
 
+;; rf2-y1pgdl — the end-to-end emit→projector path for an OPAQUE keyword
+;; registry-ref / compiled-schema `:decode` is locked at the unit altitude in
+;; `http_privacy_body_test` (`off-box-disposition-omits-opaque-registry-ref`,
+;; `off-box-classify-body-omits-opaque-registry-ref`): the emit site stamps
+;; exactly `off-box-body-disposition` and the projector keys on that stamp, so
+;; the disposition fn IS the path. An integration test here would need a
+;; SUCCESSFULLY-DECODING opaque ref (a registered Malli registry-ref schema
+;; resolvable by `malli.core/decode`), which is heavyweight and orthogonal to
+;; the fail-closed stamp the fix changes. The schema-VECTOR `:classify` and
+;; unschematized `:omit` end-to-end stamps are covered above.
+
 ;; ---- 11. Off-box disposition stamp on RAW error-response bodies (rf2-t55hxg.10) ----
 ;;
 ;; EP-0015 disposition 5 fail-OPEN gap closed: a raw 4xx/5xx response body
