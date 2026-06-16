@@ -180,6 +180,44 @@ In TanStack Query, keeping reads honest after a write is a call you remember to 
 
 Entries with live owners refetch; unowned entries are marked stale and refetch when next ensured. Invalidation is **scoped by default**, so a write can't accidentally stale another tenant's cache. The operational details — instance-keyed pending state, `:reply-to` continuations, seeding the cache from the reply — live in [Part 4](../tutorial/04-mutations-and-invalidation.md) and [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md).
 
+## Optimistic writes commit, roll back, or reconcile
+
+The pattern above settles the cache only when the server replies. For a write that should *feel* instant — the favorite heart flips on click, the count ticks up — a mutation may declare an **optimistic plan** that patches the cache *before* the request is sent, then commits, rolls back, or reconciles when the reply settles. This is the re-frame2 counterpart of TanStack Query's `onMutate`/`onError` rollback (and SWR's `optimisticData` + `rollbackOnError`).
+
+You declare the forward change; the runtime records the inverse for you, so a rollback restores exactly the entry that existed — never an author-written inverse that can drift from the forward patch:
+
+```clojure
+(rf/reg-mutation :realworld/favorite
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :request       (fn [{:keys [slug]} _ctx]
+                    {:request {:method :post
+                               :url    (str "/api/articles/" slug "/favorite")}
+                     :decode  :json})
+   ;; Patch every cached entry carrying these tags, in its scope, before the
+   ;; request leaves — the detail, every list, and the session feed flip at once.
+   :optimistic-tags (fn [{:keys [slug]}]
+                      [{:scope :rf.scope/global
+                        :tags  #{[:article slug]}
+                        :patch (fn [article] (update-favorite article true))}])
+   ;; The accepted reply still seeds the authoritative value and invalidates.
+   :populates     (fn [{:keys [slug]} result]
+                    {{:resource :realworld/article :params {:slug slug}} result})
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :realworld/session} :tags #{[:feed]}}])})
+```
+
+Two forward forms exist: `:optimistic` patches **exact** cache targets (the twin of `:populates`/`:patches`), and `:optimistic-tags` patches **every** entry carrying a tag in its scope (the twin of tag-addressed `:invalidates`) — the cross-view-consistency case the author can't enumerate by key. Both are exact-key or tag-within-named-scope only, and **fail closed**: a `{:from-db …}` scope that resolves to `nil` drops that target rather than writing globally, so an optimistic write can never leak across viewers.
+
+Settle is deterministic, decided on recorded facts (the generation acceptance verdict and a per-entry `:revision`), so there's no wall-clock race:
+
+- an accepted **`:ok`** reply **commits** — the authoritative `:populates`/`:patches` overwrite the optimistic value with the server's, then `:invalidates` runs.
+- an accepted **`:error`**/`:cancelled` reply **rolls back** — the recorded inverse is restored.
+- a **stale/superseded** reply rolls back nothing; the current generation already owns the entry.
+
+The one wrinkle is a *contested* rollback — a concurrent write landed on the entry between your apply and the failure. `:on-conflict` governs it: the default **`:invalidate`** declines to restore a now-stale inverse and instead marks the entry stale so the read path refetches the authoritative value (re-frame2's deliberate divergence from the query libraries' unconditional context-restore); `:force` restores the inverse anyway (the single-writer escape, with a tooling warning). A view renders the in-flight optimistic state from the instance sub's derived **`:optimistic?`** flag. The normative contract is [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations).
+
 ## Logout is one causal event
 
 The cross-session leak — user B sees user A's dashboard — has a structural fix here. Every session-scoped entry lives under A's scope, and logout clears that scope. There's one subtlety worth pausing on: resolve the *old* scope from the handler's coeffect db (the read-only inputs handed to the handler), which still carries the logging-out user, *before* you remove the auth slice:
@@ -208,8 +246,9 @@ On the server, each request renders in its own frame, which matters because a pr
 
     - **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
     - **Login and other commands.** Auth is a state machine driving a write — don't contort it into a cached read.
-    - **Optimistic UI with rollback.** A write that flips the UI immediately and reverts on server rejection isn't expressible as a mutation today; rollback is deferred. Use a managed HTTP write whose failure handler restores the prior app-db value.
     - **GraphQL.** The transport is HTTP-only for now; GraphQL is a planned later phase.
+
+A mutation *can* now flip the UI immediately and reconcile when the server replies: an **optimistic mutation** patches the cache before the request is sent and commits, rolls back, or reconciles on settle. That's a property of the mutation, not a reason to avoid resources — see [Optimistic writes commit, roll back, or reconcile](#optimistic-writes-commit-roll-back-or-reconcile) below.
 
 ---
 

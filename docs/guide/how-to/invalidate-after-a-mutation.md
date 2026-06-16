@@ -99,9 +99,9 @@ Sometimes the write's reply carries the updated data back to you. `:populates` p
 
 A populated key counts as an **authoritative load**, which means it's exempt from this same mutation's invalidation pass. So invalidating broad tags doesn't immediately re-fetch the entry you just seeded from the reply — the framework trusts the value you handed it.
 
-!!! note "Populate is forward-only"
+!!! note "Populate runs on success — reach for `:optimistic` to flip before the reply"
 
-    There's no automatic revert on failure here — optimistic rollback is deferred. If a write must flip the UI and then roll back on rejection, keep it a plain managed [HTTP](../concepts/http.md) write with an `:on-failure` handler instead.
+    `:populates` seeds the cache from the *accepted reply*, so it runs only after the server confirms. If a write must flip the UI immediately and revert on rejection, declare an **optimistic plan** instead: `:optimistic` (exact target) or `:optimistic-tags` (tag-addressed) patches the cache *before* the request is sent, and the runtime commits, rolls back, or reconciles it deterministically on settle — `:on-conflict` (default `:invalidate`) governs a contested rollback. See [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations) and the worked write in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
 
 !!! warning "A bare tag set matches only in the mutation's resolved scope"
 

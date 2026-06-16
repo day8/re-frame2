@@ -135,7 +135,7 @@ The `cljs-rf2` rules, each of which bites the first time:
 - **"For the categorically curious."** re-frame2's category-theory grounding is a design tool, not teaching vocabulary — *translate, don't transplant*. The deeper frame goes only in a collapsed `<details markdown="1"><summary>For the categorically curious</summary>…</details>` block: always skippable, never load-bearing, at most one per concept, ~6 lines, every term glossed in the same breath.
 - **Asides are bold-lead blockquotes** (`> **Heads-up.** …`), not `!!!` admonitions — match the corpus.
 - **No bead references in prose.** Pages state current truth, not the decision trail; `(rf2-xxx)` citations belong in the tracker. Spec section anchors and migration-rule ids are fine — those are normative, not historical.
-- **Honesty.** Say when *not* to use a feature; mark deferred things (optimistic rollback) and CLIENT-ONLY paths; no marketing voice. The test for every paragraph: could a tired engineer act on it at 11pm mid-incident?
+- **Honesty.** Say when *not* to use a feature; mark deferred things (timed polling, infinite feeds) and CLIENT-ONLY paths; no marketing voice. The test for every paragraph: could a tired engineer act on it at 11pm mid-incident?
 
 ## The gates
 
