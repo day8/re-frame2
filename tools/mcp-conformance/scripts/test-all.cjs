@@ -96,6 +96,14 @@ const TESTS = [
     argv: ['test/live-re-frame2-pair-iserror.cjs'],
   },
   {
+    name: 're-frame2-pair-mcp live-cofx — EP-0017 reproducible dispatch + cofx tooling (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-re-frame2-pair-cofx.cjs'],
+  },
+  {
+    name: 're-frame2-pair-mcp live-event-meta — EP-0018 unified event metadata (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
+    argv: ['test/live-re-frame2-pair-event-meta.cjs'],
+  },
+  {
     name: 'story-mcp end-to-end',
     argv: ['test/end-to-end-story.cjs'],
   },

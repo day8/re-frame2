@@ -140,6 +140,47 @@ keywordizes without a finite gate), that is a server-side bug to file
 against `mcp-base` / the owning server — not a hole in this cross-server
 wire gate.
 
+### Coverage boundary — EP-0017 cofx + EP-0018 event metadata (rf2-jyxmtq / rf2-z0owya)
+
+The EP-0017 recordable-coeffects (`cofx`) surface and the EP-0018 unified
+event-registration metadata are exercised across THREE layers; a future
+MCP change to either should land in the layer matching what it touches:
+
+- **SDK conformance harness (this artefact)** — the cross-MCP WIRE
+  contract. EP-0017: a `cofx` arg is accepted into the `dispatch` request
+  envelope (degraded `end-to-end-re-frame2-pair.cjs`); the supplied
+  `:rf/time-ms` reaches the resulting state, the malformed-`cofx`
+  structured refusals, and the `cofx`-kind `list-handlers`/`handler-meta`
+  visibility + authored `:rf.cofx/requires` (live
+  `live-re-frame2-pair-cofx.cjs`). EP-0018: the live event-metadata wire
+  reflects the unified shape and carries none of the retired markers (live
+  `live-re-frame2-pair-event-meta.cjs`). The degraded handler short-circuits
+  every live-runtime tool to `:nrepl-port-not-found` BEFORE the tool body —
+  so the cofx shape-check and the live event metadata are reachable ONLY
+  through the hermetic live gates, NOT the degraded harness (which proves
+  descriptor / arg-shape / CallToolResult wiring). The two live gates use
+  the fixture event `:counter/stamp` (EP-0017 `:rf.cofx/requires`) and
+  `:counter/inc` (EP-0018 plain `reg-event`) at
+  `skills/re-frame2-pair/tests/fixture/src/counter/core.cljs`.
+- **pair-MCP unit tests** — the server-side `cofx` parsing / threading
+  under `:rf.cofx`, owner-qualified facts, omitted-key behaviour, and the
+  malformed-input reasons in isolation
+  (`tools/re-frame2-pair-mcp/test/.../dispatch_test.cljs`); event
+  `handler-meta` projection shape
+  (`.../handler_meta_test.cljs`). These pin the projection / parse logic
+  without a live runtime or the SDK boundary.
+- **core tests** — the EP-0017 / EP-0018 semantics themselves: the router
+  preserving a supplied `:rf.cofx` verbatim, `:rf.cofx/requires` parse /
+  satisfaction, the one `:rf/event-handler` wrapper, the removed
+  `:event/kind`, and the retired-name hard errors
+  (`implementation/core/.../events.cljc` + its tests). These own the
+  behaviour the wire gates merely OBSERVE crossing the MCP boundary.
+
+Keep this surface free of the legacy `world-inputs` / `:rf.world/inputs`
+vocabulary as a LIVE assertion — EP-0017 replaced it with `cofx` /
+`:rf.cofx` / `:rf/time-ms`; any historical mention must name the
+replacement.
+
 ## Files
 
 - `package.json` — depends on `@modelcontextprotocol/sdk` only
@@ -173,12 +214,43 @@ wire gate.
   local runnability + parity with the overflow / subscribe variants —
   without a live port it SKIPs, with one (e.g. an externally-attached
   shadow-cljs) it runs the full gate.
+- `test/live-re-frame2-pair-cofx.cjs` — re-frame2-pair-mcp **live**-runtime variant
+  (rf2-jyxmtq) pinning the EP-0017 recordable-coeffects (`cofx`) paths on
+  the SDK boundary. Dispatches the fixture's `[:counter/stamp]` (a
+  `reg-event` declaring `:rf.cofx/requires [:rf/time-ms]` that folds the
+  recorded wall-clock fact into app-db under `:stamped-at`) with a scripted
+  `cofx "{:rf/time-ms <N>}"` — TWICE with two distinct pinned-past times —
+  and asserts each lands verbatim in `:stamped-at` (reproducible-dispatch
+  determinism; a server stamping a live clock could never match two pinned
+  pasts). Then proves the malformed-`cofx` refusals the degraded handler
+  hides (non-map / unreadable / non-integer `:rf/time-ms` ⇒
+  `:invalid-cofx` / `:invalid-cofx-time-ms`, no state mutation), and the
+  EP-0017 tooling visibility: `list-handlers {kind "cofx"}` discovers
+  `:rf/time-ms`, `handler-meta {kind "cofx" id ":rf/time-ms"}` surfaces the
+  recordable grade (`:recordable? true :provided? true`), and the event
+  fixture's `handler-meta` exposes the authored `:rf.cofx/requires`. Gated
+  on `$SHADOW_CLJS_NREPL_PORT` (same posture as the other live variants).
+- `test/live-re-frame2-pair-event-meta.cjs` — re-frame2-pair-mcp **live**-runtime
+  variant (rf2-z0owya) pinning the EP-0018 unified event-registration
+  metadata on the SDK boundary. `list-handlers {kind "event"}` discovers
+  the fixture `rf/reg-event` id `:counter/inc`; `handler-meta {kind "event"
+  id ":counter/inc"}` asserts `:ok? true` / `:kind :event` / `:id` AND
+  rejects EP-0018 drift on the same wire response — NO `:event/kind`
+  sub-tag, NO `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`
+  retired wrapper id, and the unified `:rf/event-handler` wrapper visible in
+  the effective interceptor chain. Closes the gap the degraded-only
+  `handler-meta` / `list-handlers` coverage left (degraded short-circuits to
+  the same `:nrepl-port-not-found` envelope for every live-runtime tool, so
+  the live event-metadata wire was never inspected). Gated on
+  `$SHADOW_CLJS_NREPL_PORT`.
 - `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` — hermetic
   orchestrator (rf2-uw6d6) that boots shadow-cljs against the re-frame2-pair
   fixture (`skills/re-frame2-pair/tests/fixture/`), launches headless
   Chromium so the runtime preload lands, then runs every live inner test
   (`live-re-frame2-pair-overflow.cjs`, `live-re-frame2-pair-subscribe.cjs`,
-  `live-re-frame2-pair-redaction.cjs`) against the spawned
+  `live-re-frame2-pair-redaction.cjs`, `live-re-frame2-pair-iserror.cjs`,
+  `live-re-frame2-pair-cofx.cjs`, `live-re-frame2-pair-event-meta.cjs`)
+  against the spawned
   `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap the SKIP path
   leaves on each. **Observable-SKIP guard (rf2-ybiz0):** after each inner
   test exits 0 the orchestrator asserts it printed its `... CONFORMANCE
@@ -454,7 +526,14 @@ The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
    under CI's clean ephemeral runtime — not just on Mike's machine. The
    hermetic suite also runs `live-re-frame2-pair-subscribe.cjs`, which
    (booting non-degraded WITH `--no-eval`) pins pair-mcp's eval-cljs
-   opt-out wire envelope (`:rf.error/eval-cljs-disabled`) post-rf2-a0z0h.
+   opt-out wire envelope (`:rf.error/eval-cljs-disabled`) post-rf2-a0z0h;
+   `live-re-frame2-pair-iserror.cjs` (the read-family genuine-error
+   isError contract); `live-re-frame2-pair-cofx.cjs` (rf2-jyxmtq — EP-0017
+   reproducible-dispatch + cofx tooling visibility); and
+   `live-re-frame2-pair-event-meta.cjs` (rf2-z0owya — EP-0018 unified
+   event-metadata wire shape + retired-marker rejection). Each inner test
+   carries a success sentinel the orchestrator asserts (rf2-ybiz0), so a
+   silent in-hermetic SKIP turns the job RED.
 
 The `mcp-conformance-story` job runs two steps: **`test:story`** (the
 write-loop + read-path conformance + the rf2-ke5n56 callTool coverage

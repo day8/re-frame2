@@ -236,6 +236,34 @@ const INNER_TESTS = [
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-iserror.cjs'),
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE ISERROR-ON-OK-FALSE CONFORMANCE GREEN',
   },
+  {
+    // rf2-jyxmtq — EP-0017 recordable-coeffects (`cofx`) over the live MCP
+    // wire. Dispatches the fixture's [:counter/stamp] (a reg-event
+    // declaring `:rf.cofx/requires [:rf/time-ms]`) with a scripted
+    // `cofx "{:rf/time-ms <N>}"` and proves the supplied fact reaches the
+    // resulting app-db state (reproducible-dispatch determinism), the
+    // malformed-cofx refusals the degraded handler hides, and the EP-0017
+    // tooling visibility (`list-handlers`/`handler-meta` for the `cofx`
+    // kind + authored `:rf.cofx/requires` on the event). The degraded
+    // end-to-end only proves the `cofx` arg is ACCEPTED — this is the
+    // behaviour gate.
+    name: 'live EP-0017 cofx conformance (reproducible dispatch + cofx tooling)',
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-cofx.cjs'),
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE COFX CONFORMANCE GREEN',
+  },
+  {
+    // rf2-z0owya — EP-0018 unified event-registration metadata over the
+    // live MCP wire. Inspects a fixture `rf/reg-event` id (`:counter/inc`)
+    // via `list-handlers`/`handler-meta {kind "event"}` and pins the
+    // unified shape (`:ok? true`, `:kind :event`, `:id`, the
+    // `:rf/event-handler` wrapper) AND the absence of every retired marker
+    // (`:event/kind`, `:rf/db-handler`/`:rf/fx-handler`/`:rf/ctx-handler`).
+    // The degraded gate only proves the descriptor/CallToolResult wiring —
+    // this proves the live event-metadata wire reflects EP-0018.
+    name: 'live EP-0018 event-metadata conformance (unified reg-event shape)',
+    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-event-meta.cjs'),
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE EVENT-METADATA CONFORMANCE GREEN',
+  },
 ];
 
 function recordLine(line, stream = 'stdout') {
