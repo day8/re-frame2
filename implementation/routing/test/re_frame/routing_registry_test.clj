@@ -1113,6 +1113,87 @@
       (is (= "hostile-value" (get-in m3 [:query :sort]))
           "value outside the allowlist stays a string — no unbounded intern"))))
 
+;; ---- rf2-dcmkke: keyword-enum route params round-trip through the prism ----
+;;
+;; `route-url` emitted a keyword enum value with host `(str v)`, so `:asc`
+;; became `%3Aasc` on the wire. `match-url`'s enum-keyword decoder
+;; (`[:rf.route/enum-keyword #{"asc" "desc"}]`) only recognises the declared
+;; TOKEN NAMES (`asc`, `desc`), so `%3Aasc` decoded to the STRING `":asc"`,
+;; not the keyword `:asc` — `match-url(route-url(...))` did not recover the
+;; canonical enum keyword route data. EP-0012 §Route Prism Laws and Spec 012
+;; §924-936 (`/items?sort=desc` ↔ `{:sort :desc}`) require the round-trip.
+;; The fix maps a declared keyword-enum value to its schema token name on
+;; emission (query AND path), so `:asc` emits `asc` and round-trips.
+
+(deftest rf2-dcmkke-keyword-enum-query-round-trips
+  (testing "a keyword-enum :query value emits its schema TOKEN NAME (not
+            `:asc` → %3Aasc) and round-trips back to the canonical keyword"
+    (rf/reg-route :route/sorted
+                  {:path  "/items"
+                   :query [:map [:sort [:enum :asc :desc]]]})
+    (let [u (routing/route-url :route/sorted {} {:sort :asc})]
+      (is (= "/items?sort=asc" u)
+          "the enum keyword `:asc` emits the declared token `asc`, NOT %3Aasc")
+      (let [m (routing/match-url u)]
+        (is (= :asc (get-in m [:query :sort]))
+            "match-url recovers the canonical enum keyword :asc")
+        (is (false? (:validation-failed? m))
+            "the round-tripped value conforms to the [:enum :asc :desc] schema"))))
+
+  (testing "the other enum choice round-trips too"
+    (rf/reg-route :route/sorted2
+                  {:path  "/items"
+                   :query [:map [:sort [:enum :asc :desc]]]})
+    (let [u (routing/route-url :route/sorted2 {} {:sort :desc})]
+      (is (= "/items?sort=desc" u))
+      (is (= :desc (get-in (routing/match-url u) [:query :sort]))))))
+
+(deftest rf2-dcmkke-keyword-enum-path-round-trips
+  (testing "a keyword-enum PATH param emits its token name and round-trips"
+    (rf/reg-route :route/sort-path
+                  {:path   "/items/:dir"
+                   :params [:map [:dir [:enum :asc :desc]]]})
+    (let [u (routing/route-url :route/sort-path {:dir :desc})]
+      (is (= "/items/desc" u)
+          "the path enum keyword `:desc` emits `desc`, NOT %3Adesc")
+      (let [m (routing/match-url u)]
+        (is (= :route/sort-path (:route-id m)))
+        (is (= :desc (get-in m [:params :dir]))
+            "match-url recovers the canonical enum keyword on the path side")
+        (is (false? (:validation-failed? m)))))))
+
+(deftest rf2-dcmkke-keyword-enum-query-retain-round-trips
+  (testing "a `:query-retain` enum value (carried as a KEYWORD from a prior
+            match-url into a target route-url) round-trips. match-url coerces
+            `sort=asc` to `:asc`; route-url must then re-emit `:asc` as `asc`."
+    (rf/reg-route :route/list
+                  {:path          "/list"
+                   :query         [:map [:sort [:enum :asc :desc]]]
+                   :query-retain  [:sort]})
+    ;; Simulate the retain flow: the retained value arrives as a KEYWORD
+    ;; (match-url already interned it from the source URL's `sort=asc`).
+    (let [retained (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
+      (is (= :asc retained)
+          "the retained value is the coerced KEYWORD, not a string")
+      (let [u (routing/route-url :route/list {} {:sort retained})]
+        (is (= "/list?sort=asc" u)
+            "the retained keyword re-emits as its token name (round-trips)")
+        (is (= :asc (get-in (routing/match-url u) [:query :sort])))))))
+
+(deftest rf2-dcmkke-invalid-keyword-enum-still-fails-validation
+  (testing "an INVALID keyword-enum value is NOT stringified into a URL —
+            route-url still fails validation (the schema bites before emit)"
+    (rf/reg-route :route/sorted3
+                  {:path  "/items"
+                   :query [:map [:sort [:enum :asc :desc]]]})
+    (let [ex (try (routing/route-url :route/sorted3 {} {:sort :sideways})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "an out-of-enum keyword value raises rather than emitting a URL")
+      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
+          "the structured validation error fires (not a stringified URL)"))))
+
 (deftest rf2-fwz29i-maybe-wrapper-coercion
   (testing "[:maybe inner] coerces the present value against the inner
             type (query side); a coerced value conforms to the :maybe schema"
