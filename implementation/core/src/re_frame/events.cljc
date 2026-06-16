@@ -14,8 +14,10 @@
   `reg-event-fx` / `reg-event-ctx` raise
   `:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`, per
   EP-0007 rule 2 — no working alias). Full-context work in application code
-  is expressed with interceptors (the public `context -> context` primitive,
-  `->interceptor`).
+  is expressed with interceptors authored via the public `reg-interceptor`
+  form and referenced by id from a `reg-event` registration's
+  `:interceptors` chain (`->interceptor` is the internal lowering
+  constructor post-EP-0022, not the application authoring form).
 
   All event registrations register under registry kind `:event` and share the
   ONE handler-wrapping interceptor `:rf/event-handler` (`:rf/default? true`);
