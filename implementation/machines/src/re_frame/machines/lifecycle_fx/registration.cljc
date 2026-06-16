@@ -19,7 +19,8 @@
       detection + initial-entry cascade, machine-transition dispatch,
       action-failure projection, finalize delegation (in
       `lifecycle-fx.finalize`)."
-  (:require [re-frame.events :as events]
+  (:require [re-frame.cofx :as cofx]
+            [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -370,7 +371,7 @@
   REPL `reg-machine*` dispatch through a non-router path may not) leaves the
   slot absent — `callback-ctx` then surfaces no key and the pure-fn callers
   (conformance corpus) are unaffected."
-  [db runtime-db frame cofx event machine base-initial]
+  [db runtime-db frame cofx mint-policy event machine base-initial]
   (let [machine-id    (first event)
         ;; EP-0002 — `frame` is the cascade-threaded envelope frame the
         ;; calling machine handler already asserted via
@@ -386,7 +387,21 @@
                         ;; def so `callback-ctx` exposes it as `:rf.cofx`. Stamp
                         ;; only when present so the absent-token path stays clean
                         ;; for pure-fn callers.
-                        (some? cofx) (assoc :rf/cofx cofx))
+                        (some? cofx) (assoc :rf/cofx cofx)
+                        ;; rf2-n0myjq — thread the resolved effective cofx MINT
+                        ;; POLICY (per-call opt ▸ frame config ▸ `:live`, the
+                        ;; router stamped it as the `:rf.cofx/mint-policy`
+                        ;; framework coeffect) onto the machine def under the
+                        ;; reserved `:rf/cofx-mint-policy` key. The dispatch-time
+                        ;; / bootstrap ensure steps read it so a `:strict`
+                        ;; replay/`:test` machine refuses to mint a declared-
+                        ;; absent generator-backed guard/action fact (surfacing
+                        ;; missing-required) instead of always defaulting to
+                        ;; `:live`; the in-engine raised-event ensure (rf2-xsdn5h)
+                        ;; reads the SAME stamped policy. Stamped only alongside a
+                        ;; threaded token so pure-fn callers stay untouched.
+                        (some? cofx) (assoc :rf/cofx-mint-policy
+                                            (or mint-policy cofx/default-mint-policy)))
         path          (paths/snapshot-path machine-id)
         existing-snap (get-in runtime-db path)
         snapshot      (cond
@@ -454,8 +469,13 @@
     (if-not (and (:needs-bootstrap? ctx) (contains? machine :rf/cofx))
       ctx
       (let [recorded  (:rf/cofx machine)
+            ;; rf2-n0myjq — ensure under the resolved effective mint policy the
+            ;; router stamped (`:rf/cofx-mint-policy`), so a `:strict` replay /
+            ;; `:test` birth refuses to mint a declared-absent generator-backed
+            ;; `:entry` / birth-`:always` fact (surfacing missing-required).
             augmented (cofx-attach/bootstrap-ensure-cofx
-                        machine recorded (:frame-id ctx) (:machine-id ctx))]
+                        machine recorded (:frame-id ctx) (:machine-id ctx)
+                        (:rf/cofx-mint-policy machine))]
         (if (identical? augmented recorded)
           ctx
           (assoc ctx :machine (assoc machine :rf/cofx augmented)))))))
@@ -537,9 +557,14 @@
     (if-not (contains? machine :rf/cofx)
       ctx
       (let [recorded  (:rf/cofx machine)
+            ;; rf2-n0myjq — ensure under the resolved effective mint policy the
+            ;; router stamped (`:rf/cofx-mint-policy`); `:strict` replay / `:test`
+            ;; refuses to mint a declared-absent generator-backed guard/action
+            ;; fact (surfacing missing-required) rather than defaulting `:live`.
             augmented (cofx-attach/ensure-cofx
                         machine post-boot-snap (:inner-event ctx)
-                        recorded (:frame-id ctx) (:machine-id ctx))]
+                        recorded (:frame-id ctx) (:machine-id ctx)
+                        (:rf/cofx-mint-policy machine))]
         (if (identical? augmented recorded)
           ctx
           (assoc ctx :machine (assoc machine :rf/cofx augmented)))))))
@@ -759,7 +784,7 @@
   (let [base-initial (delay (parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime
-          cofx :rf.cofx :as _cofx} event]
+          cofx :rf.cofx mint-policy :rf.cofx/mint-policy :as _cofx} event]
       ;; EP-0002 carried invariant: a machine handler is invoked inside an
       ;; event cascade, so the cofx ALWAYS carries the frame stamp under
       ;; `:rf.frame/id` (the HELD stamp). A nil stamp is an invariant
@@ -783,7 +808,7 @@
       ;; is still threaded for the spawn-`:on-error` parent lookup +
       ;; action-failure diagnostics.
       (let [runtime-db  (or rt {})
-            ctx         (prepare-machine-ctx db runtime-db frame cofx event machine base-initial)
+            ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
             intercepted (join/intercept-spawn-all-event
                           (:machine ctx) runtime-db (:path ctx) (:snapshot ctx)
                           (:machine-id ctx) (:inner-event ctx))]

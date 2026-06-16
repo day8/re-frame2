@@ -973,8 +973,12 @@
   rf2-alc1lf) is a framework coeffect stamped at envelope construction, so it
   is filtered out here exactly like the other framework defaults — the
   COEFFECTS section shows only genuinely handler-declared coeffects (Spec
-  002 §Event Context And Coeffects)."
-  #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx})
+  002 §Event Context And Coeffects).
+  `:rf.cofx/mint-policy` (rf2-n0myjq) is the resolved effective mint policy
+  stamped by `assemble-initial-ctx` so the machine ensure path can read it; a
+  framework default, not user cofx, so it is filtered out here too."
+  #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
+    :rf.cofx/mint-policy})
 
 (defn user-injected-coeffects
   "Project the user-injected subset of a coeffects map. Pure data → data.

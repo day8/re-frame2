@@ -373,7 +373,18 @@
       (assoc :rf/cofx (:rf/cofx parent-machine))
 
       (not (contains? parent-machine :rf/cofx))
-      (dissoc :rf/cofx))))
+      (dissoc :rf/cofx)
+
+      ;; rf2-n0myjq — overlay the live effective cofx MINT POLICY the same way
+      ;; as `:rf/cofx` (match the parent's presence exactly: assoc when carried,
+      ;; dissoc otherwise) so a region's in-engine raised-event ensure
+      ;; (rf2-xsdn5h) mints under the SAME `:strict` / `:live` policy the parent
+      ;; dispatch resolved, never a stale cached one.
+      (contains? parent-machine :rf/cofx-mint-policy)
+      (assoc :rf/cofx-mint-policy (:rf/cofx-mint-policy parent-machine))
+
+      (not (contains? parent-machine :rf/cofx-mint-policy))
+      (dissoc :rf/cofx-mint-policy))))
 
 (defn- reduce-regions
   "Apply `step-fn` to each region of `parent-machine` in declaration
@@ -873,7 +884,14 @@
       (result/with-ok [snap0 fx0] first-r
         (let [[raises0 real0] (split-raises fx0)
               external-handled? (result/handled? first-r)]
+          ;; rf2-xsdn5h — `m` is the live parent machine threaded through the
+          ;; re-broadcast loop. Each dequeued raise's `ensure-raised-cofx`
+          ;; re-stamps it with an augmented `:rf/cofx` so the raised event's
+          ;; region guards/actions read the ensured / generated facts (overlaid
+          ;; onto each region spec by `region-spec-overlaid`). No-op for the
+          ;; pure-fn engine (no `:rf/cofx`).
           (loop [cur-snap   snap0
+                 m          machine
                  pending    (vec raises0)
                  acc-fx     real0
                  ;; `depth` counts internal events re-broadcast off the
@@ -938,12 +956,23 @@
 
               :else
               (let [ev   (first pending)
-                    step (broadcast-once machine cur-snap ev)]
+                    ;; rf2-xsdn5h — ensure THIS raised event's declared cofx
+                    ;; onto the parent BEFORE re-broadcasting it across the
+                    ;; regions. `ensure-set-for` unions every region's scope (and
+                    ;; the parallel root's own `:on` / `:after`), so a region
+                    ;; guard/action a raised event selects has its `:rf.cofx/
+                    ;; requires` satisfied under the resolved mint policy. The
+                    ;; augmented `:rf/cofx` overlays onto each region spec via
+                    ;; `region-spec-overlaid`, and threads forward so a later
+                    ;; re-broadcast re-presents the generated value.
+                    m'   (transition/ensure-raised-cofx m cur-snap ev)
+                    step (broadcast-once m' cur-snap ev)]
                 (if (result/fail? step)
                   step
                   (result/with-ok [snap2 fx2] step
                     (let [[new-raises real-fx] (split-raises fx2)]
                       (recur snap2
+                             m'
                              ;; FIFO (rf2-nr434): drop the just-processed
                              ;; front, APPEND this broadcast's own raises to
                              ;; the BACK — behind the still-pending queue.

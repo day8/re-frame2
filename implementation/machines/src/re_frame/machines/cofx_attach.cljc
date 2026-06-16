@@ -418,6 +418,41 @@
 
 ;; ---- dispatch-time ensure-set ---------------------------------------------
 
+;; The synthetic compound/parallel done-completion event id
+;; (`transition/done-event-id`). Inlined as a literal for the same cycle-free
+;; reason as `after-elapsed-event-id` below. The done signal is
+;; `[:rf.machine/done <completed-node-path>]`; the completed node's `:on-done`
+;; transition (a SEPARATE slot from `:on`) is the candidate the runtime selects
+;; (`transition/pick-done-transition`), so the ensure-set for a raised done
+;; event MUST add that `:on-done` guard/action diet (rf2-xsdn5h — the enclosing
+;; `:on {:rf.machine/done …}` escape hatch IS already covered by the `:on` walk
+;; since the event-id matches an `:on` key, but the `:on-done` slot is not).
+(def ^:private done-event-id :rf.machine/done)
+
+(defn- on-done-diet-for-event
+  "Add (into `add!`) the `:on-done` guard/action diets of the completed node a
+  raised done event targets (rf2-xsdn5h). `event` is `[:rf.machine/done
+  <node-path>]`; `<node-path>` (the 2nd element) is the absolute path of the
+  compound (or parallel-region) node whose `:final?` child completed. The node's
+  `:on-done` value is one-or-more candidate maps (mirroring
+  `transition/pick-done-transition` step 1); each candidate's `:guard` /
+  `:action` named-entry diet — and the `:always` closure reachable from its
+  resolved `:target` (via `add-always!`) — joins the ensure-set, so an
+  `:on-done` guard/action declaring `:rf.cofx/requires` has its facts ensured
+  before the done transition is selected. No-op when the event is not a done
+  signal, the node-path does not resolve, or the node declares no `:on-done`."
+  [by-entry states event add! add-always!]
+  (when (and (vector? event) (= done-event-id (first event)))
+    (let [done-path (second event)]
+      (when (vector? done-path)
+        (let [node (node-at states done-path)]
+          (when (and (map? node) (contains? node :on-done))
+            (doseq [cand (candidate-maps (:on-done node))]
+              (add! (entry-diet by-entry :guards  (:guard cand)))
+              (add! (entry-diet by-entry :actions (:action cand)))
+              (when-let [tgt (resolve-target-path states done-path (:target cand))]
+                (add-always! tgt)))))))))
+
 (defn- ensure-set-in-scope
   "Compute the ensure-set (a set of `parse-requires` entries, deduped by
   `:id`) for a single `states` scope, active `path`, and inner event type
@@ -429,17 +464,25 @@
         from the current active state (the `:always` cascade that runs after
         the transition settles — or after no transition fires).
 
+  When `event` is a raised compound/parallel done signal
+  (`[:rf.machine/done <node-path>]`), the completed node's `:on-done` guard/
+  action diets join the set too (rf2-xsdn5h) — the `:on` walk covers the
+  enclosing `:on {:rf.machine/done …}` escape hatch, but the `:on-done` slot is
+  a separate candidate the runtime selects.
+
   `by-entry` is the registration index's `:by-entry` map. Returns a vector of
   parsed-requires entries (deduped by id, declaration-order-insensitive — the
   ensure step is order-independent)."
-  [by-entry states path event-id]
-  (let [acc      (volatile! [])
+  [by-entry states path event]
+  (let [event-id (when (vector? event) (first event))
+        acc      (volatile! [])
         seen-ids (volatile! #{})
         add!     (fn [diet]
                    (doseq [{:keys [id] :as e} diet]
                      (when-not (contains? @seen-ids id)
                        (vswap! seen-ids conj id)
                        (vswap! acc conj e))))
+        add-always! (fn [tgt] (add! (always-diet-for-state by-entry states tgt)))
         ;; rf2-knxbok — accumulate a lifecycle (`:entry`/`:exit`) slot's named-
         ;; action diet along a path into a transient, then add! it deduped.
         add-lifecycle! (fn [scope p slot]
@@ -487,6 +530,12 @@
     ;; microstep, or after a guard-blocked / unhandled event) reachable
     ;; without any :on transition firing.
     (add! (always-diet-for-state by-entry states path))
+    ;; rf2-xsdn5h — (d) a raised compound/parallel done signal
+    ;; (`[:rf.machine/done <node-path>]`) selects the completed node's `:on-done`
+    ;; transition (a separate slot from `:on`); add its guard/action diet + the
+    ;; `:always` closure reachable from its target so an `:on-done` callback's
+    ;; `:rf.cofx/requires` is ensured before the done transition is selected.
+    (on-done-diet-for-event by-entry states event add! add-always!)
     @acc))
 
 ;; The synthetic timer event id (`transition/after-elapsed-event-id`). Inlined
@@ -618,7 +667,7 @@
                                       (keyword? region-state) [region-state]
                                       :else nil)]
                     :when (and scope rpath)]
-              (add! (ensure-set-in-scope by-entry scope rpath event-id)))
+              (add! (ensure-set-in-scope by-entry scope rpath event)))
             ;; the parallel root's own live transition surfaces.
             (parallel-root-diet by-entry machine event event-id add!)
             @acc)
@@ -627,7 +676,7 @@
                            (keyword? state) [state]
                            :else nil)]
             (if path
-              (ensure-set-in-scope by-entry (scope-for machine) path event-id)
+              (ensure-set-in-scope by-entry (scope-for machine) path event)
               [])))))))
 
 (defn- initial-path-for-scope
@@ -694,12 +743,20 @@
   delivered flat spread is unused by machines — callbacks read the WHOLE record
   off `:rf.cofx`) and keep only the augmented record. The shared core of both
   the dispatch-time (`ensure-cofx`) and birth-time (`bootstrap-ensure-cofx`)
-  ensure steps."
-  [ensure-set recorded frame-id failing-id]
+  ensure steps.
+
+  `mint-policy` (EP-0017 §6, rf2-n0myjq) gates the declared-absent generator-
+  backed branch — `:strict` (replay / the `:test` preset) refuses to mint and
+  surfaces `:rf.error/missing-required-cofx`, `:live` / `:explicit-live`
+  generate. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
+  the EVENT path uses; threading the resolved policy here gives the machine
+  ensure path the SAME mint semantics rather than the 5-arity `:live` default."
+  [ensure-set recorded frame-id failing-id mint-policy]
   (if (empty? ensure-set)
     recorded
     (:rf.cofx
-     (cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id frame-id))))
+     (cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id
+                                 frame-id mint-policy))))
 
 (defn ensure-cofx
   "Ensure the consumer-attachment ensure-set for `machine` / `snapshot` /
@@ -715,25 +772,40 @@
   Delegates to `re-frame.cofx/deliver-declared-cofx` — the SAME satisfaction
   surface the event-handler path uses — but discards the delivered coeffects
   spread (machine callbacks read the WHOLE record off `:rf.cofx`, never a flat
-  delivery): we keep only the augmented record. Generation runs under the
-  default `:live` mint policy (the router default); the `:strict` binding
-  points are slice-B.8's surface.
+  delivery): we keep only the augmented record.
+
+  `mint-policy` (EP-0017 §6, rf2-n0myjq) is the EFFECTIVE policy the caller
+  resolved (per-call dispatch opt ▸ frame config ▸ `:live`), threaded into
+  `deliver-declared-cofx`'s 6-arity so the machine ensure path mints under the
+  SAME semantics as the event path: replay / `:test` (`:strict`) refuse to mint
+  a declared-absent generator-backed fact (surfacing missing-required), `:live`
+  / `:explicit-live` generate. Omitting `mint-policy` falls back to the
+  router's `:live` default for the (rare) caller that has no policy to thread
+  (the pure-fn conformance/JVM fixtures, which carry no token, never reach the
+  delivery anyway since the ensure-set fast-paths empty there).
 
   A no-op (returns `recorded`) when the ensure-set is empty."
-  [machine snapshot event recorded frame-id failing-id]
-  (ensure-diet-onto (ensure-set-for machine snapshot event)
-                    recorded frame-id failing-id))
+  ([machine snapshot event recorded frame-id failing-id]
+   (ensure-cofx machine snapshot event recorded frame-id failing-id
+                cofx/default-mint-policy))
+  ([machine snapshot event recorded frame-id failing-id mint-policy]
+   (ensure-diet-onto (ensure-set-for machine snapshot event)
+                     recorded frame-id failing-id mint-policy)))
 
 (defn bootstrap-ensure-cofx
   "Ensure the BIRTH (initial-entry) ensure-set onto the in-flight `:rf.cofx`
   record `recorded` BEFORE `maybe-boot` runs the bootstrap cascade (rf2-knxbok).
   Same satisfaction surface / write-back / error semantics as `ensure-cofx`,
   but the ensure-set is `bootstrap-ensure-set-for` (the initial-descent `:entry`
-  diet + the birth `:always` closure). A no-op (returns `recorded`) when the
-  bootstrap ensure-set is empty."
-  [machine recorded frame-id failing-id]
-  (ensure-diet-onto (bootstrap-ensure-set-for machine)
-                    recorded frame-id failing-id))
+  diet + the birth `:always` closure). `mint-policy` (rf2-n0myjq) is the
+  effective resolved policy, threaded identically to `ensure-cofx`. A no-op
+  (returns `recorded`) when the bootstrap ensure-set is empty."
+  ([machine recorded frame-id failing-id]
+   (bootstrap-ensure-cofx machine recorded frame-id failing-id
+                          cofx/default-mint-policy))
+  ([machine recorded frame-id failing-id mint-policy]
+   (ensure-diet-onto (bootstrap-ensure-set-for machine)
+                     recorded frame-id failing-id mint-policy)))
 
 ;; ---- lint (dev-only diagnostic) -------------------------------------------
 ;;

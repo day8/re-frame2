@@ -1599,6 +1599,33 @@
       (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true)
       tags)))
 
+(defn- project-machine-wrote-db-tags
+  "Walk the `:rf.error/machine-action-wrote-db` tag shape (rf2-x9haxl).
+  A machine action / `:rf.machine/update-snapshot` patch that wrongly carries
+  a `:db` key is rejected by `transition/enforce-db-disallow` /
+  `update-snapshot/update-snapshot-fx`, which emit this error carrying the
+  STRIPPED `:db` value under `:offending-value`. That value is the WHOLE app-db
+  the callback tried to write — not snapshot-shaped, so the machine's
+  `[:data …]`-rooted marks do not map onto it, and `machine-op?` (above) does
+  NOT reach this `:rf.error/*` op. Left raw, the entire app-db (every secret it
+  holds) egresses to trace listeners, epoch capture, MCP / tool readbacks, and
+  logs.
+
+  The offending value is a programmer-error diagnostic, not an app-data path
+  graph: the operator needs to know an action wrote `:db` and WHERE (the
+  `:actor-id` / `:machine-id` / `:action-id` / `:state-path` structural slots,
+  left intact), not the app-db contents. So the whole `:offending-value` slot is
+  summarized to the `:rf/redacted` sentinel UNCONDITIONALLY (independent of the
+  machine's declared marks — the value is the whole app-db, inherently the most
+  sensitive payload and unclassifiable per-slot here), the same fail-closed
+  posture `project-spawn-synthetic-payloads` takes for the child-owned `:start`
+  / spawn-error payloads. The runtime never reads `:offending-value` back — it
+  is observability-only — so the strip is egress-only and changes no behaviour."
+  [tags]
+  (if (contains? tags :offending-value)
+    (assoc tags :offending-value privacy/redacted-sentinel)
+    tags))
+
 (defn- machine-op?
   [operation]
   (let [n (and (keyword? operation) (namespace operation))]
@@ -1790,7 +1817,21 @@
                       (and (map? tags)
                            (not= :rf.flow/failed operation)
                            (contains? tags :exception-data))
-                      (project-machine-error-tags))]
+                      (project-machine-error-tags)
+
+                      ;; rf2-x9haxl — the `:rf.error/machine-action-wrote-db`
+                      ;; trace carries the STRIPPED `:db` value (the whole app-db
+                      ;; the action / `:rf.machine/update-snapshot` patch wrongly
+                      ;; wrote) under a bare `:offending-value` slot. Its op
+                      ;; namespace is `:rf.error/*` (NOT `rf.machine`), so
+                      ;; `machine-op?` does not reach it; summarize the slot to
+                      ;; `:rf/redacted` unconditionally so the app-db (and every
+                      ;; secret it holds) does not egress raw to listeners /
+                      ;; epoch / MCP / logs. Last in the cond — a tags map
+                      ;; reaching here carries `:offending-value` but none of the
+                      ;; earlier slot shapes.
+                      (and (map? tags) (contains? tags :offending-value))
+                      (project-machine-wrote-db-tags))]
       (assoc event :tags tags'))))
 
 ;; ---- late-bind hook registration ----------------------------------------
