@@ -706,7 +706,10 @@
   (EP-0013 disposition 2), WHERE PRESENT. Reads `[:tags :rf.realm/id]`
   then a top-level `:rf.realm/id` fallback (defensive against the
   emit-shape settling). Returns nil when the event carries no realm
-  stamp.
+  stamp. Under the EP-0023 public model (image → frame → event stream)
+  the realm is the RETAINED-INTERNAL installation substrate; the public
+  execution context is the FRAME, so the trace surfaces this stamp as
+  implementation structure, not a peer public dimension.
 
   SHIPPED (EP-0013 step 4, rf2-a15n62): the framework's dispatch trace
   (`:rf.event/dispatched`) now stamps `[:tags :rf.realm/id]` for a
@@ -891,12 +894,17 @@
                  (map project-row))
         events))
 
-;; ---- realm surface (EP-0013 disposition 2 · rf2-7vqpwa) -----------------
+;; ---- realm surface (EP-0013 internal-substrate stamp) -------------------
 ;;
 ;; The realm stamp `:rf.realm/id` is surfaced in the Trace rows WHERE
 ;; PRESENT and omitted otherwise (zero-ceremony: single-realm rows are
 ;; unchanged). The view reads `multi-realm-feed?` over the projected rows
-;; to decide whether to render the realm surface at all. SHIPPED
+;; to decide whether to render the realm surface at all. Under the EP-0023
+;; public model (image → frame → event stream) the realm is the
+;; RETAINED-INTERNAL installation substrate; the public execution context
+;; an event runs in is the FRAME. The chip is therefore implementation
+;; structure (labelled as such), not a peer public dispatch dimension.
+;; SHIPPED
 ;; (EP-0013 step 4, rf2-a15n62): the framework's dispatch trace now
 ;; stamps `[:tags :rf.realm/id]` for a non-default realm, so this
 ;; surface is LIVE — a multi-realm dispatch arc renders the realm chip.

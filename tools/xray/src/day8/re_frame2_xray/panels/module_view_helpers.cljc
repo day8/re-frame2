@@ -257,15 +257,26 @@
   carries no `:modules`. Names why the section is empty so the operator
   understands it is the honest no-module state, not a broken surface.
 
+  Points the operator at the EP-0023 PUBLIC model (image → frame → event
+  stream, the FRAMES/IMAGES section above) and frames the `rf/app` /
+  `rf/module` / `rf/install!` remedy as the RETAINED-INTERNAL EP-0013
+  installation substrate — not the central public vocabulary (mirrors the
+  `re-frame.migration` disposition map: `rf/app` → publicly-replaced by
+  `rf/image`, `rf/install!` → retained-internal).
+
   This caption is for the NO-PROVENANCE case ONLY (`:modules` absent/nil on
   every realm). An installed CONSTRUCTED app that simply has zero modules
   (`:modules {}` → `[]`) carries provenance — it must render
   `zero-module-app-caption`, not this one (rf2-e0mq7a). Pure data → string."
-  (str "No module provenance — this process's realms are running on the "
-       "load-order (reg-* sugar) path, whose installed app value carries no "
-       "modules. Compose an app from modules (rf/app / rf/module) and install "
-       "it (rf/install!) to surface per-module ownership, capability "
-       "requirements, and descriptor provenance here."))
+  (str "No module provenance — this process is running on the load-order "
+       "(reg-* sugar) path, whose installed value carries no modules. Module "
+       "ownership / capability / descriptor provenance comes from the "
+       "retained-internal app-composition substrate (rf/app · rf/module · "
+       "rf/install!): compose an app from modules and install it to surface "
+       "those facts here. The PUBLIC model is image → frame → event stream "
+       "(see the FRAMES/IMAGES section above) — this MODULES section reflects "
+       "the EP-0013 installation substrate the public model rides on, kept as "
+       "implementation structure."))
 
 (def zero-module-app-caption
   "The empty-state caption the MODULES section renders when at least one realm
@@ -276,10 +287,12 @@
   the load-order path), it simply owns no modules yet. The honest
   installed-but-empty state, NOT the no-provenance one. Pure data → string."
   (str "Installed app has zero modules — this process's app value was "
-       "constructed and installed (rf/app / rf/install!) but composed from no "
-       "modules, so there is no per-module ownership, capability, or descriptor "
-       "provenance to show. Add modules (rf/module) to the app to populate this "
-       "section."))
+       "constructed and installed (the retained-internal rf/app · rf/install! "
+       "substrate) but composed from no modules, so there is no per-module "
+       "ownership, capability, or descriptor provenance to show. Add modules "
+       "(rf/module) to the app to populate this section. The PUBLIC model is "
+       "image → frame → event stream (see the FRAMES/IMAGES section above); "
+       "this section reflects the EP-0013 installation substrate."))
 
 (defn any-provenance?
   "True when at least one realm-row carries module PROVENANCE — i.e. some

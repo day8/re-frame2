@@ -458,14 +458,18 @@
                              :border     "none"
                              :margin     0
                              :padding    0}}
-      ;; rf2-3caq85 — in a MULTI-REALM process the options group by realm
-      ;; (a `<optgroup>` per realm). In a SINGLE-REALM process this branch
-      ;; is skipped and the flat option list below renders byte-identically
-      ;; to the pre-bead picker — zero-ceremony extends to the tooling.
+      ;; In a MULTI-REALM process the options group by the internal
+      ;; installation realm (a `<optgroup>` per realm). In a SINGLE-REALM
+      ;; process this branch is skipped and the flat option list below
+      ;; renders byte-identically to the pre-bead picker — zero-ceremony
+      ;; extends to the tooling. The frame is the EP-0023 public addressing
+      ;; unit; the realm is the RETAINED-INTERNAL installation boundary, so
+      ;; the group header labels it as installation structure, not a peer
+      ;; public browse dimension.
       (if multi-realm
         (for [{:keys [realm frames]} realm-groups]
           ^{:key (str realm)}
-          [:optgroup {:label       (str realm)
+          [:optgroup {:label       (str "installation realm " realm)
                       :data-testid (str "rf-xray-ribbon-frame-realm-group-" (name realm))}
            (for [f frames]
              ^{:key (str f)}

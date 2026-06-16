@@ -293,7 +293,15 @@
     (let [c h/no-modules-caption]
       (is (re-find #"(?i)load-order" c))
       (is (re-find #"(?i)rf/module" c))
-      (is (re-find #"(?i)rf/install!" c)))))
+      (is (re-find #"(?i)rf/install!" c))))
+  (testing "EP-0023: the caption teaches the image/frame PUBLIC model and
+            frames the rf/app/module/install! remedy as the retained-internal
+            substrate (not the central public vocabulary)"
+    (let [c h/no-modules-caption]
+      (is (re-find #"(?i)image\s*(?:→|->)\s*frame" c)
+          "names the image → frame public model")
+      (is (re-find #"(?i)retained-internal|implementation structure|substrate" c)
+          "frames app/module/install! as the retained-internal substrate"))))
 
 (deftest zero-module-app-caption-distinct-from-no-provenance
   ;; rf2-e0mq7a — the caption an installed zero-module app renders. It MUST be
@@ -308,6 +316,13 @@
       (is (re-find #"(?i)rf/module" c))
       (is (not (re-find #"(?i)load-order" c))
           "MUST NOT claim the load-order path — the app WAS constructed")))
+  (testing "EP-0023: the caption teaches the image/frame PUBLIC model and
+            frames the app/install! substrate as retained-internal"
+    (let [c h/zero-module-app-caption]
+      (is (re-find #"(?i)image\s*(?:→|->)\s*frame" c)
+          "names the image → frame public model")
+      (is (re-find #"(?i)retained-internal|implementation structure|substrate" c)
+          "frames app/install! as the retained-internal substrate")))
   (testing "the two empty-state captions are different strings"
     (is (not= h/no-modules-caption h/zero-module-app-caption))))
 

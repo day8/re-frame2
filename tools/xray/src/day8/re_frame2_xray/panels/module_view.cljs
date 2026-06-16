@@ -380,15 +380,19 @@
      h/no-modules-caption]))
 
 (rf/reg-view Panel
-  "The Module-view tab's root — the (realm, frame) address space of the
-  running process (EP-0013 disposition 3) PLUS the per-module provenance read
-  off each realm's installed app value (EP-0013 disposition 6 · rf2-at0oen).
-  Subscribes to `:rf.xray/module-view` and renders a REALMS section (every
-  installed realm + its frames) followed by a MODULES section listing each
-  realm's modules with their ownership / capability / descriptor provenance.
-  A process running entirely on the `reg-*` sugar / load-order path has no
-  constructed app value, so the MODULES section shows the honest no-module
-  caption."
+  "The Module-view tab's root. Renders the EP-0023 PUBLIC model FIRST — the
+  FRAMES/IMAGES section (`image -> frame -> event stream`: every live
+  image-loaded frame as an execution context carrying its resolved image's
+  `[kind id]` descriptors, rf2-32siq3.12) — then the RETAINED-INTERNAL
+  EP-0013 substrate below: the REALMS section (the (realm, frame) address
+  space, disposition 3) and the MODULES section (per-module ownership /
+  capability / descriptor provenance read off each realm's installed app
+  value via `rf/installed-app`, disposition 6 · rf2-at0oen). Subscribes to
+  `:rf.xray/image-view` (the public model) and `:rf.xray/module-view` (the
+  substrate). A process running entirely on the `reg-*` sugar / load-order
+  path has no constructed app value, so the MODULES section shows the honest
+  no-module caption — which names the retained-internal rf/app · rf/module ·
+  rf/install! remedy and points back at the image/frame public model."
   []
   (let [{:keys [realms multi-realm?] :as _data}
         @(rf/subscribe [:rf.xray/module-view])

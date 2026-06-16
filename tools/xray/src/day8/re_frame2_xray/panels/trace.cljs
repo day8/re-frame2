@@ -310,11 +310,14 @@
    :white-space "nowrap"
    :text-align  "right"})
 
-;; rf2-7vqpwa — the realm stamp chip. Rendered inline in the target
-;; column ONLY when the focused arc spans more than one realm (EP-0013
-;; disposition 2 — surface the `:rf.realm/id` WHERE PRESENT, omit
-;; otherwise). A single-realm (or unstamped) arc never renders this, so
-;; the row is byte-identical to the pre-bead panel (zero-ceremony).
+;; The realm stamp chip. Rendered inline in the target column ONLY when
+;; the focused arc spans more than one realm (surface the `:rf.realm/id`
+;; WHERE PRESENT, omit otherwise). A single-realm (or unstamped) arc never
+;; renders this, so the row is byte-identical to the pre-bead panel
+;; (zero-ceremony). The realm is the EP-0013 INTERNAL installation
+;; substrate, not the public execution context (that is the frame, EP-0023
+;; image → frame → event stream); the chip is labelled as implementation
+;; structure.
 (def ^:private op-row-realm-chip-style
   {:flex-shrink    0
    :color          (:text-tertiary tokens)
@@ -691,14 +694,18 @@
                                    {:frame frame}))
                   :style       op-row-cancellation-button-style}
          "⟲"])
-      ;; rf2-7vqpwa — the realm stamp, surfaced WHERE PRESENT (EP-0013
-      ;; disposition 2). Renders ONLY when the arc spans >1 realm AND
-      ;; this row carries a `:rf.realm/id`; a single-realm / unstamped
-      ;; arc renders nothing here (zero-ceremony — the row is unchanged).
+      ;; The realm stamp, surfaced WHERE PRESENT. Renders ONLY when the
+      ;; arc spans >1 realm AND this row carries a `:rf.realm/id`; a
+      ;; single-realm / unstamped arc renders nothing here (zero-ceremony
+      ;; — the row is unchanged). Under the EP-0023 PUBLIC model the FRAME
+      ;; is the execution context an event runs in; the realm is the
+      ;; RETAINED-INTERNAL installation substrate, so the chip is labelled
+      ;; as implementation structure, not a peer public dimension.
       (when (and multi-realm? realm)
         [:span {:data-testid (str row-test-id "-realm")
                 :data-rf-xray-realm (name realm)
-                :title       (str "Runtime realm: " realm)
+                :title       (str "Internal installation realm (EP-0013 "
+                                  "substrate): " realm)
                 :style       op-row-realm-chip-style}
          (str realm)])]
      ;; ⑥ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
