@@ -65,7 +65,8 @@
   `reg-*` writes into a realm's OWN source store. [[active-source-store]] is the
   single resolution point — nil binding ⇒ the process-default store, the
   byte-identical single-realm path."
-  (:require [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as error]
+            [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -372,8 +373,25 @@
   path, not here; the targeted-mutation surfaces (`record-descriptor!` /
   `forget-*` / `clear-kind!`) all honor the `active-source-store` binding and bump
   the bound store's generation, so a realm store's cache still invalidates on its
-  own mutations."
+  own mutations.
+
+  The contract is ENFORCED, not merely documented: a `*source-store*` binding in
+  flight when `clear-all!` runs would silently clear+bump the WRONG (default)
+  store, leaving the bound store stale with an un-bumped generation. So this
+  FAILS LOUD if invoked under a realm binding (`:rf.error/source-store-clear-all-under-realm-binding`).
+  Recovery: reset the realm store via its own seating path, not this surface."
   []
+  (when (some? *source-store*)
+    (error/throw-error!
+      :rf.error/source-store-clear-all-under-realm-binding
+      'source-store/clear-all!
+      (str "source-store/clear-all! was invoked while a realm `*source-store*` "
+           "binding is in flight. clear-all! is a PROCESS-DEFAULT-ONLY fixture "
+           "reset (EP-0023 §Image co-fix F2): it always targets the default store "
+           "and would silently clear+bump the WRONG store here, leaving the bound "
+           "realm store stale with an un-bumped generation. Reset a realm store via "
+           "its own seating path, not this surface.")
+      {:recovery :reset-the-realm-store-via-its-own-seating-path}))
   (reset! kind->id->ns->descriptor {})
   (reset! ns-string-pool {})
   ;; Bump the PROCESS-DEFAULT store's generation (clear-all! always targets it,

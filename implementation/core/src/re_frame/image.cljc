@@ -108,6 +108,25 @@
   [s]
   (str/split s #"\." -1))
 
+(defn- collapse-double-stars
+  "Collapse every RUN of consecutive `**` pattern segments into a single `**`.
+  Pure; preserves match semantics exactly — `**` absorbs zero or more segments,
+  so `**.**` (and any longer run) accepts the SAME segment sets as a single
+  `**`. This is the M3 guard against the matcher's exponential-backtracking
+  worst case: `match-segments?` backtracks per `**`, so a pathological pattern
+  like `**.**.**.x` would otherwise fork 2^k ways across k adjacent stars on a
+  non-match. Collapsing runs at parse time bounds the matcher to ONE `**`
+  decision point per non-`**`-separated region, so a pattern can never carry
+  more `**` decision points than it has literal/`*` anchors + 1 — linear in the
+  pattern length. Applied to the PATTERN segments only (a namespace string is
+  literal and has no `**`)."
+  [segs]
+  (into []
+        (comp (partition-by #(= "**" %))
+              (mapcat (fn [run]
+                        (if (= "**" (first run)) ["**"] run))))
+        segs))
+
 (defn- match-segments?
   "Case-sensitive backtracking match of a `pattern` segment vector against a
   `ns` segment vector under the EP-0023 grammar:
@@ -116,7 +135,14 @@
     \"*\"      — matches exactly ONE segment (any)
     \"**\"     — matches ZERO OR MORE segments (greedy with backtrack)
 
-  Pure. Returns true iff the whole pattern matches the whole ns segments."
+  Pure. Returns true iff the whole pattern matches the whole ns segments.
+
+  Worst-case cost: each `**` is a backtrack point, so a pattern carrying many
+  `**`s could in principle fork exponentially on a non-match. `ns-matches?`
+  bounds this by passing the pattern through `collapse-double-stars` first
+  (consecutive `**` runs are semantically one `**`), leaving at most one `**`
+  decision per non-`**` anchor region — `match-segments?` itself assumes its
+  `pattern` arg is already collapsed."
   [pattern ns-segs]
   (cond
     ;; Both exhausted — full match.
@@ -166,7 +192,12 @@
   (boolean
     (and (string? pattern)
          (string? ns-str)
-         (match-segments? (split-segments pattern) (split-segments ns-str)))))
+         ;; Collapse consecutive `**` runs in the PATTERN before matching: this
+         ;; preserves semantics (a run of `**` accepts the same segment sets as
+         ;; one `**`) and bounds the matcher away from its exponential-backtrack
+         ;; worst case (M3 guard — see `collapse-double-stars`).
+         (match-segments? (collapse-double-stars (split-segments pattern))
+                          (split-segments ns-str)))))
 
 ;; ---- inline descriptors (EP-0023 §Image Fragments) ------------------------
 ;;

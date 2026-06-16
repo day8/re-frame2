@@ -1107,17 +1107,21 @@
                                    pool value itself (the live store generation
                                    does not describe an explicit pool).
 
-  `images` may be a single image value (wrapped) or a seq. An EMPTY (or nil)
-  `images` is the DEFAULT-image case — it projects `default-image`, the implicit
-  selector over the WHOLE source store (EP-0023 §Default Image Semantics; see
-  `assemble-default`). Returns the sealed generation:
+  `images` is ALWAYS a seq/vector of image values — never a single image map
+  (the EP is emphatic that `:images` is vector-only; `live-frame/validate-images!`
+  enforces vector-only at the make-frame boundary, and a normalized image value
+  IS itself a map, so a `map?`-wrapping branch here would be ambiguous and
+  contradict the EP). An EMPTY (or nil) `images` is the DEFAULT-image case — it
+  projects `default-image`, the implicit selector over the WHOLE source store
+  (EP-0023 §Default Image Semantics; see `assemble-default`). Returns the sealed
+  generation:
 
     {:rf.gen/resolver {[kind id] descriptor …}
      :rf.gen/images   [<image value> …]
      :rf.gen/requires #{:rf.capability/* …}
      :rf.gen/kinds    #{kind …}}"
   ([images]
-   (let [images (if (map? images) [images] (vec images))]
+   (let [images (vec images)]
      (if (empty? images)
        ;; No explicit image ⇒ the DEFAULT image projection over the live store.
        (assemble-default)
@@ -1137,7 +1141,7 @@
                         (source-store-descriptors)
                         (source-store/store-generation)))))
   ([images descriptors]
-   (let [images (if (map? images) [images] (vec images))]
+   (let [images (vec images)]
      (if (empty? images)
        ;; No explicit image ⇒ the DEFAULT image projection over the supplied
        ;; pool (the deterministic explicit-pool form for tests/harnesses).
