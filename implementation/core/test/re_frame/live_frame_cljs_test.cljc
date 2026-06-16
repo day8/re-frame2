@@ -10,6 +10,13 @@
     * `:images` (a vector) resolves to a generation carried on the frame object;
     * the frame object holds a reference to its resolved generation
       (`:rf.frame/generation`);
+    * the NO-`:images` path (absent or `[]`) runs the DEFAULT IMAGE — the
+      implicit selector over the WHOLE source store (rf2-32siq3.33): the
+      generation includes the store's `reg-*` descriptors (+ standards), NOT the
+      framework standards alone, and a cross-namespace same-`[kind id]` collision
+      in that default projection FAILS LOUD at make-frame time
+      (`:rf.error/image-duplicate-id`). Covered for both the explicit-pool
+      2-arity and the bare live-store 1-arity;
     * an `:id` registers the object in the live-frame registry;
     * a duplicate live `:id` FAILS LOUD (`:rf.error/live-frame-id-conflict`);
     * a direct (no-id) frame object BYPASSES the registry;
@@ -23,29 +30,44 @@
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
 
-  Resolution runs against an explicit synthetic descriptor pool (the
-  `make-frame` 2-arity), so there is no live source-store wiring — the same
-  decoupling idiom `image-assembly-cljs-test` uses. The live-frame registry IS
-  process state, so a fixture clears it per case. `.cljc` ends `-cljs-test` so
-  it rides `npm run test:cljs` AND `clojure -M:test`."
+  Most cases resolve against an explicit synthetic descriptor pool (the
+  `make-frame` 2-arity) — the same decoupling idiom `image-assembly-cljs-test`
+  uses. The default-image cases additionally exercise the BARE live-store 1-arity
+  (`make-frame {}`), which reads the live source store; those snapshot/restore
+  the store (never `clear-all!`, which would destroy real authored
+  registrations). The live-frame registry, the standard registry, the generation
+  cache, and the source store are all process state, so the fixture
+  snapshot/restores or clears them per case. `.cljc` ends `-cljs-test` so it
+  rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.image       :as image]
             [re-frame.image-assembly :as asm]
-            [re-frame.live-frame  :as lf]))
+            [re-frame.live-frame  :as lf]
+            [re-frame.source-store   :as ss]))
 
 ;; ---------------------------------------------------------------------------
-;; Fixture — both the live-frame registry and the framework-standard registry
-;; are process-state defonce atoms; clear per case.
+;; Fixture — the live-frame registry, the framework-standard registry, and the
+;; resolved-generation cache are process-state defonce atoms; clear them per
+;; case. The source store is ALSO process state (the DEFAULT-image path reads it
+;; live), so SNAPSHOT/RESTORE it — do NOT `clear-all!`, which would destroy real
+;; authored registrations (per the bead). The live-store default-image tests
+;; mutate the store inside their own snapshot/restore body too.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (fn [t]
-    (lf/clear-live-frames!)
-    (asm/clear-standards!)
-    (t)
-    (lf/clear-live-frames!)
-    (asm/clear-standards!)))
+    (let [store-before @ss/kind->id->ns->descriptor]
+      (lf/clear-live-frames!)
+      (asm/clear-standards!)
+      (asm/clear-generation-cache!)
+      (try
+        (t)
+        (finally
+          (lf/clear-live-frames!)
+          (asm/clear-standards!)
+          (asm/clear-generation-cache!)
+          (reset! ss/kind->id->ns->descriptor store-before))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -70,6 +92,14 @@
 (def ^:private counter-pool
   [(reg-desc "examples.counter" :event :counter/inc ::inc)
    (reg-desc "examples.counter" :sub   :counter/value ::value)])
+
+(defn- record!
+  "Record one registered descriptor into the LIVE source store (the same path a
+  `reg-*` walks) so the DEFAULT image — the implicit whole-store selector — can
+  project it. The fixture snapshot/restores the store around the case."
+  [provenance-ns kind id impl]
+  (ss/record-descriptor! kind id {:ns provenance-ns :kind kind :id id
+                                  :handler-fn impl}))
 
 ;; ===========================================================================
 ;; 1. :images (a vector) resolves to a generation carried on the frame object
@@ -105,12 +135,93 @@
       (is (some? (asm/resolve-descriptor gen :event :widgets/init)))
       (is (some? (asm/resolve-descriptor gen :event :counter/inc))))))
 
-(deftest no-images-resolves-the-standard-set-alone
-  (testing "make-frame with no :images resolves the framework standard set alone
-            — a valid (empty-app) generation, still returning a frame object"
-    (let [frame (lf/make-frame {} [])]
+;; ===========================================================================
+;; 1b. The no-`:images` path runs the DEFAULT IMAGE — the implicit whole-store
+;;     projection (EP-0023 §Default Image Semantics, rf2-32siq3.33), NOT the
+;;     framework standard set alone. Both the explicit-pool 2-arity and the bare
+;;     live-store 1-arity are covered; a cross-namespace collision in the default
+;;     fails loud at make-frame time.
+;; ===========================================================================
+
+(deftest no-images-runs-the-default-image-over-the-explicit-pool
+  (testing "make-frame with NO :images (and an explicit descriptor pool) runs the
+            DEFAULT image — the implicit selector over the WHOLE pool — so the
+            frame's generation INCLUDES a reg-*'d descriptor from the store, not
+            just the framework standards"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (let [frame (lf/make-frame {} counter-pool)
+          gen   (lf/frame-generation frame)]
       (is (lf/frame-object? frame))
-      (is (some? (lf/frame-generation frame))))))
+      (is (some? gen))
+      (testing "the whole-pool reg-* descriptors are projected (default image,
+                NOT standards-only)"
+        (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+            "a reg-*'d descriptor from the source pool is in the default generation")
+        (is (= ::inc (:handler-fn (asm/resolve-descriptor gen :event :counter/inc))))
+        (is (some? (asm/resolve-descriptor gen :sub :counter/value))))
+      (testing "the framework standard is also unioned in (default = pool + standards)"
+        (is (some? (asm/resolve-descriptor gen :fx :rf.nav/push-url)))))))
+
+(deftest empty-images-vector-is-the-default-image-path
+  (testing "make-frame with :images [] is the SAME default-image path as no
+            :images at all (an empty vector ⇒ the implicit whole-store selector)"
+    (let [frame (lf/make-frame {:images []} counter-pool)
+          gen   (lf/frame-generation frame)]
+      (is (lf/frame-object? frame))
+      (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+          "an empty :images vector projects the whole-store default, not standards-only"))))
+
+(deftest no-images-default-cross-namespace-collision-fails-loud
+  (testing "a cross-namespace same-(kind, id) collision in the DEFAULT projection
+            makes make-frame FAIL LOUD (:rf.error/image-duplicate-id) — the
+            no-:images default does not guess and does not let load order win"
+    (let [colliding-pool
+          [(reg-desc "examples.todo.boot"    :event :boot/init ::todo-boot)
+           (reg-desc "examples.counter.boot" :event :boot/init ::counter-boot)]]
+      (is (= :rf.error/image-duplicate-id
+             (err-id #(lf/make-frame {} colliding-pool))))
+      (testing "the collision fires regardless of pool order (no last-write-wins)"
+        (is (= :rf.error/image-duplicate-id
+               (err-id #(lf/make-frame {} (vec (reverse colliding-pool))))))))))
+
+(deftest bare-make-frame-runs-the-default-image-over-the-live-store
+  (testing "the BARE 1-arity make-frame (no descriptor pool) resolves the DEFAULT
+            image against the LIVE source store, so a frame created with no
+            :images runs every reg-*-authored registration in the store"
+    ;; Drive from a known-clean live store inside a snapshot/restore body so the
+    ;; default projection is deterministic; the fixture also restores the store.
+    (let [store-before @ss/kind->id->ns->descriptor]
+      (try
+        (reset! ss/kind->id->ns->descriptor {})
+        (asm/clear-generation-cache!)
+        (record! "shop.cart" :event :cart/add   ::cart-add)
+        (record! "shop.cart" :sub   :cart/items ::cart-items)
+        (let [frame (lf/make-frame {})
+              gen   (lf/frame-generation frame)]
+          (is (lf/frame-object? frame))
+          (is (some? (asm/resolve-descriptor gen :event :cart/add))
+              "the bare make-frame default projection includes the live-store reg-*")
+          (is (= ::cart-add (:handler-fn (asm/resolve-descriptor gen :event :cart/add))))
+          (is (some? (asm/resolve-descriptor gen :sub :cart/items))))
+        (finally
+          (reset! ss/kind->id->ns->descriptor store-before)
+          (asm/clear-generation-cache!))))))
+
+(deftest bare-make-frame-default-live-store-collision-fails-loud
+  (testing "the BARE 1-arity make-frame fails loud (:rf.error/image-duplicate-id)
+            when the LIVE source store carries a cross-namespace same-(kind, id)
+            collision in the default projection"
+    (let [store-before @ss/kind->id->ns->descriptor]
+      (try
+        (reset! ss/kind->id->ns->descriptor {})
+        (asm/clear-generation-cache!)
+        (record! "examples.todo.boot"    :event :boot/init ::todo-boot)
+        (record! "examples.counter.boot" :event :boot/init ::counter-boot)
+        (is (= :rf.error/image-duplicate-id
+               (err-id #(lf/make-frame {}))))
+        (finally
+          (reset! ss/kind->id->ns->descriptor store-before)
+          (asm/clear-generation-cache!))))))
 
 ;; ===========================================================================
 ;; 2. :id registers the object in the process-local live-frame registry
