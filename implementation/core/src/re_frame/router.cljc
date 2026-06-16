@@ -9,6 +9,7 @@
   any further external event is processed for that frame, and before any
   view re-renders."
   (:require [re-frame.frame :as frame]
+            [re-frame.live-frame :as live-frame]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
@@ -2210,8 +2211,25 @@
           (run-handler-cascade! envelope event-id event frame
                                 frame-record handler-meta))))))
 
+(defn- frame-resolution-target
+  "EP-0023 §Frame-derived live registration resolution (rf2-uejnt3): given the
+  CARRIED frame target an envelope holds in `:frame`, return the EP-0023 frame
+  OBJECT to derive the resolution generation from — the object itself when the
+  target IS one (the direct-object dispatch form), or the live-frame registry's
+  object for a frame-id KEYWORD (the `{:frame :counter/main}` form). nil for any
+  target that names no live image-loaded frame — the absence-is-default signal
+  that `call-with-frame-resolution` binds NOTHING and the cascade resolves
+  through the registrar atom path, byte-identical for every existing caller
+  (the EP-0013 realm-routed dispatch and the single-realm default alike).
+  Pure read of the carried target + the process-local live-frame registry."
+  [target]
+  (cond
+    (live-frame/frame-object? target) target
+    (keyword? target)                 (live-frame/live-frame target)
+    :else                             nil))
+
 (defn- process-event!
-  "Wrap process-event* in two dynamic bindings:
+  "Wrap process-event* in four dynamic bindings:
 
    1. `trace/*handler-scope*` — set with the cascade's `:dispatch-id`
       and the envelope's `:call-site`, inheriting the rest from parent.
@@ -2261,7 +2279,30 @@
       realm is preserved across the cascade automatically. The
       default-realm frame (every single-realm app) takes the no-binding
       fast path inside `call-with-frame-realm-registrar` — byte-identical
-      to the pre-realm hot path."
+      to the pre-realm hot path.
+
+   4. `registrar/*generation*` — bound to the target frame's resolved
+      IMAGE GENERATION for the WHOLE cascade WHEN the carried `:frame`
+      names an EP-0023 image-loaded frame (rf2-uejnt3, operationalising
+      the rf2-32siq3.9 seam). This is the EP-0023 restatement of the
+      a15n62 invariant in image/frame terms — `target frame -> resolved
+      image generation -> registration resolution`. The SAME chokepoint
+      (`registrar/lookup`) the realm binding above routes — event-handler
+      lookup, every cofx injection, the whole fx walk — resolves through
+      the frame's OWN image generation's resolver, so two frames running
+      DIFFERENT images resolve the same `[kind id]` to their own image's
+      descriptor (ALL-OR-NOTHING — `call-with-frame-resolution` covers the
+      whole thunk, exactly like the realm wrap it nests inside). The
+      generation is DERIVED from the carried frame target
+      (`frame-resolution-target` resolves a direct frame OBJECT verbatim,
+      a frame-id keyword through the live-frame registry), never an
+      ambient binding (EP-0002). A target that names no live image-loaded
+      frame — every EP-0013 realm-only frame and the single-realm default
+      alike — yields no generation, so `call-with-frame-resolution` binds
+      NOTHING and resolution falls through to the registrar-atom path,
+      byte-identical (absence-is-default). Child dispatches re-enter
+      `process-event!` for their frame and re-derive the binding, so the
+      generation is preserved across the cascade automatically."
   [envelope]
   (trace/with-dispatch-id+call-site (:dispatch-id envelope) (:call-site envelope)
     (binding [frame/*current-frame* (:frame envelope)]
@@ -2274,7 +2315,19 @@
       ;; `handle-frame-destroyed!` branch as before.
       (frame/call-with-frame-realm-registrar
         (frame/frame (:frame envelope))
-        (fn [] (process-event* envelope))))))
+        (fn []
+          ;; EP-0023 (rf2-uejnt3): ALSO route the cascade through the target
+          ;; frame's resolved IMAGE generation when the carried `:frame` names
+          ;; an image-loaded frame, NESTED inside the realm binding so event +
+          ;; cofx + fx resolve coherently through the frame's own image
+          ;; (rf2-32siq3.9's seam, invoked at the live entry). A target that
+          ;; names no image-loaded frame (every realm-only / single-realm
+          ;; frame) derives no generation, so this binds nothing and the
+          ;; cascade resolves through the registrar atom exactly as before
+          ;; (absence-is-default). DERIVED from the carried target (EP-0002).
+          (live-frame/call-with-frame-resolution
+            (frame-resolution-target (:frame envelope))
+            (fn [] (process-event* envelope))))))))
 
 (def ^:private drain-depth-default
   ;; Deep enough for typical cascade depths. When exceeded, the runtime
