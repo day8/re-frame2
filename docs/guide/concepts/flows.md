@@ -133,7 +133,7 @@ Flows are registered against the runtime, not compiled into event chains. So you
 
     A subscription and a flow are the *same node* in one derivation graph — the same pure function of the same inputs — differing only in policy: a sub stores nothing and evaluates on demand; a flow stores into app-db and evaluates after each event (the algebra names that policy `:after-event`). [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) draws the whole picture.
 
-## You can now
+**You can now:**
 
 - re-express a subscription as a flow — and say which of the two a given value deserves
 - materialise a derived value into app-db so event handlers, other flows, and registered schemas read it as plain data, and it survives SSR and time travel

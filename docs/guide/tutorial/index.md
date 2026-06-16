@@ -227,7 +227,7 @@ Xray auto-opened with the app, and `Ctrl+Shift+C` toggles it. Take a moment to l
 
 One event, one state, nothing else. **Keep Xray open for the whole tutorial.** Every part runs the rhythm *do → observe → explain*, and Xray is the observe step — so when something misbehaves, you won't reach for print statements, you'll just read what the app actually did. [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour when you want it.
 
-## You can now
+**You can now:**
 
 - Scaffold a re-frame2 project on the real toolchain: `deps.edn`, `package.json`, `shadow-cljs.edn`, a host page.
 - Boot an app honestly, and say what each move does: `init!` (substrate), `reg-frame` (the app's frame), `with-frame` + `dispatch-sync` (seed before first render), `frame-provider` (carry the frame down the tree).
