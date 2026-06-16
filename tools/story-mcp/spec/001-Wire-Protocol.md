@@ -182,7 +182,7 @@ The server uses the standard JSON-RPC 2.0 error codes:
 | `-32700` | Parse error | Malformed JSON. The reply carries `id: null`; the run-loop survives and continues reading. |
 | `-32600` | Invalid request | The frame is JSON but not a valid JSON-RPC request shape, **or** a request other than `initialize` / `ping` arrives before the `initialize` handshake completes (the pre-initialize lifecycle gate — see [§Lifecycle state enforcement](#lifecycle-state-enforcement)). |
 | `-32601` | Method not found | Unknown method name. |
-| `-32602` | Invalid params | `tools/call` `name` is missing or not a string. Argument-shape failures do NOT surface here — each tool self-validates (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. An unknown top-level argument KEY (rf2-ovmc5e) likewise returns an `isError: true` tool result (`:rf.error :rf.story-mcp/unknown-arguments`) before dispatch, not a protocol error. |
+| `-32602` | Invalid params | `tools/call` `name` is missing or not a string, **or** `tools/call` `arguments` is present but not an object (a scalar / array / string — a params-CONTAINER shape failure; rf2-2zym5e). Per-ARGUMENT validation does NOT surface here — within a well-formed arguments map, each tool self-validates a wrong-typed / missing field (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. An unknown top-level argument KEY (rf2-ovmc5e) likewise returns an `isError: true` tool result (`:rf.error :rf.story-mcp/unknown-arguments`) before dispatch, not a protocol error. |
 | `-32603` | Internal error | An unexpected exception during dispatch. |
 
 **Tool-execution errors** (a tool ran, but its semantic failed —

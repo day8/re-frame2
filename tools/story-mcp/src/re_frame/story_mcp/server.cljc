@@ -163,13 +163,34 @@
 ;; ---- tools/call -----------------------------------------------------------
 
 (defn- handle-tools-call
-  "Invoke a tool. `params` shape: `{:name <string> :arguments <map>}`."
+  "Invoke a tool. `params` shape: `{:name <string> :arguments <map>}`.
+
+  rf2-2zym5e — `arguments` is the JSON-RPC params container; per MCP it
+  MUST be a structured object (absent ⇒ no args). A scalar / array /
+  string `arguments` is a params-SHAPE failure and surfaces as
+  `-32602 invalid-params` here, at the wire boundary — NOT as a
+  `-32603 internal-error`. Without this guard a non-map `arguments`
+  survived `normalize-frame` (which only normalises a map) and reached
+  `invoke-tool`'s per-tool arg-key check (`(keys args)`), which threw on
+  the non-map and was caught into a misleading `-32603` server fault.
+  Per-ARGUMENT validation (a wrong-typed / missing field WITHIN a
+  well-formed arguments map) stays tool-level (`isError: true`); this
+  guard is only about the container's shape."
   [id params]
   (let [tool-name (:name params)
         arguments (:arguments params)]
     (cond
       (not (string? tool-name))
       (proto/invalid-params id "tools/call requires `name` (string)")
+
+      (not (or (nil? arguments) (map? arguments)))
+      (proto/invalid-params
+        id (str "tools/call `arguments` must be an object (or omitted); got "
+                (cond (string? arguments)     "a string"
+                      (sequential? arguments) "an array"
+                      (number? arguments)     "a number"
+                      (boolean? arguments)    "a boolean"
+                      :else                   "a non-object scalar")))
 
       :else
       (if-let [result (wire-pipeline/invoke-tool tool-name arguments)]
