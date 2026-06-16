@@ -136,12 +136,12 @@
             ;; neutral. An app that never hot-reloads leaves `rf/reload-images!`
             ;; (and the live-frame reload fns) as Closure-DCE dead code — the
             ;; elision probe deliberately does NOT root the image-loading path
-            ;; (see elision_probe.cljs). NOTE: the EP-0023 OBJECT-returning
-            ;; `live-frame/make-frame` is NOT re-pointed onto `rf/make-frame` in
-            ;; this slice — `rf/make-frame` stays the EP-0013 RECORD constructor
-            ;; during the migration window (the `assert-no-dual-make-frame!` guard
-            ;; keeps both off one name); the repoint rides the later caller-
-            ;; migration slice.
+            ;; (see elision_probe.cljs). EP-0023 collapse FINALE (rf2-32siq3.48):
+            ;; the OBJECT-returning `live-frame/make-frame` IS now the backing of
+            ;; the facade `rf/make-frame` (repointed off the EP-0013 RECORD
+            ;; constructor once every record caller was migrated; the
+            ;; `assert-no-dual-make-frame!` window guard is retired to a
+            ;; regression pin).
             [re-frame.live-frame :as live-frame]
             ;; EP-0023 (rf2-32siq3.11): the EP-0013 -> EP-0023 migration shims +
             ;; diagnostics ns. Carries the surface dispositions as inspectable
@@ -789,20 +789,108 @@
 
 ;; ---- frame management ----------------------------------------------------
 
-(def ^{:doc "Anonymous-instance frame creation — generates a gensym'd id
-  under `:rf.frame/...` and returns it. Per Spec 002 §Per-instance frames.
-  Use `reg-frame` to create a frame with a caller-supplied id.
+;; EP-0023 collapse FINALE (rf2-32siq3.48): `rf/make-frame` is REPOINTED onto the
+;; runnable OBJECT constructor (`re-frame.live-frame/make-frame`). The migration
+;; slices (rf2-32siq3.45/.46/.47) moved every record caller off the
+;; keyword-returning contract first, so the flip is non-breaking for the public
+;; surface; the transition-window dual-export guard
+;; (`re-frame.migration/assert-no-dual-make-frame!`) is retired to a regression
+;; pin (it is no longer wired live — the facade now exports exactly one
+;; make-frame, the object one). The EP-0013 RECORD constructor survives, demoted
+;; to the advanced `re-frame.frame/make-frame` (gensym id + the record-config
+;; surface — `:on-create` / `:fx-overrides` / `:platform` / `:ssr` / `:doc` /
+;; `:preset` / `:tags` / …); it is no longer facade-exported.
+;;
+;; Record-config keys (the rf2-32siq3.45 finding — NEVER silent-drop): the
+;; object constructor honours only the EP-0023 frame-creation opts
+;; (`:images` / `:id` / `:initial-db` / `:capabilities` / `:adapter`). A
+;; record-only config key (e.g. `:on-create`, `:preset`, `:fx-overrides`) would
+;; be SILENTLY DROPPED by the object constructor, so the facade FAILS LOUD on any
+;; opt outside the EP-0023 set rather than accepting a config that does nothing —
+;; the diagnostic names the advanced `re-frame.frame/make-frame` for the record
+;; surface. This is the option-(b) disposition (fail-loud + redirect) per the
+;; bead: option-(a) (extend the object constructor to honour record-config keys)
+;; would require editing `re-frame.live-frame`, owned by a concurrent slice.
+(def ^{:private true
+       :doc "The EP-0023 frame-creation opt keys `rf/make-frame` (the object
+  constructor) accepts. Any other key in the opts map is a record-only config
+  key — fail loud + redirect to `re-frame.frame/make-frame`."}
+  make-frame-opt-keys
+  #{:images :id :initial-db :capabilities :adapter})
 
-  EP-0023 TRANSITION: this is the EP-0013 RECORD constructor (returns a gensym
-  id). EP-0023's public model is the OBJECT constructor
-  (`re-frame.live-frame/make-frame`, returns the live frame object, accepts
-  `:images` / `:id`). The two have INVERTED return contracts, so the facade
-  exports exactly ONE `make-frame` during the migration window; the
-  name-collapse + caller migration (record/object unification) is the EP-0023
-  follow-up that rules the unified contract. `re-frame.migration/`
-  `assert-no-dual-make-frame!` is the guard that fails loud if both are ever
-  exported under one name. See EP-0023 §Backwards Compatibility."}
-  make-frame    frame/make-frame)
+(defn- assert-make-frame-opts!
+  "Fail loud (`:rf.error/make-frame-record-only-key`) when `opts` carries a key
+  outside the EP-0023 object-constructor set (`make-frame-opt-keys`). The
+  record-config keys (`:on-create` / `:fx-overrides` / `:platform` / `:ssr` /
+  `:doc` / `:preset` / `:tags` / …) are honoured ONLY by the advanced EP-0013
+  record constructor `re-frame.frame/make-frame`; the object constructor would
+  silently drop them, so the facade rejects them rather than accept a config
+  that does nothing (the rf2-32siq3.45 never-silent-drop finding). Returns
+  `opts` unchanged when every key is an EP-0023 opt."
+  [opts]
+  (let [extra (when (map? opts)
+                (not-empty (into #{} (remove make-frame-opt-keys) (keys opts))))]
+    (when extra
+      (error/throw-error!
+        :rf.error/make-frame-record-only-key
+        'rf/make-frame
+        (str "rf/make-frame: opt key(s) " (pr-str extra) " are not EP-0023 "
+             "make-frame opts. rf/make-frame is the EP-0023 OBJECT constructor — "
+             "it accepts only " (pr-str make-frame-opt-keys) " and returns the "
+             "live frame object. The record-config surface (:on-create, "
+             ":fx-overrides, :platform, :ssr, :doc, :preset, :tags, …) lives on "
+             "the advanced EP-0013 record constructor re-frame.frame/make-frame. "
+             "Seed frame state with :initial-db; reach the record surface via "
+             "re-frame.frame/make-frame if you genuinely need it.")
+        {:recovery :use-an-ep-0023-opt-or-the-advanced-record-constructor
+         :extra    {:offending-keys extra
+                    :ep-0023-opts   make-frame-opt-keys}})))
+  opts)
+
+(defn make-frame
+  "Create a live frame from one or more IMAGES and return the live frame OBJECT
+  (EP-0023 §Public API — \"`rf/make-frame` returns the live frame object in all
+  cases\"). The returned object is fully runnable: `dispatch` / `subscribe` /
+  `destroy-frame!` / `app-db-value` accept it (or its `:id`). Per Spec 002
+  §Per-instance frames + EP-0023 §Public API.
+
+  `opts` is a map; the EP-0023 opt keys are:
+
+    :images        a VECTOR of image values (always a vector, even for a single
+                   image). Resolved into one sealed image generation; a
+                   non-vector fails loud (`:rf.error/make-frame-bad-images`).
+                   Optional — absent/`[]` runs the DEFAULT IMAGE.
+    :id            the frame id (optional). When supplied, the object is
+                   registered in the PROCESS-LOCAL live-frame registry under this
+                   id (a duplicate live id fails loud). When ABSENT, the frame is
+                   LOCAL-ONLY — keep the returned object and pass it to
+                   dispatch / subscribe / test helpers.
+    :initial-db    the frame's initial app-db value (optional). Seeds the frame's
+                   app-db partition so an immediate subscribe/read observes it.
+                   Seed frame STATE here — image is a behaviour concern.
+    :capabilities  the host capability map the image's `:rf.image/requires` is
+                   checked against (optional, fail-loud on a missing capability).
+    :adapter       the active-substrate adapter binding/configuration (optional).
+
+  RECORD-CONFIG KEYS FAIL LOUD: this is the EP-0023 OBJECT constructor — it
+  accepts ONLY the keys above. A record-only config key (`:on-create`,
+  `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, …) would be
+  silently dropped, so it is rejected `:rf.error/make-frame-record-only-key`
+  (the rf2-32siq3.45 never-silent-drop finding). Seed frame state with
+  `:initial-db`; reach the advanced EP-0013 record constructor (gensym id +
+  record-config surface) via `re-frame.frame/make-frame` directly if you need it.
+
+  EP-0023 collapse FINALE (rf2-32siq3.48): the facade repoint. Earlier slices
+  migrated every record caller off the keyword-returning contract; this flips
+  `rf/make-frame` onto the object constructor and retires the dual-export guard.
+
+  Two arities mirror `re-frame.live-frame/make-frame`:
+    (make-frame opts)             — resolve `:images` against the LIVE source store.
+    (make-frame opts descriptors) — resolve against an explicit descriptor pool
+                                    (tests / harnesses / a pre-snapshotted store)."
+  {:arglists '([opts] [opts descriptors])}
+  ([opts]             (live-frame/make-frame (assert-make-frame-opts! opts)))
+  ([opts descriptors] (live-frame/make-frame (assert-make-frame-opts! opts) descriptors)))
 
 (def ^{:doc "Hot-reload ONE frame's whole image composition, PRESERVING FRAME
   MEMORY (EP-0023 §Hot Reload / §Public API). `target` is EITHER a frame id
@@ -1285,17 +1373,19 @@
 
 #?(:clj
    (defmacro with-new-frame
-     "Eval `expr`, bind the resulting frame-id to `sym`, run `body`
-     with `*current-frame*` bound to that id, and destroy the frame on
-     exit (success or exception). The eval-bind-run-destroy form:
+     "Eval `expr`, bind the resulting frame to `sym`, run `body` with
+     `*current-frame*` bound to it, and destroy the frame on exit
+     (success or exception). The eval-bind-run-destroy form:
 
        (with-new-frame [sym (rf/make-frame opts)] body+)
 
-     `expr` may be `(rf/make-frame opts)`, `(rf/reg-frame :id opts)`
-     (returns the keyword), or any expression yielding a frame-id;
-     whatever is bound is destroyed on body exit. Throws at compile
-     time on a keyword argument — use `with-frame` to pin to an
-     existing frame-id.
+     `expr` may be `(rf/make-frame opts)` (EP-0023 — returns the live
+     frame OBJECT), `(rf/reg-frame :id opts)` (returns the keyword id),
+     or any expression yielding a frame target (object or id); whatever
+     is bound is destroyed on body exit (`dispatch` / `subscribe` /
+     `destroy-frame!` accept either). Throws at compile time on a
+     keyword argument — use `with-frame` to pin to an existing
+     frame-id.
 
      For async closures that fire after body returns, capture via
      `frame-handle` / `frame-bound-fn` — the body's dynamic binding has

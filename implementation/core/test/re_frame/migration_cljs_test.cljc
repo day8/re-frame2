@@ -14,10 +14,14 @@
       rejected fail-loud `:rf.error/cross-realm-frame-id` under the EP-0023
       process-local frame-id space, while re-asserting the SAME realm (the
       in-place re-registration case) does NOT collide;
-    * `assert-no-dual-make-frame!` is the transition-window guard: BOTH the
-      EP-0013 record `make-frame` and the EP-0023 object `make-frame` exported
-      under one public name fail-loud `:rf.error/make-frame-dual-export`, while
-      at most one export is the safe window state.
+    * `assert-no-dual-make-frame!` is the transition-window guard, now a RETIRED
+      REGRESSION PIN (EP-0023 collapse FINALE, rf2-32siq3.48): the window is
+      CLOSED — `rf/make-frame` is repointed onto the EP-0023 OBJECT constructor,
+      so the facade exports exactly one `make-frame`. The guard fn survives so
+      the invariant stays enforceable against a synthetic dual export: BOTH the
+      EP-0013 record `make-frame` and the EP-0023 object `make-frame` wired under
+      one name fail-loud `:rf.error/make-frame-dual-export`, while at most one
+      export is the safe state.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -29,9 +33,11 @@
   `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.core      :as rf]
-            [re-frame.migration :as migration]
-            [re-frame.realm     :as realm]
+            [re-frame.core       :as rf]
+            [re-frame.migration  :as migration]
+            [re-frame.live-frame :as lf]
+            [re-frame.image      :as image]
+            [re-frame.realm      :as realm]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
 
@@ -197,17 +203,32 @@
           "no export is not a conflict"))))
 
 ;; ---------------------------------------------------------------------------
-;; The live facade exports exactly ONE make-frame during the window (the guard's
-;; invariant, asserted against the real facade var rather than stand-ins).
+;; The live facade repoint (EP-0023 collapse FINALE, rf2-32siq3.48): rf/make-frame
+;; IS the EP-0023 OBJECT constructor. The transition window is CLOSED — the guard
+;; above survives as a retired regression pin (asserted against stand-ins), and
+;; the facade var resolves to the object path. Asserted against the real facade.
 ;; ---------------------------------------------------------------------------
 
-(deftest facade-make-frame-is-the-ep-0013-record-constructor-only
-  (testing "the live facade exports exactly one make-frame (the EP-0013 record
-            constructor) during the transition window — make-frame returns a
-            gensym id, NOT the EP-0023 object"
-    (let [created (rf/make-frame {})]
-      (is (keyword? created)
-          "rf/make-frame returns a gensym frame id (the EP-0013 record path)")
-      ;; The EP-0023 object constructor is NOT facade-exported under make-frame,
-      ;; so the facade var is unambiguous — the guard's window invariant holds.
-      (rf/destroy-frame! created))))
+(deftest facade-make-frame-is-the-ep-0023-object-constructor
+  (testing "the live facade exports exactly one make-frame — the EP-0023 OBJECT
+            constructor, post-repoint. rf/make-frame returns the live frame
+            OBJECT, NOT a gensym keyword id. Built against an explicit descriptor
+            pool (the 2-arity) so the pin does not project the live source store."
+    (let [pool    [{:rf.provenance/ns "examples.counter"
+                    :kind :event :id :counter/inc :handler-fn ::inc}]
+          img     (image/image {:include-ns ["examples.counter"]})
+          created (rf/make-frame {:images [img]} pool)]
+      (is (lf/frame-object? created)
+          "rf/make-frame returns the EP-0023 live frame object (the repoint)")
+      (is (not (keyword? created))
+          "it is NOT the EP-0013 keyword id anymore")
+      (rf/destroy-frame! created)))
+  (testing "a record-only config key fails loud rather than silently dropping
+            (the rf2-32siq3.45 never-silent-drop finding — option-b disposition).
+            The record-config surface lives on re-frame.frame/make-frame"
+    (is (= :rf.error/make-frame-record-only-key
+           (err-id #(rf/make-frame {:preset :test})))
+        ":preset is the EP-0013 record surface — fail loud + redirect")
+    (is (= :rf.error/make-frame-record-only-key
+           (err-id #(rf/make-frame {:on-create [:noop] :images []})))
+        "a record-only key mixed with valid EP-0023 opts still fails loud")))
