@@ -21,7 +21,7 @@ Minimal re-frame2 counter app used by `tests/shim`, `tests/e2e`, and
 |---|---|
 | `shadow-cljs.edn` | Build config with `:devtools :preloads` set to `re-frame2-pair.runtime`. |
 | `deps.edn` | `:local/root` to `../../../../implementation` (the re-frame2 repo) plus Reagent. |
-| `src/counter/core.cljs` | Counter (`reg-event`, `reg-sub`, `reg-view`) — three events: `:counter/initialise`, `:counter/inc`, `:counter/dec`. |
+| `src/counter/core.cljs` | Counter (`reg-event`, `reg-sub`, `reg-view`) — four events: `:counter/initialise`, `:counter/inc`, `:counter/dec`, and `:counter/stamp` (declares `:rf.cofx/requires [:rf/time-ms]` and folds the recorded wall-clock fact into `:stamped-at` — the EP-0017 recordable-coeffects target the `tools/mcp-conformance` live cofx gate dispatches with a scripted `cofx`). |
 | `public/index.html` | Page host; loads `out/main.js`. |
 | `README.md` | This file. |
 

@@ -272,6 +272,18 @@ runWithWatchdog(
       { name: 'get-stream-controls', arguments: {} },
       { name: 'handler-meta', arguments: { kind: 'event', id: ':rf-conformance/probe' } },
       { name: 'list-handlers', arguments: { kind: 'event' } },
+      // rf2-jyxmtq — EP-0017 cofx introspection over the SDK wire. The
+      // `cofx` kind is one of the closed-v1 registrar kinds `handler-meta`
+      // / `list-handlers` advertise (tool-descriptors.edn). Degraded mode
+      // routes both through `ensure-connection!` to the shared
+      // :nrepl-port-not-found envelope — which still proves the `cofx` kind
+      // is ACCEPTED into the envelope (an unsupported kind would return
+      // :invalid-kind instead, NOT :nrepl-port-not-found) and reaches the
+      // SDK. The LIVE positive (the `:rf/time-ms` recordable-cofx
+      // registration metadata is actually surfaced) is pinned by the
+      // hermetic live-re-frame2-pair-cofx.cjs gate.
+      { name: 'handler-meta', arguments: { kind: 'cofx', id: ':rf/time-ms' } },
+      { name: 'list-handlers', arguments: { kind: 'cofx' } },
       { name: 'read-recording', arguments: { 'recording-id': 'rf2-conformance-no-such' } },
       { name: 'read-sub', arguments: { sub: '[:rf-conformance/probe]' } },
       { name: 'record', arguments: { signals: '[[:rf-conformance/probe]]' } },
@@ -400,6 +412,38 @@ runWithWatchdog(
         'OK   tools/call ' + probe.name + ' (no --allow-writes, degraded) -> ' +
           'isError + :rf.error/writes-disabled (pre-connection refusal)',
       );
+    }
+
+    // 3c-ter. EP-0017 reproducible-dispatch `cofx` argument — degraded
+    // accept (rf2-jyxmtq). The `dispatch` tool advertises a `cofx`
+    // input-key (an EDN map of scripted recordable coeffects, e.g.
+    // `"{:rf/time-ms 1781078400123}"`) for deterministic replay. In
+    // degraded mode the server's `degraded-handler` short-circuits the
+    // tool to the shared `:nrepl-port-not-found` envelope BEFORE the tool
+    // body's cofx shape-check runs (same posture as every other
+    // live-runtime tool — UNLIKE the write gate, which refuses
+    // pre-connection). So a degraded probe cannot reach the cofx
+    // shape-check; what it DOES prove is that a `cofx` arg is ACCEPTED into
+    // the request envelope and the SDK's CallToolResultSchema parses the
+    // result (a regression that rejected the `cofx` arg shape at the SDK /
+    // descriptor boundary would surface here). Recorded in `degradedResp`
+    // so the universal :ok?/isError cross-check below sweeps it.
+    //
+    // The behaviours the cofx shape-check governs — the MALFORMED-cofx
+    // `:invalid-cofx` / `:invalid-cofx-time-ms` refusals AND the positive
+    // that a supplied `:rf/time-ms` reaches the resulting app-db state —
+    // are reachable ONLY with a live runtime (the degraded-handler hides
+    // the tool body), so they are pinned by the hermetic
+    // live-re-frame2-pair-cofx.cjs gate.
+    {
+      const resp = await assertDegraded({
+        name: 'dispatch',
+        arguments: {
+          event: '[:rf-conformance/probe]',
+          cofx: '{:rf/time-ms 1781078400123}',
+        },
+      });
+      degradedResp['dispatch+cofx'] = resp;
     }
 
     // 3c-bis. Universal isError <-> :ok? cross-check across the whole

@@ -28,6 +28,18 @@
 (rf/reg-event :counter/dec
  (fn [{:keys [db]} _event] {:db (update db :count dec)}))
 
+;; EP-0017 reproducible-coeffects fixture (rf2-jyxmtq). Declares
+;; `:rf.cofx/requires [:rf/time-ms]` so its `handler-meta` surfaces the
+;; authored declaration, and folds the recorded wall-clock fact (read FLAT as
+;; `time-ms`) into durable state under `:stamped-at`. The MCP conformance
+;; harness dispatches this with a scripted `cofx "{:rf/time-ms <n>}"` and
+;; asserts the SAME `<n>` lands in `:stamped-at` — proving the supplied
+;; coeffect reaches the resulting state across the SDK/nREPL wire.
+(rf/reg-event :counter/stamp
+ {:rf.cofx/requires [:rf/time-ms]}
+ (fn [{:keys [db rf/time-ms]} _event]
+  {:db (assoc db :stamped-at time-ms)}))
+
 (rf/reg-sub :count
  (fn [db _query] (:count db)))
 
