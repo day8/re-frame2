@@ -45,6 +45,8 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 (rf/reg-frame :frame-id metadata)
 
 ;; Anonymous instance (gensym'd id under :rf.frame/*). Returns the id.
+;; (EP-0023 transition: this is still the EP-0013 RECORD constructor on the
+;; facade — see §Images, frames, and the realm substrate for the public model.)
 (rf/make-frame metadata)
 
 ;; Destroy / reset.
@@ -123,7 +125,7 @@ Per-test isolated frame, from `examples/reagent/login/core.cljs`:
   (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))))
 ```
 
-Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination.
+Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Holding the frame as a value and passing it directly (`{:frame f}`, `(rf/app-db-value f)`) is the EP-0023 **direct frame object** pattern: the frame is born in the test scope and dies with it, with no entry in any process-local frame-id registry. That is the right shape for tests and harnesses — reach for an `:id`-registered frame only when mounted code must address it by id.
 
 And establishing the app frame at boot (the runtime infers no frame, so you register it explicitly and scope it at the root):
 
@@ -172,22 +174,46 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` 
 - **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
 - **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
-## Realms — the container a frame lives in (advanced public API)
+## Images, frames, and the realm substrate (EP-0023 — the multi-frame public model)
 
-The mental model: **the program is a value; the runtime is a container you install it into.** By default your registrations (`reg-event`, `reg-sub`, `reg-fx`, …) update one process-wide table, and your frames all share it. EP-0013 names that table's owner a **realm** — the operational environment holding the registered behaviour, the installed adapter, runtime capabilities (HTTP, clock, schema validation), and the frame registry. A frame belongs to exactly one realm; the durable app-db / runtime-db partitions a frame owns are unchanged.
+The mental model: **`image -> frame -> event stream`**, like a VM. An **image** is the *selected registration set* a frame runs (its instruction set); a **frame** is the *isolated execution context* (its memory + the one image generation it resolves against); the **event stream** is the ordered events a frame processes over its life (the program). Anchor it to the VM you already know: events are instructions, re-frame2's six-domino cascade is the ISA, your `reg-*` forms supply the instruction meanings, the image is the loaded instruction set, and the frame is the VM executing the stream.
 
-You almost certainly do not need to think about this. The two facts an author should hold:
+The everyday rule that falls out:
 
-- **A single-realm app sees nothing new.** The process you already have is one realm — the **default realm** — and every `reg-*` / `dispatch` / `subscribe` call targets it implicitly. This is the same refinement EP-0002 makes for frames: the default realm is *explicit machinery the runtime creates*, not ambient magic, and the zero-ceremony path stays zero-ceremony. The realm is the analogue of `:rf/default` one level up: a real, runtime-created thing, never synthesised from absence.
-- **Realms are carried, never ambient — the EP-0002 rule, one level up.** When more than one realm exists, a frame-scoped operation reads its realm from the same carrier that identifies its frame (a frame is registered into a realm; an operation runs under that frame's scope). There is no `with-runtime`-style dynamic binding to search — that would re-introduce the exact ambient-context trap EP-0002 deleted for frames, and it breaks for the same async reason (a captured callback outlives the binding). Absence fails loudly with the same no-frame-context family; it never selects a realm.
+```text
+same behaviour, different memory  -> same image, different frames
+different behaviour               -> different images
+```
 
-The payoff lands only when one process must run **two programs side by side** — independent tenants, a feature pack with its own handler graph, or **two adapters at once** (a legacy Reagent root next to a new UIx root, impossible under one-adapter-per-process). Each gets its own realm; the same event id can carry different behaviour in each without collision. A single-product SPA never reaches for it.
+You almost certainly do not need to name an image. The two facts an author should hold:
 
-> **Now an advanced public API.** `rf/realm`, `rf/app`, `rf/module`, `rf/install!`, and `rf/reinstall!` have **shipped** (EP-0013) as the `re-frame.core` **advanced** tier — they are callable today, not reserved vocabulary. A single-realm app can ignore the whole surface: never spell a realm and the implicit default realm backs every `reg-*` / `dispatch` / `subscribe` byte-identically. When you do reach for it: `rf/module` lowers a feature's registrations + ownership + capability requirements into an inert, composable **module value**; `rf/app` composes module values into an inert **app value** (a same-id collision across modules throws, never last-writer-wins — and a divergent duplicate **module** id throws too, since module id is the provenance key); `rf/install!` seats an app value into a realm (capability-checked first); `rf/reinstall!` hot-reloads a realm by diffing the new app value against the installed one. `rf/realm` constructs an explicit **hermetic** realm (its own registrar atom) to install into — the multi-tenant / parallel-app / hermetic-test container; `rf/dispose-realm!` is its teardown counterpart. Use `rf/realm` for the container concept (never `rf/runtime` — "runtime" already names runtime-db and the runtime subsystems). `rf/realm-ids` enumerates the installed realms and `rf/frame-realm` reads the realm a frame lives in (the `(realm, frame)` address pair).
+- **The ordinary `reg-*` path is unchanged — the default image is implicit.** `reg-*` writes to the process-wide registration source; a frame created with no explicit `:images` resolves against the *default image* projected over that source. A single-frame app never spells `image`, `make-frame` `:images`, or a realm; the zero-ceremony path stays zero-ceremony. The image concept becomes visible only when the default process-wide registration set stops being the right boundary.
+- **Registration ids are scoped to an image; frame ids are process-local.** Two images may both contain `:counter/inc`; two live frames may **not** both register as `:counter/main`. That split is the heart of the multi-frame story: a docs page can reuse teaching-friendly registration ids across examples, while each mounted example still needs a distinct frame id. (Direct frame *objects* bypass the frame-id space — see below.)
+
+**When you reach for explicit images:** two unrelated surfaces on one page (a todo surface beside a counter, each with its own local ids), a tool surface beside the thing it inspects (so their ids never collide), progressive doc examples that reuse one teaching vocabulary, library packaging, and isolated test/story frames. Each case is "different instruction set, isolated memory" — so each gets its own image, and each live instance gets its own frame.
+
+> **The landed public surface.** `rf/image` is exported on `re-frame.core` today: `(rf/image {:include-ns [<ns-glob> …]})` returns an **inert image value** — pure data, no realm, no registrar, no side effect. `:include-ns` selects already-loaded registrations by their *source* namespace (`:rf.provenance/ns`), not by the registration-id namespace; the glob grammar is `*` (one segment) / `**` (zero or more), case-sensitive, whole-namespace match, and a pattern that matches **zero** descriptors fails image assembly loud. Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …), `:rf.image/requires` (a `:rf.capability/*` set), and the declared-winner maps `:replace` / `:replace-standard` round out the spec map. Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs; reload swaps that generation while preserving frame memory.
 >
-> One caveat the runtime still enforces: realm-aware **frame** registration is a later EP-0013 slice — `:frame` descriptors can only be installed into the **default** realm today (a `:frame` in a non-default-realm install is refused loudly, `:rf.error/realm-frames-unsupported`), and live dispatch/subscribe still resolve through the default realm. Realm isolation today is for the **registrar / query surface** (two realms hold different handlers for the same id, hermetic test programs), not yet fully realm-routed live frames.
+> **Object `make-frame` / `:images` / `reload-images!` are the in-progress wave.** The public model is `make-frame` returning the **live frame object** and accepting `:images`, plus a frame-targeted `reload-images!`. The implementation lives in `re-frame.live-frame` (object constructor, `:images` resolution, frame-derived live resolution, hot reload). The `re-frame.core` facade still exports the EP-0013 **record** `make-frame` (returns a gensym id) during the transition — the two have inverted return contracts, so exactly one is exported behind the public name until the name-collapse ruling lands. Teach the model; when you need a callable frame today, use `reg-frame` + `frame-provider` (above) and construct image *values* with `rf/image`.
 
-A composed `module` value on its own is inert data with no registration side effect until an `install!` seats it. One migration accident is worth flagging: registering the same handler *both* via a top-level `reg-*` (which targets the default realm) *and* by listing it in a module installed into that same realm is a same-id collision, caught loudly — not a silent merge.
+### The realm substrate is retained internally, not the public model
+
+EP-0013's **realm** (the container that owns the registrar table, the installed adapter, runtime capabilities, and the frame registry) is **retained as the internal installation substrate** — it is no longer the beginner-facing public architecture. Under EP-0023 you target a **frame** (a process-local frame id in mounted code, or a direct frame object in tests); the frame determines the image generation used for registration resolution. The old `(realm, frame)` two-part address collapses to one public frame target.
+
+The EP-0013 public names are now **migration-only / internal** — superseded by the image vocabulary:
+
+| EP-0013 surface | EP-0023 disposition | Use instead |
+|---|---|---|
+| `rf/app` (app value) | publicly replaced | `rf/image` — construct an image and supply it via `:images` instead of composing modules into an app value |
+| `rf/module` (module descriptor) | re-expressed | image fragment — a feature ns registers ordinary `reg-*` forms; an `rf/image` selects them by `:include-ns` provenance glob |
+| `rf/realm` (runtime-realm container) | retained internal | target a **frame** (frame id, or direct frame object for tests) |
+| `rf/install!` / `rf/reinstall!` | retained internal | `make-frame` with `:images` / `reload-images!` against a frame target |
+| `rf/installed-app` | retained internal | inspect a frame's resolved image generation |
+| `(realm, frame)` address | publicly replaced | a single frame target |
+
+The framework ships these dispositions as **inspectable data**: `rf/migration-map` (`{surface-kw {:status … :replacement … :guidance …}}`) and `rf/migration-explain` (one-line guidance for an EP-0013 surface keyword). When more than one realm exists, realms are carried, never ambient — the same EP-0002 rule, one level up: a frame is registered into a realm and an operation runs under that frame's scope; absence fails loud (the no-frame-context family), never selects a realm. A single-product SPA never reaches for any of this.
+
+One hardening break to know: EP-0023's process-local frame-id space is stricter than EP-0013's `(realm, frame)` addressing, which let the same public frame id coexist in two realms. A codebase migrating off that address calls `rf/assert-process-local-frame-id!` to surface — with an actionable `:rf.error/cross-realm-frame-id` — a frame id already live in another realm; the fix is distinct frame ids, or a direct frame object kept in local scope.
 
 ## Deeper material
 
