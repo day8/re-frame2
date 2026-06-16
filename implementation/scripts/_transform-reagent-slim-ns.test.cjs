@@ -20,12 +20,19 @@
 const assert = require('assert/strict');
 const { spawnSync } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
-const SCRIPT = path.join(REPO_ROOT, '.github', 'scripts', 'transform-reagent-slim-ns.sh');
+
+// The script and the throwaway fixtures are addressed by paths RELATIVE to
+// REPO_ROOT, which is handed to `bash` as its `cwd`. Relative POSIX paths
+// are the only form every supported Bash flavour accepts unchanged — see
+// the `run()` comment for the cross-platform rationale (rf2-6m7pn4).
+const SCRIPT_REL = '.github/scripts/transform-reagent-slim-ns.sh';
+// Scratch root for fixtures, kept INSIDE the repo (not os.tmpdir()) so a
+// repo-relative path reaches it. `.scratch/` is gitignored.
+const SCRATCH_ROOT = path.join(REPO_ROOT, '.scratch');
 
 const tests = [];
 function test(name, fn) {
@@ -49,9 +56,13 @@ const SAMPLE_SOURCE = [
 ].join('\n');
 
 // Build a throwaway adapter dir with the slim source file at the path the
-// script expects. Returns { dir, src, dst }.
+// script expects. The dir is created UNDER the repo (SCRATCH_ROOT) so the
+// test can address it with a repo-relative path. Returns { dir, rel, src,
+// dst } where `dir` is the absolute path (for fs assertions) and `rel` is
+// the forward-slashed path relative to REPO_ROOT (handed to bash).
 function makeFixture({ withSource = true, withDest = false, nsForm = SLIM_NS_FORM } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-slim-ns-'));
+  fs.mkdirSync(SCRATCH_ROOT, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'rf2-slim-ns-'));
   const adapterDir = path.join(dir, 'src', 're_frame', 'adapter');
   fs.mkdirSync(adapterDir, { recursive: true });
   const src = path.join(adapterDir, 'reagent_slim.cljs');
@@ -66,41 +77,64 @@ function makeFixture({ withSource = true, withDest = false, nsForm = SLIM_NS_FOR
   if (withDest) {
     fs.writeFileSync(dst, '(ns re-frame.adapter.reagent)\n');
   }
-  return { dir, src, dst };
+  return { dir, rel: relPosix(dir), src, dst };
 }
 
-// Invoke the shell script under `bash`. We pass the script path and the
-// adapter dir through a single `bash -lc` command string with the paths
-// normalised to forward slashes and POSIX-quoted, mirroring the proven
-// pattern in `_changed-surfaces.test.cjs`. The previous form —
-// `spawnSync('bash', [SCRIPT, adapterDir])` with a raw `C:\...` argv —
-// failed on Windows Git Bash (MSYS/MinGW), where the backslashes in the
-// argv path are consumed as shell escapes, so bash reported
-// `C:Users...transform-reagent-slim-ns.sh: No such file or directory`
-// and all four cases failed (rf2-rcepku). Forward slashes are native on
-// POSIX and accepted by Git Bash, so this runs identically on Windows
-// (PowerShell/Git Bash) and Ubuntu.
-function toPosixPath(p) {
-  return String(p).split(path.sep).join('/');
+// Forward-slashed path of `abs` relative to REPO_ROOT.
+function relPosix(abs) {
+  return path.relative(REPO_ROOT, abs).split(path.sep).join('/');
 }
 
 function shQuote(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
-function run(adapterDir) {
-  const command = `${shQuote(toPosixPath(SCRIPT))} ${shQuote(toPosixPath(adapterDir))}`;
-  return spawnSync('bash', ['-lc', command], { encoding: 'utf8' });
+// Invoke the shell script under `bash` so it runs identically on Windows
+// (Git Bash / WSL) and Ubuntu (rf2-6m7pn4).
+//
+// History — the bug this guards against:
+//   - The original form — `spawnSync('bash', [SCRIPT, adapterDir])` with a
+//     raw `C:\...` argv — failed on Git Bash (MSYS/MinGW), where the
+//     backslashes in the argv path are consumed as shell escapes
+//     (rf2-rcepku).
+//   - The follow-up forward-slashed `C:/...` form fixed Git Bash but still
+//     failed when `bash` resolves to WSL's `C:\Windows\system32\bash.exe`
+//     (the default on a stock Windows box): WSL bash treats a
+//     `C:/Users/...` argument as a literal *relative* path — it mounts
+//     Windows drives at `/mnt/c/...`, not `C:/...` — so it reported
+//     `…transform-reagent-slim-ns.sh: No such file or directory` and all
+//     four cases failed (rf2-6m7pn4).
+//
+// Why no in-shell path conversion: a Windows drive path is not portable
+// across the supported Bash flavours (Git Bash mounts `C:` at `/c`, WSL at
+// `/mnt/c`, Linux has no drive letters), and converting in-shell is a dead
+// end on WSL — `cygpath`/`wslpath` are Windows interop binaries whose
+// output is silently lost when captured via `$( … )`.
+//
+// Fix: address everything by paths RELATIVE to a `cwd` of REPO_ROOT, the
+// proven `_changed-surfaces.test.cjs` pattern. A relative POSIX path needs
+// no drive translation and is accepted unchanged by Git Bash, WSL bash, and
+// Linux bash alike. Fixtures therefore live under `.scratch/` inside the
+// repo (gitignored) rather than `os.tmpdir()`, so a relative path reaches
+// them.
+function runRel(relAdapterDir) {
+  const command = `${shQuote(`./${SCRIPT_REL}`)} ${shQuote(relAdapterDir)}`;
+  return spawnSync('bash', ['-lc', command], { cwd: REPO_ROOT, encoding: 'utf8' });
 }
 
-function cleanup(dir) {
-  fs.rmSync(dir, { recursive: true, force: true });
+function run(fixture) {
+  return runRel(fixture.rel);
+}
+
+function cleanup() {
+  fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
 }
 
 test('success: renames reagent_slim.cljs → reagent.cljs and rewrites the ns form', () => {
-  const { dir, src, dst } = makeFixture();
+  const fix = makeFixture();
+  const { src, dst } = fix;
   try {
-    const res = run(dir);
+    const res = run(fix);
     assert.equal(res.status, 0, `expected exit 0, got ${res.status}\n${res.stderr}\n${res.stdout}`);
     // Source file is gone; destination exists.
     assert.equal(fs.existsSync(src), false, 'source reagent_slim.cljs should be removed');
@@ -121,14 +155,14 @@ test('success: renames reagent_slim.cljs → reagent.cljs and rewrites the ns fo
       'non-ns mentions of the slim artefact must survive untouched',
     );
   } finally {
-    cleanup(dir);
+    cleanup();
   }
 });
 
 test('abort: source file missing → non-zero exit with ::error::', () => {
-  const { dir } = makeFixture({ withSource: false });
+  const fix = makeFixture({ withSource: false });
   try {
-    const res = run(dir);
+    const res = run(fix);
     assert.notEqual(res.status, 0, 'expected non-zero exit when source is missing');
     assert.match(
       `${res.stdout}${res.stderr}`,
@@ -136,14 +170,14 @@ test('abort: source file missing → non-zero exit with ::error::', () => {
       'must emit the source-missing ::error:: line',
     );
   } finally {
-    cleanup(dir);
+    cleanup();
   }
 });
 
 test('abort: destination already exists → non-zero exit (in-tree ns clash)', () => {
-  const { dir, src } = makeFixture({ withDest: true });
+  const fix = makeFixture({ withDest: true });
   try {
-    const res = run(dir);
+    const res = run(fix);
     assert.notEqual(res.status, 0, 'expected non-zero exit when destination exists');
     assert.match(
       `${res.stdout}${res.stderr}`,
@@ -151,16 +185,16 @@ test('abort: destination already exists → non-zero exit (in-tree ns clash)', (
       'must emit the destination-exists ::error:: line',
     );
     // The source must be left untouched (no partial mv).
-    assert.equal(fs.existsSync(src), true, 'source must not be moved on abort');
+    assert.equal(fs.existsSync(fix.src), true, 'source must not be moved on abort');
   } finally {
-    cleanup(dir);
+    cleanup();
   }
 });
 
 test('abort: ns form not found → non-zero exit (in-tree source restructured)', () => {
-  const { dir, src } = makeFixture({ nsForm: '(ns re-frame.adapter.something-else' });
+  const fix = makeFixture({ nsForm: '(ns re-frame.adapter.something-else' });
   try {
-    const res = run(dir);
+    const res = run(fix);
     assert.notEqual(res.status, 0, 'expected non-zero exit when the slim ns form is absent');
     assert.match(
       `${res.stdout}${res.stderr}`,
@@ -168,9 +202,39 @@ test('abort: ns form not found → non-zero exit (in-tree source restructured)',
       'must emit the ns-form-not-found ::error:: line',
     );
     // No mv on abort.
-    assert.equal(fs.existsSync(src), true, 'source must not be moved on abort');
+    assert.equal(fs.existsSync(fix.src), true, 'source must not be moved on abort');
   } finally {
-    cleanup(dir);
+    cleanup();
+  }
+});
+
+// rf2-6m7pn4 — regression for the Windows path-portability defect. The
+// fix addresses the script + fixture by paths RELATIVE to a bash `cwd` of
+// REPO_ROOT, because an absolute Windows drive path (`C:\…` or `C:/…`) is
+// not resolvable across all three supported Bash flavours. This test locks
+// that contract: makeFixture() must hand back a forward-slashed,
+// drive-letter-free, repo-relative path, and that relative path must
+// resolve to the real fixture dir under bash's cwd. If a future edit
+// reverts to an os.tmpdir() absolute path (the form that broke under WSL),
+// the first two assertions fire before the four functional cases do,
+// pointing straight at the path layer.
+test('fixture path handed to bash is relative + drive-letter-free, and resolves under cwd (rf2-6m7pn4)', () => {
+  const fix = makeFixture({ withSource: false });
+  try {
+    assert.equal(path.isAbsolute(fix.rel), false, 'the bash-facing path must be relative, not absolute');
+    assert.doesNotMatch(fix.rel, /^[A-Za-z]:/, 'the bash-facing path must carry no Windows drive letter');
+    assert.doesNotMatch(fix.rel, /\\/, 'the bash-facing path must use forward slashes only');
+    // Prove bash resolves `<rel>/.` under cwd=REPO_ROOT to a real dir by
+    // listing it. A drive-form path would make bash mis-read it as relative
+    // (the WSL failure mode) and `test -d` would be false.
+    const res = spawnSync('bash', ['-lc', `test -d ${shQuote(fix.rel)} && printf RESOLVED`], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    });
+    assert.equal(res.status, 0, `expected exit 0, got ${res.status}\n${res.stderr}\n${res.stdout}`);
+    assert.equal(res.stdout, 'RESOLVED', 'the relative fixture path must resolve under bash cwd=REPO_ROOT');
+  } finally {
+    cleanup();
   }
 });
 
