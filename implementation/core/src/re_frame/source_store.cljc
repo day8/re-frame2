@@ -111,6 +111,49 @@
   []
   (or *source-store* kind->id->ns->descriptor))
 
+;; ---- the store GENERATION signal (EP-0023 §Image — resolved-generation cache)
+;;
+;; A MONOTONIC counter bumped on every mutation of the active source store. The
+;; resolved-generation cache (`re-frame.image-assembly`) folds this into its
+;; cache key so a sealed generation is reused only while the registration pool
+;; it was assembled from is unchanged — and is invalidated the instant any
+;; `reg-*` / `forget-*` / `clear-*` alters the store. The EP names this the
+;; "registration source-store generation" leg of the minimum cache key.
+;;
+;; The counter is keyed per active store (an atom-identity → counter map) so a
+;; realm-bound `*source-store*` carries its OWN generation independent of the
+;; process-default store — two realms never alias each other's cache bucket. A
+;; bare integer per store is enough: any change bumps it; equality means "the
+;; store has not changed since this generation was read".
+
+(defonce ^{:doc "atom-identity → monotonic generation integer. One slot per
+  source-store atom (process-default + each bound realm store). Bumped by every
+  store mutation; read by the resolved-generation cache key."
+            :private true}
+  store->generation
+  (atom {}))
+
+(defn- bump-generation!
+  "Increment the active source store's monotonic generation. Called by every
+  mutation (`record-descriptor!`, `forget-*`, `clear-all!`). Keyed by the store
+  atom identity so realm stores keep independent generations."
+  []
+  (let [store (active-source-store)]
+    (swap! store->generation update store (fnil inc 0))
+    nil))
+
+(defn store-generation
+  "The MONOTONIC generation integer of the active source store (EP-0023 §Image —
+  the resolved-generation cache's source-store-generation key leg). Starts at 0
+  (a never-mutated store) and increments on every `reg-*` / `forget-*` /
+  `clear-*` mutation. Equal generation across two reads ⇒ the registration pool
+  is byte-for-byte the set it was when the earlier generation was read, so a
+  sealed image generation assembled then may be reused; any change bumps it and
+  invalidates the cache. Keyed per active store so a realm-bound store reports
+  its OWN generation."
+  []
+  (get @store->generation (active-source-store) 0))
+
 ;; ---- canonical namespace-string pooling -----------------------------------
 ;;
 ;; One string instance per source namespace per store (the EP's anti-tax
@@ -186,6 +229,7 @@
                pn (assoc provenance-ns-key pn))
         store (active-source-store)]
     (swap! store assoc-in [kind id pn] desc)
+    (bump-generation!)
     desc))
 
 ;; ---- queries --------------------------------------------------------------
@@ -245,6 +289,7 @@
                      (if (empty? (get s kind))
                        (dissoc s kind)
                        s))))
+    (bump-generation!)
     nil))
 
 (defn forget-id!
@@ -257,6 +302,7 @@
                      (if (empty? (get s kind))
                        (dissoc s kind)
                        s))))
+    (bump-generation!)
     nil))
 
 (defn clear-all!
@@ -270,4 +316,8 @@
   []
   (reset! kind->id->ns->descriptor {})
   (reset! ns-string-pool {})
+  ;; Bump the PROCESS-DEFAULT store's generation (clear-all! always targets it,
+  ;; regardless of any *source-store* binding) so a cache keyed on the old
+  ;; generation invalidates against the freshly-cleared store.
+  (swap! store->generation update kind->id->ns->descriptor (fnil inc 0))
   nil)
