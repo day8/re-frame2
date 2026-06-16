@@ -19,8 +19,11 @@
   `npm run test:cljs`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.registrar   :as registrar]
-            [re-frame.source-store :as ss]))
+            [re-frame.registrar      :as registrar]
+            [re-frame.source-coords  :as source-coords]
+            [re-frame.image          :as image]
+            [re-frame.image-assembly :as assembly]
+            [re-frame.source-store   :as ss]))
 
 ;; Each case starts from a clean process-default store + ns-string pool.
 ;; `registrar/clear-all!` resets the source store in lockstep (EP-0023 wiring),
@@ -29,9 +32,16 @@
   (fn [t]
     (ss/clear-all!)
     (reset! registrar/kind->id->metadata {})
+    ;; The assembly-path cases (rf2-32siq3.21) read the live standard registry
+    ;; + generation cache; reset both so a stale generation never leaks across
+    ;; a case that mutated the store.
+    (assembly/clear-standards!)
+    (assembly/clear-generation-cache!)
     (t)
     (ss/clear-all!)
-    (reset! registrar/kind->id->metadata {})))
+    (reset! registrar/kind->id->metadata {})
+    (assembly/clear-standards!)
+    (assembly/clear-generation-cache!)))
 
 ;; ===========================================================================
 ;; 1. Same id, different namespaces — BOTH descriptors retained
@@ -247,3 +257,109 @@
         "all three event descriptors across two ids and three namespaces")
     (is (= #{:a :b :c} (set (map :handler-fn (ss/all-descriptors :event))))
         "every descriptor is present")))
+
+;; ===========================================================================
+;; 6. Stored descriptor carries :kind / :id (rf2-32siq3.21) — image assembly
+;;    reads (:kind d) / (:id d), so a registered descriptor MUST carry them
+;; ===========================================================================
+
+(deftest stored-descriptor-carries-kind-and-id
+  (testing "record-descriptor! stamps :kind and :id onto the stored descriptor
+            (the store KEY, so deterministic). Image assembly reads (:kind d) /
+            (:id d) via descriptor-kind+id / check-supported-kinds!, so a real
+            registered descriptor selected by :include-ns must carry them
+            (rf2-32siq3.21)"
+    (let [stored (ss/record-descriptor! :event :counter/inc
+                                        {:ns 'docs.counter.v2 :handler-fn :f})]
+      (is (= :event (:kind stored)) "stored descriptor carries its :kind")
+      (is (= :counter/inc (:id stored)) "stored descriptor carries its :id"))
+    ;; Reachable through the query surfaces too, not just the return value.
+    (let [slot (ss/descriptor-for :event :counter/inc 'docs.counter.v2)]
+      (is (= :event (:kind slot)))
+      (is (= :counter/inc (:id slot))))
+    (is (= [:event :counter/inc]
+           ((juxt :kind :id) (first (ss/all-descriptors :event))))
+        "the flattened all-descriptors entry carries :kind / :id")))
+
+(deftest registrar-recorded-descriptor-assembles-via-all-descriptors
+  (testing "a descriptor recorded via registrar/register! carries :kind / :id
+            and assembles through image-assembly (selecting from the live source
+            store's all-descriptors) WITHOUT a kind/id error — the real
+            default-image / :include-ns path the synthetic-descriptor tests
+            masked (rf2-32siq3.21)"
+    (registrar/register! :event :counter/inc
+                         {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
+    (let [slot (ss/descriptor-for :event :counter/inc 'docs.counter.v2)]
+      (is (= :event (:kind slot)) "register!-recorded descriptor carries :kind")
+      (is (= :counter/inc (:id slot)) "register!-recorded descriptor carries :id"))
+    ;; Assemble an :include-ns image against the live source store. Without the
+    ;; :kind/:id stamp this threw :rf.error/image-unsupported-kind (nil kind).
+    (let [img (image/image {:id :docs.counter/v2
+                            :include-ns ["docs.counter.v2"]})
+          gen (assembly/assemble [img])]
+      (is (some? (assembly/resolve-descriptor gen :event :counter/inc))
+          "the registered descriptor resolves in the sealed generation")
+      (is (= #{:event} (assembly/generation-kinds gen))
+          "the sealed generation reports :event as a present kind"))))
+
+;; ===========================================================================
+;; 7. Provenance survives production elision (rf2-32siq3.22) — derive the
+;;    provenance ns from the elision-surviving *pending-coords* binding when
+;;    the descriptor's :ns slot has been stripped (the production path)
+;; ===========================================================================
+
+(deftest provenance-from-pending-coords-when-ns-stripped
+  (testing "in production (`:advanced` + goog.DEBUG=false) source-coords/
+            merge-coords returns the user metadata UNCHANGED, so the descriptor
+            reaching record-descriptor! carries NO :ns. The reg-* macro's
+            *pending-coords* BINDING still carries :ns (prod-coords-form keeps
+            it), so provenance is derived from the live binding — :rf.provenance/
+            ns must survive optimized builds or :include-ns assembly cannot work
+            (rf2-32siq3.22, EP-0023 §Namespace-Selected Images)"
+    ;; Model the production descriptor shape: NO :ns slot (merge-coords
+    ;; stripped it), but the macro's *pending-coords* binding is in flight.
+    (binding [source-coords/*pending-coords* {:ns "docs.counter.prod"}]
+      (let [stored (ss/record-descriptor! :event :counter/inc
+                                          {:handler-fn :f})]
+        (is (= "docs.counter.prod" (:rf.provenance/ns stored))
+            "provenance derived from the surviving *pending-coords* :ns")
+        (is (string? (:rf.provenance/ns stored))
+            "it is a canonical string")
+        (is (identical? (ss/canonical-ns "docs.counter.prod")
+                        (:rf.provenance/ns stored))
+            "the *pending-coords*-derived provenance is pooled too")))
+    ;; The slot is keyed by that provenance namespace, so :include-ns selection
+    ;; (the production image-assembly path) reaches it.
+    (is (some? (ss/descriptor-for :event :counter/inc "docs.counter.prod"))
+        "the descriptor is recorded under its provenance namespace slot")))
+
+(deftest provenance-precedence-descriptor-ns-wins-over-pending
+  (testing "the descriptor's own :ns slot (DEV path, present when merge-coords
+            folded it in) takes precedence over the *pending-coords* fallback —
+            the fallback is a production safety net, not an override"
+    (binding [source-coords/*pending-coords* {:ns "from.pending"}]
+      (let [stored (ss/record-descriptor! :event :counter/inc
+                                          {:ns 'from.descriptor :handler-fn :f})]
+        (is (= "from.descriptor" (:rf.provenance/ns stored))
+            "the descriptor :ns slot wins over the *pending-coords* fallback")))))
+
+(deftest explicit-provenance-wins-over-pending-coords
+  (testing "an explicit :rf.provenance/ns on the descriptor still wins over both
+            the :ns slot and the *pending-coords* fallback"
+    (binding [source-coords/*pending-coords* {:ns "from.pending"}]
+      (let [stored (ss/record-descriptor! :event :gen/handler
+                                          {:ns 'macro.captured.ns
+                                           :rf.provenance/ns "tool.synthesised.ns"
+                                           :handler-fn :f})]
+        (is (= "tool.synthesised.ns" (:rf.provenance/ns stored))
+            "explicit provenance overrides both the :ns slot and *pending-coords*")))))
+
+(deftest no-provenance-when-no-source-anywhere
+  (testing "a truly programmatic registration — no descriptor :ns, no
+            *pending-coords* binding — records under the nil-provenance slot,
+            unchanged by the production-elision fallback"
+    (let [stored (ss/record-descriptor! :event :prog/handler {:handler-fn :v1})]
+      (is (nil? (:rf.provenance/ns stored))
+          "no provenance stamped when no source namespace is available anywhere")
+      (is (some? (get (ss/descriptors-for :event :prog/handler) nil))
+          "recorded under the nil-provenance slot, not dropped"))))

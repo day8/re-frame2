@@ -64,7 +64,8 @@
   same `app-value/install!` path that binds `registrar/*registrar*`) route
   `reg-*` writes into a realm's OWN source store. [[active-source-store]] is the
   single resolution point — nil binding ⇒ the process-default store, the
-  byte-identical single-realm path.")
+  byte-identical single-realm path."
+  (:require [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -198,34 +199,64 @@
 
 (defn record-descriptor!
   "Record `descriptor` for `(kind, id)` under its source namespace in the
-  active source store, returning the descriptor as stored (with
-  `:rf.provenance/ns` stamped as a canonical string).
+  active source store, returning the descriptor as stored (with `:kind` /
+  `:id` stamped and `:rf.provenance/ns` stamped as a canonical string).
 
   Provenance namespace resolution, in order:
     1. an explicit `:rf.provenance/ns` already on the descriptor (a tool or
        generated-code path that stamps its own provenance), canonicalized;
     2. otherwise the descriptor's `:ns` slot (the symbol a reg-* macro
-       captured via `*pending-coords*`), canonicalized to a string.
+       captured), canonicalized to a string;
+    3. otherwise the `:ns` of the live `source-coords/*pending-coords*`
+       binding, canonicalized.
 
-  When neither yields a namespace (a programmatic / REPL registration with no
-  macro-captured `:ns`), the descriptor is recorded under the nil-provenance
-  slot. Nil-provenance descriptors still occupy ONE slot per `(kind, id)`
-  (they cannot be image-isolation-distinguished — they have no namespace), so a
-  later programmatic re-register of the same `(kind, id)` replaces it. They are
-  NOT silently dropped: a later image-assembly slice still sees them.
+  Step 3 is the PRODUCTION-ELISION path (rf2-32siq3.22). The descriptor's `:ns`
+  slot (step 2) only survives in DEV: a reg-* macro captures coords into
+  `*pending-coords*`, and the registration fn folds them into the stored
+  metadata via `source-coords/merge-coords` — but in CLJS production
+  (`:advanced` + `goog.DEBUG=false`) `merge-coords` returns the user metadata
+  UNCHANGED, stripping `:ns` from the descriptor (consistent with `:file` /
+  `:line` / `:doc` elision). The `*pending-coords*` BINDING itself survives
+  production (the reg-* macro emits `prod-coords-form`, which keeps `:ns`), so
+  reading the namespace off the live binding is the path that survives
+  optimized builds — `:rf.provenance/ns` must survive elision or `:include-ns`
+  image assembly cannot work (EP-0023 §Namespace-Selected Images). The store
+  is written from `register!` while the macro's `*pending-coords*` binding is
+  still in flight, so the binding is live at this call.
+
+  When none of the three yields a namespace (a programmatic / REPL
+  registration with no macro-captured `:ns`), the descriptor is recorded under
+  the nil-provenance slot. Nil-provenance descriptors still occupy ONE slot per
+  `(kind, id)` (they cannot be image-isolation-distinguished — they have no
+  namespace), so a later programmatic re-register of the same `(kind, id)`
+  replaces it. They are NOT silently dropped: a later image-assembly slice
+  still sees them.
+
+  The stored descriptor is stamped with `:kind` and `:id` (rf2-32siq3.21).
+  They are the store KEY, so the stamp is deterministic — and image assembly
+  reads `(:kind descriptor)` / `(:id descriptor)` (`descriptor-kind+id`,
+  `check-supported-kinds!`), so a registered descriptor selected by
+  `:include-ns` MUST carry them or assembly fails on an `nil` kind. The
+  registrar's resolver-map metadata does not carry `:kind` / `:id` (the slot is
+  keyed by them), so the store stamps its own provenance-tagged copy here.
 
   This is additive to `registrar/register!`'s resolver-map write — the store
   preserves every provenance-distinct descriptor; the resolver map remains the
   unchanged default-image runtime path until a later slice projects from here."
   [kind id descriptor]
   (let [pn   (canonical-ns (or (get descriptor provenance-ns-key)
-                               (:ns descriptor)))
-        ;; Stamp the canonical provenance string onto the stored descriptor so
-        ;; `(rf/handler-meta kind id)` consumers and `:include-ns` selection
-        ;; (slice .3) read a string at :rf.provenance/ns. When there is no
-        ;; provenance (programmatic path), leave the key off rather than store
-        ;; a nil — absence is the honest signal "no source namespace".
-        desc (cond-> descriptor
+                               (:ns descriptor)
+                               ;; Production-surviving fallback: the live
+                               ;; *pending-coords* binding's :ns (rf2-32siq3.22).
+                               (:ns source-coords/*pending-coords*)))
+        ;; Stamp `:kind` / `:id` (the store key, so deterministic) — image
+        ;; assembly reads them off the descriptor (rf2-32siq3.21) — plus the
+        ;; canonical provenance string so `(rf/handler-meta kind id)` consumers
+        ;; and `:include-ns` selection (slice .3) read a string at
+        ;; :rf.provenance/ns. When there is no provenance (programmatic path),
+        ;; leave the key off rather than store a nil — absence is the honest
+        ;; signal "no source namespace".
+        desc (cond-> (assoc descriptor :kind kind :id id)
                pn (assoc provenance-ns-key pn))
         store (active-source-store)]
     (swap! store assoc-in [kind id pn] desc)
