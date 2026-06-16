@@ -330,24 +330,24 @@
   ;; §SSR and hydration steps 3-4). A no-op when the resources artefact is
   ;; absent (the `:resources/drain-blocking-ssr!` hook is nil).
   (ssr/drain-blocking-resources! frame-id opts)
-  (let [;; Single `with-frame` block covers the three frame-aware
-        ;; stages: root-view resolution (a 0-arity fn may close over
-        ;; subscribe-time reads), the render walk (subs on registered
-        ;; views), and head resolution (`rf/active-head` reads the
-        ;; frame's route registry). One push/pop per request.
+  (let [;; Single `with-frame` block covers the frame-aware stages:
+        ;; root-view resolution (a 0-arity fn may close over subscribe-time
+        ;; reads), the render walk (subs on registered views), head
+        ;; resolution (`rf/active-head` reads the frame's route registry),
+        ;; AND the hydration-payload build. One push/pop per request.
         explicit-head (:head opts)
-        {:keys [hash-str body-html head-html html-attrs body-attrs]}
+        {:keys [head-html html-attrs body-attrs body-html rf-payload]}
         ;; rf2-bzw8gd / EP-0013 §Realm Conformance: route the render walk's
         ;; registered-view + head/route registry lookups through the request
         ;; frame's OWN realm registrar, so a non-default-realm frame renders
         ;; its realm's views/heads — not the process-global default's. The
         ;; binding is established ONCE per request (covers resolve-root-view,
-        ;; render-to-string's `:view` lookups, and resolve-head's `:head` /
-        ;; `:route` lookups); a default-realm frame binds nothing (the
-        ;; byte-identical single-realm path). `with-frame` only binds
-        ;; `*current-frame*` (core_reg_view_macro.cljc), not the realm
-        ;; registrar — so the realm registrar is bound here, at the host
-        ;; adapter that holds the frame.
+        ;; render-to-string's `:view` lookups, resolve-head's `:head` /
+        ;; `:route` lookups, AND the payload's resource-runtime projection);
+        ;; a default-realm frame binds nothing (the byte-identical
+        ;; single-realm path). `with-frame` only binds `*current-frame*`
+        ;; (core_reg_view_macro.cljc), not the realm registrar — so the realm
+        ;; registrar is bound here, at the host adapter that holds the frame.
         (frame/call-with-frame-realm-registrar
          (frame/frame frame-id)
          (fn []
@@ -388,25 +388,37 @@
                             hiccup
                             {:doctype?    false
                              :emit-hash?  emit-hash?
-                             :render-hash (when emit-hash? hash-str)})]
+                             :render-hash (when emit-hash? hash-str)})
+                ;; rf2-p026f5 — build the hydration payload INSIDE the same
+                ;; `with-frame` + realm-registrar scope. app-db-value /
+                ;; runtime-db-value read the named frame explicitly, but the
+                ;; runtime-db PROJECTION is NOT frame-blind: the resources SSR
+                ;; hook (`:ssr/extend-runtime-db-projection` →
+                ;; `re-frame.resources.ssr/project-resources-runtime-db`)
+                ;; resolves the CURRENT frame (`frame/resolve-current-frame`,
+                ;; the `*current-frame*` dynamic var) to apply frame-owned
+                ;; egress classification + named-scope DERIVED sensitivity
+                ;; (Spec 015 §Derived sensitivity / Spec 016 clause 4). Built
+                ;; OUTSIDE this scope (the prior shape) it ran FRAMELESS, so a
+                ;; resource under a frame-sensitive `{:from-db}` scope leaked
+                ;; its raw scope identity + data into the payload. Reading the
+                ;; snapshot here — AFTER the render walk, INSIDE the block — is
+                ;; load-bearing in BOTH dimensions: the post-walk value (a
+                ;; continuation drain may have mutated the frame-state) AND the
+                ;; frame scope the projection needs. This mirrors the streaming
+                ;; path, where `build-final-payload` runs inside the same
+                ;; `call-with-realm` + `with-frame` rebinding (rf2-tbr67x).
+                ;; EP-0001 (rf2-30kzz2): the runtime-db rides as the
+                ;; serializable `:rf/runtime-db` slice.
+                app-db     (rf/app-db-value frame-id)
+                runtime-db (rf/runtime-db-value frame-id)
+                rf-payload (payload/build-payload frame-id app-db runtime-db hash-str
+                                                  {:version       version
+                                                   :schema-digest schema-digest
+                                                   :payload       payload})]
             (assoc head-bag
-                   :hash-str  hash-str
-                   :body-html body-html)))))
-        ;; app-db-value / runtime-db-value read the named frame explicitly; no
-        ;; with-frame needed. Kept outside the block so the explicit frame-id
-        ;; read is visible — pulling the snapshot AFTER the render walk is
-        ;; load-bearing (a continuation drain inside the walker may mutate
-        ;; the frame-state; the payload must reflect the post-walk value).
-        ;; EP-0001 (rf2-30kzz2): the runtime-db value rides the payload as the
-        ;; serializable `:rf/runtime-db` slice (machine snapshots, route slice,
-        ;; elision declarations, SSR metadata) so the client hydrates a
-        ;; coherent frame-state — `build-payload` projects it.
-        app-db      (rf/app-db-value frame-id)
-        runtime-db  (rf/runtime-db-value frame-id)
-        rf-payload  (payload/build-payload frame-id app-db runtime-db hash-str
-                                           {:version       version
-                                            :schema-digest schema-digest
-                                            :payload       payload})
+                   :body-html  body-html
+                   :rf-payload rf-payload)))))
         payload-edn (pr-str rf-payload)
         shell-opts  (assoc opts
                            :head        head-html
