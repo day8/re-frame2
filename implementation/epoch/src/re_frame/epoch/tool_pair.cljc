@@ -707,6 +707,27 @@
           (do (trace/emit! :rf.epoch :rf.epoch/restored
                            {:frame       frame-id
                             :rf.epoch/id (:epoch-id epoch)})
+              ;; rf2-w4q9gt — RE-ANCHOR the post-settle back-fill attribution to
+              ;; the RESTORED-TARGET epoch. A successful restore rewinds the
+              ;; frame's state but runs no ordinary cascade, so it never updates
+              ;; `last-settled-epoch` on its own. Left untouched, the anchor keeps
+              ;; pointing at whatever event settled most recently BEFORE the
+              ;; restore — so the repaint / subscription / unmount activity a
+              ;; restore triggers (these fire post-settle at React commit / deref
+              ;; / teardown time) back-fills into that unrelated stale epoch
+              ;; (`state/last-settled-epoch-id` is the anchor `record-render!` /
+              ;; `record-sub-run!` / `record-unmount!` read — listeners.cljc),
+              ;; corrupting a later epoch's historical `:renders` / `:sub-runs` /
+              ;; `:trace-events` AFTER the frame has been rewound. The replace-*
+              ;; injection siblings already re-anchor to their synthetic epoch
+              ;; (`set-last-settled-epoch!` in `record-synthetic-replace-epoch!` /
+              ;; `perform-replace-app-db!`); restore was the one mutating write
+              ;; that did not. The restored target IS the epoch whose state is now
+              ;; installed, so restore-induced repaint belongs to it — restored-
+              ;; target attribution. Set ONLY on the success branch: a failed /
+              ;; destroyed-frame install returns above with the anchor (and frame
+              ;; state, history, listeners) unchanged.
+              (state/set-last-settled-epoch! frame-id (:epoch-id epoch))
               ;; rf2-obi8rr — the install succeeded, so it is now safe to emit
               ;; the resources restore-reconcile success rows the reconcile
               ;; deferred. A destroyed-frame install (nil branch above) returns
