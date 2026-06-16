@@ -158,29 +158,37 @@
   (`{<scoped-resource-key> <entry>}`). Without `:frame` only the static
   registry is returned (no ambient frame fallback, EP-0002).
 
-  The `:entries` map is REKEYED to the public scoped-resource-key VECTOR
-  `[canonical-scope resource-id canonical-params]` (rf2-jtlq7l). The
-  internal runtime storage is keyed on the opaque CEDN-1 byte `key-id`
-  (`state/entries-path`, `state/key-id`); leaking that byte key through
-  the public accessor breaks the documented contract — callers can't
-  destructure `[scope resource-id params]`, filter by scope/resource, or
-  compare against scoped keys. The kind-preserving scoped-key lives on
-  each entry under `:resource/key` (the same fact identity the live
-  tooling view reads — `tooling/live-resource-nodes`), so rekey from
-  there, not from the map key. Internal storage stays byte-keyed."
+  The `:entries` map is keyed on the CEDN-1 byte `key-id` STRING (the SAME
+  key the internal runtime storage, the SSR wire, and the reverse indexes
+  use — `state/entries-path`, `state/key-id`); each entry carries its
+  kind-preserving public scoped-resource-key VECTOR
+  `[canonical-scope resource-id canonical-params]` under `:resource/key`
+  (rf2-jtlq7l / rf2-ka2nkx). Callers that need to destructure
+  `[scope resource-id params]`, filter by scope/resource, or compare
+  against scoped keys read each entry's `:resource/key`; the byte string
+  map key is purely an opaque distinct identity.
+
+  WHY the map key is the byte string, NOT the scoped-key vector: Clojure
+  map keys compare by `=`, and `=` is COARSER than the CEDN-1 byte identity
+  for SEQUENTIAL params — `(= [scope rid {:xs [1 2 3]}] [scope rid {:xs '(1 2 3)}])`
+  is TRUE while their `canonical-bytes` differ (`v[…]` vs `l(…)`). Rekeying
+  the byte-keyed runtime map onto the `=`-colliding vector would `assoc`
+  one CEDN-distinct entry OVER the other, so the public read could report
+  ONE entry for TWO live cache entries (rf2-ka2nkx). Keying on the byte
+  `key-id` string (which compares by content, the exact CEDN-1 identity)
+  keeps every live entry distinct. Internal storage stays byte-keyed."
   ([] {:resource-ids (resource-ids) :entries {}})
   ([{:keys [frame]}]
    {:resource-ids (resource-ids)
     :entries      (if frame
                     (let [entries (get-in (frame/frame-runtime-db-value frame)
                                           (state/entries-path))]
-                      (reduce-kv
-                        ;; rf2-jtlq7l — rekey the internal byte `key-id` map to
-                        ;; the public scoped-key vector carried on each entry.
-                        (fn [acc _k-id entry]
-                          (assoc acc (:resource/key entry) entry))
-                        {}
-                        (or entries {})))
+                      ;; rf2-ka2nkx — the runtime `:entries` map is ALREADY keyed
+                      ;; on the CEDN-1 byte `key-id`; return it as-is (every entry
+                      ;; carries its kind-preserving `:resource/key` vector). Do
+                      ;; NOT rekey onto the `=`-colliding scoped-key vector — that
+                      ;; collapses CEDN-distinct sequential-params entries.
+                      (or entries {}))
                     {})}))
 
 (defn resource-state

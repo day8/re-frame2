@@ -1015,6 +1015,69 @@
       (is (= :pending (:status i)))
       (is (= [:row 7] (:instance/id i))))))
 
+(deftest cedn-distinct-sequential-instance-ids-do-not-clobber
+  ;; rf2-8iciw8 — two caller-supplied instance ids that are CEDN-distinct but
+  ;; Clojure-= (a vector `[:row 7]` and a list `'(:row 7)`) MUST address
+  ;; DISTINCT runtime rows. The instance id was used directly as a Clojure map
+  ;; key under :rf.runtime/mutations, and `(= [:row 7] '(:row 7))` is TRUE, so
+  ;; the second execute would clobber the first's row (and a later settle /
+  ;; clear would gate the wrong one).
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [all-args (atom [])]
+    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (let [iv [:row 7]
+          il '(:row 7)]
+      (is (= iv il) "the two instance ids are Clojure-= (the collapse routed around)")
+      (is (not= (mstate/instance-key-id iv) (mstate/instance-key-id il))
+          "their byte key-ids differ (v[…] vs l(…)) — distinct storage rows")
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "v"} :instance iv}])
+      (let [args-v (last @all-args)]
+        (rf/dispatch-sync [:rf.mutation/execute
+                           {:mutation :m/save :params {:slug "l"} :instance il}])
+        (let [args-l (last @all-args)]
+          (testing "TWO distinct instance rows exist (no =-collapse onto one)"
+            (is (= 2 (count (:instances (rf/mutations {:frame :rf/default})))))
+            (is (= :pending (:status (instance iv))))
+            (is (= :pending (:status (instance il))))
+            (is (= iv (:instance/id (instance iv))) "vector row keeps its vector id")
+            (is (= il (:instance/id (instance il))) "list row keeps its list id")
+            (is (vector? (:instance/id (instance iv))) "vector kind preserved")
+            (is (seq?    (:instance/id (instance il))) "list kind preserved")
+            (is (= {:slug "v"} (:params (instance iv))) "vector row keeps its OWN params")
+            (is (= {:slug "l"} (:params (instance il))) "list row keeps its OWN params"))
+          (testing "settling the LIST instance leaves the VECTOR instance untouched
+                    (no cross-gating between CEDN-distinct rows)"
+            (reply-success! args-l {:id :l})
+            (is (= :success (:status (instance il))) "list row settled")
+            (is (= {:id :l} (:result (instance il))))
+            (is (= :pending (:status (instance iv)))
+                "vector row is STILL pending — the list settle did not gate it"))
+          (testing "then settling the VECTOR instance"
+            (reply-success! args-v {:id :v})
+            (is (= :success (:status (instance iv))))
+            (is (= {:id :v} (:result (instance iv))))))))))
+
+(deftest cedn-distinct-sequential-instance-ids-clear-independently
+  ;; rf2-8iciw8 — `:rf.mutation/clear` must target the row by the SAME byte
+  ;; identity, so clearing `[:row 7]` does NOT also clear / gate `'(:row 7)`.
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [all-args (atom [])]
+    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (let [iv [:row 7]
+          il '(:row 7)]
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "v"} :instance iv}])
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "l"} :instance il}])
+      (is (= 2 (count (:instances (rf/mutations {:frame :rf/default})))) "two rows")
+      (rf/dispatch-sync [:rf.mutation/clear {:instance iv}])
+      (testing "only the vector row was cleared; the list row survives intact"
+        (is (nil? (instance iv)) "the vector row is gone")
+        (is (some? (instance il)) "the CEDN-distinct list row survives")
+        (is (= :pending (:status (instance il))))
+        (is (= il (:instance/id (instance il))) "and keeps its kind-preserving id")))))
+
 ;; ===========================================================================
 ;; ADVERSARIAL (rf2-sxyrzk / eu2ifi) — two frames executing the SAME mutation
 ;; instance at the SAME generation get DISTINCT frame-qualified transport

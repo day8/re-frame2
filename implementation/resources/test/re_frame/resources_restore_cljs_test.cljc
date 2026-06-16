@@ -300,6 +300,14 @@
          :work-id work-id :started-at 1000})
       (assoc :status status)))
 
+(defn- mutations-map
+  "Build a `:rf.runtime/mutations` map keyed the runtime way — on the CEDN-1
+  byte `key-id` of each instance id (rf2-8iciw8), each instance carrying its
+  own kind-preserving `:instance/id`. Takes `{<instance-id> <instance>}` pairs
+  (instance ids as the LOGICAL key) and rekeys to the byte storage key."
+  [m]
+  (into {} (map (fn [[iid inst]] [(mstate/instance-key-id iid) inst])) m))
+
 (deftest instance-dangled-settles-pending-and-clears-current-work
   (testing "instance-dangled: a :pending instance settles terminal :error with
             the :dangling-on-restore envelope and CLEARS :current-work"
@@ -320,12 +328,12 @@
     (let [pending (mutation-instance {:instance-id :inst-p
                                       :work-id [:rf.work/resource [:rf.mutation :inst-p 3] 3]})
           settled (mutation-instance {:instance-id :inst-s :status :success})
-          rdb {mstate/mutations-key {:inst-p pending :inst-s settled}}
+          rdb {mstate/mutations-key (mutations-map {:inst-p pending :inst-s settled})}
           [rdb' dangled] (ssr/dangle-pending-mutations! rdb 9999)]
-      (is (= [:inst-p] dangled) "only the pending instance is dangled")
-      (is (= :error (get-in rdb' [mstate/mutations-key :inst-p :status])))
-      (is (nil? (get-in rdb' [mstate/mutations-key :inst-p :current-work])))
-      (is (= :success (get-in rdb' [mstate/mutations-key :inst-s :status]))
+      (is (= [:inst-p] dangled) "only the pending instance is dangled (kind-preserving :instance/id)")
+      (is (= :error (get-in rdb' [mstate/mutations-key (mstate/instance-key-id :inst-p) :status])))
+      (is (nil? (get-in rdb' [mstate/mutations-key (mstate/instance-key-id :inst-p) :current-work])))
+      (is (= :success (get-in rdb' [mstate/mutations-key (mstate/instance-key-id :inst-s) :status]))
           "the terminal instance is untouched")))
   (testing "no mutation instances → no-op"
     ;; EP-0019 Q3 — the return is now `[rdb dangled rolled-back-keys]`.
@@ -335,10 +343,10 @@
   (testing "reconcile-on-restore reconciles the :rf.runtime/mutations slice too"
     (let [pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {mstate/mutations-key {:inst-1 pending}}
+          rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}
           out (ssr/reconcile-on-restore rdb :app/main)]
-      (is (= :error (get-in out [mstate/mutations-key :inst-1 :status])))
-      (is (nil? (get-in out [mstate/mutations-key :inst-1 :current-work]))))))
+      (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :status])))
+      (is (nil? (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :current-work]))))))
 
 (deftest dangled-instance-settled-at-is-the-restore-causal-time-not-the-live-clock
   ;; rf2-wshzsp (the option-1 CORRECTNESS fix) — a dangled-on-restore mutation
@@ -354,10 +362,10 @@
           live-sentinel 9999999999999  ; the (wrong) ambient install clock
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {mstate/mutations-key {:inst-1 pending}}]
+          rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}]
       (with-redefs [ssr/now-ms (constantly live-sentinel)]
         (let [out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms restore-time})
-              inst (get-in out [mstate/mutations-key :inst-1])]
+              inst (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1)])]
           (is (= :error (:status inst)) "the pending instance is terminally dangled")
           (is (= restore-time (:settled-at inst))
               ":settled-at is the causal :restore-time-ms — replay-stable")
@@ -368,10 +376,10 @@
     (let [live-sentinel 9999999999999
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {mstate/mutations-key {:inst-1 pending}}]
+          rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}]
       (with-redefs [ssr/now-ms (constantly live-sentinel)]
         (let [out (ssr/reconcile-on-restore rdb :app/main)]
-          (is (= live-sentinel (get-in out [mstate/mutations-key :inst-1 :settled-at]))
+          (is (= live-sentinel (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :settled-at]))
               "no causal time supplied → the unit path falls back to the live clock"))))))
 
 (deftest dangling-mutation-without-restore-time-warns-loudly
@@ -384,7 +392,7 @@
   ;; is loud, not a quiet footgun (no-silent-swallow).
   (let [pending (mutation-instance {:instance-id :inst-1
                                     :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-        rdb {mstate/mutations-key {:inst-1 pending}}
+        rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}
         recorder (fn []
                    (let [seen (atom [])
                          k    ::live-clock-warn-recorder]
@@ -439,7 +447,7 @@
                                         :scope :rf.scope/global :params {:slug "x"}})
           ;; the runtime-db that restore is about to install (reconciled first)
           snapshot  (-> (runtime-db-with {gkey loaded})
-                        (assoc mstate/mutations-key {instance-id pending})
+                        (assoc mstate/mutations-key (mutations-map {instance-id pending}))
                         (assoc-in (work-ledger/record-path work-id)
                                   (-> (work-ledger/work-record
                                         {:work-id work-id :frame-id fid
@@ -452,8 +460,8 @@
       ;; install the reconciled snapshot as the live frame-state
       (frame/replace-runtime-db! fid reconciled)
       (testing "post-reconcile the pending instance is terminal + current-work cleared"
-        (is (= :error (get-in reconciled [mstate/mutations-key instance-id :status])))
-        (is (nil? (get-in reconciled [mstate/mutations-key instance-id :current-work]))))
+        (is (= :error (get-in reconciled [mstate/mutations-key (mstate/instance-key-id instance-id) :status])))
+        (is (nil? (get-in reconciled [mstate/mutations-key (mstate/instance-key-id instance-id) :current-work]))))
       ;; NOW the late pre-restore mutation SUCCESS reply lands (carrying the
       ;; pre-restore work-id + generation that the snapshot instance held).
       (rf/dispatch-sync
@@ -466,7 +474,7 @@
             e    (get-in post [state/resources-key :entries (state/key-id gkey)])]
         (is (= {:title "post-restore"} (:data e))
             "the resource entry is UNCHANGED — the stale reply did not patch/populate it")
-        (is (= :error (get-in post [mstate/mutations-key instance-id :status]))
+        (is (= :error (get-in post [mstate/mutations-key (mstate/instance-key-id instance-id) :status]))
             "the dangled instance stays terminal :error — the stale reply did not revive it"))
       (frame/destroy-frame! fid))))
 
