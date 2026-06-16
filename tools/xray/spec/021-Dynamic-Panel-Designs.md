@@ -414,7 +414,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 | From | Reads |
 |---|---|
 | Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.event/db-pending` (step 3 — t1, the handler's pending `:db` VALUE feeds the returned-effects sub-block under EVENT HANDLER · rf2-ta0y7), `:rf.fx/do-fx` (step 3 — also feeds the returned-effects sub-block under the handler, via `:rf.event/fx` + `:rf.event/db-present?`), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.event/db-pending-post-flow` (step 4 — t2, the flow-augmented `:db` VALUE feeds the trailing post-flow summary under FLOWS when flows changed the value · rf2-ta0y7), `:rf.event/db-changed` (step 6 — the committed diff), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
-| Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated). **INTERCEPTORS step (rf2-se9a9t · EP-0022 §11):** the authored interceptor chain is read from the registry at render time — `(rf/handler-meta :event event-id)` `:interceptors` for the authored refs (the framework `:rf/default?` wrapper filtered out), each ref resolved via `(rf/handler-meta :interceptor id)` for its descriptor hooks + source-coord. A clean chain emits no per-interceptor "ran" trace, so this is a REGISTRY read, not a trace read; the pure projection threads the resolver in via `epoch-panel/resolve-event-interceptors`. |
+| Registries | Handler metadata (`reg-event` form file:line, optional source string when DEBUG-gated). **INTERCEPTORS step (rf2-se9a9t · EP-0022 §11):** the authored interceptor chain is read from the registry at render time — `(rf/handler-meta :event event-id)` `:interceptors` for the authored refs (the framework `:rf/default?` wrapper filtered out), each ref resolved via `(rf/handler-meta :interceptor id)` for its descriptor hooks + source-coord. A clean chain emits no per-interceptor "ran" trace, so this is a REGISTRY read, not a trace read; the pure projection threads the resolver in via `epoch-panel/resolve-event-interceptors`. |
 | App-db panel (bridge) | Inline diff renderer for the committed `:db` — the APP-DB CHANGES section (reuses the shared renderer §10) |
 
 ### §2.4 Cross-panel navigation
@@ -1506,19 +1506,20 @@ omission.
 The HANDLER step's body adapts to the handler's flavour, discovered
 from the trace stream:
 
-- **`:reg-event-db`** — `:db` diff only (the simplest case).
-- **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
+- **`:db-only`** — `:db` diff only (the simplest case).
+- **`:effectful`** — `:db` diff + per-fx-entry block.
 - **`:reg-machine`** — **TIME-ORDERED MACHINE CASCADE** per rf2-u69j7.
 
-> **EP-0018 note.** `:reg-event-db` / `:reg-event-fx` are INTERNAL
+> **EP-0018 note.** `:db-only` / `:effectful` are INTERNAL, behavior-based
 > classification keywords describing the handler's OBSERVED EFFECT SHAPE
 > (`:db`-only vs `:db`+`:fx`), discovered purely from the trace stream — never
-> from the registration form. They are NOT user-facing registrar names: the
-> three public event registrars collapsed onto the one `reg-event` form
-> (EP-0018), so the HANDLER step's VERB renders `reg-event` for both event
-> flavours (`reg-machine` for machine handlers — see `handler-flavour-label`).
-> The effect-shape discrimination below still drives which body sections
-> render; it just no longer prints a retired registrar spelling.
+> from the registration form. They name WHAT the handler returned, not HOW it
+> was registered: the three public event registrars collapsed onto the one
+> `reg-event` form (EP-0018), so the HANDLER step's VERB renders `reg-event`
+> for both event flavours (`reg-machine` for machine handlers — see
+> `handler-flavour-label`). The effect-shape discrimination below still drives
+> which body sections render; the discriminator deliberately carries no
+> registrar spelling.
 
 **Flavour discriminator (`handler-flavour`, rf2-eue07).** The classifier is
 a pure-data `cond` over the trace stream, machine-predicates FIRST (a machine
@@ -1543,10 +1544,10 @@ never win for a macrostep):
 4. `:rf.machine/started` present → `:reg-machine` (rf2-it4vt — an EAGER pure
    start emits the birth signal but NO transition / action / no-op rows;
    without this predicate the standalone start would fall through to
-   `:reg-event-fx` (the machine handler always rides its snapshot-write
+   `:effectful` (the machine handler always rides its snapshot-write
    do-fx) and render a raw `:db` diff instead of the `[START]` row).
-5. `:rf.fx/do-fx` present → `:reg-event-fx`.
-6. else → `:reg-event-db`.
+5. `:rf.fx/do-fx` present → `:effectful`.
+6. else → `:db-only`.
 
 #### Machine cascade (rf2-u69j7)
 
@@ -1618,7 +1619,7 @@ creation paths, and renders the `[START]` badge at the FRONT of the cascade
   cascade's handler-flavour is forced `:reg-machine` by the
   `:rf.machine/started` presence even though no transition / action / no-op
   fired — otherwise the standalone start (which always rides the machine
-  handler's snapshot-write do-fx) would mis-classify `:reg-event-fx` and
+  handler's snapshot-write do-fx) would mis-classify `:effectful` and
   render a raw `:db` diff instead of the `[START]` row.
 - **LAZY** — when a machine is first reached by a REAL event, init folds
   into THAT event's epoch (`maybe-boot` runs ahead of the user event in the
@@ -2652,7 +2653,7 @@ into a single canonical home at
   keys off the row's `fx-id` and resolves the `reg-fx` REGISTRATION
   coord via `(rf/handler-meta :fx <fx-id>)`. The `:file` is ABSOLUTE:
   `reg-fx` registers through the same `defreg-macro` → `coords-form`
-  path that `reg-sub` / `reg-event-*` use, so it is absolutised at
+  path that `reg-sub` / `reg-event` use, so it is absolutised at
   macro-expansion time (rf2-wvsxg) — no error-coords fallback needed
   (unlike the VIEW case, rf2-quir9, where `reg-view` skips it).
   Pre-fix the FX row carried NO open-code affordance at all, leaving
@@ -4925,7 +4926,7 @@ The Epoch panel's HANDLER step surfaces the source inline when available.
 (See §9.1 for the current cascade shape; §2.2 is the retired Event-panel
 mockup kept as historical reference.)
 
-This is **substrate work** (modify `re-frame.core` reg-event-* macros),
+This is **substrate work** (modify the `re-frame.core` `reg-event` macro),
 not Xray panel work. Filed as substrate bead in §13.
 
 **(b) clojure.repl/source-fn rejected.** JVM-only.

@@ -145,7 +145,7 @@
   posture as re-frame's registrar). Returns the registered entry.
 
   Each panel's `(defn install! [] ...)` calls this alongside its
-  `reg-sub` / `reg-event-*` / `reg-fx` registrations so the tab
+  `reg-sub` / `reg-event` / `reg-fx` registrations so the tab
   inventory is declarative-per-panel rather than hard-coded in the
   shell.
 

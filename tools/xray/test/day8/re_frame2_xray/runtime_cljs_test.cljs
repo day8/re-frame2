@@ -300,7 +300,7 @@
 ;; EP-0001 (rf2-jj1xer) — seed the live machine snapshot exactly where the
 ;; machines runtime writes it post-rf2-vzld77: the RUNTIME-DB partition at
 ;; `[:rf.runtime/machines :snapshots :auth]`, NOT the old app-db `:rf/runtime`
-;; slot. A framework-authority `reg-event-fx` returning the reserved
+;; slot. A framework-authority `reg-event` handler returning the reserved
 ;; `:rf.db/runtime` effect installs the runtime-db partition (the same path
 ;; the machines lifecycle-fx writes); `:rf/machine? true` marks it
 ;; framework-authority so the runtime-write diagnostic does not fire.
@@ -715,8 +715,8 @@
   ;;
   ;; The `:sensitive-declarations` live in the frame's runtime-db partition
   ;; at `[:rf.runtime/elision :sensitive-declarations]` (EP-0001), so a
-  ;; whole-db `reg-event-db` reset that returns a fresh map no longer wipes
-  ;; them — a `:db` reset replaces only app-db, never runtime-db.
+  ;; whole-db `:db` reset (a reg-event handler returning a fresh map) no
+  ;; longer wipes them — a `:db` reset replaces only app-db, never runtime-db.
   (frame-class/install! :rf/default
     (frame-class/validate+extract :rf/default
       {:sensitive {:app-db [[:auth :password]]}})))
@@ -1093,7 +1093,7 @@
     (seed-sensitive-schema!)
     ;; Register an event whose registration-metadata carries a
     ;; value-bearing slot at the schema-declared sensitive path. We use
-    ;; the registrar directly (not `reg-event-db`, whose macro emits its
+    ;; the registrar directly (not the `reg-event` macro, which emits its
     ;; own metadata and would not let us plant the slot) so the meta map
     ;; itself carries `{:auth {:password ...}}`. `egress-value` walks the
     ;; meta map from root and substitutes :rf/redacted for the sensitive
@@ -1121,7 +1121,7 @@
 (defn- register-handler-with-sourcey-coord!
   "Register an event whose registration metadata carries a `:source-coord`
   whose value sits at the schema-declared sensitive path. We use the
-  registrar directly (not `reg-event-db`, whose macro emits its own
+  registrar directly (not the `reg-event` macro, which emits its own
   metadata) so the `:source-coord` slot we plant survives to
   `rf/handler-meta` verbatim. `egress-value` walks the source-coord value
   from its root and substitutes :rf/redacted for the sensitive path."

@@ -459,10 +459,9 @@
       [:div {:class "devtools-mono" :style {:background "var(--devtools-hover)" :padding "13px"
                                             :border-radius "4px" :overflow-x "auto"}}
        [:pre {:style {:margin "0"}}
-        [:span {:class "syntax-keyword"} "(rf/reg-event-db "] [:span {:class "syntax-keyword"} ":counter-inc"] "\n"
-        "  [" [:span {:class "syntax-keyword"} ":rf/db"] "]\n"
-        "  (" [:span {:class "syntax-keyword"} "fn"] " [db _]\n"
-        "    (" [:span {:class "syntax-keyword"} "update"] " db " [:span {:class "syntax-keyword"} ":counter"] " inc)))"]]]
+        [:span {:class "syntax-keyword"} "(rf/reg-event "] [:span {:class "syntax-keyword"} ":counter-inc"] "\n"
+        "  (" [:span {:class "syntax-keyword"} "fn"] " [{:keys [db]} _]\n"
+        "    {" [:span {:class "syntax-keyword"} ":db"] " (" [:span {:class "syntax-keyword"} "update"] " db " [:span {:class "syntax-keyword"} ":counter"] " inc)}))"]]]
 
      ;; 4. FLOWS (rf2-ynnre — step 4, between EVENT HANDLER and APP-DB
      ;; CHANGES, matching operational order). Shows the flow(s) that

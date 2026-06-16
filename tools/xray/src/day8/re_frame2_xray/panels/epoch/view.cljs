@@ -19,8 +19,8 @@
       │      + [:session] {:user-id 42 …}
       │
       ├── ③ HANDLER       reg-event ↗                  0.5ms
-      │      (fn [db [_ amount]]
-      │        (update db :total + amount))
+      │      (fn [{:keys [db]} [_ amount]]
+      │        {:db (update db :total + amount)})
       │      ↳ :db diff
       │        ~ [:total]  100 → 110
       │
@@ -4289,7 +4289,7 @@
 
   The `:file` here is ABSOLUTE: `reg-fx` registers through the same
   `core-reg-macros/defreg-macro` → `with-coords-form` → `coords-form`
-  path that `reg-sub` / `reg-event-*` use, and that path runs the
+  path that `reg-sub` / `reg-event` use, and that path runs the
   picked `:file` through `source-coords/absolutise-file` at macro-
   expansion time (rf2-wvsxg). So the chip's coord ships the right
   on-disk path with no error-coords fallback — unlike the VIEW case

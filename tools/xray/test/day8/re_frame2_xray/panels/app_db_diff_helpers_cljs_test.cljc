@@ -508,7 +508,7 @@
             equality-based; we use `assoc-in` / `update-in` here so the
             unchanged subtree's :cart {:items ...} stays `identical?`
             across epoch boundaries — same shape a real host runtime
-            produces via reg-event-db handlers."
+            produces via db-only reg-event handlers."
     (let [db-0     {}
           db-1     (assoc-in db-0 [:cart :items] [])
           db-2     (assoc-in db-1 [:cart :items] [{:id 7}])

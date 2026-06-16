@@ -98,8 +98,20 @@
   (is (= :paren    (w/classify-token "}"))))
 
 (deftest classify-token-builtin
-  (is (= :builtin  (w/classify-token "reg-event-db")))
+  (testing "the CURRENT event registrar `reg-event` (EP-0018) is a builtin"
+    (is (= :builtin  (w/classify-token "reg-event"))))
   (is (= :builtin  (w/classify-token "let"))))
+
+(deftest classify-token-retired-registrar-spellings
+  (testing "EP-0018 retired `reg-event-db` / `-fx` / `-ctx`; they stay in the
+            highlighter set ONLY so a v1 / pre-migration source-text snippet
+            under inspection still highlights — they are NOT current API. The
+            highlighter is content-agnostic, so it still paints them as
+            builtins; this test pins that as the intentional migration-rendering
+            behaviour, not an endorsement of the spellings as current registrars."
+    (is (= :builtin  (w/classify-token "reg-event-db")))
+    (is (= :builtin  (w/classify-token "reg-event-fx")))
+    (is (= :builtin  (w/classify-token "reg-event-ctx")))))
 
 (deftest classify-token-symbol
   (is (= :symbol   (w/classify-token "my-symbol")))
@@ -107,7 +119,7 @@
 
 (deftest tokenize-clojure-roundtrip
   (testing "concatenating tokenized literals reconstructs the source"
-    (let [src  "(reg-event-db :foo (fn [db [_ x]] (assoc db :y x)))"
+    (let [src  "(reg-event :foo (fn [{:keys [db]} [_ x]] {:db (assoc db :y x)}))"
           toks (w/tokenize-clojure src)]
       (is (= src (apply str (map second toks)))))))
 
@@ -124,10 +136,10 @@
     (is (= "\"hello\"" (second (first strs))))))
 
 (deftest tokenize-clojure-builtin-classification
-  (let [toks (w/tokenize-clojure "(reg-event-db :foo)")
+  (let [toks (w/tokenize-clojure "(reg-event :foo)")
         blt  (filter #(= :builtin (first %)) toks)]
     (is (= 1 (count blt)))
-    (is (= "reg-event-db" (second (first blt))))))
+    (is (= "reg-event" (second (first blt))))))
 
 ;; ---- code-block render ---------------------------------------------------
 
@@ -148,7 +160,7 @@
         (is (some? code-node))))))
 
 (deftest code-block-pre-clamps-and-scrolls-within-container
-  (let [out   (w/code-block {:source "(reg-event-db :counter/inc (fn [db _] (update db :counter/value inc)))"})
+  (let [out   (w/code-block {:source "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :counter/value inc)}))"})
         style (-> out second :style)]
     (testing "the code-block <pre> never exceeds its containing block"
       (is (= "100%" (:max-width style)))
@@ -215,15 +227,15 @@
   (is (= "" (w/format-source ""))))
 
 (deftest format-source-pretty-prints-clojure
-  (let [src       "(reg-event-db :counter/inc (fn [db _] (update db :n inc)))"
+  (let [src       "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))"
         formatted (w/format-source src)]
     (is (string? formatted))
-    (is (re-find #"reg-event-db" formatted))
+    (is (re-find #"reg-event" formatted))
     (is (re-find #":counter/inc" formatted))
     (is (re-find #"update" formatted))))
 
 (deftest format-source-malformed-input-falls-through
-  (let [bad "(reg-event-db :foo "]
+  (let [bad "(reg-event :foo "]
     (is (= bad (w/format-source bad)))))
 
 ;; ---- rf2-iosnp — multi-line :doc renders as real line breaks ------------
@@ -273,7 +285,7 @@
             escaped `\\n` (the `pr-str` capture shape) renders across
             real lines: the `:pre` block's text contains an actual
             newline and no literal backslash-n."
-    (let [src  "(reg-event-db :foo {:doc \"line one\\nline two\"} (fn [db _] db))"
+    (let [src  "(reg-event :foo {:doc \"line one\\nline two\"} (fn [{:keys [db]} _] {:db db}))"
           out  (w/code-block {:source src})
           pre  (some #(when (and (vector? %) (= :pre (first %))) %)
                      (walk-hiccup out))
@@ -285,7 +297,7 @@
           "no literal backslash-n survives in the rendered text"))))
 
 (deftest code-block-pre-formats-via-zprint
-  (let [out  (w/code-block {:source "(reg-event-db :counter/inc (fn [db _] (update db :n inc)))"})
+  (let [out  (w/code-block {:source "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))"})
         pre  (some #(when (and (vector? %) (= :pre (first %))) %)
                    (walk-hiccup out))
         attrs (when pre (second pre))]

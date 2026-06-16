@@ -546,8 +546,8 @@
 ;; The shell `✕` button dispatches `:rf.xray/close-shell` rather than
 ;; calling `mount/close!` directly. Before rf2-fq491 the event only set
 ;; the reactive `:close-requested?` flag and nothing consumed it, so the
-;; button was a no-op. The event is now a `reg-event-fx` that sets the
-;; flag AND fires `:rf.xray.fx/hide-shell` (registered by
+;; button was a no-op. The event is now a `reg-event` handler that returns
+;; `:fx` to set the flag AND fire `:rf.xray.fx/hide-shell` (registered by
 ;; `mount/install-fx!`, called from the registry orchestrator) which
 ;; performs the actual DOM hide via `close!`. These tests prove the
 ;; flag + the visible hide land together.

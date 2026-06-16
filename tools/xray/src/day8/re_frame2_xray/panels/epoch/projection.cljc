@@ -15,9 +15,10 @@
     no SIDE EFFECTS step
   - HANDLER step adapts to the handler's flavour — the OBSERVED effect
     shape, read off the trace stream (NOT the registration form):
-      :reg-event-db (db-only) / :reg-event-fx (db+fx) / :reg-machine.
-    These are internal classification keywords; EP-0018 collapsed the
-    public event registrars onto the one `reg-event` form, so the HANDLER
+      :db-only (db-only) / :effectful (db+fx) / :reg-machine.
+    These are internal effect-shape classification keywords; they describe
+    WHAT the handler returned, not HOW it was registered. EP-0018 collapsed
+    the public event registrars onto the one `reg-event` form, so the HANDLER
     VERB the panel displays is `reg-event` (see `format/handler-flavour-label`).
 
   Per the bead body, the panel's correctness depends on a pure-data
@@ -472,11 +473,14 @@
 ;; ---- HANDLER row ---------------------------------------------------------
 
 (defn- handler-flavour
-  "Discriminate the handler kind from the trace stream. Three flavours:
+  "Discriminate the handler's OBSERVED EFFECT SHAPE from the trace stream.
+  Three flavours (behavior-based names — they describe what the handler
+  returned, NOT how it was registered; EP-0018 collapsed the public event
+  registrars onto the one `reg-event` form):
 
       :reg-machine     — the cascade carried a machine macrostep
-      :reg-event-fx    — a `:rf.fx/do-fx` rode (effects were returned)
-      :reg-event-db    — otherwise (default for any non-machine event)
+      :effectful       — a `:rf.fx/do-fx` rode (effects were returned)
+      :db-only         — otherwise (default for any non-machine event)
 
   The discriminator is the trace stream — no spec read at projection
   time. Pure-data; JVM-testable.
@@ -490,7 +494,7 @@
   AND the post-carve-out bootstrap `:initial-entry` (rf2-t4582). The
   prior classifier keyed ONLY on `:rf.machine/action-ran`, so any
   macrostep that fired no action (HVAC `:hvac/power-cycle` entry cascade,
-  bootstrap) fell through to `:reg-event-fx` — the machine handler always
+  bootstrap) fell through to `:effectful` — the machine handler always
   rides a `:rf.fx/do-fx` (its snapshot write) — and rendered the raw `:db`
   diff with NO machine section. Keying on the transition closes that gap.
 
@@ -517,13 +521,13 @@
     ;; emitting `:rf.machine/started` but NO `:rf.machine/transition` /
     ;; `:rf.machine/action-ran` (the initial-entry actions are not traced as
     ;; action-ran — rf2-n9f4z) / no-op. So a standalone start would fall
-    ;; through to `:reg-event-fx` (the machine handler always rides a
+    ;; through to `:effectful` (the machine handler always rides a
     ;; do-fx — its snapshot write) and render the raw `:db` diff with NO
     ;; machine section. Keying on the birth signal closes that gap: the
     ;; cascade renders the `[START]` row instead.
     (some #(= :rf.machine/started (op %)) events)    :reg-machine
-    (some #(= :rf.fx/do-fx (op %)) events)           :reg-event-fx
-    :else                                            :reg-event-db))
+    (some #(= :rf.fx/do-fx (op %)) events)           :effectful
+    :else                                            :db-only))
 
 (defn- fx-entries
   "Project the `:rf.event/fx` payload off the `:rf.fx/do-fx` trace
@@ -1637,9 +1641,9 @@
   dispatched event therefore a handler). Adapts to the trace stream's
   flavour discriminator:
 
-  - `:reg-event-db`  → :db (post-handler snapshot)
-  - `:reg-event-fx`  → :db + :fx
-  - `:reg-machine`   → :db + :fx + :machine {:cascade …}
+  - `:db-only`     → :db (post-handler snapshot)
+  - `:effectful`   → :db + :fx
+  - `:reg-machine` → :db + :fx + :machine {:cascade …}
 
   The HANDLER `:db` sub-section is rendered from `:db-post-handler`
   (the effective post-handler / pre-flow snapshot) diffed against the

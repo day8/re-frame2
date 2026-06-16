@@ -16,8 +16,8 @@
        source off the dispatched trace.
     2. `coeffect-rows` — granular `:rf.cofx/run` ahead of
        `:rf.event/run-end` stamp fallback.
-    3. `handler-row` — flavour discrimination (reg-event-db /
-       reg-event-fx / reg-machine) from the trace stream.
+    3. `handler-row` — effect-shape flavour discrimination (:db-only /
+       :effectful / :reg-machine) from the trace stream.
     4. `flow-rows` — one row per `:rf.flow/computed` event;
        `project` splats into N first-class FLOW steps in the
        cascade (rf2-xnb1x, mirror of cofx per-step split).
@@ -524,7 +524,7 @@
       (is (= 1 (count rows)))
       (is (= :session (-> rows first :id)))))
 
-  (testing "rf2-cq0ch — pure reg-event-db (only system cofx) emits NO step"
+  (testing "rf2-cq0ch — pure db-only handler (only system cofx) emits NO step"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (cofx-run-ev :db nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
@@ -559,8 +559,8 @@
       (is (= 9.9 (:duration-ms r))
           "legacy :duration-ms fallback retained for older fixtures"))))
 
-(deftest handler-row-reg-event-db-test
-  (testing "no fx + no machine = reg-event-db flavour.
+(deftest handler-row-db-only-flavour-test
+  (testing "no fx + no machine = :db-only effect-shape flavour.
 
   rf2-sp0n9 — the prior `:db-diff` Editscript flat-row slot is gone
   (the view re-derived its own diff and discarded the projection's);
@@ -570,18 +570,18 @@
                               :counter-inc)]
       (is (= :handler (:step r)))
       (is (= :HANDLER (:badge r)))
-      (is (= :reg-event-db (:flavour r)))
+      (is (= :db-only (:flavour r)))
       (is (= :counter-inc (:event-id r)))
       (is (not (contains? r :db-diff))
           "rf2-sp0n9 — no precomputed :db-diff slot on the handler row")
       (is (= [] (:fx r))))))
 
-(deftest handler-row-reg-event-fx-test
-  (testing "do-fx present → reg-event-fx flavour; :fx entries projected"
+(deftest handler-row-effectful-flavour-test
+  (testing "do-fx present → :effectful effect-shape flavour; :fx entries projected"
     (let [evs [(do-fx-ev {:db {} :navigate "/x"})
                (db-changed-ev [])]
           r   (proj/handler-row evs :navigate-to)]
-      (is (= :reg-event-fx (:flavour r)))
+      (is (= :effectful (:flavour r)))
       (is (= 2 (count (:fx r))))
       (is (= #{:db :navigate} (into #{} (map :fx-id (:fx r))))))))
 
@@ -619,15 +619,15 @@
             UNCONDITIONALLY (commit-or-finalize · lifecycle_fx ·
             registration.cljc), so `:rf.machine/transition` is the
             authoritative macrostep marker. It MUST classify `:reg-machine`
-            (render the machine section), NOT `:reg-event-fx` / `:reg-event-db`
+            (render the machine section), NOT `:effectful` / `:db-only`
             (the raw `:db` diff of the snapshot write).
 
   RED before the fix: handler-flavour saw only the do-fx (the machine handler
-  always rides one) → fell through to `:reg-event-fx`; `:machine` slot absent."
+  always rides one) → fell through to `:effectful`; `:machine` slot absent."
     (let [snap-before {:state [:off]      :data {}}
           snap-after  {:state [:running]  :data {}}
           ;; A machine handler ALWAYS rides a `:rf.fx/do-fx` (the snapshot
-          ;; write). The pre-fix classifier let that do-fx win → :reg-event-fx.
+          ;; write). The pre-fix classifier let that do-fx win → :effectful.
           evs [(do-fx-ev {:db {:hvac/controller {:state {:climate [:running]}}}})
                (machine-transition-ev :hvac/controller snap-before snap-after
                                        [:hvac/power-cycle] 2)
@@ -656,28 +656,28 @@
                                        [:rf.machine/start] 1)]
           r   (proj/handler-row evs :hvac/controller)]
       (is (= :reg-machine (:flavour r))
-          "the bootstrap transition classifies :reg-machine, not :reg-event-fx")
+          "the bootstrap transition classifies :reg-machine, not :effectful")
       (is (some? (:machine r))
           "the bootstrap renders the machine section"))))
 
 (deftest handler-flavour-negative-guards-test
-  (testing "rf2-eue07 NEGATIVE GUARD — a genuine reg-event-fx (a do-fx with
-            NO machine trace at all) STILL classifies :reg-event-fx; the new
+  (testing "rf2-eue07 NEGATIVE GUARD — a genuine fx-bearing handler (a do-fx with
+            NO machine trace at all) STILL classifies :effectful; the new
             transition predicate must not over-claim"
     (let [evs [(do-fx-ev {:db {} :navigate "/x"})
                (db-changed-ev [])]
           r   (proj/handler-row evs :navigate-to)]
-      (is (= :reg-event-fx (:flavour r))
-          "no machine trace → plain reg-event-fx, unchanged")
+      (is (= :effectful (:flavour r))
+          "no machine trace → plain :effectful, unchanged")
       (is (nil? (:machine r))
           "no machine section on a plain fx handler")))
 
-  (testing "rf2-eue07 NEGATIVE GUARD — a genuine reg-event-db (no fx, no
-            machine trace) STILL classifies :reg-event-db"
+  (testing "rf2-eue07 NEGATIVE GUARD — a genuine db-only handler (no fx, no
+            machine trace) STILL classifies :db-only"
     (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
                               :counter-inc)]
-      (is (= :reg-event-db (:flavour r))
-          "no fx, no machine trace → reg-event-db, unchanged")
+      (is (= :db-only (:flavour r))
+          "no fx, no machine trace → :db-only, unchanged")
       (is (nil? (:machine r))))))
 
 (deftest machine-transition-cascade-row-hoists-data-snapshots-test
@@ -1079,7 +1079,7 @@
   (testing "rf2-it4vt — an EAGER pure start makes the cascade :reg-machine
             (it emits :rf.machine/started but no transition/action/no-op), so
             handler-row renders the [START] row in the :machine :cascade slot
-            rather than collapsing to a plain reg-event-fx :db diff"
+            rather than collapsing to a plain :effectful :db diff"
     (let [r (proj/handler-row
               [(machine-started-ev :door/main :locked {:attempts 0} :explicit)
                ;; the machine handler always rides a do-fx (its snapshot write)
@@ -2260,7 +2260,7 @@
 ;; ---- :db row — FIRST, pass / schema-fail (rf2-j630b) --------------------
 
 (deftest side-effects-db-row-first-and-pass-test
-  (testing "rf2-j630b — a bare reg-event-db (only :db, NO :fx) STILL shows
+  (testing "rf2-j630b — a bare db-only handler (only :db, NO :fx) STILL shows
             the SIDE EFFECTS step with a passing :db row, FIRST in the
             ledger. The :db commit is keyed off `:rf.event/db-changed` —
             the ALWAYS-APPEARS contract."
@@ -2402,7 +2402,7 @@
       (is (= :open-socket (-> row :attributed-to :action-id)))
       (is (= :entry       (-> row :attributed-to :phase)))))
 
-  (testing "rf2-uffov — pure reg-event-fx cascades have no per-action
+  (testing "rf2-uffov — pure :effectful cascades have no per-action
             attribution; the slot stays absent"
     (let [row (-> (proj/side-effects-step [(fx-handled-ev :http/post {} 0.1)])
                   :rows first)]
@@ -3042,8 +3042,8 @@
             cofx/flow/user-fx/sub/view).
 
   rf2-kt6js — the SIDE EFFECTS step ALWAYS appears when a `:db` commit
-  happened, INCLUDING a bare reg-event-db with no `:fx` (`db-commit?`
-  keys off `:rf.event/db-changed`). Pre-rf2-kt6js a plain reg-event-db
+  happened, INCLUDING a bare db-only handler with no `:fx` (`db-commit?`
+  keys off `:rf.event/db-changed`). Pre-rf2-kt6js a plain db-only handler
   surfaced NO side-effects step at all (the FX step keyed off a
   non-existent fx-id-less `:rf.fx/handled`). rf2-j630b — the minimal
   :db-writing cascade is :dispatch + :handler + :side-effects (a flat
@@ -3811,7 +3811,7 @@
                   [(dispatched-ev [:standard-epochs/throw-handler] :ui nil)
                    (handler-exception-ev :standard-epochs/throw-handler "boom" nil)
                    (run-end-ev 1)]))))
-  (testing "rf2-wnvid — FALSE for a reg-event-fx that returned only :fx"
+  (testing "rf2-wnvid — FALSE for an :effectful handler that returned only :fx"
     (is (false? (proj/handler-wrote-db?
                   [(do-fx-ev {:fx [[:navigate "/x"]]})
                    (run-end-ev 1)])))))
