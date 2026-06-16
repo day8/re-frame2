@@ -288,11 +288,24 @@
         ;; spelling into the error payload's `:event-id` slot when known,
         ;; so a frameless top-level dispatch's error is attributed to the
         ;; event it was carrying.
-        frame              (or (:frame opts)
-                               (frame/require-current-frame!
-                                 :dispatch
-                                 {:where    're-frame.router/build-envelope
-                                  :event-id (first event)}))
+        ;; EP-0023 (rf2-32siq3.32): the explicit `:frame` opt may be a frame-id
+        ;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value —
+        ;; `(rf/dispatch-sync frame [...])`). Normalize an object to its
+        ;; runnable-id ADDRESS via `frame/frame-target->id` so the envelope
+        ;; carries a keyword `:frame` and every bare-`frame-id`-keyed cascade
+        ;; operation downstream (the router queue/drain, `frame-state-value`,
+        ;; the commit path, the sub-cache) stays byte-identical. The
+        ;; generation-resolution seam re-resolves the object from this id via the
+        ;; live-frame registry (`frame-resolution-target`), so an object target
+        ;; and a child dispatch carrying the same id BOTH route the frame's
+        ;; image. A keyword target (and the scope/hold-resolved frame) passes
+        ;; through `frame-target->id` unchanged.
+        frame              (frame/frame-target->id
+                             (or (:frame opts)
+                                 (frame/require-current-frame!
+                                   :dispatch
+                                   {:where    're-frame.router/build-envelope
+                                    :event-id (first event)})))
         ;; EP-0013 step 4 (rf2-a15n62): resolve the REALM half of the carried
         ;; (realm, frame) address — carried BESIDE `:frame`, never a
         ;; realm-qualified frame tuple (EP-0013 OI-2). An explicit `:realm`

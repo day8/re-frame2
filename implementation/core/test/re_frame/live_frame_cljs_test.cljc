@@ -44,6 +44,8 @@
             [re-frame.image       :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.live-frame  :as lf]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.source-store   :as ss]))
 
 ;; ---------------------------------------------------------------------------
@@ -53,9 +55,17 @@
 ;; live), so SNAPSHOT/RESTORE it — do NOT `clear-all!`, which would destroy real
 ;; authored registrations (per the bead). The live-store default-image tests
 ;; mutate the store inside their own snapshot/restore body too.
+;;
+;; EP-0023 collapse slice 1 (rf2-32siq3.32): `make-frame` now creates a RUNNABLE
+;; backing record (app-db / queue / sub-cache) via `reg-frame`, which needs a
+;; substrate adapter — so the plain-atom adapter is installed (and the registrar
+;; snapshot/restored) via `make-reset-runtime-fixture`. These cases still assert
+;; the pure image-resolution / id-conflict / capability-check contract; the
+;; backing record is an allocation side effect they do not otherwise inspect.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
     (let [store-before @ss/kind->id->ns->descriptor]
       (lf/clear-live-frames!)

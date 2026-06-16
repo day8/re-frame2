@@ -125,6 +125,8 @@
   spine."
   (:require [re-frame.image-assembly :as asm]
             [re-frame.registrar      :as registrar]
+            [re-frame.frame          :as frame]
+            [re-frame.late-bind      :as late-bind]
             [re-frame.error          :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -142,41 +144,78 @@
 ;; the caller still believes points at the original — the realm-id-conflict
 ;; failure mode, here at the frame-id boundary).
 
-(defonce ^{:doc "Process-local live-frame registry: `{frame-id → frame-object}`.
-  An `:id`-bearing `make-frame` registers its object here; a duplicate live id
-  fails loud. Direct (no-id) frame objects never enter this map. INTERNAL — the
-  registry the public query/lookup helpers read."}
+(defonce ^{:doc "Process-local live-frame registry: `{runnable-id → frame-object}`.
+  EVERY runnable frame object `make-frame` produces is registered here keyed by
+  its `:rf.frame/runnable-id` ADDRESS (the same id its backing runnable record is
+  keyed by in `re-frame.frame/frames`) — both `:id`-bearing objects (runnable-id
+  = the public `:rf.frame/id`) AND no-id direct objects (runnable-id = a private
+  `:rf.frame/<gensym>`). Keying by the runnable-id is what lets a frame-targeted
+  dispatch / subscribe — including a CHILD dispatch that carries only the
+  runnable-id keyword on its envelope — re-derive the frame's resolved image
+  generation by id, so generation routing stays coherent across the whole
+  cascade for a no-id object too (EP-0023 §Frame-derived live registration
+  resolution).
+
+  The PUBLIC frame-id uniqueness contract (EP-0023 §Id Spaces) is enforced
+  SEPARATELY by `register-live-frame!` on the public `:rf.frame/id` BEFORE a slot
+  is taken, so two live frames may not both claim `:counter/main`; no-id objects
+  carry no public id and so bypass that contract (their gensym runnable-ids
+  never collide). `live-frame-ids` enumerates only the PUBLIC ids. INTERNAL — the
+  registry the query/lookup/reload helpers read."}
   live-frames
   (atom {}))
 
 (defn live-frame
-  "Return the live frame OBJECT registered under `frame-id`, or nil when no live
-  frame carries that id. The process-local frame-id lookup (EP-0023 §Frame — \"a
-  frame id names a running context in a registry\"). Pure read of the registry
-  snapshot."
+  "Return the live frame OBJECT registered under a frame target — its public
+  `frame-id` KEYWORD or its private runnable-id (the same `runnable-id → object`
+  key in either case), or nil when no live frame carries that id. The
+  process-local id lookup (EP-0023 §Frame — \"a frame id names a running context
+  in a registry\"). Pure read of the registry snapshot. The generation-resolution
+  seam reads through this so an `:id`-targeted dispatch and a no-id object's
+  child dispatch (carrying the runnable-id) BOTH resolve the frame's generation."
   [frame-id]
   (get @live-frames frame-id))
 
 (defn live-frame-ids
-  "The set of frame ids currently live in the process-local registry. Tools and
-  the later reload slice use this to enumerate the public frame-id space."
+  "The set of PUBLIC frame ids currently live in the process-local registry —
+  the public frame-id space tools and the reload slice enumerate. Only objects
+  created with an explicit `:id` contribute; no-id direct objects (keyed under a
+  private runnable-id) are deliberately excluded, so reprojection /
+  enumeration never touch a harness-local frame the spec says its owner reloads
+  explicitly (EP-0023 §Frame — direct objects bypass the registry)."
   []
-  (set (keys @live-frames)))
+  (into #{} (keep #(:rf.frame/id %)) (vals @live-frames)))
 
 (defn forget-live-frame!
-  "Remove `frame-id` from the live-frame registry, returning the registry's new
-  value. The teardown counterpart to `make-frame`'s registration; the later
-  frame-lifecycle slice fires this from the frame's destroy boundary. INTERNAL —
-  registry mutation only; it does not run any frame teardown of its own."
+  "Remove the frame keyed by `frame-id` (a public frame id or a runnable-id) from
+  the live-frame registry, returning the registry's new value. The teardown
+  counterpart to `make-frame`'s registration; `re-frame.frame/destroy-frame!`
+  fires this through the `:live-frame/forget!` late-bind hook from the frame's
+  destroy boundary. INTERNAL — registry mutation only; it does not run any frame
+  teardown of its own (the record teardown is `destroy-frame!`'s job)."
   [frame-id]
   (swap! live-frames dissoc frame-id))
 
 (defn clear-live-frames!
   "Reset the live-frame registry. Test fixtures use this between cases so a
-  registered `:id` from one case does not collide with the next."
+  registered `:id` from one case does not collide with the next.
+
+  EP-0023 (rf2-32siq3.32): this resets ONLY the live-frame registry index, not
+  the backing runnable RECORDS in `re-frame.frame/frames` (the runtime fixture's
+  registrar/`frames` reset owns those). The two are reset together by the test
+  fixtures."
   []
   (reset! live-frames {})
   nil)
+
+;; The destroy boundary (`re-frame.frame/destroy-frame!`) forgets a destroyed
+;; frame's live-frame entry through this hook — `re-frame.frame` cannot require
+;; THIS ns (it would cycle), so the forget is published as a late-bind hook
+;; keyed by the destroyed frame's id (the public id == the runnable-id for an
+;; id-bearing object; a no-id object's gensym runnable-id is keyed here too, so
+;; destroying a direct object by handle also forgets it). No-op for an id never
+;; registered (every EP-0013 realm-only frame).
+(late-bind/set-fn! :live-frame/forget! forget-live-frame!)
 
 ;; ===========================================================================
 ;; The frame OBJECT (EP-0023 §Frame)
@@ -448,10 +487,13 @@
                    LOCAL-ONLY: the caller keeps the returned object and passes it
                    directly to dispatch/subscribe/test helpers. The absence of
                    `:id` is NOT a default-id path (EP-0023 §Public API).
-    :initial-db    the frame's initial app-db value (optional). Carried on the
-                   object for the later state-container slice; frame STATE is a
-                   frame concern, image is a behaviour concern (EP-0023 §Image
-                   Patching And Overrides).
+    :initial-db    the frame's initial app-db value (optional). SEEDED into the
+                   runnable frame's app-db partition (EP-0023 §Frame — the live
+                   frame object owns app-db), so an immediate
+                   `(rf/subscribe frame [...])` / `(rf/app-db-value frame)` reads
+                   it; absent ⇒ the frame starts with app-db `{}` (the EP-0013
+                   fresh-frame default). Frame STATE is a frame concern, image is
+                   a behaviour concern (EP-0023 §Image Patching And Overrides).
     :capabilities  the host capability map the image's `:rf.image/requires` is
                    checked against (optional). The check runs UNCONDITIONALLY at
                    the frame boundary: any required capability the map does not
@@ -468,10 +510,26 @@
                    frame object, never the frame-state value (EP-0023 §Host
                    Boundary).
 
-  Returns the live frame OBJECT — a map carrying `:rf.frame/object true`, the
-  resolved `:rf.frame/generation`, the frame `:rf.frame/id` (when supplied), and
-  the creation inputs. The later slices wire frame-derived live resolution (.9)
-  against `:rf.frame/generation` and reload (.10) against the whole composition.
+  Returns the live frame OBJECT — a single RUNNABLE map carrying
+  `:rf.frame/object true`, the resolved `:rf.frame/generation`, the
+  `:rf.frame/runnable-id` ADDRESS of its backing runnable record, the public
+  frame `:rf.frame/id` (when supplied), and the creation inputs. The object is
+  fully runnable: `rf/dispatch` / `rf/subscribe` / `rf/destroy-frame!` /
+  `rf/app-db-value` accept it (or its id), and the cascade resolves through its
+  `:rf.frame/generation` (EP-0023 §Frame — the live frame object owns app-db,
+  runtime-db, queue, sub-cache, lifecycle, and a reference to the resolved image
+  generation it is running). `reload-images!` swaps the generation while
+  preserving the backing record's memory.
+
+  EP-0023 collapse slice 1 (rf2-32siq3.32): the object's runnable interior —
+  app-db / runtime-db container, projection reactions, router queue, drain-lock,
+  sub-cache, lifecycle — is an EP-0013 runnable RECORD created here via
+  `re-frame.frame/reg-frame` (the canonical create-and-register, idempotent on a
+  re-make of a live id) and keyed in `re-frame.frame/frames` by the
+  runnable-id. So one frame type carries BOTH the resolved image generation
+  (here, on the object) AND the runnable state (the record reached by the
+  runnable-id) — no separate `reg-frame` pairing is needed to run an event
+  stream against an image.
 
   Two arities:
     (make-frame opts)            — resolve `:images` against the LIVE source store.
@@ -480,21 +538,46 @@
                                    matching `image-assembly/assemble`'s 2-arity."
   ([opts] (make-frame opts nil))
   ([{:keys [images id initial-db capabilities adapter]} descriptors]
-   (let [generation (resolve-generation! images capabilities descriptors)
+   (let [generation  (resolve-generation! images capabilities descriptors)
+         ;; The runnable-id ADDRESS the backing record is keyed by: the public
+         ;; `:id` when supplied (so `(rf/dispatch [...] {:frame :counter/main})`
+         ;; finds the same record), else a process-unique anonymous id so a no-id
+         ;; (direct) object is still runnable while bypassing the PUBLIC frame-id
+         ;; space (EP-0023 §Frame).
+         runnable-id (if (some? id) id (frame/anon-frame-id))
          frame-object
-         (cond-> {object-marker  true
-                  generation-key generation}
+         (cond-> {object-marker          true
+                  generation-key         generation
+                  frame/runnable-id-key  runnable-id}
            (some? id)           (assoc :rf.frame/id id)
            (some? initial-db)   (assoc :rf.frame/initial-db initial-db)
            (some? capabilities) (assoc :rf.frame/capabilities capabilities)
            (some? adapter)      (assoc :rf.frame/adapter adapter))]
-     ;; An :id-bearing frame registers in the process-local live-frame
-     ;; registry (fail-loud on a duplicate). A direct (no-id) frame object
-     ;; BYPASSES the registry — the caller holds the returned object directly
-     ;; (EP-0023 §Frame / §Public API).
-     (if (some? id)
-       (register-live-frame! id frame-object)
-       frame-object))))
+     ;; Register the object in the process-local live-frame registry under the
+     ;; runnable-id FIRST. For an `:id`-bearing frame this is the PUBLIC-id
+     ;; uniqueness gate (fail-loud on a duplicate, BEFORE any record is created
+     ;; so a conflict leaves no half-created frame); a no-id frame's gensym
+     ;; runnable-id never conflicts. The keyword-target generation-resolution
+     ;; seam reads through this registry, so a child dispatch carrying only the
+     ;; runnable-id keyword still re-derives the frame's generation.
+     (register-live-frame! runnable-id frame-object)
+     ;; Create the backing runnable RECORD (app-db / runtime-db / queue /
+     ;; sub-cache / lifecycle) under the runnable-id via the canonical
+     ;; create-and-register. `reg-frame` is idempotent on an existing id
+     ;; (surgical update preserving runtime state), so pairing an EP-0023
+     ;; `make-frame {:id …}` with a pre-existing `reg-frame` of the same id just
+     ;; refreshes config. EP-0023 frames are default-realm (the collapse
+     ;; supersedes the public realm dimension), so the record is keyed by the
+     ;; bare runnable-id keyword. The config carries no `:on-create`, so no init
+     ;; cascade runs here.
+     (frame/reg-frame runnable-id {})
+     ;; Seed `:initial-db` into the app-db partition (EP-0023 §Frame — the live
+     ;; frame object owns app-db). A fresh record starts app-db `{}`; this writes
+     ;; ONLY the app-db partition (runtime-db untouched) through the canonical
+     ;; partition mutator, so an immediate subscribe/read observes the seed.
+     (when (some? initial-db)
+       (frame/replace-app-db! runnable-id initial-db))
+     frame-object)))
 
 ;; ===========================================================================
 ;; Image hot reload (EP-0023 §Hot Reload, rf2-32siq3.10)
