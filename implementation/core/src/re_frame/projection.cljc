@@ -57,8 +57,24 @@
   scope). With no frame and no `:rf.size/include-sensitive? true` opt-out,
   the underlying `elide-wire-value` redacts the whole value to
   `:rf/redacted` rather than borrow another frame's policy — `project-egress`
-  inherits that fail-closed posture, it does NOT synthesise `:rf/default`."
-  (:require [re-frame.elision :as elision]))
+  inherits that fail-closed posture, it does NOT synthesise `:rf/default`.
+
+  ## Event-shaped slots carry REGISTRATION-owned marks (EP-0015 / rf2-qe6v1u)
+
+  An `:rf.observe/*` record's `:event` slot is the raw dispatched vector — a
+  REGISTRATION-OWNED transient payload (EP-0015): a handler registered with
+  `reg-event {:sensitive [[:password]]}` declares which of ITS OWN event args
+  are sensitive, independent of the frame's app-db classification. So the
+  `:event` slot is projected through the event registration's `:sensitive` /
+  `:large` marks (the always-on `:marks/redact-event-by-registration` hook)
+  BEFORE the frame-policy size/sensitive walk — the same arg-map-rooted
+  redaction the dev trace path applies. Without this a declared-sensitive event
+  arg would ride raw to an off-box `:observability :errors` sink whenever the
+  frame carried no matching `:sensitive {:app-db …}` declaration (the wrong
+  owner under EP-0015). Sentinels the registration pass writes survive the
+  subsequent frame-policy walk (a redacted leaf is inert)."
+  (:require [re-frame.elision :as elision]
+            [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -202,6 +218,29 @@
   [v elision-opts]
   (elision/elide-wire-value v elision-opts))
 
+(defn- redact-event-by-registration
+  "Apply the event handler's REGISTRATION-OWNED `:sensitive` / `:large` marks
+  to an event-shaped slot value (a `[event-id arg-map …]` vector) via the
+  always-on `:marks/redact-event-by-registration` hook (EP-0015 / rf2-qe6v1u).
+  A no-op (returns `event` unchanged) when the hook is unbound (the marks ns has
+  not loaded) or the handler declared no marks. This is the EVENT-owner pass
+  that precedes the FRAME-policy `walk-slot`: event args are registration-owned
+  (the handler's `:sensitive`), not app-db-owned (the frame's classification)."
+  [event]
+  (if-let [redact (late-bind/get-fn-cached :marks/redact-event-by-registration)]
+    (redact event)
+    event))
+
+(defn- project-event-slot
+  "Project an event-shaped slot: the event registration's marks FIRST (the
+  EVENT owner — EP-0015 / rf2-qe6v1u), then the frame-policy size/sensitive
+  walk. A sentinel the registration pass writes is inert under the subsequent
+  walk."
+  [event elision-opts]
+  (-> event
+      redact-event-by-registration
+      (walk-slot elision-opts)))
+
 ;; ---- handled-event record (`:rf.observe/handled-event`) ------------------
 ;;
 ;; EP-0015 issue 4 (ruled, sharpened): the off-box default record omits the
@@ -230,8 +269,9 @@
   (let [base (select-keys record handled-event-summary-keys)]
     (if (and (contains? record :event)
              (include-event-args? elision-opts))
-      ;; Trusted-local opt-in: keep `:event`, PROJECTED (never raw).
-      (assoc base :event (walk-slot (:event record) elision-opts))
+      ;; Trusted-local opt-in: keep `:event`, PROJECTED (never raw) — the event
+      ;; registration's marks FIRST (EP-0015 / rf2-qe6v1u), then frame policy.
+      (assoc base :event (project-event-slot (:event record) elision-opts))
       ;; Off-box default: the `:event` args slot is omitted entirely.
       base)))
 
@@ -258,11 +298,16 @@
 (defn- project-error-record
   [record opts elision-opts]
   (let [base (select-keys record error-summary-keys)
-        ;; Tree-shaped slots → walker.
+        ;; Tree-shaped slots → walker. The `:event` slot is REGISTRATION-owned
+        ;; (EP-0015 / rf2-qe6v1u): apply the event handler's marks before the
+        ;; frame-policy walk. `:tags` is frame-policy-only (it is the generic
+        ;; non-event tree-lift from `route-error-record!`).
         with-tree (reduce
                     (fn [acc k]
                       (if (contains? record k)
-                        (assoc acc k (walk-slot (get record k) elision-opts))
+                        (assoc acc k (if (= k :event)
+                                       (project-event-slot (get record k) elision-opts)
+                                       (walk-slot (get record k) elision-opts)))
                         acc))
                     base
                     error-tree-keys)]
