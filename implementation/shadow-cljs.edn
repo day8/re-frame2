@@ -1725,13 +1725,14 @@
                            day8.re-frame2-xray.preload]}}
 
   ;; (removed) rf2-kzcim sensitive-dispatcher testbed — the handler-meta
-  ;; :sensitive? annotation has been removed; path-marked classification
-  ;; supersedes it.
+  ;; :sensitive? annotation has been removed; owner-declared classification
+  ;; supersedes it (EP-0015: frame-owned durable app-db classification +
+  ;; per-slot schema props for owner-local schema'd data).
 
   ;; rf2-kzcim Tier 3 — large-dispatcher testbed (four handlers each
   ;; commit a value to a path whose wire elision is governed by a
-  ;; different nomination path — schema-driven :large? on a Malli slot
-  ;; — per Spec 009 §Size elision in traces).
+  ;; different nomination path — owner-local schema-slot :large? on a Malli
+  ;; slot — per Spec 009 §Size elision in traces).
   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
   ;; probe this dev testbed's live runtime alongside Xray.
   :testbeds/large-dispatcher
