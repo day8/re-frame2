@@ -289,8 +289,16 @@
 
 (def ^:private image-reserved-keys
   "Recognized top-level image spec keys. Any other key is a malformed image —
-  failed loudly rather than silently ignored."
-  #{:id :include-ns :registrations :rf.image/requires})
+  failed loudly rather than silently ignored.
+
+  `:replace` / `:replace-standard` are the EP-0023 §Image Patching And Overrides
+  declared-winner maps (`{[kind id] winner-source-coordinate}`). They are BARE
+  structural slots (the EP-0017 v5 line, per Conventions §`:rf.image/*`) carried
+  through UNINTERPRETED here — the image value is inert data; the assembly slice
+  (rf2-32siq3.4) reads them to resolve collisions. This slice validates only
+  that each is a map (its detailed winner-coordinate validation against the
+  actual selected collisions is the assembly slice's fail-loud job)."
+  #{:id :include-ns :registrations :rf.image/requires :replace :replace-standard})
 
 (defn image
   "Construct an IMAGE value — a selected registration-set value, as INERT data
@@ -311,13 +319,22 @@
                    descriptors. Optional.
     :rf.image/requires the set of `:rf.capability/*` requirements (defaults to
                    `#{}`). Carried through for a later slice; not enforced here.
+    :replace       a declared-winner map `{[kind id] winner-source-coordinate}`
+                   for application-owned collisions (EP-0023 §Image Patching And
+                   Overrides). Optional. BARE structural slot, carried through
+                   uninterpreted; the assembly slice resolves it.
+    :replace-standard the declared-winner map for framework STANDARD collisions
+                   (louder — a standard must be marked replaceable). Optional.
+                   Carried through uninterpreted.
 
   Returns a normalized image value:
 
     {:rf.image/id         <id>          ;; present only when :id supplied
      :rf.image/include-ns [<glob> …]
      :rf.image/inline     [<inline-descriptor> …]
-     :rf.image/requires   #{<:rf.capability/* …>}}
+     :rf.image/requires   #{<:rf.capability/* …>}
+     :replace             {[kind id] winner …}   ;; present only when supplied
+     :replace-standard    {[kind id] winner …}}  ;; present only when supplied
 
   PURE — no realm, no registrar, no side effect (an `image` call is data, not
   registration). Throws `:rf.error/invalid-image` when `:include-ns` is not a
@@ -352,11 +369,23 @@
                "or \"docs.shared.**\".")
           {:recovery :use-namespace-glob-strings
            :extra    {:image id :bad-pattern p}})))
+    (doseq [k [:replace :replace-standard]]
+      (when-let [m (get spec k)]
+        (when-not (map? m)
+          (error/throw-error!
+            :rf.error/invalid-image
+            'rf/image
+            (str "rf/image: " k " must be a map from a [kind id] pair to a "
+                 "winner source coordinate — got " (pr-str m) ".")
+            {:recovery :use-a-replacement-winner-map
+             :extra    {:image id :bad-key k :received m}}))))
     (cond-> {:rf.image/include-ns include-ns
              :rf.image/inline     (registrations->inline-descriptors
                                     id (get spec :registrations {}))
              :rf.image/requires   (set (get spec :rf.image/requires #{}))}
-      (some? id) (assoc :rf.image/id id))))
+      (some? id)               (assoc :rf.image/id id)
+      (:replace spec)          (assoc :replace (:replace spec))
+      (:replace-standard spec) (assoc :replace-standard (:replace-standard spec)))))
 
 ;; ---- the selector (EP-0023 §Namespace-Selected Images) --------------------
 ;;
