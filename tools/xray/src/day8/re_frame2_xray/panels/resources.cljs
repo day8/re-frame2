@@ -603,6 +603,143 @@
        (empty-caption "No :reply-to continuations dispatched in this epoch."
                       "rf-xray-resources-continuations-empty"))]))
 
+;; ---- §6d OPTIMISTIC MUTATIONS (EP-0019) ---------------------------------
+;;
+;; The optimistic-mutation lifecycle: each `:rf.mutation/optimistic-applied`
+;; paired by `:snapshot-id` with its terminal settle. The bug-class question
+;; "I saw an optimistic apply — did it COMMIT or ROLL BACK, and was there a
+;; conflict?" answered in one row: the apply (its snapshot + affected keys),
+;; the `:outcome` chip (`:pending` in flight / `:reconciled` committed /
+;; `:rolled-back`), and on rollback the per-key restored-vs-conflict
+;; disposition + the resolved `:on-conflict` rule. The force-clobber warnings
+;; (an `:on-conflict :force` restore OVER a concurrent authoritative write)
+;; render loud beneath. Per Spec 016 §Optimistic mutations / §Surfacing to
+;; tooling + Xray spec 024 §The optimistic-mutation lifecycle.
+
+(defn- optimistic-outcome-colour
+  "Outcome → token for an optimistic-apply row. `:reconciled` (committed —
+  the happy path) green, `:rolled-back` amber (the inverse won), `:pending`
+  (still in flight, optimistic value live on the cache) accent."
+  [outcome]
+  (case outcome
+    :reconciled  (:green tokens)
+    :rolled-back (:warning tokens)
+    :pending     mode-accent
+    (:text-tertiary tokens)))
+
+(defn- optimistic-outcome-label
+  [outcome]
+  (case outcome
+    :reconciled  "reconciled (committed)"
+    :rolled-back "rolled back"
+    :pending     "pending (optimistic)"
+    (str (some-> outcome name))))
+
+(defn- optimistic-mutation-row-view [row]
+  (let [testid (str "rf-xray-resources-optimistic-row-" (:id row))]
+    [:div {:data-testid testid
+           :data-mutation (str (:mutation row))
+           :data-outcome (str (some-> (:outcome row) name))
+           :style {:display "flex" :flex-direction "column" :gap "2px"
+                   :padding "3px 0" :font-family mono-stack :font-size "11px"}}
+     [:div {:style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"}}
+      [:span {:data-testid (str testid "-outcome")
+              :style {:color       (optimistic-outcome-colour (:outcome row))
+                      :font-weight 600 :min-width "9rem"}}
+       (optimistic-outcome-label (:outcome row))]
+      [:span {:style {:color mode-accent}} (str (:mutation row))]
+      (when (:instance row)
+        [:span {:style {:color (:text-tertiary tokens)}} (pr-str (:instance row))])
+      (when (:generation row)
+        [:span {:style {:color (:text-tertiary tokens)}} "gen " (:generation row)])
+      [:span {:style {:color (:text-tertiary tokens)}}
+       (count (:affected-keys row)) " key(s)"]
+      (when (seq (:target-unresolved row))
+        [:span {:data-testid (str testid "-unresolved")
+                :style {:color (:warning tokens)}}
+         "unresolved (fail-closed): "
+         (str/join " " (map str (:target-unresolved row)))])]
+     ;; the optimistically-patched scoped keys (the snapshot's affected set)
+     (when (seq (:affected-keys row))
+       (into [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
+                            :padding-left "12px"}}
+              [:span {:style {:color (:text-tertiary tokens)}} "affected"]]
+             (for [k (:affected-keys row)]
+               ^{:key (str (:resource-id k) (get-in k [:params :preview]))}
+               (summary-chip (:scope k) nil))))
+     ;; ON RECONCILE — the committed keys (authoritative write owned them)
+     (when (= :reconciled (:outcome row))
+       [:div {:data-testid (str testid "-committed")
+              :style {:padding-left "12px" :color (:green tokens)}}
+        (count (:committed row)) " committed"
+        (when (seq (:reconciliation-refetches row))
+          [:span {:style {:color (:info tokens) :margin-left "6px"}}
+           (count (:reconciliation-refetches row)) " refetched"])])
+     ;; ON ROLLBACK — the conflict-aware per-key disposition + on-conflict rule
+     (when (= :rolled-back (:outcome row))
+       [:div {:data-testid (str testid "-rollback")
+              :style {:display "flex" :flex-direction "column" :gap "1px"
+                      :padding-left "12px"}}
+        [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"}}
+         [:span {:style {:color (:text-tertiary tokens)}}
+          "on-conflict " (str (some-> (:on-conflict row) name))]
+         [:span {:style {:color (:green tokens)}}
+          (count (:restored row)) " restored"]
+         (when (seq (:conflicted row))
+           [:span {:data-testid (str testid "-conflicted")
+                   :style {:color (:error tokens)}}
+            (count (:conflicted row)) " conflicted"])
+         (when (seq (:refetched row))
+           [:span {:style {:color (:info tokens)}}
+            (count (:refetched row)) " refetched"])]
+        ;; per-key restored-vs-conflict disposition (the truthful evidence)
+        (into [:div {:style {:display "flex" :flex-direction "column" :gap "1px"}}]
+              (for [d (:dispositions row)]
+                ^{:key (str (get-in d [:resource/key :resource-id])
+                            (get-in d [:resource/key :params :preview]))}
+                [:span {:style {:color (if (:conflict d)
+                                         (:warning tokens)
+                                         (:text-tertiary tokens))}}
+                 (str (get-in d [:resource/key :resource-id]))
+                 (if (:restored d) " · restored" " · refetch")
+                 (when (:conflict d)
+                   (str " · conflict (" (some-> (:on-conflict d) name) ")"))]))])]))
+
+(defn- optimistic-force-clobber-row-view [row]
+  [:div {:data-testid (str "rf-xray-resources-optimistic-clobber-row-" (:id row))
+         :data-mutation (str (:mutation row))
+         :style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"
+                 :padding "2px 0" :font-family mono-stack :font-size "11px"
+                 :color (:error tokens)}}
+   [:span {:style {:font-weight 600 :min-width "9rem"}} "⚠ force clobber"]
+   [:span {:style {:color mode-accent}} (str (:mutation row))]
+   (when (:instance row)
+     [:span {:style {:color (:text-tertiary tokens)}} (pr-str (:instance row))])
+   [:span {:style {:color (:warning tokens)}}
+    (count (:forced-keys row)) " key(s) clobbered"]
+   (when (:recovery row)
+     [:span {:style {:color (:text-tertiary tokens)}}
+      "recovery " (str (some-> (:recovery row) name))])])
+
+(defn- optimistic-mutations-section [{:keys [optimistic-mutations optimistic-force-clobbers]}]
+  (section
+    {:first? false :testid "rf-xray-resources-optimistic"}
+    (section-caption "Optimistic mutations" "rf-xray-resources-optimistic-caption")
+    [:div {:style {:display "flex" :flex-direction "column" :gap "6px"}}
+     (if (seq optimistic-mutations)
+       (into [:div {:data-testid "rf-xray-resources-optimistic-body"
+                    :style {:display "flex" :flex-direction "column" :gap "3px"}}]
+             (for [row optimistic-mutations]
+               ^{:key (str (:id row))} (optimistic-mutation-row-view row)))
+       (empty-caption "No optimistic mutations in this epoch."
+                      "rf-xray-resources-optimistic-empty"))
+     ;; the loud :force-over-a-concurrent-write clobber warnings
+     (when (seq optimistic-force-clobbers)
+       (into [:div {:data-testid "rf-xray-resources-optimistic-clobber-body"
+                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
+             (for [row optimistic-force-clobbers]
+               ^{:key (str (:id row))} (optimistic-force-clobber-row-view row))))]))
+
 ;; ---- §7 CACHE GROWTH ----------------------------------------------------
 
 (defn- cache-growth-section [growth]
@@ -700,13 +837,15 @@
   top → bottom: static registry, named scope resolvers (EP-0016 D3), live
   instances, work ledger, route/resource graph, lifecycle timeline,
   invalidation graph, scope resolution timeline (EP-0016 D3), mutation
-  continuations + scoped invalidation (EP-0016 D1/D2), cache growth, scope
+  continuations + scoped invalidation (EP-0016 D1/D2), optimistic mutations
+  (EP-0019 — the apply→reconcile/rollback lifecycle), cache growth, scope
   audit + lints. When the host has no resources registered AND no live
   instances, renders the silent-by-default caption."
   []
   (let [{:keys [silent? registry scope-resolvers instances work route-graph
                 timeline invalidations scope-resolutions mutation-invalidations
-                continuations cache-growth audit]}
+                continuations optimistic-mutations optimistic-force-clobbers
+                cache-growth audit]}
         @(rf/subscribe [:rf.xray/resources-tab-data])]
     [:section {:data-testid "rf-xray-resources"
                :style {:height         "100%"
@@ -730,6 +869,9 @@
         (scope-resolution-section scope-resolutions)
         (continuations-section {:continuations continuations
                                 :mutation-invalidations mutation-invalidations})
+        (optimistic-mutations-section
+          {:optimistic-mutations optimistic-mutations
+           :optimistic-force-clobbers optimistic-force-clobbers})
         (cache-growth-section cache-growth)
         (audit-section audit)])]))
 
@@ -910,6 +1052,15 @@
          ;; dispatch evidence (`:rf.mutation/replied` — phase 6, after cache
          ;; consequences + instance settlement).
          :continuations (h/mutation-continuations trace-buffer)
+         ;; EP-0019 (slice 4b): the optimistic-mutation lifecycle — each
+         ;; `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its
+         ;; terminal settle (`:reconciled` commit / `:rolled-back`), so a
+         ;; developer SEES an optimistic apply, its snapshot, and whether it
+         ;; committed or rolled back (with the conflict outcome). The
+         ;; `:optimistic-force-clobbers` are the loud `:force`-restored-over-a-
+         ;; concurrent-write warnings.
+         :optimistic-mutations (h/optimistic-lifecycle trace-buffer)
+         :optimistic-force-clobbers (h/optimistic-force-clobbers trace-buffer)
          :cache-growth  (h/cache-growth instance-rows work-rows)
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)

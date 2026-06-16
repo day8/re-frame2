@@ -1181,6 +1181,230 @@
                   :target   (:target tags)
                   :cause    (when (contains? tags :cause) (summarize (:cause tags)))})))))
 
+;; ---------------------------------------------------------------------------
+;; EP-0019 — optimistic mutation lifecycle (apply / rolled-back / reconciled).
+;; Spec 016 §Optimistic mutations / §Surfacing to tooling; Xray spec 024
+;; §The optimistic-mutation lifecycle. The runtime (mutation_events.cljc)
+;; applies a FORWARD optimistic patch BEFORE the request settles (phase 1.5)
+;; and records the truthful per-entry INVERSE (snapshot + observed `:revision`)
+;; on the mutation instance row. On reply settlement the recorded inverse is
+;; deterministically disposed:
+;;
+;;   - SUCCESS    -> `:rf.mutation/optimistic-reconciled` — the authoritative
+;;     `:populates` / `:patches` COMMITTED over the optimistic value; the
+;;     recorded inverse was discarded (the commit superseded it).
+;;   - FAILURE / accepted cancel / restore-DANGLE
+;;     -> `:rf.mutation/optimistic-rolled-back` — conflict-aware per-key
+;;     rollback: an UNMOVED `:revision` restores the recorded `:before`
+;;     verbatim (`:restored true`); a MOVED `:revision` defers to
+;;     `:on-conflict` (`:invalidate` default — mark stale + refetch, so
+;;     `:restored false`; `:force` — restore the stale inverse anyway, the
+;;     single-writer last-write-wins escape that also fires
+;;     `:rf.warning/optimistic-force-clobber`).
+;;   - STALE / superseded reply -> NEITHER (the inverse is discarded; never
+;;     replayed — handled by the stale-suppression branch, no op here).
+;;
+;; The developer's bug-class question is "I saw an optimistic apply — did it
+;; COMMIT or ROLL BACK, and was there a conflict?" The projections below pair
+;; each `:applied` with its terminal disposition (by `:snapshot-id`) so an
+;; apply still in flight reads `:pending`, a committed one `:reconciled`, and a
+;; rolled-back one `:rolled-back` (with per-key restored-vs-conflict evidence +
+;; the resolved `:on-conflict` rule). PRIVACY: a `:cause` may carry mutation
+;; data → summarized; the scoped keys carry PII in scope/params → summarized;
+;; the metadata (mutation id, instance, work id, generation, snapshot id,
+;; on-conflict rule, restored/conflict booleans) is framework bookkeeping and
+;; never egressed.
+;; ---------------------------------------------------------------------------
+
+(def optimistic-apply-op
+  "The op the runtime emits for a forward optimistic apply (phase 1.5), BEFORE
+  the request settles. Per Spec 016 §Optimistic mutations."
+  :rf.mutation/optimistic-applied)
+
+(def optimistic-reconcile-op
+  "The op the runtime emits when a mutation SUCCEEDS and the authoritative
+  write COMMITTED over the optimistic value (the recorded inverse discarded).
+  Per Spec 016 §Optimistic settle."
+  :rf.mutation/optimistic-reconciled)
+
+(def optimistic-rollback-op
+  "The op the runtime emits when a mutation FAILS / is cancelled / restore-
+  dangles and the recorded inverse is rolled back (conflict-aware). Per Spec
+  016 §Optimistic settle."
+  :rf.mutation/optimistic-rolled-back)
+
+(def optimistic-force-clobber-op
+  "The `:warning`-level op the runtime emits when an `:on-conflict :force`
+  rollback restored a now-stale inverse OVER a concurrent authoritative write
+  (the deliberate single-writer last-write-wins escape — loud so an unexpected
+  clobber is visible). Per Spec 016 §Optimistic settle / §On-conflict."
+  :rf.warning/optimistic-force-clobber)
+
+(def ^:private optimistic-ops
+  "The closed `:rf.mutation/optimistic-*` lifecycle op set (apply + the two
+  terminal settle dispositions). The force-clobber WARNING is surfaced
+  separately (it rides a rollback) — it is not a lifecycle op."
+  #{optimistic-apply-op optimistic-reconcile-op optimistic-rollback-op})
+
+(defn optimistic-mutation-op?
+  "True iff `operation` is a member of the EP-0019 optimistic-mutation
+  lifecycle op set (`:applied` / `:reconciled` / `:rolled-back`)."
+  [operation]
+  (contains? optimistic-ops operation))
+
+(defn- optimistic-settlement-index
+  "PURE: index the terminal settle dispositions (`:reconciled` / `:rolled-back`)
+  by `:snapshot-id`, so an `:applied` row can be paired with its outcome. Each
+  value is `{:outcome (:reconciled|:rolled-back) :id <trace-id>}` (the LAST
+  terminal seen for a snapshot-id wins, though a snapshot settles exactly once
+  in practice). Apply rows with no terminal settle are left `:pending`."
+  [trace-buffer]
+  (reduce (fn [acc ev]
+            (let [op (trace-op ev)]
+              (if (or (= op optimistic-reconcile-op) (= op optimistic-rollback-op))
+                (let [sid (:snapshot-id (trace-tags ev))]
+                  (cond-> acc
+                    (some? sid)
+                    (assoc sid {:outcome (if (= op optimistic-reconcile-op)
+                                           :reconciled :rolled-back)
+                                :id      (:id ev)})))
+                acc)))
+          {} (or trace-buffer [])))
+
+(defn- rollback-disposition-summary
+  "Summarize ONE `:rf.mutation/optimistic-rolled-back` per-key disposition
+  `{:resource/key … :restored (bool) :conflict (bool) :on-conflict …}` for a
+  render-safe row. PRIVACY: the scoped key carries PII in scope/params →
+  summarized; `:restored` / `:conflict` / `:on-conflict` are bookkeeping."
+  [{scoped-key :resource/key :keys [restored conflict on-conflict]}]
+  (cond-> {:resource/key (scoped-key-summary scoped-key)
+           :restored     (boolean restored)
+           :conflict     (boolean conflict)}
+    (some? on-conflict) (assoc :on-conflict on-conflict)))
+
+(defn optimistic-lifecycle
+  "Project the EP-0019 optimistic-mutation lifecycle from the trace buffer
+  (Spec 016 §Optimistic mutations / §Surfacing to tooling). One row per
+  `:rf.mutation/optimistic-applied`, PAIRED with its terminal settle
+  disposition by `:snapshot-id`:
+
+      {:id              <trace-id>      ; the :applied event's id
+       :snapshot-id     <id>            ; the apply/settle correlation key
+       :mutation        :realworld/favorite-article
+       :instance        [:favorite \"welcome\"]
+       :work-id         <work-id>
+       :generation      8
+       :scope           <summary>       ; PRIVACY — the mutation's resolved scope
+       :affected-keys   [<scoped-key-summary> …]   ; the optimistically-patched keys
+       :forward         [{:resource/key <summary> :revision N :forward :patch} …]
+       :tag-matched-keys [<scoped-key-summary> …]  ; keys reached via :optimistic-tags
+       :target-unresolved [:realworld/tenant]      ; fail-closed {:from-db …} ids
+       :cause           <summary>
+       :outcome         :pending         ; :pending / :reconciled / :rolled-back
+       :settled-id      <trace-id>        ; the terminal settle event's id (when settled)
+       ;; ON RECONCILE (commit):
+       :committed       [<scoped-key-summary> …]   ; keys the authoritative write owned
+       :reconciliation-refetches [<scoped-key-summary> …]
+       ;; ON ROLLBACK:
+       :on-conflict     :invalidate       ; the resolved conflict rule
+       :restored        [<scoped-key-summary> …]   ; keys restored verbatim
+       :conflicted      [<scoped-key-summary> …]   ; keys whose :revision MOVED
+       :refetched       [<scoped-key-summary> …]   ; keys deferred to the read path
+       :dispositions    [{:resource/key <summary> :restored true :conflict false} …]}
+
+  `:outcome` is the headline: an apply with no matching terminal settle is
+  `:pending` (still in flight — the optimistic value is live on the cache); a
+  COMMITTED one is `:reconciled`; a rolled-back one is `:rolled-back` (carrying
+  the per-key restored-vs-conflict evidence + the resolved `:on-conflict`
+  rule). The settle facets (`:committed` / `:restored` / `:conflicted` / …)
+  are read off the terminal event's tags and attached to the apply row, so a
+  developer reads the WHOLE lifecycle of one optimistic apply in a single row.
+  Pure over the trace vector; preserves apply order (oldest-first). Per Spec
+  016."
+  [trace-buffer]
+  (let [buffer    (or trace-buffer [])
+        settle-ix (optimistic-settlement-index buffer)
+        ;; index the terminal settle EVENTS by snapshot-id so the apply row can
+        ;; pull the matching facets (committed / restored / conflicted / …).
+        terminal-by-sid
+        (reduce (fn [acc ev]
+                  (let [op (trace-op ev)]
+                    (if (or (= op optimistic-reconcile-op) (= op optimistic-rollback-op))
+                      (let [sid (:snapshot-id (trace-tags ev))]
+                        (cond-> acc (some? sid) (assoc sid ev)))
+                      acc)))
+                {} buffer)]
+    (->> buffer
+         (filter #(= optimistic-apply-op (trace-op %)))
+         (mapv (fn [ev]
+                 (let [tags     (trace-tags ev)
+                       sid      (:snapshot-id tags)
+                       settled  (get settle-ix sid)
+                       outcome  (:outcome settled :pending)
+                       term-ev  (get terminal-by-sid sid)
+                       term     (trace-tags term-ev)]
+                   (cond-> {:id                (:id ev)
+                            :snapshot-id       sid
+                            :mutation          (:mutation tags)
+                            :instance          (:instance tags)
+                            :work-id           (:work/id tags)
+                            :generation        (:generation tags)
+                            :scope             (summarize (:scope tags))
+                            :affected-keys     (mapv scoped-key-summary (:affected-keys tags))
+                            :forward           (mapv (fn [{scoped-key :resource/key :keys [revision forward]}]
+                                                       {:resource/key (scoped-key-summary scoped-key)
+                                                        :revision     revision
+                                                        :forward      forward})
+                                                     (:revisions tags))
+                            :tag-matched-keys  (mapv scoped-key-summary (:tag-matched-keys tags))
+                            :target-unresolved (vec (:target-unresolved tags))
+                            :cause             (when (contains? tags :cause)
+                                                 (summarize (:cause tags)))
+                            :outcome           outcome}
+                     (some? settled)
+                     (assoc :settled-id (:id settled))
+                     (= :reconciled outcome)
+                     (assoc :committed (mapv scoped-key-summary (:committed term))
+                            :reconciliation-refetches
+                            (mapv scoped-key-summary (:reconciliation-refetches term)))
+                     (= :rolled-back outcome)
+                     (assoc :on-conflict  (:on-conflict term)
+                            :restored     (mapv scoped-key-summary (:restored term))
+                            :conflicted   (mapv scoped-key-summary (:conflicted term))
+                            :refetched    (mapv scoped-key-summary (:refetched term))
+                            :dispositions (mapv rollback-disposition-summary
+                                                (:dispositions term)))))))
+         vec)))
+
+(defn optimistic-force-clobbers
+  "Project the `:rf.warning/optimistic-force-clobber` trace rows (EP-0019
+  §On-conflict). The runtime emits ONE per rollback where `:on-conflict :force`
+  restored a now-stale inverse OVER a concurrent authoritative write (the
+  deliberate single-writer last-write-wins escape — surfaced LOUD so an
+  unexpected clobber is visible). One row per warning:
+
+      {:id          <trace-id>
+       :mutation    :realworld/favorite-article
+       :instance    [:favorite \"welcome\"]
+       :forced-keys [<scoped-key-summary> …]   ; the conflicted keys force-clobbered
+       :recovery    :review-on-conflict
+       :reason      \"mutation … rolled back with :on-conflict :force …\"}
+
+  PRIVACY: the forced scoped keys carry PII in scope/params → summarized; the
+  mutation/instance/recovery/reason are bookkeeping. Pure over the trace
+  vector; preserves order. Per Spec 016."
+  [trace-buffer]
+  (->> (or trace-buffer [])
+       (filter #(= optimistic-force-clobber-op (trace-op %)))
+       (mapv (fn [ev]
+               (let [tags (trace-tags ev)]
+                 {:id          (:id ev)
+                  :mutation    (:mutation tags)
+                  :instance    (:instance tags)
+                  :forced-keys (mapv scoped-key-summary (:forced-keys tags))
+                  :recovery    (:recovery tags)
+                  :reason      (:reason tags)})))))
+
 (defn cache-growth
   "Project the live instance rows + the work ledger into the cache-growth
   view (Spec 016 §Paginated and previous data / §Xray — the cache-growth

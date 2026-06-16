@@ -305,6 +305,87 @@
           (is (re-find #":realworld/save-article" (node-text row))
               "the mutation id surfaced"))))))
 
+;; ---- (3b) EP-0019 optimistic mutation lifecycle render ------------------
+
+(def ep0019-buffer
+  [;; an optimistic apply that SUCCEEDED → reconciled (committed)
+   {:id 60 :op-type :rf.event :operation :rf.mutation/optimistic-applied
+    :tags {:mutation :realworld/favorite-article :instance [:favorite "welcome"]
+           :work/id [:rf.work/resource [:rf.mutation [:favorite "welcome"]] 5]
+           :generation 5 :scope session-scope :snapshot-id "snap-1"
+           :affected-keys [[session-scope :article/by-slug {:slug "welcome"}]]
+           :revisions [{:resource/key [session-scope :article/by-slug {:slug "welcome"}]
+                        :revision 3 :forward :patch}]
+           :tag-matched-keys [] :target-unresolved []
+           :cause [:mutation :realworld/favorite-article [:favorite "welcome"]]}}
+   {:id 61 :op-type :rf.event :operation :rf.mutation/optimistic-reconciled
+    :tags {:mutation :realworld/favorite-article :instance [:favorite "welcome"]
+           :work/id [:rf.work/resource [:rf.mutation [:favorite "welcome"]] 5]
+           :generation 5 :snapshot-id "snap-1"
+           :optimistic-keys [[session-scope :article/by-slug {:slug "welcome"}]]
+           :committed [[session-scope :article/by-slug {:slug "welcome"}]]
+           :reconciliation-refetches []
+           :cause [:mutation :realworld/favorite-article [:favorite "welcome"]]}}
+   ;; an optimistic apply that FAILED → rolled back, with a :force clobber
+   {:id 62 :op-type :rf.event :operation :rf.mutation/optimistic-applied
+    :tags {:mutation :realworld/rename :instance [:rename 7]
+           :work/id [:rf.work/resource [:rf.mutation [:rename 7]] 9]
+           :generation 9 :scope :rf.scope/global :snapshot-id "snap-2"
+           :affected-keys [[:rf.scope/global :realworld/feed {}]]
+           :revisions [{:resource/key [:rf.scope/global :realworld/feed {}]
+                        :revision 2 :forward :seed}]
+           :tag-matched-keys [] :target-unresolved []
+           :cause [:mutation :realworld/rename [:rename 7]]}}
+   {:id 63 :op-type :rf.event :operation :rf.mutation/optimistic-rolled-back
+    :tags {:mutation :realworld/rename :instance [:rename 7]
+           :work/id [:rf.work/resource [:rf.mutation [:rename 7]] 9]
+           :generation 9 :snapshot-id "snap-2" :on-conflict :force
+           :dispositions [{:resource/key [:rf.scope/global :realworld/feed {}]
+                           :restored true :conflict true :on-conflict :force}]
+           :restored [[:rf.scope/global :realworld/feed {}]]
+           :conflicted [[:rf.scope/global :realworld/feed {}]]
+           :refetched []
+           :cause [:rf.mutation/failed :realworld/rename]}}
+   {:id 64 :op-type :warning :operation :rf.warning/optimistic-force-clobber
+    :tags {:mutation :realworld/rename :instance [:rename 7]
+           :forced-keys [[:rf.scope/global :realworld/feed {}]]
+           :recovery :review-on-conflict
+           :reason "mutation :realworld/rename rolled back with :on-conflict :force"}}])
+
+(deftest ep0019-optimistic-surfaces-render
+  (testing "the optimistic-mutation lifecycle renders the apply→settle pairing
+            (reconciled commit + rolled-back conflict) + the force-clobber
+            warning from the trace buffer (EP-0019 slice 4b)"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-overrides!)
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0019-buffer] {:frame :rf/xray})
+      (let [tree (resources/Panel)]
+        ;; the section renders
+        (is (some? (find-by-testid tree "rf-xray-resources-optimistic"))
+            "optimistic-mutations section rendered")
+        ;; the SUCCEEDED apply paired with its reconcile → :reconciled outcome
+        (let [row (find-by-testid tree "rf-xray-resources-optimistic-row-60")]
+          (is (some? row) "the optimistic apply row rendered")
+          (is (re-find #"reconciled" (node-text row))
+              "the committed apply reads reconciled")
+          (is (re-find #":realworld/favorite-article" (node-text row))
+              "the mutation id surfaced")
+          (is (some? (find-by-testid tree "rf-xray-resources-optimistic-row-60-committed"))
+              "the committed keys surfaced"))
+        ;; the FAILED apply paired with its rollback → :rolled-back + conflict
+        (let [row (find-by-testid tree "rf-xray-resources-optimistic-row-62")]
+          (is (some? row) "the rolled-back apply row rendered")
+          (is (re-find #"rolled back" (node-text row))
+              "the failed apply reads rolled back")
+          (is (some? (find-by-testid tree "rf-xray-resources-optimistic-row-62-rollback"))
+              "the rollback disposition surfaced")
+          (is (some? (find-by-testid tree "rf-xray-resources-optimistic-row-62-conflicted"))
+              "the conflicted key surfaced"))
+        ;; the :force clobber warning renders loud
+        (is (some? (find-by-testid tree "rf-xray-resources-optimistic-clobber-row-64"))
+            "the :force-clobber warning row rendered")))))
+
 (deftest instance-row-shows-status-and-owners
   (testing "the instance row surfaces status + owner-count, derived not stored"
     (setup-xray-frame!)

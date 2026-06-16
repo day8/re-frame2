@@ -28,6 +28,11 @@
     6. **project-route-graph** — routes with `:resources` → graph nodes;
        blocking = SSR wait point.
     7. **lifecycle-timeline / invalidation-graph / cache-growth**.
+    7c. **optimistic mutation lifecycle (EP-0019)** —
+       `optimistic-lifecycle` pairs each `:rf.mutation/optimistic-applied`
+       with its terminal `:reconciled` / `:rolled-back` settle by
+       `:snapshot-id` (or `:pending` when unsettled);
+       `optimistic-force-clobbers` projects the `:force`-clobber warnings.
     8. **lints** — global-scope audit, suspicious-global, scope-mismatch,
        orphaned-owner.
     9. **filters** — instance / work / history filter axes; bounded
@@ -731,6 +736,145 @@
                (:work-id r)))
         ;; the cause is summarized (may carry data)
         (is (map? (:cause r)))))))
+
+;; ---- (7c) EP-0019 optimistic mutation lifecycle -------------------------
+;; each :rf.mutation/optimistic-applied paired by :snapshot-id with its
+;; terminal :reconciled / :rolled-back settle (+ the :force-clobber warning).
+
+(def ^:private opt-scope-a [:rf.scope/session {:user-id "u-1"}])
+(def ^:private opt-key-a [opt-scope-a :realworld/article {:slug "welcome"}])
+(def ^:private opt-key-b [:rf.scope/global :realworld/feed {}])
+
+(def ^:private ep0019-trace-buffer
+  [;; (1) an optimistic apply that SUCCEEDED → reconciled (committed)
+   {:id 20 :operation :rf.mutation/optimistic-applied
+    :tags {:mutation :realworld/favorite-article :instance [:favorite "welcome"]
+           :work/id [:rf.work/resource [:rf.mutation [:favorite "welcome"]] 5]
+           :generation 5 :scope opt-scope-a :snapshot-id "snap-1"
+           :affected-keys [opt-key-a]
+           :revisions [{:resource/key opt-key-a :revision 3 :forward :patch}]
+           :tag-matched-keys [] :target-unresolved []
+           :cause [:mutation :realworld/favorite-article [:favorite "welcome"]]}}
+   {:id 21 :operation :rf.mutation/optimistic-reconciled
+    :tags {:mutation :realworld/favorite-article :instance [:favorite "welcome"]
+           :work/id [:rf.work/resource [:rf.mutation [:favorite "welcome"]] 5]
+           :generation 5 :snapshot-id "snap-1"
+           :optimistic-keys [opt-key-a] :committed [opt-key-a]
+           :reconciliation-refetches [opt-key-b]
+           :cause [:mutation :realworld/favorite-article [:favorite "welcome"]]}}
+   ;; (2) an optimistic apply that FAILED → rolled back, conflict-aware
+   ;;     (one key restored verbatim, one key conflicted & invalidated)
+   {:id 22 :operation :rf.mutation/optimistic-applied
+    :tags {:mutation :realworld/rename :instance [:rename 7]
+           :work/id [:rf.work/resource [:rf.mutation [:rename 7]] 9]
+           :generation 9 :scope :rf.scope/global :snapshot-id "snap-2"
+           :affected-keys [opt-key-a opt-key-b]
+           :revisions [{:resource/key opt-key-a :revision 1 :forward :patch}
+                       {:resource/key opt-key-b :revision 2 :forward :seed}]
+           :tag-matched-keys [opt-key-b]
+           :target-unresolved [:realworld/tenant]
+           :cause [:mutation :realworld/rename [:rename 7]]}}
+   {:id 23 :operation :rf.mutation/optimistic-rolled-back
+    :tags {:mutation :realworld/rename :instance [:rename 7]
+           :work/id [:rf.work/resource [:rf.mutation [:rename 7]] 9]
+           :generation 9 :snapshot-id "snap-2" :on-conflict :invalidate
+           :dispositions [{:resource/key opt-key-a :restored true :conflict false}
+                          {:resource/key opt-key-b :restored false :conflict true
+                           :on-conflict :invalidate}]
+           :restored [opt-key-a] :conflicted [opt-key-b] :refetched [opt-key-b]
+           :cause [:rf.mutation/failed :realworld/rename]}}
+   ;; (3) an optimistic apply with NO terminal settle → :pending (in flight)
+   {:id 24 :operation :rf.mutation/optimistic-applied
+    :tags {:mutation :realworld/toggle :instance [:toggle 1]
+           :work/id [:rf.work/resource [:rf.mutation [:toggle 1]] 11]
+           :generation 11 :scope opt-scope-a :snapshot-id "snap-3"
+           :affected-keys [opt-key-a]
+           :revisions [{:resource/key opt-key-a :revision 0 :forward :seed}]
+           :tag-matched-keys [] :target-unresolved []
+           :cause [:mutation :realworld/toggle [:toggle 1]]}}
+   ;; (4) a :force clobber WARNING (rode a :force rollback over a concurrent write)
+   {:id 25 :operation :rf.warning/optimistic-force-clobber
+    :tags {:mutation :realworld/rename :instance [:rename 7]
+           :forced-keys [opt-key-b] :recovery :review-on-conflict
+           :reason "mutation :realworld/rename rolled back with :on-conflict :force"}}])
+
+(deftest optimistic-mutation-op?-test
+  (testing "the three optimistic lifecycle ops are family members"
+    (is (true? (h/optimistic-mutation-op? :rf.mutation/optimistic-applied)))
+    (is (true? (h/optimistic-mutation-op? :rf.mutation/optimistic-reconciled)))
+    (is (true? (h/optimistic-mutation-op? :rf.mutation/optimistic-rolled-back))))
+  (testing "the force-clobber warning + non-members reject"
+    (is (false? (h/optimistic-mutation-op? :rf.warning/optimistic-force-clobber)))
+    (is (false? (h/optimistic-mutation-op? :rf.mutation/succeeded)))
+    (is (false? (h/optimistic-mutation-op? :rf.resource/succeeded)))))
+
+(deftest optimistic-lifecycle-test
+  (let [rows (h/optimistic-lifecycle ep0019-trace-buffer)]
+    (testing "one row per :rf.mutation/optimistic-applied, in apply order"
+      (is (= 3 (count rows)))
+      (is (= [20 22 24] (mapv :id rows))))
+    (testing "a SUCCEEDED apply pairs with its reconcile by snapshot-id"
+      (let [r (first rows)]
+        (is (= "snap-1" (:snapshot-id r)))
+        (is (= :reconciled (:outcome r)))
+        (is (= 21 (:settled-id r)))
+        (is (= :realworld/favorite-article (:mutation r)))
+        ;; the affected + committed keys are PRIVACY-summarized scoped keys
+        (is (= 1 (count (:affected-keys r))))
+        (is (= :realworld/article (get-in r [:affected-keys 0 :resource-id])))
+        (is (= 1 (count (:committed r))))
+        (is (= :realworld/feed (get-in r [:reconciliation-refetches 0 :resource-id])))
+        ;; the forward op shape rides the row (revision + :patch/:seed)
+        (is (= 3 (get-in r [:forward 0 :revision])))
+        (is (= :patch (get-in r [:forward 0 :forward])))
+        ;; reconciled rows carry NO rollback facets
+        (is (nil? (:on-conflict r)))
+        (is (nil? (:dispositions r)))))
+    (testing "a FAILED apply pairs with its rollback (conflict-aware per-key)"
+      (let [r (second rows)]
+        (is (= "snap-2" (:snapshot-id r)))
+        (is (= :rolled-back (:outcome r)))
+        (is (= 23 (:settled-id r)))
+        (is (= :invalidate (:on-conflict r)))
+        (is (= 1 (count (:restored r))))
+        (is (= 1 (count (:conflicted r))))
+        (is (= 1 (count (:refetched r))))
+        ;; the fail-closed unresolved {:from-db …} ids ride the apply row
+        (is (= [:realworld/tenant] (:target-unresolved r)))
+        ;; per-key disposition: one restored verbatim, one conflicted+refetch
+        (let [restored-d (first (filter :restored (:dispositions r)))
+              conflict-d (first (filter :conflict (:dispositions r)))]
+          (is (= :realworld/article (get-in restored-d [:resource/key :resource-id])))
+          (is (false? (:conflict restored-d)))
+          (is (= :realworld/feed (get-in conflict-d [:resource/key :resource-id])))
+          (is (= :invalidate (:on-conflict conflict-d))))
+        ;; rolled-back rows carry NO reconcile facets
+        (is (nil? (:committed r)))))
+    (testing "an apply with NO terminal settle stays :pending (in flight)"
+      (let [r (nth rows 2)]
+        (is (= "snap-3" (:snapshot-id r)))
+        (is (= :pending (:outcome r)))
+        (is (nil? (:settled-id r)))
+        (is (nil? (:committed r)))
+        (is (nil? (:on-conflict r)))))
+    (testing "PRIVACY — the resolved scope + cause are summarized, never raw"
+      (let [r (first rows)]
+        (is (map? (:scope r)))
+        (is (contains? (:scope r) :preview))
+        (is (map? (:cause r)))))))
+
+(deftest optimistic-force-clobbers-test
+  (let [rows (h/optimistic-force-clobbers ep0019-trace-buffer)]
+    (testing "one row per :rf.warning/optimistic-force-clobber"
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= 25 (:id r)))
+        (is (= :realworld/rename (:mutation r)))
+        (is (= :review-on-conflict (:recovery r)))
+        ;; the forced (clobbered) keys are summarized scoped keys
+        (is (= 1 (count (:forced-keys r))))
+        (is (= :realworld/feed (get-in r [:forced-keys 0 :resource-id])))
+        (is (string? (:reason r)))))))
 
 ;; ---- (8) lints ----------------------------------------------------------
 
