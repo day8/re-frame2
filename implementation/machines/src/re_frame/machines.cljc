@@ -61,6 +61,7 @@
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
+            [re-frame.machines.ssr :as machines-ssr]
             [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
@@ -480,6 +481,15 @@
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec
 ;; 010 §Per-step recovery row 7).
 (late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
+;; Per rf2-jm2u63 — the SSR hydration projector for durable machine snapshots.
+;; `re-frame.ssr.payload-policy/project-runtime-db` consults this hook to project
+;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted /
+;; elided per the owning machine's `:data-schema` `:sensitive?` / `:large?`
+;; classification under `:rf.egress/ssr-hydration` BEFORE it rides the wire —
+;; closing the raw-classified-machine-data hydration leak (EP-0015 §6/§8).
+;; Late-bound so SSR never statically requires the machines artefact.
+(late-bind/set-fn! :machines/project-ssr-runtime-db
+                   machines-ssr/project-ssr-runtime-db)
 ;; Per rf2-ma0wvq — spawned-actor ownership resolver. The http artefact
 ;; consults this to classify whether a managed request's originating
 ;; event-id belongs to a spawned actor (so an actor-destroy cascade can
