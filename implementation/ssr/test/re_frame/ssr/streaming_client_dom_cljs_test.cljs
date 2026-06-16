@@ -512,6 +512,164 @@
               (finally (stop!))))
           (finally (remove-root! host)))))))
 
+(defn- mounts-for
+  "Every live `<rf-suspense data-rf2-suspense-mount=\"<id>\">` wrapper for
+  boundary `id` under `host`, in document order. Duplicate-id boundaries
+  produce more than one — the placement-coherence assertions (rf2-8en9mu)
+  read both."
+  [host id]
+  (array-seq
+    (.querySelectorAll host (str "[" wire/attr-suspense-mount "=\"" (pr-str id) "\"]"))))
+
+(defn- inert-fallback-template-count
+  "Count of un-materialised fallback `<template>`s still in the DOM. After a
+  sweep this MUST be zero — every fallback template is consumed into a live
+  mount (rf2-8en9mu: a duplicate-id boundary must not leave a stray inert
+  template)."
+  [host]
+  (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-fallback "]")))))
+
+(deftest fallback-is-inert-template-before-js-then-painted-on-install
+  (testing "rf2-xzhf2a — the no-JS / first-byte contract. The shell's
+            fallback markup is delivered ONLY inside an inert
+            `<template data-rf2-suspense-fallback>` — its content is NOT
+            painted DOM until the client runtime runs. We distinguish the two:
+            before install, the skeleton lives inside a `<template>` (its
+            `.content` is a detached DocumentFragment — `querySelector` on the
+            live tree does NOT find it) and there is NO live `<rf-suspense>`
+            mount; after install, the same markup is materialised into a live,
+            paintable `<rf-suspense data-rf2-suspense-mount>` mount."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (let [fid  (make-client-frame!)
+            host (make-root! [:card.revenue])]
+        (try
+          ;; BEFORE install (the no-JS / first-byte state): the fallback skeleton
+          ;; is inert template content — NOT in the live painted DOM.
+          (is (some? (.querySelector host (str "[" wire/attr-suspense-fallback "]")))
+              "the inert fallback <template> is present in the shell")
+          (is (nil? (.querySelector host ".skeleton"))
+              "the skeleton is INERT template content — not painted live DOM before JS")
+          (is (nil? (mount-for host :card.revenue))
+              "no live <rf-suspense> mount exists before the client runs")
+          ;; AFTER install: the runtime materialises the inert template into a
+          ;; live, painted mount — the skeleton is now real DOM.
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (try
+              (is (zero? (inert-fallback-template-count host))
+                  "the inert fallback <template> is consumed on install")
+              (is (some? (mount-for host :card.revenue))
+                  "a live <rf-suspense> mount now exists")
+              (is (some? (.querySelector host ".skeleton"))
+                  "the skeleton is now PAINTED live DOM (inside the live mount)")
+              (is (true? (showing-fallback? host :card.revenue))
+                  "the boundary shows its (now live, visible) fallback")
+              (finally (stop!))))
+          (finally (remove-root! host)))))))
+
+(deftest duplicate-id-resolves-into-last-boundary
+  (testing "rf2-8en9mu — two suspense boundaries declared with the SAME id.
+            The server's `dedupe-continuations` keeps the LAST registration
+            (last-write-wins, Spec 011 §Boundary nesting and recursion), so
+            exactly ONE resolved chunk for that id streams in. The shell still
+            carries TWO fallback `<template>`s (one per boundary). The client
+            must (a) materialise BOTH fallbacks into visible live mounts (no
+            stray inert template stranded), and (b) swap the single resolved
+            chunk into the LAST boundary's mount — the registration that won —
+            leaving the EARLIER mount showing its fallback. Before the fix the
+            resolved content landed in the FIRST mount (querySelectorAll
+            document order) and the second fallback template was left inert."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (let [fid  (make-client-frame!)
+            ;; Two boundaries, SAME id — make-root! emits a fallback template
+            ;; per id, so [:card.dupe :card.dupe] yields two same-id templates.
+            host (make-root! [:card.dupe :card.dupe])]
+        (try
+          ;; The server emitted only the LAST continuation's resolved chunk
+          ;; (dedupe keeps last). It arrives before install (initial sweep).
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.dupe
+                                 "<div class=\"card resolved-dupe\">resolved 7</div>"
+                                 {:cards {:dupe {:value 7}}}))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (try
+              ;; (a) BOTH fallbacks materialised — no stray inert template.
+              (is (zero? (inert-fallback-template-count host))
+                  "no inert fallback <template> left behind for the duplicate id")
+              (let [ms (mounts-for host :card.dupe)]
+                (is (= 2 (count ms)) "two live mounts — one per boundary")
+                ;; (b) the resolved content is in the LAST mount; the first
+                ;; mount still shows its skeleton fallback.
+                (let [first-mount (first ms)
+                      last-mount  (last ms)]
+                  (is (some? (.querySelector first-mount ".skeleton"))
+                      "earlier boundary still shows its fallback skeleton")
+                  (is (nil? (.querySelector first-mount ".resolved-dupe"))
+                      "earlier boundary did NOT receive the resolved content")
+                  (is (some? (.querySelector last-mount ".resolved-dupe"))
+                      "the LAST boundary (the won registration) received the resolved content")
+                  (is (nil? (.querySelector last-mount ".skeleton"))
+                      "the last boundary no longer shows its fallback")))
+              ;; exactly one resolved-dupe node total — not duplicated.
+              (is (= 1 (card-count host "resolved-dupe"))
+                  "the single resolved chunk is placed exactly once")
+              ;; delta still merged (placement bug must not regress hydration).
+              (is (= 7 (:value @(rf/subscribe fid [:sct/card :dupe])))
+                  "the resolved chunk's delta merged")
+              (finally (stop!))))
+          (finally (remove-root! host)))))))
+
+(deftest string-boundary-id-preserves-type-in-trace
+  (testing "rf2-m96yhw — a STRING suspense id must keep its string type in
+            client-side trace payloads, while a KEYWORD id parses back to a
+            keyword. The malformed-delta + failed-boundary trace paths decode
+            the id via `read-boundary-id`; before the fix a bare string id
+            (`card-revenue`, emitted via `(str id)`) parsed to an EDN SYMBOL,
+            so the trace `:id` carried the wrong type."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      ;; Drive a STRING id and a KEYWORD id through the failed-boundary path
+      ;; (which decodes the attribute via read-boundary-id for its :id).
+      (doseq [[id expected-pred shape]
+              [["card-revenue" string? "string id"]
+               [:card/revenue  keyword? "keyword id"]]]
+        (let [fid      (make-client-frame!)
+              host     (.createElement js/document "div")
+              captured (atom [])
+              k        (str (gensym "stream-idtype-cb"))]
+          (set! (.-innerHTML host) "<div id=\"app\"><main></main></div>")
+          (.appendChild (.-body js/document) host)
+          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (try
+            ;; A failed-boundary chunk → process-resolved-template! emits
+            ;; :rf.ssr/suspense-boundary-failed with :id (read-boundary-id …).
+            ;; No prior fallback mount is needed: the failed branch still
+            ;; emits the trace even when the swap finds no mount.
+            (append-chunk!
+              host
+              (failed-chunk-html id "<div class=\"card card-failed\">unavailable</div>"))
+            (let [stop! (streaming-client/install! {:frame fid :root host})]
+              (try
+                ;; The boundary id lands in the trace envelope's PAYLOAD —
+                ;; `[:tags :id]` — not the top-level `:id` (a trace-sequence
+                ;; counter). `emit-error!` stamps caller payload under `:tags`.
+                (let [ev     (some #(when (= :rf.ssr/suspense-boundary-failed (:operation %)) %)
+                                   @captured)
+                      ev-id  (get-in ev [:tags :id])]
+                  (is (some? ev) (str shape ": failed-boundary trace emitted"))
+                  (is (= id ev-id)
+                      (str shape ": trace :id round-trips to the authored id; got "
+                           (pr-str ev-id)))
+                  (is (expected-pred ev-id)
+                      (str shape ": trace :id has the right type; got "
+                           (pr-str (type ev-id)))))
+                (finally (stop!))))
+            (finally
+              (trace-tooling/unregister-listener! k)
+              (remove-root! host))))))))
+
 (deftest async-observer-applies-late-chunk
   (testing "A resolved chunk that arrives AFTER install (the observer-driven
             path) is swapped + merged too. Proves the MutationObserver

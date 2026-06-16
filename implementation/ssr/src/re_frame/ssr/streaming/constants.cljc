@@ -39,8 +39,11 @@
 
 (def ^:const attr-suspense-fallback
   "Marker on the inline fallback `<template>` the shell walk emits, so the
-  browser paints a placeholder immediately and the client knows which
-  templates to materialise into live mounts."
+  client knows which templates to materialise into live, visible mounts.
+  rf2-xzhf2a — the `<template>` content is INERT (never painted) until the
+  client runtime runs; the marked template is the wire-carrier, the painted
+  fallback is the client-materialised `<rf-suspense>` mount, NOT first-byte
+  content."
   "data-rf2-suspense-fallback")
 
 (def ^:const attr-suspense-resolved

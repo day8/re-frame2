@@ -69,6 +69,39 @@
       (is (str/includes? shell-html "data-rf2-suspense-fallback=\"1\"") "fallback marker stamped")
       (is (str/includes? shell-html "<p>Loading…</p>") "fallback hiccup rendered inline"))))
 
+(deftest render-shell-fallback-is-inert-template-not-painted-dom
+  (testing "rf2-xzhf2a — the streaming first shell chunk carries each
+            boundary's fallback markup ONLY inside an inert
+            `<template data-rf2-suspense-fallback>` — NOT as painted
+            (template-free) DOM. This is the no-JS / first-byte contract:
+            a `<template>`'s content is inert by the HTML spec (it does not
+            paint until the client runtime materialises it into a live
+            `<rf-suspense>` mount), so the server emit is intentionally a
+            wrapped placeholder, NOT first-byte visible content. The fallback
+            text appears EXACTLY once, and exactly once inside the template —
+            i.e. there is no second, painted copy outside the `<template>`."
+    (let [tree   [:main
+                  [:rf/suspense-boundary
+                   {:id :news/comments :fallback [:p.skeleton "Loading comments…"]}
+                   [:section.comments "Body"]]]
+          {:keys [shell-html]} (streaming/render-shell tree)
+          ;; Strip every <template …>…</template> block; whatever fallback
+          ;; markup the server painted OUTSIDE a template survives.
+          painted (str/replace shell-html
+                               #"(?s)<template[^>]*>.*?</template>"
+                               "")]
+      (is (str/includes? shell-html "data-rf2-suspense-fallback=\"1\"")
+          "the fallback is emitted as a marked <template> placeholder")
+      (is (str/includes? shell-html "<p class=\"skeleton\">Loading comments…</p>")
+          "the fallback markup is present (inside the template)")
+      ;; The fallback markup must NOT survive template-stripping — i.e. there
+      ;; is NO painted (template-free) copy. The shell, sans templates, is just
+      ;; the surrounding structure with NO fallback content.
+      (is (not (str/includes? painted "Loading comments…"))
+          "no painted (template-free) fallback copy — fallback content is ONLY inside the inert <template>")
+      (is (not (str/includes? painted "skeleton"))
+          "no painted fallback element outside the inert <template>"))))
+
 (deftest render-shell-handles-multiple-boundaries
   (testing "Multiple boundaries register multiple continuations in document order"
     (let [tree [:main
