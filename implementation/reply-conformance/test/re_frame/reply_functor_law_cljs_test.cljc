@@ -99,20 +99,33 @@
 ;; exposes a map-target relocation seam to point at.
 ;; ---------------------------------------------------------------------------
 
+;; EP-0017 — the durable causal completion time these canonical replies carry
+;; as `:completed-at` (the value the live reply dispatch carries as flat
+;; `:rf.cofx` `:rf/time-ms`). The relocation/naturality proof below asserts
+;; this fact rides UNCHANGED through a target relocation — a relocation that
+;; dropped or mutated the completion fact (mis-threading causal completion
+;; time, the bead's rf2-ear61v concern) would surface in the identity-
+;; preservation test.
+(def ^:private completion-time-ms 1781078400456)
+
 (def ^:private route-reply
   "A canonical route-loader :ok reply (the loader's decoded payload). The
-  route work-id rides; the value is the loaded resource."
-  {:status      :ok
-   :value       {:article {:id 42 :title "Welcome"}}
-   :work/id     (route-reply/work-id {:route-id :route/article :nav-token "nav-1" :loader-id :article/loaded})
-   :work/kind   :route
-   :rf.frame/id :app/main})
+  route work-id rides; the value is the loaded resource; `:completed-at` is
+  the durable causal completion time (EP-0017)."
+  {:status       :ok
+   :value        {:article {:id 42 :title "Welcome"}}
+   :work/id      (route-reply/work-id {:route-id :route/article :nav-token "nav-1" :loader-id :article/loaded})
+   :work/kind    :route
+   :rf.frame/id  :app/main
+   :completed-at completion-time-ms})
 
 (def ^:private spawn-reply
   "A canonical machine spawned-actor :ok reply (the child's :output-key
-  result under :value). The machine work-id rides."
+  result under :value). The machine work-id and the durable `:completed-at`
+  causal completion time (EP-0017) ride."
   (m-reply/success-reply {:actor-id :auth/flow#1 :parent-id :auth/main
-                          :work-bearing-path [:authenticating] :frame :app/main}
+                          :work-bearing-path [:authenticating] :frame :app/main
+                          :completed-at completion-time-ms}
                          {:user-id "u-42"}))
 
 ;; ---------------------------------------------------------------------------
@@ -240,7 +253,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest relocation-changes-only-the-event-not-the-reply-identity
-  (testing "route relay: the appended reply's work-id / status / correlation are untouched by relocation"
+  (testing "route relay: the appended reply's work-id / status / correlation / completion-time are untouched by relocation"
     (let [target    [:article/loaded {:slug "welcome"}]
           relay     (route-relay :route/article)
           completed (reply/complete (reply/map-target relay target) route-reply)
@@ -249,8 +262,13 @@
           delivered (peek inner)]
       (is (= (:work/id route-reply) (:work/id delivered)) "work-id rides unchanged through the relay")
       (is (= :ok (:status delivered)) "status rides unchanged")
-      (is (= :route (:work/kind delivered)))))
-  (testing "spawn :on-done: the appended reply's work-id / status are untouched by routing"
+      (is (= :route (:work/kind delivered)))
+      ;; EP-0017 (rf2-ear61v) — the durable causal completion fact rides
+      ;; unchanged through relocation; a relay that dropped or mutated it
+      ;; (mis-threading completion time) would surface here.
+      (is (= completion-time-ms (:completed-at delivered))
+          ":completed-at (the EP-0017 causal completion fact) rides unchanged through the relay")))
+  (testing "spawn :on-done: the appended reply's work-id / status / completion-time are untouched by routing"
     (let [target    [:auth/done {:flow :login}]
           on-done   (spawn-on-done :auth/main)
           completed (reply/complete (reply/map-target on-done target) spawn-reply)
@@ -258,7 +276,9 @@
           delivered (peek inner)]
       (is (= (:work/id spawn-reply) (:work/id delivered)) "machine work-id rides unchanged")
       (is (= :ok (:status delivered)))
-      (is (= :machine (:work/kind delivered))))))
+      (is (= :machine (:work/kind delivered)))
+      (is (= completion-time-ms (:completed-at delivered))
+          ":completed-at (the EP-0017 causal completion fact) rides unchanged through the spawn :on-done routing"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The relocation transforms are PURE DATA→DATA event transforms (no host

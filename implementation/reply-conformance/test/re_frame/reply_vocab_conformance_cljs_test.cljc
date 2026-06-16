@@ -89,12 +89,23 @@
 ;; comparison.
 ;; ---------------------------------------------------------------------------
 
+;; EP-0017 — the durable causal completion time. The pure reply map carries
+;; it as `:completed-at`; the LIVE reply dispatch carries the same value as
+;; the flat `:rf.cofx` `:rf/time-ms` fact on the dispatch envelope (the
+;; framework's single built-in recordable coeffect, stamped at the causal
+;; boundary — see `re-frame.router` §`:rf.cofx`). This tier is PURE over reply
+;; maps, so it locks the `:completed-at` propagation half of that bridge; the
+;; live-dispatch `:rf.cofx` half is owned by the router / per-family lowering
+;; suites. The HTTP / resource / mutation success fixtures seed this value;
+;; the machine fixture seeds its own (distinct) value.
+(def ^:private completion-time-ms 1781078400456)
+
 (def ^:private http-ctx
   {:request-id   :article/by-id
    :origin-event [:article/load {:id 42}]
    :attempt      1
    :frame        :app/main
-   :completed-at 1781078400456})
+   :completed-at completion-time-ms})
 
 (def ^:private resource-vp
   {:work/id      [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4]
@@ -116,7 +127,7 @@
    :parent-id         :auth/main
    :work-bearing-path [:authenticating]
    :frame             :app/main
-   :completed-at      1781078400888})
+   :completed-at      completion-time-ms})
 
 ;; A family error MAP carrying a :kind — the closed reply-map contract
 ;; demands every family error rides this shape (a loose scalar is rejected).
@@ -332,6 +343,99 @@
           (str family " success reply MUST NOT carry an :error")))))
 
 ;; ---------------------------------------------------------------------------
+;; (a′) EP-0017 CAUSAL COMPLETION TIME (`:completed-at`) — the durable
+;; wall-clock fact every family threads onto its reply map from the
+;; caller-supplied completion time. EP-0017 §3 / §The framework ships one
+;; built-in registration: this `:completed-at` payload is the same value the
+;; LIVE reply dispatch carries as flat `:rf.cofx` `:rf/time-ms` (the one
+;; framework-provided recordable coeffect). This tier is PURE over reply maps,
+;; so it locks the `:completed-at` propagation half of that bridge — that
+;; every family supplied a causal completion time propagates the SAME
+;; `:completed-at` fact, uniformly, and that an ABSENT time is OMITTED (no nil
+;; sentinel — Managed-Effects §The reply map: optional facts are omitted when
+;; absent, never nil-filled). The live-dispatch `:rf.cofx` `:rf/time-ms` half
+;; is owned by the router (`re-frame.router` §`:rf.cofx`) and the per-family
+;; lowering suites; this gate guarantees no family silently drops or
+;; mis-threads the durable completion fact while preserving status/work-id
+;; shape (the umbrella regression the bead names — rf2-ear61v).
+;;
+;; The families whose SUCCESS fixture seeds a completion time: HTTP, resource,
+;; mutation, machine. (The timer's success builder and the route family shape
+;; only the stale path here; their success row is N/A — but the absence half
+;; below holds EVERY success-producing family to the omit-when-absent rule.)
+;; ---------------------------------------------------------------------------
+
+;; Parallel "no completion time supplied" success builders — the SAME family
+;; success builders, but with `:completed-at` stripped from the context — so
+;; the omit-when-absent half can prove the family does NOT nil-fill the slot.
+(defn- http-success-no-time []
+  (http-reply/success-reply (dissoc http-ctx :completed-at) {:title "Welcome"}))
+
+(defn- resource-success-no-time []
+  (rreply/success-reply resource-vp {:title "Welcome"}
+                        {:work-kind rreply/work-kind-resource}))
+
+(defn- mutation-success-no-time []
+  (rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                        {:work-kind rreply/work-kind-mutation}))
+
+(defn- machine-success-no-time []
+  (m-reply/success-reply (dissoc machine-ctx :completed-at) {:user-id "u-42"}))
+
+(def ^:private completion-time-families
+  "The success-producing families whose fixture seeds a causal completion
+  time, each paired with its no-time counterpart."
+  [{:family :http     :with-time #(http-reply/success-reply http-ctx {:title "Welcome"})
+    :no-time http-success-no-time}
+   {:family :resource :with-time #(rreply/success-reply resource-vp {:title "Welcome"}
+                                                        {:work-kind rreply/work-kind-resource
+                                                         :completed-at completion-time-ms})
+    :no-time resource-success-no-time}
+   {:family :mutation :with-time #(rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                                                        {:work-kind rreply/work-kind-mutation
+                                                         :completed-at completion-time-ms})
+    :no-time mutation-success-no-time}
+   {:family :machine  :with-time #(m-reply/success-reply machine-ctx {:user-id "u-42"})
+    :no-time machine-success-no-time}])
+
+(deftest completion-time-propagates-uniformly-across-families
+  (testing "EP-0017 — every family supplied a causal completion time threads
+            the SAME `:completed-at` fact onto its reply (the durable value the
+            live reply dispatch carries as flat :rf.cofx :rf/time-ms)"
+    (doseq [{:keys [family with-time]} completion-time-families
+            :let [reply (with-time)]]
+      (testing (str family " success → :completed-at present + uniform")
+        (is (contains? reply :completed-at)
+            (str family " success reply MUST carry the :completed-at causal "
+                 "completion fact when the completion time was supplied"))
+        (is (= completion-time-ms (:completed-at reply))
+            (str family " success :completed-at must be the supplied causal "
+                 "time " completion-time-ms ", got " (:completed-at reply)
+                 " — every family threads the SAME fact (the value the live "
+                 "reply dispatch carries as :rf.cofx :rf/time-ms)"))))))
+
+(deftest completion-time-is-omitted-not-nil-when-absent
+  (testing "EP-0017 / Managed-Effects §The reply map — a family NOT supplied a
+            completion time OMITS :completed-at entirely (no nil sentinel); a
+            reducer deriving a durable timestamp must never read a stale/nil
+            completion fact"
+    (doseq [{:keys [family no-time]} completion-time-families
+            :let [reply (no-time)]]
+      (testing (str family " success (no time supplied) → :completed-at omitted")
+        (is (not (contains? reply :completed-at))
+            (str family " success reply MUST OMIT :completed-at when no "
+                 "completion time was supplied — never nil-fill it (a nil "
+                 "sentinel would let a reducer derive a bogus durable "
+                 "timestamp). Got " (pr-str (:completed-at reply))))
+        ;; The reply must still be otherwise canonical — omitting the optional
+        ;; fact does not break the envelope.
+        (is (reply/valid-reply? reply)
+            (str family " no-time success reply still validates: "
+                 (reply/validate-reply reply)))
+        (is (= :ok (:status reply))
+            (str family " no-time success is still :status :ok"))))))
+
+;; ---------------------------------------------------------------------------
 ;; (b) ERROR — every family that produces an error reply produces the SAME
 ;; error shape: :status :error + a :work/status in #{:failed :timed-out} +
 ;; a family :error MAP carrying a :kind (never a loose scalar).
@@ -536,3 +640,62 @@
       (is (nil? (get-in out [:trace :rf.reply/current]))
           (str family " control DROPPED :rf.reply/current — the gate's "
                ":rf.reply/current assertion would FAIL on this outcome")))))
+
+;; ---------------------------------------------------------------------------
+;; ADVERSARIAL CONTROL — EP-0017 completion-time gate (rf2-ear61v). The
+;; completion-time gate above is only as strong as its ability to FAIL when a
+;; family drops or mis-threads the durable `:completed-at` fact. The bead's
+;; exact concern: "this umbrella tier would still stay green if one family
+;; stopped propagating the EP-0017 completion-time fact while preserving
+;; status/work-id shape." This control proves the gate fails CLOSED against
+;; BOTH regression shapes — a DROPPED fact (the family forgets to thread it)
+;; and a NIL-FILLED fact (the family nil-sentinels it instead of omitting). We
+;; assert the NEGATIVE: a reply that the propagation/omission gates would
+;; reject is shown to be rejected, so if either gate ever passed such a reply
+;; (a key rename / a loosened check) this control would surface it.
+;; ---------------------------------------------------------------------------
+
+(defn- drop-completion-time
+  "Simulate a non-conforming family that FORGETS to thread the durable
+  completion fact — an otherwise-canonical :ok reply with :completed-at
+  dissoc'd, so ONLY the completion-time propagation gate distinguishes it."
+  [reply]
+  (dissoc reply :completed-at))
+
+(defn- nil-fill-completion-time
+  "Simulate a non-conforming family that NIL-FILLS the completion fact instead
+  of omitting it (the Managed-Effects §The reply map anti-pattern) — an
+  otherwise-canonical :ok reply with :completed-at present-but-nil, so only the
+  omit-when-absent gate distinguishes it."
+  [reply]
+  (assoc reply :completed-at nil))
+
+(deftest completion-time-gate-fails-closed-on-a-non-conforming-family
+  (testing "a success reply that DROPS :completed-at is detected — the
+            propagation gate's `(= completion-time-ms (:completed-at reply))`
+            and `(contains? reply :completed-at)` would go RED on it"
+    (doseq [{:keys [family with-time]} completion-time-families
+            :let [bad (drop-completion-time (with-time))]]
+      ;; The reply is otherwise a perfectly canonical :ok success …
+      (is (= :ok (:status bad))
+          (str family " control reply is still :status :ok"))
+      (is (reply/valid-reply? bad)
+          (str family " control reply still validates: " (reply/validate-reply bad)))
+      ;; … yet the durable completion fact is GONE, so the propagation gate's
+      ;; exact assertions go red. If these checks ever failed, the gate would
+      ;; be passing a family that silently dropped the EP-0017 fact.
+      (is (not (contains? bad :completed-at))
+          (str family " control DROPPED :completed-at — the propagation gate's "
+               "`contains?` + value assertions would FAIL on this reply"))))
+  (testing "a success reply that NIL-FILLS :completed-at is detected — the
+            omit-when-absent gate's `(not (contains? reply :completed-at))`
+            would go RED on a present-but-nil slot"
+    (doseq [{:keys [family no-time]} completion-time-families
+            :let [bad (nil-fill-completion-time (no-time))]]
+      (is (contains? bad :completed-at)
+          (str family " control NIL-FILLED :completed-at (present-but-nil) — the "
+               "omit-when-absent gate's `(not (contains? …))` assertion would "
+               "FAIL on this reply, catching the nil-sentinel anti-pattern"))
+      (is (nil? (:completed-at bad))
+          (str family " control's :completed-at is the nil sentinel the gate "
+               "forbids")))))
