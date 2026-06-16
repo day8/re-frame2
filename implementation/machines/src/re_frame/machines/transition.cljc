@@ -50,6 +50,7 @@
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.machines.cofx-attach :as cofx-attach]
             [re-frame.machines.grammar :as grammar]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.reply :as m-reply]
@@ -3600,6 +3601,52 @@
                       :rf.reply/work-status (:work/status summary)
                       :rf.reply/correlation (:correlation summary)})))))
 
+(defn ensure-raised-cofx
+  "Per EP-0017 / rf2-xsdn5h — re-run the consumer-attachment ensure step for a
+  RAISED internal event `event` against the active `snap` BEFORE its transition
+  is selected, returning the (possibly `:rf/cofx`-augmented) `machine`.
+
+  Public so the parallel parent's internal-event-queue re-broadcast loop
+  (`re-frame.machines.parallel`) reuses the SAME ensure before each
+  re-broadcast — a region's raise re-enters the parent's one queue, so the
+  raised event's region guard/action `:rf.cofx/requires` must be ensured against
+  the parent (whose `ensure-set-for` unions every region's scope) just as a flat
+  drain ensures its own raises.
+
+  The dispatch-time ensure step (`registration/ensure-ctx-cofx`) runs ONCE for
+  the routed EXTERNAL event, before the macrostep. But a same-macrostep raised
+  event (`[:raise <event>]`, including synthetic compound/parallel `:on-done`
+  signals) can select a transition whose named guard/action declares its own
+  `:rf.cofx/requires` that the external event's ensure-set never covered. Without
+  re-ensuring here, a generator-backed recordable fact reads nil (instead of
+  being minted or strict-missing), and a provided fact absent from the token
+  skips the required-cofx error — the rf2-xsdn5h hole.
+
+  This is a no-op (returns `machine` unchanged) for the pure-fn engine callers
+  (conformance corpus / SSR / JVM fixtures): they carry no `:rf/cofx`, so
+  `cofx-attach/ensure-cofx` short-circuits, the determinism contract is
+  preserved, and the reduction stays a pure function of its arguments. When a
+  router dispatch DID thread the token (`:rf/cofx` present), the ensure mints
+  under the resolved effective mint policy stamped on the machine def
+  (`:rf/cofx-mint-policy` — rf2-n0myjq) — `:strict` replay / `:test` refuse to
+  mint and surface `:rf.error/missing-required-cofx`. The augmented record is
+  written back onto the machine def so `callback-ctx` surfaces every ensured /
+  generated fact to the raised event's guards / actions, and so a subsequent
+  raise / `:always` in the same drain re-presents the generated value (the epoch
+  captures the post-generation token)."
+  [machine snap event]
+  (if-not (contains? machine :rf/cofx)
+    machine
+    (let [recorded  (:rf/cofx machine)
+          augmented (cofx-attach/ensure-cofx
+                      machine snap event recorded
+                      (:rf/frame machine)
+                      (or (:rf/parent-id machine) (:id machine))
+                      (:rf/cofx-mint-policy machine))]
+      (if (identical? augmented recorded)
+        machine
+        (assoc machine :rf/cofx augmented)))))
+
 (defn drain-to-fixed-point
   "Shared settling tail of the single-machine macrostep — steps 3-5 of
   Spec 005 §Drain semantics §Level 3, factored out of
@@ -3690,7 +3737,15 @@
           ;; transitive inbound count per rf2-b88nm). `pending` is the FIFO
           ;; internal-event queue — `[:raise <event-vec>]` entries kept
           ;; verbatim. `visited` tracks state-paths for the depth-abort path.
+          ;; rf2-xsdn5h — `m` is the live machine def threaded through the loop.
+          ;; It starts as `machine` and is re-stamped with an augmented `:rf/cofx`
+          ;; whenever a dequeued raise's `ensure-raised-cofx` mints / delivers a
+          ;; fact, so a subsequent raise / `:always` re-presents the generated
+          ;; value and every callback reads the post-ensure record off
+          ;; `callback-ctx`. For the pure-fn engine (no `:rf/cofx`) it is always
+          ;; identical to `machine` — the ensure short-circuits.
           (loop [snap         snap-after-event
+                 m            machine
                  fx           seed-real
                  pending      (vec seed-raises)
                  always-depth 0
@@ -3698,7 +3753,7 @@
                  visited      [(:state snap-after-event)]
                  cascade      base-cascade]
             (let [snap-path (state-path (:state snap))
-                  always-m  (pick-always-transition machine snap-path snap)]
+                  always-m  (pick-always-transition m snap-path snap)]
               (cond
                 ;; ---- (1) PREFER `:always` — settle eventless first --------
                 (some? always-m)
@@ -3713,13 +3768,13 @@
                                           ;; its live address). It rides under
                                           ;; `:actor-id`; `:machine-id` is the
                                           ;; registered TYPE.
-                                          :actor-id   (or (:rf/parent-id machine)
-                                                          (:id machine))
+                                          :actor-id   (or (:rf/parent-id m)
+                                                          (:id m))
                                           :depth      always-depth
                                           :path       visited
                                           ;; Per rf2-ko8jb: epoch-capture
                                           ;; admission requires `:frame`.
-                                          :frame      (:rf/frame machine)
+                                          :frame      (:rf/frame m)
                                           :recovery   :no-recovery})
                       ;; Macrostep rolls back atomically — no cascade survives
                       ;; the abort.
@@ -3728,7 +3783,7 @@
                   ;; `action-ran` emit carries `:phase :always` so the Handler
                   ;; section can group eventless cascades distinctly from
                   ;; `:on`-driven transitions.
-                  (let [step-result (apply-transition-once machine snap nil
+                  (let [step-result (apply-transition-once m snap nil
                                                             (:transition always-m)
                                                             :always)]
                     (if (result/fail? step-result)
@@ -3751,15 +3806,15 @@
                                       ;; LIVE actor's macrostep; address it by
                                       ;; `:actor-id` (the running INSTANCE),
                                       ;; not `:machine-id` (the TYPE).
-                                      :actor-id        (or (:rf/parent-id machine)
-                                                           (:id machine))
+                                      :actor-id        (or (:rf/parent-id m)
+                                                           (:id m))
                                       :from            (:state snap)
                                       :to              (:state snap2)
                                       :microstep-index always-depth
                                       :source          :always
                                       ;; Per rf2-ko8jb: epoch-capture
                                       ;; admission requires `:frame`.
-                                      :frame           (:rf/frame machine)})
+                                      :frame           (:rf/frame m)})
                         ;; Per rf2-n9f4z: append a `:microstep` cascade step
                         ;; carrying the microstep's own nested exit/action/entry
                         ;; `:steps` (from the eventless transition's
@@ -3767,7 +3822,7 @@
                         ;; cascade is explainable alongside the headline
                         ;; transition rather than hidden behind a bare count.
                         (let [micro-step {:kind            :microstep
-                                          :region          (:rf/region machine)
+                                          :region          (:rf/region m)
                                           :microstep-index always-depth
                                           :from            (:state snap)
                                           :to              (:state snap2)
@@ -3780,6 +3835,7 @@
                               ;; `:always`. FIFO among raises is preserved.
                               {step-raises :raises step-real :rest} (split-raise-fx fx2)]
                           (recur snap2
+                                 m
                                  (into fx step-real)
                                  (into pending step-raises)
                                  (inc always-depth)
@@ -3801,7 +3857,7 @@
                   ;; internal-event queue back un-drained for the queue-owner
                   ;; above (`drain-to-fixed-point` with `defer?` false, or the
                   ;; parallel parent queue) to harvest and re-feed FIFO.
-                  (-> (result/ok (commit-tags machine snap) (into fx pending))
+                  (-> (result/ok (commit-tags m snap) (into fx pending))
                       (result/with-microsteps always-depth)
                       (result/with-cascade cascade))
                   (if (>= raise-depth raise-limit)
@@ -3814,12 +3870,12 @@
                                             ;; singleton. It rides under
                                             ;; `:actor-id`; `:machine-id` is the
                                             ;; registered TYPE.
-                                            :actor-id   (or (:rf/parent-id machine)
-                                                            (:id machine))
+                                            :actor-id   (or (:rf/parent-id m)
+                                                            (:id m))
                                             :depth      raise-depth
                                             ;; Per rf2-ko8jb: epoch-capture
                                             ;; admission requires `:frame`.
-                                            :frame      (:rf/frame machine)
+                                            :frame      (:rf/frame m)
                                             :recovery   :no-recovery})
                         ;; Macrostep rolls back atomically — neither the
                         ;; partially-advanced snapshot nor the accumulated
@@ -3827,6 +3883,19 @@
                         (result/ok rollback-snapshot []))
                     (let [[_ ev]       (first pending)
                           rest-pending (subvec pending 1)
+                          ;; rf2-xsdn5h — re-run the consumer-attachment ensure
+                          ;; step for THIS raised event BEFORE its transition is
+                          ;; selected. The external event's ensure-set (run once
+                          ;; before the macrostep by `ensure-ctx-cofx`) never
+                          ;; covered a guard/action a SAME-MACROSTEP raise can
+                          ;; select, so without this its declared `:rf.cofx/
+                          ;; requires` would read nil / skip the missing-required
+                          ;; throw. `m'` carries the augmented `:rf/cofx` so the
+                          ;; raised event's guards/actions read the ensured /
+                          ;; generated facts, and a subsequent raise / `:always`
+                          ;; re-presents them. No-op (m' == m) for the pure-fn
+                          ;; engine (no `:rf/cofx`) — purity preserved.
+                          m'           (ensure-raised-cofx m snap ev)
                           ;; Pop this raise, apply its event-transition AND
                           ;; settle its OWN `:always` via a nested
                           ;; `machine-transition-single`, but DEFER that
@@ -3838,7 +3907,7 @@
                           ;; nested call's depth bound continues from this
                           ;; drain's count (rf2-b88nm).
                           step-result  (machine-transition-single
-                                         machine snap ev (inc raise-depth) true)]
+                                         m' snap ev (inc raise-depth) true)]
                       (if (result/fail? step-result)
                         step-result
                         (result/with-ok [snap2 fx2] step-result
@@ -3847,6 +3916,10 @@
                           ;; siblings — FIFO) and the real do-fx-bound fx.
                           (let [{new-raises :raises real-fx :rest} (split-raise-fx fx2)]
                             (recur snap2
+                                   ;; Thread the augmented machine forward so the
+                                   ;; generated facts from THIS raise's ensure are
+                                   ;; visible to later raises / `:always`.
+                                   m'
                                    (into fx real-fx)
                                    (into rest-pending new-raises)
                                    ;; A raised event does NOT count as an
@@ -3869,7 +3942,7 @@
                 ;; §Trace events). Per rf2-n9f4z the `cascade` rides via
                 ;; `::cascade`.
                 :else
-                (-> (result/ok (commit-tags machine snap) fx)
+                (-> (result/ok (commit-tags m snap) fx)
                     (result/with-microsteps always-depth)
                     (result/with-cascade cascade))))))))))
 

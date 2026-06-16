@@ -57,9 +57,19 @@
       ;; Hard-disallow `:db` — symmetric with the action-effect path
       ;; (Spec 005:463). Canonical id / tags per Spec 009 §Error event
       ;; catalogue.
+      ;;
+      ;; rf2-x9haxl — align the addressed-id tag shape with the action-effect
+      ;; path (`transition/enforce-db-disallow`) and Spec 009 §`:rf.machine/*`
+      ;; (rf2-yyvtk5): the offending write ran against a LIVE actor INSTANCE, so
+      ;; it rides under `:actor-id` — `:rf.machine/update-snapshot` carries the
+      ;; actor id under `:rf/machine-id`, which IS the running instance address
+      ;; (a singleton's registration id, or a spawned actor's `<type>#<n>` /
+      ;; fixed id). `:offending-value` (the whole app-db the patch wrongly
+      ;; carried) is summarized at the trace egress chokepoint by
+      ;; `re-frame.marks/project-machine-wrote-db-tags` so it never egresses raw.
       (when (contains? patch :db)
         (trace/emit-error! :rf.error/machine-action-wrote-db
-                           {:machine-id      machine-id
+                           {:actor-id        machine-id
                             :action-id       :rf.machine/update-snapshot
                             :offending-value (:db patch)
                             :frame           frame-id

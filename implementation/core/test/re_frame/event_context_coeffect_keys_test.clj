@@ -66,7 +66,10 @@
   (testing "a vanilla event with no user cofx sees EXACTLY the framework keys"
     (rf/reg-frame :ck/exact {:doc "ctx"})
     (let [cofx (capture-coeffects :ck/exact)]
-      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :source}
+      ;; rf2-n0myjq — `:rf.cofx/mint-policy` (the resolved effective mint policy)
+      ;; is a framework coeffect stamped by `assemble-initial-ctx` so the machine
+      ;; ensure path can read it; it joins the framework default key set.
+      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source}
              (set (keys cofx)))
           "the coeffect key set is exactly the framework defaults — no bare :frame")
       (is (not (contains? cofx :frame))
@@ -80,7 +83,7 @@
   (testing "threading a :trace-id adds :trace-id but never re-introduces :frame"
     (rf/reg-frame :ck/traced {:doc "ctx"})
     (let [cofx (capture-coeffects :ck/traced {:trace-id "tid-1"})]
-      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :source :trace-id}
+      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source :trace-id}
              (set (keys cofx)))
           ":trace-id appears when threaded; :frame still does not")
       (is (not (contains? cofx :frame))
@@ -119,7 +122,10 @@
         ":rf.frame/id is the retained frame-stamp coeffect key")
     (is (contains? fx/framework-coeffect-keys :rf.cofx)
         ":rf.cofx is a framework coeffect key (EP-0010 rf2-s9ss0t)")
-    (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx}
+    (is (contains? fx/framework-coeffect-keys :rf.cofx/mint-policy)
+        ":rf.cofx/mint-policy is a framework coeffect key (rf2-n0myjq)")
+    (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
+             :rf.cofx/mint-policy}
            fx/framework-coeffect-keys)
         "the framework-coeffect-keys set is exactly the framework defaults")))
 

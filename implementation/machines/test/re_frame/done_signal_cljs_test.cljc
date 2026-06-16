@@ -276,8 +276,11 @@
             "exactly one wrote-db hard-disallow error from the parallel :on-done action")
         (is (= :complete (-> errs first :tags :action-id))
             "the diagnostic names the offending :on-done action")
-        (is (= {:hacked true} (-> errs first :tags :offending-value))
-            "the diagnostic carries the offending :db value"))
+        ;; rf2-x9haxl — `:offending-value` (the whole app-db the :on-done action
+        ;; wrongly returned) is summarized to `:rf/redacted` at the trace egress
+        ;; chokepoint so it never leaks raw; `:action-id` still locates it.
+        (is (= :rf/redacted (-> errs first :tags :offending-value))
+            "the offending app-db value is redacted at egress (rf2-x9haxl)"))
       ;; The :data write STILL flowed through (the :db key was stripped, not
       ;; the whole effects map).
       (is (= 1 (get-in (snapshot :rf2-z522n/par-on-done-db) [:data :completions]))

@@ -196,7 +196,13 @@
           ws  (ops evs :rf.error/machine-action-wrote-db)]
       (is (= 1 (count ws)) "exactly one wrote-db error")
       (is (= :bad (-> ws first :tags :action-id)))
-      (is (= {:hacked true} (-> ws first :tags :offending-value)))
+      ;; rf2-x9haxl — `:offending-value` (the whole app-db the action wrongly
+      ;; returned) is summarized to `:rf/redacted` at the trace egress
+      ;; chokepoint (`marks/project-machine-wrote-db-tags`) so it never leaks
+      ;; raw to listeners / epoch / MCP / logs. The `:action-id` locates the
+      ;; offending action; the operator does not need the app-db contents.
+      (is (= :rf/redacted (-> ws first :tags :offending-value))
+          "the offending app-db value is redacted at egress (rf2-x9haxl)")
       ;; :data flowed through; the FSM is at :b; app-db root was NOT clobbered.
       (is (= {:legit 1} (:data @(rf/subscribe [:rf/machine :rem/wrote-db]))))
       (is (= :b (snap-of :rem/wrote-db)))
