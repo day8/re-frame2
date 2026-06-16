@@ -1295,3 +1295,75 @@
           ":explicit-live overrode the :test frame's :strict — the generator ran")
       (is (= 9 @seen-delta)
           "the generated value was delivered flat under the escape policy"))))
+
+;; ===========================================================================
+;; 13b. Per-call mint policy is preserved across CASCADE child dispatches
+;;      (rf2-aflgcc — EP-0017 §6)
+;; ===========================================================================
+
+(deftest per-call-strict-inherited-by-cascade-child
+  (testing "ADVERSARIAL (rf2-aflgcc): a parent dispatched with per-call
+            `:rf.cofx/mint-policy :strict` (a replay / strict-test lever) that
+            emits a child via `:dispatch` — the child requiring a
+            generator-backed recordable fact ABSENT from its (fresh) token —
+            must FAIL with `:rf.error/missing-required-cofx`, NOT silently fall
+            back to the frame-config / `:live` default and re-mint a fresh
+            nondeterministic value. The strict mint DISCIPLINE holds across the
+            whole cascade; only the `:rf.cofx` TOKEN is per-causal-run. EP-0017
+            §6 / Tool-Pair §Replay."
+    (let [child-gen-calls (atom 0)
+          child-fired?    (atom false)
+          child-error     (atom ::unset)]
+      ;; The ambient :rf/default frame is :live; only the per-call :strict on
+      ;; the PARENT carries the discipline forward to the child.
+      (rf/reg-cofx :cascade-test/child-delta
+        {:recordable? true}
+        (fn [] (swap! child-gen-calls inc) 7))
+      ;; Child: requires a generator-backed fact with NOTHING supplied on its
+      ;; (freshly-stamped) token → under :live it would generate, under the
+      ;; inherited :strict it must be missing-required.
+      (rf/reg-event :cascade-test/child-evt
+        {:rf.cofx/requires [:cascade-test/child-delta]}
+        (fn [_ _] (reset! child-fired? true) {}))
+      ;; Parent: emits the child via a :dispatch fx. The child cascade's
+      ;; missing-required throw (strict, no generator) propagates out of the
+      ;; sync drain — capture it directly off the dispatch-sync call.
+      (rf/reg-event :cascade-test/parent-evt
+        (fn [_ _] {:fx [[:dispatch [:cascade-test/child-evt]]]}))
+      (reset! child-error
+        (try (rf/dispatch-sync [:cascade-test/parent-evt]
+                               {:rf.cofx/mint-policy :strict})
+             nil
+             (catch #?(:clj clojure.lang.ExceptionInfo
+                       :cljs cljs.core/ExceptionInfo) e e)))
+      (is (zero? @child-gen-calls)
+          "the inherited :strict ran NO generator for the child — no host read / re-mint")
+      (is (false? @child-fired?)
+          "the child handler never ran (its incomplete record halted under inherited :strict)")
+      (is (some? @child-error)
+          "the child failed with :rf.error/missing-required-cofx, not a silent fresh mint")
+      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data @child-error)))
+          "the child cascade halted with missing-required under the inherited :strict")
+      (is (= :cascade-test/child-delta (:rf.cofx/id (ex-data @child-error)))
+          "the error names the absent generator-backed fact the child required")))
+
+  (testing "FOIL: without the per-call :strict the SAME cascade child generates
+            under the ambient :live default (proving the strict result above is
+            the inheritance, not an unrelated failure)"
+    (let [child-gen-calls (atom 0)
+          child-seen      (atom nil)]
+      (rf/reg-cofx :cascade-test/live-delta
+        {:recordable? true}
+        (fn [] (swap! child-gen-calls inc) 11))
+      (rf/reg-event :cascade-test/live-child
+        {:rf.cofx/requires [:cascade-test/live-delta]}
+        (fn [{:keys [cascade-test/live-delta]} _] (reset! child-seen live-delta) {}))
+      (rf/reg-event :cascade-test/live-parent
+        (fn [_ _] {:fx [[:dispatch [:cascade-test/live-child]]]}))
+      ;; No per-call mint policy → the child inherits nothing and runs under the
+      ;; ambient :live default, so the generator fills the absent fact.
+      (rf/dispatch-sync [:cascade-test/live-parent])
+      (is (= 1 @child-gen-calls)
+          "under :live the cascade child's generator ran (the foil to the strict case)")
+      (is (= 11 @child-seen)
+          "the generated value was delivered flat to the child handler"))))

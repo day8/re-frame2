@@ -228,25 +228,43 @@
 ;; §Cascade propagation (line 1162) and §Drain-loop pseudocode
 ;; `inheritable-envelope-keys` (lines 947-952). `:event` is NOT
 ;; inherited — the child gets its own.
-;; Per EP-0010 (rf2-s9ss0t) / EP-0017 (rf2-alc1lf) `:rf.cofx` is ALSO not
-;; inherited — a child dispatch is a DISTINCT causal token, so `build-envelope`
-;; stamps it a fresh `:rf/time-ms` rather than copying the parent's (Spec
-;; 002 §Dispatch Envelope Stamping). Its absence from this list is the
-;; mechanism. (`:dispatched-at` was retired in the same change — EP-0010
-;; rider b — so there is nothing left to exclude on that axis.)
+;; Per EP-0010 (rf2-s9ss0t) / EP-0017 (rf2-alc1lf) `:rf.cofx` (the recordable
+;; coeffect TOKEN) is NOT inherited — a child dispatch is a DISTINCT causal
+;; token, so `build-envelope` stamps it a fresh `:rf/time-ms` rather than
+;; copying the parent's (Spec 002 §Dispatch Envelope Stamping). Its absence
+;; from this list is the mechanism. (`:dispatched-at` was retired in the same
+;; change — EP-0010 rider b — so there is nothing left to exclude on that axis.)
 ;; Per rf2-ejtpd, `:source` is ALSO not inherited — each fx-emitted
 ;; child dispatch's `:source` reflects its immediate trigger
 ;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the fx handler
 ;; below. Inheriting `:source` would mis-report a `:dispatch` fx three
 ;; levels deep as `:source :ui`.
+;;
+;; Per EP-0017 §6 (rf2-aflgcc): the per-call `:rf.cofx/mint-policy` IS inherited
+;; — DISTINCT from the `:rf.cofx` token above. The token is per-causal-run
+;; (a child gets its own); the MINT POLICY is the strict/replay DISCIPLINE that
+;; must hold across the whole cascade. A replay or `:strict` test that dispatched
+;; the parent intends the SAME no-host-read discipline for every child it emits
+;; via `:dispatch` / `:dispatch-later`; without inheritance a child silently
+;; falls back to the frame-config / `:live` default and re-mints a fresh
+;; nondeterministic value, the exact silent-fallback EP-0017 §6 forbids. The
+;; envelope carries `:rf.cofx/mint-policy` ONLY when it was supplied per-call
+;; (`build-envelope` stamps it conditionally), so inheriting it carries forward
+;; exactly the per-call `:strict` / `:explicit-live` override — the frame-config
+;; tier is untouched (the child reads its own frame's policy fresh) and the
+;; override-free hot path inherits nothing (the key is absent on the parent).
 (def ^:private inheritable-envelope-keys
-  [:frame :fx-overrides :interceptor-overrides :trace-id :origin])
+  [:frame :fx-overrides :interceptor-overrides :trace-id :origin
+   :rf.cofx/mint-policy])
 
 (defn- child-dispatch-opts
   "Project the parent envelope's inheritable keys onto the opts map for a
   child dispatch. Per Spec 002 §Cascade propagation: the dispatched
   child inherits `:frame`, `:fx-overrides`, `:interceptor-overrides`,
-  `:trace-id`, `:origin`. `:source` is NOT inherited (rf2-ejtpd) — the
+  `:trace-id`, `:origin`, and — per EP-0017 §6 (rf2-aflgcc) — the per-call
+  `:rf.cofx/mint-policy` (the strict/replay discipline holds across the whole
+  cascade; the `:rf.cofx` token itself is NOT inherited — the child gets its
+  own causal run). `:source` is NOT inherited (rf2-ejtpd) — the
   fx handler stamps the specific `:fx-dispatch` / `:fx-dispatch-later`
   value via a separate `:source` opt on the call site. When
   `parent-envelope` is nil (caller did not thread one through — legacy
