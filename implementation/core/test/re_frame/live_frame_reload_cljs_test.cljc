@@ -321,3 +321,118 @@
             (is (identical? gen-before (lf/frame-generation (lf/live-frame :stable/main))))))
         (finally
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ---- the REMOVED leg (rf2-32siq3.40 minor a) ------------------------------
+;;
+;; The .31 review found reproject coverage exercised only the impl-CHANGED
+;; leg (source-store-change-reprojects-an-explicit-image-frame) and the
+;; UNCHANGED leg (reproject-leaves-unchanged-frames-untouched). The REMOVED
+;; leg — a descriptor the frame's image SELECTED is FORGOTTEN from the source
+;; store (the `forget-descriptor!` path) — was untested. After the forget,
+;; reproject must re-resolve the frame to a NARROWER generation, report the
+;; dropped id under the diff's `:removed`, and the swapped generation must no
+;; longer resolve it.
+
+(deftest reproject-removed-leg-forgets-a-selected-descriptor
+  (testing "reproject-live-frames! after a SELECTED descriptor is forgotten from
+            the source store re-resolves the frame to a narrower generation and
+            names the dropped id under :removed (EP-0023 §Default Image Semantics
+            — a source-store change reprojects affected frames; the removed leg).
+            Uses the LIVE source store; snapshot + restore (NOT clear-all!)."
+    (let [snapshot @source-store/kind->id->ns->descriptor]
+      (try
+        ;; Two registrations the explicit image selects: one will be forgotten.
+        (source-store/record-descriptor!
+          :event :rm/inc
+          {:rf.provenance/ns "removal.feature" :kind :event :id :rm/inc
+           :handler-fn ::rm-inc})
+        (source-store/record-descriptor!
+          :sub :rm/value
+          {:rf.provenance/ns "removal.feature" :kind :sub :id :rm/value
+           :handler-fn ::rm-value})
+        (let [img   (image/image {:id :rm/img :include-ns ["removal.feature"]})
+              frame (lf/make-frame {:id :rm/main :images [img]})
+              gen-before (lf/frame-generation frame)]
+          (testing "both selected ids resolve before the forget (control)"
+            (is (some? (asm/resolve-descriptor gen-before :event :rm/inc)))
+            (is (some? (asm/resolve-descriptor gen-before :sub :rm/value))))
+          ;; Forget exactly the selected :sub slot (targeted removal, mirrors a
+          ;; registrar/unregister! of a registration the image was selecting).
+          (source-store/forget-descriptor! :sub :rm/value "removal.feature")
+          (let [moved (lf/reproject-live-frames!)]
+            (testing "reproject reports the frame as moved, naming the dropped id
+                      under :removed (the removed leg — not :changed/:added)"
+              (is (contains? moved :rm/main))
+              (let [diff (get moved :rm/main)]
+                (is (contains? (:removed diff) [:sub :rm/value])
+                    "the forgotten selected id appears under :removed")
+                (is (not (contains? (:changed diff) [:sub :rm/value])))
+                (is (not (contains? (:added diff)   [:sub :rm/value])))
+                (is (contains? (:retained diff) [:event :rm/inc])
+                    ":rm/inc was untouched → retained, not removed")))
+            (testing "the swapped generation no longer resolves the forgotten id"
+              (let [gen-after (lf/frame-generation (lf/live-frame :rm/main))]
+                (is (nil? (asm/resolve-descriptor gen-after :sub :rm/value))
+                    "the forgotten descriptor is gone from the reprojected generation")
+                (is (some? (asm/resolve-descriptor gen-after :event :rm/inc))
+                    ":rm/inc still resolves — the frame narrowed, it did not empty")))))
+        (finally
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ---- composed multi-image reproject, one member ns changes (minor b) ------
+;;
+;; The .31 review found the reproject coverage used only a SINGLE-image frame.
+;; A COMPOSED frame (two images, each selecting a DIFFERENT member namespace)
+;; must reproject when ONLY ONE member ns changes: the changed member's id is
+;; :changed in the diff, the untouched member's id stays :retained, and both
+;; resolve in the swapped generation (the composition is preserved, only the
+;; changed slice moves).
+
+(deftest reproject-composed-frame-on-one-member-ns-change
+  (testing "a frame composed of TWO images (each over a distinct member ns)
+            reprojects when ONLY ONE member ns's source changes: the changed
+            member's id is :changed, the untouched member's id is :retained, and
+            both still resolve in the swapped generation (EP-0023 §Default Image
+            Semantics — composed images containing the changed slot reproject).
+            Uses the LIVE source store; snapshot + restore (NOT clear-all!)."
+    (let [snapshot @source-store/kind->id->ns->descriptor]
+      (try
+        ;; Member A and member B live in DIFFERENT namespaces; the composed
+        ;; frame selects both via two images.
+        (source-store/record-descriptor!
+          :event :compose.a/go
+          {:rf.provenance/ns "compose.member-a" :kind :event :id :compose.a/go
+           :handler-fn ::a-original})
+        (source-store/record-descriptor!
+          :event :compose.b/go
+          {:rf.provenance/ns "compose.member-b" :kind :event :id :compose.b/go
+           :handler-fn ::b-stable})
+        (let [img-a (image/image {:id :compose/a :include-ns ["compose.member-a"]})
+              img-b (image/image {:id :compose/b :include-ns ["compose.member-b"]})
+              frame (lf/make-frame {:id :compose/main :images [img-a img-b]})
+              gen-before (lf/frame-generation frame)]
+          (testing "both members resolve in the composed generation (control)"
+            (is (= ::a-original (:handler-fn (asm/resolve-descriptor gen-before :event :compose.a/go))))
+            (is (= ::b-stable   (:handler-fn (asm/resolve-descriptor gen-before :event :compose.b/go)))))
+          ;; Re-eval ONLY member A's namespace (the same (kind,id,ns) slot, new impl).
+          ;; Member B's source slot is untouched.
+          (source-store/record-descriptor!
+            :event :compose.a/go
+            {:rf.provenance/ns "compose.member-a" :kind :event :id :compose.a/go
+             :handler-fn ::a-reloaded})
+          (let [moved (lf/reproject-live-frames!)]
+            (testing "the composed frame is reported as moved"
+              (is (contains? moved :compose/main)))
+            (let [diff (get moved :compose/main)]
+              (testing "only the changed member's id is :changed"
+                (is (contains? (:changed diff) [:event :compose.a/go])))
+              (testing "the untouched member's id is :retained (not :changed)"
+                (is (contains? (:retained diff) [:event :compose.b/go]))
+                (is (not (contains? (:changed diff) [:event :compose.b/go])))))
+            (testing "the swapped generation resolves BOTH members — A reloaded,
+                      B preserved (composition kept, only the changed slice moved)"
+              (let [gen-after (lf/frame-generation (lf/live-frame :compose/main))]
+                (is (= ::a-reloaded (:handler-fn (asm/resolve-descriptor gen-after :event :compose.a/go))))
+                (is (= ::b-stable   (:handler-fn (asm/resolve-descriptor gen-after :event :compose.b/go))))))))
+        (finally
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))

@@ -504,6 +504,62 @@ const DEV_ONLY_SENTINELS = [
   // pins the replacement no-frame-context contract.
 ];
 
+// ----- EP-0023 image-loaded frames (rf2-32siq3.40) ---------------------------
+//
+// EP-0023 introduces TWO elision contracts that run in the OPPOSITE direction
+// from the dev-only sentinels above (which must be ABSENT in production):
+//
+//   1. PROD_SURVIVING_SENTINELS — strings that MUST be PRESENT in the
+//      production bundle. `:rf.provenance/ns` is a PRODUCTION descriptor field,
+//      not optional debug metadata (EP-0023 §Namespace-Selected Images):
+//      `:include-ns` image assembly reads it, so it MUST survive :advanced +
+//      goog.DEBUG=false or namespace-selected images cannot work. Before the
+//      `re-frame.elision-probe/touch-image-frame-provenance!` touch this was
+//      only HAND-MODELED (source_store_cljs_test binds *pending-coords* and
+//      hand-strips :ns); now it runs under a real elision gate. The probe roots
+//      the keyword through the same `record-descriptor!` path `reg-*` walks.
+//
+//   2. PROD_ABSENT_WHEN_UNUSED_SENTINELS — strings inside EP-0023 image-ASSEMBLY
+//      fns (make-frame / assemble / check-capabilities!) that MUST be ABSENT in
+//      production WHEN THE PROBE DOES NOT ROOT THE IMAGE-LOADING PATH. These fns
+//      carry NO debug gate; image_assembly.cljc's own docstring states "an app
+//      that never assembles an image never reaches these fns (Closure DCE
+//      removes them)." This is a REACHABILITY-DCE contract (not a goog.DEBUG
+//      one): the probe touches `reg-*` (the source store) but never calls
+//      make-frame/assemble, so the assembly-only literals DCE. A regression that
+//      wired image assembly into an always-reachable boot path would surface the
+//      string and fail this assertion. (No control-build check: with no debug
+//      gate the string is reachability-absent in BOTH builds, so a mustContain
+//      control assertion would be vacuous — the teeth are the prod-absence plus
+//      the PROD_SURVIVING provenance counterpart proving the bundle is non-empty
+//      and the EP-0023 source-store surface IS compiled in.)
+
+const PROD_SURVIVING_SENTINELS = [
+  // re-frame.source-store/record-descriptor! + canonical-ns — the
+  // `:rf.provenance/ns` descriptor field (EP-0023 §Namespace-Selected Images).
+  // A PRODUCTION field every `reg-*` descriptor carries as a canonical string;
+  // `:include-ns` selection reads it, so it MUST survive :advanced. The probe's
+  // touch-image-frame-provenance! records a descriptor through the production
+  // provenance-derivation path (*pending-coords* fallback) and reads the
+  // keyword back, rooting the literal in the reachability graph. If this is
+  // ABSENT in production, namespace-selected image assembly is broken.
+  { source: 're-frame.source-store/record-descriptor! (rf.provenance/ns survives :advanced)',
+    sentinel: 'rf.provenance/ns' },
+];
+
+const PROD_ABSENT_WHEN_UNUSED_SENTINELS = [
+  // re-frame.image-assembly/check-capabilities! — the fail-loud diagnostic
+  // string (EP-0023 §Public API / §Image — the frame-boundary capability
+  // check). The probe records into the source store but NEVER calls
+  // make-frame/assemble/check-capabilities!, so this assembly-only literal must
+  // DCE from the production bundle (reachability DCE — image_assembly.cljc
+  // docstring: "an app that never assembles an image never reaches these fns").
+  // The fragment is the distinctive head of the error message, unambiguous
+  // under a global grep.
+  { source: 're-frame.image-assembly/check-capabilities! (assembly-only, DCE when unused)',
+    sentinel: 'rf/make-frame: the image requires capabilities the frame does not' },
+];
+
 // ----- helpers ---------------------------------------------------------------
 
 // Bundle reading is shared with the sibling check-* scripts via
@@ -530,26 +586,36 @@ function checkBundle(label, bundlePath, mustContain) {
   report.detail(`[elision] ${label}: ${bundlePath}`);
   report.detail(`          bundle size: ${blob.length} chars`);
 
-  let ok = true;
-  let passedCount = 0;
-  for (const { source, sentinel } of DEV_ONLY_SENTINELS) {
-    const present = blob.includes(sentinel);
-    const expected = mustContain ? 'PRESENT' : 'ABSENT';
-    const actual   = present     ? 'PRESENT' : 'ABSENT';
-    const passed   = present === mustContain;
-    const tag      = passed ? 'OK' : 'FAIL';
-    report.detail(`          [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
-    if (passed) passedCount += 1;
-    if (!passed) ok = false;
-  }
+  const { ok, passed } = assertSentinels(blob, DEV_ONLY_SENTINELS, mustContain);
   return {
     ok,
     checked: DEV_ONLY_SENTINELS.length,
-    passed: passedCount,
+    passed,
     bytes: blob.length,
     bundlePath,
     missing: false,
   };
+}
+
+// Assert a sentinel set against an already-read bundle blob. `mustContain`
+// true ⇒ every sentinel must be PRESENT; false ⇒ every sentinel must be
+// ABSENT. Returns { ok, passed, checked }. Shared by the dev-only ABSENT
+// check and the EP-0023 PROD-SURVIVING (present) / PROD-ABSENT-WHEN-UNUSED
+// (absent) checks (rf2-32siq3.40).
+function assertSentinels(blob, sentinels, mustContain) {
+  let ok = true;
+  let passed = 0;
+  for (const { source, sentinel } of sentinels) {
+    const present  = blob.includes(sentinel);
+    const expected = mustContain ? 'PRESENT' : 'ABSENT';
+    const actual   = present     ? 'PRESENT' : 'ABSENT';
+    const ok1      = present === mustContain;
+    const tag      = ok1 ? 'OK' : 'FAIL';
+    report.detail(`          [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    if (ok1) passed += 1;
+    else ok = false;
+  }
+  return { ok, passed, checked: sentinels.length };
 }
 
 // ----- main ------------------------------------------------------------------
@@ -560,10 +626,23 @@ function main() {
   const probeDir   = path.join(ROOT, 'out', 'elision-probe');
   const controlDir = path.join(ROOT, 'out', 'elision-probe-control');
 
-  // Production bundle: sentinels MUST be absent.
+  // Production bundle: dev-only sentinels MUST be absent.
   const prod = checkBundle('production (goog.DEBUG=false)', probeDir, false);
 
-  // Control bundle: sentinels MUST be present (if compiled).
+  // EP-0023 image-loaded frames (rf2-32siq3.40) — the two OPPOSITE-direction
+  // contracts, asserted against the SAME production bundle blob.
+  let ep23 = { ok: true, surviving: { passed: 0, checked: 0 }, absent: { passed: 0, checked: 0 } };
+  if (!prod.missing && !prod.empty) {
+    const { blob } = classifyReleaseBundle(probeDir);
+    report.detail('[elision] EP-0023 image-loaded frames (rf2-32siq3.40):');
+    report.detail('          PROD_SURVIVING — :rf.provenance/ns must be PRESENT (survives :advanced):');
+    const surviving = assertSentinels(blob, PROD_SURVIVING_SENTINELS, true);
+    report.detail('          PROD_ABSENT_WHEN_UNUSED — image-assembly fns must DCE when unused:');
+    const absent = assertSentinels(blob, PROD_ABSENT_WHEN_UNUSED_SENTINELS, false);
+    ep23 = { ok: surviving.ok && absent.ok, surviving, absent };
+  }
+
+  // Control bundle: dev-only sentinels MUST be present (if compiled).
   let control = { ok: true, skipped: true };
   if (fs.existsSync(controlDir)) {
     control = checkBundle('control    (goog.DEBUG=true) ', controlDir, true);
@@ -573,13 +652,16 @@ function main() {
     report.detail('          to enable the methodology assertion.');
   }
 
-  if (prod.ok && control.ok) {
+  if (prod.ok && ep23.ok && control.ok) {
     const controlSummary = control.skipped
       ? 'control skipped'
       : `control ${control.passed}/${control.checked} present (${control.bytes} chars)`;
     report.pass(
       'elision',
-      `production ${prod.passed}/${prod.checked} absent (${prod.bytes} chars); ${controlSummary}; bundle=${probeDir}`
+      `production ${prod.passed}/${prod.checked} absent (${prod.bytes} chars); ` +
+      `EP-0023 ${ep23.surviving.passed}/${ep23.surviving.checked} provenance-survives + ` +
+      `${ep23.absent.passed}/${ep23.absent.checked} assembly-DCE; ` +
+      `${controlSummary}; bundle=${probeDir}`
     );
     process.exit(0);
   } else {
@@ -591,6 +673,16 @@ function main() {
       console.error('Per Spec 009 §Production builds, every emit / schema / ');
       console.error('registrar dev-only branch must be gated on');
       console.error('re-frame.interop/debug-enabled? so DCE removes it.');
+    }
+    if (!ep23.ok) {
+      console.error('EP-0023 elision contract broke (rf2-32siq3.40):');
+      console.error('  - PROD_SURVIVING: :rf.provenance/ns MUST survive :advanced —');
+      console.error('    it is a production descriptor field :include-ns assembly reads');
+      console.error('    (EP-0023 §Namespace-Selected Images). If absent, namespace-');
+      console.error('    selected images cannot work.');
+      console.error('  - PROD_ABSENT_WHEN_UNUSED: image-assembly fns MUST DCE when the');
+      console.error('    probe does not root make-frame/assemble. If present, an');
+      console.error('    assembly fn became reachable from an always-run path.');
     }
     if (!control.ok) {
       console.error('Control bundle missing dev-only sentinels — the grep test');
