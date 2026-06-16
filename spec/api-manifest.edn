@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 510,
+ :var-count 512,
  :tier-vocab
  [:front-porch
   :advanced
@@ -332,7 +332,9 @@
   {:namespace "re-frame.schemas", :var "reset-schema-validator!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "restore-schema-fns!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "restore-schemas-by-frame!", :tier :implementation, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.schemas", :var "schema-has-large?", :tier :implementation, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "schema-has-sensitive?", :tier :implementation, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.schemas", :var "schema-opaque?", :tier :implementation, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "schema-sensitive-at?", :tier :implementation, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "set-schema-explainer!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "set-schema-fns!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}

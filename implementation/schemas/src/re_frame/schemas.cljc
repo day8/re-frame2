@@ -169,6 +169,14 @@
 (def extract-sensitive-paths-from-schema walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            walker/schema-has-sensitive?)
 (def schema-sensitive-at?             walker/schema-sensitive-at?)
+;; rf2-vmhu4i — the `:large?` whole-schema predicate (mirror of
+;; `schema-has-sensitive?` on the other per-slot flag) the validation
+;; emit-site consults to elide a `:large?` slot's value to the
+;; `:rf.size/large-elided` marker. rf2-u9bjgr — `schema-opaque?` is the
+;; fail-closed predicate for a compiled / opaque `m/schema` value the
+;; walker cannot introspect (its failure redacts as sensitive).
+(def schema-has-large?                walker/schema-has-large?)
+(def schema-opaque?                   walker/schema-opaque?)
 ;; rf2-ss06u.1 — `walker/sanitize-sensitive-path` (the `:path`-tag sanitiser
 ;; that scrubs value-bearing `:set`-element segments so a sensitive `:set`
 ;; element never ships verbatim in the structural `:path` tag) is an INTERNAL
