@@ -363,3 +363,64 @@
           "no provenance stamped when no source namespace is available anywhere")
       (is (some? (get (ss/descriptors-for :event :prog/handler) nil))
           "recorded under the nil-provenance slot, not dropped"))))
+
+;; ===========================================================================
+;; 8. clear-kind! bumps the store generation (rf2-32siq3.34) — the
+;;    resolved-image-generation cache MUST invalidate after a clear-kind!
+;; ===========================================================================
+
+(deftest clear-kind-bumps-generation
+  (testing "source-store/clear-kind! bumps the active store's generation, like
+            every other mutation, so a generation read after the clear differs
+            (rf2-32siq3.34)"
+    (ss/record-descriptor! :event :a/x {:ns 'n.s :handler-fn :f})
+    (let [before (ss/store-generation)]
+      (ss/clear-kind! :event)
+      (is (not= before (ss/store-generation))
+          "clear-kind! bumped the source-store generation")
+      (is (empty? (ss/descriptors-for :event :a/x))
+          "the kind's slots were dropped from the store"))))
+
+(deftest registrar-clear-kind-invalidates-resolved-generation-cache
+  (testing "registrar/clear-kind! routes through source-store/clear-kind!, which
+            bumps the store generation, so a re-`assemble` after the clear is a
+            cache MISS that returns a FRESH generation no longer resolving the
+            cleared id. On the unfixed path (raw `dissoc kind`, no bump) the
+            store had fewer descriptors but the SAME generation int, so the
+            re-`assemble` HIT the resolved-image-generation cache and returned a
+            stale generation that still resolved the cleared (kind, id)
+            (rf2-32siq3.34, EP-0023 §Image — resolved-generation cache).
+
+            Fixtures: this case relies ONLY on the :each fixture's snapshot/
+            restore (ss/clear-all! + clear-generation-cache! at the boundaries);
+            it does NOT call registrar/clear-all! between the two assembles —
+            doing so would reset the generation cache and mask the very stale-hit
+            path under test."
+    (registrar/register! :event :counter/inc
+                         {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
+    ;; First assembly fills the resolved-image-generation cache, keyed on the
+    ;; current source-store generation. Default image (empty :images) projects
+    ;; the whole live store and keys on (source-store/store-generation).
+    (let [gen-before (assembly/assemble [])
+          size-before (assembly/cache-size)]
+      (is (some? (assembly/resolve-descriptor gen-before :event :counter/inc))
+          "the registered descriptor resolves in the first sealed generation")
+      ;; Clear the whole :event kind via the PUBLIC registrar path (this backs
+      ;; clear-handlers / resources teardown).
+      (registrar/clear-kind! :event)
+      (is (empty? (ss/descriptors-for :event :counter/inc))
+          "the source store no longer holds the cleared descriptor")
+      ;; Re-assemble the SAME (empty) image vector. With the generation bump this
+      ;; is a cache MISS → a fresh generation; without it, a stale cache HIT.
+      (let [gen-after (assembly/assemble [])]
+        (is (not (identical? gen-before gen-after))
+            "re-assemble after clear-kind! returns a FRESH, non-identical
+             generation (a cache MISS) — NOT the stale cached object")
+        (is (nil? (assembly/resolve-descriptor gen-after :event :counter/inc))
+            "the cleared (kind, id) no longer resolves in the fresh generation —
+             the cache invalidation hole is closed")
+        (is (not (contains? (assembly/generation-kinds gen-after) :event))
+            "no :event kind survives the clear in the fresh generation")
+        (is (> (assembly/cache-size) size-before)
+            "a new cache entry was sealed (the post-clear generation), not a
+             reuse of the stale one")))))
