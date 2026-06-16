@@ -41,6 +41,7 @@ template_expensive=false
 mcp_conformance=false
 mcp_live=false
 story_xray_browser=false
+tenant_switcher_smoke=false
 skills_structural=false
 playground=false
 
@@ -58,6 +59,7 @@ mark_all() {
   mcp_conformance=true
   mcp_live=true
   story_xray_browser=true
+  tenant_switcher_smoke=true
   skills_structural=true
   playground=true
 }
@@ -436,6 +438,29 @@ else
         reagent_slim_bundle=true
         story_xray_browser=true
         ;;
+      implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs)
+        # rf2-h5e3v7 — false-green fix, mirroring the xray-feature-gate +
+        # reagent-slim-smoke launcher cases above. This launcher IS the
+        # executable orchestration for `npm run test:testbed-tenant-switcher`,
+        # the command the tenant-switcher-testbed-smoke PR job runs
+        # (.github/workflows/test.yml). It is the ONLY Playwright smoke that
+        # exercises the tenant-switcher browser scenario (compile / index.html
+        # staging / ownership-token server readiness / pageerror handling). A
+        # break in this launcher — or in the colocated testbed it drives —
+        # could ship green, since the generic implementation/scripts/* case
+        # below routes only to the always-on JS/CLJS surfaces and never to
+        # tenant_switcher_smoke. Fire tenant_switcher_smoke so editing the
+        # launcher runs the gate it orchestrates. The remaining static-script
+        # surfaces this file shares with the generic case (cljs_node_test /
+        # cljs_browser / cljs_prod / bundle_isolation / reagent_slim_bundle)
+        # stay armed too — this case widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        tenant_switcher_smoke=true
+        ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
         # adapter_testbed_smokes and story_xray_browser are NOT fired
@@ -481,6 +506,21 @@ else
         # (matched above) fire it. The cljs_browser gate covers
         # CLJS-source regressions touched by examples/.
         cljs_browser=true
+        ;;
+      testbeds/tenant_switcher/*)
+        # rf2-h5e3v7 — the tenant-switcher testbed is the ONE top-level
+        # testbed that legitimately keeps its own colocated Playwright
+        # spec.cjs (a cross-cutting framework smoke per CLAUDE.md
+        # "framework testbeds carry their own non-adapter spec.cjs"). Its
+        # runner serve-and-run-tenant-switcher-testbed.cjs drives
+        # testbeds/tenant_switcher/spec.cjs against the compiled
+        # :testbeds/tenant-switcher build + staged index.html. So a change
+        # to the testbed's core.cljs / spec.cjs / index.html must fire the
+        # tenant-switcher-testbed-smoke gate (else the runner's only live
+        # browser coverage can be avoided). cljs_browser stays lit too for
+        # the transitive CLJS-source coverage every other testbed gets.
+        cljs_browser=true
+        tenant_switcher_smoke=true
         ;;
       testbeds/*)
         # rf2-7vsfm + rf2-t5slp — Top-level testbeds/* surfaces are
@@ -659,5 +699,6 @@ emit template_expensive "$template_expensive"
 emit mcp_conformance "$mcp_conformance"
 emit mcp_live "$mcp_live"
 emit story_xray_browser "$story_xray_browser"
+emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"

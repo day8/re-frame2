@@ -818,6 +818,101 @@ test('test-quiet routing does NOT broaden docs/spec-only or unrelated surfaces (
   assert.equal(result.cljs_node_test, 'false');
 });
 
+// rf2-h5e3v7 — tenant-switcher testbed smoke routing. The runner
+// serve-and-run-tenant-switcher-testbed.cjs IS the executable
+// orchestration for `npm run test:testbed-tenant-switcher`, the command
+// the new tenant-switcher-testbed-smoke PR job runs (test.yml). It is the
+// ONLY Playwright smoke that exercises the tenant-switcher browser
+// scenario. Before this bead the npm script was defined in package.json
+// but invoked by NO workflow, and the classifier routed both the runner
+// (generic implementation/scripts/*) and the testbed (generic testbeds/*)
+// only to always-on CLJS surfaces — so a regression in the runner, its
+// colocated spec, or the testbed could ship green. These assertions lock
+// the new tenant_switcher_smoke routing onto the runner + the testbed,
+// while keeping unrelated implementation/scripts/* + testbeds/* off it.
+
+test('serve-and-run-tenant-switcher-testbed.cjs fires tenant_switcher_smoke (rf2-h5e3v7)', () => {
+  const result = classify(
+    'implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs',
+  );
+  assert.equal(
+    result.tenant_switcher_smoke,
+    'true',
+    'editing the tenant-switcher smoke launcher must run the gate it drives',
+  );
+});
+
+test('serve-and-run-tenant-switcher-testbed.cjs still arms the generic static-script gates (regression) (rf2-h5e3v7)', () => {
+  const result = classify(
+    'implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs',
+  );
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+});
+
+const TENANT_SWITCHER_TESTBED_FILES = [
+  'testbeds/tenant_switcher/spec.cjs',
+  'testbeds/tenant_switcher/core.cljs',
+  'testbeds/tenant_switcher/index.html',
+];
+for (const file of TENANT_SWITCHER_TESTBED_FILES) {
+  test(`${file} fires tenant_switcher_smoke + cljs_browser (rf2-h5e3v7)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.tenant_switcher_smoke,
+      'true',
+      'a tenant-switcher testbed change must run its colocated browser smoke',
+    );
+    assert.equal(result.cljs_browser, 'true');
+  });
+}
+
+test('an UNRELATED implementation/scripts/* file does NOT fire tenant_switcher_smoke (scope discipline) (rf2-h5e3v7)', () => {
+  const result = classify('implementation/scripts/build-foo.cjs');
+  assert.equal(
+    result.tenant_switcher_smoke,
+    'false',
+    'a generic implementation/scripts/* edit drives no tenant-switcher gate',
+  );
+});
+
+test('an UNRELATED top-level testbed does NOT fire tenant_switcher_smoke (scope discipline) (rf2-h5e3v7)', () => {
+  const result = classify('testbeds/ssr_basic/core.cljs');
+  assert.equal(
+    result.tenant_switcher_smoke,
+    'false',
+    'only the tenant-switcher testbed carries a colocated Playwright smoke',
+  );
+  // It still gets the always-on transitive CLJS coverage.
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('tenant-switcher-testbed-smoke job is job-level gated on tenant_switcher_smoke (rf2-h5e3v7)', () => {
+  const block = jobBlock(
+    fs.readFileSync(WORKFLOW, 'utf8'),
+    'tenant-switcher-testbed-smoke',
+  );
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.tenant_switcher_smoke == 'true'/,
+  );
+  // The job must actually RUN the npm script the gate exists to drive —
+  // pinning the wiring so the script cannot drift out of CI again.
+  assert.match(block, /npm run test:testbed-tenant-switcher/);
+});
+
+test('all-required-passed aggregator needs tenant-switcher-testbed-smoke (rf2-h5e3v7)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- tenant-switcher-testbed-smoke\r?\n/,
+    'aggregator must list tenant-switcher-testbed-smoke in needs:',
+  );
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {
