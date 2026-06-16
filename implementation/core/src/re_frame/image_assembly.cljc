@@ -55,7 +55,8 @@
         -> :rf.error/image-duplicate-id
       unsupported registration kind in the image path
         -> :rf.error/image-unsupported-kind
-      event references a missing interceptor / resource a missing scope
+      event references a missing interceptor / resource references a missing
+        scope resolver ({:from-db <id>} naming an unselected :resource-scope)
         -> :rf.error/image-missing-reference
       a :replace / :replace-standard declared for a key with no actual
         collision (zero or exactly one selected descriptor — stale / typo /
@@ -64,6 +65,9 @@
       a :replace / :replace-standard winner that resolves to zero or many
         selected descriptors (a stale winner source, a typo, an ambiguous coord)
         -> :rf.error/image-replacement-winner-unresolved
+      composed images declaring DIFFERENT winners for the same [kind id]
+        (a cross-image replacement conflict — order must not decide)
+        -> :rf.error/image-replacement-conflict
       replacing a non-replaceable framework standard registration
         -> :rf.error/image-standard-replacement-forbidden
       an image-required capability the frame does not supply
@@ -318,6 +322,7 @@
            :extra    {:image image-id
                       :kind  k
                       :id    (:id d)
+                      :rf.provenance/ns (:rf.provenance/ns d)
                       :coordinate (descriptor-coordinate d)}}))))
   descriptors)
 
@@ -458,7 +463,8 @@
                  "non-replaceable by default.")
             {:recovery :declare-replace-standard-or-rename
              :extra    {:image image-id :kind kind :id id
-                        :standard-coordinate (descriptor-coordinate standard)}})
+                        :standard-coordinate (descriptor-coordinate standard)
+                        :colliding-coordinates (mapv descriptor-coordinate colliding)}})
 
           (not (standard-replaceable? standard))
           (error/throw-error!
@@ -477,6 +483,7 @@
             {:recovery :remove-replace-standard-or-rename
              :extra    {:image image-id :kind kind :id id
                         :standard-coordinate (descriptor-coordinate standard)
+                        :colliding-coordinates (mapv descriptor-coordinate colliding)
                         :requires-conformance
                         (:rf.standard/requires-conformance standard #{})}})
 
@@ -639,20 +646,44 @@
   (not (and (keyword? ref-id)
             (= "rf.interceptor" (namespace ref-id)))))
 
-(defn check-references!
-  "Throw `:rf.error/image-missing-reference` when a selected event/frame
-  descriptor's `:interceptors` chain names an APPLICATION interceptor id that the
-  resolved generation does not provide (EP-0023 §Image Validation: \"event
-  references missing interceptor -> image assembly error\"). `resolver` is the
-  sealed `{[kind id] descriptor}` map; an interceptor ref resolves iff
-  `[:interceptor ref-id]` is a key. Framework-standard `:rf.interceptor/*` refs
-  are not image-supplied and are skipped. Returns `resolver`.
+(defn- resource-scope-ref
+  "The named scope-resolver id a `:resource`-kind descriptor's spec references by
+  a `{:from-db <scope-resolver-id>}` derived-scope reference, or nil (Spec 016
+  §Resolver references — `{:from-db <id>}`; EP-0016 D3). A resource carries its
+  spec at `:rf/resource`; the spec's `:scope` is a `{:from-db <id>}` reference iff
+  it is a map with a `:from-db` key. A concrete scope (`:rf.scope/global`, a
+  `[:rf.scope/session …]` tuple, a fn resolver, a plain map without `:from-db`)
+  has no named-resolver reference to validate. The referenced resolver resolves
+  iff `[:resource-scope <id>]` is in the sealed generation. Pure — the
+  structural shape only, mirroring `resources.scope-registry/from-db-reference?`
+  without core requiring the resources artefact."
+  [descriptor]
+  (let [scope (:scope (:rf/resource descriptor))]
+    (when (and (map? scope) (contains? scope :from-db))
+      (:from-db scope))))
 
-  This is the assembly-time structural reference check; resource→scope-resolver
-  references are the resources artefact's deeper check (it owns the
-  `:resource-scope` kind) and plug into this same fail-loud point when that
-  artefact wires assembly — the structure is here."
+(defn check-references!
+  "Throw `:rf.error/image-missing-reference` when a selected descriptor names a
+  reference the sealed generation does not provide (EP-0023 §Image Validation —
+  the missing-reference legs). `resolver` is the sealed `{[kind id] descriptor}`
+  map. Two reference legs are checked:
+
+    * an event/frame descriptor's `:interceptors` chain naming an APPLICATION
+      interceptor id (\"event references missing interceptor\") — resolves iff
+      `[:interceptor ref-id]` is a key; framework-standard `:rf.interceptor/*`
+      refs are framework-provided and skipped;
+    * a `:resource` descriptor's `{:from-db <scope-resolver-id>}` derived-scope
+      reference (\"resource references missing scope resolver\") — resolves iff
+      `[:resource-scope <scope-resolver-id>]` is a key (Spec 016 §Resolver
+      references / EP-0016 D3). A concrete `:scope` (`:rf.scope/global`, a tuple,
+      a fn) names no resolver to validate.
+
+  Both legs share the one `:rf.error/image-missing-reference` fail-loud point and
+  carry the same structured diagnostics: the referencing image, `[kind id]`, the
+  referencing descriptor's provenance namespace, the unresolved `:missing-reference`
+  `[kind id]`, and a repair path. Returns `resolver`."
   [image-id resolver]
+  ;; ---- event/frame -> interceptor references --------------------------------
   (doseq [[[kind _id] descriptor] resolver
           :when (contains? #{:event :frame} kind)
           ref-id (interceptor-refs descriptor)
@@ -670,7 +701,31 @@
          :extra    {:image image-id
                     :kind  kind
                     :id    (:id descriptor)
+                    :rf.provenance/ns (:rf.provenance/ns descriptor)
+                    :coordinate (descriptor-coordinate descriptor)
                     :missing-reference [:interceptor ref-id]}})))
+  ;; ---- resource -> resource-scope resolver references -----------------------
+  (doseq [[[kind _id] descriptor] resolver
+          :when (= :resource kind)
+          :let  [scope-id (resource-scope-ref descriptor)]
+          :when scope-id]
+    (when-not (contains? resolver [:resource-scope scope-id])
+      (error/throw-error!
+        :rf.error/image-missing-reference
+        'rf/make-frame
+        (str "rf/image assembly: resource " (pr-str (:id descriptor))
+             " references scope resolver " (pr-str scope-id)
+             " via its {:from-db " (pr-str scope-id) "} :scope, but no "
+             ":resource-scope registration with that id is selected into the "
+             "image. Select the namespace that reg-resource-scope's it, or "
+             "correct the {:from-db …} reference.")
+        {:recovery :select-the-missing-registration-or-fix-the-reference
+         :extra    {:image image-id
+                    :kind  kind
+                    :id    (:id descriptor)
+                    :rf.provenance/ns (:rf.provenance/ns descriptor)
+                    :coordinate (descriptor-coordinate descriptor)
+                    :missing-reference [:resource-scope scope-id]}})))
   resolver)
 
 ;; ---- capability check (EP-0023 §Public API — the .6 seam) ------------------
@@ -718,15 +773,65 @@
   [images]
   (into #{} (mapcat #(:rf.image/requires % #{})) images))
 
+(defn- merge-replace-maps
+  "Merge the `which` (`:replace` / `:replace-standard`) maps across `images`
+  into one combined `{[kind id] winner}` map, FAILING LOUD on a cross-image
+  CONFLICT: two composed images declaring the SAME `[kind id]` with DIFFERENT
+  winner coordinates (EP-0023 §Image Composition — \"Order must not silently
+  decide which registration wins\"). A bare `(into {} (mapcat …))` would let the
+  later image's winner silently last-merge-win — exactly the order-decides-the-
+  survivor footgun the EP forbids at composition. Identical declarations across
+  images are IDEMPOTENT (no conflict): two images that name the same survivor for
+  the same key agree, so the merge keeps the one shared winner.
+
+  `:rf.error/image-replacement-conflict` is the cross-IMAGE counterpart of
+  `:rf.error/image-replacement-winner-unresolved` (which polices a single
+  declaration against the selected descriptors): this polices two images
+  DISAGREEING about the survivor before resolution even begins. `image-id` is the
+  representative image id for diagnostics; the conflict ex-data enumerates the
+  exact disagreeing winners. Returns the merged `{[kind id] winner}` map. Pure
+  (modulo the throw)."
+  [image-id which images]
+  (reduce
+    (fn [merged image]
+      (reduce-kv
+        (fn [acc [kind id :as k+id] winner]
+          (if-let [existing (find acc k+id)]
+            (if (= (val existing) winner)
+              acc                                   ;; idempotent: same winner, no conflict
+              (error/throw-error!
+                :rf.error/image-replacement-conflict
+                'rf/make-frame
+                (str "rf/image assembly: composed images declare CONFLICTING "
+                     (pr-str which) " winners for " (pr-str k+id) " — "
+                     (pr-str (val existing)) " and " (pr-str winner)
+                     ". Image composition must NOT let order silently decide "
+                     "which replacement survives. Two composed images naming "
+                     "DIFFERENT winners for the same (kind, id) is a real "
+                     "conflict: reconcile them to one agreed winner coordinate, "
+                     "or drop the duplicate declaration. (Identical declarations "
+                     "across images are fine — they agree.)")
+                {:recovery :reconcile-the-conflicting-replacement-winners
+                 :extra    {:image  image-id
+                            :which  which
+                            :kind   kind :id id
+                            :winners [(val existing) winner]}}))
+            (assoc acc k+id winner)))
+        merged
+        (get image which {})))
+    {}
+    images))
+
 (defn- replace-maps
-  "Merge the `:replace` / `:replace-standard` maps across `images` into two
-  combined `{[kind id] winner}` maps. EP v1 does not specify cross-image
-  replacement-map conflict resolution beyond last-merge; replacement winners are
-  validated against the actual selected collisions downstream, so a stale entry
-  fails there. Returns `[replace replace-standard]`."
-  [images]
-  [(into {} (mapcat #(:replace % {})) images)
-   (into {} (mapcat #(:replace-standard % {})) images)])
+  "Build the two combined `{[kind id] winner}` replacement maps across `images`
+  via `merge-replace-maps`, which FAILS LOUD on a cross-image conflict (two
+  composed images naming DIFFERENT winners for the same key) rather than
+  last-merge-winning — EP-0023 §Image Composition's \"order must not silently
+  decide\" applied to the composition's replacement maps. Identical declarations
+  across images are idempotent. Returns `[replace replace-standard]`."
+  [image-id images]
+  [(merge-replace-maps image-id :replace images)
+   (merge-replace-maps image-id :replace-standard images)])
 
 (defn- assemble*
   "The PURE assembly pipeline: select → union standards → validate → seal.
@@ -742,7 +847,7 @@
         selected (select-for-images images descriptors)
         standard (standard-descriptors)
         all-ds   (into (vec selected) standard)
-        [rep rep-std] (replace-maps images)]
+        [rep rep-std] (replace-maps image-id images)]
     ;; (3) Fail loud on any unsupported descriptor kind before sealing.
     (check-supported-kinds! image-id all-ds)
     ;; (4) Fail loud on any :replace / :replace-standard declaration for a key

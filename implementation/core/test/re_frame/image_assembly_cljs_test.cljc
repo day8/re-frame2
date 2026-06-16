@@ -489,3 +489,236 @@
                                        :rf.provenance/inline [:reg-fx :x]})))
     (is (= {:standard true}
            (asm/descriptor-coordinate {:kind :fx :id :x :standard true})))))
+
+;; ===========================================================================
+;; 9. Cross-image replacement conflicts (rf2-32siq3.19) — two composed images
+;;    declaring DIFFERENT winners for the same [kind id] FAILS LOUD; identical
+;;    declarations across images are idempotent (order must not decide).
+;; ===========================================================================
+
+(defn- assembly-error-data
+  "Run `thunk`; return the ex-data of the thrown ex-info (or nil)."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (ex-data e))))
+
+(deftest cross-image-conflicting-replace-fails-loud
+  (testing "two composed images declaring the SAME [kind id] :replace winner
+            with DIFFERENT coordinates → :rf.error/image-replacement-conflict —
+            the later image must NOT silently last-merge-win the winner"
+    (let [pool   [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
+                  (reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
+                  (reg-desc "checkout.story.b" :fx :checkout.http/post ::b)]
+          img-a  (image/image
+                   {:id :img/a
+                    :include-ns ["checkout.core" "checkout.story.a"]
+                    :replace {[:fx :checkout.http/post] {:ns "checkout.story.a"}}})
+          img-b  (image/image
+                   {:id :img/b
+                    :include-ns ["checkout.story.b"]
+                    :replace {[:fx :checkout.http/post] {:ns "checkout.story.b"}}})]
+      (is (= :rf.error/image-replacement-conflict
+             (assembly-error-id #(asm/assemble [img-a img-b] pool)))))))
+
+(deftest cross-image-identical-replace-is-idempotent
+  (testing "two composed images declaring the SAME [kind id] :replace winner
+            with the SAME coordinate AGREE — no conflict; the collision resolves
+            to the agreed winner"
+    (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
+                 (reg-desc "checkout.story" :fx :checkout.http/post ::fake)]
+          img-a (image/image
+                  {:id :img/a
+                   :include-ns ["checkout.core" "checkout.story"]
+                   :replace {[:fx :checkout.http/post] {:ns "checkout.story"}}})
+          img-b (image/image
+                  {:id :img/b
+                   :include-ns ["checkout.story"]
+                   :replace {[:fx :checkout.http/post] {:ns "checkout.story"}}})
+          gen   (asm/assemble [img-a img-b] pool)]
+      (is (= ::fake (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))
+          "the agreed winner survives; identical cross-image declarations are fine"))))
+
+(deftest cross-image-conflicting-replace-standard-fails-loud
+  (testing "the conflict check also covers :replace-standard — two images naming
+            DIFFERENT standard winners for the same key fail loud"
+    (asm/register-standard! :fx :rf.nav/push-url
+                            {:handler-fn ::std :rf.standard/replaceable? true})
+    (let [pool  [(reg-desc "product.story.a" :fx :rf.nav/push-url ::a)
+                 (reg-desc "product.story.b" :fx :rf.nav/push-url ::b)]
+          img-a (image/image
+                  {:id :img/a
+                   :include-ns ["product.story.a"]
+                   :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story.a"}}})
+          img-b (image/image
+                  {:id :img/b
+                   :include-ns ["product.story.b"]
+                   :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story.b"}}})]
+      (is (= :rf.error/image-replacement-conflict
+             (assembly-error-id #(asm/assemble [img-a img-b] pool)))))))
+
+(deftest replacement-conflict-ex-data-names-both-winners
+  (testing "the conflict diagnostic carries image/which/[kind id]/winners/recovery
+            (rf2-32siq3.26 structured diagnostics)"
+    (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
+                 (reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
+                 (reg-desc "checkout.story.b" :fx :checkout.http/post ::b)]
+          img-a (image/image
+                  {:id :img/a
+                   :include-ns ["checkout.core" "checkout.story.a"]
+                   :replace {[:fx :checkout.http/post] {:ns "checkout.story.a"}}})
+          img-b (image/image
+                  {:id :img/b
+                   :include-ns ["checkout.story.b"]
+                   :replace {[:fx :checkout.http/post] {:ns "checkout.story.b"}}})
+          d     (assembly-error-data #(asm/assemble [img-a img-b] pool))]
+      (is (= :rf.error/image-replacement-conflict (:rf.error/id d)))
+      (is (= :replace (:which d)))
+      (is (= :fx (:kind d)))
+      (is (= :checkout.http/post (:id d)))
+      (is (= #{{:ns "checkout.story.a"} {:ns "checkout.story.b"}}
+             (set (:winners d)))
+          "both disagreeing winner coordinates are named")
+      (is (= :reconcile-the-conflicting-replacement-winners (:recovery d))))))
+
+;; ===========================================================================
+;; 10. Resource → resource-scope resolver reference validation (rf2-32siq3.25)
+;;     A :resource descriptor whose spec's :scope is {:from-db <id>} references a
+;;     :resource-scope resolver that MUST be selected into the generation.
+;; ===========================================================================
+
+(defn- resource-desc
+  "A synthetic registered :resource descriptor authored in `provenance-ns` whose
+  spec carries `scope` (a {:from-db …} reference or a concrete scope)."
+  [provenance-ns resource-id scope]
+  {:rf.provenance/ns provenance-ns
+   :kind             :resource
+   :id               resource-id
+   :handler-fn       ::request-fn
+   :rf/resource      {:scope scope :params-schema [:map] :request ::request-fn}})
+
+(defn- scope-resolver-desc
+  "A synthetic registered :resource-scope resolver authored in `provenance-ns`."
+  [provenance-ns scope-id]
+  {:rf.provenance/ns provenance-ns
+   :kind             :resource-scope
+   :id               scope-id
+   :handler-fn       ::resolve-fn})
+
+(deftest resource-missing-scope-resolver-fails-loud
+  (testing "a :resource whose :scope is {:from-db <id>} naming a scope resolver
+            absent from the generation → :rf.error/image-missing-reference"
+    (let [pool [(resource-desc "shop.articles" :article/by-slug
+                               {:from-db :shop/session})]
+          img  (image/image {:id :i :include-ns ["shop.articles"]})]
+      (is (= :rf.error/image-missing-reference
+             (assembly-error-id #(asm/assemble [img] pool)))))))
+
+(deftest resource-present-scope-resolver-passes
+  (testing "the same resource seals cleanly when the referenced :resource-scope
+            resolver IS selected into the generation"
+    (let [pool [(resource-desc "shop.articles" :article/by-slug
+                               {:from-db :shop/session})
+                (scope-resolver-desc "shop.scopes" :shop/session)]
+          img  (image/image {:id :i :include-ns ["shop.articles" "shop.scopes"]})
+          gen  (asm/assemble [img] pool)]
+      (is (contains? (:rf.gen/resolver gen) [:resource :article/by-slug]))
+      (is (contains? (:rf.gen/resolver gen) [:resource-scope :shop/session])))))
+
+(deftest resource-concrete-scope-references-nothing
+  (testing "a :resource with a CONCRETE :scope (no {:from-db …} reference) names
+            no scope resolver, so assembly seals cleanly — the missing-reference
+            check fires ONLY on an unresolved {:from-db …} reference"
+    (let [global   (resource-desc "shop.a" :a/global :rf.scope/global)
+          tuple    (resource-desc "shop.b" :b/session [:rf.scope/session {:u 1}])
+          from-clr (resource-desc "shop.c" :c/from-caller :rf.scope/from-caller)
+          pool     [global tuple from-clr]
+          img      (image/image {:id :i :include-ns ["shop.a" "shop.b" "shop.c"]})
+          gen      (asm/assemble [img] pool)]
+      (is (contains? (:rf.gen/resolver gen) [:resource :a/global]))
+      (is (contains? (:rf.gen/resolver gen) [:resource :b/session]))
+      (is (contains? (:rf.gen/resolver gen) [:resource :c/from-caller])))))
+
+(deftest resource-missing-scope-ref-ex-data-is-structured
+  (testing "the resource missing-scope-resolver diagnostic carries image, [kind
+            id], provenance ns, source coordinate, the missing [:resource-scope
+            id] reference, and a repair path (rf2-32siq3.26)"
+    (let [pool [(resource-desc "shop.articles" :article/by-slug
+                               {:from-db :shop/session})]
+          img  (image/image {:id :shop/img :include-ns ["shop.articles"]})
+          d    (assembly-error-data #(asm/assemble [img] pool))]
+      (is (= :rf.error/image-missing-reference (:rf.error/id d)))
+      (is (= :shop/img (:image d)))
+      (is (= :resource (:kind d)))
+      (is (= :article/by-slug (:id d)))
+      (is (= "shop.articles" (:rf.provenance/ns d)))
+      (is (= {:ns "shop.articles"} (:coordinate d)))
+      (is (= [:resource-scope :shop/session] (:missing-reference d)))
+      (is (= :select-the-missing-registration-or-fix-the-reference (:recovery d))))))
+
+;; ===========================================================================
+;; 11. Structured diagnostics audit (rf2-32siq3.26) — every enriched assembly
+;;     failure carries image/[kind id]/provenance/repair where applicable.
+;; ===========================================================================
+
+(deftest interceptor-missing-ref-ex-data-carries-provenance
+  (testing "the (existing) interceptor missing-reference diagnostic now also
+            carries the referencing descriptor's provenance ns + source
+            coordinate alongside image/[kind id]/missing-reference/recovery"
+    (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
+                       :interceptors [:my.audit/guard])]
+          img  (image/image {:id :app/img :include-ns ["app.core"]})
+          d    (assembly-error-data #(asm/assemble [img] pool))]
+      (is (= :rf.error/image-missing-reference (:rf.error/id d)))
+      (is (= :app/img (:image d)))
+      (is (= :event (:kind d)))
+      (is (= :cart/add (:id d)))
+      (is (= "app.core" (:rf.provenance/ns d)))
+      (is (= {:ns "app.core"} (:coordinate d)))
+      (is (= [:interceptor :my.audit/guard] (:missing-reference d)))
+      (is (= :select-the-missing-registration-or-fix-the-reference (:recovery d))))))
+
+(deftest unsupported-kind-ex-data-carries-provenance
+  (testing "the unsupported-kind diagnostic carries image/kind/id/provenance
+            ns/coordinate/recovery (rf2-32siq3.26)"
+    (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
+                 :handler-fn ::w}]
+          img  (image/image {:id :w/img :include-ns ["weird.ns"]})
+          d    (assembly-error-data #(asm/assemble [img] pool))]
+      (is (= :rf.error/image-unsupported-kind (:rf.error/id d)))
+      (is (= :w/img (:image d)))
+      (is (= :not-a-kind (:kind d)))
+      (is (= :x/y (:id d)))
+      (is (= "weird.ns" (:rf.provenance/ns d)))
+      (is (= {:ns "weird.ns"} (:coordinate d)))
+      (is (= :correct-the-descriptor-kind (:recovery d))))))
+
+(deftest standard-forbidden-ex-data-names-colliding-coordinates
+  (testing "the standard-replacement-forbidden diagnostic now names every
+            colliding source coordinate alongside the standard coordinate
+            (rf2-32siq3.26)"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
+          img  (image/image {:id :p/img :include-ns ["product.story"]})
+          d    (assembly-error-data #(asm/assemble [img] pool))]
+      (is (= :rf.error/image-standard-replacement-forbidden (:rf.error/id d)))
+      (is (= :p/img (:image d)))
+      (is (= {:standard true} (:standard-coordinate d)))
+      (is (contains? (set (:colliding-coordinates d)) {:ns "product.story"})
+          "the app source colliding with the standard is named")
+      (is (= :declare-replace-standard-or-rename (:recovery d))))))
+
+(deftest duplicate-id-ex-data-names-colliding-coordinates
+  (testing "the duplicate-id diagnostic carries image/[kind id]/colliding source
+            coordinates/recovery (rf2-32siq3.26 — already structured; pinned)"
+    (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
+                (reg-desc "counter.boot" :event :boot/init ::b)]
+          img  (image/image {:id :both/img :include-ns ["todo.boot" "counter.boot"]})
+          d    (assembly-error-data #(asm/assemble [img] pool))]
+      (is (= :rf.error/image-duplicate-id (:rf.error/id d)))
+      (is (= :both/img (:image d)))
+      (is (= :event (:kind d)))
+      (is (= :boot/init (:id d)))
+      (is (= #{{:ns "todo.boot"} {:ns "counter.boot"}}
+             (set (:colliding-coordinates d))))
+      (is (= :declare-replace-winner-or-disambiguate (:recovery d))))))
