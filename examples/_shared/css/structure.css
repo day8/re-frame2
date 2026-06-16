@@ -3,7 +3,7 @@
  *
  * The classes here are layout-only (display/flex/grid, padding,
  * max-widths, grid-template-columns); typography + palette + atmosphere
- * live in style.css (one shared identity across all three substrates)
+ * live in style.css (one shared identity across every example substrate)
  * which @imports this file.
  * ========================================================================== */
 

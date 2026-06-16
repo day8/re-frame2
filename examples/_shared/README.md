@@ -1,7 +1,8 @@
 # `examples/_shared/` — shared examples design system
 
 Shared stylesheet, favicon, and Open Graph imagery consumed by every
-example `index.html` across all three substrates (Reagent / UIx / Helix).
+example `index.html` across every example substrate (Reagent, Reagent
+Slim, UIx, Helix).
 The smoke orchestrator
 (`examples/scripts/serve-and-run-examples-tests.cjs`) stages this whole
 tree into each staged surface's output dir — for the adapter testbeds it

@@ -1,6 +1,7 @@
 /* ============================================================================
- * Shared examples design system — one identity across all three substrates
- * (Reagent / UIx / Helix). Substrate variety is communicated by the
+ * Shared examples design system — one identity across every example
+ * substrate (Reagent, Reagent Slim, UIx, Helix). Substrate variety is
+ * communicated by the
  * substrate selector + the per-substrate examples themselves — NOT via
  * visual identity.
  *
