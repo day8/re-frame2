@@ -60,23 +60,33 @@
                (:correlation r)))))))
 
 (deftest resource-failure-reply-is-canonical
-  (testing "a resource :error reply carries the closed :rf.http/* envelope"
+  (testing "a resource :error reply carries the closed :rf.http/* envelope AND
+            the causal :completed-at (rf2-rl27r2 — a failed completion is still
+            a managed-async completion with a reply token, so its causal
+            completion time rides the reply, symmetric with success)"
     (let [r (rreply/failure-reply resource-vp {:kind :rf.http/http-5xx :status 503}
-                                  {:work-kind rreply/work-kind-resource})]
+                                  {:work-kind rreply/work-kind-resource
+                                   :completed-at 1781078400456})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)))
       (is (= :failed (:work/status r)))
       (is (= :resource (:work/kind r)))
       (is (= {:kind :rf.http/http-5xx :status 503} (:error r)))
+      (is (= 1781078400456 (:completed-at r))
+          "the failure reply carries the causal :completed-at (rf2-rl27r2)")
       (is (nil? (:value r)))))
-  (testing "an :rf.http/aborted envelope lowers to :status :cancelled, not :error"
+  (testing "an :rf.http/aborted envelope lowers to :status :cancelled, not
+            :error, and carries the causal :completed-at (rf2-rl27r2)"
     (let [r (rreply/failure-reply resource-vp {:kind :rf.http/aborted :reason :actor-destroyed}
-                                  {:work-kind rreply/work-kind-resource})]
+                                  {:work-kind rreply/work-kind-resource
+                                   :completed-at 1781078400456})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :cancelled (:status r)))
       (is (= :cancelled (:work/status r)))
       (is (true? (:cancelled? r)))
       (is (= :actor-destroyed (:cancel/reason r)))
+      (is (= 1781078400456 (:completed-at r))
+          "the cancellation reply carries the causal :completed-at (rf2-rl27r2)")
       (is (= {:kind :rf.http/aborted :reason :actor-destroyed} (:error r))))))
 
 (deftest mutation-success-reply-is-canonical

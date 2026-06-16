@@ -283,32 +283,50 @@
 
 (deftest failed-settles-record-terminal
   (rf/reg-resource :fa/article (article-spec))
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :fa/article {:slug "w"})]
+  (let [scoped-key   (state/scoped-resource-key :rf.scope/global :fa/article {:slug "w"})
+        completed-at  1781649764112]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fa/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :fa 1]}])
     (let [wid (:current-work (entry scoped-key))]
+      ;; rf2-rl27r2: a failure reply is a managed-async completion with a reply
+      ;; token, so it carries causal completion time — script the reply token's
+      ;; `:rf.cofx` `:rf/time-ms` (delivered flat as the declared `:rf/time-ms`
+      ;; cofx) and assert it is preserved on both the canonical reply and the
+      ;; terminal work-ledger outcome (it was previously dropped).
       (rf/dispatch-sync [:rf.resource.internal/failed
                          {:resource/key scoped-key :work/id wid :generation 1
-                          :error {:kind :rf.http/http-5xx :status 503}}])
+                          :error {:kind :rf.http/http-5xx :status 503}}]
+                        {:rf.cofx {:rf/time-ms completed-at}})
       (testing "a failed first load settles the work row terminal :failed with
-                the error envelope as its outcome (Xray summary)"
+                the error envelope AND the causal :completed-at as its outcome
+                (Xray summary; rf2-rl27r2)"
         (is (= :failed (:status (record wid))))
-        (is (= {:error {:kind :rf.http/http-5xx :status 503}} (:outcome (record wid)))))
+        (is (= {:error {:kind :rf.http/http-5xx :status 503}
+                :completed-at completed-at}
+               (:outcome (record wid)))))
       (testing "the host handle is cleared"
         (is (nil? (work-ledger/get-handle :rf/default wid)))))))
 
 (deftest aborted-settles-record-cancelled
   (rf/reg-resource :ab/article (article-spec))
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :ab/article {:slug "w"})]
+  (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab/article {:slug "w"})
+        completed-at  1781649764112]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ab/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :ab 1]}])
     (let [wid (:current-work (entry scoped-key))]
+      ;; rf2-rl27r2: a cancellation is a completion — script the reply token's
+      ;; causal `:rf/time-ms` and assert the terminal :cancelled outcome carries
+      ;; the same :completed-at.
       (rf/dispatch-sync [:rf.resource.internal/aborted
-                         {:resource/key scoped-key :work/id wid :generation 1}])
-      (testing "an aborted attempt settles the work row terminal :cancelled +
-                clears the handle (entry untouched — the verification gate
-                handles its settle)"
+                         {:resource/key scoped-key :work/id wid :generation 1}]
+                        {:rf.cofx {:rf/time-ms completed-at}})
+      (testing "an aborted attempt settles the work row terminal :cancelled
+                (carrying the causal :completed-at, rf2-rl27r2) + clears the
+                handle (entry untouched — the verification gate handles its
+                settle)"
         (is (= :cancelled (:status (record wid))))
+        (is (= {:reason :aborted :completed-at completed-at}
+               (:outcome (record wid))))
         (is (nil? (work-ledger/get-handle :rf/default wid)))))))
 
 ;; ===========================================================================
