@@ -238,11 +238,19 @@
        [rf/route-link {:to :realworld.profile/show :params {:username (:username author)} :class "author"}
         (:username author)]
        [:span.date createdAt]]
+      ;; OPTIMISTIC favorite (EP-0019). The heart + count already reflect the
+      ;; click — the `:optimistic-tags` apply flipped the cached article before
+      ;; the request left, so `favorited` / `favoritesCount` (read from the
+      ;; resource cache) are already the new values. We DON'T disable the button
+      ;; on `:pending?` — the user sees their change land instantly; a failed
+      ;; write rolls it back. `:optimistic?` marks "showing my optimistic value,
+      ;; not yet confirmed" for a subtle in-flight cue.
       [:button.btn.btn-outline-primary.btn-sm.pull-xs-right
        {:type "button"
         :data-testid (str "favorite-" slug)
-        :disabled (:pending? fav-state)
-        :class (when favorited "active")
+        :class (cond-> ""
+                 favorited                 (str " active")
+                 (:optimistic? fav-state)  (str " optimistic"))
         :on-click #(dispatch [:ui/favorite slug favorited])}
        [:i.ion-heart] " "
        [:span {:data-testid (str "favorites-count-" slug)} favoritesCount]]]
@@ -500,10 +508,16 @@
              ;; the E2E contract asserts on both. (The compact heart-only card
              ;; button stays `.btn-outline-primary`, correct per the official
              ;; client.)
+             ;; OPTIMISTIC favorite (EP-0019): the label, the
+             ;; `.btn-primary`/`.btn-outline-primary` class, and the count all
+             ;; flip the instant the heart is clicked (the cached article was
+             ;; patched before the request left), then settle to the server's
+             ;; value — or roll back if the write fails. Not disabled on pending:
+             ;; the optimistic value is the truth on screen until settle.
              [:button.btn.btn-sm
               {:type "button" :data-testid "article-favorite"
-               :class (if favorited "btn-primary" "btn-outline-primary")
-               :disabled (:pending? fav-state)
+               :class (cond-> (if favorited "btn-primary" "btn-outline-primary")
+                        (:optimistic? fav-state) (str " optimistic"))
                :on-click #(dispatch [:ui/favorite slug favorited])}
               [:i.ion-heart] " "
               (if favorited "Unfavorite" "Favorite") " Article "

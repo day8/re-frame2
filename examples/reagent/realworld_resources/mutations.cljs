@@ -24,12 +24,22 @@
    Runtime state is keyed by mutation INSTANCE id (not mutation id), so two
    concurrent submissions never clobber each other. A view watches an instance
    through the passive `[:rf.mutation/state {:instance …}]` sub
-   (`{:pending? :success? :error? :settled? :result :error}`).
+   (`{:pending? :success? :error? :settled? :result :error :optimistic?}`).
 
-   Optimistic ROLLBACK is deferred (Spec 016 §Deferred slices) — `:populates`
-   here are forward-only seeds, not optimistic-then-rollback. Writes do NOT
-   retry by default (reads-retry / writes-don't, Spec 014); a mutation arms
-   `:retry` only if its `:request` declares it, and none here do."
+   OPTIMISTIC ROLLBACK is LANDED (Spec 016 §Optimistic mutations, EP-0019). The
+   favorite / unfavorite writes below declare `:optimistic-tags` — the heart
+   flips and the count moves on click, BEFORE the request is sent, across every
+   cached read showing that article (the detail, every list, the session feed)
+   in one tag-addressed apply. The runtime records the inverse itself, so the
+   reply settles deterministically: an `:ok` reply COMMITS (the `:populates`
+   seed overwrites the optimistic value with the server's), an `:error` reply
+   ROLLS BACK (the recorded `:before` is restored verbatim — the heart flips
+   back). `:on-conflict :invalidate` (the default) governs a contested rollback:
+   if a concurrent write moved the entry while ours was in flight, the stale
+   inverse is NOT restored — the read path refetches the authoritative value.
+
+   Writes do NOT retry by default (reads-retry / writes-don't, Spec 014); a
+   mutation arms `:retry` only if its `:request` declares it, and none here do."
   (:require [re-frame.core :as rf]
             [re-frame.http-managed]
             [re-frame.resources]
@@ -37,67 +47,138 @@
             [realworld-resources.schema :as schema]))
 
 ;; ============================================================================
-;; FAVORITE / UNFAVORITE
+;; FAVORITE / UNFAVORITE  —  the optimistic write (EP-0019)
 ;; ============================================================================
 ;;
-;; Favoriting changes the article's favorited flag + count, so it invalidates
-;; the article detail AND any list showing it (both carry `[:article slug]`).
-;; It also `:populates` the detail entry from the write's own Article reply —
-;; the heart change shows immediately, then the invalidation refetches the
-;; lists. `:scope :rf.scope/global` is the mutation's resolved execution scope,
-;; matching the public reads.
+;; Favoriting is the canonical optimistic mutation: a tiny, reversible change
+;; (a boolean flip + a count of one) the user expects to land INSTANTLY. The
+;; same article appears in many cached reads at once — the detail, the home
+;; list, an author's articles, a profile's favorited tab, the session feed —
+;; and a favorite must flip in ALL of them the moment the heart is clicked,
+;; then settle to the server's authoritative value (and flip BACK everywhere if
+;; the write fails).
 ;;
-;; CROSS-SCOPE INVALIDATION IN ONE MUTATION (EP-0016 D2). Favoriting affects
-;; two KINDS of read living in two scopes: the public article + lists
-;; (`:rf.scope/global`) and the authenticated user's personalised feed (the
-;; session scope). A bare tag-set `:invalidates` resolves under ONE scope, so a
-;; global mutation could never reach the session feed — the variant used to
-;; paper over that with an explicit app-level session-scoped invalidation fired
-;; from a home-page reaction (the rf2-em5ab8 interim patch). EP-0016 retires
-;; that: `:invalidates` is a vector of PER-TARGET DESCRIPTORS, each naming its
-;; own scope. One descriptor invalidates the global article tags; a second
-;; names the session feed via the same `{:from-db :realworld/session}` resolver
-;; the feed resource declares, resolved at settle time. One mutation, two
+;; OPTIMISTIC-TAGS — the tag-addressed forward apply (Spec 016 §Optimistic
+;; mutations). The author cannot enumerate every cache key showing this article
+;; by hand (lists are paginated, scopes differ, entries come and go), so the
+;; optimistic apply is TAG-ADDRESSED: it patches every cached entry carrying
+;; `[:article slug]` — reusing the SAME tag index `:invalidates` matches
+;; against. One descriptor covers the global reads (detail + every list), a
+;; second covers the session feed via the same `{:from-db :realworld/session}`
+;; resolver the feed resource declares. The detail stores `{:article …}` and
+;; the lists store `{:articles […]}`, so the patch fn (`apply-fav` below)
+;; handles both envelope shapes. The session target is FAIL-CLOSED: logged out,
+;; the resolver returns nil and that target is silently dropped — an optimistic
+;; apply writes the cache, so it has a read's leak boundary, never an implicit
+;; global write.
+;;
+;; THE INVERSE IS RUNTIME-RECORDED — the author writes only the FORWARD patch.
+;; The runtime snapshots each touched entry's `:before` (verbatim, by reference)
+;; and its `:revision` at apply time. The reply then settles deterministically:
+;;   - :ok    → COMMIT. `:populates` seeds the detail with the server's full
+;;              Article (the authoritative value overwrites the optimistic one),
+;;              then `:invalidates` refetches the lists / feed to truth.
+;;   - :error → ROLLBACK. The recorded `:before` is restored verbatim — every
+;;              heart flips back, every count returns. No manual undo, no
+;;              app-db bookkeeping.
+;;   - a competing write moved an entry while ours was in flight → `:on-conflict`
+;;              (default `:invalidate`) marks that entry stale and lets the read
+;;              path refetch, rather than restoring a now-stale inverse.
+;;
+;; CROSS-SCOPE INVALIDATION IN ONE MUTATION (EP-0016 D2). `:invalidates` is the
+;; success-time counterpart: a vector of PER-TARGET DESCRIPTORS, each naming its
+;; own scope. The global descriptor refetches the article + lists; the session
+;; descriptor refetches the feed via the same resolver. One mutation, two
 ;; scopes — no app-level cross-scope patch, no home-page watcher.
 
+(defn- toggle-article-fav
+  "Toggle one Article map's `:favorited` flag and step `:favoritesCount` by
+   ±1. Pure; clamps the count at zero. Shared by the favorite + unfavorite
+   forward patches so the optimistic shape is declared once."
+  [favorited? article]
+  (when article
+    (-> article
+        (assoc :favorited favorited?)
+        (update :favoritesCount (fn [n] (max 0 (+ (or n 0) (if favorited? 1 -1))))))))
+
+(defn- apply-fav
+  "The FORWARD optimistic patch over ONE cached entry's `:data`, for any read
+   showing this article. Handles both stored shapes: the detail's `{:article
+   …}` envelope and a list's `{:articles […]}` envelope (it edits the matching
+   article in place by slug, leaving the rest untouched). `favorited?` is the
+   desired post-click state. The runtime records the inverse, so this fn never
+   has to describe how to undo itself."
+  [favorited? slug data]
+  (cond-> data
+    (contains? data :article)
+    (update :article #(toggle-article-fav favorited? %))
+
+    (contains? data :articles)
+    (update :articles
+            (fn [articles]
+              (mapv (fn [a]
+                      (if (= slug (:slug a)) (toggle-article-fav favorited? a) a))
+                    articles)))))
+
+(defn- optimistic-fav-tags
+  "The `:optimistic-tags` plan shared by favorite (`favorited? true`) and
+   unfavorite (`favorited? false`): patch every entry tagged `[:article slug]`
+   in the global scope (detail + lists) AND in the session scope (the feed),
+   the same two scopes `:invalidates` covers. The session target is fail-closed
+   — dropped when logged out."
+  [favorited? slug]
+  [{:scope :rf.scope/global
+    :tags  #{[:article slug]}
+    :patch #(apply-fav favorited? slug %)}
+   {:scope {:from-db :realworld/session}
+    :tags  #{[:feed]}
+    :patch #(apply-fav favorited? slug %)}])
+
 (rf/reg-mutation :realworld/favorite
-  {:doc           "Favorite an article. POST /articles/:slug/favorite."
-   :params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
-                     :decode  schema/ArticleResponse})
-   ;; Seed the detail entry from the reply so the heart flips immediately. The
-   ;; seeded value matches the `:realworld/article` resource's stored shape —
-   ;; the whole `{:article …}` envelope its `:decode schema/ArticleResponse`
-   ;; produces — so the populated entry reads identically to a fetched one
-   ;; (Spec 016 §Populate is an authoritative load: the populated detail key is
-   ;; exempt from this same mutation's `[:article slug]` refetch).
-   :populates     (fn [{:keys [slug]} result]
-                    {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   ;; Per-target descriptors: global article tags in the global scope, the feed
-   ;; tag in the session scope. The favourited list a profile shows also drops/
-   ;; re-orders via the `[:article slug]` global tag it carries.
-   :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global
-                      :tags  #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])})
+  {:doc             "Favorite an article (optimistic). POST /articles/:slug/favorite."
+   :params-schema   [:map [:slug :string]]
+   :scope           :rf.scope/global
+   :request         (fn [{:keys [slug]} _ctx]
+                      {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
+                       :decode  schema/ArticleResponse})
+   ;; FORWARD: flip the heart on + bump the count across the detail, every list,
+   ;; and the session feed, immediately on click (phase 1.5, before the request).
+   :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags true slug))
+   ;; COMMIT: the reply is the full updated Article; seed the detail with it so
+   ;; the authoritative value (the server's exact count) overwrites the
+   ;; optimistic guess. Same `{:article …}` envelope the resource stores, so the
+   ;; populated key reads identically to a fetched one (Spec 016 §Populate is an
+   ;; authoritative load — the populated detail key is exempt from this same
+   ;; mutation's `[:article slug]` refetch).
+   :populates       (fn [{:keys [slug]} result]
+                      {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
+   ;; RECONCILE: refetch the lists (global) and the feed (session) to truth.
+   :invalidates     (fn [{:keys [slug]} _result]
+                      [{:scope :rf.scope/global
+                        :tags  #{[:article slug] [:article-list]}}
+                       {:scope {:from-db :realworld/session}
+                        :tags  #{[:feed]}}])
+   ;; ROLLBACK conflict policy (the default, named here for the dogfood): on a
+   ;; failure rollback where a competing write moved a touched entry, refetch it
+   ;; rather than restoring a stale inverse.
+   :on-conflict     :invalidate})
 
 (rf/reg-mutation :realworld/unfavorite
-  {:doc           "Unfavorite an article. DELETE /articles/:slug/favorite."
-   :params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :delete :url (rh/full-url (str "/articles/" slug "/favorite"))}
-                     :decode  schema/ArticleResponse})
-   :populates     (fn [{:keys [slug]} result]
-                    {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global
-                      :tags  #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])})
+  {:doc             "Unfavorite an article (optimistic). DELETE /articles/:slug/favorite."
+   :params-schema   [:map [:slug :string]]
+   :scope           :rf.scope/global
+   :request         (fn [{:keys [slug]} _ctx]
+                      {:request {:method :delete :url (rh/full-url (str "/articles/" slug "/favorite"))}
+                       :decode  schema/ArticleResponse})
+   :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags false slug))
+   :populates       (fn [{:keys [slug]} result]
+                      {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
+   :invalidates     (fn [{:keys [slug]} _result]
+                      [{:scope :rf.scope/global
+                        :tags  #{[:article slug] [:article-list]}}
+                       {:scope {:from-db :realworld/session}
+                        :tags  #{[:feed]}}])
+   :on-conflict     :invalidate})
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW
