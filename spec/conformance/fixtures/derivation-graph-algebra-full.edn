@@ -38,9 +38,11 @@
 ;;                       key), carrying the declared `:blocking?`.
 ;;   - LIVE MODE       — a second `:derivation-graph` call with `:mode :live`
 ;;                       asserts the live graph carries the `:mode :live` +
-;;                       `:frame` shape and STILL lowers the registered
-;;                       subscription / machine / route nodes (the live view
-;;                       does not re-classify the registered facts). The
+;;                       `:frame :rf/default` shape (via `:expect-graph`, the
+;;                       graph-level submap check — rf2-ska8zk) and STILL
+;;                       lowers the registered subscription / machine / route
+;;                       nodes (the live view does not re-classify the
+;;                       registered facts). The
 ;;                       REALIZED live route-owned resource edge (a concrete
 ;;                       scoped key under a nav-token) is the implementation-
 ;;                       local reference suite's subject
@@ -67,7 +69,7 @@
  :fixture/capabilities #{:core/sub :fsm/flat :flow/basic :rf.http/managed
                          :routing/match-url :routing/blocking
                          :derivation/algebra-graph}
- :fixture/doc          "The FULL cross-family derivation/process algebra graph: reg-sub → ephemeral :derivation, reg-flow → materialized app-db :derivation, reg-resource → :process (runtime-db storage + external :authority — the issue-2 split), reg-route → the :rf/route slice :process, reg-machine → :process refined :machine-process. Pins the static :input (sub :<-), :param (route-owned resource activation), and :selector (machine → selector sub) edges, the resource authority/local-storage split, AND the live-graph mode/frame shape. The broad :derivation/algebra-graph claim the portable corpus formerly overclaimed with only subs+machines/static (rf2-djofbh)."
+ :fixture/doc          "The FULL cross-family derivation/process algebra graph: reg-sub → ephemeral :derivation, reg-flow → materialized app-db :derivation, reg-resource → :process (runtime-db storage + external :authority — the issue-2 split), reg-route → the :rf/route slice :process, reg-machine → :process refined :machine-process. Pins the static :input (sub :<-), :param (route-owned resource activation), and :selector (machine → selector sub) edges, the resource authority/local-storage split, AND the live-graph mode/frame shape (the graph-level :expect-graph {:mode :live :frame :rf/default} check — rf2-ska8zk; the static call pins :expect-graph {:mode :static}). The broad :derivation/algebra-graph claim the portable corpus formerly overclaimed with only subs+machines/static (rf2-djofbh)."
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
@@ -129,6 +131,11 @@
  [;; ---- STATIC graph ----------------------------------------------------
   {:call :derivation-graph
    :mode :static
+
+   ;; GRAPH-LEVEL shape (rf2-ska8zk): the static composer carries top-level
+   ;; `:mode :static` and NO `:frame` (the static graph is frame-agnostic).
+   ;; `:expect-graph` is a submap match against the whole graph map.
+   :expect-graph {:mode :static}
 
    :expect-nodes
    [;; SUBS — ephemeral / on-demand / cache-entry :derivation.
@@ -207,6 +214,14 @@
   ;; (derivation_algebra_conformance_cljs_test).
   {:call :derivation-graph
    :mode :live
+
+   ;; GRAPH-LEVEL shape (rf2-ska8zk): the LIVE composer carries top-level
+   ;; `:mode :live` AND `:frame :rf/default` (the corpus single-frame scope).
+   ;; This is the false-positive guard the bead names — a port returning the
+   ;; right live machine node while dropping/misreporting the live mode or
+   ;; frame must FAIL here, not pass. `:expect-graph` is a submap match
+   ;; against the whole graph map.
+   :expect-graph {:mode :live :frame :rf/default}
 
    :expect-nodes
    [{:id            [:machine :upload/main]
