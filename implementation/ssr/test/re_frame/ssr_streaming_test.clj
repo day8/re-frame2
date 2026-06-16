@@ -2,11 +2,13 @@
   "Streaming SSR — `:rf/suspense-boundary` walker, continuation drain,
   failure semantics, per-subtree hydration delta. Per Spec 011 §Streaming
   SSR (rf2-ojakd / rf2-olb64 (a))."
-  (:require [clojure.string :as str]
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr :as ssr]
+            [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.test-fixture :as tf]
@@ -223,6 +225,81 @@
                 @captured)
           ":rf.error/suspense-boundary-duplicate-id trace emitted"))))
 
+;; ===========================================================================
+;; rf2-yvc0t7 — duplicate detection keys on the WIRE id, not the raw :id
+;;
+;; Boundary ids are serialised to the wire as `(str id)` —
+;; `data-rf2-suspense-id` / `data-rf2-suspense-hydrate` — and the client
+;; matches mounts by that one string. The old `dedupe-continuations`
+;; grouped by the RAW `:id`, so two boundaries whose ids DIFFER as values
+;; but COLLIDE under `str` (a keyword `:a` and a string `":a"`) escaped
+;; detection: both stamped the same `data-rf2-suspense-id=":a"`, yet two
+;; continuations survived. The client could then materialise/resolve the
+;; wrong mount or skip the later chunk via its seen-set. The fix keys
+;; dedup on the canonical wire id `(str id)`.
+;; ===========================================================================
+
+(deftest duplicate-wire-id-collision-emits-trace-and-keeps-last
+  (testing "rf2-yvc0t7: two boundaries whose raw ids differ (`:a` keyword
+            vs `\":a\"` string) but whose WIRE ids collide under `str`
+            are detected as duplicates — one continuation survives
+            (last-write-wins), the trace fires, and both fallback
+            templates carry the same wire id attribute"
+    (let [tree [:div
+                [:rf/suspense-boundary {:id :a :fallback [:p "first"]} [:p "first body"]]
+                [:rf/suspense-boundary {:id ":a" :fallback [:p "second"]} [:p "second body"]]]
+          captured (atom [])
+          {:keys [continuations shell-html]}
+          (with-trace-capture captured #(streaming/render-shell tree))]
+      ;; The wire surface: both boundaries stamp the SAME wire id, so the
+      ;; client cannot tell them apart — the collision is real.
+      (is (= 2 (count (re-seq (re-pattern (str wire/attr-suspense-id "=\":a\""))
+                              shell-html)))
+          "both fallback templates stamp the same wire id `:a` — the
+           collision the client would face")
+      ;; The fix: dedup collapses the colliding ids to a single
+      ;; continuation (the old raw-:id grouping left two).
+      (is (= 1 (count continuations))
+          "only one continuation survives dedup on the wire id")
+      ;; Last-write-wins: the surviving entry is the SECOND (string `:a`)
+      ;; registration.
+      (is (= ":a" (:id (first continuations)))
+          "last-write-wins keeps the LAST registration (the string id)")
+      (is (= [:p "second"] (:fallback (first continuations)))
+          "the surviving entry carries the last registration's :fallback")
+      ;; The documented programmer-error trace fires.
+      (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                    (:operation %))
+                                @captured)]
+        (is (= 1 (count dup-traces))
+            ":rf.error/suspense-boundary-duplicate-id fires once for the
+             colliding pair")
+        (when-let [ev (first dup-traces)]
+          (is (= ":a" (get-in ev [:tags :id]))
+              "the trace reports the colliding WIRE id")
+          (is (= 2 (get-in ev [:tags :count]))
+              ":count reports the colliding cardinality")
+          (is (= [:a ":a"] (get-in ev [:tags :raw-ids]))
+              ":raw-ids surfaces the distinct raw ids that collided")
+          (is (= :last-write-wins (:recovery ev))
+              ":recovery names the applied policy"))))))
+
+(deftest distinct-wire-ids-are-not-deduped
+  (testing "rf2-yvc0t7 guard: boundaries with genuinely distinct wire ids
+            (the common keyword case) are NOT collapsed"
+    (let [tree [:div
+                [:rf/suspense-boundary {:id :a :fallback [:p "fa"]} [:p "ba"]]
+                [:rf/suspense-boundary {:id :b :fallback [:p "fb"]} [:p "bb"]]]
+          captured (atom [])
+          {:keys [continuations]}
+          (with-trace-capture captured #(streaming/render-shell tree))]
+      (is (= 2 (count continuations))
+          "distinct wire ids both survive — no false collapse")
+      (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                               (:operation %))
+                           @captured))
+          "no duplicate-id trace for distinct ids"))))
+
 (deftest build-final-payload-shape
   (testing "Final payload carries the canonical :rf/hydration-payload shape"
     (let [fid (make-frame {:db {:articles [{:id "a"}]}})
@@ -401,3 +478,66 @@
                           #":rf.error/ssr-edn-script-breakout"
                           (streaming/hydrate-delta-script
                             :boundary/x (pr-str {:k (symbol "a</script>b")}))))))
+
+;; ===========================================================================
+;; rf2-g15jtb — EDN char literals must not be mis-scanned as string state
+;;
+;; `escape-edn-script-body` scans the already-`pr-str`'d EDN document
+;; tracking string-literal context. An EDN CHARACTER LITERAL also opens
+;; with a backslash, so `(char 34)` prints as a backslash + a raw `"`
+;; byte (`\"`). The old scanner had no char-literal state: it read that
+;; raw `"` as the START of a string literal, flipping its in-string
+;; tracking out of phase. A later REAL string literal carrying `</script>`
+;; was then scanned in token position and rejected fail-loud with
+;; `:rf.error/ssr-edn-script-breakout` — a data-dependent false positive
+;; on otherwise-safe app-db data. The fix treats a token-position
+;; backslash as a char-literal introducer: it consumes the following
+;; payload char verbatim, so `\"` does not toggle string state.
+;; ===========================================================================
+
+(deftest escape-edn-script-body-handles-char-literals
+  (testing "rf2-g15jtb: a char literal for double-quote (`(char 34)` →
+            prints `\\\"`) does NOT toggle string state, so a later string
+            literal's `</script>` is escaped (not mis-read as a token
+            breakout); the body carries no literal `</script` and
+            round-trips through the EDN reader"
+    (let [value {:x (char 34) :y "</script>"}
+          edn-doc (pr-str value)
+          body  (html/escape-edn-script-body edn-doc)]
+      ;; The pre-fix behaviour THREW here; the fix must produce a body.
+      (is (string? body) "escaper returns a body (no false-positive throw)")
+      (is (not (str/includes? (str/lower-case body) "</script"))
+          "no literal </script breakout survives")
+      (is (= value (edn/read-string body))
+          "the EDN reader recovers the full value verbatim — char literal
+           and the (now-escaped) string both round-trip")))
+
+  (testing "rf2-g15jtb: char literals for the breakout chars themselves
+            (`<`, `/`) are single-char literals separated from neighbours
+            by pr-str, so they round-trip without a false breakout"
+    (doseq [v [(char 60) (char 47) (char 33)]]
+      (let [value {:c v :s "safe"}
+            body  (html/escape-edn-script-body (pr-str value))]
+        (is (= value (edn/read-string body))
+            (str "char literal " (pr-str v) " round-trips")))))
+
+  (testing "rf2-g15jtb: a genuine token-position breakout (a SYMBOL value
+            printing a literal `</`) still fails loud — the char-literal
+            relaxation does not weaken the breakout guard"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-edn-script-breakout"
+                          (html/escape-edn-script-body
+                            (pr-str {:k (symbol "a</script>b")}))))))
+
+(deftest hydrate-delta-script-char-literal-round-trips
+  (testing "rf2-g15jtb: the streaming delta call site (`hydrate-delta-script`)
+            shares the fixed helper, so a delta whose value is a char
+            literal `(char 34)` alongside a string carrying `</script>`
+            emits cleanly and round-trips"
+    (let [delta  {:x (char 34) :y "</script>"}
+          script (streaming/hydrate-delta-script :boundary/x (pr-str delta))
+          body   (delta-script-body script)]
+      (is (not (str/includes? (str/lower-case body) "</script"))
+          "delta body carries no literal </script breakout")
+      (is (= delta (edn/read-string body))
+          "delta round-trips through the EDN reader verbatim"))))

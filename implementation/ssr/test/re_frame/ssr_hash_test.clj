@@ -91,6 +91,47 @@
            (hash/render-tree-hash [:div [:p "a"] [:p "b"]]))
         "interior nil child pruned")))
 
+;; ===========================================================================
+;; rf2-mff1ht — map ordering must be a TOTAL order (str-colliding keys)
+;;
+;; `append-map!` sorted entries by `(comp str key)`, which is NOT a total
+;; order: a keyword `:a` and a string `":a"` both `str` to `":a"`, so
+;; `sort-by` falls back to source iteration/insertion order. Two maps that
+;; are `=` in Clojure (`{:a 1 ":a" 2}`) could then canonicalise to
+;; different EDN strings and hash differently depending only on how the
+;; map was constructed — a false hydration mismatch. The fix sorts by the
+;; canonical-EDN form of the key (`:a` vs the quoted `":a"`), a total
+;; cross-runtime-stable order.
+;; ===========================================================================
+
+(deftest render-tree-hash-stable-for-str-colliding-keys
+  (testing "rf2-mff1ht: a map mixing a keyword `:a` and a string `\":a\"`
+            (whose `str` forms collide) hashes IDENTICALLY regardless of
+            insertion/construction order"
+    (let [a-first     (array-map :a 1 ":a" 2)
+          colon-first (array-map ":a" 2 :a 1)]
+      (is (= a-first colon-first)
+          "the two maps are Clojure-= (sanity: same logical map)")
+      (is (= (hash/render-tree-hash a-first)
+             (hash/render-tree-hash colon-first))
+          "render-tree-hash is insertion-order-independent for
+           str-colliding keys")
+      (is (= (hash/canonical-edn a-first)
+             (hash/canonical-edn colon-first))
+          "canonical EDN is byte-identical regardless of construction order"))
+
+    (testing "the canonical form distinguishes the two key shapes (the
+              keyword bare, the string quoted) so the order is total"
+      ;; The keyword sorts before the quoted string (`:` 0x3A < `\"` 0x22?
+      ;; no — `"` is 0x22, `:` is 0x3A, so the quoted string sorts first).
+      ;; We assert byte-equality across orders, not the absolute position.
+      (is (str/includes? (hash/canonical-edn (array-map :a 1 ":a" 2))
+                         "\":a\"")
+          "the string key keeps its quotes in canonical form")
+      (is (str/includes? (hash/canonical-edn (array-map :a 1 ":a" 2))
+                         ":a 1")
+          "the keyword key is bare in canonical form"))))
+
 (deftest render-tree-hash-prunes-nil-deeply
   (testing "pruning is recursive — nil-pruning applies at every level"
     (is (= (hash/render-tree-hash

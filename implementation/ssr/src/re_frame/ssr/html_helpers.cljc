@@ -98,7 +98,12 @@
 
   This encoder scans the document tracking string-literal context (an EDN
   string literal opens/closes on an unescaped `\"`; `\\` escapes the next
-  char inside a string):
+  char inside a string). In token position a backslash opens an EDN
+  CHARACTER LITERAL (`\\\"`, `\\<`, `\\newline`, …): the char immediately
+  after the backslash is the literal's payload, so a `\\\"` (what
+  `(char 34)` prints as) does NOT open a string and a later real string
+  literal's `</script>` is escaped, not mis-read as a token-position
+  breakout (rf2-g15jtb):
 
     - INSIDE a string literal — every `<` becomes `\\u003c`. The reader
       decodes the escape back to `<` inside the string, so the value
@@ -156,6 +161,26 @@
               (recur (inc i) true false (conj! acc c)))
 
             ;; Outside any string literal — token / structural position.
+            ;;
+            ;; An EDN character literal opens with a backslash (`\"`, `\<`,
+            ;; `\newline`, `A`, `\o101`). The character IMMEDIATELY
+            ;; following the backslash is the literal's payload, NOT a
+            ;; document delimiter — in particular a `\"` (the char literal
+            ;; for double-quote, what `(char 34)` prints as) must NOT be
+            ;; read as a string-opening quote (rf2-g15jtb). Emit the
+            ;; backslash and the following payload char verbatim, then
+            ;; resume normal token scanning. The payload char cannot itself
+            ;; start an HTML breakout: an EDN char literal is a single
+            ;; character (`\<`), and `pr-str` always separates it from the
+            ;; next token with whitespace / a structural delimiter, so the
+            ;; literal's `<` can never directly abut a following `/` or `!`.
+            (= c \\)
+            (if (< (inc i) n)
+              (recur (+ i 2) false false (-> acc (conj! c) (conj! (nth s (inc i)))))
+              ;; Trailing lone backslash (not reachable from valid `pr-str`
+              ;; output, but keep the scanner total) — emit verbatim.
+              (recur (inc i) false false (conj! acc c)))
+
             (= c \")
             (recur (inc i) true false (conj! acc c))
 
