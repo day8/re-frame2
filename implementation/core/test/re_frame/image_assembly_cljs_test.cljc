@@ -12,7 +12,10 @@
     * dedupe — the same registration selected twice is NOT a collision;
     * declared `:replace` winner resolves an application-owned collision;
     * stale / ambiguous replacement winner FAILS LOUD;
-    * `:replace` on a non-colliding key — handled (no spurious win);
+    * `:replace` / `:replace-standard` declared for a key with NO actual
+      collision (zero or exactly one selected descriptor) FAILS LOUD — a
+      replacement resolves an intentional collision, never a silent order
+      override (rf2-32siq3.5 winner policy);
     * unsupported descriptor kind FAILS LOUD;
     * a framework STANDARD collision without `:replace-standard` FAILS LOUD;
     * `:replace-standard` on a NON-replaceable standard FAILS LOUD (incl. an
@@ -207,6 +210,78 @@
                   :replace {[:fx :checkout.http/post] {:ns "checkout.story.STALE"}}})]
       (is (= :rf.error/image-replacement-winner-unresolved
              (assembly-error-id #(asm/assemble [img] pool)))))))
+
+;; ===========================================================================
+;; 3b. Replacement declares a REAL collision only (rf2-32siq3.5 winner policy):
+;;     a :replace / :replace-standard for a key with no actual collision is an
+;;     error — replacement resolves an intentional collision, it is NEVER a
+;;     silent order override. The complement of the winner-unresolved check.
+;; ===========================================================================
+
+(deftest replace-on-noncolliding-single-selection-fails-loud
+  (testing "a :replace declared for a (kind, id) with exactly ONE selected
+            descriptor (no collision) → :rf.error/image-replacement-no-collision
+            — naming a winner where there is nothing to replace is an order
+            override, not a collision resolution"
+    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
+          img  (image/image
+                 {:id :i
+                  :include-ns ["checkout.core"]
+                  :replace {[:fx :checkout.http/post] {:ns "checkout.core"}}})]
+      (is (= :rf.error/image-replacement-no-collision
+             (assembly-error-id #(asm/assemble [img] pool)))))))
+
+(deftest replace-on-absent-key-fails-loud
+  (testing "a :replace declared for a (kind, id) that NO selected descriptor has
+            (a typo / a stale id) → :rf.error/image-replacement-no-collision —
+            there is no collision (zero descriptors) to resolve"
+    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
+          img  (image/image
+                 {:id :i
+                  :include-ns ["checkout.core"]
+                  :replace {[:fx :checkout.http/TYPO] {:ns "checkout.core"}}})]
+      (is (= :rf.error/image-replacement-no-collision
+             (assembly-error-id #(asm/assemble [img] pool)))))))
+
+(deftest replace-standard-on-noncolliding-key-fails-loud
+  (testing "a :replace-standard declared for a key with no actual collision is
+            ALSO a no-collision error (the non-collision check runs BEFORE the
+            standard-policy guard — there is no real collision to police)"
+    ;; A replaceable standard exists, but the app does NOT select a colliding
+    ;; descriptor — so the standard alone occupies the (kind, id): no collision.
+    (asm/register-standard! :fx :rf.nav/push-url
+                            {:handler-fn ::std :rf.standard/replaceable? true})
+    (let [pool [(reg-desc "product.core" :event :app/boot ::boot)]
+          img  (image/image
+                 {:id :i
+                  :include-ns ["product.core"]
+                  :replace-standard {[:fx :rf.nav/push-url] {:ns "product.core"}}})]
+      (is (= :rf.error/image-replacement-no-collision
+             (assembly-error-id #(asm/assemble [img] pool)))))))
+
+(deftest noncolliding-image-without-replacement-seals-cleanly
+  (testing "the baseline: the SAME single selection with NO :replace declaration
+            seals cleanly — the no-collision error fires ONLY on a spurious
+            replacement declaration, never on an ordinary single registration"
+    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
+          img  (image/image {:id :i :include-ns ["checkout.core"]})
+          gen  (asm/assemble [img] pool)]
+      (is (= ::only (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+
+(deftest check-replacement-keys-collide-is-callable-directly
+  (testing "the .5 seam fn rejects a non-colliding key and accepts a real
+            collision when called against a post-dedupe distinct-by-id view"
+    (let [real-collision {[:fx :x] [(reg-desc "a" :fx :x ::a)
+                                    (reg-desc "b" :fx :x ::b)]}
+          single         {[:fx :x] [(reg-desc "a" :fx :x ::a)]}]
+      (testing "a real collision passes the key check (returns nil, no throw)"
+        (is (nil? (asm/check-replacement-keys-collide!
+                    :i real-collision {[:fx :x] {:ns "a"}} {}))))
+      (testing "a single (uncollided) selection fails loud"
+        (is (= :rf.error/image-replacement-no-collision
+               (assembly-error-id
+                 #(asm/check-replacement-keys-collide!
+                    :i single {[:fx :x] {:ns "a"}} {}))))))))
 
 ;; ===========================================================================
 ;; 4. Unsupported descriptor kind

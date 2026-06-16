@@ -57,10 +57,13 @@
         -> :rf.error/image-unsupported-kind
       event references a missing interceptor / resource a missing scope
         -> :rf.error/image-missing-reference
-      a :replace / :replace-standard winner that resolves to zero or many,
-        or names a key with no actual collision (stale / ambiguous)
+      a :replace / :replace-standard declared for a key with no actual
+        collision (zero or exactly one selected descriptor — stale / typo /
+        an order override, NOT a collision resolution)
         -> :rf.error/image-replacement-no-collision
-           :rf.error/image-replacement-winner-unresolved
+      a :replace / :replace-standard winner that resolves to zero or many
+        selected descriptors (a stale winner source, a typo, an ambiguous coord)
+        -> :rf.error/image-replacement-winner-unresolved
       replacing a non-replaceable framework standard registration
         -> :rf.error/image-standard-replacement-forbidden
       an image-required capability the frame does not supply
@@ -69,18 +72,29 @@
   ## The .5 / .6 seams (documented boundary)
 
   This slice builds the validation STRUCTURE and fails loud on every condition
-  the EP names for assembly. Two seams are left for sibling slices to deepen:
+  the EP names for assembly. One seam (.6) is left for a sibling slice to deepen;
+  the .5 replacement policy is now LANDED here:
 
-    * SLICE .5 (replacement policy) — owns the DEEP `:replace` / `:replace-standard`
-      winner-resolution policy. This slice already DETECTS collisions and fails
-      loud when no winner is declared, and resolves a declared winner through
-      [[resolve-replacement-winner]] + the standard-policy guard
-      [[standard-replaceable?]]. Slice .5 plugs richer winner-source matching
-      (e.g. inline-coordinate edge cases, conformance-profile proofs for
-      invariant-coupled standards) into those two seam fns WITHOUT changing the
-      detection structure here. The first version keeps the simple rule the EP
-      mandates: a winner source coordinate must identify EXACTLY ONE selected
-      descriptor, and standards default non-replaceable.
+    * SLICE .5 (replacement policy — LANDED) — owns the EXACT `:replace` /
+      `:replace-standard` winner policy: a replacement declares the survivor of
+      a REAL collision and is never a silent order override. The three fail-loud
+      legs (EP-0023 §Image Validation / §Image Patching And Overrides):
+        - a declared winner must identify EXACTLY ONE selected descriptor
+          ([[resolve-replacement-winner]] → `:rf.error/image-replacement-winner-unresolved`);
+        - a declared key must name a REAL collision — a `:replace` /
+          `:replace-standard` for a `(kind, id)` with zero or exactly one
+          selected descriptor is an error
+          ([[check-replacement-keys-collide!]] → `:rf.error/image-replacement-no-collision`);
+        - a framework STANDARD is non-replaceable by default; `:replace-standard`
+          is the opt-in, and an invariant-coupled standard (a non-empty
+          `:rf.standard/requires-conformance`, e.g. `:rf.interceptor/path`) stays
+          non-replaceable regardless of the flag until a conformance profile
+          proves the invariant is preserved ([[standard-replaceable?]] +
+          `resolve-collision` → `:rf.error/image-standard-replacement-forbidden`).
+      The seam fns [[resolve-replacement-winner]] / [[standard-replaceable?]]
+      remain the future plug points for richer winner-source matching and the
+      conformance-profile proof that would lift the invariant-coupled lock; the
+      detection STRUCTURE (`.4`'s undeclared-collision fail-loud) is unchanged.
 
     * SLICE .6 (capability checks) — owns the DEEP capability-map checking
       against the frame's host `:capabilities`. This slice already collects the
@@ -465,6 +479,92 @@
          :extra    {:image image-id :kind kind :id id
                     :colliding-coordinates (mapv descriptor-coordinate colliding)}}))))
 
+(defn distinct-by-id
+  "Group `descriptors` by `[kind id]` and dedupe same-registration descriptors
+  within each group (same coordinate + impl — an identical registration selected
+  by two overlapping globs is ONE registration, EP-0023 §Image Validation). The
+  result `{[kind id] [distinct-descriptor …]}` is the post-dedupe view both the
+  resolver projection and the replacement-key collision check read: a group with
+  ≥2 entries is a GENUINE `(kind, id)` collision; a group with exactly 1 entry is
+  no collision. Pure — order within a group does not decide a winner downstream."
+  [descriptors]
+  (let [by-id (reduce (fn [acc d] (update acc (descriptor-kind+id d) (fnil conj []) d))
+                      {}
+                      descriptors)]
+    (reduce-kv
+      (fn [acc k+id ds]
+        (assoc acc k+id
+               (reduce (fn [distinct-ds d]
+                         (if (some #(same-registration? d %) distinct-ds)
+                           distinct-ds
+                           (conj distinct-ds d)))
+                       []
+                       ds)))
+      {}
+      by-id)))
+
+;; ---- replacement declares a REAL collision only (EP-0023 §Image Validation:
+;;      \"replace names a key with no actual collision -> image assembly error\";
+;;      §Image Patching: \"a replacement declaration for a non-colliding key is an
+;;      image assembly error\") — the .5 winner-policy: a declared winner is for a
+;;      REAL collision, NOT a silent order override ---------------------------
+
+(defn check-replacement-keys-collide!
+  "Throw `:rf.error/image-replacement-no-collision` for any `:replace` /
+  `:replace-standard` key `[kind id]` that does NOT name a GENUINE selected
+  collision in `distinct-by-id` (the post-dedupe `{[kind id] [descriptor …]}`
+  view). A replacement declaration asserts that a `(kind, id)` collision is
+  INTENTIONAL and names the survivor — so it is only legal where a real
+  collision exists (≥2 distinct registrations for that `(kind, id)`). Two
+  non-collision shapes fail loud here (EP-0023 §Image Patching And Overrides —
+  replacement is fail-loud, NOT a silent order override):
+
+    * the key names a `(kind, id)` with EXACTLY ONE selected descriptor — there
+      is nothing to replace; the declaration is stale or the winner is being
+      used to override selection, not resolve a collision;
+    * the key names a `(kind, id)` with ZERO selected descriptors — a typo or a
+      no-longer-selected id; there is no collision to resolve at all.
+
+  This is the `.5` winner-policy guarantee paired with
+  [[resolve-replacement-winner]]: that fn proves a DECLARED winner names exactly
+  one selected descriptor; THIS fn proves the KEY it is declared for is a real
+  collision. Together they make `:replace` / `:replace-standard` an exact
+  resolution of an intentional collision and never a back-door order override.
+  Runs BEFORE `build-resolver` so a bad declaration fails before any winner is
+  resolved. `replace` / `replace-standard` are `{[kind id] winner}` maps.
+  Returns nil."
+  [image-id distinct-by-id replace replace-standard]
+  (doseq [[which m] [[:replace replace] [:replace-standard replace-standard]]
+          [[kind id] winner] m
+          :let [colliding (get distinct-by-id [kind id] [])
+                n         (count colliding)]
+          :when (< n 2)]
+    (error/throw-error!
+      :rf.error/image-replacement-no-collision
+      'rf/make-frame
+      (str "rf/image assembly: the " which " declaration for " (pr-str [kind id])
+           " names a key with NO actual collision — it selects "
+           (case n 0 "ZERO" "exactly ONE")
+           " descriptor, so there is nothing to replace. A replacement winner "
+           "resolves a REAL `(kind, id)` collision (two or more distinct "
+           "registrations); it is NOT a silent order override. "
+           (case n
+             0 (str "No selected descriptor has id " (pr-str [kind id])
+                    " — fix the typo, select the namespace that registers it, "
+                    "or remove the stale declaration.")
+             (str "Only one descriptor (" (pr-str (descriptor-coordinate (first colliding)))
+                  ") is selected for " (pr-str [kind id])
+                  " — remove the replacement declaration (it overrides nothing) "
+                  "or select the colliding source you meant to replace.")))
+      {:recovery :remove-the-replacement-or-introduce-the-collision
+       :extra    {:image image-id
+                  :which which
+                  :kind  kind :id id
+                  :winner winner
+                  :selected-count n
+                  :selected-coordinates (mapv descriptor-coordinate colliding)}}))
+  nil)
+
 (defn build-resolver
   "Project the selected `descriptors` (selected + standard) into the sealed
   `{[kind id] descriptor}` resolver map. Groups by `[kind id]`, dedupes
@@ -477,24 +577,13 @@
   (it only affects iteration); the winner is decided by dedupe + declared
   replacement, never by position."
   [image-id descriptors replace replace-standard]
-  (let [by-id (reduce (fn [acc d] (update acc (descriptor-kind+id d) (fnil conj []) d))
-                      {}
-                      descriptors)]
-    (reduce-kv
-      (fn [resolver [kind id] ds]
-        ;; Dedupe identical registrations (same coordinate + impl). What remains
-        ;; is the set of DISTINCT registrations for this (kind, id).
-        (let [distinct-ds (reduce (fn [acc d]
-                                    (if (some #(same-registration? d %) acc)
-                                      acc
-                                      (conj acc d)))
-                                  []
-                                  ds)
-              winner      (resolve-collision image-id kind id distinct-ds
-                                             replace replace-standard)]
-          (assoc resolver [kind id] winner)))
-      {}
-      by-id)))
+  (reduce-kv
+    (fn [resolver [kind id] distinct-ds]
+      (assoc resolver [kind id]
+             (resolve-collision image-id kind id distinct-ds
+                                replace replace-standard)))
+    {}
+    (distinct-by-id descriptors)))
 
 ;; ---- reference validation (EP-0023 §Image Validation: \"event references
 ;;      missing interceptor / resource references missing scope resolver\") ----
@@ -617,11 +706,14 @@
        the source store) + each image's inline descriptors;
     2. add the framework standard registrations;
     3. validate unsupported kinds;
-    4. project into the sealed `[kind id]` resolver, resolving every collision
+    4. validate every declared `:replace` / `:replace-standard` key names a REAL
+       collision (a declaration for a non-colliding key FAILS LOUD — replacement
+       resolves an intentional collision, it is never a silent order override);
+    5. project into the sealed `[kind id]` resolver, resolving every collision
        via declared `:replace` / `:replace-standard` winners — a genuine
        collision with no declared winner FAILS LOUD (order never decides);
-    5. validate application interceptor references against the sealed resolver;
-    6. seal into an immutable generation value.
+    6. validate application interceptor references against the sealed resolver;
+    7. seal into an immutable generation value.
 
   Capability checking (step against the frame's `:capabilities`) is NOT done
   here — pure assembly has no frame; it is the slice-.6 / slice-.7 frame-boundary
@@ -652,12 +744,17 @@
          [rep rep-std] (replace-maps images)]
      ;; (3) Fail loud on any unsupported descriptor kind before sealing.
      (check-supported-kinds! image-id all-ds)
-     (let [;; (4) Project into the sealed resolver — every collision resolved
+     ;; (4) Fail loud on any :replace / :replace-standard declaration for a key
+     ;;     with no real collision — a replacement is for an intentional
+     ;;     collision, never a silent order override. Runs before resolution so
+     ;;     a stale/typo'd declaration fails before any winner is matched.
+     (check-replacement-keys-collide! image-id (distinct-by-id all-ds) rep rep-std)
+     (let [;; (5) Project into the sealed resolver — every collision resolved
            ;;     by a declared winner or thrown (order never decides).
            resolver (build-resolver image-id all-ds rep rep-std)]
-       ;; (5) Validate application interceptor references against the sealed set.
+       ;; (6) Validate application interceptor references against the sealed set.
        (check-references! image-id resolver)
-       ;; (6) Seal.
+       ;; (7) Seal.
        {:rf.gen/resolver resolver
         :rf.gen/images   images
         :rf.gen/requires (image-requires images)
