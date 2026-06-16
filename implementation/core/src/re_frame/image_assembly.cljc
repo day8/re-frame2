@@ -1124,6 +1124,15 @@
        ;; Live-store arity: the pool leg is the source-store generation. Read it
        ;; BEFORE selecting so the cached object is keyed to the store snapshot it
        ;; was assembled from.
+       ;;
+       ;; SINGLE-THREADED-REGISTRATION assumption (EP-0023 co-fix F3): the
+       ;; descriptor pool and the generation are read in two separate steps with
+       ;; no lock between them. This is sound only because registration mutations
+       ;; (`reg-*` / `forget-*` / `clear-*`) are single-threaded relative to
+       ;; assembly — they happen at load/hot-reload time, not concurrently with a
+       ;; live `assemble`. A concurrent mutation between these two reads could key
+       ;; a freshly-assembled pool to a stale generation; the framework does not
+       ;; defend against that because registration is not a concurrent surface.
        (assemble-cached images
                         (source-store-descriptors)
                         (source-store/store-generation)))))

@@ -649,8 +649,13 @@
         clear-kind   (fn [cache-set]
                        (into #{} (remove #(= kind (first %))) cache-set))]
     (swap! reg dissoc kind)
-    ;; EP-0023: drop the matching kind from the provenance source store too.
-    (swap! (source-store/active-source-store) dissoc kind)
+    ;; EP-0023: drop the matching kind from the provenance source store too, via
+    ;; the source-store API so the store GENERATION is bumped. A raw
+    ;; `(swap! (active-source-store) dissoc kind)` here would NOT bump the
+    ;; generation, leaving the resolved-image-generation cache (keyed on the
+    ;; source-store generation) to HIT and return a stale generation that still
+    ;; resolves the just-cleared `(kind, id)`s (rf2-32siq3.34).
+    (source-store/clear-kind! kind)
     (swap! missing-doc-warned clear-kind)
     (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared

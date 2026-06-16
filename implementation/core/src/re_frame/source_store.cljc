@@ -336,6 +336,26 @@
     (bump-generation!)
     nil))
 
+(defn clear-kind!
+  "Remove every `(id, provenance-ns)` slot for `kind` from the active source
+  store and BUMP the generation, mirroring `forget-id!`'s shell-cleanup + bump.
+  Backs `registrar/clear-kind!`, which drops a whole kind from the resolver map;
+  this keeps the provenance source store in step.
+
+  The generation bump is load-bearing: the resolved-image-generation cache
+  (`re-frame.image-assembly`) keys sealed generations on the source-store
+  generation, so without the bump a `clear-kind!` would leave the generation int
+  unchanged and a later `assemble` / `assemble-default` for the same image vector
+  would HIT the cache and return a stale generation that still resolves the
+  just-cleared `(kind, id)`s (EP-0023 §Image — resolved-generation cache). Honors
+  the `active-source-store` binding so a realm-bound store clears + bumps its OWN
+  state."
+  [kind]
+  (let [store (active-source-store)]
+    (swap! store dissoc kind)
+    (bump-generation!)
+    nil))
+
 (defn clear-all!
   "Reset the PROCESS-DEFAULT source store and the namespace-string pool. Test
   fixtures use this between cases, alongside `registrar/clear-all!`.
@@ -343,7 +363,16 @@
   Resets only the process-default store (not a bound realm store) — fixtures
   run against the default store. The ns-string pool is reset too so a fixture
   asserting pool behaviour starts clean; pool entries are harmless to retain in
-  production (the pool is never reset there)."
+  production (the pool is never reset there).
+
+  PROCESS-DEFAULT-ONLY BY CONTRACT (EP-0023 §Image co-fix F2): this always
+  targets `kind->id->ns->descriptor` and bumps that store's generation directly,
+  IGNORING any bound `*source-store*` — it is a fixture-reset surface that runs
+  against the default store. A realm-bound store is reset via its own seating
+  path, not here; the targeted-mutation surfaces (`record-descriptor!` /
+  `forget-*` / `clear-kind!`) all honor the `active-source-store` binding and bump
+  the bound store's generation, so a realm store's cache still invalidates on its
+  own mutations."
   []
   (reset! kind->id->ns->descriptor {})
   (reset! ns-string-pool {})
