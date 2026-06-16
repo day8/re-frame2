@@ -12,9 +12,9 @@ A frame is one running instance of your app. It owns the runtime state of that i
 - its **event queue** — the dispatches (requests to run an event) waiting to run against this instance,
 - its **subscription cache** — the memoised graph of derived values computed over this instance's state.
 
-A frame deliberately does *not* own the handlers — the functions you register to handle events and subscriptions. Every `reg-event`, `reg-sub`, and `reg-view` in your program goes into a single shared registry. So two frames running the `[:counter/inc]` event run the *same handler function* against *different app-dbs*. That's the whole trick.
+A frame deliberately does *not* own the handlers — the functions you register to handle events and subscriptions. The registrations live in an **image**: the set of `reg-event` / `reg-sub` / `reg-view` entries a frame resolves against, lifted into a value. A frame carries a reference to one resolved image; resolving `[:counter/inc]` means looking it up in *that frame's image*. By default every `reg-*` in your program projects into one shared image, so two frames running `[:counter/inc]` run the *same handler function* against *different app-dbs*. That's the whole trick. (When you need two frames to resolve the *same* id to *different* handlers — two examples on one page, a tool beside its target — you give them different images; [Images](images.md) is that story.)
 
-A frame isolates state, not behaviour. You write the app once, and the frame decides which copy of the state it runs against.
+A frame isolates state, not behaviour. You write the app once, and the frame decides which copy of the state it runs against — and which image supplies the behaviour.
 
 That division is why "show two of them side by side" never forces a rewrite. You mount the same app twice, each mount in its own frame, and isolation is total. One app, one frame — until the day you need two, and then nothing leaks.
 
@@ -206,13 +206,13 @@ If you feel the need for one, you've answered the discriminator question wrongly
 
 - **Not component-local state.** A frame carries a full app-db, queue, and sub cache; it is heavyweight by design. A dropdown's open flag or a form's draft text goes in the current frame's app-db like always — see [Where should this value live?](../where-state-lives.md).
 - **Not routing.** Navigating changes *which slice of app-db matters*, not which frame is running. One frame, many routes.
-- **Not micro-frontends.** Frames are N instances of *one* app sharing one handler registry. Genuinely different apps on one page want iframes — a wall, not a scalpel.
+- **Not micro-frontends.** Frames are N instances of *one* app, each resolving against its image. Two surfaces with disjoint images can share a page ([Images](images.md)), but genuinely different *apps* on one page want iframes — a wall, not a scalpel.
 
 ---
 
 **You can now:**
 
-- say what a frame owns (app-db, event queue, sub cache) and what it doesn't (handlers — registered once, shared by all frames),
+- say what a frame owns (app-db, event queue, sub cache) and what it doesn't (the registrations — those live in the frame's [image](images.md), one shared image by default),
 - register one frame and establish it at your root, and explain why `init!` doesn't do it for you,
 - mount one app N times — split panes, Story canvases, SSR requests, test fixtures — with `reg-frame` + `frame-provider`, nothing shared,
 - read `:rf.error/no-frame-context` as "this callback lost its frame" and fix it with `frame-handle` / `frame-bound-fn` — or with `:fx` when the work starts in a handler,

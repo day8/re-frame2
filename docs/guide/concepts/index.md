@@ -64,7 +64,7 @@ One form, one map: a db update is the effect `{:db …}`, and everything else ri
 
 ## A small virtual machine
 
-Structurally, a re-frame2 app is a small virtual machine. The handlers you register are its instruction set. The events you dispatch are instructions. The stream of events the app sees over its lifetime is the program, and app-db is the machine's memory. Growing the app means registering more instructions, which means the machine itself never gets more complicated. So the cost of adding a feature is bounded by the size of the feature, not the size of the app — there's simply nowhere else for the relevant logic to hide.
+Structurally, a re-frame2 app is a small virtual machine. The handlers you register are its instruction set — and the selected set a given machine loads is its **image**. The events you dispatch are instructions. The stream of events the app sees over its lifetime is the program, and app-db is the machine's memory. Growing the app means registering more instructions, which means the machine itself never gets more complicated. So the cost of adding a feature is bounded by the size of the feature, not the size of the app — there's simply nowhere else for the relevant logic to hide. (Most apps load one implicit image and never name it; [Images](images.md) is for the day you want two machines on one page running different instruction sets.)
 
 ??? note "When the loop is overkill"
 
@@ -106,6 +106,7 @@ And everything else is built *on* the loop, never beside it:
 | The URL as just another input | [Routing: the URL is a sub](routing.md) |
 | Rendering on the server | [Server-side rendering](ssr.md) |
 | Cross-cutting behaviour around handlers | [Interceptors](interceptors.md) |
+| Which registrations a frame runs | [Images](images.md) |
 | Failures as structured data | [Errors: dossiers, not log lines](errors.md) |
 | Watching the loop run | [Observability: one wire, every tool](observability.md) |
 

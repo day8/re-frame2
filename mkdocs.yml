@@ -183,6 +183,7 @@ nav:
     - "More concepts":
       - "Interceptors": guide/concepts/interceptors.md
       - "Frames": guide/concepts/frames.md
+      - "Images": guide/concepts/images.md
       - "Flows": guide/concepts/flows.md
       - "Machines": guide/concepts/machines.md
       - "HTTP": guide/concepts/http.md
