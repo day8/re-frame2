@@ -1970,6 +1970,35 @@
     (is (= vocab/code-method-not-found (-> resp :error :code))
         "an unknown tool yields a protocol-level method-not-found")))
 
+(deftest dispatch-tools-call-non-map-arguments-is-invalid-params
+  (testing "rf2-2zym5e: a non-map `arguments` (scalar / array / string) is a
+            params-CONTAINER shape failure ⇒ -32602 invalid-params, NOT a
+            -32603 internal-error (the prior behaviour, where (keys non-map)
+            threw and was caught into a misleading server fault)"
+    (doseq [[label bad-args] [["a string" "foo"]
+                              ["an array" ["a" "b"]]
+                              ["a number" 42]
+                              ["a boolean" true]]]
+      (let [resp (server/dispatch
+                   {:jsonrpc "2.0" :id 41 :method "tools/call"
+                    :params {:name "list-tags" :arguments bad-args}})]
+        (is (= vocab/code-invalid-params (-> resp :error :code))
+            (str bad-args " (" label ") ⇒ -32602 invalid-params"))
+        (is (not= vocab/code-internal-error (-> resp :error :code))
+            (str bad-args " must NOT surface as -32603 internal-error"))
+        (is (re-find #"arguments" (-> resp :error :message))
+            "the error names the offending `arguments` container")))))
+
+(deftest dispatch-tools-call-absent-arguments-is-ok
+  (testing "rf2-2zym5e: omitted `arguments` is legal (no args) — the guard
+            only rejects a PRESENT non-map container"
+    (let [resp (server/dispatch
+                 {:jsonrpc "2.0" :id 42 :method "tools/call"
+                  :params {:name "list-tags"}})]
+      (is (nil? (:error resp))
+          "absent :arguments dispatches cleanly (treated as empty args)")
+      (is (some? (:result resp))))))
+
 (deftest dispatch-malformed-envelope
   (testing "missing jsonrpc version yields invalid-request"
     (let [resp (server/dispatch {:method "tools/list" :id 5})]
