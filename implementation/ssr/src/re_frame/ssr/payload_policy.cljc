@@ -100,6 +100,7 @@
     `re-frame.ssr.streaming/build-final-payload`  - streaming SSR"
   (:refer-clojure :exclude [resolve])
   (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
@@ -349,12 +350,29 @@
   Returns nil for a nil / empty runtime-db OR when no durable subsystem fact
   is present, so `build-payload` omits the optional `:rf/runtime-db` key
   (the client-only / no-server-runtime fallback). nil-pruned: a subsystem
-  whose durable slice is absent contributes no key."
+  whose durable slice is absent contributes no key.
+
+  rf2-jm2u63 — the `:rf.runtime/machines` slice is NOT shipped raw: each
+  durable machine snapshot's `:data` is projected per the owning machine's
+  `:data-schema` `:sensitive?` / `:large?` classification under the
+  `:rf.egress/ssr-hydration` boundary (via the late-bound machines-owned
+  `:machines/project-ssr-runtime-db` hook), so a sensitive/large field inside a
+  durable snapshot redacts/elides rather than riding the hydration blob raw —
+  symmetric with the resource projection's `:ssr/extend-runtime-db-projection`.
+  When the machines artefact is absent the hook is unbound and the slice rides
+  unchanged (a runtime-db with `:rf.runtime/machines` but no machines artefact
+  loaded cannot carry actor snapshots anyway)."
   [runtime-db]
   (when (map? runtime-db)
-    (let [slice (cond-> {}
+    (let [project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
+          frame-id         (frame/resolve-current-frame)
+          machines-slice   (when (contains? runtime-db :rf.runtime/machines)
+                             (if project-machines
+                               (project-machines runtime-db frame-id)
+                               (:rf.runtime/machines runtime-db)))
+          slice (cond-> {}
                   (contains? runtime-db :rf.runtime/machines)
-                  (assoc :rf.runtime/machines (:rf.runtime/machines runtime-db))
+                  (assoc :rf.runtime/machines machines-slice)
 
                   (seq (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys))
                   (assoc :rf.runtime/routing
