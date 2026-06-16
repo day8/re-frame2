@@ -32,6 +32,7 @@
    any subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -234,7 +235,7 @@
             :resources.app/preview-closed releases the lease so the entry can GC
             (the mandatory release path for an app-minted lease, Spec 016 §Active
             owners)"
-    (with-new-frame [f (rf/make-frame {:url-bound? true
+    (with-new-frame [f (frame/make-frame {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (let [lease-owner [:lease :resources.app/preview "fresh-skip"]
             dkey        (detail-key "fresh-skip")]

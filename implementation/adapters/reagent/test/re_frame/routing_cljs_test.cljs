@@ -23,6 +23,7 @@
   §Multi-frame routing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.routing :as routing]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -51,7 +52,7 @@
     ;;
     ;; Test isolation: a fresh frame so prior tests' [:rf.db/runtime :rf.runtime/routing :current]
     ;; slices don't leak in.
-    (let [f (rf/make-frame {:doc "isolated frame for this test"})]
+    (let [f (frame/make-frame {:doc "isolated frame for this test"})]
       (rf/reg-route :route.cljs/home
                     {:path "/cljs/home"})
       (rf/reg-route :route.cljs/article
@@ -101,8 +102,8 @@
                                               :params [:map [:id :string]]})
     (subs/reg-runtime-sub :rf.cljs2/route (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
-    (let [left  (rf/make-frame {:doc "left tab frame"})
-          right (rf/make-frame {:doc "right tab frame"})]
+    (let [left  (frame/make-frame {:doc "left tab frame"})
+          right (frame/make-frame {:doc "right tab frame"})]
 
       ;; Each frame navigates independently.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs2/articles"]

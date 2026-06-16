@@ -25,7 +25,7 @@
             [re-frame.fx :as fx]
             [re-frame.subs :as subs]
             [re-frame.late-bind :as late-bind]
-            [re-frame.frame]
+            [re-frame.frame :as frame]
             [re-frame.substrate.adapter]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -235,7 +235,7 @@
   ;; way. (We DO need the synthetic `[:rf.machine.timer/after-elapsed
   ;; delay epoch]` events to drive `:after` directly, which we do by
   ;; dispatching them ourselves.)
-  (rf/make-frame {:on-create    [:ws.app/initialise]
+  (frame/make-frame {:on-create    [:ws.app/initialise]
                   :fx-overrides {:dispatch-later nil}}))
 
 (defn- with-sync-mock! [f]

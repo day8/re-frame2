@@ -44,6 +44,7 @@
    carried — run-order independence is now the fixture's contract."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
@@ -78,7 +79,7 @@
     ;; dispatch is issued explicitly here (not via :on-create, which does not
     ;; forward :rf.cofx) carrying the empty-localStorage / first-run value: an
     ;; empty sorted-map, exactly what the node-side boundary read yields.
-    (with-new-frame [f (rf/make-frame
+    (with-new-frame [f (frame/make-frame
                          {:fx-overrides {:todo.storage/save :rf/no-op}})]
       (rf/dispatch-sync [:todo/initialise]
                         {:frame   f
