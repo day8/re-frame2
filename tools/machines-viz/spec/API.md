@@ -72,6 +72,9 @@ registry).
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
 | `:machine-data` | no | `nil` | rf2-qo5xy; rf2-q129z8; rf2-3q4k5b. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `:data-schema` when present, else inferred from one `:data` sample (rf2-3q4k5b). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
 | `:machine-data-inferred?` | no | `true` | rf2-5tz9p; rf2-3q4k5b. Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `:data-schema` (rf2-3q4k5b · EP-0005). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:machine-data-sensitive` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine's `:data-schema` `:sensitive?` slot props. See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
+| `:machine-data-large` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose values are elided to a content-FREE `:rf/large {:bytes N}` form before export. Unmarked over-cap values elide too; sensitive wins over large. |
+| `:machine-data-raw?` | no | `false` | rf2-27e38h · EP-0015. The explicit trusted-local (`:rf.egress/local-raw`) opt-in. `true` skips Context-band redaction and serialises raw values — an operator act for a developer inspecting their own process. Default `false` keeps the band local-redacted. |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
 ### `:overlays` slot descriptor schema (rf2-7w4qr)
@@ -580,6 +583,51 @@ provenance, gated by the optional `:machine-data-inferred?` prop
   declared `:data-schema` (EP-0005's declared-over-inferred upgrade,
   closing the deferred `rf2-wto1k` option A). The badge distinguishes
   an authoritative/declared shape from the one-sample inference.
+
+#### Context-band egress contract — local-redacted by default (rf2-27e38h · EP-0015)
+
+The Context band is painted into the live viewport DOM, and the
+**image exporters serialise that DOM**: `export/chart-as-svg` clones the
+live `.react-flow__viewport` into a `<foreignObject>`, and the PNG +
+clipboard-image lanes derive from that SVG. A framework-created
+export/copy artefact is **egress** per
+[EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md) §96-110.
+So when a host feeds **live `:data` VALUES** (the `:machine-data-inferred?
+false` value path above), a schema-marked sensitive or large slot would
+otherwise be embedded in the exported SVG/PNG/clipboard verbatim.
+
+The chart therefore applies a **local-redacted projection
+(`:rf.egress/local-redacted`) to the Context band by default**, at the
+single `chart.projection/xyflow-graph` projection chokepoint — so the
+redaction is identical for the on-screen band AND every export derived
+from it. The host declares which slots carry sensitive/large content
+(the machine's `:data-schema` `:sensitive?` / `:large?` per-slot props —
+the EP-0005 mechanism; `context-redaction/derive-classification` extracts
+them) via two optional props:
+
+| Prop | Default | Meaning |
+|------|---------|---------|
+| `:machine-data-sensitive` | `#{}` | A SET of band keys whose VALUES are redacted to the `:rf/redacted` sentinel before they reach the DOM/export. |
+| `:machine-data-large` | `#{}` | A SET of band keys whose values are elided to a content-FREE `:rf/large {:bytes N}` form (size diagnostic only — no content head). An unmarked value over a defensive char cap is elided too. |
+| `:machine-data-raw?` | `false` | The explicit **trusted-local** (`:rf.egress/local-raw`) opt-in. When `true`, redaction is skipped and the raw values are painted/serialised. An operator act, for a developer inspecting their own process. |
+
+Sensitive **wins over** large (the EP-0015 ordering). The redaction
+defaults are **on** (`:machine-data-raw? false`, empty sets), so:
+
+- A host feeding the **static type-caption shape** (the sole production
+  feeder today — `topology-view/static-context-shape`, key→type-caption)
+  is a redaction **no-op**: captions like `"string"` are neither
+  sensitive markers nor large, so the production surface is unchanged.
+- A host feeding **live values** gets local-redacted output unless it
+  both declares the classification AND opts into raw.
+
+The contract answers the "must `:machine-data` be pre-projected?"
+question: **the host MAY pass raw live `:data` and declare the
+sensitive/large slots; the chart applies the local-redacted projection
+itself.** A host that has already projected its own values may pass an
+empty classification (the values are then treated as non-sensitive). The
+sentinels render as content-free text (`🔒 :rf/redacted`, `… :rf/large
+{:bytes N}`) in both the band and any export.
 
 #### Legacy paradigm sections below
 
