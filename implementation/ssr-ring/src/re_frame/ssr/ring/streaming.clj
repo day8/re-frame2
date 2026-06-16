@@ -190,11 +190,22 @@
 
   rf2-9fw2de: `:doc-hash` is the canonical FULL-document structural hash
   (body tree + resolved head fragment + html/body attr bags) computed via
-  `lifecycle/render-document-hash`. It drives BOTH the final-payload
-  `:rf/render-hash` AND the streaming root-element `data-rf-render-hash`
-  marker (when `:emit-hash?` is true) — preserving wire/payload parity with
-  the non-streaming handler and folding the head into the unified hash
-  channel per Spec 011 §624-626/§648-650.
+  `lifecycle/render-document-hash`. It describes the PRE-drain shell — the
+  exact tree streamed in chunk 1 — and drives the streaming root-element
+  `data-rf-render-hash` marker (when `:emit-hash?` is true), folding the head
+  into the unified hash channel per Spec 011 §624-626/§648-650.
+
+  rf2-1kqvbx: `:doc-hash` no longer drives the FINAL-payload
+  `:rf/render-hash`. The final payload ships the live POST-drain `app-db`,
+  so its hash must describe the POST-drain render tree (the one a streaming
+  hydrate re-renders + verifies against). The writer re-resolves the root
+  view AFTER every continuation drains and recomputes that post-drain hash
+  via `lifecycle/render-document-hash` over the carried `:head-bag` (the head
+  is request-thread-resolved and drain-invariant in v1). When no continuation
+  mutates a root-read key the two hashes coincide; only a render-time
+  continuation mutation a root subtree reads makes the streamed-shell marker
+  (pre-drain) and the final-payload hash (post-drain) describe distinct
+  moments — which they genuinely are.
 
   Throws propagate to the caller (the handler's outer try/catch routes
   them through the projector → fail-closed non-200, rf2-r06pc). The
@@ -256,6 +267,15 @@
        :head-html     head-html
        :html-attrs    html-attrs
        :body-attrs    body-attrs
+       ;; rf2-1kqvbx — carry the resolved `head-bag` to the daemon writer so
+       ;; it can recompute the POST-drain final-payload `:rf/render-hash` over
+       ;; the re-resolved root tree using the SAME head channel the pre-drain
+       ;; `doc-hash` used. The head is resolved once on the request thread and
+       ;; does not change across continuation drains (it derives from the route
+       ;; / explicit `:head` opt, not from continuation-mutated app-db in v1),
+       ;; so the post-drain hash folds in the identical head fragment + attr
+       ;; bags — only the body tree re-renders against the drained state.
+       :head-bag      head-bag
        :doc-hash      doc-hash
        :shell-html    shell-html
        :continuations continuations
@@ -345,21 +365,28 @@
   ;; catch arm can name the in-flight phase.
   (let [phase (volatile! [:shell-prefix nil])]
    (try
-    (let [{:keys [emit-hash? version schema-digest payload]} opts
+    (let [{:keys [emit-hash? version schema-digest payload root-view]} opts
           ;; rf2-9fw2de — the writer no longer recomputes the hash from
-          ;; `hiccup`; `doc-hash` (full-document) was computed once on the
-          ;; request thread by `render-streaming-shell!`. `:hiccup` stays in
-          ;; the `rendered` map for diagnostics but is not destructured here.
+          ;; `hiccup`; `doc-hash` (full-document, PRE-drain) was computed once
+          ;; on the request thread by `render-streaming-shell!`. `:hiccup`
+          ;; stays in the `rendered` map for diagnostics but is not
+          ;; destructured here. rf2-1kqvbx — `:head-bag` rides along so the
+          ;; post-drain final-payload hash folds in the SAME head channel.
           {:keys [head-html html-attrs body-attrs
-                  doc-hash shell-html continuations realm-id]} rendered
+                  doc-hash head-bag shell-html continuations realm-id]} rendered
           shell-opts (merge opts
                             {:html-attrs  html-attrs
                              :body-attrs  body-attrs
-                             ;; rf2-9fw2de — honour `:emit-hash?` on the
-                             ;; streaming path: stamp the full-document
-                             ;; hash onto the root `#app` div when true, no
-                             ;; marker when false (a true no-op was the
-                             ;; bug). Same hash the final payload carries.
+                             ;; rf2-9fw2de / rf2-1kqvbx — honour `:emit-hash?`
+                             ;; on the streaming path: stamp the PRE-drain
+                             ;; full-document hash onto the root `#app` div when
+                             ;; true, no marker when false (a true no-op was the
+                             ;; bug). This marks the tree ACTUALLY streamed in
+                             ;; chunk 1 (the shell, with fallbacks + pre-drain
+                             ;; root reads). The FINAL payload carries a
+                             ;; POST-drain hash (recomputed below); the two
+                             ;; coincide unless a continuation mutates a
+                             ;; root-read key — see the final-payload block.
                              :render-hash (when emit-hash? doc-hash)})]
       ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks) +
       ;; the app-root close. rf2-l1qgjw — stamp the phase before each write
@@ -444,17 +471,32 @@
             (recur (into (pop queue) continuations)))))
       ;; Chunk N+2 — final canonical __rf_payload.
       ;;
-      ;; rf2-5knxf.2 — the streaming final-payload `:rf/render-hash` is the
-      ;; full-document structural hash (`doc-hash`) computed ONCE on the
-      ;; request thread in `render-streaming-shell!` via
+      ;; rf2-1kqvbx — the streaming final-payload `:rf/render-hash` must
+      ;; describe the POST-drain render state, NOT the pre-drain shell.
+      ;; `build-final-payload` reads the LIVE frame `app-db` AFTER every
+      ;; continuation has drained, so its `:rf/app-db` is the post-drain
+      ;; state; pairing it with the pre-drain `doc-hash` shipped a payload
+      ;; whose state and hash described different moments. When a continuation
+      ;; mutates app-db and the ROOT tree reads that key, a streaming hydrate
+      ;; re-renders the root tree against the payload's post-drain `:rf/app-db`,
+      ;; hashes it, and fires a spurious `:rf.ssr/hydration-mismatch` against
+      ;; the stale pre-drain hash (Spec 011 §Hydration equivalence rule). So we
+      ;; RE-RESOLVE the root view here — on this daemon thread, inside the
+      ;; carried realm + frame binding, AFTER the drain loop — and recompute
+      ;; the full-document hash over the post-drain tree via the SAME
+      ;; `lifecycle/render-document-hash` mechanism (folding the carried
+      ;; `head-bag`, drain-invariant in v1). The streamed-shell
+      ;; `data-rf-render-hash` marker keeps the PRE-drain `doc-hash` (it marks
+      ;; the tree actually streamed in chunk 1); the two coincide when no
+      ;; continuation mutates a root-read key.
+      ;;
+      ;; rf2-5knxf.2 — the hash is still the full-document structural hash via
       ;; `lifecycle/render-document-hash` — the IDENTICAL mechanism the
       ;; non-streaming `build-full-response*` uses. rf2-9fw2de: it folds the
       ;; resolved head fragment (+ html/body attr bags) into the canonical
-      ;; input alongside the body `hiccup`, so a head-only divergence
-      ;; changes the hash (Spec 011 §624-626/§648-650). It is reused (not
-      ;; recomputed) so the final-payload `:rf/render-hash` and the streamed
-      ;; root-element `data-rf-render-hash` marker are byte-identical. This
-      ;; is the correct structural hash, NOT a streaming-specific divergence:
+      ;; input alongside the body tree, so a head-only divergence changes the
+      ;; hash (Spec 011 §624-626/§648-650). This is the correct structural
+      ;; hash, NOT a streaming-specific divergence:
       ;;
       ;;   - `render-tree-hash` is a PURE structural FNV-1a over the
       ;;     canonical-EDN of the hiccup (hash.cljc). It does NOT expand
@@ -508,11 +550,33 @@
       (let [final-payload (frame/call-with-realm realm-id
                             (fn []
                               (rf/with-frame frame-id
-                                (streaming/build-final-payload
-                                  frame-id doc-hash
-                                  {:version       version
-                                   :schema-digest schema-digest
-                                   :payload       payload}))))]
+                                ;; rf2-1kqvbx — re-resolve the root view against
+                                ;; the POST-drain frame state and recompute the
+                                ;; full-document hash over it, so the payload's
+                                ;; `:rf/render-hash` describes the SAME moment as
+                                ;; its post-drain `:rf/app-db`. Routed through
+                                ;; the SAME realm registrar the shell render walk
+                                ;; used (rf2-bzw8gd) so registered-view + head
+                                ;; lookups resolve in the owning realm; a
+                                ;; default-realm frame binds nothing
+                                ;; (byte-identical). Falls back to the pre-drain
+                                ;; `doc-hash` when no `:root-view` could be
+                                ;; re-resolved (defensive — `validate-construction-opts!`
+                                ;; requires `:root-view`, so this is belt-and-braces).
+                                (let [post-drain-hash
+                                      (if root-view
+                                        (frame/call-with-frame-realm-registrar
+                                          (frame/frame frame-id)
+                                          (fn []
+                                            (lifecycle/render-document-hash
+                                              (lifecycle/resolve-root-view root-view)
+                                              head-bag)))
+                                        doc-hash)]
+                                  (streaming/build-final-payload
+                                    frame-id post-drain-hash
+                                    {:version       version
+                                     :schema-digest schema-digest
+                                     :payload       payload})))))]
         ;; Shared id-pinned, `</script>`-escaped payload <script>
         ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))

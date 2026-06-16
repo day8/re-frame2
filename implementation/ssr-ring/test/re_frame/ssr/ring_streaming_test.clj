@@ -8,7 +8,8 @@
     3. streaming writer flushes shell → continuations → final payload → close
     4. response body is a PipedInputStream; we drain it into a string
     5. asserts on chunk shapes + final-payload."
-  (:require [clojure.set]
+  (:require [clojure.edn]
+            [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -1241,3 +1242,119 @@
       (is (some? (stream-payload-hash body))
           "the final payload still carries :rf/render-hash when :emit-hash?
            is false (only the wire MARKER is gated by the opt)"))))
+
+;; ===========================================================================
+;; rf2-1kqvbx — the streaming final-payload :rf/render-hash MUST describe the
+;; SAME (post-drain) render state as the :rf/app-db it ships.
+;;
+;; Defect: `doc-hash` is computed in `render-streaming-shell!` on the request
+;; thread BEFORE any continuation drains (over the PRE-drain root hiccup),
+;; but `build-final-payload` reads the LIVE frame app-db AFTER every
+;; continuation has drained. When a continuation mutates app-db and the ROOT
+;; tree reads that mutated key, the final payload carries POST-drain state
+;; (`:rf/app-db`) with a PRE-drain `:rf/render-hash`. A streaming hydrate
+;; re-renders the root tree against the payload's post-drain app-db, hashes
+;; it, and sees a mismatch against the pre-drain `:rf/render-hash` even though
+;; the server shipped its own canonical final state — firing a spurious
+;; `:rf.ssr/hydration-mismatch` (Spec 011 §Hydration equivalence rule).
+;;
+;; The fix recomputes the final-payload `:rf/render-hash` from the post-drain
+;; render tree (re-resolving the root view after all continuations drain), so
+;; the hash and the `:rf/app-db` describe the same moment in the request.
+;; ===========================================================================
+
+(defn- stream-payload-edn
+  "Pull the EDN body of the streamed `__rf_payload` script and read it."
+  [body]
+  (let [payload-edn (second (re-find
+                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                              body))]
+    (when payload-edn
+      (clojure.edn/read-string payload-edn))))
+
+(deftest stream-handler-final-hash-reflects-post-drain-state
+  (testing "rf2-1kqvbx: a continuation that MUTATES app-db a ROOT-read key
+            depends on → the final payload's :rf/render-hash describes the
+            POST-drain render tree (the one the client hydrates against),
+            NOT the pre-drain shell render. The hash and the shipped
+            :rf/app-db describe the same moment."
+    ;; A db-mutating event the deferred subtree dispatches during its render.
+    (rf/reg-event :rf.test/bump-counter
+      {:platforms #{:server}}
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
+    ;; on-create seeds :counter 0 alongside the fixture's articles/comments.
+    (rf/reg-event :rf.test.server/init-counter
+      {:platforms #{:server}}
+      (fn [_ _] {:db {:counter 0}}))
+    ;; Client hydration replaces app-db with the payload slice wholesale.
+    (rf/reg-event :rf.test/hydrate-db
+      {:platforms #{:server}}
+      (fn [_ [_ db]] {:db db}))
+    (rf/reg-sub :counter (fn [db _] (:counter db)))
+    ;; A deferred subtree that MUTATES :counter during its continuation render.
+    (rf/reg-view ^{:rf/id :test/counter-mutator} counter-mutator []
+      (rf/dispatch-sync [:rf.test/bump-counter])
+      [:div.mutated "bumped"])
+    ;; The ROOT view READS :counter INLINE — `render-tree-hash` is a pure
+    ;; structural hash that does NOT expand view-refs, so the subscribed
+    ;; value must land directly in the root hiccup for the hash to depend on
+    ;; it (pre-drain 0 vs post-drain 1 → different hashes). The deferred
+    ;; subtree stays a view-ref child of the suspense boundary (the streaming
+    ;; walker drains it; the hash leaves the boundary marker unexpanded).
+    (rf/reg-view ^{:rf/id :test/counter-root} counter-root []
+      [:main
+       [:span.counter (str "counter=" @(subscribe [:counter]))]
+       [:rf/suspense-boundary
+        {:id :test/bump :fallback [:p "loading"]}
+        [:test/counter-mutator]]])
+    (let [head-html "<title>Counter</title>"
+          handler  (ssr-ring/stream-handler
+                     ;; EXPANDED :root-view form (symmetric with the client's
+                     ;; :render-tree-fn) so the streamed hash is over the
+                     ;; rendered counter-bearing tree, not an unexpanded
+                     ;; view-ref vector. Explicit `:head` so the document hash
+                     ;; folds in a KNOWN head fragment we can replay on the
+                     ;; client side below (the default route head would be
+                     ;; unknown to the client model).
+                     {:on-create [:rf.test.server/init-counter]
+                      :root-view (fn [] ((rf/view :test/counter-root)))
+                      :head      head-html
+                      :payload   :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          payload  (stream-payload-edn body)
+          db-slice (:rf/app-db payload)
+          server-hash (:rf/render-hash payload)]
+      (is (= 200 (:status response)) "stream still 200")
+      (is (str/includes? body "bumped")
+          "the mutating boundary's resolved body streamed")
+      ;; The shipped app-db is the POST-drain state (counter bumped to 1).
+      (is (= 1 (:counter db-slice))
+          "the final payload's :rf/app-db carries the post-drain counter=1")
+      ;; Model the streaming client: it hydrates against the payload's
+      ;; post-drain :rf/app-db and re-renders the root tree, then hashes it.
+      ;; That hash MUST equal the payload's :rf/render-hash, or
+      ;; :rf.ssr/hydration-mismatch fires on a page the server just shipped.
+      (let [cfid (keyword "rf.frame" (str (gensym "client")))]
+        (rf/reg-frame cfid {:platform :server})
+        (try
+          (rf/with-frame cfid
+            ;; Hydrate the client frame with the payload's post-drain app-db
+            ;; (the :replace-app-db hydration semantics, modelled via a
+            ;; whole-db replace event).
+            (rf/dispatch-sync [:rf.test/hydrate-db db-slice])
+            (let [client-hiccup ((rf/view :test/counter-root))
+                  client-hash   (lifecycle/render-document-hash
+                                  client-hiccup
+                                  {:head-html head-html
+                                   :html-attrs nil :body-attrs nil})]
+              ;; THE PIN — the load-bearing assertion. Pre-fix the server hash
+              ;; describes counter=0 (pre-drain) while the client renders
+              ;; counter=1 (post-drain), so these DIFFER → spurious mismatch.
+              (is (= server-hash client-hash)
+                  "rf2-1kqvbx: the final-payload :rf/render-hash describes the
+                   SAME post-drain render state the client hydrates against;
+                   the server hash matches the client's re-render hash over the
+                   shipped :rf/app-db (no spurious :rf.ssr/hydration-mismatch)")))
+          (finally
+            (rf/destroy-frame! cfid)))))))
