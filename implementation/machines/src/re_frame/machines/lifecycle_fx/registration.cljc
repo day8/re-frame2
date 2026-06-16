@@ -434,6 +434,32 @@
     (= transition/start-marker (first (:inner-event ctx))) :explicit
     :else                                                  :lazy))
 
+(defn- ensure-bootstrap-cofx
+  "Per EP-0017 slice-B.9 (rf2-knxbok) — the BIRTH-time consumer-attachment
+  ensure step, run BEFORE `maybe-boot`. The bootstrap cascade
+  (`apply-initial-entry-cascade`, inside `maybe-boot`) fires the initial-state
+  descent's `:entry` actions and the birth `:always` settle, so a named `:entry`
+  action (or birth-`:always`-reached action) declaring `:rf.cofx/requires` must
+  have its facts ensured BEFORE the cascade runs — otherwise it reads an
+  unensured token (the bootstrap hole). Computes
+  `cofx-attach/bootstrap-ensure-set-for` and ensures it onto the in-flight
+  `:rf.cofx` record (re-stamped onto the machine def under `:rf/cofx` so
+  `callback-ctx` surfaces it to the bootstrap `:entry` callbacks).
+
+  A no-op (returns `ctx` unchanged) when the machine is not bootstrapping, when
+  no causal token was threaded (`:rf/cofx` absent — pure-fn / no-router
+  callers), or when the birth ensure-set is empty."
+  [ctx]
+  (let [machine (:machine ctx)]
+    (if-not (and (:needs-bootstrap? ctx) (contains? machine :rf/cofx))
+      ctx
+      (let [recorded  (:rf/cofx machine)
+            augmented (cofx-attach/bootstrap-ensure-cofx
+                        machine recorded (:frame-id ctx) (:machine-id ctx))]
+        (if (identical? augmented recorded)
+          ctx
+          (assoc ctx :machine (assoc machine :rf/cofx augmented)))))))
+
 (defn- maybe-boot
   "Step 2 of 4 (rf2-2zzyg). If `ctx` is bootstrap-pending, run
   `apply-initial-entry-cascade` once before processing the user event.
@@ -763,7 +789,14 @@
                           (:machine-id ctx) (:inner-event ctx))]
         (if intercepted
           intercepted
-          (let [boot-result (maybe-boot ctx)]
+          ;; Per EP-0017 slice-B.9 (rf2-knxbok) — ensure the BIRTH initial-entry
+          ;; ensure-set onto the in-flight `:rf.cofx` record BEFORE `maybe-boot`
+          ;; runs the bootstrap cascade (which fires the initial-state `:entry`
+          ;; actions). The augmented `ctx` flows into both `maybe-boot` and the
+          ;; downstream `ensure-ctx-cofx` / `run-step`, so a generated birth fact
+          ;; is written back into the record the epoch captures.
+          (let [ctx         (ensure-bootstrap-cofx ctx)
+                boot-result (maybe-boot ctx)]
             (if (result/fail? boot-result)
               (trace-action-failure! ctx [transition/start-marker]
                                      "Machine initial-entry action threw."
