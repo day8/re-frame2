@@ -50,6 +50,10 @@
             ;; harmless, explicit statement of the Malli dependency
             ;; (rf2-a5kzs finding 4).
             [re-frame.schemas.malli]
+            ;; rf2-u9bjgr — compiled `m/schema` objects exercise the
+            ;; opaque-schema fail-closed redaction arm. Malli is on the
+            ;; schemas test classpath (the artefact deps on metosin/malli).
+            [malli.core :as m]
             [re-frame.schemas.test-fixture :as tf]))
 
 (use-fixtures :each tf/reset-runtime)
@@ -1547,3 +1551,225 @@
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
           "no validation trace fires when debug-enabled? is false — redaction is moot"))))
+
+;; ---- rf2-u9bjgr — COMPILED / OPAQUE schema fail-closed redaction ----------
+;;
+;; A compiled `m/schema` value carries per-slot `{:sensitive? true}` props
+;; Malli HONOURS for validate/explain, but the pure-data walker treats the
+;; compiled value as an OPAQUE LEAF — `schema-has-sensitive?` returns false, so
+;; the pre-fix validation emit shipped `:value` / `:received` / `:explain`
+;; VERBATIM (while the equivalent VECTOR form redacted). EP-0015 fail-closed:
+;; an opaque schema the walker cannot prove non-sensitive redacts as sensitive.
+
+(deftest walker-opaque-predicate
+  (testing "rf2-u9bjgr — schema-opaque? is true for a compiled m/schema /
+            map / fn, false for vector-form EDN and bare keywords"
+    (is (true? (schemas/schema-opaque?
+                 (m/schema [:map [:password {:sensitive? true} :string]])))
+        "compiled m/schema object is opaque")
+    (is (true? (schemas/schema-opaque? {:not :a-schema})) "a map is opaque")
+    (is (true? (schemas/schema-opaque? (fn [_] true))) "a fn is opaque")
+    (is (false? (schemas/schema-opaque? [:map [:k :int]]))
+        "vector-form EDN is walkable, not opaque")
+    (is (false? (schemas/schema-opaque? :int)) "a bare keyword is not opaque")
+    (is (false? (schemas/schema-opaque? :my/registry-ref))
+        "a registry-ref keyword is not opaque (provably-safe-or-silent caveat)")))
+
+(deftest event-validation-opaque-schema-fails-closed
+  (testing "rf2-u9bjgr — a COMPILED schema with a :sensitive? slot redacts the
+            failing event payload fail-closed (the walker cannot see the prop,
+            so we redact rather than leak); the equivalent VECTOR form already
+            redacts via the walker"
+    (let [secret  "OPAQUE-COMPILED-SECRET-u9bjgr"
+          compiled (m/schema
+                     [:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]])
+          traces  (atom [])]
+      (rf/register-listener! ::opq (fn [ev] (swap! traces conj ev)))
+      ;; The password value is a VECTOR where a :string is required, so it FAILS
+      ;; the schema; the failing value carries the sentinel.
+      (schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
+                               {:schema compiled})
+      (rf/unregister-listener! ::opq)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "a validation-failure trace fired")
+        (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+        (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+        (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
+        (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+        (is (not (str/includes? (pr-str v) secret))
+            "the secret survives nowhere in the opaque-schema failure trace")))))
+
+(deftest app-db-validation-opaque-schema-fails-closed
+  (testing "rf2-u9bjgr — a compiled app-db schema with a :sensitive? slot
+            redacts the failing post-commit slice fail-closed"
+    (let [secret "OPAQUE-APPDB-SECRET-u9bjgr"]
+      (rf/reg-app-schema [:user]
+                         (m/schema [:map [:token {:sensitive? true} :string]]))
+      (let [traces (atom [])]
+        (rf/register-listener! ::opqdb (fn [ev] (swap! traces conj ev)))
+        ;; :token is a VECTOR where a :string is required → fails the schema.
+        (schemas/validate-app-schema! {:user {:token [secret]}} :user/bad)
+        (rf/unregister-listener! ::opqdb)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a validation-failure trace fired")
+          (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+          (is (not (str/includes? (pr-str v) secret))
+              "the secret survives nowhere in the opaque app-db failure trace"))))))
+
+(deftest redact-validation-tags-opaque-schema-fails-closed
+  (testing "rf2-u9bjgr — the off-namespace redact-validation-tags seam fails
+            closed for a compiled / opaque schema (machine-data / sub-override /
+            flow-output / boundary all route through it)"
+    (let [secret   "OPAQUE-SEAM-SECRET-u9bjgr"
+          compiled (m/schema [:map [:secret {:sensitive? true} :string]])
+          tags     {:where    :machine-data
+                    :value    {:secret secret}
+                    :received {:secret secret}
+                    :explain  {:value {:secret secret}}}
+          out      (schemas/redact-validation-tags compiled tags)]
+      (is (true? (:sensitive? out)) "fail-closed: :sensitive? stamped")
+      (is (= :rf/redacted (:value out)) ":value redacted")
+      (is (= :rf/redacted (:received out)) ":received redacted")
+      (is (= :rf/redacted (:explain out)) ":explain redacted")
+      (is (not (str/includes? (pr-str out) secret))
+          "the secret survives nowhere through the opaque seam"))))
+
+;; ---- rf2-vmhu4i — :large? value-bearing slot elision ----------------------
+;;
+;; The validation-failure redaction path consulted only schema-has-sensitive?;
+;; it never applied :large? schema metadata. A bad event against a :large?
+;; slot shipped the raw large blob through :value / :received / :explain
+;; instead of eliding it. Per Spec 010 §`:large?` (validation size-safety arm)
+;; the value-bearing slots elide to the :rf.size/large-elided marker; sensitive
+;; still wins over large (Spec 010 §Composition with `:large?`).
+
+(deftest walker-has-large-predicate
+  (testing "rf2-vmhu4i — schema-has-large? mirrors schema-has-sensitive? on the
+            :large? flag"
+    (is (true? (schemas/schema-has-large?
+                 [:map [:blob {:large? true} :string]])))
+    (is (true? (schemas/schema-has-large?
+                 [:map [:doc [:map [:payload {:large? true} :string]]]]))
+        "nested :large? detected")
+    (is (false? (schemas/schema-has-large? [:map [:n :int]]))
+        "no :large? slot → false")
+    (is (false? (schemas/schema-has-large?
+                  [:map [:secret {:sensitive? true} :string]]))
+        ":sensitive? is not :large? — the flags are independent")))
+
+(deftest large-marker-fields
+  (testing "rf2-vmhu4i — the elided value-bearing slot carries a well-formed
+            :rf.size/large-elided marker with :reason :schema provenance"
+    (let [blob   (apply str (repeat 200 "X"))
+          traces (atom [])]
+      (rf/register-listener! ::lgm (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
+                               {:schema [:cat [:= :upload/save]
+                                         [:map [:blob {:large? true} :int]]]})
+      (rf/unregister-listener! ::lgm)
+      (let [v      (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                  @traces))
+            marker (-> v :tags :value :rf.size/large-elided)]
+        (is (some? v) "a validation-failure trace fired")
+        (is (map? marker) ":value carries a :rf.size/large-elided marker")
+        (is (= :schema (:reason marker)) ":reason :schema (schema-nominated elision)")
+        (is (integer? (:bytes marker)) ":bytes is a byte count")
+        (is (= [:rf.elision/at []] (:handle marker)) ":handle is the fetch handle")
+        (is (true? (-> v :tags :large?)) ":tags :large? stamped")
+        (is (not (str/includes? (pr-str v) blob))
+            "the large blob survives nowhere verbatim in the failure trace")))))
+
+(deftest event-validation-large-slot-elides
+  (testing "rf2-vmhu4i — a :large? slot's validation failure elides :value /
+            :received / :explain to the size marker rather than shipping the
+            raw blob"
+    (let [blob   (apply str (repeat 500 "Z"))
+          traces (atom [])]
+      (rf/register-listener! ::lg (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
+                               {:schema [:cat [:= :upload/save]
+                                         [:map [:blob {:large? true} :int]]]})
+      (rf/unregister-listener! ::lg)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (not (contains? v :sensitive?))
+            "a :large?-only failure is NOT stamped sensitive")
+        (doseq [slot [:value :received :explain]]
+          (is (contains? (-> v :tags slot) :rf.size/large-elided)
+              (str slot " elided to the size marker")))
+        (is (not (str/includes? (pr-str v) blob))
+            "the raw blob never rides the trace")))))
+
+(deftest app-db-validation-large-slot-elides
+  (testing "rf2-vmhu4i — a :large? app-db slot's post-commit validation
+            failure elides the value-bearing slots to the size marker"
+    (let [blob (apply str (repeat 500 "Y"))]
+      (rf/reg-app-schema [:upload] [:map [:blob {:large? true} :int]])
+      (let [traces (atom [])]
+        (rf/register-listener! ::lgdb (fn [ev] (swap! traces conj ev)))
+        (schemas/validate-app-schema! {:upload {:blob blob}} :upload/bad)
+        (rf/unregister-listener! ::lgdb)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (true? (-> v :tags :large?)) ":tags :large? stamped")
+          (is (contains? (-> v :tags :value) :rf.size/large-elided)
+              ":value elided")
+          (is (not (str/includes? (pr-str v) blob))
+              "the raw blob never rides the app-db failure trace"))))))
+
+(deftest large-and-sensitive-sensitive-wins
+  (testing "rf2-vmhu4i / Spec 010 §Composition with `:large?` — a slot carrying
+            BOTH :large? and :sensitive? redacts on sensitivity; NO
+            :rf.size/large-elided marker is emitted (it would leak :bytes)"
+    (let [secret (apply str (repeat 100 "S"))
+          traces (atom [])]
+      (rf/register-listener! ::ls (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-event! :x [:x {:blob secret}]
+                               {:schema [:cat [:= :x]
+                                         [:map [:blob {:large? true :sensitive? true} :int]]]})
+      (rf/unregister-listener! ::ls)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (true? (:sensitive? v)) "sensitive stamp wins")
+        (is (= :rf/redacted (-> v :tags :value)) ":value redacted (not a marker)")
+        (is (not (-> v :tags :large?)) "no :large? stamp on a sensitive failure")
+        (is (not (and (map? (-> v :tags :value))
+                      (contains? (-> v :tags :value) :rf.size/large-elided)))
+            "no size marker — would re-leak :bytes")
+        (is (not (str/includes? (pr-str v) secret)))))))
+
+(deftest redact-validation-tags-large-slot-elides
+  (testing "rf2-vmhu4i — the off-namespace seam elides value-bearing slots for
+            a :large? (non-sensitive) schema"
+    (let [blob (apply str (repeat 300 "Q"))
+          tags {:where   :flow-output
+                :value   {:blob blob}
+                :explain {:value {:blob blob}}}
+          out  (schemas/redact-validation-tags
+                 [:map [:blob {:large? true} :int]] tags)]
+      (is (true? (:large? out)) ":large? stamped")
+      (is (contains? (:value out) :rf.size/large-elided) ":value elided")
+      (is (contains? (:explain out) :rf.size/large-elided) ":explain elided")
+      (is (not (str/includes? (pr-str out) blob))
+          "the blob survives nowhere through the seam"))))
+
+(deftest non-large-non-sensitive-rides-verbatim
+  (testing "rf2-vmhu4i — a plain (no :large? / :sensitive?) failure rides
+            verbatim — the elision is precise, not a blanket marker"
+    (let [traces (atom [])]
+      (rf/register-listener! ::plainv (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-event! :api/x [:api/x {:n "nope"}]
+                               {:schema [:cat [:= :api/x] [:map [:n :int]]]})
+      (rf/unregister-listener! ::plainv)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (not (contains? v :sensitive?)) "no :sensitive? stamp")
+        (is (not (-> v :tags :large?)) "no :large? stamp")
+        (is (= [:api/x {:n "nope"}] (-> v :tags :value))
+            ":value rides verbatim")))))

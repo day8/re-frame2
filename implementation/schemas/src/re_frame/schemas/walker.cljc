@@ -446,6 +446,63 @@
       seq
       boolean))
 
+(defn schema-has-large?
+  "True when the registered schema declares ANY slot `:large? true` —
+  either the schema's container-level props, or a nested slot anywhere
+  inside the schema. Per Spec 010 §`:large?` — schema-driven
+  size-elision nomination, the validation-failure size-safety arm
+  (rf2-vmhu4i).
+
+  The mirror of `schema-has-sensitive?` on the OTHER per-slot flag. The
+  schema-validation emit-sites ship the WHOLE registered slot's value
+  verbatim in the value-bearing trace slots; a `:large?`-flagged slot
+  inside that value would ride the whole blob into a validation-failure
+  trace (an egress surface) unless the emit-site elides it. When this
+  returns true the emit-site substitutes the `:rf.size/large-elided`
+  size marker for the value-bearing slots — UNLESS the slot is ALSO
+  sensitive, in which case sensitive wins (Spec 010 §Composition with
+  `:large?` — the marker's `:path` / `:bytes` themselves must not leak a
+  secret's size signature).
+
+  Returns boolean. Pure; same input always produces the same output."
+  [schema]
+  (-> (extract-large-paths-from-schema schema [])
+      seq
+      boolean))
+
+(defn schema-opaque?
+  "True when `schema` is a COMPILED / OPAQUE value the pure-data walker
+  cannot introspect for per-slot flags — a non-vector, non-keyword form
+  (a compiled `malli.core/schema` object, a map, a fn, …). Per Spec 010
+  §The `:schema` value is opaque to re-frame the walker MUST NOT call
+  into the registered validator to introspect structure, so it walks the
+  vector-form Malli EDN itself; a compiled `m/schema` value is an opaque
+  leaf and its internal per-slot `:sensitive?` / `:large?` flags are
+  invisible to the walk (rf2-u9bjgr).
+
+  A bare KEYWORD (`:int` / `:string` / a registry ref) is NOT opaque
+  here: a primitive keyword provably carries no per-slot props, so the
+  walker provably skips nothing — treating every keyword failure as
+  fail-closed-sensitive would over-redact every plain scalar failure for
+  the rare registry-ref true positive (the same rf2-ee38b.6 false-positive
+  tradeoff the `:rf.warning/schema-walker-opaque` nudge already makes by
+  staying silent on keywords). Only genuinely opaque compiled values
+  (which Malli DOES honour `:sensitive?` on for validation, but the
+  walker cannot see) fail closed.
+
+  Used by the validation-failure redaction path: an opaque schema's
+  validation failure redacts FAIL-CLOSED (the walker cannot prove the
+  value is non-sensitive, and an opaque compiled schema may carry a
+  `{:sensitive? true}` slot Malli honoured for the failure), per EP-0015's
+  central projection / fail-closed expectation for schema-validation
+  egress. The supported route to make per-slot flags VISIBLE (and avoid
+  the coarse whole-value fail-closed redaction) is registering the vector
+  form, per the `:rf.warning/schema-walker-opaque` nudge.
+
+  Returns boolean. Pure."
+  [schema]
+  (not (or (vector? schema) (keyword? schema))))
+
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
   indexed vectors compared element-wise. Single-pass: counts each

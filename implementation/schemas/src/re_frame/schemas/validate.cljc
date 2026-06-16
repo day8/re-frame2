@@ -140,6 +140,71 @@
 (def ^:private value-bearing-slots
   [:value :received :explain :explain-humanized :rf.fx/args :rf.sub/query-v])
 
+;; ---- :large? size-elision of validation-failure value slots (rf2-vmhu4i) --
+;;
+;; A `:large?`-flagged slot inside the checked value ships the whole blob into
+;; the validation-failure trace's value-bearing slots unless the emit-site
+;; elides it. Per Spec 010 §`:large?` (the validation size-safety arm) and
+;; §Composition with `:large?` (sensitive wins), the emit-site substitutes the
+;; `:rf.size/large-elided` marker for the whole value-bearing slots when the
+;; schema declares any `:large?` slot and NO `:sensitive?` slot governs the
+;; redaction — a sensitive failure already scrubs to `:rf/redacted`, and a
+;; sensitive marker would itself leak the secret's `:path` / `:bytes` size
+;; signature. Mirrors `re-frame.marks/large-marker`'s shape (kept local so the
+;; schemas artefact carries no dependency on the core `marks` ns + its elision
+;; / substrate-adapter graph).
+
+(defn- ->bytes
+  "Byte-count of a value's printed representation. The `:bytes` slot of the
+  `:rf.size/large-elided` marker (mirrors `re-frame.marks/->bytes`)."
+  [v]
+  #?(:clj  (count (.getBytes ^String (pr-str v) "UTF-8"))
+     :cljs (count (pr-str v))))
+
+(defn- value-type
+  [v]
+  (cond
+    (map? v)    :map
+    (vector? v) :vector
+    (set? v)    :set
+    (string? v) :string
+    :else       :scalar))
+
+(defn- large-marker
+  "Build the `:rf.size/large-elided` marker for the whole failing value `v`.
+  Per Spec-Schemas §`:rf/elision-marker` / Spec 009 §Wire marker. `:reason
+  :schema` records that the elision was nominated by a `:large?` schema slot
+  (distinct from the `:marks` / `:frame` provenance the app-db egress path
+  carries). `:path []` — the marker substitutes the WHOLE value-bearing slot,
+  matching the whole-payload nature of these slots (a single marker, not a
+  path-walk; the value-bearing slots carry the whole checked value, not a
+  leaf)."
+  [v]
+  {:rf.size/large-elided
+   {:path   []
+    :bytes  (->bytes v)
+    :type   (value-type v)
+    :reason :schema
+    :handle [:rf.elision/at []]}})
+
+(defn- elide-large-slots
+  "Substitute the `:rf.size/large-elided` marker (for `v`, the whole checked
+  value) into each `value-bearing-slots` entry present in `tags`, and stamp
+  `:large? true`. `contains?`-guarded so a slot a surface doesn't carry is a
+  no-op. Per Spec 010 §`:large?` validation size-safety arm (rf2-vmhu4i).
+
+  Called ONLY on the non-sensitive branch (sensitive wins — see
+  `redact-tags` / `redact-tags-per-slot`): a slot already scrubbed to
+  `:rf/redacted` must never be replaced by a size marker that re-leaks the
+  secret's `:bytes` signature."
+  [tags v]
+  (let [marker (large-marker v)]
+    (-> (reduce (fn [t slot]
+                  (cond-> t (contains? t slot) (assoc slot marker)))
+                tags
+                value-bearing-slots)
+        (assoc :large? true))))
+
 ;; ---- PER-SLOT DECISION SCOPING (rf2-3qam7b / the rf2-me69cb principle) ----
 ;;
 ;; THE PRINCIPLE: the SCOPE of a slot's `:sensitive?` redaction decision MUST
@@ -608,8 +673,27 @@
                 ;; to the app-db `:value` slot, which is genuinely leaf-narrowed
                 ;; — see `validate-app-schema!`.) `walk-schema?` stays the knob
                 ;; for whether to consult the walker at all.
+                ;; Per rf2-u9bjgr — a COMPILED / OPAQUE schema (a non-vector,
+                ;; non-keyword `m/schema` object) cannot be walked, so the
+                ;; per-slot `:sensitive?` flag Malli honoured for the failure
+                ;; is INVISIBLE to the walker. Fail CLOSED: redact as if
+                ;; sensitive. Otherwise an opaque schema carrying a
+                ;; `{:sensitive? true}` slot leaks the failing value verbatim
+                ;; while the equivalent vector form redacts (the bead's
+                ;; asymmetry). A bare keyword is provably flag-free, so it is
+                ;; NOT opaque here (`walker/schema-opaque?`).
                 sensitive?  (and walk-schema?
-                                 (walker/schema-has-sensitive? schema))
+                                 (or (walker/schema-has-sensitive? schema)
+                                     (walker/schema-opaque? schema)))
+                ;; Per rf2-vmhu4i — when the schema declares any `:large?`
+                ;; slot AND the failure is not sensitive (sensitive wins),
+                ;; elide the value-bearing slots to the `:rf.size/large-elided`
+                ;; marker. An opaque schema is already handled fail-closed
+                ;; SENSITIVE above (which subsumes large), so `:large?` is only
+                ;; consulted for a walkable schema here.
+                large?      (and walk-schema?
+                                 (not sensitive?)
+                                 (walker/schema-has-large? schema))
                 ;; Per rf2-qhq3f — humanize from the RAW explanation here,
                 ;; before redaction, and fold the slot into base-tags so
                 ;; `redact-tags` scrubs it symmetrically with `:explain`
@@ -617,7 +701,9 @@
                 humanized   (humanize-explain explanation)
                 base-tags   (cond-> (build-base-tags schema explanation)
                               (some? humanized) (assoc :explain-humanized humanized))
-                tags        (cond-> base-tags sensitive? redact-tags)]
+                tags        (cond-> base-tags
+                              sensitive? redact-tags
+                              large?     (elide-large-slots value))]
             (emit-validation-failure! tags)
             false)))
       true)
@@ -819,10 +905,31 @@
                        ;;     jwt slot sensitive. `whole-sensitive?` also stamps
                        ;;     the top-level `:sensitive?` (it is the broader
                        ;;     decision — `leaf-sensitive?` ⊆ `whole-sensitive?`).
-                       leaf-sensitive?  (if in-path
-                                          (walker/schema-sensitive-at? schema in-path)
-                                          (walker/schema-has-sensitive? schema))
-                       whole-sensitive? (walker/schema-has-sensitive? schema)
+                       ;; Per rf2-u9bjgr — a COMPILED / OPAQUE schema (a
+                       ;; non-vector, non-keyword `m/schema` object) cannot be
+                       ;; walked, so a per-slot `:sensitive?` Malli honoured is
+                       ;; invisible. Fail CLOSED on BOTH the whole-payload and
+                       ;; the leaf decision: redact every value-bearing slot as
+                       ;; sensitive. (`reg-app-schema` also warns once via
+                       ;; `:rf.warning/schema-walker-opaque` at registration;
+                       ;; this is the redaction half of the same fail-closed
+                       ;; posture.)
+                       opaque?          (walker/schema-opaque? schema)
+                       leaf-sensitive?  (or opaque?
+                                            (if in-path
+                                              (walker/schema-sensitive-at? schema in-path)
+                                              (walker/schema-has-sensitive? schema)))
+                       whole-sensitive? (or opaque?
+                                            (walker/schema-has-sensitive? schema))
+                       ;; Per rf2-vmhu4i — a `:large?` (non-sensitive) schema
+                       ;; elides the value-bearing slots to the size marker
+                       ;; (sensitive wins; opaque is fail-closed sensitive,
+                       ;; subsuming large). `whole-large?` governs every
+                       ;; value-bearing slot uniformly here — the marker is the
+                       ;; same shape on the narrowed `:value` (built from the
+                       ;; failing leaf) and the whole-payload `:explain`.
+                       whole-large?     (and (not whole-sensitive?)
+                                             (walker/schema-has-large? schema))
                        ;; Per rf2-ss06u.1 / rf2-612mri — some `:in`
                        ;; segments are value-bearing, not structural: a
                        ;; `:set` failure's segment is the failing ELEMENT
@@ -873,11 +980,17 @@
                                      (some? humanized) (assoc :explain-humanized humanized))
                        ;; PER-SLOT DECISION SCOPING: `:value` (narrowed) under
                        ;; the leaf decision; `:explain` / `:explain-humanized`
-                       ;; (whole reg-slice) under the root decision.
-                       tags        (redact-tags-per-slot base-tags
-                                                         whole-sensitive?
-                                                         leaf-sensitive?
-                                                         app-db-narrowed-slots)]
+                       ;; (whole reg-slice) under the root decision. Per
+                       ;; rf2-vmhu4i, when the schema is `:large?` (and not
+                       ;; sensitive) the value-bearing slots elide to the size
+                       ;; marker (built from the whole `reg-slice`) — sensitive
+                       ;; wins, so this arm only fires when neither the leaf nor
+                       ;; the whole-payload decision redacted.
+                       tags        (cond-> (redact-tags-per-slot base-tags
+                                                                 whole-sensitive?
+                                                                 leaf-sensitive?
+                                                                 app-db-narrowed-slots)
+                                     whole-large? (elide-large-slots reg-slice))]
                    (emit-validation-failure! tags)
                    (recur (next entries) false)))))
            ok?))
@@ -1160,8 +1273,25 @@
   hook and fall through verbatim when the hook is unbound (schemas
   artefact absent → no schema to redact against).
 
+  Per rf2-u9bjgr the decision FAILS CLOSED on a COMPILED / OPAQUE schema (a
+  non-vector, non-keyword `m/schema` object the walker cannot introspect):
+  it redacts as if sensitive, because Malli may have honoured a
+  `{:sensitive? true}` slot the walker cannot see — without this an opaque
+  schema's failure leaks verbatim while the vector form redacts.
+
+  Per rf2-vmhu4i a `:large?`-flagged (and non-sensitive) schema elides the
+  value-bearing slots to the `:rf.size/large-elided` marker (sensitive wins;
+  the opaque fail-closed branch is sensitive, which subsumes large). `tags`
+  carries the whole checked value under `:value` (the shared off-box slot),
+  so the marker is built from `(:value tags)`.
+
   Pure; `redact-tags` is idempotent so a double-call (or a call on a
   tags map a path-based pre-scrub already touched) is safe."
   [schema tags]
-  (cond-> tags
-    (walker/schema-has-sensitive? schema) redact-tags))
+  (let [sensitive? (or (walker/schema-has-sensitive? schema)
+                       (walker/schema-opaque? schema))
+        large?     (and (not sensitive?)
+                        (walker/schema-has-large? schema))]
+    (cond-> tags
+      sensitive? redact-tags
+      large?     (elide-large-slots (:value tags)))))
