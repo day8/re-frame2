@@ -21,9 +21,9 @@ rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
 trio `set-operating-frame` + `reset-operating-frame` + `get-operating-frame`
 (rf2-zomfq — the [Tool-Pair §Tool-surface obligations][tsobl] ops that
 surface the session frame pin, the escape from tier-4 `:ambiguous-frame`;
-extended in rf2-09ijml to carry the EP-0013 **realm dimension** — the
-(realm, frame) full address, with an optional `realm` pin that re-scopes
-tier-3 sole-frame resolution),
+the public address is the **frame** id per EP-0023's `image -> frame ->
+event stream` model — the operating-frame read also reports the
+**labeled-internal installation boundary** as implementation structure),
 the write pair `restore-epoch` + `replace-app-db` (rf2-ee38b.18 — the
 Tool-Pair time-travel + state-injection primitives, gated behind
 `--allow-writes`), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
@@ -368,8 +368,8 @@ the envelope carries the context an agent needs to recover in one step
 |---------------------|-------------------------------------------------------------------------|
 | `:operation`        | The op that refused (`:dispatch`, `:dispatch-dry-run`, `:read-sub`, `:subs-sample`, `:sub-cache-info`, `:record`). |
 | `:event` / `:query` | The event-vector (dispatch) or query-vector (sub reads) the op was about to act on, when known. |
-| `:available-frames` | The registered **app** frames in the operating realm — the exact set the caller may pin or pass. |
-| `:operating-realm`  | The realm tier-3 resolution scopes to, so a multi-realm session sees which realm the candidates live in. |
+| `:available-frames` | The registered **app** frames in the operating installation container — the exact set the caller may pin or pass. |
+| `:operating-realm`  | The internal installation container tier-3 resolution scopes to (labeled-internal — EP-0023 §Surface dispositions), so a multi-container session sees which container the candidates are seated in. |
 | `:selected-frame`   | The current session pin (nil = none) — whether a prior `select-frame!` is in effect. |
 | `:hint`             | The human sentence + the concrete fix (pass `frame`, or pin via `select-frame!` / `set-operating-frame`). |
 
@@ -574,11 +574,11 @@ The summary shape:
             :frame-count         N
             :app-frame-count     N
             :ambiguous-frame?    bool
-            :realm-count         N            ; EP-0013 — # installed realms
+            :realm-count         N            ; # internal installation containers
             :runtime-instance-id <uuid>}
- :frames   {:all [...] :app [...] :operating <id>
-            :realms [...] :operating-realm <id>     ; EP-0013 realm dimension
-            :frame-realms {<frame-id> <realm-id>}}
+ :frames   {:all [...] :app [...] :operating <id>      ; public frame address (EP-0023)
+            :realms [...] :operating-realm <id>        ; labeled-internal installation boundary
+            :frame-realms {<frame-id> <container-id>}}
  :app-db-top-keys {<app-frame-id> [<top-level key> ...]}
  :registry {:counts {<kind> N ...}    ; every v1 registrar kind
             :events [...] :subs [...] :fx [...]}  ; full ids for the 3 navigable kinds
@@ -600,14 +600,18 @@ freshness/liveness token stays on `discover-app`; `orient` carries
 enough of it (`:debug-enabled?`, the frame counts, `:ambiguous-frame?`)
 to know the read is trustworthy.
 
-**Realm dimension (EP-0013 disposition 3, rf2-09ijml).** `:frames`
-carries the **(realm, frame) address**: `:realms` (the installed runtime
-realm ids — `(rf/realm-ids)`), `:operating-realm` (the realm tier-3
-sole-frame resolution scopes to), and `:frame-realms` (`{frame-id
-realm-id}` for every registered frame — `(rf/frame-realm id)`). `:app` is
-**realm-scoped** to the operating realm. A single-realm app (the common
-case) reports `:realms [:rf.realm/default]` and every frame's realm as
-the default — the dimension collapses to a no-op.
+**Installation boundary (EP-0023 §Surface dispositions).** The public
+addressing surface is the **frame** (`:all` / `:app` / `:operating` —
+EP-0023's `image -> frame -> event stream`). `:frames` additionally
+carries the **labeled-internal installation boundary** (the EP-0013 realm
+substrate, surfaced as implementation structure, not the central model):
+`:realms` (the internal installation-container ids — `(rf/realm-ids)`),
+`:operating-realm` (the container tier-3 sole-frame resolution scopes to),
+and `:frame-realms` (`{frame-id container-id}` for every registered frame
+— `(rf/frame-realm id)`). `:app` is scoped to the operating container. A
+single-realm app (the common case) reports `:realms [:rf.realm/default]`
+and every frame's container as the default — the boundary collapses to a
+no-op.
 
 Read-only + idempotent across same-state calls — cacheable like the
 other read tools. `:reason :orient-failed` (with `:message`) on a
@@ -3051,28 +3055,35 @@ jump-to-editor link.
 `error-projector` / `resource` / `mutation` / `resource-scope` /
 `machine`), `id` (string, **required** — EDN-encoded
 keyword or composite vector), `realm` (string, optional — EDN-encoded
-realm-id keyword), `build` (string, optional).
+internal installation-container id keyword), `build` (string, optional).
 
-**Realm-targeting** (EP-0013, rf2-1koiq1). The optional `realm` arg is a
-realm-id keyword (e.g. `":shop/realm"`). **Omit it for the default realm**
-— the overwhelming single-realm common case, where the response is
-byte-identical (no `:realm` key, no behaviour change; absence = the default
-realm, the EP-0013 issue-2 documented rule). When supplied, the lookup
-routes through the public **map-shaped** form
-`(re-frame.core/handler-meta {:realm r :kind k :id id})` (EP-0013
-open-issue 11 — map-shaped is the ruled public form, unambiguous against the
-keyword arities) and reads **only that realm's** registrar; the resolved
-realm is stamped onto the response as `:realm`. `realm` is **not valid with
-`kind=machine`** (machine specs derive from the default realm's `:event`
+**Internal installation boundary** (EP-0023 §Surface dispositions). EP-0023
+makes the public model `image -> frame -> event stream` and demotes the
+EP-0013 realm to the **internal installation / container substrate**;
+realm-scoped registrar queries are *retained as implementation / migration /
+tooling surface*, and tooling that exposes them should label them as such.
+The optional `realm` arg therefore names an **internal installation
+container** (e.g. `":shop/realm"`) for drilling into a multi-container
+installation's registrar — it is **not a public address**. **Omit it for the
+default container** — the overwhelming single-realm common case, where the
+response is byte-identical (no `:realm` key, no behaviour change; absence =
+the default container). When supplied, the lookup routes through the
+**map-shaped** form `(re-frame.core/handler-meta {:realm r :kind k :id id})`
+and reads **only that container's** registrar; the resolved container is
+stamped onto the response as `:realm`. `realm` is **not valid with
+`kind=machine`** (machine specs derive from the default container's `:event`
 handlers) — that combination returns
-`{:ok? false :reason :realm-unsupported-for-machine …}` rather than
-silently ignoring the realm. Discovering *which* realms exist and a frame's
-owning realm now ship (rf2-f1xa3k — public `(rf/realm-ids)` + `(rf/frame-realm
-frame-id)`), surfaced by `orient` / `discover-app` / `get-operating-frame`;
-the realm-scoped operating-frame ladder ships in rf2-09ijml (tier-3
-sole-app-frame resolution counts only the operating realm's app frames; see
-§set-operating-frame / reset-operating-frame / get-operating-frame and
-[Tool-Pair §Operating frame — Realm dimension](../../../spec/Tool-Pair.md#operating-frame)).
+`{:ok? false :reason :realm-unsupported-for-machine …}` rather than silently
+ignoring it.
+
+The **forward direction** (EP-0023): a frame's inspectable registration set
+is its **resolved image generation** (the same `(kind, id)` may resolve
+differently per frame). Re-keying these reads to resolve through the
+operating frame's image generation — and surfacing image/inline provenance +
+replacement decisions — is the follow-on once the object-frame public
+addressing and the frame-image-generation read API land (the EP-0023
+make-frame collapse wave); `list-subscriptions` is the per-frame exemplar
+today.
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
 §Registry model), including the three resources-artefact kinds
@@ -3154,15 +3165,16 @@ out what's registered (per kind), then drill in with `handler-meta`
 on a specific `(kind, id)` pair.
 
 **Args**: `kind` (string, **required** — same enum as `handler-meta`),
-`realm` (string, optional — EDN-encoded realm-id keyword), `build`
-(string, optional).
+`realm` (string, optional — EDN-encoded internal installation-container id
+keyword), `build` (string, optional).
 
-**Realm-targeting** (EP-0013, rf2-1koiq1): same contract as `handler-meta`.
-Omit `realm` for the default realm (byte-identical). When supplied, the
-enumeration routes through the public map-shaped
-`(re-frame.core/registrations {:realm r :kind k})` form and lists **only
-that realm's** ids, stamping `:realm` on the response. Not valid with
-`kind=machine`.
+**Internal installation boundary** (EP-0023 §Surface dispositions): same
+contract as `handler-meta`. The optional `realm` arg names an internal
+installation container (not a public address); omit it for the default
+container (byte-identical). When supplied, the enumeration routes through the
+map-shaped `(re-frame.core/registrations {:realm r :kind k})` form and lists
+**only that container's** ids, stamping `:realm` on the response. Not valid
+with `kind=machine`.
 
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
 (including the resources-artefact `:resource` / `:mutation` /
@@ -3245,12 +3257,14 @@ gap.
 
 ### set-operating-frame
 
-Pin the session's operating frame (and/or operating realm).
+Pin the session's operating frame — the **public address** is the frame id
+(EP-0023's `image -> frame -> event stream` model targets a frame; the old
+EP-0013 `(realm, frame)` two-part address collapses to one public frame-id
+space).
 
-**Args**: `frame` (string, optional — bare `"stories"` or EDN-shaped
-`":stories"`), `realm` (string, optional — EP-0013 realm-id, bare or
-EDN-shaped, e.g. `":shop/realm"`), `build` (string, optional). **At least
-one of `frame` / `realm` must be supplied** (both absent → `:missing-frame`).
+**Args**: `frame` (string, **required** — bare `"stories"` or EDN-shaped
+`":stories"`), `build` (string, optional). An absent `frame` returns
+`:missing-frame`.
 
 Per Tool-Pair §Tool-surface obligations, set **validates** that `frame`
 names a currently-registered frame; an unknown frame returns the
@@ -3261,17 +3275,10 @@ membership check reads `(re-frame2-pair.runtime/frames-list)` and, on a
 hit, calls `(select-frame! <id>)` and returns the fresh map; no
 check-then-act race across round-trips.
 
-**Realm pin (EP-0013 disposition 3, rf2-09ijml).** The optional `realm`
-arg pins the **operating realm** — the realm tier-3 sole-frame resolution
-scopes to. A frame lives in a runtime realm and the **(realm, frame) pair
-is the full address** (a frame-id is unique only *within* a realm), so
-pinning a realm re-scopes tier-3 to count only that realm's app frames.
-The realm is validated against `(rf/realm-ids)`; an uninstalled realm
-returns `{:ok? false :reason :no-such-realm :realm <id> :realms [...]}`.
-The realm is pinned **first** in the eval form (so the subsequent
-`frames-list` view is already realm-scoped), then the frame. A single-realm
-app (every frame in `:rf.realm/default`) never needs `realm` — it pins the
-frame alone, byte-identical to the pre-realm behaviour.
+There is **no public realm pin**. The EP-0013 realm survives only as the
+internal installation/container substrate (EP-0023 §Surface dispositions),
+not as an addressing surface; the operating read still reports it as
+labeled-internal implementation structure (see §get-operating-frame).
 
 A **reserved `:rf/*` tool frame** (Xray's `:rf/xray`, an SSR slot — see
 Tool-Pair §Reserved tool frames) is **refused as an operating-frame
@@ -3287,39 +3294,40 @@ reads of a tool frame remain available via the per-call `:frame` arg.
 `:rf/default` is an app frame and is pinnable normally.
 
 **Returns** the resolved `frames-list` map on success (the frame triple PLUS
-the realm slots):
+the labeled-internal installation-boundary slots):
 
 ```clojure
 {:ok?             true
- :frames          [<frame-id> ...]   ;; all registered
- :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating realm
+ :frames          [<frame-id> ...]   ;; all registered (public address surface)
+ :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating container
  :selected        <frame-id>         ;; the just-pinned frame (tier-2 pin)
  :operating       <frame-id>         ;; full resolution — now the pinned frame
- :realms          [<realm-id> ...]   ;; installed realms
- :operating-realm <realm-id>         ;; the operating realm (the realm pin, else default)
- :selected-realm  <realm-id|nil>     ;; tier-2 realm pin
- :frame-realms    {<frame-id> <realm-id> ...}}
+ :realms          [<container-id> ...]   ;; internal installation containers (labeled-internal)
+ :operating-realm <container-id>         ;; the operating container (default, absent a pin)
+ :selected-realm  <container-id|nil>     ;; tier-2 container pin (no public pin exists; nil)
+ :frame-realms    {<frame-id> <container-id> ...}}
 ```
 
 **Error envelopes** (all `isError: true`):
 
-- `{:ok? false :reason :missing-frame :hint "..."}` — neither `frame` nor `realm` supplied.
+- `{:ok? false :reason :missing-frame :hint "..."}` — `frame` not supplied.
 - `{:ok? false :reason :reserved-tool-frame :frame <id> :hint "..."}` — `frame` is a reserved `:rf/*` tool frame (refused before nREPL; rf2-wdxyx3).
-- `{:ok? false :reason :no-such-realm :realm <id> :realms [...] :hint "..."}` — `realm` not installed (EP-0013; refused before any frame pin).
 - `{:ok? false :reason :no-such-frame :frame <id> :frames [...] :hint "..."}` — `frame` not registered.
 - `{:ok? false :reason :set-operating-frame-failed :message "..."}` — runtime threw.
 
 ### reset-operating-frame
 
-Clear the session pin — the frame pin AND the realm pin (EP-0013).
+Clear the session's frame pin.
 
-**Args**: `build` (string, optional). No `frame` / `realm`.
+**Args**: `build` (string, optional). No `frame`.
 
-Routes through `(select-frame! nil)` + `(select-realm! nil)` then re-reads
-the `frames-list` map so the returned shape reflects the cleared pins. After
-reset, subsequent ops resolve at tier 3 / 4 again and the operating realm
-falls back to the default realm. Idempotent — resetting when nothing is
-pinned is a no-op that returns the same map.
+Routes through `(select-frame! nil)` then re-reads the `frames-list` map so
+the returned shape reflects the cleared pin. It also clears the runtime's
+internal installation-container pin the tier-3 resolver scopes to (the realm
+is the internal installation substrate, not a public address — EP-0023
+§Surface dispositions), returning the resolver to the default-installation
+posture. After reset, subsequent ops resolve at tier 3 / 4 again. Idempotent
+— resetting when nothing is pinned is a no-op that returns the same map.
 
 **Returns**:
 
@@ -3328,8 +3336,8 @@ pinned is a no-op that returns the same map.
  :frames          [<frame-id> ...]
  :selected        nil                ;; frame pin cleared
  :operating       <frame-id|nil>     ;; tier-3 sole-frame, or nil (ambiguous)
- :selected-realm  nil                ;; realm pin cleared
- :operating-realm :rf.realm/default} ;; back to the default realm
+ :selected-realm  nil                ;; internal container pin cleared
+ :operating-realm :rf.realm/default} ;; back to the default installation container
 ```
 
 ### get-operating-frame
@@ -3341,28 +3349,31 @@ consults, so the two never disagree.
 **Args**: `build` (string, optional).
 
 **Returns** the normative shape (per [Tool-Pair §Tool-surface
-obligations][tsobl] — `:frames` / `:selected` / `:operating`) PLUS the
-EP-0013 realm dimension:
+obligations][tsobl] — `:frames` / `:selected` / `:operating`, the public
+frame addressing surface) PLUS the **labeled-internal installation
+boundary** (EP-0023 §Surface dispositions — implementation structure, not
+the central model):
 
 ```clojure
 {:ok?             true
- :frames          [<frame-id> ...]   ;; (rf/frame-ids) — all registered
- :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating realm
+ :frames          [<frame-id> ...]   ;; (rf/frame-ids) — all registered (public address)
+ :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating container
  :selected        <frame-id|nil>     ;; tier-2 session frame pin (nil = unset)
  :operating       <frame-id|nil>     ;; full resolution (nil = AMBIGUOUS)
- :realms          [<realm-id> ...]   ;; (rf/realm-ids) — all installed realms
- :operating-realm <realm-id>         ;; the realm tier-3 scopes to (realm pin, else default)
- :selected-realm  <realm-id|nil>     ;; tier-2 session realm pin
- :frame-realms    {<frame-id> <realm-id> ...}}  ;; (rf/frame-realm id) per frame
+ :realms          [<container-id> ...]   ;; (rf/realm-ids) — internal installation containers
+ :operating-realm <container-id>         ;; the container tier-3 scopes to (default, absent a pin)
+ :selected-realm  <container-id|nil>     ;; tier-2 container pin (no public pin; nil)
+ :frame-realms    {<frame-id> <container-id> ...}}  ;; (rf/frame-realm id) per frame
 ```
 
 `:operating nil` means ambiguous: two-plus app frames in the operating
-realm and no pin, so a frame-targeted op without a per-call `frame` WILL
+container and no pin, so a frame-targeted op without a per-call `frame` WILL
 refuse. The shape lets a caller render "you have pinned X" (`:selected`),
-"writes will go to X" (`:operating`), and the realm each frame lives in /
-the operating realm (the realm slots). A single-realm app reports `:realms
-[:rf.realm/default]` and every frame's realm as the default — the dimension
-collapses to a no-op.
+"writes will go to X" (`:operating`), and — as labeled-internal info — the
+installation container each frame is seated in (the `:realms` /
+`:operating-realm` / `:frame-realms` slots). A single-realm app reports
+`:realms [:rf.realm/default]` and every frame's container as the default —
+the boundary collapses to a no-op.
 
 ### How they escape `:ambiguous-frame`
 

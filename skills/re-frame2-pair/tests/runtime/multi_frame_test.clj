@@ -44,10 +44,12 @@
    container behind `rf/app-db-value` and the targets of `rf/subscribe`."
   (atom {}))
 
-;; EP-0013 disposition 3 (rf2-09ijml) — the realm dimension. The CLJS
-;; runtime reads `(rf/realm-ids)` (the installed realms) + `(rf/frame-realm
-;; frame-id)` (a frame's realm); we model both with a frame->realm map and
-;; a realm set. `default-realm-id` is :rf.realm/default (absence = default).
+;; The internal installation-container substrate (EP-0023 §Surface
+;; dispositions — the retained EP-0013 realm, implementation structure not a
+;; public address). The CLJS runtime reads `(rf/realm-ids)` (the installation
+;; containers) + `(rf/frame-realm frame-id)` (a frame's container); we model
+;; both with a frame->container map and a container set. `default-realm-id`
+;; is :rf.realm/default (absence = default container).
 (def default-realm-id :rf.realm/default)
 
 (def realm-registry
@@ -341,12 +343,15 @@
           "the resolved operating frame is echoed and is the app frame"))))
 
 ;; ---------------------------------------------------------------------------
-;; Realm-scoped tier-3 resolution (EP-0013 disposition 3, rf2-09ijml)
+;; Tier-3 resolution scoped to the internal installation container
+;; (EP-0023 §Surface dispositions — realm is the internal installation
+;; substrate, retained from EP-0013, not a public address)
 ;;
-;; The (realm, frame) pair is the full address — a frame-id is unique only
-;; WITHIN a realm. Tier-3 sole-frame resolution counts only the app frames in
-;; the OPERATING REALM. A single-realm app is byte-identical (every frame is
-;; in the default realm). KEEP IN SYNC with preload/re_frame2_pair/runtime.cljs.
+;; In a multi-container installation a frame-id is unique only WITHIN a
+;; container, so tier-3 sole-frame resolution counts only the app frames in
+;; the OPERATING CONTAINER. A single-realm app is byte-identical (every frame
+;; is in the default container). These tests mirror the runtime's INTERNAL
+;; container-scoping logic. KEEP IN SYNC with preload/re_frame2_pair/runtime.cljs.
 ;; ---------------------------------------------------------------------------
 
 (deftest realm-ids-includes-default

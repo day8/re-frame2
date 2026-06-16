@@ -254,25 +254,32 @@
 ;; AUTO-SELECTS it: single-app + Xray is unambiguous with no `frames/
 ;; select` tax. Two-plus app frames stay genuinely ambiguous (tier 4).
 ;;
-;; Realm-scoped tier-3 resolution (EP-0013 disposition 3, rf2-09ijml)
-;; ------------------------------------------------------------------
+;; Installation-container-scoped tier-3 resolution (EP-0023 §Surface
+;; dispositions — realm is the internal installation/container substrate)
+;; ----------------------------------------------------------------------
 ;;
-;; A frame lives in a runtime REALM (EP-0013) — the container that owns the
-;; registrar/adapter/capabilities the frame dispatches against. The (realm,
-;; frame) PAIR is the full address: a frame-id is unique only WITHIN a realm,
-;; so two realms may carry the same frame-id legitimately. The operating-frame
-;; ladder therefore gains a realm dimension — tier-3 sole-app-frame resolution
-;; counts only app frames in the OPERATING REALM (the session realm pin, or the
-;; default realm when none is pinned). A single-realm app (the overwhelming
-;; common case — every frame lives in `:rf.realm/default`) is byte-identical:
-;; the operating realm is the default realm, and scoping to it is a no-op.
+;; EP-0023 makes the public model `image -> frame -> event stream` and the
+;; public address a FRAME id (the EP-0013 `(realm, frame)` two-part address
+;; collapses to one public frame-id space). The EP-0013 REALM survives only
+;; as the INTERNAL installation/container substrate — the container that owns
+;; the registrar/adapter/capabilities a frame dispatches against. Tier-3
+;; sole-app-frame resolution is scoped to that internal container: it counts
+;; only app frames in the OPERATING CONTAINER (the session container pin, or
+;; the default container when none is pinned), because in a multi-container
+;; installation a frame-id is unique only within a container. A single-realm
+;; app (the overwhelming common case — every frame in `:rf.realm/default`) is
+;; byte-identical: the operating container is the default, and scoping to it
+;; is a no-op.
 ;;
-;; The realm half is read via the public `rf/realm-ids` (enumerate the
-;; installed realms) + `rf/frame-realm` (a frame's realm), both shipped in
-;; rf2-f1xa3k. Both are DEFENSIVELY guarded (`exists?`) so the preload still
-;; loads into an older core that predates the realm-enumeration API — there it
-;; degrades to the single-realm (default-realm) view, exactly as a frame with
-;; no realm reference resolves to the default realm.
+;; This is INTERNAL implementation structure, not a public address: tools
+;; that surface it (`frames-list`, `health`, `orient`) label the
+;; `:realms` / `:operating-realm` / `:frame-realms` slots as the installation
+;; boundary, never as the central addressing model (EP-0023 §Surface
+;; dispositions: tooling may expose the internal installation boundary, but
+;; should label it as such). The container reads are `rf/realm-ids` /
+;; `rf/frame-realm` (rf2-f1xa3k), both DEFENSIVELY guarded (`exists?`) so the
+;; preload still loads into an older core that predates them — there it
+;; degrades to the single-container (default) view.
 
 (defonce ^:private selected-frame (atom nil))
 
@@ -283,14 +290,16 @@
   (reset! selected-frame frame-id)
   {:ok? true :frame frame-id})
 
-;; ---- Runtime realm (EP-0013 disposition 3, rf2-09ijml) --------------------
+;; ---- Internal installation container (EP-0023 §Surface dispositions) ------
 ;;
-;; A frame lives in a runtime REALM; the (realm, frame) pair is its full
-;; address. The realm reads are the public `rf/realm-ids` (the installed realm
-;; ids) + `rf/frame-realm` (a frame's realm), both shipped in rf2-f1xa3k. Both
-;; are guarded with `exists?` so the preload still loads into an older core
-;; that predates the realm-enumeration API — there it degrades to the
-;; single-realm (default) view.
+;; A frame is seated in an internal installation CONTAINER (the EP-0013 realm,
+;; retained as the internal installation substrate — registrar/adapter/
+;; capability owner). This is implementation structure, not the public
+;; address (the public address is the frame id). The container reads are
+;; `rf/realm-ids` (the installation-container ids) + `rf/frame-realm` (a
+;; frame's container), both from rf2-f1xa3k. Both are guarded with `exists?`
+;; so the preload still loads into an older core that predates them — there it
+;; degrades to the single-container (default) view.
 
 (def ^:private default-realm-id
   "The process default realm id (re-frame.realm/default-realm-id). A
@@ -389,15 +398,16 @@
   "Resolve the operating frame: explicit override -> session pin ->
    the sole registered APP frame in the operating realm -> nil (ambiguous).
 
-   Tier 3 is reserved-frame-aware (rf2-3bu3d.4) AND realm-scoped (EP-0013
-   disposition 3, rf2-09ijml): `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR
-   slots, …) are EXCLUDED and only app frames in the OPERATING REALM are
+   Tier 3 is reserved-frame-aware (rf2-3bu3d.4) AND scoped to the internal
+   installation container (EP-0023 §Surface dispositions — the retained
+   internal realm substrate): `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR
+   slots, …) are EXCLUDED and only app frames in the OPERATING CONTAINER are
    counted, so a single-app session that ALSO carries an Xray frame resolves
-   to the one app frame instead of refusing. The (realm, frame) pair is the
-   full address — a frame-id is unique only within a realm — so counting only
-   the operating realm's app frames is what makes tier-3 sole-frame resolution
-   correct under multiple realms. A single-realm app (every frame in the
-   default realm) is byte-identical. `:rf/default` is an app frame and is
+   to the one app frame instead of refusing. In a multi-container installation
+   a frame-id is unique only within a container, so counting only the
+   operating container's app frames is what makes tier-3 sole-frame resolution
+   correct there. A single-realm app (every frame in the default container) is
+   byte-identical. `:rf/default` is an app frame and is
    retained (see `reserved-tool-frame?`). When two-plus APP frames remain in
    the operating realm the resolver yields nil and mutating ops refuse via the
    `:ambiguous-frame` path — reads that nil-default to `:rf/default` would
@@ -413,26 +423,30 @@
            (first app-fids))))))
 
 (defn frames-list
-  "All registered, non-destroyed frame ids plus the operating frame and the
-   realm dimension (rf2-3bu3d.4 + EP-0013 disposition 3, rf2-09ijml).
+  "All registered, non-destroyed frame ids plus the operating frame (the
+   PUBLIC address — EP-0023's image -> frame -> event stream) and the
+   labeled-internal installation boundary (rf2-3bu3d.4 + EP-0023 §Surface
+   dispositions — realm is the internal installation/container substrate).
 
    `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4) scoped to
-   the operating realm: the registered frames with `:rf/*` tool frames removed
-   and only those in the OPERATING REALM. When it holds exactly one id while
-   `:frames` holds more, the session is single-app-plus-tool-frame (or a
-   multi-realm session whose other app frames live in other realms) and
-   `:operating` auto-resolved to that lone app frame (no `select-frame!` was
-   needed).
+   the operating installation container: the registered frames with `:rf/*`
+   tool frames removed and only those in the OPERATING CONTAINER. When it
+   holds exactly one id while `:frames` holds more, the session is
+   single-app-plus-tool-frame (or a multi-container session whose other app
+   frames are seated in other containers) and `:operating` auto-resolved to
+   that lone app frame (no `select-frame!` was needed).
 
-   The realm slots make the full (realm, frame) address visible:
-     `:realms`          all installed realm ids (`realm-ids`).
-     `:operating-realm` the realm tier-3 resolution scopes to (the session
-                        realm pin, else the default realm).
-     `:selected-realm`  the tier-2 session realm pin, nil when unset.
-     `:frame-realms`    `{frame-id realm-id}` for every registered frame, so a
-                        tool sees which realm each frame lives in.
+   The container slots expose the LABELED-internal installation boundary
+   (EP-0023 §Surface dispositions — surfaced as implementation structure, not
+   a public address):
+     `:realms`          all internal installation-container ids (`realm-ids`).
+     `:operating-realm` the container tier-3 resolution scopes to (the session
+                        container pin, else the default container).
+     `:selected-realm`  the tier-2 session container pin, nil when unset.
+     `:frame-realms`    `{frame-id container-id}` for every registered frame,
+                        so a tool sees which container each frame is seated in.
    A single-realm app reports `:realms [:rf.realm/default]` and every frame's
-   realm as the default — the realm dimension collapses to a no-op."
+   container as the default — the installation boundary collapses to a no-op."
   []
   (let [fids (vec (rf/frame-ids))]
     {:ok?              true
@@ -4365,13 +4379,15 @@
      :app-frames                app-fids
      :selected-frame            @selected-frame
      :operating-frame           (current-frame)
-     ;; EP-0013 disposition 3 (rf2-09ijml) — the realm dimension of the
-     ;; (realm, frame) address. `:realms` enumerates the installed realms
-     ;; (`rf/realm-ids`); `:operating-realm` is the realm tier-3 resolution
-     ;; scopes to (the session realm pin, else the default realm);
-     ;; `:frame-realms` maps each registered frame to its realm
+     ;; EP-0023 §Surface dispositions — the LABELED-internal installation
+     ;; boundary (the EP-0013 realm substrate, surfaced as implementation
+     ;; structure, NOT the public address; the public address is the frame
+     ;; id above). `:realms` enumerates the internal installation containers
+     ;; (`rf/realm-ids`); `:operating-realm` is the container tier-3
+     ;; resolution scopes to (the session container pin, else the default);
+     ;; `:frame-realms` maps each registered frame to its container
      ;; (`rf/frame-realm`). A single-realm app reports `[:rf.realm/default]`
-     ;; and every frame's realm as the default — the dimension collapses.
+     ;; and every frame's container as the default — the boundary collapses.
      :realms                    (realm-ids)
      :operating-realm           (operating-realm)
      :selected-realm            @selected-realm
@@ -4435,16 +4451,21 @@
                       is trustworthy.
      :frames          {:all [...] :app [...] :operating <id>
                        :realms [...] :operating-realm <id>
-                       :frame-realms {<frame-id> <realm-id>}} — the
+                       :frame-realms {<frame-id> <container-id>}} — the
                       `frames-list` view (reserved `:rf/*` tool frames
-                      split out via `app-frame-ids`) PLUS the realm
-                      dimension (EP-0013 disposition 3, rf2-09ijml): the
-                      installed realms, the operating realm tier-3
-                      resolution scopes to, and each frame's realm — the
-                      (realm, frame) full address. `:app` is realm-scoped
-                      (only the operating realm's app frames). A
-                      single-realm app reports `[:rf.realm/default]` and
-                      every frame's realm as the default.
+                      split out via `app-frame-ids`). `:all` / `:app` /
+                      `:operating` are the PUBLIC frame addressing surface
+                      (EP-0023). The `:realms` / `:operating-realm` /
+                      `:frame-realms` slots are the LABELED-internal
+                      installation boundary (EP-0023 §Surface dispositions
+                      — the internal installation/container substrate,
+                      surfaced as implementation structure, not the central
+                      model): the installation containers, the operating
+                      container tier-3 resolution scopes to, and each
+                      frame's container. `:app` is scoped to the operating
+                      container. A single-realm app reports
+                      `[:rf.realm/default]` and every frame's container as
+                      the default.
      :app-db-top-keys {<app-frame-id> [<top-level key> ...]} — the
                       top-level app-db keys per APP frame (the cheap
                       'what state shape is this' read; drill with
@@ -4477,7 +4498,8 @@
      :frames   {:all             (:frames h)
                 :app             app-fids
                 :operating       (:operating-frame h)
-                ;; EP-0013 disposition 3 (rf2-09ijml) — the realm dimension.
+                ;; EP-0023 §Surface dispositions — the labeled-internal
+                ;; installation boundary (not the public address).
                 :realms          (:realms h)
                 :operating-realm (:operating-realm h)
                 :frame-realms    (:frame-realms h)}
