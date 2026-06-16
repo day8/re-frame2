@@ -273,8 +273,21 @@ the target's registration set.
 > Xray runs in its own frame. Xray inspects the target frame. That keeps the
 > inspection tool from becoming part of the thing being inspected.
 
-Xray therefore models itself as a **separate image/frame**, NOT as shared
-registration state:
+**Scope (honest claim, rf2-32siq3.35).** What is realized today is the
+**CONSTRUCT-and-PROVE** half: Xray builds its OWN real `rf/image` (a separate
+registration-set value) and the implementation **proves** it
+registration-disjoint from a target frame's image. The running Xray shell is
+NOT yet SEATED in a frame built from that image via `rf/make-frame` — Xray
+still runs on the ambient registrar like any other surface. Actually seating
+Xray in its own frame is deferred follow-up (**rf2-32siq3.36**). So the claim is
+"Xray's instruction set is a separate image, provably non-overlapping with the
+target's" — the image VALUE plus the proven disjointness — not the full "Xray
+runs in its own frame" runtime. With the strengthened proof (below) the
+**isolation** claim is true; only the "runs-in-its-own-frame" claim is scoped
+down to construct-and-prove.
+
+Xray therefore models its registration set as a **separate image**, NOT as
+shared registration state:
 
 - `image_view_reads/xray-image` constructs Xray's OWN EP-0023 `rf/image` — an
   inert value selecting Xray's own source namespaces (`:include-ns
@@ -284,17 +297,32 @@ registration state:
 - Xray's `:rf.xray/*` registrations do NOT leak INTO a target frame's image:
   a target frame's image selects the TARGET's own namespaces, not Xray's.
 - A target frame's registrations do NOT leak INTO Xray's image: the two images
-  select disjoint source namespaces, so a frame built from one cannot resolve
+  resolve disjoint `[kind id]` sets, so a frame built from one cannot resolve
   the other's registrations.
 - Xray reads the target frame's **generation + state as DATA** through the
   live-read seam (`image_view_reads`), never by sharing the target's
   registrar. The target remains ordinary data from the tool's point of view.
 
 `image_view_reads/xray-image-isolated-from?` is the registration-disjointness
-predicate (compares the two images' `:include-ns` selectors); the
-`image_view_reads_cljs_test` asserts the isolation against a real target frame
-built via `re-frame.live-frame/make-frame` — the assertion the .29 dogfooding
-review verifies.
+predicate, and the proof is on the **REAL non-leakage invariant**, not a proxy:
+it **assembles BOTH images into sealed generations and compares their
+`:rf.gen/resolver` KEYSETS** (the `[kind id]` pairs each frame would resolve),
+returning true iff those keysets are DISJOINT. This is stronger than comparing
+the `:rf.image/include-ns` selector STRINGS (the prior proxy): different globs
+can select OVERLAPPING namespaces, and inline `:registrations` carry no
+`:include-ns` selector at all, yet either can introduce a shared `[kind id]` —
+the keyset comparison catches both, the string comparison neither. The
+predicate is fail-soft: a throw during assembly (a zero-match `:include-ns`, a
+collision, an old core) means isolation could not be assembled and proven, so it
+is CONSERVATIVE and returns `false` (not-proven-isolated) rather than a
+false-positive `true`. It offers a live-store arity (assemble both against the
+live source store — the production-runtime check) and an explicit-pool arity
+(assemble both against a supplied descriptor pool — the deterministic test
+form). The `image_view_reads_cljs_test` asserts the isolation **bidirectionally**
+against assembled generations — including the load-bearing case where two
+DIFFERENT globs select OVERLAPPING namespaces (a constructed overlap the string
+proxy would mislabel isolated, the keyset check correctly reports NOT isolated)
+— the assertion the .29 dogfooding review verifies.
 
 ### §8.2 Demand-gating & empty state
 
@@ -330,20 +358,29 @@ does not flip `:images?` (there is no image content to show).
   `project-frames` · `resolve-in-frame` · `project-image-view` ·
   `provenance-summary` · `image-row-summary` · `no-images-caption`);
   JVM-testable.
-- `panels/image_view_reads.cljs` — the fail-soft live read seam (`live-frames`
-  · `resolve-descriptor` · `image-view-data`) over the EP-0023 core surfaces
-  (`re-frame.live-frame` / `re-frame.image` / `re-frame.image-assembly`), PLUS
-  the Xray-as-its-own-image constructor (`xray-image` · `xray-image-id` ·
-  `xray-source-glob` · `xray-image-isolated-from?`). Xray may require these core
+- `panels/image_view_reads.cljs` — the READ-TIME fail-soft live read seam
+  (`live-frames` · `resolve-descriptor` · `image-view-data`) over the EP-0023
+  core surfaces (`re-frame.live-frame` / `re-frame.image` /
+  `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor
+  (`xray-image` · `xray-image-id` · `xray-source-glob` · `resolver-keyset` ·
+  `xray-image-isolated-from?`). `resolver-keyset` is the `[kind id]`-keyset
+  reader the strengthened predicate compares; `xray-image-isolated-from?`
+  assembles both images and compares those keysets (live-store + explicit-pool
+  arities, fail-soft to a conservative `false`). Xray may require these core
   namespaces directly — bundle isolation forbids `implementation/` requiring
   from `tools/`, not the reverse, the same pattern Xray uses for
-  `re-frame.frame` / `re-frame.registrar`.
+  `re-frame.frame` / `re-frame.registrar`. (The read seam's fail-soft is
+  READ-TIME robustness, not absent-core-surface tolerance: the core EP-0023
+  namespaces are hard-`:require`d, so an old core fails at LOAD before the
+  try/catch.)
 - `panels/module_view.cljs` — extended with the FRAMES section (`frame-row` ·
   `descriptor-rows` · `frames-section-body`) + the `:rf.xray/image-view` sub.
 - Tests: `panels/image_view_helpers_cljs_test.cljc` (the generation/image
   projection, the frame-row shape, the frame-derived resolution — same id /
   different image → different descriptor, the demand-gated `:images?`
   decision, the display strings) + `panels/image_view_reads_cljs_test.cljs`
-  (the Xray-as-its-own-image isolation against a real target frame, the
-  fail-soft live-read seam end-to-end, frame-derived resolution through a real
+  (the Xray-as-its-own-image isolation proven on assembled resolver KEYSETS —
+  bidirectional disjointness, the constructed overlapping-glob case the string
+  proxy would miss, and the negative leaky-image case — plus the fail-soft
+  live-read seam end-to-end and frame-derived resolution through a real
   generation).

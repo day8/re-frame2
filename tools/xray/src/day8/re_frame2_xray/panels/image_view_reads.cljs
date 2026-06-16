@@ -4,23 +4,38 @@
 
   ## The two jobs
 
-  1. **Live reads (fail-soft).** The EP-0023 public model — the live-frame
-     registry + sealed image generations — is read here, kept OUT of the pure
-     `image_view_helpers.cljc` algebra so that algebra stays JVM-testable
-     `data -> data`. Every read is `try`-guarded and degrades to the empty
-     value, so an image/frame browse never throws on a core too old to expose
-     the EP-0023 surfaces (the same fail-soft discipline as
-     `static/shared/realm.cljs`).
+  1. **Live reads (READ-TIME fail-soft).** The EP-0023 public model — the
+     live-frame registry + sealed image generations — is read here, kept OUT of
+     the pure `image_view_helpers.cljc` algebra so that algebra stays
+     JVM-testable `data -> data`. Every read is `try`-guarded and degrades to
+     the empty value, so an image/frame browse never throws AT READ TIME on a
+     malformed/absent runtime value or any read-path throw. (This is read-time
+     robustness, NOT an absent-core-surface tolerance: the EP-0023 core
+     namespaces are hard `:require`d below, so a core too old to expose them
+     fails at LOAD, before any try/catch here runs — unlike a surface that
+     reflectively probes for an optional API.)
 
   2. **Xray-as-its-own-image (the dogfooding — EP-0023 §Xray Beside The
      Target).** Xray is itself a running surface with registrations, state,
      views, subscriptions, and effects. EP-0023's headline isolation case is
-     that the inspector MUST NOT share the target's registration set: Xray
-     runs in its OWN image/frame and inspects the target frame as DATA.
+     that the inspector MUST NOT share the target's registration set. This ns
+     realizes the CONSTRUCT-and-PROVE half of that case: Xray builds its OWN
+     real `rf/image` (a separate registration-set value) and PROVES it
+     registration-disjoint from the target frame's image, inspecting the target
+     frame as DATA.
 
          > Xray runs in its own frame. Xray inspects the target frame.
          > That keeps the inspection tool from becoming part of the thing
          > being inspected. (EP-0023 §Xray Beside The Target)
+
+     SCOPE NOTE (honest claim): this ns CONSTRUCTS Xray's own image and proves
+     the isolation invariant; it does NOT yet SEAT the running Xray shell in a
+     frame built from that image via `rf/make-frame`. Xray today still runs on
+     the ambient registrar like any other surface; actually seating Xray in its
+     own frame is deferred follow-up (rf2-32siq3.36). What is realized here is
+     the image VALUE + the proven disjointness — Xray's instruction set is a
+     separate image, provably non-overlapping with the target's — not the
+     full Xray-runs-in-its-own-frame runtime.
 
      This ns constructs Xray's own registration set as an EP-0023 `rf/image`
      — selected by the `:include-ns` glob over Xray's OWN source namespaces
@@ -111,13 +126,17 @@
   PURE: `rf/image` is data, not registration (no realm, no registrar, no side
   effect).
 
-  This is the dogfooding the EP names: Xray models itself as a SEPARATE
-  image/frame, not as shared registration state. The returned image value is
-  Xray's instruction set; it never mixes with a target frame's image, and the
-  target frame is inspected as DATA through the live-read fns. Construct an
-  Xray frame with this image (`(rf/make-frame {:id :rf.xray/main :images
-  [(xray-image)] :initial-db {:rf.xray/target <target-frame-id>}})`) to run
-  Xray beside the target without the two sharing a registration set.
+  This is the CONSTRUCT-and-PROVE half of the dogfooding the EP names: Xray
+  builds its OWN registration-set value (a SEPARATE image, not shared
+  registration state) and `xray-image-isolated-from?` proves it
+  registration-disjoint from a target frame's image. The returned image value
+  is Xray's instruction set; it never mixes with a target frame's image, and
+  the target frame is inspected as DATA through the live-read fns. To SEAT a
+  running Xray in a frame built from this image one would construct
+  `(rf/make-frame {:id :rf.xray/main :images [(xray-image)] :initial-db
+  {:rf.xray/target <target-frame-id>}})` — that seating is deferred follow-up
+  (rf2-32siq3.36); what this fn realizes is the image VALUE and (via the
+  isolation predicate) the proven disjointness, not the seated runtime.
 
   Returns the normalized inert image value (`:rf.image/id` /
   `:rf.image/include-ns` / …)."
@@ -125,21 +144,65 @@
   (image/image {:id         xray-image-id
                 :include-ns [xray-source-glob]}))
 
+(defn resolver-keyset
+  "The set of `[kind id]` resolver keys a sealed image `generation` carries
+  (`(keys (:rf.gen/resolver generation))` as a set) — the registration set a
+  frame running that generation actually resolves (EP-0023 §Specification
+  Summary). A nil generation has the empty keyset. Pure `data -> #{[kind id]}`."
+  [generation]
+  (set (keys (:rf.gen/resolver generation))))
+
 (defn xray-image-isolated-from?
   "True iff XRAY'S OWN image and a `target-image` are REGISTRATION-DISJOINT —
   the EP-0023 §Xray Beside The Target invariant that the inspector's
-  registrations do not leak into / from the target frame's image. Compares the
-  `:rf.image/include-ns` selectors: Xray selects `day8.re-frame2-xray.**`; a
-  target frame's image selects the target's OWN namespaces. Isolation holds
-  when no selector is shared (the two images select disjoint source
-  namespaces). Pure `data -> bool`; the assertion the .29 dogfooding review
-  verifies.
+  registrations do not leak into / from the target frame's image — that keeps
+  the inspection tool from becoming part of the thing being inspected.
 
-  `target-image` is a normalized image value (`rf/image`'s return). Returns
-  true when the two images share no `:include-ns` selector — i.e. neither
-  selects the other's source namespaces — so a frame built from one cannot see
-  the other's registrations."
-  [target-image]
-  (let [xray-sel   (set (:rf.image/include-ns (xray-image)))
-        target-sel (set (:rf.image/include-ns target-image))]
-    (empty? (set/intersection xray-sel target-sel))))
+  The check is on the REAL non-leakage invariant, not a proxy: ASSEMBLE both
+  images into sealed generations and compare their `:rf.gen/resolver` KEYSETS
+  (the `[kind id]` pairs each frame would resolve). Isolation holds iff the two
+  keysets are DISJOINT — no `[kind id]` is resolved by BOTH a frame built from
+  Xray's image and a frame built from the target's image, so neither frame can
+  see the other's registrations. This is stronger than comparing the
+  `:rf.image/include-ns` selector strings (the prior proxy): different globs can
+  select OVERLAPPING namespaces, and inline `:registrations` carry no
+  `:include-ns` selector at all, yet either can introduce a shared `[kind id]` —
+  the keyset comparison catches both, the string comparison neither.
+
+  Two arities:
+
+    (xray-image-isolated-from? target-image)
+      assemble BOTH images against the LIVE registration source store (the real
+      runtime: where Xray's `:rf.xray/*` registrations and the target's
+      registrations both live). The honest production-runtime check.
+
+    (xray-image-isolated-from? target-image pool)
+      assemble BOTH images against an EXPLICIT descriptor `pool` (a flat seq of
+      descriptor maps, the source store's output shape) — the deterministic
+      test/harness form that does not depend on what the live store carries.
+      Both images select from the SAME pool, so a `[kind id]` authored under a
+      namespace BOTH images select surfaces as a shared resolver key (the
+      check FAILS, correctly), proving the predicate is a real disjointness
+      test and not a constant true.
+
+  Fail-soft: assembly is fail-loud (a zero-match `:include-ns`, a collision),
+  and a core too old to expose the EP-0023 assembly surfaces would throw. A
+  throw means isolation could NOT be assembled and PROVEN, so the predicate is
+  CONSERVATIVE and returns `false` (not-proven-isolated) rather than a
+  false-positive `true`. `target-image` is a normalized image value
+  (`rf/image`'s return). Pure `data -> bool` (modulo the read of the live store
+  in the single-arity form)."
+  ([target-image]
+   (try
+     (let [xray-gen   (image-assembly/assemble [(xray-image)])
+           target-gen (image-assembly/assemble [target-image])]
+       (empty? (set/intersection (resolver-keyset xray-gen)
+                                 (resolver-keyset target-gen))))
+     (catch :default _ false)))
+  ([target-image pool]
+   (try
+     (let [xray-gen   (image-assembly/assemble [(xray-image)] pool)
+           target-gen (image-assembly/assemble [target-image] pool)]
+       (empty? (set/intersection (resolver-keyset xray-gen)
+                                 (resolver-keyset target-gen))))
+     (catch :default _ false))))
