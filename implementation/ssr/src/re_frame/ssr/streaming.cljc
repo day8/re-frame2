@@ -217,30 +217,51 @@
 
 ;; ---- duplicate-id detection ----------------------------------------------
 
+(defn- wire-id
+  "The canonical WIRE id string for a boundary `:id` — `(str id)`, the
+  exact value stamped into `data-rf2-suspense-id` /
+  `data-rf2-suspense-hydrate` (and matched by the client). Duplicate
+  detection MUST key on this, not the raw `:id`, so ids that DIFFER as
+  values but COLLIDE under `str` (`:a` keyword vs `\":a\"` string) are
+  treated as the same boundary — the client can only match them by the
+  one wire string (rf2-yvc0t7)."
+  [id]
+  (str id))
+
 (defn- dedupe-continuations
-  "Per Spec 011 §Boundary nesting and recursion — duplicate `:id` is a
-  programmer error. Emit `:rf.error/suspense-boundary-duplicate-id` and
-  keep the LAST registration (matches the spec's wire shape: the second
-  registration overwrites the first; the earlier fallback placeholder
-  is left in place because the client never finds a matching resolved
-  chunk). Fail-soft."
+  "Per Spec 011 §Boundary nesting and recursion — a duplicate boundary id
+  is a programmer error. Emit `:rf.error/suspense-boundary-duplicate-id`
+  and keep the LAST registration (matches the spec's wire shape: the
+  second registration overwrites the first; the earlier fallback
+  placeholder is left in place because the client never finds a matching
+  resolved chunk). Fail-soft.
+
+  Duplicates are detected on the canonical WIRE id (`wire-id`, i.e.
+  `(str id)`) — the exact string stamped into the suspense attributes and
+  matched by the client (rf2-yvc0t7). Grouping on the raw `:id` would let
+  string-colliding ids (`:a` keyword vs `\":a\"` string) escape detection
+  even though they share one `data-rf2-suspense-id` on the wire, leaving
+  two chunks the client can only resolve against the same mount."
   [conts]
-  (let [by-id (group-by :id conts)
-        dupes (->> by-id (filter (fn [[_ vs]] (> (count vs) 1))) (map key))]
+  (let [by-wire (group-by (comp wire-id :id) conts)
+        dupes   (->> by-wire (filter (fn [[_ vs]] (> (count vs) 1))) (map key))]
     (when (seq dupes)
       (doseq [dup dupes]
-        (trace/emit-error! :rf.error/suspense-boundary-duplicate-id
-                           {:id       dup
-                            :count    (count (by-id dup))
-                            :recovery :last-write-wins})))
-    ;; Reduce preserving insertion order — keep the LAST registration
-    ;; for each id by walking forward and overwriting.
+        (let [group (by-wire dup)]
+          (trace/emit-error! :rf.error/suspense-boundary-duplicate-id
+                             {:id       dup
+                              :raw-ids  (mapv :id group)
+                              :count    (count group)
+                              :recovery :last-write-wins}))))
+    ;; Reduce preserving insertion order — keep the LAST registration for
+    ;; each WIRE id by walking forward and overwriting.
     (let [seen (volatile! #{})]
       (->> (reverse conts)
            (filter (fn [{:keys [id]}]
-                     (if (contains? @seen id)
-                       false
-                       (do (vswap! seen conj id) true))))
+                     (let [w (wire-id id)]
+                       (if (contains? @seen w)
+                         false
+                         (do (vswap! seen conj w) true)))))
            reverse
            vec))))
 

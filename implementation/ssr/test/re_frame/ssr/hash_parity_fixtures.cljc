@@ -243,8 +243,25 @@
               literal key order; both runtimes MUST produce the same
               canonical string and therefore the same hash."})
 
+(def str-colliding-keys-pair
+  {:label   "str-colliding-keys-order-independent"
+   ;; Both maps are Clojure-`=` (a keyword `:a` and a string `":a"`,
+   ;; each with the same value). They differ ONLY in construction order.
+   ;; `array-map` preserves insertion order on both runtimes, so the two
+   ;; inputs feed the canonicaliser in opposite orders.
+   :input-a (array-map :a 1 ":a" 2)
+   :input-b (array-map ":a" 2 :a 1)
+   :rationale "rf2-mff1ht — `(comp str key)` is NOT a total order: a
+              keyword `:a` and a string `\":a\"` both `str` to `\":a\"`,
+              so the old sort fell back to insertion order and the two
+              `=` maps canonicalised to different EDN (and hashed
+              differently). Sorting by the canonical-EDN of the key
+              (the keyword bare, the string quoted) is a total,
+              cross-runtime-stable order — both inputs MUST now hash
+              identically on JVM and CLJS."})
+
 (def equality-pairs
   "Input pairs whose hashes MUST agree (the agreed value isn't pinned
   to a specific literal here — see `nil-prune-pairs` for the variant
   that does pin a literal)."
-  [attr-key-order-pair])
+  [attr-key-order-pair str-colliding-keys-pair])

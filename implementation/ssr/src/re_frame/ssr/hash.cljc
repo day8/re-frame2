@@ -94,13 +94,31 @@
                (recur (next items) false)))
            (.push sb "}")))))
 
+(defn- key-canonical
+  "The canonical-EDN string of a map KEY, used as the map's sort key
+  (rf2-mff1ht). `(comp str key)` is NOT a total order — a keyword `:a`
+  and a string `\":a\"` both `str` to `\":a\"`, so `sort-by` falls back
+  to source iteration/insertion order and logically-equal maps can
+  canonicalise to different strings (and hash differently). The canonical
+  EDN of a key distinguishes those shapes (`:a` vs the quoted `\":a\"`)
+  while leaving keyword-only ordering byte-identical to the old `str`
+  order (a keyword's canonical form equals its `str` form), so the
+  parity-pinned fixtures stay green. A nil key (not pruned — only nil
+  VALUES are) canonicalises to the empty string, mirroring the prior
+  `(str nil)` => `\"\"` sort position."
+  [k]
+  (or (member-canonical k) ""))
+
 (defn- append-map!
   "Maps: emit `{` + sorted key-value pairs (`key value`, comma-joined) + `}`.
-  Nil-valued entries pruned per Spec 011 §Hydration-mismatch detection."
+  Entries sorted by the canonical-EDN form of the key (rf2-mff1ht) — a
+  total, cross-runtime-stable order, unlike `(comp str key)` which
+  collides string-form-equal keys of different types. Nil-valued entries
+  pruned per Spec 011 §Hydration-mismatch detection."
   [sb m]
   (let [entries (->> m
                      (remove (comp nil? val))
-                     (sort-by (comp str key)))]
+                     (sort-by (comp key-canonical key)))]
     #?(:clj  (.append ^StringBuilder sb \{)
        :cljs (.push sb "{"))
     (loop [es (seq entries) first? true]
@@ -168,8 +186,9 @@
         sb)))
 
 (defn canonical-edn
-  "Print a render-tree node in a stable order. Maps are sorted by key
-  string; sequences keep order. Functions and var-references appear
+  "Print a render-tree node in a stable order. Maps are sorted by the
+  canonical-EDN form of their keys (a total order — rf2-mff1ht);
+  sequences keep order. Functions and var-references appear
   as their toString — stable enough for trees that re-render the same
   view-fn from the same registry.
 
