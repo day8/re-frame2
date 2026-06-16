@@ -291,7 +291,7 @@
  ;; surface; a non-empty entry names a legitimate non-manifest reference
  ;; (e.g. a CLJS-only var) or, as here, a removed API still named in skill
  ;; prose pending that skill's rewrite (the same role `on-changes` plays in
- ;; :doc-guide-known-unmanifested). The re-frame-migration skill is excluded
+ ;; :doc-guide-known-unmanifested-scoped). The re-frame-migration skill is excluded
  ;; wholesale (it names removed old APIs by design — see
  ;; re-frame.api-manifest.skills-check).
  :skills-known-unmanifested
@@ -306,35 +306,47 @@
                           ; until that coherent rewrite lands.
 
  ;; docs/guide/ call-position `(rf/<var>` references the manifest does not
- ;; carry: removed re-frame v1 names the from-v1 migration chapter names as
- ;; old→new guidance, plus `<x>` template placeholders in a syntax table.
- :doc-guide-known-unmanifested
- #{"on-changes"   ; docs/guide/25-from-re-frame-v1.md — removed v1 reaction API, named as migration guidance
-   ;; EP-0017 + rf2-w9xyx1: `inject-cofx` removed from the public façade
-   ;; (no manifest row). docs/guide/25-from-re-frame-v1.md +
-   ;; concepts/effects-and-coeffects.md name the v1 `(rf/inject-cofx …)`
-   ;; interceptor entry as the left-hand side of old→new migration guidance
-   ;; (it becomes `:rf.cofx/requires` registration metadata). Named here as
-   ;; removed-v1-in-migration-prose, exactly the role `on-changes` plays above.
-   "inject-cofx"  ; docs/guide/25-from-re-frame-v1.md + concepts/effects-and-coeffects.md — removed v1 cofx interceptor, named as migration guidance
-   ;; EP-0018 Z (rf2-xhfxcs.14): `reg-event-db` / `reg-event-fx` removed from
-   ;; the public façade (throwing stubs, no manifest row — `reg-event` is the
-   ;; ONE public event form). docs/guide/25-from-re-frame-v1.md names the v1
-   ;; `(rf/reg-event-db …)` / `(rf/reg-event-fx …)` forms as the left-hand
-   ;; side of old→new migration guidance (they become `(rf/reg-event …)`).
-   ;; Named here as removed-v1-in-migration-prose, exactly the role
-   ;; `on-changes` / `inject-cofx` play above.
-   "reg-event-db" ; docs/guide/25-from-re-frame-v1.md — removed v1 event registrar, named as migration guidance
-   "reg-event-fx" ; docs/guide/25-from-re-frame-v1.md — removed v1 event registrar, named as migration guidance
-   "set-x!"       ; docs/guide/24-config-and-safety.md — `(rf/set-x!)` is an `<x>` placeholder in the config-shape table
-   "install-x!"   ; docs/guide/24-config-and-safety.md — `(rf/install-x!)` is an `<x>` placeholder
-   ;; EP-0015 §3 (rf2-mngp4o): `add-marks` / `set-marks` removed from the
-   ;; public façade. docs/guide/23-privacy-and-large-things.md still teaches
-   ;; the runtime path-marks API (now flagged superseded by a banner there);
-   ;; its rewrite around frame-owned classification is EP-0015 item 12. Named
-   ;; here pending that rewrite, same role as `on-changes` above.
-   "add-marks"    ; docs/guide/23-privacy-and-large-things.md — superseded runtime path-marks (EP-0015 item 12)
-   "set-marks"}   ; docs/guide/23-privacy-and-large-things.md — superseded runtime path-marks (EP-0015 item 12)
+ ;; carry. This used to be a BARE-NAME allowlist (a name listed here was
+ ;; silenced ANYWHERE in the guide tree). EP-0017 (rf2-hk6wd2) tightened it:
+ ;; every entry here names a REMOVED API whose only legitimate guide
+ ;; appearance is the left-hand side of old→new MIGRATION guidance in ONE
+ ;; or TWO specific files (the from-v1 chapter, plus the per-concept
+ ;; migration callouts). A bare global allowlist let a future live
+ ;; `(rf/inject-cofx …)` in any teaching chapter pass green even though
+ ;; EP-0017 removed it and live prose must teach `:rf.cofx/requires`. So the
+ ;; allowlist is now FILE-SCOPED: each entry maps the removed name to the
+ ;; set of repo-relative file paths where it is approved. A call-position
+ ;; reference to the name OUTSIDE those files is RED (it leaked into live
+ ;; teaching prose). See re-frame.api-manifest.doc-guide-check.
+ ;;
+ ;; Globbing: a scope entry is a literal repo-relative path; a reference
+ ;; whose file equals (string `=`) any approved path is silenced.
+ :doc-guide-known-unmanifested-scoped
+ {"on-changes"   #{"docs/guide/25-from-re-frame-v1.md"}   ; removed v1 reaction API, named as migration guidance
+  ;; EP-0017 + rf2-w9xyx1: `inject-cofx` removed from the public façade (no
+  ;; manifest row). The from-v1 chapter AND the effects-and-coeffects
+  ;; concept page's "Coming from re-frame v1?" callout name the v1
+  ;; `(rf/inject-cofx …)` interceptor entry as the left-hand side of old→new
+  ;; migration guidance (it becomes `:rf.cofx/requires` registration
+  ;; metadata). A `(rf/inject-cofx …)` ANYWHERE ELSE in the guide is live
+  ;; teaching prose that EP-0017 forbids — and now goes RED.
+  "inject-cofx"  #{"docs/guide/25-from-re-frame-v1.md"
+                   "docs/guide/concepts/effects-and-coeffects.md"}
+  ;; EP-0018 Z (rf2-xhfxcs.14): `reg-event-db` / `reg-event-fx` removed from
+  ;; the public façade (`reg-event` is the ONE public event form). Named as
+  ;; the left-hand side of old→new migration guidance in the from-v1 chapter.
+  "reg-event-db" #{"docs/guide/25-from-re-frame-v1.md"}
+  "reg-event-fx" #{"docs/guide/25-from-re-frame-v1.md"}
+  ;; `(rf/set-x!)` / `(rf/install-x!)` are `<x>` placeholders in the
+  ;; config-shape syntax table, not real vars.
+  "set-x!"       #{"docs/guide/24-config-and-safety.md"}
+  "install-x!"   #{"docs/guide/24-config-and-safety.md"}
+  ;; EP-0015 §3 (rf2-mngp4o): `add-marks` / `set-marks` removed from the
+  ;; public façade; the privacy chapter still teaches the superseded runtime
+  ;; path-marks API (flagged by a banner there) pending its EP-0015 item-12
+  ;; rewrite.
+  "add-marks"    #{"docs/guide/23-privacy-and-large-things.md"}
+  "set-marks"    #{"docs/guide/23-privacy-and-large-things.md"}}
 
  ;; --------------------------------------------------------------------------
  ;; JVM-introspected classification — keyed ["namespace" "var"].

@@ -261,6 +261,74 @@
   [extracted]
   (projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
 
+;; ---------------------------------------------------------------------------
+;; EP-0017 reg-cofx contract pin.
+;;
+;; The tier/manifest reconcile above only checks that the `reg-cofx` row
+;; RESOLVES to a front-porch re-frame.core var with a matching tier — it
+;; says nothing about the row's SIGNATURE or CONTRACT prose. So the row
+;; could silently drift back toward the stale v1 ctx-transform shape, drop
+;; the value-returning-supplier wording, lose the grade metadata, or
+;; reintroduce an `inject-cofx`-as-delivery contract, and the gate would
+;; still pass green. This is a targeted content pin over the one `reg-cofx`
+;; row: the EP-0017 contract is small, settled, and high-blast-radius if it
+;; drifts (it is the public coeffect-registration surface), so it is worth
+;; asserting the row's load-bearing phrases directly.
+;; ---------------------------------------------------------------------------
+
+(defn- reg-cofx-row-text
+  "The full raw text of the spec/API.md `reg-cofx` var-row (the `| ... |`
+   table line whose first cell is `` `reg-cofx` ``), or nil if absent. The
+   whole pipe-delimited line is returned so the contract pin below can
+   assert against the signature cell AND the notes-cell prose together."
+  []
+  (with-open [r (io/reader @api-md-file)]
+    (->> (line-seq r)
+         (some (fn [line]
+                 (when (re-find #"^\s*\|\s*`reg-cofx`\s*\|" line) line))))))
+
+(def ^:private reg-cofx-required-phrases
+  "The load-bearing EP-0017 `reg-cofx` contract phrases the spec/API.md row
+   MUST carry. Each is a regex matched against the row's full raw line. A
+   missing phrase is a contract-drift failure (the row resolved as a
+   front-porch var but lost its EP-0017 shape).
+
+   `[label regex]` — the label names the contract facet for the report."
+  [["signature (reg-cofx id ?metadata supplier)"
+    #"`\(reg-cofx id \?metadata supplier\)`"]
+   ["value-returning supplier"
+    #"(?i)value-returning supplier"]
+   ["grade :recordable?"
+    #":recordable\?"]
+   ["grade :provided?"
+    #":provided\?"]
+   ["flat delivery via :rf.cofx/requires"
+    #":rf\.cofx/requires"]
+   ["ctx->ctx + inject-cofx retired"
+    #"(?i)(?:ctx→ctx|ctx->ctx).*inject-cofx.*retired"]])
+
+(defn reg-cofx-contract-problems
+  "Pure contract-pin reconciler (rf2-ah97vk — extracted so the EP-0017
+   `reg-cofx` contract is unit-testable with a synthetic row). Given the
+   raw `reg-cofx` row line (or nil), return the seq of problem maps for any
+   missing load-bearing EP-0017 phrase, plus a guard problem when the row
+   is absent entirely.
+
+   The check is INTENTIONALLY positive (require the EP-0017 phrases) rather
+   than a denylist of stale wording — the stale v1 shape is open-ended, but
+   the EP-0017 contract is a small closed set, so pinning its presence is
+   the sound drift gate: a row that lost a phrase has drifted, whatever it
+   drifted to."
+  [row-line]
+  (if (nil? row-line)
+    [{:kind :reg-cofx-row-missing
+      :detail (str "spec/API.md has no `reg-cofx` var-row — the EP-0017 public "
+                   "coeffect-registration surface is unaccounted for")}]
+    (keep (fn [[label re]]
+            (when-not (re-find re row-line)
+              {:kind :reg-cofx-contract :facet label}))
+          reg-cofx-required-phrases)))
+
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -282,7 +350,19 @@
         problems   (reconcile {:rows               rows
                                :api-rows           api-rows
                                :known-unmanifested known-unmanifested
-                               :aliases            adapter-aliases})]
+                               :aliases            adapter-aliases})
+        ;; EP-0017 reg-cofx contract pin (rf2-ah97vk): the tier reconcile
+        ;; above only checks the row RESOLVES to a front-porch var — it
+        ;; cannot see the row's signature/contract prose drift back to the
+        ;; stale v1 ctx-transform shape. Pin the load-bearing EP-0017 phrases.
+        cofx-probs (reg-cofx-contract-problems (reg-cofx-row-text))
+        ;; EP-0017 keyword-drift guard (rf2-tawage): the var-row reconcile is
+        ;; blind to stale `:rf.world/inputs` keyword vocabulary creeping into
+        ;; API.md prose outside an explicit retirement/rename mention.
+        kw-probs   (projection/ep0017-keyword-drift-problems
+                     "spec/API.md"
+                     (with-open [r (io/reader @api-md-file)]
+                       (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))]
     (cond
       ;; Vacuity-floor violation: extraction collapsed — refuse a green.
       floor
@@ -291,6 +371,28 @@
                                   "var-row(s) extracted, below the non-vacuous floor of %d.")
                              extracted min-var-rows))
             (println (str "  " (:detail floor))))
+          false)
+
+      (seq cofx-probs)
+      (do (binding [*out* *err*]
+            (println "DRIFT: spec/API.md `reg-cofx` row has lost EP-0017 contract wording.")
+            (println "The reg-cofx row must pin the EP-0017 cofx contract: signature")
+            (println "(reg-cofx id ?metadata supplier), value-returning supplier, grade")
+            (println "metadata (:recordable?/:provided?), flat delivery via :rf.cofx/requires,")
+            (println "and the retired ctx->ctx/inject-cofx delivery. Missing:")
+            (doseq [{:keys [kind facet detail]} cofx-probs]
+              (case kind
+                :reg-cofx-row-missing (println (str "  " detail))
+                :reg-cofx-contract    (println (format "  MISSING contract facet: %s" facet)))))
+          false)
+
+      (seq kw-probs)
+      (do (binding [*out* *err*]
+            (println "DRIFT: spec/API.md reintroduced stale EP-0017 keyword vocabulary.")
+            (println ":rf.world/inputs was renamed to the flat :rf.cofx map (no alias);")
+            (println "a mention must be an explicit retirement/rename reference. Problems:")
+            (doseq [{:keys [file line detail]} kw-probs]
+              (println (format "  %s:%d  %s" file line detail))))
           false)
 
       (empty? problems)

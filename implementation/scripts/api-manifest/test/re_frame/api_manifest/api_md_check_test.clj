@@ -190,3 +190,62 @@
     ;; floor is calibrated below the live count, never tripping on real churn.
     (is (nil? (c/floor-violation (count (c/parse-api-md-var-rows))))
         "the real spec/API.md extraction must clear the floor")))
+
+;; ---------------------------------------------------------------------------
+;; EP-0017 reg-cofx contract pin (rf2-ah97vk).
+;;
+;; The tier/manifest reconcile only checks the `reg-cofx` row RESOLVES to a
+;; front-porch var — it cannot see the row's signature/contract prose drift
+;; back to the stale v1 ctx-transform shape. The contract pin asserts the
+;; load-bearing EP-0017 phrases are present on the row.
+;; ---------------------------------------------------------------------------
+
+(def ^:private good-reg-cofx-row
+  "A synthetic `reg-cofx` row carrying every EP-0017 contract facet (a
+   trimmed paraphrase of the live spec/API.md row)."
+  (str "| `reg-cofx` | M | `(reg-cofx id ?metadata supplier)` | v1 (changed, "
+       "EP-0017) | front-porch | 001, 002 | Register a coeffect id with a "
+       "value-returning supplier and a grade — ambient or recordable "
+       "(`:recordable? true`, optionally `:provided? true`). Delivery via "
+       "`:rf.cofx/requires`. The ctx→ctx handler shape and `inject-cofx` are "
+       "retired (EP-0017 slice A). |"))
+
+(deftest reg-cofx-good-row-has-no-contract-problems
+  (testing "a row carrying every EP-0017 facet passes the contract pin"
+    (is (empty? (c/reg-cofx-contract-problems good-reg-cofx-row)))))
+
+(deftest reg-cofx-stale-ctx-transform-row-fails
+  (testing "a row that drifted back to the v1 ctx-transform shape — dropping
+            the value-returning-supplier wording, the grades, the flat
+            :rf.cofx/requires delivery, and the inject-cofx-retired note —
+            is flagged on every missing facet"
+    (let [stale (str "| `reg-cofx` | M | `(reg-cofx id handler)` | v1 | "
+                     "front-porch | 002 | Register a coeffect handler "
+                     "`(fn [ctx] ctx)` that threads a value into the "
+                     "interceptor context; inject via the interceptor "
+                     "vector. |")
+          probs (c/reg-cofx-contract-problems stale)
+          facets (set (map :facet probs))]
+      (is (pos? (count probs)) "the stale ctx-transform row must be flagged")
+      (is (every? #(= :reg-cofx-contract (:kind %)) probs))
+      (is (contains? facets "value-returning supplier"))
+      (is (contains? facets "grade :recordable?"))
+      (is (contains? facets "grade :provided?"))
+      (is (contains? facets "flat delivery via :rf.cofx/requires"))
+      (is (contains? facets "ctx->ctx + inject-cofx retired"))
+      (is (contains? facets "signature (reg-cofx id ?metadata supplier)")
+          "the stale (reg-cofx id handler) signature must be flagged"))))
+
+(deftest reg-cofx-missing-row-is-flagged
+  (testing "an absent reg-cofx row is a contract problem, not a vacuous pass"
+    (let [probs (c/reg-cofx-contract-problems nil)]
+      (is (= 1 (count probs)))
+      (is (= :reg-cofx-row-missing (:kind (first probs)))))))
+
+(deftest reg-cofx-live-row-reconciles-clean
+  (testing "the committed spec/API.md reg-cofx row carries the full EP-0017
+            contract (the CI contract)"
+    (let [row (#'c/reg-cofx-row-text)]
+      (is (some? row) "spec/API.md must carry a `reg-cofx` var-row")
+      (is (empty? (c/reg-cofx-contract-problems row))
+          "live drift: spec/API.md reg-cofx row lost an EP-0017 contract facet"))))
