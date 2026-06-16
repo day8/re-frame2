@@ -75,6 +75,7 @@ jobs:
       mcp_conformance: ${{ steps.detect.outputs.mcp_conformance }}
       mcp_live: ${{ steps.detect.outputs.mcp_live }}
       story_xray_browser: ${{ steps.detect.outputs.story_xray_browser }}
+      tenant_switcher_smoke: ${{ steps.detect.outputs.tenant_switcher_smoke }}
       skills_structural: ${{ steps.detect.outputs.skills_structural }}
       playground: ${{ steps.detect.outputs.playground }}
     steps:
@@ -1975,6 +1976,88 @@ jobs:
       - name: Run Reagent Slim client-runtime browser smoke
         run: npm run test:reagent-slim:smoke
 
+  tenant-switcher-testbed-smoke:
+    name: Tenant-switcher testbed browser smoke (rf2-h5e3v7)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.tenant_switcher_smoke == 'true'
+    runs-on: ubuntu-latest
+    # rf2-h5e3v7 — job-level backstop to the step-level Playwright cap below,
+    # mirroring the cljs-reagent-slim-bundle-isolation job. A wedged
+    # `--with-deps` apt/dpkg-lock would otherwise leave this job — and the
+    # required all-required-passed aggregator that `needs:` it — open-ended
+    # pending and block the merge. 20 min gives a cold-Maven-cache testbed
+    # compile generous headroom while making any genuine hang a fast,
+    # re-runnable FAILURE.
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-tenant-switcher-smoke-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-tenant-switcher-smoke-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # rf2-f79t8 — cache the Playwright browser binary (see cljs-browser).
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # rf2-e6enf — cap the `--with-deps` Playwright install (see the slim
+      # job for the dpkg/apt-lock-wedge rationale). A healthy install is
+      # ~20s; 5 min covers a slow apt + cold download while turning a lock
+      # wait into a re-runnable FAILURE instead of an open-ended block.
+      - name: Install Playwright (Chromium + system deps)
+        timeout-minutes: 5
+        run: npx playwright install --with-deps chromium
+
+      # rf2-h5e3v7 — ARM the tenant-switcher testbed browser smoke in PR CI.
+      # The dedicated runner (serve-and-run-tenant-switcher-testbed.cjs)
+      # compiles the :testbeds/tenant-switcher shadow build, stages the
+      # hand-written index.html, serves it under the ownership-token
+      # handshake, and drives the colocated testbeds/tenant_switcher/spec.cjs
+      # in headless Chromium (failing on any uncaught pageerror). It is the
+      # ONLY Playwright smoke that exercises this browser scenario; before
+      # this job `npm run test:testbed-tenant-switcher` was defined in
+      # package.json but invoked by no workflow, so a regression in the
+      # runner / colocated spec / testbed could ship green.
+      - name: Run tenant-switcher testbed browser smoke
+        run: npm run test:testbed-tenant-switcher
+
   # ---------------------------------------------------------------------------
   # Per-tool CI jobs (rf2-qq70f).
   #
@@ -3018,6 +3101,7 @@ jobs:
       - adapter-testbed-smokes
       - story-xray-browser
       - cljs-reagent-slim-bundle-isolation
+      - tenant-switcher-testbed-smoke
       - jvm-tools-xray
       - jvm-tools-story
       - jvm-tools-story-mcp

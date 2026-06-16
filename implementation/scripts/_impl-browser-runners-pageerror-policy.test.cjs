@@ -3,9 +3,9 @@
 'use strict';
 
 /*
- * Policy gate for the THREE implementation-side browser runners that
- * could previously ship green while Chromium observed an uncaught
- * `pageerror` (rf2-mwx08). Same correctness class rf2-wf5al fixed for the
+ * Policy gate for the implementation-side browser runners that could
+ * previously ship green while Chromium observed an uncaught `pageerror`
+ * (rf2-mwx08). Same correctness class rf2-wf5al fixed for the
  * examples/scripts Story play runner, here applied to:
  *
  *   - run-browser-tests.cjs           (a green cljs.test summary ignored
@@ -15,6 +15,8 @@
  *                                      pageerror was captured)
  *   - check-story-static.cjs          (static smoke passed on visible
  *                                      assertions, ignoring pageerrors)
+ *   - serve-and-run-tenant-switcher-testbed.cjs (rf2-h5e3v7 — joined the
+ *                                      pinned set when CI-wired)
  *
  * These runners drive a headless Chromium end-to-end, so their verdict
  * paths are not cleanly unit-testable without launching a browser.
@@ -125,6 +127,44 @@ test('check-story-static: the smoke throws on a captured pageerror even when ass
     src,
     /if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,300}?throw\s+new\s+Error/,
     'must throw when pageErrors is non-empty so the smoke fails (exit 1)',
+  );
+});
+
+// ---- serve-and-run-tenant-switcher-testbed.cjs (rf2-h5e3v7) ----
+// The tenant-switcher testbed smoke is now CI-wired
+// (tenant-switcher-testbed-smoke job), so its verdict path joins the
+// pinned set: the bead explicitly called out pageerror handling specific
+// to this runner as a maskable failure. Same discipline as the siblings —
+// pageerrors go into a dedicated array and flip the verdict to fail before
+// `passed = true`.
+
+test('tenant-switcher-testbed: pageerrors are tracked in a dedicated array, not just diagnostics (rf2-h5e3v7)', () => {
+  const src = read('serve-and-run-tenant-switcher-testbed.cjs');
+  assert.match(
+    src,
+    /const\s+pageErrors\s*=\s*\[\]/,
+    'must declare a dedicated pageErrors array',
+  );
+  assert.match(
+    src,
+    /page\.on\(\s*['"]pageerror['"][\s\S]{0,160}?pageErrors\.push\(/,
+    'the pageerror handler must push into the dedicated pageErrors array',
+  );
+});
+
+test('tenant-switcher-testbed: a captured pageerror fails the spec even when assertions passed (rf2-h5e3v7)', () => {
+  const src = read('serve-and-run-tenant-switcher-testbed.cjs');
+  assert.match(
+    src,
+    /if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,300}?throw\s+new\s+Error/,
+    'must throw when pageErrors is non-empty so the spec fails',
+  );
+  const throwIdx = src.search(/pageErrors\.length\s*>\s*0/);
+  const passedIdx = src.search(/\bpassed\s*=\s*true\s*;/);
+  assert.ok(throwIdx > -1 && passedIdx > -1, 'both call-sites must exist');
+  assert.ok(
+    throwIdx < passedIdx,
+    'the pageerror fatal check must precede `passed = true`',
   );
 });
 
