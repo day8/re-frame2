@@ -70,6 +70,8 @@
             [re-frame.migration      :as migration]
             [re-frame.realm          :as realm]
             [re-frame.core           :as rf]
+            [re-frame.std-interceptors    :as std]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support   :as ts]))
 
@@ -793,3 +795,117 @@
         (let [created (rf/make-frame {})]
           (is (keyword? created))
           (rf/destroy-frame! created))))))
+
+;; ===========================================================================
+;; SECTION 9 — Framework-standard registry populated
+;; (EP-0023 §Image — "+ framework standard registrations"; rf2-32siq3.41)
+;; ===========================================================================
+;;
+;; The framework-standard interceptor (`:rf.interceptor/path`) is contributed
+;; into the EP-0023 framework-standard registry at boot, not ONLY into the
+;; regular registrar. Without this (rf2-32siq3.41, .27 Finding 2) the standard
+;; registry shipped EMPTY, so an image-loaded frame whose event references a
+;; standard interceptor BY REFERENCE under a bound `*generation*` could not
+;; resolve it (generation-routed `lookup` reads ONLY the generation's resolver,
+;; no registrar fallback), and the `:replace-standard` / invariant-coupled
+;; machinery was dead code (no standard ever sat in a generation to protect).
+;;
+;; The fixture clears the standard registry per case (it is this wave's own
+;; process state), so these cases RE-SEED via the boot fn `register-standard-
+;; interceptors!` — exactly what `re-frame.core/init!` does — then assert the
+;; standard rides into a generation and resolves under it.
+
+(defn- with-standard-interceptors-seeded
+  "Re-seed the framework-standard interceptors (the boot path
+  `register-standard-interceptors!` runs at ns-load + from `init!`) after the
+  fixture's `clear-standards!`, run `thunk`, returning its value."
+  [thunk]
+  (std/register-standard-interceptors!)
+  (thunk))
+
+(deftest s9-standard-interceptor-is-in-the-framework-standard-registry
+  (testing "EP-0023 §Image: register-standard-interceptors! contributes
+            :rf.interceptor/path into the framework-standard registry, marked
+            invariant-coupled (non-replaceable) — NOT only into the regular
+            registrar (rf2-32siq3.41)"
+    (with-standard-interceptors-seeded
+      (fn []
+        (let [by-kid (into {} (map (juxt (juxt :kind :id) identity))
+                           (asm/standard-descriptors))
+              std-desc (get by-kid [:interceptor :rf.interceptor/path])]
+          (is (some? std-desc)
+              "the standard registry is NO LONGER empty — it carries :rf.interceptor/path")
+          (is (true? (:standard std-desc)) "stamped :standard true")
+          (is (seq (:rf.standard/requires-conformance std-desc))
+              "invariant-coupled — a non-empty :rf.standard/requires-conformance")
+          (is (false? (asm/standard-replaceable? std-desc))
+              "an invariant-coupled standard is NOT replaceable (the rule-4 commit no-op lock)")
+          (is (contains? std-desc :rf/interceptor-descriptor)
+              "carries the SAME interceptor descriptor the regular registrar stores"))))))
+
+(deftest s9-standard-interceptor-ref-resolves-under-a-generation
+  (testing "EP-0023 §Frame-derived live registration resolution: an image-loaded
+            frame whose event references [:rf.interceptor/path …] resolves the
+            standard UNDER the frame's generation — no
+            :rf.error/unregistered-interceptor (rf2-32siq3.41). Before the fix the
+            generation lacked the standard and resolution under *generation* threw."
+    (with-standard-interceptors-seeded
+      (fn []
+        (let [pool  [(reg-desc "shop.cart" :event :cart/add ::cart-add)]
+              img   (rf/image {:include-ns ["shop.cart"]})
+              frame (lf/make-frame {:images [img]} pool)
+              gen   (lf/frame-generation frame)]
+          (testing "the standard rides into the resolved generation"
+            (is (contains? (:rf.gen/resolver gen) [:interceptor :rf.interceptor/path])
+                "the framework standard is unioned into the frame's generation"))
+          (testing "the standard interceptor REF resolves under the frame's generation"
+            (lf/call-with-frame-resolution frame
+              (fn []
+                (is (some? registrar/*generation*) "a generation is bound")
+                ;; The bug: generation-routed lookup of a standard ref threw
+                ;; :rf.error/unregistered-interceptor because the generation
+                ;; lacked the standard. Now it resolves the factory-built path.
+                (let [resolved (icpt-reg/resolve-ref [:rf.interceptor/path [:cart :items]])]
+                  (is (= :rf.interceptor/path (:id resolved))
+                      "the standard path interceptor is built from the generation's descriptor")
+                  (is (fn? (:before resolved)) "an executable path interceptor")))))
+          (testing "absent the fix, a bare missing ref under a generation DOES throw
+                    — proving the resolution path is genuinely generation-routed"
+            (lf/call-with-frame-resolution frame
+              (fn []
+                (is (= :rf.error/unregistered-interceptor
+                       (err-id #(icpt-reg/resolve-ref :app/never-registered))))))))))))
+
+(deftest s9-replace-standard-of-the-path-interceptor-is-invariant-locked
+  (testing "EP-0023 §Image Patching And Overrides: the framework-standard
+            :rf.interceptor/path is invariant-coupled, so an image declaring
+            :replace-standard against it FAILS LOUD
+            (:rf.error/image-standard-replacement-forbidden) until a conformance
+            profile exists — the .5 machinery is now EXERCISED in production, not
+            dead code (rf2-32siq3.41)"
+    (with-standard-interceptors-seeded
+      (fn []
+        (let [pool [(reg-desc "naive.override" :interceptor :rf.interceptor/path ::naive)]
+              img  (rf/image {:id :i
+                              :include-ns ["naive.override"]
+                              :replace-standard {[:interceptor :rf.interceptor/path]
+                                                 {:ns "naive.override"}}})]
+          (is (= :rf.error/image-standard-replacement-forbidden
+                 (err-id #(asm/assemble [img] pool)))))))))
+
+(deftest s9-replace-standard-of-a-replaceable-standard-takes-effect
+  (testing "EP-0023 §Image Patching And Overrides: a replaceable standard +
+            :replace-standard naming the app survivor actually TAKES EFFECT — the
+            replacement winner resolves through the generation, proving the
+            :replace-standard machinery is live (rf2-32siq3.41)"
+    ;; The fixture cleared the registry; register a REPLACEABLE standard directly
+    ;; (no conformance lock) to prove a declared :replace-standard winner wins.
+    (asm/register-standard! :fx :rf.nav/push-url
+                            {:handler-fn ::std-nav :rf.standard/replaceable? true})
+    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-nav)]
+          img  (rf/image {:id :i
+                          :include-ns ["product.story"]
+                          :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story"}}})
+          gen  (asm/assemble [img] pool)]
+      (is (= ::app-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))
+          "the declared :replace-standard winner replaces the standard in the generation"))))

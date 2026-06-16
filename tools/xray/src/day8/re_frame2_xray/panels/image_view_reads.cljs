@@ -152,6 +152,22 @@
   [generation]
   (set (keys (:rf.gen/resolver generation))))
 
+(defn application-resolver-keyset
+  "The set of `[kind id]` resolver keys a sealed `generation` carries that are
+  APPLICATION-owned — i.e. excluding the FRAMEWORK-STANDARD registrations
+  (descriptors stamped `:standard true`) the EP-0023 assembly unions into EVERY
+  generation (EP-0023 §Image — \"+ framework standard registrations\", e.g.
+  `[:interceptor :rf.interceptor/path]`; rf2-32siq3.41). A framework standard is
+  present in every frame BY DEFINITION — it is the framework, not a leak between
+  two application images — so the registration-isolation invariant
+  (`xray-image-isolated-from?`) compares only the application-owned keysets. A
+  nil generation has the empty keyset. Pure `data -> #{[kind id]}`."
+  [generation]
+  (into #{}
+        (comp (remove (fn [[_kid descriptor]] (:standard descriptor)))
+              (map key))
+        (:rf.gen/resolver generation)))
+
 (defn xray-image-isolated-from?
   "True iff XRAY'S OWN image and a `target-image` are REGISTRATION-DISJOINT —
   the EP-0023 §Xray Beside The Target invariant that the inspector's
@@ -159,11 +175,18 @@
   the inspection tool from becoming part of the thing being inspected.
 
   The check is on the REAL non-leakage invariant, not a proxy: ASSEMBLE both
-  images into sealed generations and compare their `:rf.gen/resolver` KEYSETS
-  (the `[kind id]` pairs each frame would resolve). Isolation holds iff the two
-  keysets are DISJOINT — no `[kind id]` is resolved by BOTH a frame built from
-  Xray's image and a frame built from the target's image, so neither frame can
-  see the other's registrations. This is stronger than comparing the
+  images into sealed generations and compare their APPLICATION-OWNED
+  `:rf.gen/resolver` KEYSETS (the `[kind id]` pairs each frame would resolve,
+  EXCLUDING the framework-standard registrations the EP-0023 assembly unions
+  into every generation — `[:interceptor :rf.interceptor/path]` et al, stamped
+  `:standard true`; rf2-32siq3.41). Isolation holds iff the two
+  application-owned keysets are DISJOINT — no APPLICATION `[kind id]` is resolved
+  by BOTH a frame built from Xray's image and a frame built from the target's
+  image, so neither frame can see the other's APPLICATION registrations. A
+  framework standard is shared by every frame by construction (it is the
+  framework, not a leak between two images), so it is excluded from the
+  comparison rather than reported as a false-positive overlap. This is stronger
+  than comparing the
   `:rf.image/include-ns` selector strings (the prior proxy): different globs can
   select OVERLAPPING namespaces, and inline `:registrations` carry no
   `:include-ns` selector at all, yet either can introduce a shared `[kind id]` —
@@ -196,13 +219,13 @@
    (try
      (let [xray-gen   (image-assembly/assemble [(xray-image)])
            target-gen (image-assembly/assemble [target-image])]
-       (empty? (set/intersection (resolver-keyset xray-gen)
-                                 (resolver-keyset target-gen))))
+       (empty? (set/intersection (application-resolver-keyset xray-gen)
+                                 (application-resolver-keyset target-gen))))
      (catch :default _ false)))
   ([target-image pool]
    (try
      (let [xray-gen   (image-assembly/assemble [(xray-image)] pool)
            target-gen (image-assembly/assemble [target-image] pool)]
-       (empty? (set/intersection (resolver-keyset xray-gen)
-                                 (resolver-keyset target-gen))))
+       (empty? (set/intersection (application-resolver-keyset xray-gen)
+                                 (application-resolver-keyset target-gen))))
      (catch :default _ false))))

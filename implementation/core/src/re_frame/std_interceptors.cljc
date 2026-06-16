@@ -44,6 +44,7 @@
   consumer) is the one path surface and is the carrier of that no-op."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
+            [re-frame.image-assembly :as image-assembly]
             [re-frame.error :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -247,21 +248,85 @@
                      "the path argument of [:rf.interceptor/path <path-vector>] must be a vector"))
   (standard-path-interceptor path-vector))
 
+(def path-interceptor-descriptor
+  "The `{:factory path-factory}` descriptor the `:rf.interceptor/path` standard
+  registers under (the `reg-interceptor*` authoring input). A def so BOTH the
+  regular-registrar registration AND the EP-0023 framework-standard registry
+  registration carry the SAME factory object — so a generation-routed
+  `registrar/lookup` and a registrar-atom `lookup` resolve the standard path
+  interceptor identically (rf2-32siq3.41)."
+  {:factory path-factory})
+
+(def path-interceptor-metadata
+  "The Spec 001 registration metadata the `:rf.interceptor/path` standard ships.
+  Shared by the regular-registrar `reg-interceptor*` and the EP-0023
+  framework-standard registry descriptor so both surfaces carry identical
+  `:rf/interceptor-descriptor` slots (rf2-32siq3.41)."
+  {:doc "Framework-standard path interceptor (EP-0022). Focuses an event
+        handler on an app-db sub-slice at the given path-vector; the handler
+        sees/returns only the slice, spliced back into full app-db.
+        Referenced as `[:rf.interceptor/path <path-vector>]`."})
+
+;; EP-0023 framework-standard registry — the named invariant the
+;; `:rf.interceptor/path` standard is coupled to (Spec 002 §Standard
+;; `:rf.interceptor/path` rule 4 / rf2-ekq28v): an unchanged focused slice
+;; widens back to the ORIGINAL full app-db OBJECT so the frame-commit
+;; `identical?` no-op is preserved. The invariant-coupled lock keeps the
+;; standard non-replaceable until a conformance profile proves a replacement
+;; preserves it (`image-assembly/standard-replaceable?`); see EP-0023 §Image
+;; Patching And Overrides and `image_assembly.cljc`'s `:rf.standard/*` keys.
+(def ^:private path-conformance-invariant
+  :rf.interceptor.path/commit-identical-no-op)
+
 (defn register-standard-interceptors!
   "Register the framework-standard interceptors (currently only
-  `:rf.interceptor/path`) into the active registrar. Idempotent — called at
-  namespace load AND from `re-frame.core/init!` so the standard refs survive a
-  test fixture's `registrar/clear-all!` (which wipes the `:interceptor` kind
-  along with everything else). Mirrors how the reserved fx survive via
-  defmethod — the standard interceptors re-seed here on every boot."
+  `:rf.interceptor/path`) into the active registrar AND the EP-0023
+  framework-standard registry. Idempotent — called at namespace load AND from
+  `re-frame.core/init!` so the standard refs survive a test fixture's
+  `registrar/clear-all!` (which wipes the `:interceptor` kind along with
+  everything else). Mirrors how the reserved fx survive via defmethod — the
+  standard interceptors re-seed here on every boot.
+
+  TWO surfaces, ONE descriptor (rf2-32siq3.41):
+
+    * the REGULAR registrar (`reg-interceptor*`) — the default-image /
+      no-generation resolution path, where `registrar/lookup` reads the
+      registrar atom directly;
+
+    * the EP-0023 FRAMEWORK-STANDARD registry (`image-assembly/register-standard!`)
+      — so the standard descriptor is unioned into EVERY resolved image
+      generation. Without this, an image-loaded frame whose event references
+      `[:rf.interceptor/path …]` under a bound `*generation*` could not resolve
+      it (generation-routed `lookup` reads ONLY the generation's resolver — no
+      fallback to the registrar atom), and the `:replace-standard` /
+      invariant-coupled-standard machinery would be dead code (no standard would
+      ever sit in a generation to protect). The standard descriptor carries the
+      SAME `:rf/interceptor-descriptor` slot the regular registrar stores, so a
+      generation-routed resolution returns a byte-shape-identical value.
+
+  The standard is marked NON-replaceable and INVARIANT-COUPLED via
+  `:rf.standard/requires-conformance #{:rf.interceptor.path/commit-identical-no-op}`
+  (the rule-4 frame-commit `identical?` no-op, rf2-ekq28v): an image MUST NOT
+  silently shadow it, and `:replace-standard` against it FAILS LOUD
+  (`:rf.error/image-standard-replacement-forbidden`) until a conformance profile
+  proves a replacement preserves the invariant (EP-0023 §Image Patching And
+  Overrides; `image-assembly/standard-replaceable?`)."
   []
   (icpt-reg/reg-interceptor*
     :rf.interceptor/path
-    {:doc "Framework-standard path interceptor (EP-0022). Focuses an event
-          handler on an app-db sub-slice at the given path-vector; the handler
-          sees/returns only the slice, spliced back into full app-db.
-          Referenced as `[:rf.interceptor/path <path-vector>]`."}
-    {:factory path-factory})
+    path-interceptor-metadata
+    path-interceptor-descriptor)
+  ;; EP-0023: contribute the SAME standard descriptor into the framework-standard
+  ;; registry so it is unioned into every resolved image generation. The
+  ;; descriptor carries `:rf/interceptor-descriptor` (the factory) so a
+  ;; generation-routed `interceptor-registry/resolve-ref` reads it identically to
+  ;; the registrar path. Marked invariant-coupled (non-replaceable until a
+  ;; conformance profile exists — rf2-32siq3.41).
+  (image-assembly/register-standard!
+    :interceptor :rf.interceptor/path
+    (assoc path-interceptor-metadata
+           :rf/interceptor-descriptor path-interceptor-descriptor
+           :rf.standard/requires-conformance #{path-conformance-invariant}))
   nil)
 
 ;; Register at namespace load so standalone require'rs (no init!) get the
