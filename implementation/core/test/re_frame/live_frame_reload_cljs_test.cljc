@@ -35,6 +35,8 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.image        :as image]
             [re-frame.image-assembly :as asm]
+            [re-frame.interop      :as interop]
+            [re-frame.registrar    :as registrar]
             [re-frame.source-store :as source-store]
             [re-frame.live-frame   :as lf]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -445,4 +447,123 @@
                 (is (= ::a-reloaded (:handler-fn (asm/resolve-descriptor gen-after :event :compose.a/go))))
                 (is (= ::b-stable   (:handler-fn (asm/resolve-descriptor gen-after :event :compose.b/go))))))))
         (finally
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ===========================================================================
+;; 9. AUTO-reprojection: a `reg-*` change reprojects the affected explicit-image
+;;    frame WITHOUT a manual reproject-live-frames! call (rf2-h4q6cy)
+;; ===========================================================================
+;;
+;; The .28 B1 finding: `reproject-live-frames!` implements the EP-0023 headline
+;; guarantee but NOTHING called it — no hook fired on `reg-*`, so a hot-reload of
+;; an `:include-ns`-selected namespace left the running frame on its STALE
+;; generation until some external reproject/reload ran. rf2-h4q6cy wires
+;; `registrar/add-registration-hook!` → mark-dirty + coalesced `next-tick`
+;; flush, so an ordinary `reg-*` re-eval swaps the affected frame automatically.
+;;
+;; These tests drive the change through `registrar/register!` (the path every
+;; `reg-*` macro funnels through — and the path that FIRES the hook), and they
+;; NEVER call `reproject-live-frames!` manually. The deferred flush is forced
+;; deterministically via the synchronous `flush-pending-reprojection!` (the same
+;; flush the scheduled `next-tick` tick arms). Before the fix the hook did not
+;; exist, so `flush-pending-reprojection!` found nothing pending and the frame
+;; stayed on ::auto-v1 — RED. After the fix the `register!` marks dirty, the
+;; flush reprojects, and the frame resolves ::auto-v2 — GREEN.
+
+(deftest reg-star-change-auto-reprojects-explicit-image-frame
+  (testing "a reg-* re-eval (via registrar/register!) in a namespace an explicit
+            :include-ns image selects marks the projection dirty and the coalesced
+            flush reprojects + swaps THAT frame's generation — WITHOUT a manual
+            reproject-live-frames! call (EP-0023 §Default Image Semantics — the
+            headline guarantee, wired by rf2-h4q6cy). Uses the LIVE source store
+            + the shared registrar; snapshot/restore the source store and clean
+            the registrar in finally (NOT clear-all!). Asserts BEHAVIOR (the
+            frame resolves the new impl), never the internal dirty flag."
+    (let [snapshot @source-store/kind->id->ns->descriptor]
+      (try
+        ;; Start from a clean slate: drain any reprojection a prior case left
+        ;; pending (the hook is a process-defonce, shared across cases).
+        (lf/flush-pending-reprojection!)
+        ;; First registration of the selected id, via the SAME register! path a
+        ;; reg-* macro funnels through (so the auto-reprojection hook is exercised
+        ;; end to end). The hook fires here too (first-time); no frame is live yet,
+        ;; so we drain the resulting (move-empty) pending flush to start clean.
+        (registrar/register! :event :auto/inc
+          {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v1})
+        (lf/flush-pending-reprojection!)
+        (let [img   (image/image {:id :auto/img :include-ns ["auto.feature"]})
+              frame (lf/make-frame {:id :auto/main :images [img]})
+              gen-before (lf/frame-generation frame)]
+          (testing "the frame resolves the ORIGINAL impl before any re-eval (control)"
+            (is (= ::auto-v1
+                   (:handler-fn (asm/resolve-descriptor gen-before :event :auto/inc)))))
+          ;; The reg-* RE-EVAL — a new impl for the same (kind,id,ns) slot, through
+          ;; register!. This FIRES the registration hook → marks dirty + schedules.
+          (registrar/register! :event :auto/inc
+            {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v2})
+          ;; Force the COALESCED flush synchronously (the same flush the next-tick
+          ;; tick arms). NO manual reproject-live-frames! — this is the wired path:
+          ;; a flush only does work because the register! above marked it pending.
+          (let [moved (lf/flush-pending-reprojection!)]
+            (testing "the register!-armed flush reprojects the affected
+                      explicit-image frame (the hook fired and marked it dirty)"
+              (is (contains? moved :auto/main))
+              (is (contains? (:changed (get moved :auto/main)) [:event :auto/inc]))))
+          (testing "the live frame now resolves the RE-EVAL'd impl through its
+                    swapped generation — automatically, no reload-images! call"
+            (is (= ::auto-v2
+                   (:handler-fn (asm/resolve-descriptor
+                                  (lf/frame-generation (lf/live-frame :auto/main))
+                                  :event :auto/inc))))))
+        (finally
+          ;; Clean the shared registrar slot we wrote + drain any residual pending
+          ;; reprojection, then restore the source store. (The hook itself is a
+          ;; process-defonce — it stays installed across cases by design.)
+          (registrar/unregister! :event :auto/inc)
+          (lf/flush-pending-reprojection!)
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+(deftest reg-star-burst-coalesces-to-one-flush
+  (testing "a BURST of reg-* (a hot-reloaded namespace re-evaluating N
+            registrations) schedules at MOST ONE deferred reprojection flush — the
+            coalescing gate (rf2-h4q6cy). Counting the next-tick schedules proves
+            the burst reprojects ONCE at the batch boundary, not per reg-*."
+    (let [snapshot  @source-store/kind->id->ns->descriptor
+          scheduled (atom 0)
+          captured  (atom nil)]
+      (try
+        ;; Drain any pending flush so the burst below starts from a clean
+        ;; (un-pending) flag — the first reg-* of the burst is the false→true edge.
+        (lf/flush-pending-reprojection!)
+        ;; Redef next-tick to COUNT schedules and CAPTURE (defer) the flush —
+        ;; deliberately NOT run inline, so the dirty flag stays set through the
+        ;; whole burst exactly as a real deferred tick would leave it. If the
+        ;; coalescing gate works, only the first reg-* (false→true) schedules; the
+        ;; other four observe the flag already set and add no second tick. The
+        ;; re-arm step below stays INSIDE this redef so its schedule hits the same
+        ;; counting next-tick (outside, the real next-tick would not be counted).
+        (with-redefs [interop/next-tick (fn [f] (swap! scheduled inc)
+                                          (reset! captured f) nil)]
+          ;; A burst of 5 reg-* in one synchronous run (a namespace re-eval).
+          (doseq [n (range 5)]
+            (registrar/register! :event (keyword "burst" (str "e" n))
+              {:rf.provenance/ns "burst.feature" :handler-fn (keyword "impl" (str n))}))
+          (testing "the 5-reg-* burst scheduled exactly ONE flush (coalesced) —
+                    the deferred tick was never run during the burst"
+            (is (= 1 @scheduled)
+                "compare-and-set! gates: only the false→true transition schedules"))
+          (testing "running the single captured tick drains the whole burst at once,
+                    and a post-drain reg-* re-arms a fresh tick (flag re-armable)"
+            (when-let [tick @captured] (tick))
+            ;; The drain (`tick` → flush) cleared the dirty flag; a new reg-* is the
+            ;; next false→true edge, so it schedules again — proving the flag is not
+            ;; stuck-set after a flush. (Inside the redef, so this counts here.)
+            (registrar/register! :event :burst/e0
+              {:rf.provenance/ns "burst.feature" :handler-fn ::e0-again})
+            (is (= 2 @scheduled)
+                "a post-drain reg-* re-arms a new tick (flag cleared, re-armable)")))
+        (finally
+          (doseq [n (range 5)]
+            (registrar/unregister! :event (keyword "burst" (str "e" n))))
+          (lf/flush-pending-reprojection!)
           (reset! source-store/kind->id->ns->descriptor snapshot))))))

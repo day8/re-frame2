@@ -52,7 +52,12 @@
       swaps the freshly-assembled generation onto any frame whose resolution
       changed — EXPLICIT-image frames included, not only default-image frames. A
       frame whose composition re-resolves byte-for-byte is left untouched (no
-      spurious swap).
+      spurious swap). It is WIRED to fire AUTOMATICALLY on any `reg-*` via a
+      `registrar/add-registration-hook!` seam (rf2-h4q6cy), coalesced across a
+      hot-reload `reg-*` burst onto a single `interop/next-tick` flush — see the
+      §Auto-reprojection section below. So an ordinary `reg-*` re-eval swaps the
+      affected live frame's generation WITHOUT a manual `reload-images!` /
+      `reproject-live-frames!` call.
 
   Reload is frame-targeted: reloading `:counter/left` swaps the generation THAT
   frame runs; it does not move `:counter/right` merely because the two frames
@@ -121,11 +126,13 @@
   requires are
   `re-frame.image-assembly` (the merged assembly entry point),
   `re-frame.registrar` (the `*generation*` resolution seam + the closed kind
-  set), and `re-frame.error` (fail-loud diagnostics) — all already in the core
-  spine."
+  set + the `add-registration-hook!` reprojection seam), `re-frame.interop`
+  (the `next-tick` coalescing primitive + the `debug-enabled?` production gate),
+  and `re-frame.error` (fail-loud diagnostics) — all already in the core spine."
   (:require [re-frame.image-assembly :as asm]
             [re-frame.registrar      :as registrar]
             [re-frame.frame          :as frame]
+            [re-frame.interop        :as interop]
             [re-frame.late-bind      :as late-bind]
             [re-frame.error          :as error]))
 
@@ -803,3 +810,152 @@
               moved))
           {}
           (live-frame-ids)))
+
+;; ===========================================================================
+;; Auto-reprojection on `reg-*` source-store change (EP-0023 §Default Image
+;; Semantics / §Hot Reload — the headline guarantee wired, rf2-h4q6cy)
+;; ===========================================================================
+;;
+;; The EP-0023 headline guarantee (EP-0023:1497, §Default Image Semantics):
+;;
+;;     The `reg-*` path uses the same operation through dependency
+;;     invalidation. A changed `reg-*` entry does not mutate any running
+;;     generation. It MARKS every dependent generation DIRTY, including
+;;     explicit images whose `:include-ns` selector matches the changed
+;;     namespace, resolves new sealed generations, computes the diff, and
+;;     swaps those generations into affected frames.
+;;
+;; `reproject-live-frames!` is that "resolve new generations + swap into
+;; affected frames" operation. Before rf2-h4q6cy NOTHING called it in
+;; production — no hook fired on `reg-*`, so the helper was dead outside tests
+;; and a `reg-*` hot reload in an `:include-ns`-selected namespace left the
+;; running frame on its STALE generation until some external `reload-images!`
+;; or manual `reproject-live-frames!` ran. This slice wires the missing trigger.
+;;
+;; ## Trigger model — DIRTY-FLAG + `next-tick` COALESCING
+;;
+;; The dirtying rule (EP-0023:524) is "mark the projection DIRTY, then resolve a
+;; new generation" — a TWO-PHASE operation, not reproject-per-reg. That split is
+;; exactly the coalescing seam: a hot reload of one namespace re-evaluates the
+;; whole namespace, firing a BURST of synchronous `register!` calls (one per
+;; `reg-*` form). Reprojecting on EACH would re-resolve + re-diff every live
+;; frame N times for an N-registration namespace — O(frames * regs) assembly
+;; churn for a single conceptual reload, and intermediate frames would briefly
+;; observe a HALF-RELOADED namespace (some new descriptors, some old).
+;;
+;; So `register!`'s hook does NOT reproject inline. It MARKS the projection dirty
+;; (sets `pending-reprojection?`) and schedules ONE `interop/next-tick` flush
+;; (only when none is already pending — `mark-dirty-and-schedule!` is the
+;; coalescing gate). The whole synchronous `reg-*` burst sets the same flag and
+;; schedules at most ONE flush; the flush runs AFTER the burst settles (the
+;; macroscopic batch boundary), clears the flag, and reprojects ONCE against the
+;; now-complete source store. `next-tick` is the right boundary: every
+;; synchronous `reg-*` of a reloaded namespace happens before control returns to
+;; the event loop, so the single deferred flush sees the FULL new registration
+;; set, never a partial one. (CLJS: `goog.async.nextTick` microtask; JVM: the
+;; single-thread executor — async there too, which the dev hot-reload semantic
+;; tolerates; tests drive the synchronous `flush-pending-reprojection!`.)
+;;
+;; ## Production elision
+;;
+;; Reprojection is a DEV hot-reload concern: in production the source registrar
+;; stops changing after boot (EP-0023:530 — "the default path feels sealed for
+;; the lifetime of the frame"), so there is nothing to reproject. The whole
+;; wiring is therefore gated on `interop/debug-enabled?` — under `:advanced` +
+;; `goog.DEBUG=false` the gate constant-folds to `false`, the `defonce` install
+;; body DCEs, and the registration path carries ZERO reprojection cost. The
+;; hook adds NO new always-on error id: assembly errors flow through the
+;; existing `resolve-generation!` diagnostics, and the registrar fires
+;; registration hooks ISOLATED (a hook throw is swallowed, never blocking the
+;; `reg-*`), so a reprojection-assembly failure during a dev hot reload cannot
+;; break the underlying registration.
+
+(defonce ^{:private true
+           :doc "Process-local DIRTY flag: true when a `reg-*` source-store change
+  has marked the live-frame projection dirty and a coalesced reprojection is
+  pending (EP-0023:524 — \"default image projection is dirty\"). Set by the
+  registration hook, cleared by the flush. A plain atom (not a ratom) — this is
+  reload-bookkeeping, not reactive frame state."}
+  pending-reprojection?
+  (atom false))
+
+(defn flush-pending-reprojection!
+  "If a `reg-*` source-store change has marked the projection dirty, clear the
+  flag and reproject EVERY registered live frame ONCE against the current source
+  store (the coalesced batch boundary — EP-0023 §Default Image Semantics). A
+  no-op when nothing is pending. Returns the `{frame-id reload-diff}` map of
+  frames that MOVED (empty when none did or when nothing was pending).
+
+  The synchronous counterpart of the `next-tick`-scheduled flush
+  `mark-dirty-and-schedule!` arms: tests (and any caller that needs the
+  reprojection to have happened by a known point) invoke this to force the
+  pending reprojection through deterministically rather than awaiting the
+  deferred tick. The dirty-flag clear is read-then-reset so a re-entrant
+  `reg-*` during reprojection re-arms a fresh flush rather than being lost."
+  []
+  (if @pending-reprojection?
+    (do (reset! pending-reprojection? false)
+        (reproject-live-frames!))
+    {}))
+
+(defn- deferred-flush!
+  "The fire-and-forget tick body the coalescing scheduler arms on
+  `interop/next-tick`. Runs `flush-pending-reprojection!` but SWALLOWS any throw:
+  a deferred background dev-hot-reload reprojection has no caller to surface an
+  exception to (it runs on a microtask / the JVM executor thread, OUTSIDE any
+  `reg-*` call frame), so a throw there would become an unhandled rejection that
+  pollutes unrelated work. Crucially the flush has ALREADY cleared the dirty flag
+  before reprojecting, so a swallowed failure does not wedge the flag set (a
+  subsequent `reg-*` re-arms a fresh tick). The SYNCHRONOUS
+  `flush-pending-reprojection!` and the direct `reproject-live-frames!` keep
+  surfacing throws — only this deferred path is defensive. Returns nil."
+  []
+  (try (flush-pending-reprojection!)
+       (catch #?(:clj Throwable :cljs :default) _ nil))
+  nil)
+
+(defn- mark-dirty-and-schedule!
+  "Mark the live-frame projection DIRTY and schedule ONE coalesced reprojection
+  flush on `interop/next-tick` (EP-0023:524 — mark dirty, then resolve a new
+  generation). The COALESCING GATE: schedule the flush ONLY when no flush is
+  already pending, so a synchronous burst of `reg-*` (a hot-reloaded namespace
+  re-evaluating all its registrations) sets the flag many times but schedules at
+  most ONE deferred flush — reprojecting ONCE at the batch boundary, not per
+  `reg-*`. `compare-and-set!` makes the schedule-decision atomic against the
+  burst. The scheduled body is the error-swallowing `deferred-flush!` (a
+  background tick has no caller to surface a throw to). Returns nil."
+  []
+  ;; Only the transition false→true schedules — the burst's subsequent calls
+  ;; observe the flag already true and add no second tick.
+  (when (compare-and-set! pending-reprojection? false true)
+    (interop/next-tick deferred-flush!))
+  nil)
+
+(defn reproject-on-registration-change!
+  "Registrar registration-hook (`registrar/add-registration-hook!`) body: any
+  `reg-*` (first-time OR re-registration, any kind) is a source-store change, so
+  it MARKS the live-frame projection dirty and schedules a coalesced reprojection
+  (EP-0023 §Default Image Semantics / §Hot Reload — a `reg-*` re-eval in a
+  namespace an explicit `:include-ns` image selects reprojects + swaps the
+  affected explicit-image frames, automatically). Reprojection itself is
+  per-frame conditional (`reproject-live-frame!` only swaps a frame whose
+  composition actually re-resolved differently), so marking dirty on EVERY
+  `reg-*` is safe — an unaffected frame is left untouched at flush time. Ignores
+  its hook-event arg (the dirty mark is registration-set-wide, not per id).
+  Returns nil."
+  [_event]
+  (mark-dirty-and-schedule!))
+
+;; Install the reprojection hook ONCE per process. `defonce` over the install so
+;; a dev `:reload` of THIS ns does not push a duplicate hook into the registrar's
+;; `registration-hooks` vector (it dedupes none, and `clear-all!` does not clear
+;; it) — the same "install a registrar hook once, survive hot-reload" pattern
+;; `re-frame.flows.registry`'s `_hot-reload-hook` and `re-frame.routing`'s
+;; `_url-bound-exclusivity-hook` use. Gated on `interop/debug-enabled?` so the
+;; whole install (and thus any reprojection cost on the registration path) is
+;; constant-folded away under `:advanced` + `goog.DEBUG=false`: production stops
+;; `reg-*`-ing after boot, so there is nothing to reproject (EP-0023:530).
+(defonce ^:private _auto-reprojection-hook
+  (when interop/debug-enabled?
+    (registrar/add-registration-hook! reproject-on-registration-change!)
+    :installed))
