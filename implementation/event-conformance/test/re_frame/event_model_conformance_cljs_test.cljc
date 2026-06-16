@@ -216,6 +216,130 @@
       (is (= :hello @seen)
           "the generator arg was threaded and the result delivered flat"))))
 
+(deftest reg-event-recordable-generator-mints-under-live-and-writes-back-to-the-record
+  (testing "EP-0017 §5/§6 slice-B.7 (rf2-lpyw1v) — a declared-absent RECORDABLE
+            NON-PROVIDED generator-backed cofx (a `{:recordable? true}` reg-cofx
+            WITH a value-returning supplier — NOT `:provided?`) runs its
+            generator at processing-start under the router's default `:live`
+            mint policy, the produced value is DELIVERED flat AND written back
+            into the in-flight `:rf.cofx` causal record (so the epoch captures
+            the post-generation token and replay re-presents it). Distinct from
+            the existing one-arg AMBIENT supplier (`:evt-conf/echo`, which is
+            never recorded): this is the recordable generator the existing tier
+            lacked. The write-back is observed through the canonical envelope
+            `:rf.cofx` reachable in the coeffects map. A regression that
+            generated but failed to write back (the epoch missing the fact,
+            replay re-generating a different value) turns the record assertion
+            RED; one that did not mint at all (treating an absent
+            generator-backed fact as missing-required under `:live`) turns the
+            delivery assertion RED"
+    (let [delivered (atom ::unset)
+          recorded  (atom ::unset)
+          calls     (atom 0)]
+      ;; A RECORDABLE generator (NOT :provided?) — a value-returning supplier
+      ;; the framework records, replays, and enforces. A monotonic counter so
+      ;; a re-run (which would be a write-back failure) is observable.
+      (rf/reg-cofx :evt-conf/mint-id
+        {:recordable? true}
+        (fn [] (swap! calls inc) (str "id-" @calls)))
+      (rf/reg-event :evt-conf/uses-mint
+        {:rf.cofx/requires [:evt-conf/mint-id]}
+        (fn [{:keys [evt-conf/mint-id] :as cofx} _]
+          (reset! delivered mint-id)
+          ;; The canonical complete record is reachable in the coeffects map
+          ;; under :rf.cofx (the runtime restamps it post-generation).
+          (reset! recorded (get (:rf.cofx cofx) :evt-conf/mint-id))
+          {}))
+      ;; Dispatch WITHOUT supplying the fact — under the default :live policy
+      ;; the generator mints it at processing-start.
+      (rf/dispatch-sync [:evt-conf/uses-mint])
+      (is (= "id-1" @delivered)
+          "the recordable generator minted the absent fact under :live and delivered it flat")
+      (is (= "id-1" @recorded)
+          "the generated value was WRITTEN BACK into the in-flight :rf.cofx record (the post-generation token the epoch captures)")
+      (is (= 1 @calls)
+          "the generator ran exactly once (the write-back, not a re-read, supplies the record)"))))
+
+(deftest reg-event-recordable-generator-emits-rf-cofx-generated-trace-op
+  (testing "EP-0017 §9 slice-B.7 (rf2-lpyw1v) — the generation step emits the
+            dev-mode `:rf.cofx/generated` trace op (fact-name + supplier id +
+            produced value) so traces are self-describing even though the record
+            is flat. This is the slice-B trace vocabulary the existing tier did
+            not exercise. Observed via a trace listener filtering `:operation`.
+            A regression that stopped emitting the op (or renamed it) turns this
+            RED"
+    (let [traces (atom [])]
+      (rf/reg-cofx :evt-conf/gen-fact
+        {:recordable? true}
+        (fn [] :minted-value))
+      (rf/reg-event :evt-conf/triggers-gen
+        {:rf.cofx/requires [:evt-conf/gen-fact]}
+        (fn [_ _] {}))
+      (rf/register-listener! :evt-conf/gen-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/triggers-gen])
+      (rf/unregister-listener! :evt-conf/gen-recorder)
+      (let [gen-traces (filter #(= :rf.cofx/generated (:operation %)) @traces)]
+        (is (seq gen-traces)
+            "the generation step emits the :rf.cofx/generated trace op")
+        (is (= :evt-conf/gen-fact (get-in (first gen-traces) [:tags :rf.cofx/id]))
+            ":rf.cofx/id names the generated fact")
+        (is (= :minted-value (get-in (first gen-traces) [:tags :rf.cofx/value]))
+            "the op carries the produced value (fact-name + value, self-describing)")))))
+
+(deftest reg-event-strict-mint-policy-refuses-to-generate-and-raises-missing-required
+  (testing "EP-0017 §5/§6 slice-B.8 (rf2-lpyw1v) — STRICT replay/test behaviour:
+            under the `:strict` mint policy a declared-absent generator-backed
+            recordable fact is NOT minted (no host read, no generator run) — it
+            is the hard error `:rf.error/missing-required-cofx`. Replay is
+            unconditionally strict: an incomplete record MUST fail loudly rather
+            than silently re-read the host. The policy is supplied per-call via
+            the `:rf.cofx/mint-policy` dispatch opt (the same opt a Tool-Pair
+            replay supplies). This is the strict-replay lock the existing tier
+            lacked: it proves `:strict` REFUSES to mint the very fact `:live`
+            mints in the test above. A regression that minted under `:strict`
+            (re-reading the host on replay) turns this RED"
+    (let [calls  (atom 0)
+          fired? (atom false)]
+      (rf/reg-cofx :evt-conf/strict-fact
+        {:recordable? true}
+        (fn [] (swap! calls inc) :should-not-mint))
+      (rf/reg-event :evt-conf/needs-strict-fact
+        {:rf.cofx/requires [:evt-conf/strict-fact]}
+        (fn [_ _] (reset! fired? true) {}))
+      ;; Dispatch under :strict WITHOUT supplying the fact — strict refuses to mint.
+      (let [thrown (thrown-error-id
+                     #(rf/dispatch-sync [:evt-conf/needs-strict-fact]
+                                        {:rf.cofx/mint-policy :strict}))]
+        (is (= :rf.error/missing-required-cofx thrown)
+            "a declared-absent generator-backed fact under :strict is :rf.error/missing-required-cofx (no mint, no host read)")
+        (is (zero? @calls)
+            "the generator NEVER ran under :strict (no silent host read on replay)")
+        (is (false? @fired?)
+            "the handler never ran — missing-required halts the cascade before the handler")))))
+
+(deftest reg-event-explicit-live-mint-policy-mints-the-declared-nondeterminism-escape
+  (testing "EP-0017 §6 slice-B.8 (rf2-lpyw1v) — `:explicit-live` is the
+            declared-nondeterminism ESCAPE: like `:live` it mints a
+            declared-absent generator-backed recordable fact, but the test has
+            explicitly opted into nondeterminism (distinct from the `:test`
+            preset's `:strict` default). Supplied per-call via the
+            `:rf.cofx/mint-policy` dispatch opt. This completes the policy
+            triad — `:live` (router default, minted above), `:strict` (refuses,
+            above), `:explicit-live` (mints, here) — locking all three binding
+            points. A regression that conflated `:explicit-live` with `:strict`
+            (refusing to mint) turns this RED"
+    (let [delivered (atom ::unset)]
+      (rf/reg-cofx :evt-conf/escape-fact
+        {:recordable? true}
+        (fn [] :minted-under-escape))
+      (rf/reg-event :evt-conf/uses-escape-fact
+        {:rf.cofx/requires [:evt-conf/escape-fact]}
+        (fn [{:keys [evt-conf/escape-fact]} _] (reset! delivered escape-fact) {}))
+      (rf/dispatch-sync [:evt-conf/uses-escape-fact]
+                        {:rf.cofx/mint-policy :explicit-live})
+      (is (= :minted-under-escape @delivered)
+          ":explicit-live mints a declared-absent generator-backed fact (the declared-nondeterminism escape, NOT strict)"))))
+
 (deftest reg-event-typo-cofx-is-the-hard-error
   (testing "EP-0017 typo path on reg-event: declaring `:rf.cofx/requires` for an
             UNregistered cofx is the hard error `:rf.error/unregistered-cofx`
