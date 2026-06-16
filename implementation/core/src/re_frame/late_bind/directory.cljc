@@ -165,6 +165,10 @@
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
     :description "Emit-time chokepoint for trace bus — walks the assembled trace event's tags and substitutes sentinels at declared paths (Spec 015 §Implementation notes recommendation B)."}
+   {:key         :marks/redact-event-by-registration
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-qe6v1u"
+    :description "ALWAYS-ON: apply an event handler's REGISTRATION-OWNED :sensitive / :large marks to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot so a frame-owned :observability sink redacts a declared-sensitive event arg even with no matching frame :sensitive {:app-db …} classification (rf2-qe6v1u)."}
    {:key         :marks/resolve-sub-output-marks
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"

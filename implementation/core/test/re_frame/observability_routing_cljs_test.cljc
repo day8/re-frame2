@@ -160,6 +160,44 @@
             "the sensitive token inside the error's :event is redacted —
              the sink received an already-projected record")))))
 
+(deftest error-event-redacted-by-event-registration-marks-not-frame-app-db
+  (testing "ADVERSARIAL (rf2-qe6v1u — EP-0015 event args are REGISTRATION-owned):
+            a handler registered with `reg-event {:sensitive [[:password]]}` and
+            a frame that declares NO matching `:sensitive {:app-db …}` path must
+            STILL have the sensitive event arg redacted on the off-box `:errors`
+            sink. Event args are registration-owned transient payloads, projected
+            through the EVENT registration's marks at the trust boundary — not
+            (only) the frame's app-db classification. Before the fix the error
+            record's :event slot was walked only against frame app-db policy, so a
+            handler-declared-sensitive arg with no frame app-db classification
+            leaked the raw password off-box."
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :test.sinks/sentry2
+                                       (fn [record] (swap! seen conj record)))
+      ;; The frame declares the error sink but NO :sensitive classification at
+      ;; all — the redaction must come from the EVENT registration, not the frame.
+      (rf/reg-frame :obs/reg-marks
+        {:observability
+         {:errors [{:sink :test.sinks/sentry2
+                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; The handler OWNS the sensitivity of its own event arg: [:password] in
+      ;; the arg-map (the registration-marks paths are rooted at the arg-map).
+      (rf/reg-event :auth/reg-login
+                    {:frame     :obs/reg-marks
+                     :sensitive [[:password]]}
+                    (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {:cause :test}))}))
+      (rf/dispatch-sync [:auth/reg-login {:password "hunter2" :user "ann"}]
+                        {:frame :obs/reg-marks})
+      (is (= 1 (count @seen)) "the declared error sink fired exactly once")
+      (let [r (first @seen)]
+        (is (= :rf.observe/error (:kind r)))
+        (is (= :auth/reg-login (:event-id r)))
+        (is (redacted? (get-in (:event r) [1 :password]))
+            "the handler-declared-sensitive :password arg is redacted via the
+             EVENT registration marks, with NO frame :sensitive {:app-db …}")
+        (is (= "ann" (get-in (:event r) [1 :user]))
+            "a non-sensitive sibling arg rides through (only the declared path redacts)")))))
+
 ;; ---------------------------------------------------------------------------
 ;; 3. Fail-closed.
 ;; ---------------------------------------------------------------------------

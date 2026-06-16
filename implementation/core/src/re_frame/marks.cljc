@@ -902,6 +902,33 @@
   (when event-id
     (marks-for :event event-id)))
 
+(defn redact-event-by-registration
+  "Apply the REGISTRATION-OWNED `:sensitive` / `:large` marks declared by the
+  event handler registered under `(first event)` to the event vector `event`,
+  returning the vector with declared arg-map paths redacted. A no-op (returns
+  `event` unchanged) when `event` is not a `[event-id arg-map …]` vector or the
+  handler declared no marks.
+
+  ALWAYS-ON (NOT gated on `interop/debug-enabled?`) — the registration marks
+  table is populated at registration time in production as well as dev (only the
+  emit-time TRACE projection is dev-gated), and this fn is the production egress
+  consumer (rf2-qe6v1u): EP-0015 makes event args REGISTRATION-OWNED transient
+  payloads, so a handler registered with `{:sensitive [[:password]]}` must have
+  that path redacted on the frame-owned `:observability :errors` sink even when
+  the frame declares no matching `:sensitive {:app-db …}` classification — the
+  event-shaped error slot is projected through the EVENT registration's marks,
+  not (only) the frame's app-db policy. Reuses `redact-event-vec`, the exact
+  arg-map-rooted walk the dev trace path uses, so the production sink and the
+  dev trace redact event args identically.
+
+  Published via the `:marks/redact-event-by-registration` late-bind hook;
+  `re-frame.projection` consumes it for the `:rf.observe/error` / handled-event
+  `:event` slot."
+  [event]
+  (if-let [marks (event-marks (when (vector? event) (first event)))]
+    (redact-event-vec event (or (:sensitive marks) []) (or (:large marks) []))
+    event))
+
 (defn- fx-marks
   [fx-id]
   (when fx-id
@@ -1714,6 +1741,7 @@
 ;; requires elision which requires trace).
 
 (late-bind/set-fn! :marks/project-trace-event project-trace-event)
+(late-bind/set-fn! :marks/redact-event-by-registration redact-event-by-registration)
 (late-bind/set-fn! :marks/register-marks!     register-marks!)
 (late-bind/set-fn! :marks/union-marks!        union-marks!)
 (late-bind/set-fn! :marks/marks-for           marks-for)
