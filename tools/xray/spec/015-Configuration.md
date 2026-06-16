@@ -42,11 +42,15 @@ The convention solves three problems:
 3. **Discoverability.** IDE auto-completion against `:rf.xray/`
    reveals the catalogue without reading this doc.
 
-**Cross-tool keys** — knobs that more than one tool reads from the
-same atom — live under their own reserved namespace. The canonical
-case is the privacy gate `:rf.privacy/show-sensitive?`, which Xray
-AND Story both consult; setting it once via either tool's
-`configure!` is enough.
+**Per-tool egress profile.** The on-box privacy gate is owned
+**per `(tool, frame)`** — there is no cross-tool shared atom and no
+single process-global toggle (EP-0015 issue 7 /
+[Spec 015 §Cross-tool visibility grain](../../../spec/015-Data-Classification.md#cross-tool-visibility-grain)).
+Each tool reserves its own egress-profile knob under its own
+`:rf.<tool>/*` namespace: Xray's is `:rf.xray/egress-profile`, Story's
+is `:rf.story/egress-profile`. Setting one tool's profile does NOT
+affect the other's — visibility is scoped to the tool that holds the
+knob.
 
 Pre-alpha posture: the rename is a hard cut. Legacy bare / dotted
 spellings (`:editor`, `:auto-open?`, `:launch/auto-open?`, etc.) are
@@ -88,8 +92,11 @@ identifying the cluster it belongs to. The convention is:
 Where:
 
 - `<reservation>` — the reserved namespace owning the key (`xray`
-  for Xray-only knobs; `privacy` for cross-tool knobs read by every
-  re-frame2 tool that consumes the trace bus).
+  for Xray's knobs). Each re-frame2 tool reserves its own
+  `:rf.<tool>/*` segment; there is no cross-tool shared reservation
+  for the on-box privacy gate (the egress profile is per-`(tool,
+  frame)` — Xray's `:rf.xray/egress-profile`, Story's
+  `:rf.story/egress-profile`).
 - `<cluster>` — the topical cluster (editor, launch, keybinding,
   render, trace, …). New related keys join the cluster by sharing
   the prefix.
@@ -118,7 +125,7 @@ column, jump to the linked section, find the knob.
 | Cluster | Reserved namespace | v1 keys | Future keys (vision) | Anchor |
 |---|---|---|---|---|
 | **Editor / source-coord** | `:rf.xray/` | `:rf.xray/editor`, `:rf.xray/project-root` | — | [`§:rf.xray/editor`](#rfxrayeditor) + [`§:rf.xray/project-root`](#rfxrayproject-root) |
-| **Privacy (cross-tool)** | `:rf.privacy/` | `:rf.privacy/show-sensitive?` | — | [`§:rf.privacy/show-sensitive?`](#rfprivacyshow-sensitive) |
+| **Egress profile (privacy gate)** | `:rf.xray/` | `:rf.xray/egress-profile` | — | [`§:rf.xray/egress-profile`](#rfxrayegress-profile) |
 | **Layout host** | `:rf.xray/` | `:rf.xray/layout-host-selector` | — | [`§:rf.xray/layout-host-selector`](#rfxraylayout-host-selector) |
 | **Launch** | `:rf.xray/` | `:rf.xray/auto-open?` | `:rf.xray/launch-restore-visibility?`, `:rf.xray/launch-popout-geometry` | [`§:rf.xray/auto-open?`](#rfxrayauto-open) + [Vision §Should-adds](#vision--full-configure-key-inventory-30-keys) |
 | **Keybinding** | `:rf.xray/` | `:rf.xray/keybinding-enabled?` | `:rf.xray/keybinding-handle-keys?`, `:rf.xray/keybinding-bindings` | [`§:rf.xray/keybinding-enabled?`](#rfxraykeybinding-enabled) |
@@ -152,7 +159,7 @@ authors navigate by, not the per-knob anchor docs.
    :rf.xray/layout-host-selector  "[data-rf-xray-host]"
    :rf.xray/auto-open?            true
    :rf.xray/keybinding-enabled?   true
-   :rf.privacy/show-sensitive?     false})
+   :rf.xray/egress-profile        :rf.egress/local-redacted})
 ```
 
 `configure!` MUST accept a map and MUST return `nil`. Keys not listed
@@ -359,36 +366,53 @@ client seam (`re-frame.source-coords.open-endpoint`) is referenced only
 from the dev-only tool open-seams and DCEs out of release bundles like
 the seams themselves. `launch-editor` is a `devDependency`.
 
-### `:rf.privacy/show-sensitive?`
+### `:rf.xray/egress-profile`
 
-The cross-tool privacy gate for `:sensitive? true` trace events per
+Xray's on-box dev-UI egress PROFILE — the privacy gate for
+`:sensitive? true` trace-event DISPLAY per
 [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
-(resolved by `rf2-a32kd`) and bead `rf2-azls9`. Framework-published
-trace-consuming integrations MUST default-suppress `:sensitive? true`
-events; Xray is a framework-published consumer. The key lives under
-the cross-tool `:rf.privacy/*` reserved sub-namespace (per
-[`spec/Conventions.md`](../../../spec/Conventions.md) and
-[`spec/Privacy.md`](../../../spec/Privacy.md)) — Story and every
-other re-frame2 tool that consumes the trace bus reads the same atom,
-so one host config knob covers every tool.
+(resolved by `rf2-a32kd`) and
+[Spec 015 §Cross-tool visibility grain](../../../spec/015-Data-Classification.md#cross-tool-visibility-grain).
+EP-0015 issue 7 rules on-box visibility **per `(tool, frame)` pair**:
+there is **no single process-global `show-sensitive?` user toggle**, and
+no cross-tool shared atom. The predecessor process-global
+`:rf.privacy/show-sensitive?` boolean (`rf2-azls9`) is **retired** and
+folded onto this per-tool named-boundary model — matching the Story
+migration and the per-`(tool, frame)` `local-render` seam Xray already
+ships. Each tool owns its own profile knob (`:rf.xray/egress-profile`;
+Story's is `:rf.story/egress-profile`).
+
+The value is a member of the closed `:rf.egress/*` enum
+(`re-frame.projection/profiles`). For Xray's on-box dev surface the
+relevant pair is:
 
 | Value | Meaning |
 |---|---|
-| `false` | Default. Xray's trace collector MUST drop events whose top-level `:sensitive?` field is `true` before any buffer push, and MUST bump the suppressed-events counter (see [§App-db slots](#app-db-slots) below) so the shell's bottom rail can surface a `[● REDACTED N]` indicator. |
-| `true` | The collector receives every event unchanged; `:sensitive? true` events flow through the bus to every consumer. |
-| `nil` | Resets to default (`false`). |
+| `:rf.egress/local-redacted` | Default (fail-closed). Xray's trace collector MUST drop events whose top-level `:sensitive?` field is `true` before any buffer push, and MUST bump the suppressed-events counter (see [§App-db slots](#app-db-slots) below) so the shell's bottom rail can surface a `[● REDACTED N]` indicator. |
+| `:rf.egress/local-raw` | The trusted-local operator opt-in. The collector receives every event unchanged; `:sensitive? true` events flow through to every consumer. Includes large values too (the profile's `:rf.size/include-large?`). |
+| `nil` | Resets to the default (`:rf.egress/local-redacted`). |
+| unknown | `configure!` rejects with `:rf.error/unknown-egress-profile` (the enum is closed). |
 
-The flag MUST be read at the head of the collector body on every
-event so toggling it via `configure!` takes effect on the next trace
-event without re-registering the listener (per
+The "is a `:sensitive?` event suppressed?" decision derives from the
+profile's `:rf.size/include-sensitive?` resolution via the framework
+projection table (`projection/profile-size-opts`), the SAME table
+`project-egress` consumes — one source of truth, no re-implemented
+redaction policy. The profile MUST be read at the head of the collector
+body on every event so changing it via `configure!` takes effect on the
+next trace event without re-registering the listener (per
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Privacy gate).
 
-`:rf.privacy/show-sensitive?` is **one-way lossy** — flipping from
-`false` to `true` only affects *future* events. Sensitive events
-already dropped under the default are gone from the buffer; only the
-suppressed-counter survives. Hosts debugging a redaction policy
-typically flip the flag and re-drive the runtime to see the raw
-cascade.
+**Reveal is an auditable operator act** (Spec 015 §Cross-tool grain):
+widening to `:rf.egress/local-raw` emits a `:rf.xray/egress-reveal` trace
+op so the reveal is trace-visible rather than a silent local flip.
+Narrowing back to `:rf.egress/local-redacted` triggers the retroactive
+scrub (the reveal is NOT a one-way trapdoor — see
+[`013-Trace-Consumer.md`](./013-Trace-Consumer.md) §Retroactive-scrub),
+clearing every buffered event so privacy is fully restored. Going the
+other way (widening) is one-way lossy in the sense that events dropped
+under the redacting default are already gone — hosts debugging a
+redaction policy widen the profile and re-drive the runtime to see the
+raw cascade.
 
 ### `:rf.xray/layout-host-selector`
 
@@ -586,7 +610,7 @@ Default-defining shape, per-knob rationale and the localStorage key
 are normatively documented in
 [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) §Settings popup
 — v1 ships. The `:rf.xray/editor` / `:rf.xray/project-root` /
-`:rf.xray/auto-open?` / `:rf.privacy/show-sensitive?` keys above
+`:rf.xray/auto-open?` / `:rf.xray/egress-profile` keys above
 remain process-global atoms distinct from `:rf.xray/settings` (their
 semantics predate the popup; the popup-managed surface is the
 `{:rf.xray/settings <map>}` shape).
@@ -675,7 +699,8 @@ specified:
 
 A `frame-id → count` map, where each value is the number of
 `:sensitive? true` trace events the collector dropped for that frame
-under the current `:rf.privacy/show-sensitive?` setting. Events without a
+under the current local-render egress profile
+(`:rf.xray/egress-profile`). Events without a
 frame scope (registration-time emits, outermost-dispatch lookup
 failures) MUST count under the `:global` bucket so a count is never
 lost.
@@ -817,11 +842,12 @@ popup's Theme tab or `(configure! {:rf.xray/settings {:theme :light}})`.
 v1 ships ~6 host-supplied keys (`:rf.xray/editor` /
 `:rf.xray/project-root` / `:rf.xray/layout-host-selector` /
 `:rf.xray/auto-open?` / `:rf.xray/keybinding-enabled?` /
-`:rf.privacy/show-sensitive?`) plus the `:rf.xray/filters` seed
-slot. Future tool-owned keys follow the same `:rf.xray/*` convention;
-cross-tool keys live under their own `:rf.<area>/*` reservation
-(`:rf.privacy/*` today; future cross-tool surfaces would book their
-own segments via [`spec/Conventions.md`](../../../spec/Conventions.md)).
+`:rf.xray/egress-profile`) plus the `:rf.xray/filters` seed
+slot. All Xray knobs follow the `:rf.xray/*` convention; each
+re-frame2 tool reserves its own `:rf.<tool>/*` segment via
+[`spec/Conventions.md`](../../../spec/Conventions.md) (Story's
+`:rf.story/*`, etc.) — there is no cross-tool shared reservation,
+including for the on-box egress profile (per-`(tool, frame)`).
 The full destination per
 [`ai/findings/2026-05-17-10x-config-options-for-xray.md`](#findings)
 absorbs every re-frame-10x configuration option that translates plus

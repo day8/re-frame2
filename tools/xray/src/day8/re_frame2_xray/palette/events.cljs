@@ -416,8 +416,8 @@
             ;; frameless secondary ring + Xray's mirrored
             ;; `:trace-buffer` slot all drop together via
             ;; `trace-collector/retroactive-scrub!` (the same path
-            ;; the `:rf.privacy/show-sensitive?` true → false
-            ;; transition uses). The slot dispatches a coalesced
+            ;; the egress-profile reveal → redact narrowing uses).
+            ;; The slot dispatches a coalesced
             ;; clear so the panel re-renders on the standard
             ;; reactive path.
             (try (trace-collector/retroactive-scrub!) (catch :default _ nil))

@@ -18,11 +18,12 @@
   ## Pre-/post-state hygiene
 
   `configure!` writes module-level atoms (`editor`, `project-root`,
-  `layout-host-selector`, `auto-open?`, `show-sensitive?`). All keys
+  `layout-host-selector`, `auto-open?`, `egress-profile`). All keys
   live under the `:rf.xray/*` reserved namespace per rf2-xea9u; the
-  cross-tool privacy gate is `:rf.privacy/show-sensitive?`. Other
-  tests in the suite may have flipped them; this test snapshots the
-  pre-state, runs assertions against deltas, then restores.
+  on-box reveal grain is `:rf.xray/egress-profile` (EP-0015
+  per-(tool,frame), rf2-h40lt2). Other tests in the suite may have
+  flipped them; this test snapshots the pre-state, runs assertions
+  against deltas, then restores.
 
   Why we don't need the multi-frame harness here: the assertions are
   about a single namespace's atom state, not Xray's spine + cascades.
@@ -36,14 +37,14 @@
    :project-root    (cfg/get-project-root)
    :layout-host     (cfg/get-layout-host-selector)
    :auto-open?      (cfg/auto-open-enabled?)
-   :show-sensitive? (cfg/get-show-sensitive)})
+   :egress-profile  (cfg/get-egress-profile)})
 
 (defn- restore! [s]
   (cfg/configure! {:rf.xray/editor                (:editor s)
                    :rf.xray/project-root          (:project-root s)
                    :rf.xray/layout-host-selector  (:layout-host s)
                    :rf.xray/auto-open?            (:auto-open? s)
-                   :rf.privacy/show-sensitive?     (:show-sensitive? s)}))
+                   :rf.xray/egress-profile        (:egress-profile s)}))
 
 (use-fixtures :each
   {:before (fn []
@@ -57,7 +58,7 @@
                      :rf.xray/project-root          "/tmp/probe-multi-key"
                      :rf.xray/layout-host-selector  "#rf2-qd5r6-probe-host"
                      :rf.xray/auto-open?            false
-                     :rf.privacy/show-sensitive?     true})
+                     :rf.xray/egress-profile        :rf.egress/local-raw})
     (is (= :idea (cfg/get-editor))
         ":rf.xray/editor did not round-trip through multi-key configure!")
     (is (= "/tmp/probe-multi-key" (cfg/get-project-root))
@@ -66,8 +67,8 @@
         ":rf.xray/layout-host-selector did not round-trip through multi-key configure!")
     (is (= false (cfg/auto-open-enabled?))
         ":rf.xray/auto-open? did not round-trip through multi-key configure!")
-    (is (= true (cfg/get-show-sensitive))
-        ":rf.privacy/show-sensitive? did not round-trip through multi-key configure!")))
+    (is (= :rf.egress/local-raw (cfg/get-egress-profile))
+        ":rf.xray/egress-profile did not round-trip through multi-key configure!")))
 
 (deftest configure-partial-update-leaves-others-alone
   (testing "a single-key configure! call leaves untouched keys at their previous values"
@@ -76,7 +77,7 @@
                      :rf.xray/project-root          "/tmp/probe-multi-key"
                      :rf.xray/layout-host-selector  "#rf2-qd5r6-probe-host"
                      :rf.xray/auto-open?            false
-                     :rf.privacy/show-sensitive?     true})
+                     :rf.xray/egress-profile        :rf.egress/local-raw})
     ;; Partial update — only :rf.xray/editor.
     (cfg/configure! {:rf.xray/editor :zed})
     (is (= :zed (cfg/get-editor))
@@ -87,15 +88,15 @@
         ":rf.xray/layout-host-selector was reset by partial configure!")
     (is (= false (cfg/auto-open-enabled?))
         ":rf.xray/auto-open? was reset by partial configure!")
-    (is (= true (cfg/get-show-sensitive))
-        ":rf.privacy/show-sensitive? was reset by partial configure!")))
+    (is (= :rf.egress/local-raw (cfg/get-egress-profile))
+        ":rf.xray/egress-profile was reset by partial configure!")))
 
 (deftest configure-empty-map-is-noop
   (testing "configure! with empty map leaves every slot at its current value"
     (cfg/configure! {:rf.xray/editor                :cursor
                      :rf.xray/project-root          "/tmp/noop-baseline"
                      :rf.xray/auto-open?            true
-                     :rf.privacy/show-sensitive?     false})
+                     :rf.xray/egress-profile        :rf.egress/local-redacted})
     (let [pre (snapshot)]
       (cfg/configure! {})
       (is (= pre (snapshot))

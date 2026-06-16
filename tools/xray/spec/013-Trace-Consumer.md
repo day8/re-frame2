@@ -132,19 +132,20 @@ secondary-ring push or mirror dispatch:
 
 1. If `:sensitive?` is **absent or `false`**, the event is processed
    normally.
-2. If `:sensitive?` is **`true`** AND the
-   `:rf.privacy/show-sensitive?` flag is `false` (the default), the
+2. If `:sensitive?` is **`true`** AND the local-render egress profile
+   redacts (the `:rf.egress/local-redacted` default), the
    event MUST be **dropped** before any push. The collector MUST bump
    a per-frame suppressed-events counter (keyed by the event's
    `:tags :frame`, or `:global` when no frame scope is present) so
    the shell's bottom rail can surface a `[● REDACTED N]` indicator.
-3. If `:sensitive?` is `true` AND the `:rf.privacy/show-sensitive?` flag is
-   `true`, the event passes through unchanged.
+3. If `:sensitive?` is `true` AND the egress profile reveals
+   (`:rf.egress/local-raw`), the event passes through unchanged.
 
-The flag is read **at the head of the collector body** on every
-event, so toggling it via `(xray-config/configure!
-{:rf.privacy/show-sensitive? true})` takes effect on the next trace
-event without re-registering the listener. The default is `false`.
+The profile is read **at the head of the collector body** on every
+event, so widening it via `(xray-config/configure!
+{:rf.xray/egress-profile :rf.egress/local-raw})` takes effect on the
+next trace event without re-registering the listener. The default is
+`:rf.egress/local-redacted`.
 
 ### Read-side gate on the snapshot (rf2-0ax6f)
 
@@ -161,17 +162,18 @@ reads the ring back — pulling the retained sensitive event into the
 snapshot.
 
 So `snapshot-from-rings` (§Snapshot below) applies the SAME
-`suppress-sensitive?` gate on the read: while `:rf.privacy/show-
-sensitive?` is `false`, every retained-but-sensitive event is
+`suppress-sensitive?` gate on the read: while the egress profile
+redacts (the `:rf.egress/local-redacted` default), every
+retained-but-sensitive event is
 scrubbed from the snapshot regardless of frame-bound vs frameless
 origin. The two gates are genuinely symmetric — the listener gate
 keeps sensitive events out of the secondary ring + counter path; the
 read gate keeps retained-in-per-frame-ring sensitive events out of
 every downstream surface (`:trace-buffer`, L2, the trace panel, the
 app-db diff, the cascade export, and the MCP/snapshot surface). The
-read gate covers the steady-state read while the flag stays `false`;
-the [retroactive scrub](#retroactive-scrub-on-toggle-off) covers the
-true → false transition by clearing the rings wholesale.
+read gate covers the steady-state read while the profile redacts;
+the [retroactive scrub](#retroactive-scrub-on-profile-narrowing) covers
+the reveal → redact narrowing by clearing the rings wholesale.
 
 The **runtime/MCP accessors** (`day8.re-frame2-xray.runtime/get-trace-buffer`
 and `get-issues`, [API.md §Inspection band](API.md)) read the per-frame
@@ -179,9 +181,10 @@ rings DIRECTLY — they bypass `snapshot-from-rings` and the panel's
 `:trace-buffer` app-db slot entirely. They therefore apply the SAME
 event-level default-suppress as their OWN gate (`drop-sensitive-events`),
 dropping whole `:sensitive? true` events before value-scrubbing. The
-opt-back-in differs from the panel surface: the panel reads the global
-`:rf.privacy/show-sensitive?` UI flag, while the seam is per-call so the
-opt is the per-call `{:include-sensitive? true}` accessor option. The
+opt-back-in differs from the panel surface: the panel reads its
+local-render egress profile (`:rf.xray/egress-profile`), while the seam
+is per-call so the opt is the per-call `{:include-sensitive? true}`
+accessor option. The
 envelope — existence, `:op-type`, timing, source, handler/event ids, and
 non-elided `:tags` — is what the seam gate protects; value-scrubbing
 (`egress-value`) alone leaves the envelope intact, which is why the
@@ -205,7 +208,7 @@ bump, with no dependency on sibling subs recomputing. The plain
 primitive for testing.
 
 Counters MUST reset alongside the trace surface; see
-[§Retroactive scrub](#retroactive-scrub-on-toggle-off) below.
+[§Retroactive scrub](#retroactive-scrub-on-profile-narrowing) below.
 
 The redaction indicator's UI shape is owned by
 [`007-UX-IA.md`](./007-UX-IA.md) §Bottom rail; this doc owns the
@@ -251,7 +254,8 @@ sorted by `:id`. The merged vector lands in Xray's app-db
 `snapshot-from-rings` applies the `suppress-sensitive?` read-side
 gate (see [§Read-side gate](#read-side-gate-on-the-snapshot-rf2-0ax6f))
 to the merged vector, so retained-but-sensitive events never reach
-`:trace-buffer` while `:rf.privacy/show-sensitive?` is `false`.
+`:trace-buffer` while the egress profile redacts (the
+`:rf.egress/local-redacted` default).
 
 ## Reactivity — microtask-coalesced mirror sync
 
@@ -287,14 +291,16 @@ registered). The framework's per-frame rings keep accumulating; the
 snapshot lands on first mount via the
 `mount.cljs/::seed-trace-and-target-frame` first-mount hook.
 
-## Retroactive scrub on toggle-off
+## Retroactive scrub on profile narrowing
 
-Per [Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
-false](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
-(rf2-lqmje): toggling `:rf.privacy/show-sensitive?` from true →
-false MUST clear the trace surface. The flag is NOT a one-way
-trapdoor — a sensitive cascade emitted while the flag was true would
-otherwise remain visible after the user expected privacy restored.
+Per [Spec 009 §Privacy §Retroactive-scrub on the egress-profile
+narrowing](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
+(rf2-lqmje): narrowing `:rf.xray/egress-profile` from reveal
+(`:rf.egress/local-raw`) back to the redacting default
+(`:rf.egress/local-redacted`) MUST clear the trace surface. Reveal is
+NOT a one-way trapdoor — a sensitive cascade emitted while the profile
+revealed would otherwise remain visible after the user expected privacy
+restored.
 
 `trace-collector/retroactive-scrub!` drops all four places trace
 data lives:
@@ -312,13 +318,13 @@ trade-off — selective scrubbing is unsafe because a single sensitive
 event can have caused later non-sensitive cascades (subs, renders,
 fx) whose payloads structurally reveal the redacted value.
 
-`config.cljc`'s `set-show-sensitive!` walks the registered
-`toggle-off-callbacks` on every true → false transition;
+`config.cljc`'s `set-egress-profile!` walks the registered
+`toggle-off-callbacks` on every reveal → redact narrowing;
 `trace_collector.cljs` registers `retroactive-scrub!` into that
 atom at load time (gated on `interop/debug-enabled?`). The same
 scrub fn drives:
 
-- The privacy toggle (true → false transition).
+- The egress-profile narrowing (reveal → redact).
 - The Settings popup's "Clear buffer now" button.
 - The command-palette's `:palette/clear-trace-buffer` action.
 
@@ -447,9 +453,10 @@ them up with **no panel change** — one vocabulary, many families.
   secondary frameless ring is bounded at 100 events. Both are lossy-
   on-overflow.
 - **`:sensitive?` events being reversible from the surface.** Once
-  dropped, the event is gone; flipping `:rf.privacy/show-sensitive?`
-  from `false` to `true` only affects *future* events. Suppressed
-  events are counted, not retained.
+  dropped, the event is gone; widening `:rf.xray/egress-profile`
+  from `:rf.egress/local-redacted` to `:rf.egress/local-raw` only
+  affects *future* events. Suppressed events are counted, not
+  retained.
 - **Buffer contents surviving a clear / retroactive scrub.**
   Tooling clears the surface via `trace-collector/retroactive-scrub!`;
   consumers MUST treat a cleared buffer as empty.

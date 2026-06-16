@@ -74,7 +74,7 @@
     (is (identical? config/configure!          core/configure!))
     (is (identical? config/set-editor!         core/set-editor!))
     (is (identical? config/set-auto-open!      core/set-auto-open!))
-    (is (identical? config/set-show-sensitive! core/set-show-sensitive!))))
+    (is (identical? config/set-egress-profile! core/set-egress-profile!))))
 
 ;; ---- (2) frame wiring --------------------------------------------------
 ;;

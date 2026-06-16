@@ -22,8 +22,10 @@
     `refresh-trace-rings!` synchronously to deterministically snap the
     app-db against the rings.
   - Retroactive scrub of every per-frame ring + the secondary ring +
-    Xray's app-db slot when `:rf.privacy/show-sensitive?` flips true →
-    false (per Spec 009 §Privacy §Retroactive-scrub).
+    Xray's app-db slot when the local-render egress profile narrows from
+    `:rf.egress/local-raw` back to the redacting default
+    (`:rf.egress/local-redacted`) (per Spec 009 §Privacy
+    §Retroactive-scrub; EP-0015 per-(tool,frame) reveal grain).
 
   ## What this ns no longer owns
 
@@ -187,8 +189,10 @@
   `:sensitive?` check (`re-frame.trace.tooling/push-to-ring!`) — the
   ring is a faithful record of what the runtime emitted. Xray's
   documented policy (Spec 009 §Privacy) is to SUPPRESS THE WHOLE EVENT
-  while `:rf.privacy/show-sensitive?` is false, because non-marked
-  envelope slots can structurally reveal a redacted value. So the read
+  while the local-render egress profile does not reveal sensitive values
+  (the `:rf.egress/local-redacted` default — `config/include-sensitive?`
+  false), because non-marked envelope slots can structurally reveal a
+  redacted value. So the read
   side — not the ring — is where the gate must live for frame-bound
   events: `collect-trace!` already drops sensitive events on the
   listener path, but it cannot stop the per-frame ring from retaining
@@ -197,9 +201,10 @@
   `config/suppress-sensitive?` to BOTH the per-frame events and the
   frameless ring here so the snapshot is scrubbed regardless of
   frame-bound vs frameless origin — genuinely symmetric with the
-  listener gate. The retroactive scrub (toggle true → false) still
-  clears the rings wholesale; this gate covers the steady-state read
-  while the flag is false.
+  listener gate. The retroactive scrub (profile narrowed
+  `:rf.egress/local-raw` → redacting default) still clears the rings
+  wholesale; this gate covers the steady-state read while the profile
+  redacts.
 
   Public so `mount.cljs` can drive the first-mount seed
   synchronously alongside the `:rf.xray/sync-trace-buffer` dispatch,
@@ -222,9 +227,9 @@
     (into []
           ;; Privacy gate (rf2-0ax6f): scrub retained-but-sensitive
           ;; events on the read side so the snapshot never leaks an
-          ;; event the listener gate already suppressed. No-op when
-          ;; :rf.privacy/show-sensitive? is true (opt-in unmask) or the
-          ;; event is non-sensitive.
+          ;; event the listener gate already suppressed. No-op when the
+          ;; local-render egress profile reveals sensitive values
+          ;; (`:rf.egress/local-raw` opt-in) or the event is non-sensitive.
           (remove config/suppress-sensitive?)
           (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
                    all))))
@@ -306,9 +311,10 @@
       (self-noise/xray-internal-event? event)
       nil
 
-      ;; Spec 009 §Privacy — drop sensitive events while
-      ;; :rf.privacy/show-sensitive? is false; bump the per-frame
-      ;; suppressed counter so the `[● REDACTED N]` indicator surfaces.
+      ;; Spec 009 §Privacy — drop sensitive events while the local-render
+      ;; egress profile redacts (the `:rf.egress/local-redacted` default);
+      ;; bump the per-frame suppressed counter so the `[● REDACTED N]`
+      ;; indicator surfaces. EP-0015 per-(tool,frame) reveal grain.
       (config/suppress-sensitive? event)
       (config/note-suppressed! (get-in event [:tags :frame]))
 
@@ -328,12 +334,12 @@
 
 ;; ---- retroactive scrub on toggle-off (rf2-lqmje, D5=a re-home) ---------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
-;; false: toggling `:rf.privacy/show-sensitive?` from true → false MUST
-;; clear every place a sensitive event could live. The flag is NOT a
-;; one-way trapdoor — a sensitive cascade emitted while the flag was
-;; true would otherwise remain visible after the user expected privacy
-;; restored.
+;; Per Spec 009 §Privacy §Retroactive-scrub: narrowing the local-render
+;; egress profile from a sensitive-revealing boundary
+;; (`:rf.egress/local-raw`) back to the redacting default MUST clear every
+;; place a sensitive event could live. The reveal is NOT a one-way
+;; trapdoor — a sensitive cascade buffered while the raw profile was active
+;; would otherwise remain visible after the user expected privacy restored.
 ;;
 ;; Three places hold trace data post-rf2-43koh:
 ;;   1. The framework's per-frame rings — clear via
@@ -368,12 +374,12 @@
 
 ;; ---- toggle-off registration ------------------------------------------
 ;;
-;; `config.cljc`'s `set-show-sensitive!` walks the registered toggle-off
-;; callbacks on every true → false transition. The listener body's
-;; ingest filter already drops `:sensitive?` events when the flag is
-;; false; this callback handles the case where the flag was true and is
-;; now off — every event that was retained between flip-on and flip-off
-;; is purged in one wholesale clear.
+;; `config.cljc`'s `set-egress-profile!` walks the registered toggle-off
+;; callbacks on every reveal → redact narrowing. The listener body's
+;; ingest filter already drops `:sensitive?` events while the profile
+;; redacts; this callback handles the case where the profile was
+;; `:rf.egress/local-raw` and is now narrowed back — every event that was
+;; retained between reveal and narrow is purged in one wholesale clear.
 ;;
 ;; Gated on `interop/debug-enabled?` so production builds elide the
 ;; registration alongside the rest of the collector surface.

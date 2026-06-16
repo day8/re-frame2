@@ -27,6 +27,7 @@
   cover the round-trip without a CLJS runtime."
   (:require [day8.re-frame2-xray.theme.tokens :as tokens]
             [re-frame.privacy :as privacy]
+            [re-frame.projection :as projection]
             [re-frame.source-coords.editor-uri :as editor-uri]
             #?@(:cljs [[cljs.reader]
                        [re-frame.core :as rf]
@@ -581,44 +582,84 @@
   []
   @project-root)
 
-;; ---- *show-sensitive?* (rf2-azls9 — :sensitive? trace-event policy) ------
+;; ---- *egress-profile* (rf2-h40lt2 — EP-0015 per-(tool,frame) reveal grain) -
 ;;
-;; Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
-;; trace-consuming integrations MUST default-suppress `:sensitive? true`
-;; events. Xray is a framework-published consumer — its ring buffer
-;; feeds every panel (event-detail, trace, machine inspector, etc.)
-;; — so the collector body gates on this flag before
-;; the event reaches the buffer.
+;; EP-0015 issue 7 / Spec 015 §Cross-tool visibility grain: on-box
+;; visibility is per `(tool, frame)` — there is NO single process-global
+;; `show-sensitive?` user toggle. Local tools default to
+;; `:rf.egress/local-redacted` (suppress sensitive display); raw requires
+;; an explicit trusted-local opt-in (`:rf.egress/local-raw`). The
+;; predecessor process-global `:rf.privacy/show-sensitive?` boolean
+;; (rf2-azls9) is RETIRED and folded onto this named-boundary model —
+;; matching the Story migration (rf2-3t26eh) and the per-(tool,frame)
+;; `local_render.cljc` seam already shipped in this tool.
 ;;
-;; Default is `false` (suppress sensitive events). An engineer debugging
-;; redaction policy flips this on via
-;; `(xray-config/configure! {:rf.privacy/show-sensitive? true})`.
+;; This atom holds Xray's local-render egress PROFILE. Xray is a
+;; framework-published trace consumer (its preload listener + the
+;; trace-collector snapshot feed every panel), so every value-bearing slot
+;; it surfaces on a dev surface ships under this profile. The "is a
+;; `:sensitive?` event visible?" decision is no longer a hand-held boolean:
+;; it derives from the profile's `:rf.size/include-sensitive?` resolution
+;; via the framework projection table (`projection/profile-size-opts`), the
+;; SAME table `project-egress` consumes — one source of truth, no
+;; re-implemented redaction policy.
 ;;
-;; The flag is read at the head of the collector body, so toggling it
-;; takes effect on the next trace event without re-registering the
-;; listener.
+;; Default is `:rf.egress/local-redacted` — FAIL-CLOSED: sensitive display
+;; suppressed. An engineer debugging redaction policy on their OWN machine
+;; opts into the trusted-local raw boundary via
+;; `(xray-config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})`
+;; — an explicit operator act, NOT a process-global future-event switch.
+;; The profile is read at the head of every collector body, so changing it
+;; takes effect on the next trace event without re-registering the listener.
+
+(def default-egress-profile
+  "Xray's default local-render egress profile (EP-0015 issue 7): the on-box
+  dev UI boundary that suppresses sensitive display. Fail-closed."
+  :rf.egress/local-redacted)
+
+(def trusted-local-profile
+  "The trusted-local-operator opt-in profile (EP-0015 §10): includes
+  sensitive AND large. The single boundary an Xray operator flips on to
+  reveal path-marked values verbatim on their own machine."
+  :rf.egress/local-raw)
+
+(def egress-profiles
+  "The closed six-member `:rf.egress/profile` vocabulary — re-exported from
+  the framework's `re-frame.projection/profiles` so `configure!` validates
+  `:rf.xray/egress-profile` against the ONE canonical enum (no forked
+  copy)."
+  projection/profiles)
+
+(defn known-egress-profile?
+  "True iff `profile` is a member of the closed `:rf.egress/*` enum."
+  [profile]
+  (contains? egress-profiles profile))
 
 (defonce
-  ^{:doc "Atom holding the `:rf.privacy/show-sensitive?` flag. Default
-         `false`. When `false` (default), Xray's trace collector
-         short-circuits on events whose `:sensitive?` field is true,
-         and the UI surface tracks how many were suppressed. When
-         `true`, the collector receives every event unchanged. The
-         key is cross-tool — Story and other re-frame2 tools that
-         consume the trace bus read the same `:rf.privacy/*` slot. Per
-         Spec 009 §Privacy + bead rf2-azls9 + rf2-xea9u."}
-  show-sensitive?
-  (atom false))
+  ^{:doc "Atom holding Xray's local-render `:rf.egress/*` profile. Default
+         `:rf.egress/local-redacted` (suppress sensitive display —
+         fail-closed). Set to `:rf.egress/local-raw` for the trusted-local
+         verbatim opt-in. Read by the trace collector via
+         `include-sensitive?` / `suppress-sensitive?` — the whole-event
+         `:sensitive?` redact/pass decision derives from this profile's
+         `:rf.size/include-sensitive?` resolution via the framework
+         projection table, the same table `project-egress` consumes (one
+         source of truth). Per EP-0015 (rf2-h40lt2), folding the retired
+         process-global `:rf.privacy/show-sensitive?` boolean (rf2-azls9)
+         onto the per-(tool,frame) frame-owned model."}
+  egress-profile
+  (atom default-egress-profile))
 
 ;; ---- toggle-off callbacks (rf2-lqmje — retroactive scrub) ----------------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
-;; false (rf2-lqmje), toggling the flag from true → false MUST clear
-;; the trace buffer — the flag is NOT a one-way trapdoor. The collector
-;; only gates at ingest time (`suppress-sensitive?`), so without this
-;; scrub a sensitive cascade emitted while the flag was true would
-;; remain visible in every panel after the user flipped the flag back
-;; to false expecting privacy to be restored.
+;; Per Spec 009 §Privacy §Retroactive-scrub (rf2-lqmje), NARROWING the
+;; egress profile from a sensitive-revealing boundary
+;; (`:rf.egress/local-raw`) back to the redacting default MUST clear the
+;; trace buffer — the reveal is NOT a one-way trapdoor. The collector only
+;; gates at ingest time (`suppress-sensitive?`), so without this scrub a
+;; sensitive cascade buffered while the raw profile was active would remain
+;; visible in every panel after the user narrowed the profile back
+;; expecting privacy to be restored.
 ;;
 ;; The cost: non-sensitive history that was buffered alongside the
 ;; sensitive cascade is also lost. This is the documented trade-off —
@@ -629,26 +670,28 @@
 ;; semantic.
 ;;
 ;; The hook design avoids a circular require — `trace_collector.cljs`
-;; depends on `config.cljc` to read the flag and bump the counter, so
+;; depends on `config.cljc` to read the profile and bump the counter, so
 ;; `config.cljc` cannot directly invoke
 ;; `trace-collector/retroactive-scrub!`. Instead,
 ;; `trace_collector.cljs` registers its scrub fn into this atom at
-;; load time; `set-show-sensitive!` walks the atom on every true →
-;; false transition. CLJC-pure so the registration shape is testable
+;; load time; `set-egress-profile!` walks the atom on every reveal →
+;; redact narrowing. CLJC-pure so the registration shape is testable
 ;; under the JVM target.
 
 (defonce
   ^{:doc "Atom holding `{id → (fn [] ...)}` callbacks invoked when
-         `set-show-sensitive!` transitions the flag from true → false.
-         `trace_collector.cljs` registers its `retroactive-scrub!` at
-         load time. Internal — host applications should not register
-         here."}
+         `set-egress-profile!` narrows the profile from a
+         sensitive-revealing boundary (`:rf.egress/local-raw`) back to a
+         redacting one. `trace_collector.cljs` registers its
+         `retroactive-scrub!` at load time. Internal — host applications
+         should not register here."}
   toggle-off-callbacks
   (atom {}))
 
 (defn register-toggle-off-callback!
   "Register `f` (a zero-arg fn) under `id` to be invoked when
-  `set-show-sensitive!` transitions the flag from `true` → `false`.
+  `set-egress-profile!` narrows the profile from a sensitive-revealing
+  boundary (`:rf.egress/local-raw`) back to a redacting one.
   Replaces any existing entry under the same id. Internal API — Xray
   modules use it to wire their buffer-clear hooks; host applications
   should NOT register here.
@@ -676,33 +719,80 @@
       (catch #?(:clj Throwable :cljs :default) e
         (tap> {:tag ::toggle-off-callback-failed :id id :error e})))))
 
-(defn set-show-sensitive!
-  "Replace the `:rf.privacy/show-sensitive?` flag. Xray's `configure!`
-  calls this. `nil` resets to the default (`false`).
+(defn- profile-includes-sensitive?
+  "True iff `profile` resolves (via the framework projection table) to a
+  `:rf.size/include-sensitive? true` floor — i.e. it is a
+  sensitive-revealing boundary. `:rf.egress/local-raw` is the only
+  Xray-relevant profile that does. An unknown / nil profile is fail-closed
+  (does NOT reveal)."
+  [profile]
+  (boolean (:rf.size/include-sensitive? (projection/profile-size-opts profile))))
+
+(defn set-egress-profile!
+  "Replace Xray's local-render `:rf.egress/*` profile (EP-0015, rf2-h40lt2).
+  Xray's `configure!` calls this via `:rf.xray/egress-profile`. `nil`
+  resets to the default (`:rf.egress/local-redacted` — fail-closed,
+  sensitive display suppressed). An unknown profile keyword is rejected by
+  `configure!` before reaching here; defence-in-depth, a non-member value
+  coerces to the fail-closed default.
 
   Per rf2-lqmje (Spec 009 §Privacy §Retroactive-scrub): when the call
-  transitions the flag from `true` → `false`, the trace buffer is
-  cleared by invoking every registered `toggle-off-callbacks` entry.
-  The trade-off — non-sensitive history buffered alongside the
-  sensitive cascade is also lost — is intentional: clearing the whole
-  buffer is the simplest correct semantic because a sensitive event
-  emitted while the flag was true can have caused later cascades whose
-  payloads structurally reveal the redacted value. The flag is NOT a
-  one-way trapdoor; toggling it false MUST restore privacy fully.
-  true → true and false → ANY transitions do NOT invoke the
-  callbacks."
-  [v]
-  (let [prev @show-sensitive?
-        next (boolean v)]
-    (reset! show-sensitive? next)
-    (when (and prev (not next))
-      (run-toggle-off-callbacks!)))
+  NARROWS the profile from a sensitive-revealing boundary
+  (`:rf.egress/local-raw`) back to a redacting one, the trace buffer is
+  cleared by invoking every registered `toggle-off-callbacks` entry. The
+  trade-off — non-sensitive history buffered alongside the sensitive
+  cascade is also lost — is intentional: clearing the whole buffer is the
+  simplest correct semantic because a sensitive event buffered while the
+  raw profile was active can have caused later cascades whose payloads
+  structurally reveal the redacted value. The reveal is NOT a one-way
+  trapdoor; narrowing MUST restore privacy fully. A widening (redact →
+  reveal) and any same-class transition do NOT invoke the callbacks.
+
+  ## Auditable reveal act (EP-0015 issue 7 / Spec 015 §Cross-tool grain)
+
+  Spec 015 §385: revealing sensitive data is an OPERATOR ACT and is itself
+  trace-visible (auditable). When this call WIDENS from a redacting profile
+  to a sensitive-revealing one (`:rf.egress/local-raw`), it emits a
+  `:rf.xray/egress-reveal` trace op (fail-soft, CLJS only — the trace bus is
+  a runtime concern) so the reveal lands on the audit surface rather than
+  being a silent local flip. Narrowing (reveal → redact) RESTORES privacy
+  and needs no audit op."
+  [profile]
+  (let [next (if (contains? projection/profiles profile)
+               profile
+               default-egress-profile)
+        prev @egress-profile]
+    (reset! egress-profile next)
+    (when (and (profile-includes-sensitive? prev)
+               (not (profile-includes-sensitive? next)))
+      (run-toggle-off-callbacks!))
+    ;; Auditable reveal act (Spec 015 §385): the redact → reveal widening is
+    ;; an operator act that MUST be trace-visible. Fail-soft + CLJS-only —
+    ;; the trace bus does not exist under the JVM config-test target, and a
+    ;; missing / early-load runtime must never break the config write.
+    #?(:cljs
+       (when (and (not (profile-includes-sensitive? prev))
+                  (profile-includes-sensitive? next))
+         (try
+           (rf/emit-trace-event! :rf.xray :rf.xray/egress-reveal
+                                 {:rf.xray/from prev
+                                  :rf.xray/to   next})
+           (catch :default _ nil)))))
   nil)
 
-(defn get-show-sensitive
-  "Return the current `:rf.privacy/show-sensitive?` flag value."
+(defn get-egress-profile
+  "Return Xray's current local-render `:rf.egress/*` profile."
   []
-  @show-sensitive?)
+  @egress-profile)
+
+(defn include-sensitive?
+  "True iff Xray's current local-render profile reveals sensitive values
+  (i.e. resolves to `:rf.size/include-sensitive? true`). The successor to
+  the retired `get-show-sensitive` boolean read — the trace collector
+  consults this (via `suppress-sensitive?`) to decide whether a
+  `:sensitive?` event is shown or redacted. Fail-closed by default."
+  []
+  (profile-includes-sensitive? @egress-profile))
 
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top
@@ -716,15 +806,18 @@
   (privacy/sensitive? ev))
 
 (defn suppress-sensitive?
-  "Should this trace event be suppressed by Xray's trace collector
-  under the current `:rf.privacy/show-sensitive?` setting?
+  "Should this trace event be suppressed by Xray's trace collector under
+  the current local-render egress profile (EP-0015, rf2-h40lt2)?
 
   Returns `true` iff (a) the event is `:sensitive? true` AND (b) the
-  show-sensitive flag is `false`. The collector wraps its body in
-  `(when-not (suppress-sensitive? ev) ...)`."
+  current profile does NOT reveal sensitive values (`include-sensitive?`
+  is false — the `:rf.egress/local-redacted` default). The collector wraps
+  its body in `(when-not (suppress-sensitive? ev) ...)`. The redaction
+  policy is the profile's, resolved through the framework projection
+  table — it is NOT a re-implemented boolean."
   [ev]
   (and (sensitive-event? ev)
-       (not @show-sensitive?)))
+       (not (include-sensitive?))))
 
 ;; ---- *suppressed-counters* (rf2-azls9 — UI redaction indicator) ----------
 ;;
@@ -1396,9 +1489,10 @@
   `:rf.xray/*` reserved namespace (per rf2-xea9u — re-frame2 tools'
   `configure!` surfaces own their own reserved sub-namespace beneath
   the framework `:rf/*` root; `:rf.<tool>/*` is the canonical
-  convention for ALL re-frame2 tool boot-time config). Cross-tool
-  keys live under their own reserved namespace
-  (e.g. `:rf.privacy/show-sensitive?` is read by Xray AND Story).
+  convention for ALL re-frame2 tool boot-time config). The on-box
+  reveal grain is per-tool (EP-0015 issue 7): Xray's egress profile
+  lives under `:rf.xray/egress-profile`, Story's under
+  `:rf.story/egress-profile` — there is NO single cross-tool toggle.
 
   Keys group by TOPICAL prefix in their local name (the
   key-naming axis per rf2-dz35f / audit-of-audits #16): editor /
@@ -1436,15 +1530,21 @@
        the host's command palette — are not swallowed by Xray's
        capture-phase listener. Per rf2-4eyik (rf2-q7who Thread A).
        MUST be set BEFORE the Xray preload runs.
-    `{:rf.privacy/show-sensitive? <bool>}` — cross-tool privacy gate
-       for `:sensitive? true` trace events per Spec 009 §Privacy
-       (rf2-azls9). Defaults to `false` — Xray's trace collector
-       drops sensitive events and the shell's bottom rail surfaces a
-       `[● REDACTED N]` hint. Set to `true` while debugging redaction
-       policy to see the raw cascade. The key lives under
-       `:rf.privacy/*` (not `:rf.xray/*`) because Story and every
-       other re-frame2 tool that consumes the trace bus reads the
-       same slot — one host config knob, every tool honours it.
+    `{:rf.xray/egress-profile <kw>}` — Xray's on-box dev-UI egress
+       profile (EP-0015 issue 7, rf2-h40lt2). One of the closed
+       `:rf.egress/*` enum (`re-frame.projection/profiles`); for the
+       on-box dev surface the relevant pair is `:rf.egress/local-redacted`
+       (the fail-closed default — suppress `:sensitive? true` display; the
+       shell's bottom rail surfaces a `[● REDACTED N]` hint) and
+       `:rf.egress/local-raw` (the trusted-local operator opt-in — reveal
+       sensitive AND large values verbatim on your own machine). An unknown
+       profile raises `:rf.error/unknown-egress-profile`. `nil` resets to
+       the default. This REPLACES the retired process-global
+       `:rf.privacy/show-sensitive?` boolean (rf2-azls9): EP-0015 §Cross-tool
+       visibility grain rules on-box visibility per `(tool, frame)`, with NO
+       single process-global user toggle. Revealing is an explicit operator
+       act flipping THIS tool's grain to `:rf.egress/local-raw`, not a
+       future-event switch shared across every tool.
     `{:rf.xray/settings <map>}` — bulk-replace the Settings popup
        state map (rf2-9poxq). Shape mirrors `default-settings`. The
        popup's event surface (`:rf.xray/settings-update`) is the
@@ -1486,7 +1586,7 @@
     host-selector-opt   :rf.xray/layout-host-selector
     auto-open-opt       :rf.xray/auto-open?
     keybinding-opt      :rf.xray/keybinding-enabled?
-    show-sensitive-opt  :rf.privacy/show-sensitive?
+    egress-profile-opt  :rf.xray/egress-profile
     filters-opt         :rf.xray/filters
     filters-key-opt     :rf.xray/filters-storage-key
     :as opts}]
@@ -1508,8 +1608,21 @@
     (set-auto-open! auto-open-opt))
   (when (contains? opts :rf.xray/keybinding-enabled?)
     (set-keybinding-enabled! keybinding-opt))
-  (when (contains? opts :rf.privacy/show-sensitive?)
-    (set-show-sensitive! show-sensitive-opt))
+  ;; rf2-h40lt2 — the EP-0015 per-(tool,frame) egress profile replaces the
+  ;; retired process-global `:rf.privacy/show-sensitive?` boolean. Reject an
+  ;; unknown profile loudly (`:rf.error/unknown-egress-profile`) — the enum
+  ;; is closed — rather than silently coercing to the default, so a typo'd
+  ;; reveal request surfaces instead of leaving the operator on the
+  ;; fail-closed default thinking they opted in.
+  (when (contains? opts :rf.xray/egress-profile)
+    (when (and (some? egress-profile-opt)
+               (not (known-egress-profile? egress-profile-opt)))
+      (throw (ex-info ":rf.error/unknown-egress-profile"
+                      {:rf.error/id :rf.error/unknown-egress-profile
+                       :where       'day8.re-frame2-xray.config/configure!
+                       :profile     egress-profile-opt
+                       :valid       egress-profiles})))
+    (set-egress-profile! egress-profile-opt))
   ;; NB: `settings-opt` is the destructured bulk-config map; the
   ;; in-namespace defonce atom is reached via the fully-qualified
   ;; symbol (`day8.re-frame2-xray.config/settings`) to disambiguate.
