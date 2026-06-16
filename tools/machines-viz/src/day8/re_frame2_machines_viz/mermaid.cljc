@@ -911,6 +911,22 @@
        (seq regions)
        (every? valid-state-tree? (vals regions))))
 
+(defn- definition-summary
+  "EP-0015 / Spec 015 §exception-path residual (rf2-8nzxib) — a
+  value-FREE diagnostic for an invalid `definition`. A definition can
+  carry a `:data` slot holding live runtime values, and projection
+  cannot walk `ex-data` after the fact, so the thrown error reports only
+  STRUCTURAL facts: the top-level key SET, parallel?, and child counts —
+  never the `:data` values."
+  [definition]
+  (if (map? definition)
+    (cond-> {:type     :map
+             :keys     (vec (sort-by str (keys definition)))
+             :parallel (parallel-definition? definition)}
+      (map? (:states definition))  (assoc :state-count  (count (:states definition)))
+      (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
+    {:type (cond (nil? definition) :nil (vector? definition) :vector :else :value)}))
+
 (defn emit
   "Emit a Mermaid `stateDiagram-v2` string for `definition`.
 
@@ -953,7 +969,9 @@
            (str "Mermaid export: a definition must carry :initial + a "
                 "non-empty :states map. Provide those."))
          {:recovery :supply-a-valid-definition
-          :extra    {:definition definition}})))
+          ;; rf2-8nzxib — value-FREE; never the raw definition (its
+          ;; :data slot can hold live runtime values).
+          :extra    {:definition-summary (definition-summary definition)}})))
    (let [body (if (parallel-definition? definition)
                 (render-parallel-body definition header-comment?)
                 (render-flat-or-compound-body definition header-comment?))]

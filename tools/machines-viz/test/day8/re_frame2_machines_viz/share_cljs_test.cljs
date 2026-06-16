@@ -20,6 +20,7 @@
   - Host override + `chart-state->props` projection."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
+            [clojure.walk]
             [cognitect.transit :as transit]
             [day8.re-frame2-machines-viz.share :as share]))
 
@@ -634,3 +635,73 @@
     (let [cs    (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
           props (share/chart-state->props (share/decode-share-url (share/encode-share-url cs)))]
       (is (= {:data :dirty :form :busy} (:current-state props))))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 — error ex-data carries NO raw payload (rf2-8nzxib)
+;;
+;; A thrown encode/decode error must NOT retain the rejected payload in
+;; ex-data: a forged share URL can smuggle a `:snapshot {:data …}` map or
+;; arbitrary runtime values, and projection cannot walk ex-data after the
+;; fact (Spec 015 §exception-path residual). The error keeps value-FREE
+;; structural diagnostics (reason/category, key SET, type) instead.
+
+(defn- ex-data-strings
+  "Every string that appears ANYWHERE in `m` (deep walk) — so a test can
+  assert a secret value never survives into the error map under any key."
+  [m]
+  (let [acc (atom [])]
+    (clojure.walk/postwalk
+      (fn [x] (when (string? x) (swap! acc conj x)) x)
+      m)
+    @acc))
+
+(deftest encode-error-omits-raw-chart-state
+  (testing "encode-failed ex-data carries a value-free summary, not the raw chart-state"
+    ;; A chart-state whose :snapshot smuggles a secret-bearing :data map,
+    ;; AND a malformed :state so encode rejects it.
+    (let [secret "hunter2-super-secret-token"
+          leaky  {:machine-id :auth/flow
+                  :frame-id   :app/main
+                  :definition idle-loading-success
+                  :snapshot   {:state "not-an-arm"        ;; rejected
+                               :data  {:password secret}}}
+          d      (try (share/encode-share-url leaky)
+                      (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d)) "reason/category preserved")
+      (is (not (contains? d :chart-state)) "no raw chart-state slot")
+      (is (some? (:chart-state-summary d)) "value-free summary present")
+      (is (not (some #(str/includes? % secret) (ex-data-strings d)))
+          "the secret string must not survive anywhere in ex-data"))))
+
+(deftest decode-error-omits-raw-envelope
+  (testing "missing-envelope decode-failed carries a value-free envelope summary, not the raw envelope"
+    (let [secret  "session-cookie-abc123"
+          ;; A forged envelope missing the required keys but carrying a secret.
+          url     (envelope->url {:totally :wrong :secret secret})
+          d       (try (share/decode-share-url url)
+                       (catch :default e (ex-data e)))]
+      (is (= :missing-envelope (:reason d)) "reason/category preserved")
+      (is (not (contains? d :envelope)) "no raw envelope slot")
+      (is (some? (:envelope-summary d)) "value-free summary present")
+      (is (not (some #(str/includes? % secret) (ex-data-strings d)))
+          "the secret string must not survive anywhere in ex-data"))))
+
+(deftest decode-error-omits-raw-chart
+  (testing "invalid-chart-state decode-failed carries a value-free chart summary, not the raw chart"
+    (let [secret "bearer-token-xyz789"
+          ;; A well-formed envelope whose :chart smuggles a secret via a
+          ;; :snapshot {:data …} the viewer will reject (closed-map rule).
+          forged  {:rf.machines-viz.share/v     "1"
+                   :rf.machines-viz.share/chart {:machine-id :auth/flow
+                                                 :frame-id   :app/main
+                                                 :definition idle-loading-success
+                                                 :snapshot   {:state :loading
+                                                              :data  {:token secret}}}}
+          url     (envelope->url forged)
+          d       (try (share/decode-share-url url)
+                       (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d)) "reason/category preserved")
+      (is (not (contains? d :chart)) "no raw chart slot")
+      (is (some? (:chart-summary d)) "value-free summary present")
+      (is (not (some #(str/includes? % secret) (ex-data-strings d)))
+          "the secret string must not survive anywhere in ex-data"))))

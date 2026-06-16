@@ -60,6 +60,32 @@
                :cljs [cljs.reader :as edn])))
 
 ;; ---------------------------------------------------------------------------
+;; Value-free error diagnostics (rf2-8nzxib)
+
+(defn- response-summary
+  "EP-0015 / Spec 015 §exception-path residual — a value-FREE diagnostic
+  for an LLM resolver `response` (or the fence-stripped form). The raw
+  string can carry prompt artefacts, user text, or LLM-returned secrets,
+  and projection cannot walk `ex-data` after the fact, so the thrown
+  error reports only the TYPE + character length — never the content."
+  [s]
+  (if (string? s)
+    {:type :string :length (count s)}
+    {:type (cond (nil? s) :nil (keyword? s) :keyword (map? s) :map
+                 (vector? s) :vector (sequential? s) :seq :else :value)}))
+
+(defn- spec-summary
+  "Value-FREE diagnostic for a parsed (but invalid) machine `spec`: the
+  type tag plus, for a map, the top-level key SET — never the values (a
+  parsed spec can embed LLM-returned strings / `:data` runtime values)."
+  [spec]
+  (cond
+    (map? spec)     {:type :map :keys (vec (sort-by str (keys spec)))}
+    (vector? spec)  {:type :vector :count (count spec)}
+    (nil? spec)     {:type :nil}
+    :else           {:type :value}))
+
+;; ---------------------------------------------------------------------------
 ;; System prompt
 
 (def system-prompt
@@ -261,7 +287,8 @@
                                 "a string (the LLM's EDN response); it returned a "
                                 "non-string value.")
                            {:recovery :return-a-string-from-the-resolver
-                            :extra    {:response response}}))
+                            ;; rf2-8nzxib — value-FREE; never the raw response.
+                            :extra    {:response-summary (response-summary response)}}))
          stripped      (strip-fences response)
          [stage spec-or-reason] (parse-edn stripped)]
      (cond
@@ -273,8 +300,10 @@
               "EDN (" spec-or-reason "). The resolver must return a single EDN "
               "machine-spec map, optionally inside a ```edn fenced block.")
          {:recovery :return-valid-edn-from-the-resolver
-          :extra    {:response response
-                     :stripped stripped}})
+          ;; rf2-8nzxib — value-FREE; the raw response/stripped text can
+          ;; carry prompt artefacts or LLM-returned secrets.
+          :extra    {:response-summary (response-summary response)
+                     :stripped-summary (response-summary stripped)}})
 
        :else
        (let [[stage2 ok-or-reason] (validate-spec spec-or-reason)]
@@ -288,5 +317,7 @@
                   "resolver return a spec with :initial + :states (or :type "
                   ":parallel + :regions).")
              {:recovery :return-a-valid-machine-spec
-              :extra    {:response response
-                         :spec     spec-or-reason}})))))))
+              ;; rf2-8nzxib — value-FREE; the response + parsed spec can
+              ;; embed LLM-returned secrets / runtime :data.
+              :extra    {:response-summary (response-summary response)
+                         :spec-summary     (spec-summary spec-or-reason)}})))))))

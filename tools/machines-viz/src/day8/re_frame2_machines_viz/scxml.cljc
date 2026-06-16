@@ -135,6 +135,35 @@
             [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---------------------------------------------------------------------------
+;; Value-free error diagnostics (rf2-8nzxib)
+;;
+;; EP-0015 / Spec 015 §exception-path residual — a thrown error must NOT
+;; carry the raw rejected payload. A machine spec can carry a `:data`
+;; slot of live runtime values and an SCXML input string can carry
+;; interpolated secrets; projection cannot walk `ex-data` after the fact,
+;; so the assembly site names the SHAPE (type tag, key SET, length) —
+;; never the values.
+
+(defn- spec-summary
+  "Value-FREE diagnostic for a rejected machine `spec`: type tag plus —
+  for a map — the top-level key SET, parallel?, and child counts."
+  [spec]
+  (if (map? spec)
+    (cond-> {:type     :map
+             :keys     (vec (sort-by str (keys spec)))
+             :parallel (= :parallel (:type spec))}
+      (map? (:states spec))  (assoc :state-count  (count (:states spec)))
+      (map? (:regions spec)) (assoc :region-count (count (:regions spec))))
+    {:type (cond (nil? spec) :nil (vector? spec) :vector :else :value)}))
+
+(defn- input-summary
+  "Value-FREE diagnostic for a rejected SCXML `input`: type + length."
+  [input]
+  (if (string? input)
+    {:type :string :length (count input)}
+    {:type (cond (nil? input) :nil (map? input) :map :else :value)}))
+
+;; ---------------------------------------------------------------------------
 ;; Id codec — FULLY INJECTIVE, xsd:ID-conformant (rf2-mnp93.1)
 ;;
 ;; Re-frame2 ids are keywords (`:idle`, `:auth/login-flow`,
@@ -792,7 +821,9 @@
           (str "SCXML export: a parallel machine spec requires a non-empty "
                ":regions map; add :regions to the parallel spec.")
           {:recovery :supply-non-empty-regions
-           :extra    {:spec machine-spec}}))
+           ;; rf2-8nzxib — value-FREE; never the raw spec (its :data
+           ;; slot can carry live runtime values).
+           :extra    {:spec-summary (spec-summary machine-spec)}}))
       (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            (str/join "\n" (emit-parallel machine-spec 0))))
 
@@ -808,7 +839,8 @@
            ":states map, or :type :parallel + :regions. Provide one of "
            "those shapes.")
       {:recovery :supply-a-valid-machine-spec
-       :extra    {:spec machine-spec}})))
+       ;; rf2-8nzxib — value-FREE; never the raw spec.
+       :extra    {:spec-summary (spec-summary machine-spec)}})))
 
 ;; ---------------------------------------------------------------------------
 ;; XML parse — minimal regex-based reader for the SCXML subset we
@@ -1417,7 +1449,8 @@
       'machines-viz/scxml->spec
       "SCXML import: scxml->spec expects an SCXML string; pass the SCXML document as a string."
       {:recovery :pass-an-scxml-string
-       :extra    {:input scxml-string}}))
+       ;; rf2-8nzxib — value-FREE; never the raw input.
+       :extra    {:input-summary (input-summary scxml-string)}}))
   (let [tokens (-> scxml-string strip-prolog lift-action-comments strip-comments tokenize vec)
         root-start (first (filter #(= "scxml" (:tag %)) tokens))]
     (when-not root-start

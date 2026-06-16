@@ -18,8 +18,19 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [day8.re-frame2-machines-viz.ai-generate :as ai]
             [day8.re-frame2-machines-viz.scxml :as scxml]))
+
+(defn- deep-strings
+  "Every string anywhere in `m` (deep walk) — so a test can assert a
+  secret never survives into the error map under any key."
+  [m]
+  (let [acc (volatile! [])]
+    (walk/postwalk
+      (fn [x] (when (string? x) (vswap! acc conj x)) x)
+      m)
+    @acc))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -182,6 +193,56 @@
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is ex)
       (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex)))))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 — error ex-data carries NO raw LLM payload (rf2-8nzxib)
+;;
+;; The resolver response can carry user prompt artefacts or LLM-returned
+;; secrets/source text, and the parsed spec can embed runtime :data;
+;; projection cannot walk ex-data after the fact (Spec 015). The error
+;; keeps value-FREE diagnostics (type, length, key set) — never the raw
+;; response / stripped text / parsed spec.
+
+(deftest parse-failed-omits-raw-response
+  (testing "unparseable-EDN :parse-failed keeps only value-free response/stripped summaries"
+    (let [secret   "OPENAI-SK-leaked-key-9f2a"
+          ;; A response that fails EDN parsing (unbalanced braces) but
+          ;; embeds a secret string the error must not retain.
+          resolver (stub-resolver (str "{:leaked \"" secret "\" {{{ not-edn }}}"))
+          d        (try (ai/generate-machine "x" {:resolver resolver}) nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :ai-generate/parse-failed (:rf.error/id d)) "category preserved")
+      (is (not (contains? d :response)) "no raw :response slot")
+      (is (not (contains? d :stripped)) "no raw :stripped slot")
+      (is (some? (:response-summary d)) "value-free response summary present")
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
+
+(deftest non-string-response-omits-raw-response
+  (testing "non-string resolver response keeps only a value-free summary"
+    (let [secret   "card-number-4111111111111111"
+          resolver (fn [_] {:leak secret})            ;; non-string → parse-failed
+          d        (try (ai/generate-machine "x" {:resolver resolver}) nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :ai-generate/parse-failed (:rf.error/id d)))
+      (is (not (contains? d :response)))
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
+
+(deftest invalid-spec-omits-raw-parsed-spec
+  (testing "invalid-spec keeps only a value-free spec summary, not the parsed spec"
+    (let [secret   "ssn-123-45-6789"
+          ;; Parses as EDN (a map) but is not a valid machine spec, and
+          ;; embeds a secret-bearing :data slot.
+          resolver (stub-resolver (str "{:not-a-machine true :data {:ssn \"" secret "\"}}"))
+          d        (try (ai/generate-machine "x" {:resolver resolver}) nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :ai-generate/invalid-spec (:rf.error/id d)) "category preserved")
+      (is (not (contains? d :spec)) "no raw :spec slot")
+      (is (not (contains? d :response)) "no raw :response slot")
+      (is (some? (:spec-summary d)) "value-free spec summary present")
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
 
 ;; ---------------------------------------------------------------------------
 ;; End-to-end — generated specs work with the rest of the substrate

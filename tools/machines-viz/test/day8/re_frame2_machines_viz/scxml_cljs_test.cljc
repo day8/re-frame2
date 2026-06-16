@@ -15,7 +15,15 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [day8.re-frame2-machines-viz.scxml :as scxml]))
+
+(defn- deep-strings
+  "Every string anywhere in `m` (deep walk)."
+  [m]
+  (let [acc (volatile! [])]
+    (walk/postwalk (fn [x] (when (string? x) (vswap! acc conj x)) x) m)
+    @acc))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — small, hand-curated machine definitions per Spec 005
@@ -323,6 +331,48 @@
   (testing "input without <scxml> throws :scxml/parse-error"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                  (scxml/scxml->spec "<not-scxml/>")))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 — error ex-data carries NO raw payload (rf2-8nzxib)
+;;
+;; A machine spec can carry a `:data` slot of live runtime values; the
+;; thrown error must keep value-FREE diagnostics (category, key SET,
+;; counts) — never the raw spec or input (Spec 015 §exception-path).
+
+(deftest invalid-spec-error-omits-raw-spec
+  (testing "spec->scxml invalid-spec ex-data carries a value-free summary, not the raw spec"
+    (let [secret "patient-record-secret-42"
+          ;; Invalid (no :initial/:states) but carries a secret :data slot.
+          spec   {:type :machine :data {:diagnosis secret}}
+          d      (try (scxml/spec->scxml spec) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/invalid-spec (:rf.error/id d)) "category preserved")
+      (is (not (contains? d :spec)) "no raw :spec slot")
+      (is (some? (:spec-summary d)) "value-free summary present")
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
+
+(deftest parallel-invalid-spec-error-omits-raw-spec
+  (testing "parallel-without-regions invalid-spec keeps only a value-free summary"
+    (let [secret "token-deadbeef"
+          spec   {:type :parallel :data {:token secret}}   ;; no :regions
+          d      (try (scxml/spec->scxml spec) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/invalid-spec (:rf.error/id d)))
+      (is (not (contains? d :spec)))
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
+
+(deftest parse-error-omits-raw-input
+  (testing "scxml->spec non-string input keeps only a value-free summary"
+    (let [secret "session-id-cafef00d"
+          d      (try (scxml/scxml->spec {:leak secret}) nil   ;; non-string
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/parse-error (:rf.error/id d)) "category preserved")
+      (is (not (contains? d :input)) "no raw :input slot")
+      (is (some? (:input-summary d)) "value-free summary present")
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Documentation of lossy features

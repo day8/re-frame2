@@ -7,7 +7,15 @@
   picks it up via `cljs-test$`."
   (:require [clojure.test  :refer [deftest is testing]]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [day8.re-frame2-machines-viz.mermaid :as m]))
+
+(defn- deep-strings
+  "Every string anywhere in `m` (deep walk)."
+  [m]
+  (let [acc (volatile! [])]
+    (walk/postwalk (fn [x] (when (string? x) (vswap! acc conj x)) x) m)
+    @acc))
 
 ;; -----------------------------------------------------------------------------
 ;; Fixtures — small, hand-curated machine definitions per Spec 005
@@ -196,6 +204,22 @@
                  (m/emit {:type :parallel
                           :regions {:data {:initial :idle
                                            :states  {}}}})))))
+
+(deftest emit-error-omits-raw-definition
+  ;; EP-0015 (rf2-8nzxib) — an invalid definition can carry a :data slot
+  ;; of live runtime values; the thrown error keeps a value-FREE summary
+  ;; (category, key SET, counts), never the raw definition.
+  (testing "invalid-definition ex-data carries a value-free summary, not the raw definition"
+    (let [secret "api-key-leak-7f3c"
+          ;; Invalid (empty :states) but carries a secret :data slot.
+          def    {:initial :idle :states {} :data {:api-key secret}}
+          d      (try (m/emit def) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :mermaid/invalid-definition (:rf.error/id d)) "category preserved")
+      (is (not (contains? d :definition)) "no raw :definition slot")
+      (is (some? (:definition-summary d)) "value-free summary present")
+      (is (not (some #(str/includes? % secret) (deep-strings d)))
+          "the secret must not survive anywhere in ex-data"))))
 
 (deftest emit-renders-wildcard-transitions
   (testing ":* wildcard transitions render as real topology"
