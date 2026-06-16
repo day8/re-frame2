@@ -298,6 +298,39 @@
     (vector? target)  (vec target)
     :else             nil))
 
+(defn- initial-descent-path
+  "Descend `path` (an absolute path within `states`) through the `:initial`
+  chain to its leaf — the analog of `transition/initial-cascade` against a
+  `states` scope (NOT a machine). When `path` lands on a compound node with an
+  `:initial`, the cascade enters that child, and so on, exactly as the runtime
+  enters a compound target. `visited` guards a malformed `:initial` cycle.
+  Returns the full descent path (the deepest entered leaf)."
+  [states path]
+  (loop [p       (vec path)
+         visited #{}]
+    (let [n (node-at states p)]
+      (if (and (map? n) (:initial n) (:states n)
+               (not (contains? visited p)))
+        (recur (conj p (:initial n)) (conj visited p))
+        p))))
+
+(defn- lifecycle-diet-along-path
+  "Accumulate (into the transient `diet`) the named-`:actions` diets of the
+  `slot` (`:entry` or `:exit`) callback on every node along absolute `path`
+  within `states` (each prefix leaf→root order is irrelevant — the ensure-set
+  is a deduped union). A node's `:entry` / `:exit` value is a callback ref:
+  a keyword names an `:actions` entry (whose `:rf.cofx/requires` is the only
+  legal way for a lifecycle action to consume a recordable fact — inline
+  requires on `:entry` / `:exit` are rejected at registration), so its parsed
+  diet rides via `entry-diet by-entry :actions`. A bare-fn / nil ref has the
+  empty diet. `by-entry` is the `index-named-entries` map."
+  [by-entry states path slot diet]
+  (doseq [i (range (count path))]
+    (let [prefix (subvec (vec path) 0 (inc i))
+          node   (node-at states prefix)]
+      (doseq [d (entry-diet by-entry :actions (get node slot))]
+        (conj! diet d)))))
+
 (defn- always-step-for-state
   "ONE `:always` settle step for the active state at `path` within `states`:
   across every `:always` entry's `:guard` / `:action` on every node along the
@@ -406,7 +439,13 @@
                    (doseq [{:keys [id] :as e} diet]
                      (when-not (contains? @seen-ids id)
                        (vswap! seen-ids conj id)
-                       (vswap! acc conj e))))]
+                       (vswap! acc conj e))))
+        ;; rf2-knxbok — accumulate a lifecycle (`:entry`/`:exit`) slot's named-
+        ;; action diet along a path into a transient, then add! it deduped.
+        add-lifecycle! (fn [scope p slot]
+                         (let [diet (transient [])]
+                           (lifecycle-diet-along-path by-entry scope p slot diet)
+                           (add! (persistent! diet))))]
     ;; (a) candidate transitions for this event type, leaf→root. We do NOT
     ;; stop at the first match — the ensure-set is STATIC (every candidate
     ;; the selection COULD touch must have its guard-consumed facts ensured
@@ -425,9 +464,24 @@
                 cand  (candidate-maps (get on k))]
           (add! (entry-diet by-entry :guards  (:guard cand)))
           (add! (entry-diet by-entry :actions (:action cand)))
-          ;; (b) :always closure reachable from this candidate's target.
+          ;; rf2-knxbok — (c) the exit→action→entry cascade a fired candidate
+          ;; runs also executes the active-state `:exit` actions and the
+          ;; target-state `:entry` actions (a named `:actions` ref carrying
+          ;; `:rf.cofx/requires` is the only legal lifecycle consumer). Add the
+          ;; TARGET state's `:entry` diet — and the `:entry` diet of every node
+          ;; entered descending the target's `:initial` chain, since entering a
+          ;; compound target cascades into its initial leaf. The active-state
+          ;; `:exit` diet is added once below (it is candidate-independent).
           (when-let [tgt (resolve-target-path states prefix (:target cand))]
+            (add-lifecycle! states (initial-descent-path states tgt) :entry)
+            ;; (b) :always closure reachable from this candidate's target.
             (add! (always-diet-for-state by-entry states tgt))))))
+    ;; rf2-knxbok — (c, exit) any fired candidate exits some suffix of the
+    ;; active state path; over-approximate soundly by ensuring the `:exit` diet
+    ;; of every active node leaf→root (an un-fired exit is a harmless no-op —
+    ;; generated facts are written back idempotently). Candidate-independent, so
+    ;; added once.
+    (add-lifecycle! states path :exit)
     ;; (b-current) the :always closure from the current active state — an
     ;; :always can fire on the unchanged configuration (an internal action
     ;; microstep, or after a guard-blocked / unhandled event) reachable
@@ -576,7 +630,76 @@
               (ensure-set-in-scope by-entry (scope-for machine) path event-id)
               [])))))))
 
+(defn- initial-path-for-scope
+  "The initial-descent leaf path for a `states` scope given an `:initial`
+  declaration (a keyword or a vector path). Mirrors `build-initial-snapshot`'s
+  flat/region initial cascade against the static scope. Returns nil for a
+  missing / malformed `:initial`."
+  [states initial-decl]
+  (let [decl-path (cond
+                    (keyword? initial-decl) [initial-decl]
+                    (vector? initial-decl)  (vec initial-decl)
+                    :else                   nil)]
+    (when (seq decl-path)
+      (initial-descent-path states decl-path))))
+
+(defn bootstrap-ensure-set-for
+  "Compute the consumer-attachment ENSURE-SET for `machine`'s BIRTH (initial-
+  entry) macrostep (rf2-knxbok). The bootstrap cascade
+  (`parallel/apply-initial-entry-cascade`, run inside `maybe-boot` BEFORE the
+  dispatch-time `ensure-ctx-cofx`) fires the initial-state descent's `:entry`
+  actions, then the birth-time `:always` settle. A named `:actions` ref on an
+  `:entry` slot (or reached by a birth `:always`) carrying `:rf.cofx/requires`
+  must therefore have its facts ensured BEFORE `maybe-boot` runs — otherwise it
+  reads an unensured token (the bootstrap hole this closes).
+
+  Returns the deduped union of: the `:entry` diet of every node entered on the
+  initial-descent path, PLUS the `:always` closure reachable from the initial
+  leaf — for a flat / compound machine the single root scope, for a parallel
+  machine each region's own scope. Empty when the machine declares no requires
+  (the no-op fast path) or the index is absent (pure-fn callers)."
+  [machine]
+  (let [{:keys [by-entry]} (get machine ensure-index-key)]
+    (if (empty? by-entry)
+      []
+      (let [acc      (volatile! [])
+            seen-ids (volatile! #{})
+            add!     (fn [diet]
+                       (doseq [{:keys [id] :as e} diet]
+                         (when-not (contains? @seen-ids id)
+                           (vswap! seen-ids conj id)
+                           (vswap! acc conj e))))
+            add-scope! (fn [scope initial-decl]
+                         (when-let [ipath (initial-path-for-scope scope initial-decl)]
+                           (let [diet (transient [])]
+                             (lifecycle-diet-along-path by-entry scope ipath :entry diet)
+                             (add! (persistent! diet)))
+                           ;; the birth `:always` settle from the initial leaf.
+                           (add! (always-diet-for-state by-entry scope
+                                                        (initial-path-for-scope scope initial-decl)))))]
+        (if (and (map? (:regions machine)) (seq (:regions machine)))
+          (doseq [[_region body] (:regions machine)]
+            (add-scope! (:states body) (:initial body)))
+          (add-scope! (scope-for machine) (:initial machine)))
+        @acc))))
+
 ;; ---- the dispatch-time ensure step ----------------------------------------
+
+(defn- ensure-diet-onto
+  "Ensure a derived `ensure-set` (a `parse-requires`-shaped entry vector) onto
+  the in-flight `:rf.cofx` record `recorded`. Returns the (possibly generation-
+  augmented) record — equal to `recorded` when the set is empty or nothing was
+  generated. `deliver-declared-cofx` reads recordable values FROM the record
+  and writes generated ones back into it; we thread an empty coeffects map (the
+  delivered flat spread is unused by machines — callbacks read the WHOLE record
+  off `:rf.cofx`) and keep only the augmented record. The shared core of both
+  the dispatch-time (`ensure-cofx`) and birth-time (`bootstrap-ensure-cofx`)
+  ensure steps."
+  [ensure-set recorded frame-id failing-id]
+  (if (empty? ensure-set)
+    recorded
+    (:rf.cofx
+     (cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id frame-id))))
 
 (defn ensure-cofx
   "Ensure the consumer-attachment ensure-set for `machine` / `snapshot` /
@@ -598,15 +721,19 @@
 
   A no-op (returns `recorded`) when the ensure-set is empty."
   [machine snapshot event recorded frame-id failing-id]
-  (let [ensure-set (ensure-set-for machine snapshot event)]
-    (if (empty? ensure-set)
-      recorded
-      ;; `deliver-declared-cofx` reads recordable values FROM the record and
-      ;; writes generated ones back into it; the returned `:rf.cofx` is the
-      ;; augmented record. We thread an empty coeffects map (the delivered
-      ;; flat spread is unused by machines) and keep only the record.
-      (:rf.cofx
-       (cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id frame-id)))))
+  (ensure-diet-onto (ensure-set-for machine snapshot event)
+                    recorded frame-id failing-id))
+
+(defn bootstrap-ensure-cofx
+  "Ensure the BIRTH (initial-entry) ensure-set onto the in-flight `:rf.cofx`
+  record `recorded` BEFORE `maybe-boot` runs the bootstrap cascade (rf2-knxbok).
+  Same satisfaction surface / write-back / error semantics as `ensure-cofx`,
+  but the ensure-set is `bootstrap-ensure-set-for` (the initial-descent `:entry`
+  diet + the birth `:always` closure). A no-op (returns `recorded`) when the
+  bootstrap ensure-set is empty."
+  [machine recorded frame-id failing-id]
+  (ensure-diet-onto (bootstrap-ensure-set-for machine)
+                    recorded frame-id failing-id))
 
 ;; ---- lint (dev-only diagnostic) -------------------------------------------
 ;;
