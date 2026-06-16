@@ -750,21 +750,26 @@
                           (emit-coeffect-exception! cofx-id failing-id frame-id t)
                           [:threw nil]))]
           (when (= :generated (first outcome))
-            ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
-            ;; cofx id is both). Gated on `interop/debug-enabled?` so
-            ;; production DCEs the tag-map + emit, exactly like
-            ;; `:rf.cofx/run`. The generated value itself rides the durable
-            ;; `:rf.cofx` record (always-on), NOT this dev trace.
-            (when interop/debug-enabled?
-              (trace/emit! :rf.cofx :rf.cofx/generated
-                           (cond-> {:rf.cofx/id    cofx-id
-                                    :frame         frame-id
-                                    :rf.cofx/value (second outcome)}
-                             valued? (assoc :rf.cofx/arg arg))))
             ;; Validate the produced value against `:schema` (production hard
-            ;; error). A miss throws `:rf.error/cofx-value-invalid` from here,
-            ;; inside the scope binding, so the failure carries the cofx's
-            ;; source-coord like every other cofx emit.
+            ;; error) BEFORE emitting the dev `:rf.cofx/generated` trace. A
+            ;; miss throws `:rf.error/cofx-value-invalid` from here, inside the
+            ;; scope binding, so the failure carries the cofx's source-coord
+            ;; like every other cofx emit.
+            ;;
+            ;; rf2-0mjgx6 — validation runs FIRST so a schema-invalid generated
+            ;; value never reaches the `:rf.cofx/generated` trace. The earlier
+            ;; order (emit THEN validate) leaked a schema-`{:sensitive? true}`
+            ;; produced value verbatim on `:rf.cofx/generated` before the
+            ;; (correctly-redacted) `:rf.error/cofx-value-invalid` fired —
+            ;; `:rf.cofx/generated`'s marks projection (`project-cofx-run-tags`)
+            ;; redacts only explicit `:sensitive` reg-marks, not schema-slot
+            ;; `:sensitive?`, so the failing value egressed to trace listeners /
+            ;; epoch `:trace-events` / MCP / log sinks unredacted. Validating
+            ;; first means the throw aborts before the emit, so the raw value
+            ;; never ships on ANY trace on the failure path. (The structural
+            ;; EDN-always check runs AFTER `:schema` so a declared `:schema`
+            ;; mismatch — the prod contract — is reported first; rf2-rmroo4
+            ;; slice B / rf2-uqz2ir.)
             (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id)
             ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
             ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
@@ -772,8 +777,24 @@
             ;; the write-back into the durable `:rf.cofx` record — not far away
             ;; at replay / Xray / SSR. ALWAYS-ON (production hard error too);
             ;; reuses the slice-A walker + error shape. Runs AFTER `:schema` so a
-            ;; declared `:schema` mismatch is reported first.
-            (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id))
+            ;; declared `:schema` mismatch is reported first, and BEFORE the
+            ;; `:rf.cofx/generated` emit (rf2-0mjgx6) so a non-EDN host handle
+            ;; never ships on the dev trace either.
+            (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id)
+            ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
+            ;; cofx id is both). Gated on `interop/debug-enabled?` so
+            ;; production DCEs the tag-map + emit, exactly like
+            ;; `:rf.cofx/run`. The generated value itself rides the durable
+            ;; `:rf.cofx` record (always-on), NOT this dev trace. Emitted ONLY
+            ;; after both validations pass — a VALID generated value's
+            ;; `:rf.cofx/value` is still projected through the marks chokepoint
+            ;; (`project-cofx-run-tags`) for any explicit `:sensitive` reg-mark.
+            (when interop/debug-enabled?
+              (trace/emit! :rf.cofx :rf.cofx/generated
+                           (cond-> {:rf.cofx/id    cofx-id
+                                    :frame         frame-id
+                                    :rf.cofx/value (second outcome)}
+                             valued? (assoc :rf.cofx/arg arg)))))
           outcome))
       (do
         (trace/emit! :warning :rf.cofx/skipped-on-platform
