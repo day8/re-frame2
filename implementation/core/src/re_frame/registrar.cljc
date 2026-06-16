@@ -64,7 +64,8 @@
   covers it); the strip here pins the *handler-meta* absence."
   (:require [re-frame.interop       :as interop]
             [re-frame.late-bind     :as late-bind]
-            [re-frame.source-coords :as source-coords]))
+            [re-frame.source-coords :as source-coords]
+            [re-frame.source-store  :as source-store]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -451,6 +452,18 @@
         reg      (active-registrar)
         previous (-> @reg (get kind) (get id))]
     (swap! reg assoc-in [kind id] metadata)
+    ;; EP-0023 provenance-preserving source store (rf2-32siq3.2). In addition
+    ;; to the resolver-map write above (the unchanged default-image runtime
+    ;; path), record the descriptor in the source store keyed by
+    ;; [kind id provenance-namespace]. Cross-namespace duplicate `(kind, id)`
+    ;; registrations are BOTH retained there; a same-namespace re-eval replaces
+    ;; its own source slot (hot reload). The store stamps `:rf.provenance/ns` as
+    ;; a canonical string from the metadata's macro-captured `:ns` symbol. This
+    ;; is a pure store write — NO assembly / selection / collision decision is
+    ;; made here (that is image assembly, a later EP-0023 slice). `metadata`
+    ;; written into the resolver map intentionally stays untouched; the store
+    ;; keeps its own provenance-stamped copy.
+    (source-store/record-descriptor! kind id metadata)
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
@@ -533,6 +546,11 @@
   (let [reg      (active-registrar)
         previous (-> @reg (get kind) (get id))]
     (swap! reg update kind dissoc id)
+    ;; EP-0023: keep the provenance source store in step with the resolver-map
+    ;; removal. The resolver map keys by `(kind, id)`, so an unregister drops
+    ;; the id wholesale; mirror that in the source store by forgetting every
+    ;; provenance slot for `(kind, id)`.
+    (source-store/forget-id! kind id)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
     ;; views. Only emit when something was actually present.
@@ -560,6 +578,8 @@
         clear-kind   (fn [cache-set]
                        (into #{} (remove #(= kind (first %))) cache-set))]
     (swap! reg dissoc kind)
+    ;; EP-0023: drop the matching kind from the provenance source store too.
+    (swap! (source-store/active-source-store) dissoc kind)
     (swap! missing-doc-warned clear-kind)
     (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
@@ -592,6 +612,10 @@
   (reset! kind->id->metadata {})
   (reset! missing-doc-warned #{})
   (reset! collision-warned   #{})
+  ;; EP-0023: reset the provenance-preserving source store (and its
+  ;; namespace-string pool) in lockstep with the process-default resolver map,
+  ;; so a test fixture starts each case from a clean state on both surfaces.
+  (source-store/clear-all!)
   ;; Also clear the always-on error-coord parallel registry (rf2-3un2g)
   ;; so test cases start from a clean state on both surfaces.
   (source-coords/forget-error-coords!)
