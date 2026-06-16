@@ -377,7 +377,7 @@
 #?(:cljs
    (defn- apply-panel!
      "Select the Xray panel via `:rf.xray/select-panel`. Xray's
-     registry registers this event-db handler against the `:rf/xray`
+     registry registers this event handler against the `:rf/xray`
      frame."
      [panel]
      (when panel

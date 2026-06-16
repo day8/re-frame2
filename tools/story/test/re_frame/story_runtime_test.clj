@@ -1025,7 +1025,7 @@
 (deftest run-variant-terminal-tape-evaluated-not-double-counted
   (testing "a tape-evaluated terminal assertion (:rf.assert/schema-error) is
             NOT double-processed by the terminal auto-run — it carries no
-            reg-event-fx handler, so the auto-run records NO handler-backed
+            reg-event handler, so the auto-run records NO handler-backed
             record for it; the result boundary owns its single verdict
             against the epoch tape. Pinned alongside a handler-backed
             terminal assertion in the same block so the split is exercised

@@ -131,7 +131,7 @@
 ;; rf2-genufr / rf2-wgmipl — `reg-machine` is the single registration home.
 ;; The auth machine carries a `:data-schema` (validating the snapshot's
 ;; `:data` slot); registering it here (rather than the former hand-composed
-;; `reg-event-fx` + `make-machine-handler`) stamps the `:rf/machine?` /
+;; `reg-event` + `make-machine-handler`) stamps the `:rf/machine?` /
 ;; `:rf/machine` metadata that makes the `:data-schema` LIVE (`(machine-meta
 ;; :auth/flow)` reads it, the `:where :machine-data` walker resolves it) AND
 ;; bridges its redaction marks — both in one place. Under the old direct path

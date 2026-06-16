@@ -698,7 +698,7 @@ consumes the same helper and will plumb its own knob in a follow-up.
 #### Open-in-editor launch modes (rf2-wn3bh — Option B dev-server endpoint)
 
 Jump-to-source has TWO launch paths; the chip + the
-`:rf.story/open-in-editor` event-fx PREFER the first and FALL BACK to
+`:rf.story/open-in-editor` event PREFER the first and FALL BACK to
 the second. The mechanism is additive — B never removes the URI path.
 This is the JS-ecosystem standard (Vite `/__open-in-editor`,
 react-dev-utils, Next). See

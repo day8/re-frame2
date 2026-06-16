@@ -63,7 +63,7 @@
 (deftest canonical-vocabulary-installed-by-helper
   (testing "the helper re-installs the canonical Story vocabulary each test —
             the :rf.assert/* event handlers are registered on the FRAMEWORK
-            registrar (they're reg-event-fx handlers, not Story side-table
+            registrar (they're reg-event handlers, not Story side-table
             entries)"
     (let [events (registrar/registrations :event)]
       (is (contains? events :rf.assert/path-equals)

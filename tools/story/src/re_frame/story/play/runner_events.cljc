@@ -462,7 +462,7 @@
   "Build the step result for a (possibly-assertion-bearing) :dispatch /
   :dispatch-sync. If new failed assertions appeared in the frame's
   `:rf.story/assertions` since `prev` (typically because the
-  dispatched event was a `:rf.assert/*` whose reg-event-fx handler
+  dispatched event was a `:rf.assert/*` whose reg-event handler
   recorded a `:passed? false` record), surface them as a step-fail.
   Otherwise step-skip (no assertion contribution to pass/fail)."
   [frame-id prev idx step]
@@ -582,7 +582,7 @@
 ;;
 ;; The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
 ;; `:rf.assert/dom-text`) is the fold target for the shipping `:assert-dom`
-;; step (`.18`). It has no reg-event-fx handler yet (the DOM runner that
+;; step (`.18`). It has no reg-event handler yet (the DOM runner that
 ;; PROVES it lands later — the `:dom` capability is wired now via
 ;; `requirements`), so an `[:assert [:rf.assert/dom-* …]]` checkpoint is
 ;; EVALUATED directly through the DOM executor (`dom/assert-visible` /
@@ -817,10 +817,10 @@
 (defn- tape-evaluated-assertion?
   "True iff the assertion atom `atom-v` (`[:rf.assert/id & args]`) is
   evaluated AGAINST THE EPOCH TAPE in the result boundary rather than by
-  dispatching a `reg-event-fx` handler into the frame (rf2-8y47c +
+  dispatching a `reg-event` handler into the frame (rf2-8y47c +
   rf2-fh7g4).
 
-  Two assertion families carry NO `reg-event-fx` handler and are minted
+  Two assertion families carry NO `reg-event` handler and are minted
   by the result boundary (`re-frame.story.result`), not by a dispatch:
 
   - `:rf.assert/schema-error` — paired against the projected
@@ -865,7 +865,7 @@
   Four routes, by atom family:
 
   - The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
-    `:rf.assert/dom-text`) has no reg-event-fx handler yet (the DOM runner
+    `:rf.assert/dom-text`) has no reg-event handler yet (the DOM runner
     that proves it lands later); it is EVALUATED directly through the DOM
     executor (`exec-assert-dom-atom!`), recording a canonical
     `:rf.assert/dom-*` record on the slot.
@@ -878,14 +878,14 @@
     floor) it records `:cannot-run`. The browser-only pair record
     `:cannot-run` under a headless run (their `browser-available?` guard).
   - The tape-evaluated families (`tape-evaluated-assertion?`: schema-error,
-    the causal / cascade family) carry no reg-event-fx handler — they are
+    the causal / cascade family) carry no reg-event handler — they are
     minted by the result boundary against the epoch tape, not by a dispatch.
     An in-script checkpoint for one of these records a no-op step-skip (the
     boundary owns its verdict); dispatching it would mint a spurious
     `:rf.error/no-such-handler` trace AND skip the real tape evaluation
     (rf2-8y47c + rf2-fh7g4).
   - Every other (dispatchable) `:rf.assert/*` atom dispatches the event
-    through `settled-boundary` — the standard reg-event-fx handler records
+    through `settled-boundary` — the standard reg-event handler records
     the `:passed?` record on the frame's `:rf.story/assertions` slot — and
     we bridge that record back into the runner step stream so a failing
     checkpoint flips the play's terminal status to `:fail`."
@@ -902,7 +902,7 @@
       (contains? assertions/browser-assertion-ids (first atom-v))
       (exec-assert-browser-atom! frame-id idx step atom-v)
 
-      ;; Tape-evaluated families carry no reg-event-fx handler; the result
+      ;; Tape-evaluated families carry no reg-event handler; the result
       ;; boundary owns their verdict. Record a no-op step-skip — never a
       ;; dispatch (which would hit :rf.error/no-such-handler) (rf2-8y47c +
       ;; rf2-fh7g4).
@@ -1045,7 +1045,7 @@
 ;;   - handler-backed atoms (`:rf.assert/path-equals` / `path-matches` /
 ;;     `sub-equals` / `dispatched?` / `state-is` / `no-warnings` /
 ;;     `effect-emitted`) are DISPATCHED through `settled-boundary`; the
-;;     reg-event-fx handler records the canonical record on the slot;
+;;     reg-event handler records the canonical record on the slot;
 ;;   - DOM-family atoms are evaluated by the DOM executor;
 ;;   - tape-evaluated atoms (`:rf.assert/schema-error`, the causal / cascade
 ;;     family, the browser-tier oracle family) record a no-op step-skip and
@@ -1072,7 +1072,7 @@
   `record-result-map` / `result/run-result` folds into the unified status).
 
   The tape-evaluated families (schema-error / causal / browser-tier) carry
-  no reg-event-fx handler; `exec-assert!` records a no-op step-skip for them
+  no reg-event handler; `exec-assert!` records a no-op step-skip for them
   and never dispatches — the result boundary already evaluates them against
   the epoch tape from the plan, so they are NOT double-processed here.
 
@@ -1140,7 +1140,7 @@
 ;; every in-script assertion arrives as the canonical `[:assert
 ;; assertion-atom]` checkpoint, and `exec-assert!` is the SOLE recorder:
 ;;
-;;   - a non-DOM `:rf.assert/*` atom dispatches its reg-event-fx handler,
+;;   - a non-DOM `:rf.assert/*` atom dispatches its reg-event handler,
 ;;     which writes the canonical record onto `:rf.story/assertions`;
 ;;   - a DOM-family atom is evaluated by `exec-assert-dom-atom!`, which
 ;;     writes a canonical `:rf.assert/dom-*` record.

@@ -330,7 +330,7 @@ SSR support is implementable as a template variant today.)
 | Template emission `acme/ssr-test :substrate :reagent` | succeeded; emitted 18-file pure-CLJS SPA (no SSR) |
 | Manual file-shape walk of emitted app | `src/acme/ssr_test/{core,events,subs,views,schema}.cljs` + `test/acme/ssr_test/events_test.cljs`; no `core.cljc`, no `server.clj`, no SSR coord, no Ring dep — matches §2 gap analysis |
 | `examples/reagent/ssr/` file inventory | `core.cljc` + `index.html` + `test/ssr/core_test.clj` — demonstrates SSR + hydration mechanics; Ring host-adapter boot reference lives in `implementation/ssr-ring/test/re_frame/ssr/ring_e2e_validator_test.clj` |
-| `implementation/ssr/src/re_frame/ssr.cljc` `:rf/hydrate` auto-registration | confirmed at L146 (`events/reg-event-fx :rf/hydrate hydrate/hydrate-event-handler`) — scaffolded apps need only `:require` `re-frame.ssr` |
+| `implementation/ssr/src/re_frame/ssr.cljc` `:rf/hydrate` auto-registration | confirmed at L276-278 (`events/reg-event :rf/hydrate {:rf/framework-authority? true} hydrate/hydrate-event-handler`) — scaffolded apps need only `:require` `re-frame.ssr` |
 
 ## 6. Recommended next actions
 

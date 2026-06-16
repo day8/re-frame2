@@ -276,11 +276,11 @@
         (fire-watchers! frame-id from to inner-event)
         to))))
 
-;; The mirror-state writer is a normal event-db handler. It writes the
+;; The mirror-state writer is a normal event handler. It writes the
 ;; current discrete state to `[:rf.story/lifecycle]` so callers can
 ;; read the state without going through the machine snapshot path.
 (defn install-mirror-writer!
-  "Register the `::set-lifecycle-state-mirror` event-db handler.
+  "Register the `::set-lifecycle-state-mirror` event handler.
   Idempotent."
   []
   (when config/enabled?

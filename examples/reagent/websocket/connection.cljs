@@ -365,7 +365,7 @@
 ;; MACHINE HANDLER + SUBSCRIPTIONS + INIT EVENT  (ns-load — the production-app idiom)
 ;; ============================================================================
 
-;; Use `rf/reg-machine` (not `reg-event-fx` + `make-machine-handler`) so
+;; Use `rf/reg-machine` (not `reg-event` + `make-machine-handler`) so
 ;; the registration metadata carries `:rf/machine? true` — declarative
 ;; `:spawn` resolves the spawn target via this metadata, and without it
 ;; the spawn-fx silently no-ops (the spawned actor's handler never
