@@ -23,11 +23,15 @@
        type=\"application/edn\">…full-payload…</script>`.
     4. The closing `</body></html>`.
 
-  WITHOUT a client consuming chunks (2), the deltas stream over the
-  wire but are inert: the browser paints skeleton fallbacks until the
-  final `__rf_payload` lands, then `:rf/hydrate` re-renders everything
-  — identical UX to non-streaming, defeating the speed prop of
-  suspense boundaries. This namespace is that consumer.
+  WITHOUT a client consuming these chunks, the whole protocol is inert:
+  the fallback `<template>`s never paint (a `<template>`'s content is a
+  detached `DocumentFragment` by the HTML spec — see chunk (1) / rf2-xzhf2a),
+  the resolved `<template>`s never swap in, and the deltas never merge — the
+  browser shows blank boundary regions until the final `__rf_payload` lands,
+  then `:rf/hydrate` renders everything at once. Identical UX to
+  non-streaming, defeating the speed prop of suspense boundaries. This
+  namespace is that consumer: it materialises the inert fallbacks into
+  visible mounts AND swaps in resolved chunks progressively.
 
   `install!` performs progressive per-subtree hydration: as each
   resolved chunk's nodes parse into the DOM, the runtime
@@ -136,15 +140,32 @@
   "Parse a boundary-id attribute string back into the id value the
   hiccup author wrote. The server stamps `(html/escape-attr (str id))`;
   for a keyword id that is the keyword's printed form (`:card.revenue`),
-  for a string id the raw string. `cljs.reader/read-string` recovers a
-  keyword id as a keyword and any other token as itself; on a parse
-  failure (an exotic string id with reader-significant chars) we fall
-  back to the raw string so matching still works structurally — the id
-  is only ever used as a map/DOM-attribute key, never evaluated."
+  for a string id the raw string (`card-revenue`).
+
+  `cljs.reader/read-string` recovers a keyword id as a keyword. But a bare
+  string id (`(str \"card-revenue\")` → `card-revenue`) parses to an EDN
+  SYMBOL, not a string — `(str id)` erased the string vs symbol distinction
+  on the wire (a hiccup id is only ever a keyword or a string, never a
+  symbol). So a SYMBOL parse is always a string id that lost its quotes in
+  transit: coerce it back to its printed string, preserving the documented
+  contract that a string id stays a string in trace payloads (rf2-m96yhw).
+  `(str sym)` faithfully reconstructs the original string for both a bare
+  (`card-revenue`) and a slash-bearing (`card/revenue`) string id — `name`
+  would drop the namespace segment. Keyword ids (and any other non-symbol
+  parse) keep their parsed type. On a parse FAILURE (an exotic string id with
+  reader-significant chars) we fall back to the raw attribute string. The id
+  is only ever used as a map/DOM-attribute key or a trace payload, never
+  evaluated."
   [s]
-  (try
-    (reader/read-string s)
-    (catch :default _ s)))
+  (let [parsed (try
+                 (reader/read-string s)
+                 (catch :default _ ::fail))]
+    (cond
+      (= ::fail parsed) s
+      ;; A bare-token parse is a symbol — the server emitted a STRING id via
+      ;; `(str id)`, dropping the quotes; recover the string (rf2-m96yhw).
+      (symbol? parsed)  (str parsed)
+      :else             parsed)))
 
 ;; ---- DOM helpers -----------------------------------------------------------
 
@@ -162,15 +183,28 @@
   [tmpl]
   (.cloneNode (.-content tmpl) true))
 
-(defn- mount-for
-  "Find the live `<rf-suspense data-rf2-suspense-mount=\"<id>\">` wrapper
-  for boundary `id-str` under `root`, or nil. This is the swap target
-  the resolved chunk replaces. Matching is by the id attribute so the
-  swap is exact even across nested boundaries."
+(defn- mounts-for
+  "Every live `<rf-suspense data-rf2-suspense-mount=\"<id>\">` wrapper for
+  boundary `id-str` under `root`, in document order. A well-formed page has
+  exactly one per id; a DUPLICATE-id boundary (a programmer error the server
+  surfaces with `:rf.error/suspense-boundary-duplicate-id`, fail-soft
+  last-write-wins) yields more than one — one live mount per declared
+  boundary, all carrying the same id."
   [root id-str]
   (->> (query-by-attr root attr-suspense-mount)
-       (filter #(= id-str (.getAttribute % attr-suspense-mount)))
-       first))
+       (filter #(= id-str (.getAttribute % attr-suspense-mount)))))
+
+(defn- mount-for
+  "The swap-target live mount for boundary `id-str` under `root`, or nil.
+  Matching is by the id attribute so the swap is exact even across nested
+  boundaries. For a DUPLICATE-id boundary the target is the LAST mount in
+  document order — the server keeps the LAST registration (last-write-wins,
+  Spec 011 §Boundary nesting and recursion) and ships only that
+  continuation's resolved chunk, so the resolved content must land in the
+  last boundary's position; the earlier mounts keep showing their fallback
+  (rf2-8en9mu). For the common single-id case this is just that one mount."
+  [root id-str]
+  (last (mounts-for root id-str)))
 
 (defn- materialise-fallback!
   "Turn one inert `data-rf2-suspense-fallback` `<template>` into a LIVE
@@ -178,22 +212,28 @@
   wrapper carrying the boundary id, fills it with the template's parsed
   fallback content (so the user sees the skeleton), and removes the
   template (its job — carrying the fallback markup across the wire — is
-  done). Idempotent: skips a template whose mount already exists.
+  done).
 
-  Returns the mount element (new or pre-existing), or nil if the
-  template carried no id."
+  Per-template idempotent by construction: a materialised template is
+  REMOVED from the DOM, so a later sweep's `materialise-fallbacks!` query
+  cannot re-encounter it. We therefore do NOT short-circuit on an existing
+  same-id mount — doing so would collapse a DUPLICATE-id boundary's second
+  fallback `<template>` into the first boundary's mount, leaving the second
+  template stranded inert in the DOM (rf2-8en9mu). Each declared boundary
+  gets its OWN visible mount; the resolved chunk later targets the LAST one
+  (`mount-for`).
+
+  Returns the new mount element, or nil if the template carried no id."
   [fb-tmpl]
   (when-let [id-str (.getAttribute fb-tmpl attr-suspense-id)]
-    (let [root (or (.-parentNode fb-tmpl) fb-tmpl)]
-      (or (mount-for root id-str)
-          (let [parent (.-parentNode fb-tmpl)
-                mount  (.createElement js/document mount-tag)]
-            (.setAttribute mount attr-suspense-mount id-str)
-            (.appendChild mount (template-content-fragment fb-tmpl))
-            (when parent
-              (.insertBefore parent mount fb-tmpl)
-              (.removeChild parent fb-tmpl))
-            mount)))))
+    (let [parent (.-parentNode fb-tmpl)
+          mount  (.createElement js/document mount-tag)]
+      (.setAttribute mount attr-suspense-mount id-str)
+      (.appendChild mount (template-content-fragment fb-tmpl))
+      (when parent
+        (.insertBefore parent mount fb-tmpl)
+        (.removeChild parent fb-tmpl))
+      mount)))
 
 (defn- materialise-fallbacks!
   "Materialise every un-mounted fallback `<template>` under `root` into a
@@ -205,12 +245,14 @@
 
 (defn- replace-mount-content!
   "Replace the live mount's children for `id-str` with the resolved
-  `<template>`'s parsed content, in-place. Returns true if a mount was
-  found + swapped, false otherwise (e.g. duplicate-id: the resolved
-  chunk for an id whose mount was already consumed, or a resolved chunk
-  with no matching fallback). The mount wrapper itself stays in the DOM
-  carrying its id — harmless, and it keeps the swap target stable if a
-  later (duplicate) chunk arrives."
+  `<template>`'s parsed content, in-place. Targets `mount-for` — the LAST
+  mount for the id, so a DUPLICATE-id boundary's single resolved chunk
+  (the server's last-write-wins registration) lands in the LAST boundary's
+  position while earlier mounts keep their fallback (rf2-8en9mu). Returns
+  true if a mount was found + swapped, false otherwise (a resolved chunk
+  with no matching fallback mount yet — e.g. a nested inner chunk racing
+  ahead of its mount). The mount wrapper itself stays in the DOM carrying
+  its id — harmless, and it keeps the swap target stable."
   [root id-str resolved-tmpl]
   (if-let [mount (mount-for root id-str)]
     (do

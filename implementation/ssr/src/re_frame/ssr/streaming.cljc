@@ -98,8 +98,21 @@
        "</template>"))
 
 (defn fallback-template
-  "The fallback chunk shape — emitted inline in the shell HTML so the
-  browser paints a placeholder immediately."
+  "The fallback chunk shape — the boundary's fallback markup wrapped in an
+  inline `<template data-rf2-suspense-fallback>` placeholder in the shell
+  HTML.
+
+  rf2-xzhf2a — a `<template>`'s content is INERT by the HTML spec (its
+  `.content` is a detached `DocumentFragment`, never painted), so this is
+  NOT first-byte-visible content: nothing paints until the client runtime
+  (`re-frame.ssr.streaming.client/install!`) materialises each inert
+  fallback into a live, visible `<rf-suspense data-rf2-suspense-mount>`
+  mount. This is the deliberate streaming model (Spec 011 §Client-side
+  hydration semantics — the same visible-fallback-plus-stable-mount shape
+  React 18 / Solid use): the inert `<template>` is the wire-carrier for the
+  fallback markup, the client owns the painted mount. A streaming page
+  therefore requires the client runtime to show fallbacks — non-JS clients
+  see the shell structure without painted skeletons until the final payload."
   [id fallback-html]
   (suspense-template id (str wire/attr-suspense-fallback "=\"1\"") fallback-html))
 
