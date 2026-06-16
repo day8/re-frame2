@@ -922,25 +922,59 @@
 ;; same posture as the wire-elision walker). New egress tools call
 ;; `projected-record` and trust the contract.
 
-(def ^:private egress-profile
-  "The named export boundary for epoch off-box egress (EP-0015 §10). The
-  consumers are hosted monitoring / log shippers / Story / pair recorders /
-  Xray-MCP `watch-epochs`; `:rf.egress/off-box-observability` is the
-  matching profile (redact sensitive, elide large, omit digests)."
+(def ^:private default-egress-profile
+  "The DEFAULT named export boundary for epoch off-box egress (EP-0015 §10)
+  when the caller names none. The hosted-monitoring consumers (log shippers
+  / Story / pair recorders) want `:rf.egress/off-box-observability` (redact
+  sensitive, elide large, omit digests), so it stays the floor.
+
+  An MCP / AI / tool consumer (rf2-1afn7q) selects the
+  `:rf.egress/off-box-tool` boundary instead via `projected-record`'s
+  `:rf.egress/profile` opt — that profile keeps the same redact/elide
+  defaults but turns on `:rf.size/include-digests?`, so a large owner-local
+  slot egresses as a marker carrying the structural indicators / counters a
+  tool needs to reason about shape without seeing content."
   :rf.egress/off-box-observability)
+
+(defn- resolve-egress-profile
+  "Resolve the named `:rf.egress/profile` an epoch egress call walks under
+  (rf2-1afn7q). The off-box egress boundary is named — the caller answers
+  *\"which boundary is this?\"* (hosted observability vs. MCP/AI tool wire)
+  rather than assembling boolean combinations. The default is
+  `:rf.egress/off-box-observability` (hosted monitoring), so the bare
+  1-arity / no-profile call is unchanged.
+
+  An UNKNOWN profile is rejected loudly here against the shared CLOSED
+  `re-frame.projection/profiles` enum, so a typo never falls through to a
+  silently-permissive walk (it would otherwise reach `project-egress`'s
+  own closed-profile guard, but failing fast at the epoch boundary keeps
+  the error attributed to the epoch helper)."
+  [profile]
+  (let [profile (or profile default-egress-profile)]
+    (when-not (contains? projection/profiles profile)
+      (throw (ex-info (str "unknown :rf.egress/profile " profile)
+                      {:rf.error/id :rf.error/unknown-egress-profile
+                       :where       'epoch/projected-record
+                       :recovery    :use-a-known-profile
+                       :profile     profile
+                       :valid       projection/profiles})))
+    profile))
 
 (defn- egress-opts
   "Build the `project-egress` opts map from a `projected-record` egress
-  opts map (rf2-5w06uu). The `:rf.egress/off-box-observability` profile is
-  the floor; `:include-sensitive?` / `:include-large?` default `false` (the
-  off-box safe path) and, when a trusted-local caller opts them back in,
-  compose on top as explicit `:rf.size/*` overrides (the override wins —
-  see `re-frame.projection/resolve-elision-opts`). The record frame is
-  stamped so the frame's declared sensitive / large paths (keyed by absolute
-  app-db path, installed frame-owned per EP-0015 §3) match the projected
-  value."
-  [frame-id {:keys [include-sensitive? include-large?]}]
-  {:rf.egress/profile          egress-profile
+  opts map (rf2-5w06uu, rf2-1afn7q). The named `:rf.egress/profile`
+  selects the boundary (default `:rf.egress/off-box-observability`); MCP /
+  AI / tool consumers pass `:rf.egress/off-box-tool` to receive the
+  structural marker indicators / counters the tool profile enables. The
+  selected profile is the floor; the legacy unqualified `:include-sensitive?`
+  / `:include-large?` opts default `false` (the off-box safe path) and, when
+  a trusted-local caller opts them back in, compose on top as ADVANCED
+  explicit `:rf.size/*` overrides (the override wins — see
+  `re-frame.projection/resolve-elision-opts`). The record frame is stamped
+  so the frame's declared sensitive / large paths (keyed by absolute app-db
+  path, installed frame-owned per EP-0015 §3) match the projected value."
+  [frame-id {:keys [include-sensitive? include-large?] :rf.egress/keys [profile]}]
+  {:rf.egress/profile          (resolve-egress-profile profile)
    :frame                      frame-id
    :rf.size/include-sensitive? (boolean include-sensitive?)
    :rf.size/include-large?     (boolean include-large?)})
@@ -1440,9 +1474,31 @@
        ring stays raw (post-EP-0010 causal replay material), so the fn can
        never affect `restore-epoch!` fidelity.
 
-  ## Egress opts (rf2-5w06uu)
+  ## Egress profile (rf2-1afn7q) + opts (rf2-5w06uu)
 
-  The 2-arity accepts an `opts` map of trusted-local per-call overrides:
+  The 2-arity accepts an `opts` map. The PRIMARY public selector is the
+  named egress boundary — `:rf.egress/profile` — which answers *\"which
+  boundary is this?\"* against the shared closed `:rf.egress/*` enum
+  (`re-frame.projection/profiles`):
+
+      {:rf.egress/profile <profile>  ;; default :rf.egress/off-box-observability
+
+  The two off-box boundaries an epoch consumer selects:
+
+    - `:rf.egress/off-box-observability` (DEFAULT) — hosted monitoring /
+      log shippers / Story / pair recorders. Redact sensitive, elide large,
+      OMIT structural digests.
+    - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same
+      redact/elide defaults, but turns ON `:rf.size/include-digests?`, so a
+      large owner-local app-db slot egresses as a `:rf.size/large-elided`
+      marker carrying the structural indicators / counters (`:digest`) the
+      tool needs to reason about shape without seeing content. This is the
+      profile an MCP / AI epoch consumer (Xray-MCP `watch-epochs`, the pair
+      tool) should pass. An unknown profile is rejected against the closed
+      enum (a typo is a loud error, never a silent permissive walk).
+
+  The legacy unqualified `:include-*` keys are ADVANCED per-call overrides
+  composed OVER the selected profile (NOT the primary boundary selector):
 
       {:include-sensitive?  <bool>   ;; reveal app-db sensitive values
        :include-large?      <bool>   ;; reveal app-db large values
@@ -1451,7 +1507,7 @@
        :include-event-args? <bool>}  ;; reveal the `:trigger-event` args (rf2-nm611o)
 
   All default `false` — the 1-arity (`(projected-record record)`) is the
-  safe, fully-redacted off-box path. `:include-sensitive?` /
+  safe, fully-redacted off-box-observability path. `:include-sensitive?` /
   `:include-large?` opt the APP-DB partition's privacy / size posture back
   in across every payload slot. They are ORTHOGONAL to the runtime-db
   partition boundary: the `:rf.db/runtime` side of the frame-state slots

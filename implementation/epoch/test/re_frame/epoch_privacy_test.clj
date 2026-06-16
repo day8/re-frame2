@@ -757,6 +757,125 @@
           "nil :db-after stays nil")
       (is (= :halted-destroy (:outcome projected))))))
 
+;; ---- 2b. EP-0015 named egress profile (rf2-1afn7q) ------------------------
+;;
+;; `projected-record` / `projected-history` let an MCP / AI / tool epoch
+;; consumer SELECT the `:rf.egress/off-box-tool` boundary via the named
+;; `:rf.egress/profile` opt, while `:rf.egress/off-box-observability` stays
+;; the hosted-monitoring DEFAULT. The tool profile keeps the same
+;; redact-sensitive / elide-large defaults but turns ON structural digests,
+;; so a large frame-owned app-db slot egresses as a `:rf.size/large-elided`
+;; marker carrying the `:digest` structural indicator the tool needs to
+;; reason about shape. Observability omits that detail. An unknown profile
+;; is rejected against the shared closed enum.
+
+(defn- large-marker-body
+  "The marker body map at the projected `[:db-after :blob :payload]` large
+  slot (or nil if the slot is not a marker)."
+  [record]
+  (let [slot (get-in record [:db-after :blob :payload])]
+    (when (elision/marker? slot)
+      (:rf.size/large-elided slot))))
+
+(deftest projected-record-tool-profile-includes-structural-digest
+  (testing "rf2-1afn7q: an MCP/AI/tool epoch consumer selects
+            :rf.egress/off-box-tool — the elided large slot's marker
+            carries the :digest structural indicator the tool profile
+            enables, while the :rf.egress/off-box-observability default
+            omits it. Both still elide the large value (no raw bytes
+            egress)."
+    (rf/reg-frame :test/main {})
+    (install-large-schema! :test/main)
+    (rf/reg-event :store
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (assoc-in db [:blob :payload] payload)}))
+    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
+
+    (let [raw       (last-record :test/main)
+          obs-body  (large-marker-body
+                      (epoch/projected-record raw))
+          obs-body2 (large-marker-body
+                      (epoch/projected-record
+                        raw {:rf.egress/profile :rf.egress/off-box-observability}))
+          tool-body (large-marker-body
+                      (epoch/projected-record
+                        raw {:rf.egress/profile :rf.egress/off-box-tool}))]
+      ;; Both off-box profiles elide the large slot to a marker (no raw bytes).
+      (is (some? obs-body)  "observability default elides the large slot")
+      (is (some? tool-body) "tool profile elides the large slot")
+      (is (not= 50000 (get-in (epoch/projected-record raw) [:db-after :blob :payload]))
+          "the raw 50KB string never egresses under either off-box profile")
+      ;; The DEFAULT (no profile) == the observability profile.
+      (is (= obs-body obs-body2)
+          "the bare 1-arity default == :rf.egress/off-box-observability")
+      ;; The structural indicator: observability omits :digest; tool includes it.
+      (is (not (contains? obs-body :digest))
+          ":rf.egress/off-box-observability omits the structural :digest")
+      (is (contains? tool-body :digest)
+          ":rf.egress/off-box-tool includes the structural :digest the EP
+           says tools should receive")
+      (is (string? (:digest tool-body))
+          "the tool profile's structural digest is a content hash, not a value")
+      ;; The shared metadata (path / bytes / type) is on both (it is the
+      ;; observability baseline); the tool profile ADDS the digest.
+      (is (= (dissoc tool-body :digest) obs-body)
+          "tool profile == observability marker PLUS the structural digest"))))
+
+(deftest projected-record-tool-profile-still-redacts-sensitive
+  (testing "rf2-1afn7q: selecting the tool profile does NOT lift the
+            sensitive redaction default — a frame-declared sensitive slot
+            still lands as :rf/redacted under :rf.egress/off-box-tool (the
+            tool profile only adds structural indicators for elided large
+            values, it does not reveal sensitive content)."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [raw  (last-record :test/main)
+          tool (epoch/projected-record
+                 raw {:rf.egress/profile :rf.egress/off-box-tool})]
+      (is (= :rf/redacted (get-in tool [:db-after :auth :password]))
+          "tool profile still redacts the sensitive slot"))))
+
+(deftest projected-record-unknown-profile-rejected
+  (testing "rf2-1afn7q: an unknown :rf.egress/profile is rejected against
+            the shared closed enum — a typo is a loud error, never a
+            silent fall-through to a permissive walk."
+    (rf/reg-frame :test/main {})
+    (install-large-schema! :test/main)
+    (rf/reg-event :store
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (assoc-in db [:blob :payload] payload)}))
+    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
+    (let [raw (last-record :test/main)
+          ex  (try (epoch/projected-record raw {:rf.egress/profile :rf.egress/not-a-real-profile})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "an unknown profile throws")
+      (is (= :rf.error/unknown-egress-profile (:rf.error/id (ex-data ex)))
+          "the error carries the closed-enum rejection id"))))
+
+(deftest projected-history-threads-tool-profile
+  (testing "rf2-1afn7q: projected-history threads the named
+            :rf.egress/off-box-tool profile to every record — the
+            structural :digest rides each elided large slot off the
+            whole-ring egress path too."
+    (rf/reg-frame :test/main {})
+    (install-large-schema! :test/main)
+    (rf/reg-event :store
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (assoc-in db [:blob :payload] payload)}))
+    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
+
+    (let [tool-hist (epoch/projected-history
+                      :test/main {:rf.egress/profile :rf.egress/off-box-tool})
+          last-body (large-marker-body (last tool-hist))]
+      (is (some? last-body) "the whole-ring tool egress elides the large slot")
+      (is (contains? last-body :digest)
+          "projected-history threads the tool profile's structural digest"))))
+
 ;; ---- 3. projected-history --------------------------------------------------
 
 (deftest projected-history-walks-the-ring

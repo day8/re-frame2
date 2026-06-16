@@ -955,9 +955,25 @@
   `register-epoch-listener!` registration under `interop/debug-enabled?`
   per Spec 009 §User-side listener registration.
 
-  ## Egress opts (rf2-5w06uu)
+  ## Egress profile (rf2-1afn7q) + opts (rf2-5w06uu)
 
-  The 2-arity accepts a trusted-local `opts` map —
+  The 2-arity accepts an `opts` map. The PRIMARY public selector is the
+  named egress boundary `:rf.egress/profile` (the shared closed
+  `re-frame.projection/profiles` enum) — it answers *\"which boundary is
+  this?\"* rather than assembling boolean combinations:
+
+    - `:rf.egress/off-box-observability` (DEFAULT) — hosted monitoring /
+      log shippers / Story / pair recorders (redact sensitive, elide large,
+      omit structural digests).
+    - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same
+      redact/elide defaults but includes structural marker indicators
+      (`:digest`) so a tool can reason about an elided large slot's shape.
+      An MCP / AI epoch consumer (Xray-MCP `watch-epochs`, pair tool)
+      should pass this. An unknown profile is rejected against the closed
+      enum.
+
+  The legacy unqualified `:include-*` keys are ADVANCED per-call overrides
+  composed OVER the selected profile (NOT the primary boundary selector) —
   `{:include-sensitive? :include-large? :include-runtime-db?
   :include-fx-args? :include-event-args?}`, all defaulting `false`.
   `:include-sensitive?` / `:include-large?` opt the APP-DB partition's
