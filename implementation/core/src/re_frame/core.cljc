@@ -123,6 +123,26 @@
             ;; constructs an image leaves the constructor as Closure-DCE dead
             ;; code.
             [re-frame.image :as image]
+            ;; EP-0023 collapse slice 2 (rf2-32siq3.32): the runnable-object
+            ;; live-frame ns. Required for its PUBLIC hot-reload export
+            ;; `reload-images!` (re-exported below as `rf/reload-images!`) — the
+            ;; frame-targeted, composition-replacing image reload that preserves
+            ;; frame memory (EP-0023 §Hot Reload / §Public API). The ns is
+            ;; ALREADY in the core spine transitively (router / subs / frame /
+            ;; registrar require it for the `{:frame object}` resolution seam), so
+            ;; this adds no new load edge; it pulls only `re-frame.image-assembly`
+            ;; + `re-frame.registrar` + `re-frame.frame` + `re-frame.late-bind` +
+            ;; `re-frame.error` (the core spine), so it is bundle-isolation
+            ;; neutral. An app that never hot-reloads leaves `rf/reload-images!`
+            ;; (and the live-frame reload fns) as Closure-DCE dead code — the
+            ;; elision probe deliberately does NOT root the image-loading path
+            ;; (see elision_probe.cljs). NOTE: the EP-0023 OBJECT-returning
+            ;; `live-frame/make-frame` is NOT re-pointed onto `rf/make-frame` in
+            ;; this slice — `rf/make-frame` stays the EP-0013 RECORD constructor
+            ;; during the migration window (the `assert-no-dual-make-frame!` guard
+            ;; keeps both off one name); the repoint rides the later caller-
+            ;; migration slice.
+            [re-frame.live-frame :as live-frame]
             ;; EP-0023 (rf2-32siq3.11): the EP-0013 -> EP-0023 migration shims +
             ;; diagnostics ns. Carries the surface dispositions as inspectable
             ;; data plus the fail-loud migration diagnostics (cross-realm
@@ -784,6 +804,24 @@
   exported under one name. See EP-0023 §Backwards Compatibility."}
   make-frame    frame/make-frame)
 
+(def ^{:doc "Hot-reload ONE frame's whole image composition, PRESERVING FRAME
+  MEMORY (EP-0023 §Hot Reload / §Public API). `target` is EITHER a frame id
+  (looked up in the process-local live-frame registry) OR a direct live frame
+  OBJECT (`re-frame.live-frame/make-frame`'s return value); `opts` takes the same
+  `:images` VECTOR shape as the object constructor. Reload is composition-
+  REPLACING (it replaces the whole `:images` vector, not one member) and frame-
+  targeted: it re-assembles `:images` into a fresh sealed generation
+  (capability-checked against the frame's own `:rf.frame/capabilities`) and SWAPS
+  only `:rf.frame/generation` onto the frame — app-db, runtime-db, caches,
+  lifecycle, and every other frame slot continue unchanged (\"hot reload must not
+  be implemented by tearing down and recreating the frame\"). It does NOT move
+  sibling frames that previously shared the generation. Returns the reload REPORT
+  `{:rf.frame/frame <reloaded object> :rf.reload/diff {:added … :changed …
+  :removed … :retained …}}`. For an `:id`-bearing frame the registry slot is
+  updated in place. A NEW export (non-breaking); the EP-0023 hot-reload public
+  path. See `re-frame.live-frame/reload-images!`."}
+  reload-images! live-frame/reload-images!)
+
 (def ^{:doc "Atomic `destroy-frame!` + `reg-frame` with the same config —
   full replace (opt-in). Per Spec 002 §reset-frame!. Use sparingly:
   destroy is the normative teardown boundary, so per-feature artefacts
@@ -854,17 +892,95 @@
 ;; `re-frame.core/dispatch*` / `subscribe*` etc., so those defs must
 ;; live here.
 
-(def ^{:doc "Fn-form of `dispatch` for HoF / programmatic dispatch — no
-  call-site source-coord capture. Append `event` to the target frame's
-  router queue; returns nil. Per spec/API.md §Dispatch and subscribe
-  (rf2-ts1a)."}
-  dispatch*       router/dispatch!)
+;; EP-0023 collapse slice 2 (rf2-32siq3.32): the `*`-fns gain a frame-FIRST
+;; positional 2-arity — `(dispatch* frame event-vec)` — beside the established
+;; event-first `(dispatch* event-vec opts)`, so the public macro forms
+;; `(rf/dispatch-sync frame [...])` / `(rf/dispatch frame [...])` (EP-0023
+;; §Public API) route the carried frame TARGET (a frame-id keyword OR a live
+;; frame OBJECT) exactly like the 2-arity `(rf/subscribe frame [...])` already
+;; does. The discriminator is the FIRST arg's shape: an event-vec is ALWAYS a
+;; vector, a frame target NEVER is (a keyword id or a `:rf.frame/object`-marked
+;; object map), so `vector?` on arg-1 cleanly separates the two 2-arg forms —
+;; every existing `(dispatch* [..] opts)` caller (the frame-handle closures, the
+;; macro expansion, programmatic HoF callers) stays byte-identical. The
+;; frame-first form lowers to the established `{:frame target}` opt, which
+;; `re-frame.router/build-envelope` normalizes through `frame/frame-target->id`
+;; (object → runnable-id, keyword unchanged) — no new internal seam, the slice-1
+;; wiring carries it. The optional THIRD positional arg is the call-site coord
+;; the `dispatch` / `dispatch-sync` macro splices in under the OUTERMOST
+;; debug-gate (so it DCEs in `:advanced` + `goog.DEBUG=false`); it is stamped
+;; onto whichever opts map the discriminated form builds.
 
-(def ^{:doc "Fn-form of `dispatch-sync` for HoF / programmatic sync
-  dispatch — no call-site source-coord capture. Process `event`
-  end-to-end synchronously, then drain to fixed point. For tests / REPL
-  / bootstrap only. Per spec/API.md §Dispatch and subscribe (rf2-ts1a)."}
-  dispatch-sync*  router/dispatch-sync!)
+;; The discriminating bodies live in `-impl` fns, and `dispatch*` /
+;; `dispatch-sync*` are `def` ALIASES to them. The alias-`def` (not a direct
+;; `defn`) is DELIBERATE: it keeps the public `*`-fns RE-DEFINABLE under
+;; `with-redefs` from the tools tests (Xray/Story stub `rf/dispatch*`). A direct
+;; `defn` here would let the CLJS compiler attach inline fixed-arity metadata to
+;; `re-frame.core/dispatch*`, so the macro call sites would emit a STATIC
+;; `.cljs$core$IFn$_invoke$arity$N` dispatch that a `with-redefs`'d fn whose arity
+;; set differs cannot satisfy ("arity$N is not a function"); the alias-`def`
+;; preserves the same general-application indirection the previous `(def
+;; dispatch* router/dispatch!)` cross-var alias gave.
+;;
+;; The `*`-fns are 1-or-2-arity ONLY (no call-site arity). The 2-arity
+;; discriminates the frame-first `(dispatch* frame event-vec)` sugar from the
+;; event-first `(dispatch* event-vec opts)` on the FIRST arg's shape (an event-vec
+;; is ALWAYS a vector; a frame target — a keyword id or a `:rf.frame/object`
+;; object map — never is), lowering frame-first to the established `{:frame …}`
+;; opt. Call-site stamping is the MACRO's job (debug-gated, DCE'd in prod) and
+;; reaches these via the 2-arity opts map, so NO `:rf.trace/call-site` literal
+;; lives in these production-reachable bodies (the elision probe asserts the
+;; keyword is ABSENT from the prod bundle).
+
+(defn- dispatch*-impl
+  ([event-vec] (router/dispatch! event-vec))
+  ([a b]
+   (if (vector? a)
+     (router/dispatch! a b)
+     (router/dispatch! b {:frame a}))))
+
+(defn- dispatch-sync*-impl
+  ([event-vec] (router/dispatch-sync! event-vec))
+  ([a b]
+   (if (vector? a)
+     (router/dispatch-sync! a b)
+     (router/dispatch-sync! b {:frame a}))))
+
+(def ^{:doc "Fn-form of `dispatch` for HoF / programmatic dispatch — no
+  call-site source-coord capture. Two 2-arity forms, discriminated by the
+  FIRST arg's shape (EP-0023 §Public API, rf2-32siq3.32):
+
+    (dispatch* event-vec)              — ambient frame (carried scope).
+    (dispatch* event-vec opts)         — event-first; `opts` may carry
+                                         `:frame` (a frame-id keyword OR a
+                                         live frame object), plus the other
+                                         dispatch opts.
+    (dispatch* frame event-vec)        — frame-first; `frame` is a frame-id
+                                         keyword OR a live frame OBJECT
+                                         (`rf/make-frame`'s return value),
+                                         lowered to `{:frame frame}`.
+
+  An event-vec is always a VECTOR; a frame target never is — so `vector?`
+  on the first arg separates the forms. Appends `event` to the target
+  frame's router queue; returns nil. Per spec/API.md §Dispatch and
+  subscribe (rf2-ts1a)."
+       :arglists '([event-vec] [event-vec opts] [frame event-vec])}
+  dispatch*       dispatch*-impl)
+
+(def ^{:doc "Fn-form of `dispatch-sync` for HoF / programmatic sync dispatch — no
+  call-site source-coord capture. Mirrors `dispatch*`'s forms, discriminated by
+  the FIRST arg's shape (EP-0023 §Public API, rf2-32siq3.32):
+
+    (dispatch-sync* event-vec)         — ambient frame.
+    (dispatch-sync* event-vec opts)    — event-first; `opts` may carry `:frame`.
+    (dispatch-sync* frame event-vec)   — frame-first; `frame` is a frame-id
+                                         keyword OR a live frame OBJECT.
+
+  An event-vec is always a VECTOR; a frame target never is. Processes `event`
+  end-to-end synchronously, then drains to fixed point. For tests / REPL /
+  bootstrap only. Per spec/API.md §Dispatch and subscribe (rf2-ts1a)."
+       :arglists '([event-vec] [event-vec opts] [frame event-vec])}
+  dispatch-sync*  dispatch-sync*-impl)
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
   then unsubscribes. Does NOT retain a cache reference. Use in handler
@@ -920,19 +1036,34 @@
      (rf2-ts1a) for error-trace attribution. For HoF / programmatic use
      call `dispatch*`. Per Spec 002 §Routing.
 
-     Canonical `event-vec` shape (best practice — not enforced):
+     Two public 2-arities, discriminated at runtime by the FIRST arg's
+     shape (EP-0023 §Public API, rf2-32siq3.32):
+
+       (dispatch event-vec)             ;; ambient frame (carried scope)
+       (dispatch event-vec opts)        ;; event-first; `opts` may carry
+                                        ;; `:frame` (a frame-id keyword OR a
+                                        ;; live frame object) + other opts
+       (dispatch frame event-vec)       ;; frame-first; `frame` is a frame-id
+                                        ;; keyword OR a live frame OBJECT
+                                        ;; (`rf/make-frame`'s return value)
+
+     An `event-vec` is ALWAYS a vector and a frame target NEVER is, so the
+     two 2-arg forms are unambiguous; the frame-first form mirrors the
+     2-arity `(subscribe frame query-v)` and lowers to the `{:frame frame}`
+     opt. Canonical `event-vec` shape (best practice — not enforced):
        [<event-id>]                   ;; trivial
        [<event-id> <single-scalar>]   ;; single-argument
        [<event-id> {<k> <v>}]         ;; multi-argument — single map payload
      Variadic `[<id> a b c]` is accepted by the runtime for v1-migration
      and caller convenience; the linter nudges new code toward the map
      form. See spec/Conventions.md §Canonical event-vector shape."
-     ([event-vec]
+     {:arglists '([event-vec] [event-vec opts] [frame event-vec])}
+     ([arg1]
       (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                               event-vec nil))
-     ([event-vec opts]
+                               arg1 nil))
+     ([arg1 arg2]
       (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                               event-vec opts))))
+                               arg1 arg2))))
 
 #?(:clj
    (defmacro dispatch-sync
@@ -942,15 +1073,26 @@
      in-handler`). Captures call-site coords (rf2-ts1a). For HoF /
      programmatic use call `dispatch-sync*`. Per Spec 002 §dispatch-sync.
 
-     Canonical `event-vec` shape — see `dispatch` docstring above; same
-     best-practice convention applies (id-first, with at most one
+     Two public 2-arities, discriminated at runtime by the FIRST arg's
+     shape (EP-0023 §Public API, rf2-32siq3.32):
+
+       (dispatch-sync event-vec)        ;; ambient frame
+       (dispatch-sync event-vec opts)   ;; event-first; `opts` may carry `:frame`
+       (dispatch-sync frame event-vec)  ;; frame-first; `frame` is a frame-id
+                                        ;; keyword OR a live frame OBJECT
+
+     The frame-first form is the `(rf/dispatch-sync frame [...])` shape a
+     local test harness uses on a `rf/make-frame` object (EP-0023 §Public
+     API). Canonical `event-vec` shape — see `dispatch` docstring above;
+     same best-practice convention applies (id-first, with at most one
      trailing map; variadic tolerated, linter nudges)."
-     ([event-vec]
+     {:arglists '([event-vec] [event-vec opts] [frame event-vec])}
+     ([arg1]
       (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                    event-vec nil))
-     ([event-vec opts]
+                                    arg1 nil))
+     ([arg1 arg2]
       (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                    event-vec opts))))
+                                    arg1 arg2))))
 
 #?(:clj
    (defmacro subscribe

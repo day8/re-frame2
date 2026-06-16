@@ -57,30 +57,62 @@
 ;; / `*ns*` / `*file*` through; we emit the same gated expansion the
 ;; original inlined `defmacro` body produced.
 
+;; EP-0023 collapse slice 2 (rf2-32siq3.32): the 2-arity dispatch surface is now
+;; SHAPE-DISCRIMINATED at runtime by `dispatch*` / `dispatch-sync*` — the first
+;; arg is EITHER an event-vec (event-first `(dispatch [..] opts)`) or a frame
+;; target (frame-first `(dispatch frame [..])`). The call-site delivery is
+;; preserved BACKWARD-COMPATIBLY: the EVENT-FIRST stamped path keeps the historic
+;; 2-arity `(dispatch* event-vec (assoc opts :rf.trace/call-site cs))` shape (so
+;; every existing `(with-redefs [rf/dispatch* (fn [ev _opts] …)])` tools-test stub
+;; that matches the 2-arity contract keeps working), while the NEW FRAME-FIRST
+;; path uses the 3-arity `(dispatch* frame event-vec cs)` (it CANNOT `assoc` the
+;; call-site onto the event VECTOR). The stamped branch therefore discriminates
+;; at RUNTIME on the first arg's shape — `vector?` ⇒ event-first 2-arity, else ⇒
+;; frame-first 3-arity. The PLAIN (production) branch needs no call-site, so it
+;; just calls the 2-arity `dispatch*`, whose OWN `vector?` discrimination routes a
+;; frame-first call. The debug-gate stays OUTERMOST so the whole stamped branch
+;; (the `cs` literal + the discrimination) DCEs under `:advanced` +
+;; `goog.DEBUG=false`. `arg1`/`arg2` are the user's two forms verbatim.
+
+#?(:clj
+   (defn- build-stamped-2
+     "Emit the STAMPED dispatch-family call — ALWAYS a 2-arity `disp` call so the
+     `:rf.trace/call-site` keyword literal lives ONLY in THIS debug-gated macro
+     expansion (DCE'd in production), never in the production-reachable `*`-fn
+     body. `disp-sym` is the fully-qualified `*`-fn (`dispatch*` /
+     `dispatch-sync*`). When the user wrote two args, discriminate at runtime on
+     the first arg's shape: event-first (`arg1` a vector) keeps the historic
+     `(disp event-vec (assoc opts :rf.trace/call-site cs))`; frame-first builds
+     the event-first opts shape `(disp event-vec {:frame frame :rf.trace/call-site
+     cs})` (the call-site keyword stays a macro-literal — no `*`-fn 3-arity, so no
+     keyword leaks into the prod bundle). The 1-arg case is the ambient-frame
+     form, stamped via the 2-arity opts map."
+     [disp-sym arg1 arg2 cs-form]
+     (if arg2
+       `(let [a# ~arg1 b# ~arg2]
+          (if (vector? a#)
+            (~disp-sym a# (assoc b# :rf.trace/call-site ~cs-form))
+            (~disp-sym b# {:frame a# :rf.trace/call-site ~cs-form})))
+       `(~disp-sym ~arg1 {:rf.trace/call-site ~cs-form}))))
+
 #?(:clj
    (defn build-dispatch-form
-     [form-meta ns-sym file event-vec opts-form]
+     [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (if opts-form
-                     `(re-frame.core/dispatch* ~event-vec
-                                               (assoc ~opts-form :rf.trace/call-site ~cs-form))
-                     `(re-frame.core/dispatch* ~event-vec {:rf.trace/call-site ~cs-form}))
-           plain   (if opts-form
-                     `(re-frame.core/dispatch* ~event-vec ~opts-form)
-                     `(re-frame.core/dispatch* ~event-vec))]
+           stamped (build-stamped-2 're-frame.core/dispatch* arg1 arg2 cs-form)
+           plain   (if arg2
+                     `(re-frame.core/dispatch* ~arg1 ~arg2)
+                     `(re-frame.core/dispatch* ~arg1))]
        (gate stamped plain))))
 
 #?(:clj
    (defn build-dispatch-sync-form
-     [form-meta ns-sym file event-vec opts-form]
+     [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (if opts-form
-                     `(re-frame.core/dispatch-sync* ~event-vec
-                                                    (assoc ~opts-form :rf.trace/call-site ~cs-form))
-                     `(re-frame.core/dispatch-sync* ~event-vec {:rf.trace/call-site ~cs-form}))
-           plain   (if opts-form
-                     `(re-frame.core/dispatch-sync* ~event-vec ~opts-form)
-                     `(re-frame.core/dispatch-sync* ~event-vec))]
+           stamped (build-stamped-2 're-frame.core/dispatch-sync* arg1 arg2 cs-form)
+           plain   (if arg2
+                     `(re-frame.core/dispatch-sync* ~arg1 ~arg2)
+                     `(re-frame.core/dispatch-sync* ~arg1))]
        (gate stamped plain))))
 
 #?(:clj
