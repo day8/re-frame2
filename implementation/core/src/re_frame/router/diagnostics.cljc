@@ -266,34 +266,37 @@
                :bad-type            bad-type}})))
 
 (defn- validate-supplied-cofx-values!
-  "DEV-MODE structural-EDN check of a SUPPLIED `:rf.cofx` map's values
-  (rf2-rmroo4 slice A). Every value other than the framework's `:rf/time-ms`
-  fact rides the durable causal record, so each MUST be recordable EDN data
-  (EP-0017:386). The first non-recordable value throws
-  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`).
+  "ALWAYS-ON structural-EDN check of a SUPPLIED `:rf.cofx` map's values
+  (rf2-rmroo4 slice A; production-hardened rf2-q34j26). Every value other than
+  the framework's `:rf/time-ms` fact rides the durable causal record, so each
+  MUST be recordable EDN data (EP-0017:386). The first non-recordable value
+  throws `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`).
 
-  DEV-MODE — gated on `interop/debug-enabled?`: this catches a DEV-TIME author
-  error (a host handle stuffed into a coeffect), and the value is identical in
-  production, so dev-time catching suffices. The whole walk — and the
-  recordable predicate's cost — DCEs under `:advanced` + `goog.DEBUG=false`,
-  keeping the production dispatch hot path free of a per-value deep walk. The
-  declared-`:schema` check (cofx.cljc) stays the always-on production
-  causal-token contract; this structural guard is the dev-time complement."
+  ALWAYS-ON — NOT gated on `interop/debug-enabled?` (EP-0017 §3 / §5 / Open
+  Issue 9 — structural EDN always, hard errors in production as well as dev):
+  a supplied recordable value that is a host handle folds a non-EDN value into
+  the durable causal record (epoch ledger, replay, SSR payload, Xray) — corrupt
+  durable state, not a dev nicety, the same `:dispatched-at` causal-token
+  precedent the map-shape / `:rf/time-ms` checks above already enforce
+  always-on. The walk runs only when a `:rf.cofx` was supplied (no allocation
+  on the override-free hot path), and the recordable predicate short-circuits
+  at the first non-EDN leaf. The declared-`:schema` check (cofx.cljc) is the
+  complementary always-on per-supplier contract; this is the structural
+  always-EDN floor that fires even when no `:schema` was declared."
   [supplied event]
-  (when interop/debug-enabled?
-    (let [event-id (first event)]
-      (reduce-kv
-        (fn [_ cofx-id value]
-          ;; `:rf/time-ms` is already shape-checked above (integer); skip it.
-          (when-not (= cofx-id :rf/time-ms)
-            (when-let [bad (recordable/explain-non-recordable value)]
-              ;; Prepend the fact-id so the reported path is rooted at the
-              ;; coeffect key, not at the (per-value) walk root.
-              (let [rooted (update bad :path #(into [cofx-id] %))]
-                (emit-cofx-value-invalid! event cofx-id value rooted event-id))))
-          nil)
-        nil
-        supplied))))
+  (let [event-id (first event)]
+    (reduce-kv
+      (fn [_ cofx-id value]
+        ;; `:rf/time-ms` is already shape-checked above (integer); skip it.
+        (when-not (= cofx-id :rf/time-ms)
+          (when-let [bad (recordable/explain-non-recordable value)]
+            ;; Prepend the fact-id so the reported path is rooted at the
+            ;; coeffect key, not at the (per-value) walk root.
+            (let [rooted (update bad :path #(into [cofx-id] %))]
+              (emit-cofx-value-invalid! event cofx-id value rooted event-id))))
+        nil)
+      nil
+      supplied)))
 
 (defn validate-cofx!
   "Throw `:rf.error/invalid-cofx` when a caller-supplied `:rf.cofx` is
@@ -320,15 +323,16 @@
       framework's lone provided-on-the-envelope fact).
 
   Other facts (app-owned, subsystem-qualified) pass the cheap MAP-SHAPE gate
-  here, then — in DEV builds only (rf2-rmroo4 slice A) — each value is walked
-  by `validate-supplied-cofx-values!` to confirm it is recordable EDN data
-  (EP-0017:386): a host handle (DOM node, Promise, function, atom, Date, JS /
-  Java object) supplied as a recordable coeffect throws
-  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`). A
-  narrower per-supplier `:schema` gate (cofx.cljc satisfaction step, the
-  always-on production contract) is the deeper check that follows; this is the
-  structural always-EDN complement that catches the author error at the
-  dispatch source.
+  here, then — ALWAYS-ON (rf2-rmroo4 slice A; production-hardened rf2-q34j26 per
+  EP-0017 Open Issue 9 — structural EDN always, hard error in production too) —
+  each value is walked by `validate-supplied-cofx-values!` to confirm it is
+  recordable EDN data (EP-0017:386): a host handle (DOM node, Promise, function,
+  atom, Date, JS / Java object) supplied as a recordable coeffect throws
+  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`) in dev AND
+  production. A narrower per-supplier `:schema` gate (cofx.cljc satisfaction
+  step, the complementary always-on production contract) is the deeper check
+  that follows; this is the structural always-EDN floor that catches the author
+  error at the dispatch source.
 
   ALWAYS-ON — NOT gated on `interop/debug-enabled?`: like
   `reject-retired-dispatch-opts!`, a corrupt causal token is a correctness
@@ -378,11 +382,11 @@
           {:extra {:event-id   (first event)
                    :event      event
                    :rf/time-ms (:rf/time-ms supplied)}}))
-      ;; rf2-rmroo4 slice A — structural-EDN-always check of the SUPPLIED
-      ;; values, AFTER the map-shape + `:rf/time-ms` shape checks above and
-      ;; BEFORE the per-supplier `:schema` validation (cofx.cljc, satisfaction
-      ;; step). DEV-MODE (gated inside `validate-supplied-cofx-values!`): a
-      ;; non-EDN recordable value (a host handle) throws
+      ;; rf2-rmroo4 slice A / rf2-q34j26 — structural-EDN-ALWAYS check of the
+      ;; SUPPLIED values, AFTER the map-shape + `:rf/time-ms` shape checks above
+      ;; and BEFORE the per-supplier `:schema` validation (cofx.cljc,
+      ;; satisfaction step). ALWAYS-ON (EP-0017 Open Issue 9 — production hard
+      ;; error too): a non-EDN recordable value (a host handle) throws
       ;; `:rf.error/cofx-value-invalid` / `:non-edn-recordable-value`. Only
       ;; runs when `supplied` is a map (the non-map case already threw above).
       (when (map? supplied)

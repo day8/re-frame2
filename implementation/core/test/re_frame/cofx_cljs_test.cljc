@@ -957,16 +957,17 @@
   (testing "ADVERSARIAL (rf2-uqz2ir): a generator that mints a NON-EDN host
             handle (here an atom — a stand-in for a DOM node / Promise /
             function / Date / any host object) is `:rf.error/cofx-value-invalid`
-            (reason `:non-edn-recordable-value`) — a DEV hard error that halts
-            the cascade BEFORE the bad value is written back into the durable
-            `:rf.cofx` record and BEFORE the handler runs. EP-0017:386."
+            (reason `:non-edn-recordable-value`) — an ALWAYS-ON hard error
+            (rf2-q34j26: production too) that halts the cascade BEFORE the bad
+            value is written back into the durable `:rf.cofx` record and BEFORE
+            the handler runs. EP-0017:386."
     (let [traces    (collect-traces! ::gen-non-edn)
           gen-calls (atom 0)
           fired?    (atom false)]
       ;; Generator-backed recordable fact (recordable, NOT provided, with a
       ;; supplier). It mints an ATOM — a genuine host handle, not EDN data.
       ;; No `:schema` declared, so the ALWAYS-ON `:schema` check is a no-op and
-      ;; ONLY the structural-EDN dev guard can catch this (the point of slice B).
+      ;; ONLY the structural-EDN guard can catch this (the point of slice B).
       (rf/reg-cofx :gen-test/host-handle
         {:recordable? true :doc "A generator that wrongly mints a host handle."}
         (fn [] (swap! gen-calls inc) (atom :a-host-handle)))
@@ -997,6 +998,31 @@
               "the trace carries the structural-EDN reason")
           (is (= :gen-test/host-handle (get-in (first errs) [:tags :rf.cofx/id]))
               "the trace names the fact"))))))
+
+(deftest generated-non-edn-value-is-rejected-in-production
+  (testing "ADVERSARIAL (rf2-q34j26 — EP-0017 Open Issue 9): the structural-EDN
+            check of a GENERATED recordable value is ALWAYS-ON, so a generator
+            minting a host handle is rejected even with the dev gate OFF — a
+            non-EDN value folded into the durable record is corrupt durable
+            state in production as much as dev, never silently written back."
+    (let [gen-calls (atom 0)
+          fired?    (atom false)]
+      (rf/reg-cofx :gen-test/prod-host-handle
+        {:recordable? true :doc "A generator that wrongly mints a host handle."}
+        (fn [] (swap! gen-calls inc) (atom :a-host-handle)))
+      (rf/reg-event :gen-test/prod-uses-host-handle
+        {:rf.cofx/requires [:gen-test/prod-host-handle]}
+        (fn [_ _] (reset! fired? true) {}))
+      (with-redefs [interop/debug-enabled? false]
+        (let [ex (try (rf/dispatch-sync [:gen-test/prod-uses-host-handle]) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e e))]
+          (is (some? ex)
+              "a non-EDN generated value is rejected with the dev gate OFF (production hard error)")
+          (is (false? @fired?)
+              "the handler never ran — the structural floor halts the cascade in prod too")
+          (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex))))
+          (is (= :non-edn-recordable-value (:rf.cofx/value-error (ex-data ex)))))))))
 
 (deftest generated-non-edn-value-nested-reports-path
   (testing "ADVERSARIAL (rf2-uqz2ir): a generator minting a map with a non-EDN

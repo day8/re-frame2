@@ -320,30 +320,40 @@
           "a nested EDN map fact rides through unchanged")
       (is (inst? (:session/at cofx)) "an #inst fact rides through"))))
 
-(deftest structural-edn-check-is-dev-mode-only
-  ;; The structural walker is DEV-MODE (the bug is a dev-time author error; the
-  ;; value is identical in prod, so dev-time catching suffices). With the dev
-  ;; gate OFF the per-value walk DCEs / no-ops — production never pays a
-  ;; per-dispatch deep walk; the declared-:schema check stays the always-on
-  ;; production causal-token contract.
-  (testing "with the dev gate OFF a non-EDN supplied value is NOT structurally rejected"
+(deftest structural-edn-check-is-production-hard
+  ;; rf2-q34j26 (EP-0017 Open Issue 9 — structural EDN ALWAYS, hard error in
+  ;; production as well as dev): a supplied recordable value that is a host
+  ;; handle folds a non-EDN value into the durable causal record (epoch ledger,
+  ;; replay, SSR payload, Xray) — corrupt durable state, not a dev nicety. The
+  ;; per-value walk is therefore ALWAYS-ON, NOT gated on `interop/debug-enabled?`
+  ;; — the same `:dispatched-at` causal-token precedent the map-shape /
+  ;; `:rf/time-ms` checks already enforce in production.
+  (testing "with the dev gate OFF a non-EDN supplied value IS structurally rejected"
     (rf/reg-frame :wi/edn-prod {:doc "ctx"})
     (with-redefs [interop/debug-enabled? false]
-      (let [cofx (get (build-envelope [:noop]
-                                      {:frame   :wi/edn-prod
-                                       :rf.cofx {:rf/time-ms 1781078400123
-                                                 :app/handle (atom :host)}})
-                      :rf.cofx)]
-        (is (instance? clojure.lang.IAtom (:app/handle cofx))
-            "the structural walk is skipped in prod — the value rides through (the
-             always-on :schema check is the prod contract, not this dev guard)"))))
+      (let [ex   (try
+                   (build-envelope [:noop]
+                                   {:frame   :wi/edn-prod
+                                    :rf.cofx {:rf/time-ms 1781078400123
+                                              :app/handle (atom :host)}})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data ex)]
+        (is (some? ex)
+            "the structural walk fires in prod — a host handle is rejected even
+             with the dev gate OFF (the durable causal-token contract, not a dev guard)")
+        (is (= :rf.error/cofx-value-invalid (:rf.error/id data)))
+        (is (= :non-edn-recordable-value (:rf.cofx/value-error data))
+            "the structural sub-kind is named on its own slot")
+        (is (= [:app/handle] (:path data))
+            "the path is rooted at the failing fact key"))))
   (testing "the MAP-SHAPE check stays always-on even with the dev gate OFF"
     (rf/reg-frame :wi/edn-prod2 {:doc "ctx"})
     (with-redefs [interop/debug-enabled? false]
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/edn-prod2
                                             :rf.cofx "not-a-map"}))
-          "the structural slice-A guard is dev-mode, but the map-shape guard is not"))))
+          "both the map-shape guard and the structural slice-A guard are always-on"))))
 
 (deftest invalid-world-inputs-rejected-before-clock-read
   ;; Mirrors retired-dispatched-at-rejected-before-world-input-clock-read: the
