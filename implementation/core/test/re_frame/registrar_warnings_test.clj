@@ -181,7 +181,7 @@
           (rf/reg-event :k/event-doc-missing (fn [{:keys [db]} _] {:db db}))
           (rf/reg-sub       :k/sub-doc-missing   (fn [db _] (:x db)))
           (rf/reg-fx        :k/fx-doc-missing    (fn [_ _] nil))
-          (rf/reg-cofx      :k/cofx-doc-missing  (fn [cofx _] cofx))))
+          (rf/reg-cofx      :k/cofx-doc-missing  (fn [] :stub))))
       (let [warns (warnings-of recorded :rf.warning/missing-doc)
             kinds (into #{} (map #(get-in % [:tags :kind])) warns)]
         (is (= 4 (count warns))

@@ -120,7 +120,7 @@
   (testing "fx and cofx registrations project to descriptors with their
             handlers lifted"
     (rf/reg-fx :av/send {:doc "send"} (fn [_] nil))
-    (rf/reg-cofx :av/now {:doc "now"} (fn [cofx] (assoc cofx :now 42)))
+    (rf/reg-cofx :av/now {:doc "now"} (fn [] 42))
     (let [v (av/app-value)]
       (is (fn? (get-in v [:registrations :fx :av/send :handler]))
           "the fx handler is lifted")

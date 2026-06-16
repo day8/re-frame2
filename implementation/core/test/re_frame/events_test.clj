@@ -360,7 +360,7 @@
     (rf/reg-event :test.6z20/ev (fn [{:keys [db]} _] {:db db}))
     (rf/reg-sub :test.6z20/sub (fn [_ _] :stub))
     (rf/reg-fx :test.6z20/fx (fn [_ _] nil))
-    (rf/reg-cofx :test.6z20/cofx (fn [ctx] ctx))
+    (rf/reg-cofx :test.6z20/cofx (fn [] :stub))
     (rf/clear-event)
     (is (nil? (registrar/lookup :event :test.6z20/ev))
         ":event was cleared")
