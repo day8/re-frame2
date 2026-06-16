@@ -204,6 +204,46 @@
       (ratom/dispose! r)
       (is (= [:on-dispose-kwarg :added] @fired)))))
 
+;; ---- dispose! idempotence + re-entrancy (rf2-1bzlai) ----------------------
+;;
+;; The reagent-slim Reaction kept the stock-Reagent nine-field shape but its
+;; `dispose!` fired `on-dispose` / `on-dispose-arr` WITHOUT clearing them and
+;; carried no disposed guard, so a second `dispose!` re-fired every callback
+;; and a callback that defensively re-entered `dispose!` could double-fire /
+;; recurse. These pin the adapter Reaction's own `dispose!`, not a toy reify.
+
+(deftest reaction-dispose-is-idempotent
+  (testing "a second dispose! does NOT re-fire on-dispose / add-on-dispose! callbacks"
+    (let [fired (atom [])
+          r     (ratom/make-reaction
+                  (fn [] 1)
+                  :on-dispose (fn [_] (swap! fired conj :on-dispose-kwarg)))]
+      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :added-1)))
+      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :added-2)))
+      (ratom/dispose! r)
+      (is (= [:on-dispose-kwarg :added-1 :added-2] @fired)
+          "first dispose! fired the kwarg then the array callbacks in registration order")
+      (ratom/dispose! r)
+      (is (= [:on-dispose-kwarg :added-1 :added-2] @fired)
+          "second dispose! re-fired nothing (idempotent)"))))
+
+(deftest reaction-dispose-is-re-entrant-safe
+  (testing "an on-dispose callback that re-enters dispose! on the same
+  Reaction does not recurse or double-fire the callback set"
+    (let [fired (atom [])
+          r     (ratom/make-reaction (fn [] 1))]
+      ;; The :on-dispose-arr callbacks receive the Reaction; the first one
+      ;; defensively re-disposes it — the re-entrant shape rf2-1bzlai calls
+      ;; out. The holders are cleared before firing, so the re-entrant call
+      ;; sees nil holders and re-fires nothing.
+      (ratom/add-on-dispose! r (fn [this]
+                                 (swap! fired conj :re-entrant-cb)
+                                 (ratom/dispose! this)))
+      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :after-cb)))
+      (ratom/dispose! r)
+      (is (= [:re-entrant-cb :after-cb] @fired)
+          "each callback fired exactly once despite the re-entrant dispose!; no recursion, no double-fire"))))
+
 (deftest reaction-auto-run-true
   (testing ":auto-run true triggers synchronous recompute on dep change"
     (let [a       (ratom/atom 1)

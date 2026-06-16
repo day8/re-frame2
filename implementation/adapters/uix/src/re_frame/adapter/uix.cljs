@@ -70,11 +70,15 @@
   subtree silently — that footgun is gone by construction). A single
   child works too: `($ frame-provider {:frame :session} ($ app))`.
 
-  `:frame` is REQUIRED (EP-0002 carried invariant). A missing or `nil`
-  `:frame` is a CONFIGURATION ERROR: the spine core
-  `build-frame-provider-element` emits `:rf.error/no-frame-context` and
-  throws rather than synthesising `:rf/default` — the runtime never
-  repairs absence (Spec 002 §Frame target resolution). The three
+  `:frame` is REQUIRED (EP-0002 carried invariant) and must be a KEYWORD
+  frame id. A missing or `nil` `:frame` is a CONFIGURATION ERROR: the spine
+  core `build-frame-provider-element` emits `:rf.error/no-frame-context` and
+  throws rather than synthesising `:rf/default` — the runtime never repairs
+  absence (Spec 002 §Frame target resolution). A non-nil but non-keyword
+  `:frame` (a string / number / …) is a distinct bad-public-argument error:
+  the core emits `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo),
+  so a typo like `{:frame \"session\"}` fails loudly rather than being
+  silently coerced to `:session` by the lower-level context reader. The three
   React-shaped adapters share one React Context (per rf2-3yij Decision 2)
   so a subtree under any frame-provider sees the right frame regardless of
   which substrate rendered the provider.

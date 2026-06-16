@@ -243,6 +243,62 @@
       (is (= {} @(:sub-cache frm))
           "factory-built dispose-adapter! cleared the sub-cache atom"))))
 
+;; ---- spine derived-value -dispose idempotence + re-entrancy (rf2-1bzlai) --
+;;
+;; The earlier tests above drive the cache-walk through reified toy
+;; disposables. These pin the ACTUAL spine-produced derived value's
+;; `rf-disposable/IDisposable` `-dispose` — the concrete reify returned by
+;; `make-derived-value-fn` — against repeated and re-entrant disposal. The
+;; bug rf2-1bzlai: the impl fired `@on-dispose-fns` and only then cleared
+;; the vector, with no disposed guard, so a second `-dispose` re-fired the
+;; whole callback set and a callback that re-entered `-dispose` could recurse
+;; / double-fire. A real spine derived value is buildable node-side with no
+;; DOM: `make-derived-value-fn` takes `[gensym-prefix scheduler]` and returns
+;; the `make-derived-value` fn `[source-containers compute-fn]`.
+
+(defn- spine-derived-value
+  "Build one real spine-produced derived value over a fresh source
+  container and return it together with the source so a test can dispose
+  it directly. The compute is identity-of-first-source; tests here only
+  exercise the disposal protocol, not recompute."
+  []
+  (let [scheduler (spine/make-scheduler)
+        make-dv   (spine/make-derived-value-fn "rf2-1bzlai-test-" scheduler)
+        src       (spine/make-state-container 0)
+        dv        (make-dv [src] (fn [vs] (first vs)))]
+    {:dv dv :src src}))
+
+(deftest spine-derived-value-dispose-is-idempotent
+  (testing "a second -dispose on a spine-produced derived value does NOT
+  re-fire its on-dispose callbacks (idempotent per the IDisposable contract)"
+    (let [{:keys [dv]} (spine-derived-value)
+          fire-log     (atom [])]
+      (rf-disposable/-add-on-dispose dv #(swap! fire-log conj :cb-1))
+      (rf-disposable/-add-on-dispose dv #(swap! fire-log conj :cb-2))
+      (rf-disposable/-dispose dv)
+      (is (= [:cb-1 :cb-2] @fire-log)
+          "first -dispose fired both callbacks in registration order")
+      (rf-disposable/-dispose dv)
+      (is (= [:cb-1 :cb-2] @fire-log)
+          "second -dispose did NOT re-fire the callbacks (idempotent)"))))
+
+(deftest spine-derived-value-dispose-is-re-entrant-safe
+  (testing "an on-dispose callback that re-enters -dispose on the same
+  spine derived value does not recurse or double-fire the callback set"
+    (let [{:keys [dv]} (spine-derived-value)
+          fire-log     (atom [])]
+      ;; This callback defensively re-disposes the same object — the exact
+      ;; re-entrant shape the bead calls out. With the guard flipped first
+      ;; and callbacks snapshot-and-cleared, the re-entrant call is a no-op.
+      (rf-disposable/-add-on-dispose dv
+        (fn []
+          (swap! fire-log conj :re-entrant-cb)
+          (rf-disposable/-dispose dv)))
+      (rf-disposable/-add-on-dispose dv #(swap! fire-log conj :after-cb))
+      (rf-disposable/-dispose dv)
+      (is (= [:re-entrant-cb :after-cb] @fire-log)
+          "each callback fired exactly once despite the re-entrant -dispose; no recursion, no double-fire"))))
+
 (deftest unmount-thunk-removes-root-from-active-set
   (testing "the unmount thunk returned by `render` removes its root from the active-roots cell"
     ;; Build a render fn parameterised on a fake `.unmount`-supporting

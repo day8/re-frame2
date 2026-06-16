@@ -312,6 +312,17 @@
           ;; `[source key]` pair lets dispose release ALL held inputs
           ;; (spec/006 §600-613).
           own-keys       (atom [])           ;; vector of [source key]
+          ;; Disposed guard (rf2-1bzlai). `-dispose` MUST be idempotent and
+          ;; re-entrant safe: a second `-dispose`, or a re-entrant
+          ;; `interop/dispose!` fired from inside an on-dispose callback
+          ;; (e.g. a cleanup path that defensively disposes the same derived
+          ;; value), must be a no-op after the first pass. The flag flips
+          ;; true on the first call BEFORE callbacks run, so a re-entrant
+          ;; dispose short-circuits rather than re-firing the callback set or
+          ;; double-releasing layer-2 input watches. Single-threaded JS event
+          ;; loop, never escapes this closure — `volatile!` is the right
+          ;; primitive (matches `prev-state` / `dirty?` above).
+          disposed?      (volatile! false)
           ;; Iterate via `run!` over `vals` rather than `doseq` over
           ;; map-entries — skips one map-entry seq allocation per
           ;; source-change notification.
@@ -398,11 +409,21 @@
         ;; `reagent.impl.batching` for one protocol.
         rf-disposable/IDisposable
         (-dispose [_]
-          (doseq [[s k] @own-keys] (remove-watch s k))
-          (reset! own-keys [])
-          (reset! watchers {})
-          (doseq [f @on-dispose-fns] (f))
-          (reset! on-dispose-fns []))
+          ;; Idempotent + re-entrant safe (rf2-1bzlai). Flip the guard
+          ;; FIRST so a re-entrant `-dispose` from inside a callback (or a
+          ;; plain second call) short-circuits before any teardown re-runs.
+          (when-not @disposed?
+            (vreset! disposed? true)
+            (doseq [[s k] @own-keys] (remove-watch s k))
+            (reset! own-keys [])
+            (reset! watchers {})
+            ;; Snapshot-and-clear callbacks before firing: a callback that
+            ;; re-enters `interop/dispose!` on this same object hits the
+            ;; guard above (no-op) and never sees the callbacks again, so
+            ;; the set fires exactly once in registration order.
+            (let [fns @on-dispose-fns]
+              (reset! on-dispose-fns [])
+              (doseq [f fns] (f)))))
         (-add-on-dispose [_ f]
           (swap! on-dispose-fns conj f))))))
 
@@ -858,13 +879,16 @@
   code, so a keyword frame-id survives intact on every substrate by
   construction."
   [frame-kw children]
-  (when (nil? frame-kw)
-    (let [payload (frame/no-frame-context-payload
-                    :frame-provider
-                    {:where 're-frame.substrate.spine/build-frame-provider-element
-                     :recovery :supply-frame})]
-      (frame/emit-no-frame-context! payload)
-      (throw (ex-info (str (:rf.error/id payload)) payload))))
+  ;; rf2-9kpigo: reject a non-keyword, non-nil `:frame` BEFORE it reaches
+  ;; React Context. A nil routes to `:rf.error/no-frame-context` (absence);
+  ;; a non-keyword routes to the distinct `:rf.error/bad-frame-provider-arg`.
+  ;; The native UIx/Helix shells read their props in the substrate idiom and
+  ;; delegate the clean frame-kw here, so this is the single validating seam
+  ;; for both function-component substrates (mirrors the Reagent-side
+  ;; `re-frame.views.provider/frame-provider` contract).
+  (frame/require-keyword-frame-provider-arg!
+    frame-kw
+    're-frame.substrate.spine/build-frame-provider-element)
   (apply adapter-context/provider-element
          frame-kw
          (cond
