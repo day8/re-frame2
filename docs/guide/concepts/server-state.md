@@ -158,6 +158,30 @@ The race rules are few, and worth knowing cold:
 
 The familiar refetch-on-window-focus behaviour is opt-in per frame — `(rf/install-revalidation-listeners! frame-id)` at boot (client-only). It refetches only entries that are both stale *and* still owned, so a tab return never triggers a fetch storm for data nothing is showing.
 
+### Polling: keep this fresh every N ms
+
+For a dashboard, a build-status badge, a notification count, or a "is this long job done yet" read, declare a **`:poll-interval-ms`** on the resource and the runtime re-reads it on that interval — no `setInterval`, no manual unmount/tab-hide bookkeeping:
+
+```clojure
+(rf/reg-resource :dashboard/build-status
+  {:scope            :rf.scope/global
+   :params-schema    [:map [:repo :string]]
+   :poll-interval-ms 5000          ;; re-read every 5s while actively owned + the tab is visible
+   :request (fn [{:keys [repo]} _ctx]
+              {:request {:method :get :url (str "/repos/" repo "/build")} :decode :json})
+   :tags    (fn [_ _] #{[:build]})})
+```
+
+Polling is **owner-driven**: it runs only while the entry has an active owner (a route, a machine, or an app-minted `[:lease …]`) and pauses automatically while the tab is hidden — so it stops the instant nothing is looking at it. A poll tick refetches *unconditionally by the interval* (cause `:poll`, never an owner), coalesces with any in-flight work (a slow endpoint never stacks overlapping requests), and a failed poll keeps the prior data and keeps polling.
+
+Three freshness tools, three questions:
+
+- **Polling (`:poll-interval-ms`)** — "this changes on its own; keep it fresh on a clock" (build status, queue depth, presence).
+- **Focus/reconnect revalidation** — "refresh stale data when the user comes back" (the default freshness most reads want; cheap, event-driven, no clock).
+- **Invalidation (a mutation's `:invalidates`)** — "*this* write made *that* read wrong; refresh it now" (the causal, surgical refresh after a known change).
+
+They compose: a polled entry still revalidates on focus and still gets invalidated by a write — the in-flight coalescing gate keeps the overlap to one fetch.
+
 ## Writes invalidate by tag — causally
 
 In TanStack Query, keeping reads honest after a write is a call you remember to make in `onSuccess`. Here it's a declaration on the write itself, so there's nothing to remember. A **mutation** is a named causal write; on success it invalidates the tags it broke, through the same scoped machinery, recorded on the event record:

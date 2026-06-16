@@ -396,6 +396,8 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 | `:rf.resource/gc-scheduled` | gc | `timers.cljc` (GC timer armed) |
 | `:rf.resource/gc-fired` | gc | `events.cljc` (GC timer fired) |
 | `:rf.resource/gc-skipped` | gc | `events.cljc` (GC skipped — entry re-owned) |
+| `:rf.resource/poll-scheduled` | gc | `timers.cljc` (poll timer armed — EP-0020) |
+| `:rf.resource/poll-fired` | gc | `events.cljc` (poll timer fired — carries `:decision` `:polled` / `:coalesced` / `:paused-hidden` / `:no-owner` / `:no-entry`; EP-0020) |
 | `:rf.resource/removed` | lifecycle | `events.cljc` + `registry.cljc` (entry removed) |
 | `:rf.resource/stale-suppressed` | suppression | `events.cljc` (stale/superseded reply suppressed) |
 | `:rf.resource/hydrated` | hydration | `ssr.cljc` (SSR hydration reconcile) |

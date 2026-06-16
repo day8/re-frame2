@@ -341,6 +341,13 @@
 (fx/reg-fx :rf.resource/cancel-timers
            timers/cancel-timers-meta
            timers/cancel-timers-handler)
+;; EP-0020 §Polling: the poll-only cancel fx. `:rf.resource/release-owner`
+;; emits it for each entry that became owner-free (polling stops the instant
+;; the last owner releases — a poll never pins an owner-free entry; the stale
+;; / GC timers stay armed because an owner-free entry still GCs).
+(fx/reg-fx :rf.resource/cancel-poll-timers
+           timers/cancel-poll-timers-meta
+           timers/cancel-poll-timers-handler)
 
 ;; EP-0017: the load-causing events (ensure / refetch / mutation execute)
 ;; DECLARE the RECORDABLE generation-allocation cofx via `:rf.cofx/requires`
@@ -409,6 +416,14 @@
 (events/reg-event :rf.resource.internal/gc-fired
                      framework-authority-meta
                      resource-events/gc-fired-handler)
+;; EP-0020 §Polling — an active-owner `:poll` timer fired. The handler
+;; re-checks the live entry (present? owned? not hidden? not in-flight?) and
+;; unconditionally refetches (cause `:poll`, never an owner) when polling
+;; should continue, re-arming the next interval. The host `:poll` timer
+;; dispatches this; user code MUST NOT dispatch it directly.
+(events/reg-event :rf.resource.internal/poll-fired
+                     framework-authority-meta
+                     resource-events/poll-fired-handler)
 (events/reg-event :rf.resource.internal/stale-suppressed
                      framework-authority-meta
                      resource-events/stale-suppressed-handler)

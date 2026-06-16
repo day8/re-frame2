@@ -4,7 +4,7 @@ A resource is a named, cached read of remote state — re-frame2's answer to Tan
 
 Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](../guide/concepts/server-state.md); the normative source is [016-Resources.md](../../spec/016-Resources.md).
 
-> **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), and **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)). **Optimistic rollback, polling (`:poll-ms`), and GraphQL are deferred** to later slices. See [Guide ch.27 §What's deferred](../guide/concepts/server-state.md).
+> **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)), and **active-owner polling** (`:poll-interval-ms` — see [Polling](#polling)). **GraphQL is deferred** to a later slice. See [Guide ch.27 §What's deferred](../guide/concepts/server-state.md).
 
 ## Registration
 
@@ -36,6 +36,7 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
    :transport      :rf.http/managed            ;; the only initial-scope transport
    :stale-after-ms 60000
    :gc-after-ms    300000
+   :poll-interval-ms 5000                      ;; (optional) revalidate every 5s while actively owned + visible
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})
    :sensitive?     false})
 ```
@@ -49,9 +50,9 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
 | `:request` | For `:transport :rf.http/managed`, returns a [Spec 014](../../spec/014-HTTPRequests.md) args map. MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
 | `:data-schema` | Validates successful data when transport decode supports it. |
 
-**Optional keys**: `:doc`, `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:tags`, `:sensitive?` / `:large?` / schema-based classification.
+**Optional keys**: `:doc`, `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
 
-**Rejected / unused in v1**: `:poll-ms`, `:revalidate`, `:placeholder`, `:cache-key`, `:select`, `:infinite`, transport extension protocols, and mutation-only keys (`:invalidates`, `:optimistic`, `:rollback`).
+**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, `:infinite`, transport extension protocols, and mutation-only keys (`:invalidates`, `:optimistic`, `:rollback`). (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling.)
 
 ### Scope policy
 
@@ -142,7 +143,31 @@ Active-stale revalidation is expressed as **resource events**, never subscriptio
   ```
 - **Description**: `install-revalidation-listeners!` wires three host `window` listeners for `frame-id` — `focus` and `visibilitychange`-to-visible → `[:rf.resource/window-focused]`, and `online` → `[:rf.resource/network-reconnected]` — each dispatched at `frame-id`. Idempotent (re-installing replaces, never stacks — hot-reload safe); CLJS-only (the JVM/SSR arm is a no-op). Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook. `remove-revalidation-listeners!` tears them down (useful for test isolation and single-page hosts that rotate which frame owns revalidation); a no-op when none is installed.
 
-> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/stale-suppressed` are framework-internal and carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary). (`:rf.resource.internal/stale-fired` is the stale-timer re-check tick — it arms the stale transition, not a fetch.)
+> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/poll-fired` / `…/stale-suppressed` are framework-internal and carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary). (`:rf.resource.internal/stale-fired` is the stale-timer re-check tick — it arms the stale transition, not a fetch; `:rf.resource.internal/poll-fired` is the poll-timer re-check tick — it refetches an active-owner entry by the interval.)
+
+### Polling
+
+A resource may declare an optional **`:poll-interval-ms`** policy: while an entry has at least one **active owner** and the document is **visible**, the runtime re-runs its load every N ms — without any component-side fetch call (re-frame2's counterpart of TanStack Query's `refetchInterval` / SWR's `refreshInterval` / RTK Query's `pollingInterval`). Polling is **owner-driven** (it tracks the active-owner lease, not a component observer), so a route / machine / app-minted lease keeps it alive and the instant the last owner releases polling stops.
+
+```clojure
+(rf/reg-resource :notifications/unread-count
+  {:scope            {:from-db :app/session}
+   :params-schema    [:map]
+   :poll-interval-ms 15000           ;; refresh every 15s while someone owns it + the tab is visible
+   :request (fn [_ _ctx] {:request {:method :get :url "/notifications/unread"} :decode :json})
+   :tags    (fn [_ _] #{[:notifications]})})
+```
+
+Semantics (per [016 §Polling](../../spec/016-Resources.md#polling)):
+
+- **Positive integer ms; non-positive / absent = no polling.** The poll timer is the third member of the freshness-timer family (beside `:stale-after-ms` / `:gc-after-ms`).
+- **Unconditional active-owner tick.** A tick refetches **by the interval**, not gated on `:stale?` — the consumer asked for "re-read every N ms". `:stale-after-ms` stays the orthogonal focus/route-entry knob. (Structural sharing keeps views quiet when an unchanged response comes back.)
+- **Cause `:poll`, never an owner.** A poll refetch creates no liveness, extends no GC; generation + stale-reply suppression apply exactly as for any refetch.
+- **Default-pause-when-hidden.** Poll ticks are suppressed while the tab is hidden and resume on tab return (which also fires the focus scan). A `:poll-when-hidden?` opt-in for a true background monitor is reserved.
+- **Coalescing.** A tick that finds a live in-flight refetch skips (no overlap on a slow endpoint); focus + poll never double-fetch.
+- **Background-failure resilient.** A failed poll keeps prior `:data` + records `:refresh-error`, and the next poll still fires.
+
+A "just polling" view with no natural route/machine owner needs an app-minted `[:lease …]` owner (with a matching `[:rf.resource/release-owner {…}]`) to keep the poll alive — an owner-free entry never polls.
 
 ## Subscriptions (passive)
 
@@ -275,7 +300,7 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
   ```clojure
   (resource-meta resource-id) → spec-map or nil
   ```
-- **Description**: The registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:tags`, `:doc`, source coords).
+- **Description**: The registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords).
 
 ### `resource-state`
 

@@ -169,6 +169,26 @@
                   "transport) :request returns a Spec 014 managed-HTTP args "
                   "map. Per Spec 016 §Resource registration spec.")
              {:resource-id resource-id})))
+  ;; `:poll-interval-ms` is OPTIONAL (EP-0020 §Polling). When present it MUST
+  ;; be a number of milliseconds — a non-positive / absent value means NO
+  ;; polling (the disarm rule `timers/schedule!` already applies to a
+  ;; non-positive stale/GC delay), parallel to `:stale-after-ms` /
+  ;; `:gc-after-ms`. A non-numeric value (a string, keyword, etc.) is a typo
+  ;; in a freshness-policy key — fail-closed loudly at the authoring boundary
+  ;; rather than silently never poll.
+  (when (and (contains? spec :poll-interval-ms)
+             (some? (:poll-interval-ms spec))
+             (not (number? (:poll-interval-ms spec))))
+    (throw (registration-error
+             :rf.error/invalid-resource-spec
+             'rf/reg-resource
+             (str "resource " resource-id " declares a :poll-interval-ms that "
+                  "is not a number (got " (pr-str (:poll-interval-ms spec))
+                  "). :poll-interval-ms is a positive integer of milliseconds "
+                  "(while actively owned + visible the entry revalidates every "
+                  "N ms); a non-positive or absent value means no polling. Per "
+                  "Spec 016 §Polling.")
+             {:resource-id resource-id :poll-interval-ms (:poll-interval-ms spec)})))
   nil)
 
 ;; ---- reg-resource / clear-resource ---------------------------------------
@@ -204,11 +224,12 @@
     ;; frame-agnostic (registration is a load-time act, not a per-frame event).
     (when (nil? previous)
       (trace/emit! :rf.event :rf.resource/registered
-                   {:resource-id    resource-id
-                    :scope-policy   (:scope resource-spec)
-                    :transport      (:transport resource-spec)
-                    :stale-after-ms (:stale-after-ms resource-spec)
-                    :gc-after-ms    (:gc-after-ms resource-spec)})))
+                   {:resource-id      resource-id
+                    :scope-policy     (:scope resource-spec)
+                    :transport        (:transport resource-spec)
+                    :stale-after-ms   (:stale-after-ms resource-spec)
+                    :gc-after-ms      (:gc-after-ms resource-spec)
+                    :poll-interval-ms (:poll-interval-ms resource-spec)})))
   resource-id)
 
 (defn- entry-keys-for-resource
@@ -315,9 +336,9 @@
 (defn resource-meta
   "Return the registered resource's spec map (`:params-schema`,
   `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
-  `:gc-after-ms`, `:tags`, `:doc`, source coords) for `resource-id`, or
-  nil if no resource is registered under that id. Per Spec 016
-  §Introspection."
+  `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords) for
+  `resource-id`, or nil if no resource is registered under that id. Per Spec
+  016 §Introspection."
   [resource-id]
   (:rf/resource (registrar/lookup resource-kind resource-id)))
 
