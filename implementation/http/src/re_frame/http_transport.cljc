@@ -520,10 +520,31 @@
           (dispatch-success! ctx (:ok accepted))
 
           (contains? accepted :failure)
-          (dispatch-failure! ctx {:kind       :rf.http/accept-failure
-                                  :detail     (:failure accepted)
-                                  :decoded    (:decoded ctx)
-                                  :request-id (:request-id ctx)}))))))
+          ;; rf2-ltaihw — a domain `:accept` failure (`{:failure user-map}` on a
+          ;; successful 2xx decode) is an `:rf.http/accept-failure`, exactly like
+          ;; the throw / malformed-return accept-failure branches in
+          ;; `handle-response!`. It MUST route through `emit-and-dispatch-failure!`
+          ;; (NOT `dispatch-failure!` directly): that is the shared tail which
+          ;;   - emits the `:rf.http/accept-failure` failure-CATEGORY trace via
+          ;;     `trace/emit-error!` (the rf2-bma05 redaction + Managed-Effects
+          ;;     §Tracing structured-failure-coverage contract), and
+          ;;   - stamps `:rf.http/off-box-body` for the `:decoded` slot
+          ;;     (rf2-t55hxg.6 fail-closed disposition).
+          ;; The earlier `dispatch-failure!` shortcut emitted ONLY the canonical
+          ;; `:rf.http/replied` envelope, so the failure-category event was missed
+          ;; and the decoded body rode unclassified off-box. The `:decoded` slot
+          ;; carries the schema-classified body (`privacy-body/classify-decoded`)
+          ;; so a `:decode`-schema sensitive slot redacts on the on-box trace —
+          ;; the same on-box projection the `handle-response!` accept-failure
+          ;; branches apply. We already hold the once-only `:finalised?` token and
+          ;; cleared the registry above, satisfying `emit-and-dispatch-failure!`'s
+          ;; precondition (the abort/natural-completion sample-(2) path next door
+          ;; relies on the same).
+          (emit-and-dispatch-failure!
+            ctx {:kind       :rf.http/accept-failure
+                 :detail     (:failure accepted)
+                 :decoded    (privacy-body/classify-decoded (:decoded ctx) (:decode ctx))
+                 :request-id (:request-id ctx)}))))))
 
 (defn- finalise-failure!
   "Final-failure dispatch (after retries exhausted or non-retriable).

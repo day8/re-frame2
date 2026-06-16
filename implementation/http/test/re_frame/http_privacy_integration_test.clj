@@ -676,3 +676,114 @@
               "on-box :body-text rides raw — the local operator inspects it"))
         (finally
           (stop-server! srv))))))
+
+;; ---- 12. :accept {:failure ...} emits the accept-failure category trace ----
+;;   + applies decoded-body privacy / off-box disposition (rf2-ltaihw)
+;;
+;; A successful 2xx decode whose `:accept` projects the decoded value to
+;; `{:failure user-map}` is an `:rf.http/accept-failure` domain failure. The
+;; bug: `finalise-success!`'s accept-`{:failure}` branch dispatched through
+;; `dispatch-failure!` directly, which emits ONLY the canonical
+;; `:rf.http/replied` envelope and bypasses `emit-and-dispatch-failure!` — so
+;; the `:rf.http/accept-failure` failure-category trace (via `emit-error!`) was
+;; NEVER emitted, and the decoded body in the trace payload missed the
+;; schema-classification + `:rf.http/off-box-body` disposition that the
+;; throw / malformed-return accept-failure branches already apply. This is the
+;; structural parity with those branches (they route through
+;; `finalise-failure!` → `emit-and-dispatch-failure!`).
+
+(deftest accept-failure-emits-category-trace-with-schema-classified-decoded
+  (testing "rf2-ltaihw — an :accept returning {:failure ...} on a 2xx decode
+            emits the :rf.http/accept-failure failure-category trace, the
+            decoded body's schema-sensitive slot is redacted on-box, and the
+            off-box disposition is stamped :classify for the schema body"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json"
+                                   "{\"token\":\"bearer-secret\",\"status\":\"rejected\"}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event :api/login
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/login")}
+                    ;; Schema decode marks :token sensitive — the per-slot mark
+                    ;; must redact the decoded body on the accept-failure trace.
+                    :decode     [:map
+                                 [:token {:sensitive? true} :string]
+                                 [:status :string]]
+                    ;; Domain accept failure: a structurally-valid 200 the app
+                    ;; classifies as a failure.
+                    :accept     (fn [decoded]
+                                  (if (= "rejected" (:status decoded))
+                                    {:failure {:reason :domain-rejected}}
+                                    {:ok decoded}))
+                    :on-failure [:api/failed]}]]}))
+        (rf/reg-event :api/failed (fn [_ _] {}))
+
+        (rf/dispatch-sync [:api/login])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/accept-failure (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/accept-failure (:operation %)) @captured))]
+          ;; The failure-category trace MUST be emitted (the bypassed path).
+          (is (some? ev)
+              "the :rf.http/accept-failure failure-category trace is emitted
+               (was bypassed: finalise-success! routed through dispatch-failure!
+               which only emits :rf.http/replied)")
+          ;; The off-box disposition is stamped forward for the decoded slot.
+          (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))
+              "schema decoded body stamped :classify for the off-box projector")
+          ;; The decoded body's schema-sensitive slot is redacted ON-BOX, matching
+          ;; the throw / malformed-return accept-failure branches.
+          (is (= :rf/redacted (get-in ev [:tags :decoded :token]))
+              "the :token slot the :decode schema marks sensitive is redacted on
+               the accept-failure trace's :decoded payload")
+          (is (= "rejected" (get-in ev [:tags :decoded :status]))
+              "the non-sensitive sibling slot rides verbatim"))
+        (finally
+          (stop-server! srv))))))
+
+(deftest accept-failure-unschematized-decoded-stamps-off-box-omit
+  (testing "rf2-ltaihw — an :accept {:failure ...} whose decoded body is
+            UNSCHEMATIZED (:auto / :json decode) stamps :rf.http/off-box-body
+            :omit (fail-closed), matching the throw / malformed accept-failure
+            branches; the on-box :decoded still rides raw for the local operator"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json"
+                                   "{\"echoed-token\":\"bearer-abc123\"}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event :api/login
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/login")}
+                    ;; Unschematized decode → off-box must fail closed (:omit).
+                    :decode     :json
+                    :accept     (fn [_decoded] {:failure {:reason :domain-rejected}})
+                    :on-failure [:api/failed]}]]}))
+        (rf/reg-event :api/failed (fn [_ _] {}))
+
+        (rf/dispatch-sync [:api/login])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/accept-failure (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/accept-failure (:operation %)) @captured))]
+          (is (some? ev)
+              "the :rf.http/accept-failure failure-category trace is emitted")
+          (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+              "unschematized decoded body stamped :omit for the off-box projector
+               (fail-closed) — the off-box projector omits :decoded"))
+        (finally
+          (stop-server! srv))))))
