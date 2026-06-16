@@ -156,6 +156,28 @@
   []
   (get @store->generation (active-source-store) 0))
 
+(defn store-identity
+  "The IDENTITY of the active source store — the active store atom itself
+  (EP-0023 §Image — the resolved-generation cache's source-store-identity key
+  leg). The generation counter is monotonic but keyed PER store
+  (`store->generation` is an atom-identity → counter map), so the generation
+  integer ALONE is ambiguous across stores: two distinct stores (e.g. a
+  realm-bound `*source-store*` vs the process-default) can each sit at the same
+  generation integer while holding DIFFERENT descriptor pools. The
+  resolved-generation cache folds this identity alongside `store-generation` so
+  two distinct stores at the same generation never alias each other's sealed
+  generation (rf2-1x2zuc).
+
+  The active store atom is the right identity: atoms compare and hash by
+  reference identity, so the same store yields the same key leg (a HIT for an
+  unchanged store) and distinct stores yield distinct key legs (a MISS — no
+  cross-store aliasing). A bare integer or symbol would NOT do: integers alias
+  across stores (the bug), and there is no stable per-store name. The atom never
+  escapes the cache key — the cache map holds it as an opaque key leg, never
+  dereferences it, and the public boundary never exposes it."
+  []
+  (active-source-store))
+
 ;; ---- canonical namespace-string pooling -----------------------------------
 ;;
 ;; One string instance per source namespace per store (the EP's anti-tax

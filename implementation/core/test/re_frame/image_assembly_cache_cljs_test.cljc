@@ -288,6 +288,69 @@
           "the throwing composition left nothing cached"))))
 
 ;; ===========================================================================
+;; 6b. rf2-1x2zuc — two DISTINCT live source stores at the SAME generation
+;;     integer must NOT alias one cached generation. The store-generation
+;;     counter is keyed PER store, so the integer alone is ambiguous across
+;;     stores; the cache key folds the store IDENTITY alongside the generation
+;;     so a realm-bound store never reuses the process-default store's sealed
+;;     generation (or vice versa).
+;; ===========================================================================
+
+(deftest distinct-stores-same-generation-do-not-alias
+  (testing "two DIFFERENT source-store atoms, each at generation 1 with the SAME
+            image selector but DIFFERENT registered handlers, assemble DISTINCT
+            sealed generations — the second store resolves its OWN handler, NOT
+            the first store's cached handler (rf2-1x2zuc). On current main this
+            FAILS: the live-store cache key carried only the generation integer,
+            so the second store (also generation 1) hit the first store's slot."
+    (let [store-a (atom {})
+          store-b (atom {})
+          img     (image/image {:id :shared/main :include-ns ["shared.core"]})
+          ;; Store A: register ::a-handler under the same (kind, id) the image
+          ;; selects; assemble against store A (its generation becomes 1).
+          gen-a   (binding [ss/*source-store* store-a]
+                    (record! "shared.core" :event :shared/boot ::a-handler)
+                    {:store-gen (ss/store-generation)
+                     :gen       (asm/assemble [img])})
+          ;; Store B: a DISTINCT atom; register a DIFFERENT handler ::b-handler
+          ;; under the SAME (kind, id); assemble against store B (its generation
+          ;; ALSO becomes 1 — the counter is keyed per store).
+          gen-b   (binding [ss/*source-store* store-b]
+                    (record! "shared.core" :event :shared/boot ::b-handler)
+                    {:store-gen (ss/store-generation)
+                     :gen       (asm/assemble [img])})
+          a-impl  (:handler-fn (asm/resolve-descriptor (:gen gen-a) :event :shared/boot))
+          b-impl  (:handler-fn (asm/resolve-descriptor (:gen gen-b) :event :shared/boot))]
+      (is (= (:store-gen gen-a) (:store-gen gen-b) 1)
+          "both stores sit at the SAME generation integer (1) — the per-store
+           counter does not distinguish them; the identity must")
+      (is (not (identical? (:gen gen-a) (:gen gen-b)))
+          "distinct stores at the same generation → DISTINCT sealed generations,
+           NOT the first store's cached object")
+      (is (= ::a-handler a-impl)
+          "store A's generation resolves store A's handler")
+      (is (= ::b-handler b-impl)
+          "store B's generation resolves store B's OWN handler — NOT store A's
+           cached handler (the cross-store alias bug)")
+      (is (= 2 (asm/cache-size))
+          "two distinct stores at the same generation occupy two cache slots"))))
+
+(deftest same-store-still-hits-after-identity-leg
+  (testing "the complement: the SAME source store assembling the SAME unchanged
+            composition twice STILL returns the one cached object — folding the
+            store identity into the key did not break the HIT path (rf2-1x2zuc)"
+    (let [store (atom {})
+          img   (image/image {:id :realm/main :include-ns ["realm.core"]})]
+      (binding [ss/*source-store* store]
+        (record! "realm.core" :event :realm/boot ::impl)
+        (let [gen1 (asm/assemble [img])
+              gen2 (asm/assemble [img])]
+          (is (identical? gen1 gen2)
+              "an unchanged store re-assembling the same image reuses the cached
+               object — the identity leg is stable per store")
+          (is (= 1 (asm/cache-size))))))))
+
+;; ===========================================================================
 ;; 7. Explicit-pool arity caches on the POOL value (tests / harnesses)
 ;; ===========================================================================
 

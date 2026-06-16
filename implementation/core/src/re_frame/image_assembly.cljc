@@ -983,28 +983,36 @@
 ;; values, so they occupy different cache slots and can never cache-collide on
 ;; a shared resolver shape.
 ;;
-;; The two store-side legs are the monotonic generations:
+;; The store-side legs are the live store IDENTITY + its monotonic generation,
+;; plus the framework-standard generation:
 ;;
-;;   * single-arity (live store): `source-store/store-generation` —
-;;     the registered descriptor pool's generation; ANY reg-*/forget-*/clear
-;;     bumps it.
+;;   * single-arity (live store): `[source-store/store-identity
+;;     source-store/store-generation]` — the active store atom paired with its
+;;     monotonic generation. The generation alone is NOT enough: it is keyed
+;;     PER store (see source-store), so two DISTINCT stores (a realm-bound
+;;     `*source-store*` vs the process-default) can each sit at the same
+;;     generation integer over DIFFERENT descriptor pools. The store identity
+;;     disambiguates them so a sealed generation assembled from one store is
+;;     never handed back for another (rf2-1x2zuc). ANY reg-*/forget-*/clear on
+;;     the active store bumps its generation leg.
 ;;   * the framework-standard generation: `standard-generation` — ANY
 ;;     register-standard!/forget-standard!/clear bumps it.
 ;;
 ;; For the EXPLICIT-POOL arity `(assemble images descriptors)` the registered
 ;; pool is supplied directly (tests / a pre-snapshotted store), NOT read from
-;; the live store — so the store generation is NOT a faithful invalidation
-;; signal there. The honest pool leg in that arity is the descriptor pool
-;; itself (a value), so the explicit-pool key folds in the descriptors rather
-;; than the store generation. The standard generation still applies (standards
-;; are always read live).
+;; the live store — so neither the store identity nor its generation is a
+;; faithful invalidation signal there. The honest pool leg in that arity is the
+;; descriptor pool itself (a value), so the explicit-pool key folds in the
+;; descriptors rather than a store identity/generation: two distinct pools are
+;; distinct VALUES and so already distinct keys. The standard generation still
+;; applies (standards are always read live).
 ;;
 ;; This is a FINER key than the EP minimum (the EP permits a finer
 ;; descriptor-set fingerprint so unrelated store changes need not invalidate)
 ;; only in that two distinct stores at the same generation integer never alias
-;; — the store-generation is keyed per active store (see source-store). It is
-;; never COARSER: any change to a selected, standard, inline, OR replacement
-;; input changes a key leg and forces a re-seal.
+;; — the live-store leg carries the store identity alongside the per-store
+;; generation. It is never COARSER: any change to a selected, standard, inline,
+;; OR replacement input changes a key leg and forces a re-seal.
 
 (defonce ^{:doc "cache-key → sealed generation. The resolved-generation cache
   (EP-0023 §Image). A plain map atom: an SSR request assembling an unchanged
@@ -1029,17 +1037,28 @@
 
 (defn- cache-key
   "Build the resolved-generation cache key for a normalized image vector under
-  a descriptor `pool-leg` (the store-generation integer for the live-store
-  arity, or the explicit descriptor pool value for the explicit-pool arity).
+  a descriptor `pool-leg`. The `pool-leg` is the store-side identity leg:
+
+    * live-store arity — `[store-identity store-generation]`: the active store
+      atom (identity, so distinct stores never alias) paired with its monotonic
+      per-store generation (so a mutation re-seals). The identity is REQUIRED
+      because the generation is keyed per store: two distinct stores at the
+      same generation integer would otherwise collide (rf2-1x2zuc);
+    * explicit-pool arity — the explicit descriptor pool VALUE itself (distinct
+      pools are distinct values, so distinct keys without a separate identity).
+
   The image vector carries the inline fingerprints + replacement maps by value;
   `pool-leg` + the standard generation are the store-side legs. A vector so it
-  hashes + compares as a value."
+  hashes + compares as a value (the live-store `pool-leg`'s embedded store atom
+  is an opaque, reference-identity key leg — never dereferenced)."
   [images pool-leg]
   [images pool-leg (standard-generation)])
 
 (defn- assemble-cached
   "Look the normalized `images` up in the resolved-generation cache under
-  `[images pool-leg standard-generation]`; on a MISS compute the sealed
+  `[images pool-leg (standard-generation)]` (the live-store `pool-leg` is the
+  `[store-identity store-generation]` pair, so distinct stores at the same
+  generation never alias — rf2-1x2zuc); on a MISS compute the sealed
   generation via `assemble*` (against `descriptors`), cache it, and return it.
   A cache HIT returns the SAME sealed object — this is the SSR no-re-seal
   guarantee. A throwing `assemble*` (a fail-loud validation) is NOT cached: the
@@ -1100,12 +1119,15 @@
   Two arities:
     (assemble images)            — select against the live source store; the
                                    key's pool leg is the live source-store
-                                   generation.
+                                   IDENTITY + its generation (the identity stops
+                                   two distinct stores at the same generation
+                                   from aliasing — rf2-1x2zuc).
     (assemble images descriptors)— select against an explicit descriptor pool
                                    (tests / harnesses / a pre-snapshotted
                                    store); the key's pool leg is the descriptor
-                                   pool value itself (the live store generation
-                                   does not describe an explicit pool).
+                                   pool value itself (distinct pools are
+                                   distinct values, so the live store
+                                   identity/generation does not apply).
 
   `images` is ALWAYS a seq/vector of image values — never a single image map
   (the EP is emphatic that `:images` is vector-only; `live-frame/validate-images!`
@@ -1137,9 +1159,15 @@
        ;; live `assemble`. A concurrent mutation between these two reads could key
        ;; a freshly-assembled pool to a stale generation; the framework does not
        ;; defend against that because registration is not a concurrent surface.
+       ;;
+       ;; The pool leg pairs the active store IDENTITY with its generation: the
+       ;; generation is keyed per store, so the identity is what stops two
+       ;; distinct stores at the same generation from aliasing one sealed
+       ;; generation (rf2-1x2zuc).
        (assemble-cached images
                         (source-store-descriptors)
-                        (source-store/store-generation)))))
+                        [(source-store/store-identity)
+                         (source-store/store-generation)]))))
   ([images descriptors]
    (let [images (vec images)]
      (if (empty? images)
@@ -1174,11 +1202,13 @@
   Two arities mirror `assemble`:
     (assemble-default)            — select against the LIVE source store; the
                                    cache key's pool leg is the source-store
-                                   generation, so the default generation is
-                                   cached and invalidated the instant any
-                                   `reg-*` / `forget-*` / `clear-*` bumps it
-                                   (EP-0023 §Image — the default generation is
-                                   cached keyed on the source-store generation).
+                                   IDENTITY + its generation, so the default
+                                   generation is cached, invalidated the instant
+                                   any `reg-*` / `forget-*` / `clear-*` bumps it,
+                                   and never aliased across two distinct stores
+                                   at the same generation (rf2-1x2zuc; EP-0023
+                                   §Image — the default generation is cached
+                                   keyed on the source-store generation).
     (assemble-default descriptors)— select against an explicit descriptor pool
                                    (tests / harnesses / a pre-snapshotted store);
                                    the pool leg is the descriptor pool value
@@ -1189,9 +1219,13 @@
   standards) and no inline / replacement declarations. Returns the sealed
   generation (the same shape `assemble` returns)."
   ([]
+   ;; Live-store default: pair the active store identity with its generation so
+   ;; the default generation of two distinct stores at the same generation never
+   ;; aliases (rf2-1x2zuc).
    (assemble-cached [default-image]
                     (source-store-descriptors)
-                    (source-store/store-generation)))
+                    [(source-store/store-identity)
+                     (source-store/store-generation)]))
   ([descriptors]
    (assemble-cached [default-image] descriptors descriptors)))
 
