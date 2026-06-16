@@ -663,6 +663,101 @@
             "the source-coord envelope survives the round-trip")))))
 
 ;; ---------------------------------------------------------------------------
+;; (5b) PROJECTED event re-lowering (rf2-untip9)
+;; ---------------------------------------------------------------------------
+;;
+;; A projected app value (from `av/app-value`) carries each event descriptor's
+;; EFFECTIVE registrar metadata under `:metadata` — including the `:interceptors`
+;; chain `reg-event` already assembled, whose tail is the inline `:rf/event-handler`
+;; framework wrapper. Re-lowering such a descriptor through `install!` /
+;; `reinstall!` calls `events/reg-event id meta handler` with that effective chain
+;; in `meta`. Before the fix, `reg-event`'s reference-only `:interceptors`
+;; validation rejected the inline wrapper with `:rf.error/inline-interceptor-removed`,
+;; so a legitimately-projected event could never be re-installed (the install /
+;; reinstall paths that source their value from a projection broke). The fix
+;; normalises projected event metadata before `reg-event` so the wrapper is dropped
+;; and the chain re-assembled.
+
+(deftest install-of-a-projected-app-value-relowers-a-sugar-reg-event
+  (testing "rf2-untip9: installing a projection that carries a sugar-registered
+            reg-event re-lowers the projected event descriptor (whose :metadata
+            holds the effective :interceptors chain with the inline
+            :rf/event-handler wrapper) through reg-event WITHOUT raising
+            :rf.error/inline-interceptor-removed — projected/reconciled apps are
+            app values too, and feeding their registrar-shaped event descriptors
+            back through reg-event must round-trip. This is the bead's direct
+            repro: reg-event sugar, then install! the projection."
+    ;; Sugar path: ordinary reg-event seats the effective interceptor chain
+    ;; (user chain + the appended :rf/event-handler wrapper) into the registrar.
+    (rf/reg-event :untip9/sugar {:doc "x"} (fn [{:keys [db]} _] {:db db}))
+    ;; The projected descriptor carries that effective chain under :metadata.
+    (let [proj-d (get-in (av/app-value) [:registrations :event :untip9/sugar])]
+      (is (some #(= :rf/event-handler (:id %)) (get-in proj-d [:metadata :interceptors]))
+          "the projection carries the effective chain with the inline :rf/event-handler wrapper"))
+    ;; Install a projection carrying ONLY the projected :untip9/sugar event
+    ;; descriptor (the artefact-load sugar also projects step-8-deferred :view /
+    ;; :error-projector kinds that install! refuses pre-lowering; isolate the
+    ;; event so the test exercises the re-lowering path the bead names, not the
+    ;; deferred-kind preflight). The projected event descriptor still carries the
+    ;; effective :interceptors chain under :metadata — the bug's trigger.
+    (let [full   (av/app-value :rf.realm/default)
+          proj-d (get-in full [:registrations :event :untip9/sugar])
+          proj   (assoc full :registrations {:event {:untip9/sugar proj-d}})
+          ed     (try (rf/install! proj) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                        (ex-data e)))]
+      (is (nil? ed)
+          (str "re-lowering the projected event must not throw; got "
+               (pr-str (:rf.error/id ed))))
+      (is (not= :rf.error/inline-interceptor-removed (:rf.error/id ed))
+          "the projected :rf/event-handler wrapper is no longer mis-read as an authored inline interceptor")
+      ;; The re-lowered event is a real, resolvable registration carrying a
+      ;; freshly-assembled :rf/event-handler wrapper (reg-event ran).
+      (is (some? (registrar/handler :event :untip9/sugar))
+          "the projected event re-lowered into a resolvable registration")
+      (is (some #(= :rf/event-handler (:id %))
+                (:interceptors (registrar/lookup :event :untip9/sugar)))
+          "reg-event re-assembled the framework wrapper on the re-lowered event"))))
+
+(deftest reinstall-changed-event-sourced-from-a-projection-relowers
+  (testing "rf2-untip9: a reinstall whose CHANGED event is sourced from a
+            projection (so its :metadata carries the effective :interceptors chain
+            with the inline :rf/event-handler wrapper) re-lowers through reg-event
+            without raising :rf.error/inline-interceptor-removed — the changed-event
+            path the bead names."
+    ;; Sugar-register the event so the registrar holds its EFFECTIVE interceptor
+    ;; chain; project a SINGLE-event app value off that descriptor (the default
+    ;; realm's artefact-load sugar also projects step-8-deferred :view /
+    ;; :error-projector kinds AND sibling events whose :metadata carries the same
+    ;; effective chain — isolate to the one event so the test exercises exactly
+    ;; the changed-event re-lowering path, not the deferred-kind preflight or a
+    ;; sibling event's identical re-lowering).
+    (rf/reg-event :untip9.re/e {:doc "base"} cart-add)
+    (let [full      (av/app-value :rf.realm/default)
+          proj-d    (get-in full [:registrations :event :untip9.re/e])
+          installed (assoc full :registrations {:event {:untip9.re/e proj-d}})]
+      (rf/install! installed)
+      ;; Build a new app that CHANGES :untip9.re/e by swapping its handler — the
+      ;; descriptor still carries the PROJECTED :metadata (effective interceptor
+      ;; chain + the inline wrapper). Exactly a projected registrar-shaped event
+      ;; descriptor fed back through reinstall! on the :changed path.
+      (let [changed (assoc proj-d :handler cart-remove)
+            new-app (assoc-in installed [:registrations :event :untip9.re/e] changed)
+            ed      (try (rf/reinstall! new-app) nil
+                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                           (ex-data e)))]
+        (is (nil? ed)
+            (str "re-lowering the changed projected event must not throw; got "
+                 (pr-str (:rf.error/id ed))))
+        (is (not= :rf.error/inline-interceptor-removed (:rf.error/id ed))
+            "the projected :rf/event-handler wrapper is not mis-read on the changed-event path")
+        (is (identical? cart-remove (registrar/handler :event :untip9.re/e))
+            "the changed handler re-lowered and resolves")
+        (is (some #(= :rf/event-handler (:id %))
+                  (:interceptors (registrar/lookup :event :untip9.re/e)))
+            "reg-event re-assembled the framework wrapper on the re-lowered changed event")))))
+
+;; ---------------------------------------------------------------------------
 ;; (6) KIND COVERAGE of the install! lowering seam (rf2-xmslkr)
 ;; ---------------------------------------------------------------------------
 ;;

@@ -2099,7 +2099,17 @@
         ;; the ONE public `reg-event` runtime fn (coeffects in, a closed effects
         ;; map out). The former `:event/kind` sub-discriminator + the per-kind
         ;; reg fns are gone — every module event seats through the one shape.
-        :event (do (events/reg-event id meta handler) true)
+        ;;
+        ;; rf2-untip9: a PROJECTED descriptor (from `av/app-value`) carries the
+        ;; EFFECTIVE registrar metadata — the assembled `:interceptors` chain
+        ;; whose tail is the inline `:rf/event-handler` framework wrapper, plus
+        ;; the generated `:rf.cofx/requires-parsed`. Re-feeding those generated
+        ;; slots to `reg-event` makes its reference-only validation reject the
+        ;; wrapper (`:rf.error/inline-interceptor-removed`). `normalize-relowered-meta`
+        ;; strips them back to the authored shape (recovering the author's
+        ;; reference chain), so a projected/reconciled app value re-lowers
+        ;; faithfully; it is a no-op on a constructed descriptor.
+        :event (do (events/reg-event id (events/normalize-relowered-meta meta) handler) true)
         :sub   (do (subs/reg-sub id meta handler) true)
         :fx    (do (fx/reg-fx id meta handler) true)
         :cofx  (do (cofx/reg-cofx id meta handler) true)
