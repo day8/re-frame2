@@ -60,8 +60,24 @@
 
 (defn- with-stub-validator []
   (let [snap     (schemas/snapshot-schema-fns)
-        validate (fn [schema value] (boolean (schema value)))
-        explain  (fn [_schema value] {:reason :stub-explainer :value value})]
+        ;; rf2-ps05ug: the stub is process-global, so while installed EVERY
+        ;; schema-validating boundary uses it — including the routing
+        ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
+        ;; (`[:map [:token :string] [:counter :int]]`). A Malli vector is not
+        ;; a callable predicate (calling it as `(schema value)` index-lookups
+        ;; for an integer value and throws for a map), so a naive call would
+        ;; throw and the fail-closed seam would coerce it to FALSE, spuriously
+        ;; rejecting the well-formed generated nav-allocation. The stub
+        ;; therefore only adjudicates ACTUAL fn schemas (the predicate schemas
+        ;; these tests install) and PASSES any other (Malli vector / map)
+        ;; schema. Mirrors routing_test_support's `with-stub-validator`.
+        validate (fn [schema value]
+                   (if (fn? schema)
+                     (boolean (schema value))
+                     true))
+        explain  (fn [schema value]
+                   (when (fn? schema)
+                     {:reason :stub-explainer :value value}))]
     (schemas/set-schema-fns! {:validate validate :explain explain})
     (fn [] (schemas/restore-schema-fns! snap))))
 
