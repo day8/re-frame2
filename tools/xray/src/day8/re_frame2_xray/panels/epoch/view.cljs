@@ -403,6 +403,14 @@
    :flex       1
    :word-break "break-word"})
 
+;; rf2-lz6gl9 — the parameterized cofx REQUEST ARG (`:rf.cofx/arg`, surfaced
+;; as `:input`). Rendered as a distinct labelled line so a reviewer can read
+;; the requirement that selected/configured the produced value, distinct from
+;; the produced `:rf.cofx/value`. The `→` glyph (vs the value line's `+`)
+;; marks it as the INPUT side of the request/produce pair.
+(def ^:private coeffect-body-arrow-style
+  {:color text-tertiary-colour :font-weight 700})
+
 ;; -- RECORDABLE COEFFECTS (rf2-9fyn40 · EP-0010 · EP-0017 §9) ---------------
 ;;
 ;; The flat recordable-coeffect map (`:rf.cofx` off the dispatched trace).
@@ -2408,7 +2416,7 @@
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
   (rf2-cq0ch + the `system-cofx-ids` set)."
-  [{:keys [id value no-value? step-number violations errors]}]
+  [{:keys [id value input no-value? step-number violations errors]}]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta :cofx id)
                           (catch :default _ nil)))
@@ -2443,6 +2451,19 @@
      ;; value, so the projection stamps `:no-value?` + omits `:value`. The
      ;; diff-line is replaced by a muted "injection failed" line; the shared
      ;; 'Exception Thrown' card below carries the message + details.
+     ;; rf2-lz6gl9 — a parameterized `[id arg]` cofx request carries its
+     ;; requirement arg (`:rf.cofx/arg`, surfaced as `:input`). Render it as
+     ;; a distinct labelled line ABOVE the produced value so the reviewer
+     ;; reads BOTH 'what was asked of the cofx' (`→ arg`) and 'what it
+     ;; produced' (`+ value`). Omitted entirely for a bare (non-parameterized)
+     ;; cofx request.
+     (when (some? input)
+       [:div {:data-testid (str "rf-xray-epoch-coeffect-input-" (name id))
+              :style coeffect-body-style}
+        [:span {:style coeffect-body-arrow-style} "→"]
+        [:span {:style coeffect-body-path-style} "arg"]
+        [:span {:style coeffect-body-value-style}
+         [ei/mini input 80]]])
      (if no-value?
        [:div {:data-testid (str "rf-xray-epoch-coeffect-failed-" (name id))
               :style coeffect-body-style}

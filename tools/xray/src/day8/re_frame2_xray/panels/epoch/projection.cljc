@@ -292,14 +292,41 @@
   §Privacy / Open Issue 4 — redact by default; mirrors
   `reply_envelope.cljc`'s wire-slot summarization). Sorted by leaf id for
   stable rendering. Empty when the map carries only `:rf/time-ms` (or is
-  nil/empty)."
-  [cofx]
-  (if (map? cofx)
-    (->> (dissoc cofx time-ms-key)
-         (mapv (fn [[k v]] {:key k :value (rh/summarize v)}))
-         (sort-by (comp str :key))
-         vec)
-    []))
+  nil/empty).
+
+  ## Declared-recordable filtering (rf2-n9v5ga · EP-0017 §9)
+
+  EP-0017 §9 (and docs/EP-0017 §661-666 · spec/009 §155): the COEFFECTS
+  lens shows the handler's DECLARED RECORDABLE LEAVES — the handler's
+  declared inputs (`:rf.cofx/requires`, restricted to the recordable
+  grade) — NOT every arbitrary leaf riding the raw dispatch token. A
+  dispatch CAN carry extra `:rf.cofx` data EP-0017 intentionally excludes
+  from handler delivery (an undeclared leaf is not delivered — see
+  `re-frame.cofx` `deliver-declared-cofx`); surfacing those extras here
+  would claim the handler consumed facts it never declared or received.
+
+  `declared-recordables` is the declared-recordable id SET for the focused
+  event (resolved by the panel from `:rf.cofx/requires` ∩ recordable cofx
+  registrations — the panel's `resolve-event-recordables`). When SUPPLIED,
+  only those leaves survive (the leaf key is the bare cofx id). When nil
+  (no resolver — pure JVM-projection tests, older runtimes that predate the
+  declaration metadata), the unfiltered show-all behaviour holds as the
+  documented fallback so a cascade with no resolvable declarations still
+  renders its surfaced leaves rather than collapsing to empty."
+  ([cofx] (recordable-cofx-rows cofx nil))
+  ([cofx declared-recordables]
+   (if (map? cofx)
+     (->> (dissoc cofx time-ms-key)
+          (filter (fn [[k _]]
+                    ;; nil declared-set ⇒ fallback: keep all (no resolver).
+                    ;; supplied ⇒ keep only the handler's declared recordable
+                    ;; leaves (rf2-n9v5ga).
+                    (or (nil? declared-recordables)
+                        (contains? declared-recordables k))))
+          (mapv (fn [[k v]] {:key k :value (rh/summarize v)}))
+          (sort-by (comp str :key))
+          vec)
+     [])))
 
 (defn recordable-cofx-row
   "Build the RECORDABLE COEFFECTS step from the epoch's
@@ -325,17 +352,31 @@
   leaf's value is `summarize`d (redact-by-default — the same path
   `reply_envelope.cljc` uses). A map carrying ONLY `:rf/time-ms` still
   produces a row (the time fact is worth surfacing on its own); a map with
-  no `:rf/time-ms` AND no other leaves (empty map) produces nil."
-  [events]
-  (when-let [ev (find-op events :rf.event/dispatched)]
-    (when-let [cofx (common/tag-of ev :rf.cofx)]
-      (when (and (map? cofx) (seq cofx))
-        (let [time-ms (get cofx time-ms-key)
-              inputs  (recordable-cofx-rows cofx)]
-          (cond-> {:step  :recordable-cofx
-                   :badge :RECORDABLE-COFX}
-            (some? time-ms) (assoc :time-ms time-ms)
-            (seq inputs)    (assoc :inputs inputs)))))))
+  no `:rf/time-ms` AND no other leaves (empty map) produces nil.
+
+  ## Declared-recordable filtering (rf2-n9v5ga)
+
+  `declared-recordables` (optional) is the focused event's declared
+  recordable id set (`:rf.cofx/requires` ∩ recordable cofx registrations).
+  When SUPPLIED, the value-bearing leaves are filtered to that set so an
+  UNDECLARED leaf that merely rode the raw dispatch token (EP-0017 does NOT
+  deliver it to the handler) never appears — the lens shows what the
+  handler declared + received, not arbitrary token cargo. `:rf/time-ms` is
+  framework-stamped at enqueue and ALWAYS a recordable fact (EP-0010 Open
+  Issue 4), so it renders verbatim whenever present on the token,
+  independent of the explicit declaration set. When nil (no resolver) the
+  show-all fallback holds (see `recordable-cofx-rows`)."
+  ([events] (recordable-cofx-row events nil))
+  ([events declared-recordables]
+   (when-let [ev (find-op events :rf.event/dispatched)]
+     (when-let [cofx (common/tag-of ev :rf.cofx)]
+       (when (and (map? cofx) (seq cofx))
+         (let [time-ms (get cofx time-ms-key)
+               inputs  (recordable-cofx-rows cofx declared-recordables)]
+           (cond-> {:step  :recordable-cofx
+                    :badge :RECORDABLE-COFX}
+             (some? time-ms) (assoc :time-ms time-ms)
+             (seq inputs)    (assoc :inputs inputs))))))))
 
 ;; ---- COEFFECT rows (the ambient grade — EP-0017 §1) ----------------------
 ;;
@@ -3712,6 +3753,13 @@
   belongs to the composite sub (`epoch_panel`), so `project` stays pure /
   JVM-testable and byte-identical for callers that don't pass opts.
 
+  `:resolve-event-recordables` (rf2-n9v5ga) is a fn `event-id → #{declared
+  recordable cofx ids}` (or nil). When supplied, the RECORDABLE COEFFECTS
+  step filters the raw token's `:rf.cofx` leaves to that declared set so
+  the lens shows the handler's declared recordable inputs (EP-0017 §9), not
+  arbitrary leaves the dispatch token happened to carry. nil keeps the
+  show-all fallback (see `recordable-cofx-rows`).
+
   ## Coeffect folding
 
   COEFFECT renders as ONE step group containing N rows (one per
@@ -3728,6 +3776,15 @@
   ([epoch-record] (project epoch-record nil))
   ([epoch-record opts]
   (let [resolve-icpts (:resolve-event-interceptors opts)
+        ;; rf2-n9v5ga — the focused event's DECLARED RECORDABLE id set
+        ;; (`:rf.cofx/requires` ∩ recordable cofx registrations), resolved by
+        ;; the panel (`resolve-event-recordables`). The RECORDABLE COEFFECTS
+        ;; lens filters the raw token's `:rf.cofx` leaves to this set so it
+        ;; shows the handler's declared inputs, not arbitrary token cargo.
+        ;; A registry read, so it lives in the sub (like the interceptor
+        ;; resolver) — `project` stays pure / JVM-testable. nil (1-arg form /
+        ;; no resolver) keeps the show-all fallback.
+        resolve-recordables (:resolve-event-recordables opts)
         events    (or (:trace-events epoch-record) [])
         db-before (:db-before epoch-record)
         event-id  (or (:event-id epoch-record)
@@ -3760,13 +3817,22 @@
             ;; numbered cascade. `long-step?` keys off `:duration-ms`
             ;; on the step row, so the cofx step now participates
             ;; in long-step chrome detection.
-            cofx-steps (mapv (fn [{:keys [id value duration-ms]}]
+            cofx-steps (mapv (fn [{:keys [id value duration-ms input]}]
                                (cond-> {:step  :coeffect
                                         :badge :COEFFECT
                                         :id    id
                                         :value value}
                                  (some? duration-ms)
-                                 (assoc :duration-ms duration-ms)))
+                                 (assoc :duration-ms duration-ms)
+                                 ;; rf2-lz6gl9 — preserve the parameterized
+                                 ;; cofx request arg (`:rf.cofx/arg`, surfaced
+                                 ;; as `:input` by `coeffect-rows`) through the
+                                 ;; numbered-step flattening so the view can
+                                 ;; render the requirement that selected/
+                                 ;; configured the produced value. The prior
+                                 ;; shape dropped `:input` before the UI saw it.
+                                 (some? input)
+                                 (assoc :input input)))
                              cofx-rows)
             ;; rf2-yz57h — a coeffect that throws ON INJECTION
             ;; (`:rf.error/coeffect-exception`) produces NO `:rf.cofx/run`
@@ -3866,8 +3932,14 @@
                            ;; dispatch site. Silent-by-default — nil
                            ;; (filtered below) when the cascade surfaced no
                            ;; `:rf.cofx` map (older runtimes / the prod-
-                           ;; elided arm).
-                           (recordable-cofx-row events)]
+                           ;; elided arm). rf2-n9v5ga — the declared
+                           ;; recordable id set (when a resolver is supplied)
+                           ;; filters the surfaced leaves to the handler's
+                           ;; declared inputs, never arbitrary token cargo.
+                           (recordable-cofx-row
+                             events
+                             (when resolve-recordables
+                               (resolve-recordables event-id)))]
                           cofx-steps
                           cofx-placeholder-steps
                           ;; rf2-yz57h / rf2-vew2n — the INTERCEPTOR step is
@@ -3951,8 +4023,9 @@
 
 (defn project-numbered
   "Convenience: `(number-steps (project record opts))`. The 2-arg form
-  threads the projection opts (rf2-se9a9t — `:resolve-event-interceptors`)
-  through to `project`; the 1-arg form keeps the pure default."
+  threads the projection opts (rf2-se9a9t — `:resolve-event-interceptors`;
+  rf2-n9v5ga — `:resolve-event-recordables`) through to `project`; the
+  1-arg form keeps the pure default."
   ([epoch-record] (number-steps (project epoch-record nil)))
   ([epoch-record opts] (number-steps (project epoch-record opts))))
 

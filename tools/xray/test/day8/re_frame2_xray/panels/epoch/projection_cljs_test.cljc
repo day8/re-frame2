@@ -361,6 +361,71 @@
       (is (= :counter/delta (:key (by-key :counter/delta))))
       (is (= :rf.route/location (:key (by-key :rf.route/location)))))))
 
+(deftest recordable-cofx-row-filters-to-declared-recordables-test
+  (testing "rf2-n9v5ga · EP-0017 §9 — when a DECLARED RECORDABLE id set is
+            supplied, the RECORDABLE COEFFECTS lens shows ONLY the handler's
+            declared recordable leaves; an UNDECLARED extra leaf that merely
+            rode the raw dispatch token (EP-0017 does NOT deliver it to the
+            handler) is filtered OUT. The lens must not claim the handler
+            consumed a fact it never declared or received."
+    (let [cofx {:rf/time-ms    1781078400123
+                :counter/delta {:roll 4}     ;; declared + delivered
+                :app/extra     {:leak "me"}} ;; rode the token, NOT declared
+          ev   (dispatched-with-cofx [:counter/inc] cofx)
+          ;; the handler declared only :counter/delta as a recordable input
+          declared #{:counter/delta}
+          r    (proj/recordable-cofx-row [ev] declared)
+          keys (mapv :key (:inputs r))]
+      (is (= 1781078400123 (:time-ms r))
+          ":rf/time-ms is framework-stamped + always recordable — surfaced verbatim")
+      (is (= [:counter/delta] keys)
+          "only the declared recordable leaf survives — :app/extra is filtered out")
+      (is (not (some #{:app/extra} keys))
+          "the undeclared token leaf NEVER appears as a recordable input"))))
+
+(deftest recordable-cofx-rows-declared-filter-unit-test
+  (testing "rf2-n9v5ga — `recordable-cofx-rows` with a declared set keeps
+            only the intersection; nil declared set is the show-all fallback"
+    (let [cofx {:rf/time-ms 1 :a/x 1 :b/y 2 :c/z 3}]
+      (is (= [:a/x :b/y :c/z] (mapv :key (proj/recordable-cofx-rows cofx nil)))
+          "nil declared set ⇒ show-all fallback (all non-time leaves)")
+      (is (= [:a/x :c/z] (mapv :key (proj/recordable-cofx-rows cofx #{:a/x :c/z})))
+          "declared set ⇒ only the declared leaves")
+      (is (= [] (proj/recordable-cofx-rows cofx #{:not/present}))
+          "a declared set that matches no leaf ⇒ no rows"))))
+
+(deftest project-threads-declared-recordables-resolver-test
+  (testing "rf2-n9v5ga — `project` threads `:resolve-event-recordables`
+            through to the RECORDABLE COEFFECTS step so an undeclared token
+            leaf is filtered out end-to-end"
+    (let [cofx {:rf/time-ms 1781078400123
+                :counter/delta {:roll 4}
+                :app/extra {:leak "me"}}
+          rec  (record [(dispatched-with-cofx [:counter/inc] cofx)])
+          ;; resolver returns the declared recordable set for this event
+          steps (proj/project rec
+                              {:resolve-event-recordables
+                               (fn [event-id]
+                                 (when (= :counter/inc event-id)
+                                   #{:counter/delta}))})
+          rcofx (some #(when (= :recordable-cofx (:step %)) %) steps)
+          keys  (mapv :key (:inputs rcofx))]
+      (is (some? rcofx) "RECORDABLE COEFFECTS step is present")
+      (is (= [:counter/delta] keys)
+          "the resolver-supplied declared set filters out :app/extra")))
+
+  (testing "rf2-n9v5ga — with NO resolver the show-all fallback holds (pure
+            JVM-projection callers / older runtimes)"
+    (let [cofx {:rf/time-ms 1781078400123
+                :counter/delta {:roll 4}
+                :app/extra {:leak "me"}}
+          rec  (record [(dispatched-with-cofx [:counter/inc] cofx)])
+          steps (proj/project rec)
+          rcofx (some #(when (= :recordable-cofx (:step %)) %) steps)
+          keys  (set (mapv :key (:inputs rcofx)))]
+      (is (= #{:counter/delta :app/extra} keys)
+          "no resolver ⇒ all non-time leaves surface (documented fallback)"))))
+
 (deftest recordable-cofx-row-redacted-value-stays-sentinel-test
   (testing "rf2-9fyn40 · EP-0017 — a value already redacted UPSTREAM (the
             framework :rf/redacted sentinel for a :sensitive? slot) keeps its
@@ -431,6 +496,48 @@
            off the run-end map")
       (is (nil? (-> rows second :input))
           "bare cofx carries no :input (no requirement arg)"))))
+
+(deftest project-threads-cofx-input-through-cofx-steps-test
+  (testing "rf2-lz6gl9 — the `cofx-steps` flattening in `project` /
+            `project-numbered` MUST thread the parameterized request arg
+            (`:rf.cofx/arg`, surfaced as `:input` on the row) onto the
+            numbered COEFFECT step. The pre-rf2-lz6gl9 flattening rebuilt
+            each step with only `:id` / `:value` / `:duration-ms` and
+            dropped `:input` before the UI saw it — so a reviewer saw the
+            produced value but never the request arg that selected it."
+    (let [rec   (record [(dispatched-ev [:auth/login] :ui nil)
+                         ;; a parameterized `[:session :auth-token]` request:
+                         ;; produced {:user-id 42}, requirement arg :auth-token
+                         (cofx-run-ev :session {:user-id 42} {:arg :auth-token})
+                         (run-end-ev 0.1 {:session {:user-id 42}})])
+          steps (proj/project rec)
+          cofx  (some #(when (= :coeffect (:step %)) %) steps)]
+      (is (some? cofx) "COEFFECT step is present")
+      (is (= :session (:id cofx)))
+      (is (= {:user-id 42} (:value cofx))
+          ":value is the PRODUCED value")
+      (is (= :auth-token (:input cofx))
+          ":input threads the parameterized request arg onto the numbered step"))
+    ;; project-numbered carries it too (numbering is the same flattening).
+    (let [rec   (record [(dispatched-ev [:auth/login] :ui nil)
+                         (cofx-run-ev :session {:user-id 42} {:arg :auth-token})
+                         (run-end-ev 0.1 {:session {:user-id 42}})])
+          steps (proj/project-numbered rec)
+          cofx  (some #(when (= :coeffect (:step %)) %) steps)]
+      (is (= :auth-token (:input cofx))
+          ":input survives project-numbered too")))
+
+  (testing "rf2-lz6gl9 — a BARE (non-parameterized) cofx produces a step
+            WITHOUT `:input` (clean absence, matching the row's
+            `cond-> (some? input)` shape)"
+    (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
+                         (cofx-run-ev :now #inst "2026-01-01")
+                         (run-end-ev 0.1 {:now #inst "2026-01-01"})])
+          steps (proj/project rec)
+          cofx  (some #(when (= :coeffect (:step %)) %) steps)]
+      (is (some? cofx) "COEFFECT step is present")
+      (is (not (contains? cofx :input))
+          "no requirement arg on the row → :input absent on the step"))))
 
 (deftest coeffect-rows-granular-without-run-end-test
   (testing "rf2-mmlgk / rf2-sepqgg — when granular `:rf.cofx/run` events
