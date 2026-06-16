@@ -39,6 +39,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.schemas :as schemas]
             [re-frame.test-support :as test-support]
             ;; Touch the routing namespace directly so its ns body
             ;; (including the gated `trace/emit!` call sites) is in
@@ -49,9 +50,33 @@
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as trace-tooling]))
 
+;; rf2-ps05ug: the routing entry points exercised below run the RECORDABLE
+;; `:rf.route/nav-allocation` cofx generator, whose registration declares a
+;; real Malli `:schema` (`[:map [:token :string] [:counter :int]]`). That
+;; `:schema` check is ALWAYS-ON (it validates durable causal-token state in
+;; prod as well as dev — Spec 009 `:rf.error/cofx-value-invalid` row) and
+;; routes through the registered `set-schema-validator!` seam. Under the
+;; SHARED `:browser-test-prod-elision` bundle a SIBLING suite
+;; (`resources-scope-mismatch-elision-prod-test`) loads `re-frame.schemas`,
+;; installing the default Malli validator — but Malli's validation BODY is
+;; production-elided (Closure DCE under `goog.DEBUG=false`, Spec 010
+;; §Production builds: "the validator fn must be production-elidable"), so a
+;; well-formed `{:token "nav-1" :counter 1}` is spuriously REJECTED in the
+;; prod bundle. Disable the schema validator for this suite (a nil validator
+;; is a documented no-op for the recordable check) so the generator runs and
+;; the trace-elision contract under test is exercised cleanly. Snapshot +
+;; restore so the suite leaves no cross-test residue — identical to the
+;; resources prod-elision fixture (rf2-rsmiru).
+(defn- disable-schema-validation-fixture [f]
+  (let [snapshot (schemas/snapshot-schema-fns)]
+    (schemas/set-schema-validator! nil)
+    (try (f)
+         (finally (schemas/restore-schema-fns! snapshot)))))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter})
+  disable-schema-validation-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
 
