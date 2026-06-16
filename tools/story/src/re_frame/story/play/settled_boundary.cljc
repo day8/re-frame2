@@ -191,10 +191,18 @@
 
   Returns nil. Raises nothing the framework would not already raise (a
   `dispatch-sync` issued from inside a running drain surfaces
-  `:rf.error/dispatch-sync-in-handler` through the trace bus, as usual)."
-  [frame-id event-vector]
-  (rf/dispatch-sync* event-vector {:frame frame-id})
-  nil)
+  `:rf.error/dispatch-sync-in-handler` through the trace bus, as usual).
+
+  rf2-l2cn5d (EP-0017): the optional 3-arity `(drain-sync! frame-id
+  event-vector opts)` merges caller-supplied dispatch opts (e.g. a
+  captured `{:rf.cofx <map>}` envelope) over `{:frame frame-id}` so a
+  replayed `[:dispatch evec {:rf.cofx …}]` step re-presents its recorded
+  recordable coeffects. The 2-arity is the pre-EP-0017 bare path."
+  ([frame-id event-vector]
+   (drain-sync! frame-id event-vector nil))
+  ([frame-id event-vector opts]
+   (rf/dispatch-sync* event-vector (merge {:frame frame-id} opts))
+   nil))
 
 (def headless-flush-hooks
   "Default flush-hooks map for the headless runner (JVM + node-runtime).
@@ -283,6 +291,11 @@
   ([frame-id event-vector hooks required]
    (dispatch-and-settle! frame-id event-vector hooks required nil))
   ([frame-id event-vector hooks required step]
+   (dispatch-and-settle! frame-id event-vector hooks required step nil))
+  ;; rf2-l2cn5d (EP-0017): the 6-arity threads `dispatch-opts` (e.g. a
+  ;; captured `{:rf.cofx <map>}` envelope) into the dispatch! hook so a
+  ;; replayed step re-presents its recorded recordable coeffects.
+  ([frame-id event-vector hooks required step dispatch-opts]
    (let [required (if (boundary? required) required :headless)
          provided (hooks-provided-boundary hooks)]
      (if-not (satisfies-boundary? provided required)
@@ -300,8 +313,19 @@
                ;; is folded into `:dispatch!` (`drain-sync!`), so its hook is
                ;; a no-op; the richer flushes carry the adapter's reactive /
                ;; DOM work.
-               levels     (take-while #(boundary>= required %) boundary-levels)]
-           (dispatch! frame-id event-vector)
+               levels     (take-while #(boundary>= required %) boundary-levels)
+               ;; rf2-l2cn5d (EP-0017): a replayed `[:dispatch evec {:rf.cofx …}]`
+               ;; step carries a captured recordable-coeffect envelope. The
+               ;; caller (`exec-dispatch!`) extracts it off the step and passes
+               ;; it as `dispatch-opts`; thread it into the dispatch opts (via
+               ;; the hook's optional 3-arity) so the handler's declared
+               ;; recordable coeffects replay from the recorded value rather than
+               ;; being restamped. Absent cofx uses the bare 2-arity call (the
+               ;; pre-EP-0017 hook contract, unchanged).
+               ]
+           (if (and (map? dispatch-opts) (seq dispatch-opts))
+             (dispatch! frame-id event-vector dispatch-opts)
+             (dispatch! frame-id event-vector))
            ;; Run each flush, re-checking the `:timeout-ms` deadline after
            ;; each returns. An over-budget flush phase stops the ladder and
            ;; refuses with a fail-closed `:flush-timeout` (`flush-timeout-result`)

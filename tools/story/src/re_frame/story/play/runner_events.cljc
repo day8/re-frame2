@@ -532,11 +532,17 @@
   terminal status flips to `:fail`."
   [frame-id idx step]
   (let [evec     (runner/step-event step)
+        ;; rf2-l2cn5d (EP-0017): a replayed `[:dispatch evec {:rf.cofx …}]`
+        ;; step carries a captured recordable-coeffect envelope. Pass it to
+        ;; the boundary as dispatch-opts so the handler's declared coeffects
+        ;; replay from the recorded value instead of being restamped.
+        cofx     (runner/step-cofx step)
+        dopts    (when (and (map? cofx) (seq cofx)) {:rf.cofx cofx})
         prev     (assertion-count frame-id)
         required (boundary/step-required-boundary step)
         hooks    (current-flush-hooks frame-id)
         settle   (try
-                   (boundary/dispatch-and-settle! frame-id evec hooks required step)
+                   (boundary/dispatch-and-settle! frame-id evec hooks required step dopts)
                    (catch #?(:clj Throwable :cljs :default) e
                      {:status :error
                       :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
@@ -548,9 +554,18 @@
 (defn- exec-dispatch-sync!
   [frame-id idx step]
   (let [evec   (runner/step-event step)
+        ;; rf2-l2cn5d (EP-0017): when the step carries a captured `:rf.cofx`
+        ;; envelope, thread it into the dispatch opts so the handler's
+        ;; declared recordable coeffects (provided facts + the framework
+        ;; `:rf/time-ms`) replay from the recorded value instead of being
+        ;; restamped / failing `:rf.error/missing-required-cofx`. Absent
+        ;; cofx dispatches with the bare frame opts (pre-EP-0017 behaviour).
+        cofx   (runner/step-cofx step)
+        opts   (cond-> {:frame frame-id}
+                 (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))
         prev   (assertion-count frame-id)
         result (try
-                 (rf/dispatch-sync* evec {:frame frame-id})
+                 (rf/dispatch-sync* evec opts)
                  nil
                  (catch #?(:clj Throwable :cljs :default) e
                    (runner/step-exception idx step

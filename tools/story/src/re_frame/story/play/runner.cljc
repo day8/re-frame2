@@ -169,16 +169,23 @@
   `coerce-script` to pre-flight a script before driving it."
   [step]
   (case (step-type step)
+    ;; rf2-l2cn5d (EP-0017): a `:dispatch` / `:dispatch-sync` step is
+    ;; either the bare 2-element `[:dispatch evec]` or the 3-element
+    ;; `[:dispatch evec opts]` carrying a recordable-coeffect envelope
+    ;; (`{:rf.cofx <map>}`) the runner threads into the dispatch opts.
+    ;; The opts slot, when present, MUST be a map.
     :dispatch       (boolean
-                      (and (= 2 (count step))
+                      (and (<= 2 (count step) 3)
                            (vector? (nth step 1))
                            (pos? (count (nth step 1)))
-                           (keyword? (first (nth step 1)))))
+                           (keyword? (first (nth step 1)))
+                           (or (= 2 (count step)) (map? (nth step 2)))))
     :dispatch-sync  (boolean
-                      (and (= 2 (count step))
+                      (and (<= 2 (count step) 3)
                            (vector? (nth step 1))
                            (pos? (count (nth step 1)))
-                           (keyword? (first (nth step 1)))))
+                           (keyword? (first (nth step 1)))
+                           (or (= 2 (count step)) (map? (nth step 2)))))
     :wait           (boolean
                       (and (= 2 (count step))
                            (number? (nth step 1))
@@ -746,6 +753,19 @@
   [step]
   (when (#{:dispatch :dispatch-sync} (step-type step))
     (nth step 1 nil)))
+
+(defn step-cofx
+  "Return the captured flat `:rf.cofx` map from a 3-element
+  `[:dispatch evec opts]` / `[:dispatch-sync evec opts]` step
+  (rf2-l2cn5d, EP-0017), or nil. The opts map's `:rf.cofx` is the
+  recordable-coeffect envelope the recorder captured; the executor
+  threads it into the dispatch opts so replay re-presents the recorded
+  values (provided facts + the framework `:rf/time-ms`)."
+  [step]
+  (when (#{:dispatch :dispatch-sync} (step-type step))
+    (let [opts (nth step 2 nil)]
+      (when (map? opts)
+        (:rf.cofx opts)))))
 
 (defn step-wait-ms
   "Return the ms duration from a `:wait` step, or nil."

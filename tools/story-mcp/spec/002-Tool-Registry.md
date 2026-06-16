@@ -548,14 +548,40 @@ out. The WRITE-BACK path (below) re-registers the RAW events on-box for
 replay fidelity — that is an operator-gated registration via
 `--allow-writes`, not a wire egress.
 
+**Recordable-coeffect replay fidelity (EP-0017).** Each captured
+dispatch carries its flat `:rf.cofx` envelope — the framework-stamped
+`:rf/time-ms` plus any provided recordable facts the dispatch supplied
+(EP-0017 §3). The recorder reads that envelope off the same
+`:rf.event/dispatched` trace event and threads it through both emission
+surfaces: the rendered `:play-snippet` and the write-back `:script`
+body render the matching dispatch step as `[:dispatch evec {:rf.cofx
+…}]` (a 3-element step; the bare 2-element step is emitted only when
+nothing was captured — zero ceremony for a no-coeffect recording). On
+replay the runner re-supplies the recorded envelope via the dispatch
+opts, so a handler that declares `:rf.cofx/requires` re-presents the
+recorded value rather than restamping a fresh `:rf/time-ms` or failing
+`:rf.error/missing-required-cofx` for a provided fact. The captured
+`:rf.cofx` maps are value-bearing and follow the SAME egress posture as
+the event payloads: each captured-coeffect leaf is value-redacted
+against the source frame's declared-`:sensitive?` values before it
+crosses the wire (in the snippet / `:captured` slots), while
+`:rf/time-ms` is always safe to surface (EP-0017 §3) and passes through
+verbatim. The write-back threads the RAW (unscrubbed) envelope on-box
+for full replay fidelity (an operator-gated `--allow-writes`
+registration, not a wire egress). No `:rf.world/inputs` naming is
+introduced — the retired predecessor spelling does not appear on any
+surface.
+
 Optional `:write-back` re-registers the source variant with the
 captured recording translated to a live play body via
 `reg-variant*` (preserving the existing `:component`, `:args`,
 `:decorators`, etc.). The translation routes through
 `re-frame.story/recording->play-script` — each captured event becomes
-a `[:dispatch ...]` step — and the write-back assocs the result under
-the PUBLIC `:script` authoring slot (rf2-7mj4z; spec/017 §Public
-vocabulary), NOT the transitional `:play-script` spelling. The two
+a `[:dispatch ...]` step (carrying its captured `:rf.cofx` envelope as a
+trailing opts map where one was recorded) — and the write-back assocs
+the result under the PUBLIC `:script` authoring slot (rf2-7mj4z;
+spec/017 §Public vocabulary), NOT the transitional `:play-script`
+spelling. The two
 store identically: `reg-variant*` lowers the public `:script` to the
 shipping `:play-script` slot via `schemas/lower-public-vocabulary`, so
 `variant->edn` of the stored body reads `:play-script` either way — the

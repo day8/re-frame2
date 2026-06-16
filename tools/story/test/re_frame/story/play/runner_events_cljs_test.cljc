@@ -373,6 +373,89 @@
            (is (= [:hit :hit] @seen))
            (is (= 2 (count (:results final)))))))))
 
+;; ---- rf2-l2cn5d (EP-0017): captured :rf.cofx replays into the handler ----
+;;
+;; The headline acceptance criterion — a replayed `[:dispatch evec {:rf.cofx …}]`
+;; / `[:dispatch-sync evec {:rf.cofx …}]` step re-presents the RECORDED
+;; recordable coeffects (a PROVIDED fact + the framework `:rf/time-ms`) to the
+;; handler, rather than restamping `:rf/time-ms` or failing
+;; `:rf.error/missing-required-cofx` for the provided fact. Without the
+;; envelope, the same provided-fact handler MUST fail loudly (proving the
+;; capture/replay is load-bearing, not decorative).
+
+#?(:clj
+   (deftest dispatch-replays-captured-cofx-into-handler
+     (testing "a captured :rf.cofx envelope on a dispatch step delivers the
+              recorded provided fact + the recorded :rf/time-ms to the handler"
+       ;; The bridge fixture clears the registrar and re-inits the runtime;
+       ;; ensure the framework `:rf/time-ms` recordable cofx is registered for
+       ;; this test's frame registrar (the variant frame's registrar does not
+       ;; auto-carry it under the story test harness). Idempotent — matches the
+       ;; framework default (cofx.cljc §:rf/time-ms — recordable, provided).
+       (when-not (registrar/lookup :cofx :rf/time-ms)
+         (rf/reg-cofx :rf/time-ms {:recordable? true :provided? true}))
+       ;; A PROVIDED recordable fact has no generator — absent on the token it
+       ;; is :rf.error/missing-required-cofx in every mode, so re-presenting the
+       ;; recorded value is the only way replay succeeds.
+       (rf/reg-cofx :rf2-l2cn5d.delta/v
+         {:recordable? true :provided? true
+          :doc "A provided recordable delta the recorder captured."})
+       (let [seen (atom [])]
+         (rf/reg-event :rf2-l2cn5d/inc-by
+           {:doc "Increment by a replayable delta + stamp the replayed time."
+            :rf.cofx/requires [:rf/time-ms :rf2-l2cn5d.delta/v]}
+           (fn [{:keys [db] t :rf/time-ms delta :rf2-l2cn5d.delta/v} _]
+             (swap! seen conj {:t t :delta delta})
+             {:db (-> db (update :n (fnil + 0) delta) (assoc :last-t t))}))
+         ;; The recorded envelope: a provided fact + a recorded (NOT current)
+         ;; :rf/time-ms. Replay must re-present BOTH verbatim.
+         (story/reg-variant :story.runner/cofx-replay
+           {:events []
+            :play-script {:auto-run? false
+                          :script [[:dispatch      [:rf2-l2cn5d/inc-by]
+                                    {:rf.cofx {:rf/time-ms 1781078400123
+                                               :rf2-l2cn5d.delta/v 4}}]
+                                   [:dispatch-sync [:rf2-l2cn5d/inc-by]
+                                    {:rf.cofx {:rf/time-ms 1781078400999
+                                               :rf2-l2cn5d.delta/v 10}}]]}})
+         (async/deref-blocking (story/run-variant :story.runner/cofx-replay) 5000)
+         (let [final (run-blocking :story.runner/cofx-replay)]
+           (is (= :pass (:status final))
+               "both steps replay cleanly — the provided fact was re-presented")
+           (is (= [{:t 1781078400123 :delta 4}
+                   {:t 1781078400999 :delta 10}]
+                  @seen)
+               "the handler saw the RECORDED :rf/time-ms + provided fact, not a
+                fresh stamp")
+           (is (= 14 (:n (rf/app-db-value :story.runner/cofx-replay)))
+               "4 (:dispatch) + 10 (:dispatch-sync) folded from the recorded
+                deltas")
+           (is (= 1781078400999 (:last-t (rf/app-db-value :story.runner/cofx-replay)))
+               "the last replayed :rf/time-ms landed in app-db verbatim"))))))
+
+#?(:clj
+   (deftest dispatch-without-cofx-fails-missing-required-provided-fact
+     (testing "a provided-fact handler replayed WITHOUT the captured envelope
+              fails loudly (:rf.error/missing-required-cofx) — proving the
+              captured cofx is load-bearing, not decorative"
+       (rf/reg-cofx :rf2-l2cn5d.token/v
+         {:recordable? true :provided? true
+          :doc "A provided recordable token with no generator."})
+       (rf/reg-event :rf2-l2cn5d/needs-token
+         {:rf.cofx/requires [:rf2-l2cn5d.token/v]}
+         (fn [{:keys [db] tok :rf2-l2cn5d.token/v} _]
+           {:db (assoc db :tok tok)}))
+       ;; The bare 2-element step (no envelope) — the pre-fix recorder
+       ;; behaviour. The provided fact is absent → the step must fail.
+       (story/reg-variant :story.runner/cofx-missing
+         {:events []
+          :play-script {:auto-run? false
+                        :script [[:dispatch-sync [:rf2-l2cn5d/needs-token]]]}})
+       (async/deref-blocking (story/run-variant :story.runner/cofx-missing) 5000)
+       (let [final (run-blocking :story.runner/cofx-missing)]
+         (is (not= :pass (:status final))
+             "the missing provided fact surfaces as a non-pass step outcome")))))
+
 #?(:clj
    (deftest assert-db-equals-pass-and-fail
      (testing ":assert-db pass / fail outcomes against frame app-db. Per

@@ -798,15 +798,17 @@
 
 (deftest start-default-realm-carries-no-realm-key
   (testing "the 3-arity start (default-realm path) writes no :rf.realm/id —
-            a single-realm recording's state map is byte-identical to the
-            pre-realm shape"
+            a single-realm recording's state map carries no realm key (the
+            absent-key rule)"
     (let [s (recorder/start recorder/initial-state :story.x/y 1000)]
       (is (not (contains? s :rf.realm/id))
           "no realm key on a default-realm recording")
+      ;; rf2-l2cn5d (EP-0017): the base state now carries an empty parallel
+      ;; `:cofx` slot (index-aligned with :events) alongside :events/:entries.
       (is (= {:recording? true :variant-id :story.x/y
-              :events [] :entries [] :started-ms 1000}
+              :events [] :cofx [] :entries [] :started-ms 1000}
              s)
-          "state shape unchanged from the pre-realm recorder"))))
+          "default-realm state: no realm key; :cofx/:events/:entries empty"))))
 
 (deftest start-stamps-a-non-default-realm
   (testing "the 4-arity start stamps :rf.realm/id for a non-default realm"

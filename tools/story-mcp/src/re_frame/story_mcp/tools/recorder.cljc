@@ -100,12 +100,22 @@
   passes a nil / default realm, so the body carries no realm key and replays
   unchanged (zero ceremony).
 
+  rf2-l2cn5d (EP-0017): the captured `:rf.cofx` maps (the parallel `cofx`
+  vector, index-aligned with `events` — framework `:rf/time-ms` plus any
+  provided recordable facts) are threaded into `recording->play-script`'s
+  `:cofx` opt so each written-back dispatch step carries its recorded
+  recordable-coeffect envelope (`[:dispatch evec {:rf.cofx …}]`). The
+  RAW (unscrubbed) cofx is used here — the write-back is an operator-gated
+  on-box registration (`--allow-writes`), not a wire egress, so replay keeps
+  full fidelity. A recording with no captured coeffects threads an all-nil
+  cofx vector, so the body is byte-identical to the pre-EP-0017 shape.
+
   Returns the structured success result on the happy path, or an
   `error-result` whose `:structuredContent` merges the base recorder
   payload, the failure flag, and the registrar's `ex-data`."
-  [base body events realm target-vid]
+  [base body events cofx realm target-vid]
   (try
-    (let [play-body (story/recording->play-script events {:realm realm})
+    (let [play-body (story/recording->play-script events {:realm realm :cofx cofx})
           id        (story/reg-variant*
                       target-vid
                       (assoc body :script play-body :origin config/origin))
@@ -297,6 +307,14 @@
                       _           (sleep-ms duration-ms)
                       final-state (story/stop-recording!)
                       events      (vec (:events final-state))
+                      ;; rf2-l2cn5d (EP-0017): the parallel captured-cofx slot,
+                      ;; index-aligned with `:events` — each member is the flat
+                      ;; `:rf.cofx` map (framework `:rf/time-ms` + any provided
+                      ;; recordable facts) the dispatch carried, or nil. Threaded
+                      ;; into the snippet + write-back so replay re-presents the
+                      ;; recorded recordable coeffects rather than restamping or
+                      ;; failing `:rf.error/missing-required-cofx`.
+                      cofx        (vec (:cofx final-state))
                       ;; rf2-0io9uq (EP-0013): the recorder stamped the source
                       ;; frame's runtime realm onto the recording WHERE it is a
                       ;; non-default realm (absent-key rule). Read it back so the
@@ -321,9 +339,21 @@
                       ;; --allow-writes, not a wire egress) so replay keeps
                       ;; full fidelity.
                       wire-events (egress/scrub-frame-value events vk incl?)
+                      ;; rf2-l2cn5d (EP-0017): the captured `:rf.cofx` maps are
+                      ;; value-bearing and cross the wire in the rendered snippet
+                      ;; (and, for parity with the events, conceptually in
+                      ;; `:captured`). Value-redact each captured-cofx leaf the
+                      ;; SAME way as the events — a provided recordable fact can be
+                      ;; a declared-sensitive value (a token, a PII field).
+                      ;; `:rf/time-ms` is an int and always safe to surface
+                      ;; (EP-0017 §3), so it passes through untouched. The
+                      ;; WRITE-BACK path threads the RAW cofx on-box for replay
+                      ;; fidelity.
+                      wire-cofx   (mapv #(egress/scrub-frame-value % vk incl?) cofx)
                       snippet     (story/gen-play-snippet
                                     wire-events
-                                    (cond-> {:variant-id target-vid :extends extends}
+                                    (cond-> {:variant-id target-vid :extends extends
+                                             :cofx wire-cofx}
                                       (string? doc)       (assoc :doc doc)
                                       (string? alias-arg) (assoc :alias alias-arg)))
                       base        {:variant-id           vk
@@ -334,7 +364,7 @@
                                    :written-back?        false}]
                   (if-not write-back?
                     (result/edn-result base)
-                    (write-back! base body events realm target-vid))))))))))))
+                    (write-back! base body events cofx realm target-vid))))))))))))
 
 (def descriptors
   "Registry descriptors for the recorder's MCP surface — the single
@@ -344,7 +374,7 @@
   per IMPL-SPEC §7.3."
   [{:name           "record-as-variant"
     :category       :write
-    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. The captured event payloads (in both the `:captured` slot and the `:play-snippet` text) are value-redacted against the source frame's declared-sensitive values before egress (rf2-12f2q); pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`); write-back re-registers the RAW events on-box for replay fidelity. Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
+    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Each captured dispatch preserves its flat `:rf.cofx` envelope (the framework `:rf/time-ms` plus any provided recordable facts, EP-0017) so replay re-presents the recorded coeffects instead of restamping — a step with a recorded envelope renders as `[:dispatch evec {:rf.cofx …}]` (bare 2-element step when nothing was captured). The captured event payloads AND `:rf.cofx` values (in both the `:captured` slot and the `:play-snippet` text) are value-redacted against the source frame's declared-sensitive values before egress (rf2-12f2q; `:rf/time-ms` is always safe and surfaces verbatim); pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`); write-back re-registers the RAW events + cofx on-box for replay fidelity. Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
                          "Examples: "
                          "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :script {:auto-run? true :script [[:dispatch-sync [:cart/add ...]]]}})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "

@@ -279,9 +279,19 @@
   "Wrap a captured event vector as a `:play-script` step. Per
   rf2-0wrud the canonical wrapping is `:dispatch-sync` — preserves the
   legacy `:play`'s drain-to-completion ordering and lets `:rf.assert/*`
-  events record on the very next step."
-  [event-vec]
-  [:dispatch-sync event-vec])
+  events record on the very next step.
+
+  The 2-arity `(event->step event-vec cofx)` carries a captured flat
+  `:rf.cofx` map (rf2-l2cn5d, EP-0017) onto the step as a trailing opts
+  map — `[:dispatch-sync evec {:rf.cofx <map>}]` — so a pasted /
+  written-back snippet replays the recorded recordable coeffects
+  (provided facts + the framework `:rf/time-ms`) rather than restamping.
+  A nil / empty cofx emits the byte-identical 2-element step."
+  ([event-vec] (event->step event-vec nil))
+  ([event-vec cofx]
+   (if (and (map? cofx) (seq cofx))
+     [:dispatch-sync event-vec {:rf.cofx cofx}]
+     [:dispatch-sync event-vec])))
 
 (defn gen-play-snippet
   "Build the EDN snippet for the captured events. Pure data → string.
@@ -303,6 +313,15 @@
                               `:component`, `:args`, `:decorators`)
       :alias       optional — short alias to use in the form
                               (default `\"story\"`)
+      :cofx        optional — a parallel vector of captured flat
+                              `:rf.cofx` maps (rf2-l2cn5d, EP-0017),
+                              index-aligned with `events`. Non-empty
+                              entries render as `[:dispatch-sync evec
+                              {:rf.cofx …}]` so a pasted snippet replays
+                              the recorded recordable coeffects (provided
+                              facts + the framework `:rf/time-ms`) instead
+                              of restamping. Empty / absent renders the
+                              byte-identical 2-element steps.
 
   When `events` is empty the snippet still renders (with an empty
   `:script` vector) so the user sees the shape they're about to fill.
@@ -310,14 +329,17 @@
   The output is human-readable EDN — each step renders on its own
   line, indented under `:script [`. The form is `read-string`-able and
   round-trips through re-frame's registrar machinery."
-  [events {:keys [variant-id doc extends alias]
+  [events {:keys [variant-id doc extends alias cofx]
            :or   {alias "story"}}]
   (let [;; The shared `indent-after` helper (predicates leaf) aligns
         ;; steps on continuation lines directly under the `[` of
         ;; `:script [` — derived from the literal first-line prefix so
         ;; the geometry is self-documenting.
         script-prefix "                     :script ["
-        steps         (map event->step events)
+        cofx-vec      (vec (or cofx []))
+        steps         (map-indexed
+                        (fn [i ev] (event->step ev (get cofx-vec i)))
+                        events)
         script-str    (if (seq steps)
                         (str "["
                              (str/join (pred/indent-after script-prefix)
@@ -520,6 +542,9 @@
           (vector? event)
           (pred/assertion-event? event))
      (-> (update :events (fnil conj []) (vec event))
+         ;; rf2-l2cn5d: keep the parallel :cofx slot index-aligned with
+         ;; :events — an inserted assertion carries no captured cofx.
+         (update :cofx (fnil conj []) nil)
          (conj-entry {:kind  :event/dispatch
                       :event (vec event)
                       :t     (timestamp-since-start state now-ms)})))))
@@ -543,6 +568,10 @@
   {:recording? false
    :variant-id nil
    :events     []
+   ;; rf2-l2cn5d (EP-0017): the captured flat `:rf.cofx` map per event,
+   ;; index-aligned with `:events` (nil where the event carried no
+   ;; recordable coeffects). The bare-`:events` MCP path zips this in.
+   :cofx       []
    :entries    []
    :started-ms nil})
 
@@ -613,6 +642,9 @@
    (-> {:recording? true
         :variant-id variant-id
         :events     []
+        ;; rf2-l2cn5d (EP-0017): parallel captured-cofx slot, index-aligned
+        ;; with :events.
+        :cofx       []
         :entries    []
         :started-ms now-ms}
        (assoc-realm realm-id))))
@@ -662,18 +694,34 @@
   `:events` (bare event vectors) stays as-is for the simple
   `gen-play-snippet` codegen.
 
-  Two-arg form (`(append state event now-ms)`) lets callers pin
-  the timestamp for deterministic tests."
+  Per rf2-l2cn5d (EP-0017): the optional `cofx` arg is the captured flat
+  recordable-coeffect map from the same `:rf.event/dispatched` trace
+  event (`:rf.cofx` tag — framework `:rf/time-ms` plus any provided
+  facts). When non-empty it is stored in TWO index-aligned places: the
+  parallel `:cofx` slot (so the bare-`:events` MCP path can re-supply
+  it) AND the rich `:entries` `:event/dispatch` map under `:rf.cofx` (so
+  the `:play-script` translator sees it without a positional zip). The
+  `:cofx` slot stays index-aligned with `:events` — an empty / nil cofx
+  conjoins `nil` so the two vectors never drift.
+
+  Two-/three-arg forms (`(append state event now-ms)` /
+  `(append state event now-ms cofx)`) let callers pin the timestamp +
+  cofx for deterministic tests."
   ([state event]
    (append state event (now-ms*)))
   ([state event now-ms]
-   (cond-> state
-     (and (:recording? state)
-          (recordable-event? event))
-     (-> (update :events (fnil conj []) (vec event))
-         (conj-entry {:kind  :event/dispatch
-                      :event (vec event)
-                      :t     (timestamp-since-start state now-ms)})))))
+   (append state event now-ms nil))
+  ([state event now-ms cofx]
+   (let [cofx* (when (and (map? cofx) (seq cofx)) cofx)]
+     (cond-> state
+       (and (:recording? state)
+            (recordable-event? event))
+       (-> (update :events (fnil conj []) (vec event))
+           (update :cofx (fnil conj []) cofx*)
+           (conj-entry (cond-> {:kind  :event/dispatch
+                                :event (vec event)
+                                :t     (timestamp-since-start state now-ms)}
+                         cofx* (assoc :rf.cofx cofx*))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; DOM-event capture (rf2-d5u89)
@@ -889,11 +937,19 @@
   in flight. Called by the trace-bus listener for every
   `:rf.event/dispatched` event whose `:frame` matches the recording
   target. Idempotent against non-recordable events (assertion events,
-  internal helpers) — the predicate filter is in `append`."
-  [event]
-  (when config/enabled?
-    (swap! state append event))
-  nil)
+  internal helpers) — the predicate filter is in `append`.
+
+  The 2-arity `(record-event! event cofx)` carries the captured flat
+  `:rf.cofx` map (rf2-l2cn5d, EP-0017) — read off the same
+  `:rf.event/dispatched` trace event's `:rf.cofx` tag — so the recorded
+  step can re-present the recordable coeffects (provided facts + the
+  framework `:rf/time-ms`) on replay rather than restamping. A nil /
+  empty cofx records the byte-identical pre-EP-0017 trace."
+  ([event] (record-event! event nil))
+  ([event cofx]
+   (when config/enabled?
+     (swap! state append event (now-ms*) cofx))
+   nil))
 
 (defn record-dom-event!
   "Append a DOM-event entry to the recorder's `:entries` slot iff a
@@ -1007,10 +1063,17 @@
             ;; suppressed-events counter so the UI's REDACTED hint
             ;; reflects the count of placeholder rows. The placeholder
             ;; carries the `:rf/redacted` framework sentinel as its
-            ;; event id; no payload survives.
+            ;; event id; no payload survives. No cofx is recorded for a
+            ;; redacted row — the payload (and its causal token) is the
+            ;; thing being suppressed.
             (config/note-suppressed! (:frame tags))
             (record-event! redacted-event))
-          (record-event! (:rf.event/v tags)))))))
+          ;; rf2-l2cn5d (EP-0017): carry the same trace event's flat
+          ;; `:rf.cofx` map (the framework-stamped `:rf/time-ms` plus any
+          ;; provided recordable facts — see router.cljc §:rf.event/dispatched
+          ;; emit, dev-gated) onto the recording so replay re-presents the
+          ;; recorded recordable coeffects instead of restamping.
+          (record-event! (:rf.event/v tags) (:rf.cofx tags)))))))
 
 (defn install-trace-listener!
   "Install the recorder's trace-bus listener. Idempotent — re-installing
