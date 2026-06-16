@@ -286,6 +286,69 @@
           (is (= :evt-conf/required-boundary (get-in (first errs) [:tags :rf.cofx/id]))
               ":rf.cofx/id names the absent provided fact"))))))
 
+(deftest reg-event-framework-provided-rf-time-ms-declared-delivered-undeclared-absent
+  (testing "EP-0017 §1/§2/§4/§5 (rf2-dkkmig) — the framework-STAMPED `:rf/time-ms`
+            provided-recordable matrix, the no-implicit-time rule. `:rf/time-ms`
+            is the framework's ONE built-in `{:recordable? true :provided? true}`
+            registration, stamped onto every dispatch envelope at enqueue (so it
+            is always present on the token without the caller supplying it). The
+            two legs prove the provided-vs-ambient recordable contract for the
+            STAMPED fact: (1) a handler DECLARING `:rf/time-ms` receives the
+            framework-stamped value flat (the stamp guarantees the provided fact
+            is present — no `:rf.error/missing-required-cofx`, distinct from the
+            generator-less custom provided fact that IS absent); (2) a handler
+            NOT declaring it never sees it in its coeffects map (no implicit
+            time — the most-consumed fact gets no special treatment).
+            A regression re-introducing implicit time delivery (staging
+            `:rf/time-ms` for an undeclared handler) turns leg 2 RED; a
+            regression that stopped stamping the provided fact turns leg 1 RED
+            (it would surface as missing-required)"
+    (let [declared-time   (atom ::unset)
+          undeclared-has? (atom ::unset)]
+      ;; Leg 1 — DECLARED: the framework-stamped provided `:rf/time-ms` is
+      ;; delivered flat from the enqueue stamp, NO caller supply needed.
+      (rf/reg-event :evt-conf/declares-time
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [{:keys [rf/time-ms]} _] (reset! declared-time time-ms) {}))
+      ;; Leg 2 — UNDECLARED: the same stamped fact is NOT staged.
+      (rf/reg-event :evt-conf/ignores-time
+        (fn [cofx _] (reset! undeclared-has? (contains? cofx :rf/time-ms)) {}))
+      ;; Dispatch WITHOUT supplying `:rf/time-ms` — the enqueue stamp provides it.
+      (rf/dispatch-sync [:evt-conf/declares-time])
+      (rf/dispatch-sync [:evt-conf/ignores-time])
+      (is (number? @declared-time)
+          "the DECLARED framework-stamped :rf/time-ms arrived flat from the enqueue stamp (a provided fact, always present — never missing-required)")
+      (is (false? @undeclared-has?)
+          "the UNDECLARED handler never sees :rf/time-ms — no implicit time (declared-only delivery, the most-consumed fact gets no exemption)"))))
+
+(deftest reg-event-custom-provided-cofx-supplied-on-token-is-delivered-flat
+  (testing "EP-0017 §2/§4/§5 (rf2-dkkmig) — a CUSTOM `{:recordable? true
+            :provided? true}` cofx (no generator), SUPPLIED on the dispatch
+            token, is delivered FLAT under its id when declared. This is the
+            POSITIVE delivery leg complementing
+            `reg-event-registered-but-absent-provided-fact-is-missing-required-cofx`
+            (the negative leg): a registered provided fact PRESENT on the token
+            is delivered verbatim (supplied values win — no host read, no
+            generator), exactly like the framework's own `:rf/time-ms` but for an
+            app-owned boundary fact. Together the two legs lock the provided
+            recordable matrix: present → delivered flat; absent →
+            missing-required. A regression that failed to deliver a supplied
+            provided fact (or that ran a phantom supplier) turns this RED"
+    (let [seen (atom ::unset)]
+      ;; A custom provided recordable fact — NO supplier (its owner stamps the
+      ;; token). The valid provided shape: `{:recordable? true :provided? true}`.
+      (rf/reg-cofx :evt-conf/session-token
+        {:recordable? true :provided? true
+         :doc "A boundary fact the dispatch site stamps onto the token."})
+      (rf/reg-event :evt-conf/reads-token
+        {:rf.cofx/requires [:evt-conf/session-token]}
+        (fn [{:keys [evt-conf/session-token]} _] (reset! seen session-token) {}))
+      ;; SUPPLY the provided fact's value on the dispatch token.
+      (rf/dispatch-sync [:evt-conf/reads-token]
+                        {:rf.cofx {:evt-conf/session-token "jwt-abc-123"}})
+      (is (= "jwt-abc-123" @seen)
+          "the SUPPLIED custom provided recordable fact arrived FLAT under its id from the token (supplied values win — no generator, no host read)"))))
+
 (deftest inject-cofx-is-off-the-public-facade-and-the-removal-is-a-hard-error
   (testing "EP-0017 slice A.3 + rf2-w9xyx1 (rf2-q5w74i): the v1 ctx→ctx
             `inject-cofx` delivery idiom is REMOVED with no alias —
