@@ -5,10 +5,24 @@
   Vite's `/__open-in-editor`, react-dev-utils' `launchEditorEndpoint`,
   Next.js' launch-editor middleware. This namespace is the re-frame2
   equivalent — a shadow-cljs `:dev-http` Ring `:handler` (a not-found
-  fallback) that answers `GET|POST /__rf-open-in-editor?file=<…>&line=<n>
+  fallback) that answers `POST /__rf-open-in-editor?file=<…>&line=<n>
   &column=<c>` by resolving the (classpath-relative) `:file` against the
   dev JVM's source-paths AT RUNTIME and launching the editor via the
   `launch-editor` npm package.
+
+  ## Why it is POST-only + loopback-guarded
+
+  The endpoint LAUNCHES the developer's editor on a local file path, so
+  left open it is a drive-by vector in the historic Vite / react-dev-utils
+  CVE class — any page the developer is visiting could fire a request at
+  `http://localhost:<dev-port>` and open an attacker-chosen file. The
+  handler therefore acts only on a POST that is addressed to a loopback
+  `Host` and (when one is present) carries a loopback `Origin`; CORS is
+  reflected to that validated loopback origin, never `*`. A simple GET/HEAD
+  drive-by, a request reaching a non-loopback hostname, or a POST from a
+  remote page's Origin is rejected before any path resolution. The default
+  client (`re-frame.source-coords.open-endpoint`) already POSTs from the
+  same/cross-PORT dev origin, so the dev DX is unchanged.
 
   ## Why server-side beats the editor:// URI scheme
 
@@ -243,15 +257,120 @@
   (when (and (string? s) (re-matches #"\d+" s))
     (try (Long/parseLong s) (catch Throwable _ nil))))
 
+;; ---- localhost / origin guard --------------------------------------------
+;;
+;; This endpoint LAUNCHES the developer's editor on an arbitrary local file
+;; path. Left open it is a drive-by vector in the historic Vite /
+;; react-dev-utils CVE class: any web page the developer happens to be
+;; visiting could fire a request at `http://localhost:<dev-port>` and open
+;; an attacker-chosen file in the editor. The guard pins the endpoint to the
+;; local machine and to local browsing contexts:
+;;
+;;   1. request-method must be POST (the launch path). A simple GET/HEAD —
+;;      the only thing an `<img>`/`<form>`/`<link>` drive-by or a `no-cors`
+;;      simple request can issue — never reaches `launch!`.
+;;   2. the `Host` header must name a loopback address: the request must
+;;      have been addressed to localhost / 127.0.0.1 / [::1]. This rejects a
+;;      request that reached the dev JVM via a non-loopback hostname (a
+;;      DNS-rebinding / public-binding attempt).
+;;   3. when an `Origin` header is present it must itself be a loopback
+;;      origin. A page served from `https://evil.example` carries that
+;;      Origin on its cross-origin POST and is rejected; a legitimate
+;;      cross-PORT dev request (Story shell on :8042 → app on :8031) carries
+;;      a `http://localhost:8042` Origin and passes. (A same-origin POST may
+;;      omit Origin entirely, which is allowed once 1 + 2 hold.)
+;;
+;; CORS is then reflected to the validated loopback Origin only — never the
+;; old `*` wildcard.
+
+(defn ^:private loopback-host?
+  "True when `host` (a `Host`-header value, optionally `name:port`, or the
+  host portion of an Origin/URL) names a loopback address: `localhost`,
+  `127.0.0.0/8`, or the IPv6 `[::1]`/`::1`. Case-insensitive; nil/blank is
+  not loopback."
+  [host]
+  (boolean
+    (when (and (string? host) (not (str/blank? host)))
+      (let [h    (str/lower-case (str/trim host))
+            ;; Drop a trailing :port. For a bracketed IPv6 literal
+            ;; (`[::1]:8080`) split on `]:`; otherwise on the last `:` only
+            ;; when there is exactly one (an unbracketed IPv6 has many and
+            ;; carries no port in a Host header).
+            bare (cond
+                   (str/starts-with? h "[")
+                   (let [close (str/index-of h "]")]
+                     (if close (subs h 1 close) h))
+
+                   (and (str/includes? h ":")
+                        (= 1 (count (filter #(= % \:) h))))
+                   (subs h 0 (str/index-of h ":"))
+
+                   :else h)]
+        (or (= bare "localhost")
+            (= bare "::1")
+            (and (str/starts-with? bare "127.")
+                 ;; a bare IPv4 in 127.0.0.0/8
+                 (re-matches #"127\.\d{1,3}\.\d{1,3}\.\d{1,3}" bare)))))))
+
+(defn ^:private origin-host
+  "Extract the host portion of an `Origin` header value (a serialized
+  origin, e.g. `http://localhost:8042`). Returns nil when it cannot be
+  parsed. The literal string `\"null\"` (an opaque origin — sandboxed
+  iframe, `file:`, some redirects) yields nil so it never passes the
+  loopback check."
+  [origin]
+  (when (and (string? origin)
+             (not (str/blank? origin))
+             (not= "null" (str/trim origin)))
+    (try
+      (.getHost (URI. (str/trim origin)))
+      (catch Throwable _ nil))))
+
+(defn ^:private get-header
+  "Read a request header case-insensitively from the Ring `:headers` map
+  (shadow-cljs dev-http lowercases header names, but read defensively)."
+  [headers nm]
+  (when (map? headers)
+    (or (get headers nm)
+        (some (fn [[k v]] (when (and (string? k)
+                                     (.equalsIgnoreCase ^String k nm))
+                            v))
+              headers))))
+
+(defn ^:private local-request?
+  "Guard predicate: true when the request is safe to act on — addressed to a
+  loopback `Host` AND, if it carries an `Origin`, that Origin is itself a
+  loopback origin. A same-origin request that omits Origin passes on the
+  Host check alone. See the `loopback-host?` comment for the threat model."
+  [{:keys [headers]}]
+  (let [host   (get-header headers "host")
+        origin (get-header headers "origin")]
+    (and (loopback-host? host)
+         (or (nil? origin)
+             (str/blank? origin)
+             (loopback-host? (origin-host origin))))))
+
+(defn ^:private allow-origin
+  "The `access-control-allow-origin` value to reflect: the request's own
+  Origin when it is a validated loopback origin (so a legitimate cross-PORT
+  dev request gets a usable CORS header), else `\"null\"` (deny). Never the
+  old `*` wildcard."
+  [{:keys [headers]}]
+  (let [origin (get-header headers "origin")]
+    (if (and origin (loopback-host? (origin-host origin)))
+      origin
+      "null")))
+
 (defn ^:private json-resp
-  [status m]
+  [status allow-origin-val m]
   {:status  status
    :headers {"content-type"                "application/json"
-             ;; The Xray/Story client fetches from the same origin
-             ;; (its own dev-http port), so CORS is not strictly needed,
-             ;; but the wildcard keeps a cross-port probe (e.g. a Story
-             ;; shell on 8042 reaching an app on 8031) working.
-             "access-control-allow-origin" "*"
+             ;; CORS reflected to the validated loopback Origin only —
+             ;; never `*`. A legitimate cross-PORT dev request (Story shell
+             ;; on :8042 reaching an app on :8031) gets its own origin back;
+             ;; everything else gets `null` (deny).
+             "access-control-allow-origin" allow-origin-val
+             "vary"                        "origin"
              "cache-control"               "no-store"}
    :body    (str "{"
                  (str/join ","
@@ -282,30 +401,53 @@
     `editor` — optional; the editor keyword as a bare string (e.g.
                \"cursor\"); maps to a launch-editor command hint.
 
+  Security: only a POST addressed to a loopback `Host` (with a loopback
+  `Origin` when one is present) reaches `launch!` — see `local-request?`.
+  A non-loopback / cross-origin request is rejected 403 before any path
+  resolution or editor launch; a non-POST (e.g. a drive-by GET) gets 405.
+
   Responses:
     200 `{\"ok\":true,\"file\":\"<abs>\"}`        — editor launched.
     400 `{\"ok\":false,\"error\":\"missing-file\"}` — no `file` param.
+    403 `{\"ok\":false,\"error\":\"forbidden\"}`    — non-loopback / cross-origin.
+    405 `{\"ok\":false,\"error\":\"method-not-allowed\"}` — not POST.
     422 `{\"ok\":false,\"error\":\"<msg>\"}`       — launch failed."
-  [{:keys [uri request-method query-string]}]
+  [{:keys [uri request-method query-string] :as req}]
   (when (= uri endpoint-path)
-    (if (= request-method :options)
-      ;; CORS preflight — some browsers preflight a cross-port POST.
-      {:status 204
-       :headers {"access-control-allow-origin"  "*"
-                 "access-control-allow-methods" "GET, POST, OPTIONS"
-                 "access-control-allow-headers" "content-type"}}
-      (let [q      (parse-query query-string)
-            file   (get q "file")
-            line   (->int (get q "line"))
-            column (->int (get q "column"))
-            cmd    (editor-hint (get q "editor"))]
-        (if (str/blank? file)
-          (json-resp 400 {:ok false :error "missing-file"})
-          (let [abs-path (resolve-file file)
-                {:keys [ok message]} (launch! abs-path line column cmd)]
-            (if ok
-              (json-resp 200 {:ok true :file abs-path})
-              (json-resp 422 {:ok false :error (or message "launch-failed")}))))))))
+    (let [ao (allow-origin req)]
+      (cond
+        ;; CORS preflight for the cross-PORT dev POST. Reflect the validated
+        ;; loopback origin (or deny via `null`); only POST is offered.
+        (= request-method :options)
+        {:status 204
+         :headers {"access-control-allow-origin"  ao
+                   "access-control-allow-methods" "POST, OPTIONS"
+                   "access-control-allow-headers" "content-type"
+                   "vary"                          "origin"}}
+
+        ;; Origin / host guard: reject anything not driven from the local
+        ;; machine + a local browsing context BEFORE touching the launch path.
+        (not (local-request? req))
+        (json-resp 403 ao {:ok false :error "forbidden"})
+
+        ;; The launch path is POST-only — a simple GET/HEAD drive-by
+        ;; (`<img>`/`<form>`/`no-cors` fetch) can never trigger an editor launch.
+        (not= request-method :post)
+        (json-resp 405 ao {:ok false :error "method-not-allowed"})
+
+        :else
+        (let [q      (parse-query query-string)
+              file   (get q "file")
+              line   (->int (get q "line"))
+              column (->int (get q "column"))
+              cmd    (editor-hint (get q "editor"))]
+          (if (str/blank? file)
+            (json-resp 400 ao {:ok false :error "missing-file"})
+            (let [abs-path (resolve-file file)
+                  {:keys [ok message]} (launch! abs-path line column cmd)]
+              (if ok
+                (json-resp 200 ao {:ok true :file abs-path})
+                (json-resp 422 ao {:ok false :error (or message "launch-failed")})))))))))
 
 (defn handler
   "The shadow-cljs `:dev-http` `:handler` entry-point. A not-found
