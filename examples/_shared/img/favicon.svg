@@ -3,9 +3,9 @@
   re-frame2 examples favicon.
 
   A 32x32 monogram: stylised "r2" glyph on a dark surface, with an amber
-  accent stroke under the descender. One favicon shared across all three
-  substrates (Reagent / UIx / Helix) — substrate variety is not
-  communicated via visual identity.
+  accent stroke under the descender. One favicon shared across every
+  example substrate (Reagent, Reagent Slim, UIx, Helix) — substrate
+  variety is not communicated via visual identity.
 
   Accent: #C8741A (matches --ex-accent in examples/_shared/css/style.css).
 -->
