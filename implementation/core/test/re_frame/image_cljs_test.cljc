@@ -156,6 +156,50 @@
                   (:rf.error/id (ex-data e))))))))
 
 ;; ============================================================================
+;; :replace / :replace-standard — declared-winner maps (EP-0023 §Image
+;; Patching And Overrides). BARE structural slots — validated here (must be
+;; maps when supplied) and carried through uninterpreted.
+;; ============================================================================
+
+(deftest image-rejects-non-map-replace-keys
+  (testing "a non-map :replace throws :rf.error/invalid-image"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x :replace [:not :a :map]}))))
+  (testing "a non-map :replace-standard throws :rf.error/invalid-image"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x :replace-standard :nope}))))
+  (testing "the bad-key/received surface slots ride the top-level ex-data"
+    ;; thrown-ex-info MERGES :extra onto the top-level ex-data (not nested) —
+    ;; read the surface slots at the top level.
+    (let [data (try (image/image {:id :y :replace 42})
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                      (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= :replace (:bad-key data)))
+      (is (= 42 (:received data))))))
+
+(deftest image-carries-replace-keys-through
+  (testing "valid :replace / :replace-standard maps carry through to the value"
+    (let [rep      {[:event :counter/inc] :docs.counter.v3/counter-inc}
+          rep-std  {[:fx :http] :app.http/winner}
+          v        (image/image {:id :combo
+                                 :replace          rep
+                                 :replace-standard rep-std})]
+      (is (= rep     (:replace v)))
+      (is (= rep-std (:replace-standard v)))))
+  (testing "an empty :replace map is still carried through (present-when-supplied)"
+    ;; cond-> branches on (:replace spec) truthiness; an empty map is truthy.
+    (let [v (image/image {:id :e :replace {}})]
+      (is (contains? v :replace))
+      (is (= {} (:replace v)))))
+  (testing "absent :replace / :replace-standard keys are NOT stamped onto the value"
+    (let [v (image/image {:id :bare :include-ns ["docs.counter.v2"]})]
+      (is (not (contains? v :replace)))
+      (is (not (contains? v :replace-standard))))))
+
+;; ============================================================================
 ;; inline :registrations — lowering to inline descriptors
 ;; ============================================================================
 
