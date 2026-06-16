@@ -285,6 +285,45 @@ stacked sections:
      row here is positive evidence the accepted reply continued into app
      workflow; a stale/superseded reply never fires one (it appears as
      `:rf.mutation/stale-suppressed` instead).
+6d. **Optimistic mutations** (EP-0019) — the optimistic-mutation lifecycle,
+   surfacing the parity surface re-frame2 had deferred against TanStack
+   Query / RTK Query / SWR. Each `:rf.mutation/optimistic-applied` (a
+   forward optimistic patch applied to the cache BEFORE the request settles,
+   phase 1.5) is **paired by `:snapshot-id`** with its terminal settle and
+   rendered as one row carrying the bug-class answer "I saw an optimistic
+   apply — did it COMMIT or ROLL BACK, and was there a conflict?":
+   - the **`:outcome` chip** — `:pending` (still in flight; the optimistic
+     value is live on the cache), `:reconciled` (the mutation SUCCEEDED and
+     the authoritative `:populates` / `:patches` COMMITTED over the
+     optimistic value — the recorded inverse was discarded), or
+     `:rolled-back` (the mutation FAILED / was cancelled / restore-dangled
+     and the recorded inverse was replayed, conflict-aware);
+   - the apply facts — the mutation id, instance, work id, generation, the
+     **snapshot id**, the optimistically-patched **affected keys**
+     (summarized — scope/params carry PII), the `:optimistic-tags`
+     tag-matched keys, and the **fail-closed `:target-unresolved`**
+     `{:from-db …}` ids (a tag/target reference that resolved nil and
+     touched NO entry, never an implicit global apply);
+   - **on reconcile** — the count of **committed** keys (the authoritative
+     write owned them) + the `:reconciliation-refetches` (optimistic keys
+     this mutation's invalidation marked stale → the read path refetches);
+   - **on rollback** — the resolved **`:on-conflict`** rule
+     (`:invalidate` default / `:force`) + the per-key **restored-vs-conflict
+     disposition** (an UNMOVED `:revision` `· restored` the recorded
+     `:before` verbatim; a MOVED one `· refetch` deferred to the read path
+     under `:invalidate`, or `· conflict (:force)` restored the stale
+     inverse anyway), the restored / conflicted / refetched key counts.
+
+   Beneath the lifecycle rows, the **`:rf.warning/optimistic-force-clobber`**
+   warnings render loud (red): an `:on-conflict :force` rollback restored a
+   now-stale inverse OVER a concurrent authoritative write — the deliberate
+   single-writer last-write-wins escape, surfaced so an unexpected clobber is
+   visible (the forced keys + the recovery hint `:review-on-conflict`). A
+   STALE / superseded mutation reply produces NEITHER op (the inverse is
+   discarded, never replayed — it appears as `:rf.mutation/stale-suppressed`
+   instead), so an apply with no terminal settle stays `:pending`. The
+   distinction mirrors slice-4a's `:optimistic?` derived sub at the lifecycle
+   level (Spec 016 §Optimistic mutations / §Surfacing to tooling).
 7. **Cache growth** — per-resource aggregate of entry count, owned
    count, and GC-eligible count, plus the totals + live-work count.
    Surfaces unbounded list-param growth (many entries, few owners).
@@ -391,6 +430,30 @@ live-owner ensure resolves it), so the main Trace panel surfaces them
 under its cross-cutting `WARNING` badge while the Resources lifecycle
 timeline colours them `:hydration`.
 
+### The `:rf.mutation/optimistic-*` lifecycle ops (EP-0019)
+
+The optimistic-mutation surface rides on three `:rf.mutation/*` ops the
+framework emits from `re-frame.resources.mutation-events` (NOT members of
+the `:rf.resource/*` `trace-ops` family — they are mutation ops, recognised
+here by their literal op keys via `optimistic-mutation-op?` in
+`panels/resources_helpers.cljc`):
+
+| Operation | Emit site | Carries |
+|---|---|---|
+| `:rf.mutation/optimistic-applied` | `mutation-events.cljc` (phase 1.5, before the request lowers) | `:mutation` `:instance` `:work/id` `:generation` `:scope` `:snapshot-id` `:affected-keys` `:revisions` (per-key `{:resource/key :revision :forward}` at apply time — the conflict-check basis) `:tag-matched-keys` `:target-unresolved` `:cause` |
+| `:rf.mutation/optimistic-reconciled` | `mutation-events.cljc` (mutation SUCCESS — commit) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:optimistic-keys` `:committed` `:reconciliation-refetches` `:cause` |
+| `:rf.mutation/optimistic-rolled-back` | `mutation-events.cljc` (mutation FAILURE / cancel / restore-dangle) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:on-conflict` `:dispositions` (per-key `{:resource/key :restored :conflict :on-conflict}`) `:restored` `:conflicted` `:refetched` `:cause` |
+
+plus the `:warning`-level `:rf.warning/optimistic-force-clobber` (emitted
+alongside a `:force` rollback that clobbered a concurrent write — carries
+`:mutation` `:instance` `:forced-keys` `:recovery :review-on-conflict`
+`:reason`). The consumer (`optimistic-lifecycle` / `optimistic-force-clobbers`)
+pairs each `:applied` with its terminal settle by `:snapshot-id` to drive the
+§6d **Optimistic mutations** section above. The settle is keyed on the
+recorded `:revision` + the work-id/generation acceptance verdict, never a
+wall-clock race; a STALE / superseded reply emits NEITHER terminal op (the
+inverse is discarded, the apply row stays `:pending`).
+
 `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/remove` /
 `:rf.resource/window-focused` / `:rf.resource/network-reconnected` /
 `:rf.resource/invalidate-tags` / `:rf.resource/release-owner` are
@@ -461,7 +524,7 @@ override input layered on top; see §Events below.
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db` | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | (none) | observed live subscription reads backing the scope-mismatch lint (empty by default). |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db` | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
-| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
+| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :optimistic-mutations :optimistic-force-clobbers :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1); `:optimistic-mutations` is the EP-0019 optimistic-mutation lifecycle (each `:rf.mutation/optimistic-applied` paired by `:snapshot-id` with its terminal `:reconciled` / `:rolled-back` settle, carrying the per-key restored-vs-conflict disposition); `:optimistic-force-clobbers` is the `:rf.warning/optimistic-force-clobber` rows (a `:force` rollback over a concurrent write). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
 ### Events (test-only override seam — rf2-e8330v / xxo3zz F3)
 
