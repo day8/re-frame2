@@ -42,6 +42,23 @@
       6. seal the result into an immutable [kind id] resolver;
       7. give the frame that sealed generation (frame loading is slice .7).
 
+  ## The DEFAULT image (rf2-32siq3.24)
+
+  The DEFAULT image (EP-0023 §Default Image Semantics) is the implicit selector
+  over the WHOLE default source store: `reg-*` mutates the source store, and the
+  default image projects ALL of its descriptors (+ the framework standards) into
+  a sealed generation. It is the no-explicit-`:images` frame path. `default-image`
+  is a marker image value (`:rf.image/default? true`) that rides the SAME
+  `assemble*` pipeline + the SAME resolved-generation cache as an explicit image
+  — the only difference is selection (the whole pool rather than an `:include-ns`
+  glob match). Crucially, the default projection FAILS LOUD on a cross-namespace
+  same-`[kind id]` collision via the same `resolve-collision` /
+  `:rf.error/image-duplicate-id` path (no last-write-wins on the default path).
+  Entry points: `assemble-default` (both arities), and `assemble` routes its
+  empty-`:images` case to it. The default generation is cached keyed on the
+  source-store generation (+ standard generation), so it invalidates the instant
+  any `reg-*` / `forget-*` / `clear-*` bumps the store.
+
   ## Validation is FAIL-LOUD (the central guarantee)
 
   Every validation failure throws via the central `re-frame.error/throw-error!`
@@ -279,6 +296,57 @@
         (mapcat source-store/all-descriptors)
         (source-store/kinds-present)))
 
+;; ---- the DEFAULT image (EP-0023 §Default Image Semantics / §Namespace-Selected
+;;      Images) — the implicit selector over the WHOLE default source store ------
+;;
+;; > the default image is the implicit selector over [the default registration]
+;; > source [store] … The default image is the implicit selector over all
+;; > descriptors in the default source store. It works only while selected ids
+;; > are globally unique across the loaded namespaces. If two loaded namespaces
+;; > both register the same `(kind, id)`, the default image does not guess and
+;; > does not let load order win; default image assembly fails with a collision
+;; > error.
+;;
+;; The default image is NOT an `:include-ns` glob image: it selects EVERY
+;; descriptor in the source store, not a namespace-matched subset, so there is
+;; no zero-match concern (an empty store projects an empty generation, which is
+;; valid — a frame with no app registrations resolving only framework
+;; standards). It is a marker image value (`:rf.image/default? true`) so it
+;; flows through the SAME `assemble*` pipeline + the SAME resolved-generation
+;; cache as an explicit image — the only difference is selection: the whole pool
+;; rather than a glob match. Validation + sealing (collision detection via
+;; `resolve-collision` → `:rf.error/image-duplicate-id`, standard union,
+;; reference checks) are byte-identical to the explicit path, so a
+;; cross-namespace same-`[kind id]` collision in the default projection FAILS
+;; LOUD exactly as an explicit image's collision does — load order never decides
+;; the survivor on the default path either.
+
+(def default-image
+  "The DEFAULT image VALUE — the implicit selector over the WHOLE source-store
+  pool (EP-0023 §Default Image Semantics). A normalized image value marked
+  `:rf.image/default? true` (rather than carrying `:include-ns` globs) so it
+  rides the same `assemble*` pipeline + resolved-generation cache as an explicit
+  image; `select-for-images` recognizes the marker and selects every descriptor
+  in the pool. It declares no inline descriptors, no `:include-ns`, no
+  `:rf.image/requires`, and no `:replace` / `:replace-standard` — the default
+  path assumes globally-unique ids and fails loud (`:rf.error/image-duplicate-id`)
+  on any cross-namespace `(kind, id)` collision rather than declaring a winner.
+  A constant value: the default selection is fully described by the marker, so
+  the cache key's image-vector leg is constant and the store-generation +
+  standard-generation legs are the only invalidation signals (EP-0023 §Image —
+  the default generation is cached keyed on the source-store generation)."
+  {:rf.image/default?   true
+   :rf.image/include-ns []
+   :rf.image/inline     []
+   :rf.image/requires   #{}})
+
+(defn default-image?
+  "True when `image` is the DEFAULT image value — the implicit whole-store
+  selector (`:rf.image/default? true`), as opposed to an explicit `rf/image`
+  value. Pure."
+  [image]
+  (boolean (:rf.image/default? image)))
+
 (defn select-for-images
   "Run slice-.3's `image/select-descriptors` for EACH image value in `images`
   against `descriptors` (the source-store pool), returning the concatenated
@@ -286,10 +354,20 @@
   descriptors). Order is image order then selector order; collision validation
   (which makes order irrelevant to the WINNER) runs downstream. Any zero-match
   `:include-ns` pattern fails loud inside `select-descriptors` (slice .3).
+
+  The DEFAULT image (`default-image?`) is the implicit whole-store selector
+  (EP-0023 §Default Image Semantics): it selects EVERY descriptor in
+  `descriptors` rather than running a glob, with no zero-match fail-loud (an
+  empty store is a valid empty default projection). Every other case routes
+  through the pure `:include-ns`/inline selector unchanged.
+
   Pure — a function of the image values and the candidate pool."
   [images descriptors]
   (into []
-        (mapcat #(image/select-descriptors % descriptors))
+        (mapcat (fn [image]
+                  (if (default-image? image)
+                    descriptors
+                    (image/select-descriptors image descriptors))))
         images))
 
 ;; ===========================================================================
@@ -978,6 +1056,12 @@
         (swap! generation-cache assoc k gen)
         gen))))
 
+;; `assemble` routes its empty-`:images` case to `assemble-default` (the
+;; dedicated default-projection entry, defined just below). Forward-declared so
+;; the narrative order — the general `assemble`, then its default sibling — reads
+;; top-down.
+(declare assemble-default)
+
 (defn assemble
   "Resolve `images` (a seq of normalized `rf/image` values) into a SEALED,
   VALIDATED image generation (EP-0023 §Image Validation). The integration of
@@ -1023,8 +1107,10 @@
                                    pool value itself (the live store generation
                                    does not describe an explicit pool).
 
-  `images` may be a single image value (wrapped) or a seq. Returns the sealed
-  generation:
+  `images` may be a single image value (wrapped) or a seq. An EMPTY (or nil)
+  `images` is the DEFAULT-image case — it projects `default-image`, the implicit
+  selector over the WHOLE source store (EP-0023 §Default Image Semantics; see
+  `assemble-default`). Returns the sealed generation:
 
     {:rf.gen/resolver {[kind id] descriptor …}
      :rf.gen/images   [<image value> …]
@@ -1032,17 +1118,69 @@
      :rf.gen/kinds    #{kind …}}"
   ([images]
    (let [images (if (map? images) [images] (vec images))]
-     ;; Live-store arity: the pool leg is the source-store generation. Read it
-     ;; BEFORE selecting so the cached object is keyed to the store snapshot it
-     ;; was assembled from.
-     (assemble-cached images
-                      (source-store-descriptors)
-                      (source-store/store-generation))))
+     (if (empty? images)
+       ;; No explicit image ⇒ the DEFAULT image projection over the live store.
+       (assemble-default)
+       ;; Live-store arity: the pool leg is the source-store generation. Read it
+       ;; BEFORE selecting so the cached object is keyed to the store snapshot it
+       ;; was assembled from.
+       (assemble-cached images
+                        (source-store-descriptors)
+                        (source-store/store-generation)))))
   ([images descriptors]
    (let [images (if (map? images) [images] (vec images))]
-     ;; Explicit-pool arity: the pool leg is the descriptor pool value itself —
-     ;; the live store generation does not describe a supplied pool.
-     (assemble-cached images descriptors descriptors))))
+     (if (empty? images)
+       ;; No explicit image ⇒ the DEFAULT image projection over the supplied
+       ;; pool (the deterministic explicit-pool form for tests/harnesses).
+       (assemble-default descriptors)
+       ;; Explicit-pool arity: the pool leg is the descriptor pool value itself —
+       ;; the live store generation does not describe a supplied pool.
+       (assemble-cached images descriptors descriptors)))))
+
+(defn assemble-default
+  "Resolve the DEFAULT image — the implicit selector over the WHOLE registration
+  source store + the framework standards — into a SEALED, VALIDATED image
+  generation (EP-0023 §Default Image Semantics / Bead Plan item 6). The default
+  path projects ALL default-source `reg-*` descriptors into the default image
+  generation, FAILING LOUD if that projection contains same-kind same-id
+  collisions.
+
+  This is the no-explicit-`:images` frame path: `reg-*` mutates the default
+  source store, and the default image is the implicit selector over that store.
+  It runs through the SAME `assemble*` pipeline + the SAME resolved-generation
+  cache as an explicit image — selection (the whole pool, via the `default-image`
+  marker), the framework-standard union, collision validation, reference checks,
+  and sealing are byte-identical. So a cross-namespace same-`(kind, id)`
+  collision in the default projection FAILS LOUD with
+  `:rf.error/image-duplicate-id` (via `resolve-collision`) exactly as an explicit
+  image's collision does — load order NEVER silently decides the survivor on the
+  default path; there is no last-write-wins. A product that intentionally wants
+  same ids with different meanings must use explicit images with disjoint
+  selectors (EP-0023 §Default Image Semantics).
+
+  Two arities mirror `assemble`:
+    (assemble-default)            — select against the LIVE source store; the
+                                   cache key's pool leg is the source-store
+                                   generation, so the default generation is
+                                   cached and invalidated the instant any
+                                   `reg-*` / `forget-*` / `clear-*` bumps it
+                                   (EP-0023 §Image — the default generation is
+                                   cached keyed on the source-store generation).
+    (assemble-default descriptors)— select against an explicit descriptor pool
+                                   (tests / harnesses / a pre-snapshotted store);
+                                   the pool leg is the descriptor pool value
+                                   itself (the deterministic test form).
+
+  The default image carries no `:include-ns` (so no zero-match fail-loud — an
+  empty store is a valid empty default projection resolving only the framework
+  standards) and no inline / replacement declarations. Returns the sealed
+  generation (the same shape `assemble` returns)."
+  ([]
+   (assemble-cached [default-image]
+                    (source-store-descriptors)
+                    (source-store/store-generation)))
+  ([descriptors]
+   (assemble-cached [default-image] descriptors descriptors)))
 
 ;; ===========================================================================
 ;; The resolver READ API — the surface slices .7 / .8 (frame loading,
