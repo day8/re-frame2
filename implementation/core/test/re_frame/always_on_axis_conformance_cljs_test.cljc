@@ -102,6 +102,16 @@
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
     :rf.error/ssr-ring-error-view-failed
+    ;; rf2-nv3mua: the SSR hydration frame-id mismatch graduated `always-on`
+    ;; in the Spec 009 catalogue. The `:rf/hydrate` HANDLER guards the direct-
+    ;; `dispatch-sync` split path (the boot helper `hydrate!` validates +
+    ;; throws pre-dispatch — diagnostic — but a direct dispatch bypasses it):
+    ;; a present-and-different payload `:rf/frame-id` against the dispatch
+    ;; target fails CLOSED and emits this NON-EVENT union record via the
+    ;; `:error-emit/dispatch-error-record` hook (the `malformed-hydration-
+    ;; payload` sibling) so an off-box shipper sees the wrong-frame rejection
+    ;; under `goog.DEBUG=false`. Driven through `dispatch-error-record!` below.
+    :rf.error/hydration-frame-id-mismatch
     ;; EP-0017 (rf2-alc1lf): the cofx error family graduated `always-on` in
     ;; the Spec 009 catalogue by the `:rf.cofx` contract spec commit
     ;; (2536b2d98). Each is a causal-token / coeffect-contract validation that
@@ -165,7 +175,10 @@
     :rf.error/malformed-hydration-payload
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
-    :rf.error/ssr-ring-error-view-failed})
+    :rf.error/ssr-ring-error-view-failed
+    ;; rf2-nv3mua: the direct-dispatch frame-id-mismatch handler guard rides
+    ;; the same non-event union-record helper as the malformed-payload guard.
+    :rf.error/hydration-frame-id-mismatch})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on

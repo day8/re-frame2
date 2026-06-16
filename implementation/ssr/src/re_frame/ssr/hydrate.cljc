@@ -102,6 +102,78 @@
 
     :else nil))
 
+(defn- frame-id-mismatch-reason
+  "Fail-CLOSED guard for the `:rf/hydrate` boundary (rf2-nv3mua). Returns a
+  reason string when the payload's `:rf/frame-id` is PRESENT-and-DIFFERENT
+  from the frame the dispatch is installing into (`target` — the
+  `:rf.frame/id` coeffect), nil otherwise.
+
+  The payload's `:rf/frame-id` is the SSR-wire spelling of the frame the
+  SERVER rendered under (Spec 011 §The hydration payload, EP-0002):
+  payload metadata + frame-isolation evidence, NOT a no-opts target
+  resolver. The boot helper `re-frame.ssr.boot/hydrate!` validates it
+  against the explicit `:frame` target BEFORE dispatching (and THROWS on a
+  conflict — its documented pre-dispatch contract). But `hydrate!`'s own
+  docstring recommends direct `dispatch-sync [:rf/hydrate payload] {:frame
+  target}` as the split path for hosts that verify the mounted DOM
+  themselves, so the boundary is not purely private: a direct dispatch
+  bypassed the boot check and silently installed the payload into `target`
+  even when `:rf/frame-id` named a DIFFERENT frame — defeating the
+  frame-isolation evidence the payload carries (rf2-nv3mua). The check is
+  therefore enforced HERE, at the handler boundary BOTH paths cross, so a
+  manual boot / custom host cannot hydrate the wrong frame.
+
+  A payload carrying NO `:rf/frame-id` is NOT a conflict (a host that
+  omitted it, or a client-only/no-server-slice page) — there is nothing to
+  disagree with, so the dispatch target stands. Only a PRESENT-and-
+  DIFFERENT frame-id is a mismatch. The reason mirrors the boot helper's
+  `:rf.error/hydration-frame-id-mismatch` sentence (one diagnostic
+  vocabulary across both paths)."
+  [target payload]
+  (let [payload-frame-id (:rf/frame-id payload)]
+    (when (and (some? payload-frame-id)
+               (not= payload-frame-id target))
+      (str "the :rf/hydrate payload's :rf/frame-id '" payload-frame-id
+           "' (the frame the server rendered under) conflicts with the "
+           "dispatch target frame '" target "'; hydration rejected — the "
+           "runtime will not silently install a server slice into a "
+           "different frame than the one it was rendered for. Pass the same "
+           "frame the server stamped, or correct the server's render frame."))))
+
+(defn- emit-rejected-hydration!
+  "Emit a fail-closed `:rf/hydrate` rejection on BOTH the dev-trace axis
+  (gated by `interop/debug-enabled?`) and the always-on error-emit axis
+  (UNGATED, via the `:error-emit/dispatch-error-record` late-bind hook).
+  Factored out (rf2-nv3mua) so the malformed-payload guard
+  (`:rf.error/malformed-hydration-payload`) and the frame-id-mismatch guard
+  (`:rf.error/hydration-frame-id-mismatch`) surface identically — each is a
+  fail-closed BOUNDARY rejection of an untrusted payload, not a dev teaching
+  diagnostic, so an off-box shipper on a `goog.DEBUG=false` client build
+  (dev trace elided) must still see it (EP-0008 rf2-hhutya). `extra` is
+  merged onto the always-on record (the frame-id guard carries
+  `:target-frame` / `:payload-frame-id`, mirroring the boot helper's thrown
+  ex-data); the dev-trace tags carry it too so Xray sees the same shape."
+  ([error-id frame reason] (emit-rejected-hydration! error-id frame reason nil))
+  ([error-id frame reason extra]
+   (let [base {:where      'rf.ssr/hydrate
+               :frame      frame
+               :failing-id :rf/hydrate
+               :reason     reason
+               :recovery   :no-recovery}]
+     (when interop/debug-enabled?
+       (trace/emit-error! error-id (merge base extra)))
+     ;; EP-0008 (rf2-hhutya): the hydrate-handler shape-guard path
+     ;; (frame EXISTS) rides the always-on axis ALONGSIDE the dev trace.
+     ;; UNGATED. Union record shape via the late-bind hook. (The PRE-FRAME
+     ;; parse failure in `boot/read-server-payload` is the FRAMELESS sibling
+     ;; of this same category.)
+     (when-let [dispatch-error-record!
+                (late-bind/get-fn :error-emit/dispatch-error-record)]
+       (dispatch-error-record!
+         (merge {:error error-id
+                 :time  (interop/now-ms)}
+                base extra))))))
+
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
   `(:rf/app-db payload)`, stashes server-hash + version under
@@ -116,41 +188,49 @@
   `:rf.error/malformed-hydration-payload` diagnostic is emitted (carrying
   `:frame`). Hydration is best-effort by contract (Spec 011 §The
   :rf/hydrate event — degraded-but-running), so a corrupt payload must
-  never silently install garbage as the whole app-db."
+  never silently install garbage as the whole app-db.
+
+  Per rf2-nv3mua the handler ALSO fails CLOSED on a frame-id MISMATCH: when
+  the payload's `:rf/frame-id` is present-and-different from the dispatch
+  target (`:rf.frame/id`), the server's slice was rendered for a DIFFERENT
+  frame, so installing it here would defeat the frame-isolation evidence the
+  payload carries. The boot helper `hydrate!` validates + THROWS pre-dispatch,
+  but its docstring recommends direct `dispatch-sync [:rf/hydrate payload]`
+  as the split path for hosts that verify the mounted DOM themselves — so the
+  guard is enforced HERE, at the boundary both paths cross. app-db AND
+  runtime-db are left unchanged and `:rf.error/hydration-frame-id-mismatch`
+  is emitted (carrying `:target-frame` / `:payload-frame-id`)."
   [{:keys [db] frame :rf.frame/id rt :rf.db/runtime} [_ payload]]
-  (let [new-db (or (:rf/app-db payload) db)]
-    (if-let [reason (malformed-hydration-payload! payload)]
+  (let [new-db (or (:rf/app-db payload) db)
+        ;; A frame-id mismatch is checked BEFORE the structural shape: a
+        ;; payload rendered for a DIFFERENT frame is rejected outright,
+        ;; regardless of slice shape (rf2-nv3mua). Only fires for a PRESENT-
+        ;; and-DIFFERENT `:rf/frame-id` against a non-nil target — an absent
+        ;; frame-id (or nil target) is no conflict.
+        frame-mismatch (when (some? frame)
+                         (frame-id-mismatch-reason frame payload))]
+    (cond
+      frame-mismatch
       (do
-        (when interop/debug-enabled?
-          (trace/emit-error! :rf.error/malformed-hydration-payload
-                             {:where     'rf.ssr/hydrate
-                              :frame     frame
-                              :failing-id :rf/hydrate
-                              :reason    reason
-                              :recovery  :no-recovery}))
-        ;; EP-0008 (rf2-hhutya): the hydrate-handler shape-guard path
-        ;; (frame EXISTS) rides the always-on axis ALONGSIDE the dev trace
-        ;; above. Corrupt hydration input is a fail-closed boundary event,
-        ;; not a dev teaching diagnostic — an off-box shipper on a
-        ;; goog.DEBUG=false client build (dev trace elided) must still see
-        ;; the rejected payload. UNGATED. (The PRE-FRAME parse failure in
-        ;; `boot/read-server-payload` is the FRAMELESS sibling of this same
-        ;; category.) Union record shape via the late-bind hook.
-        (when-let [dispatch-error-record!
-                   (late-bind/get-fn :error-emit/dispatch-error-record)]
-          (dispatch-error-record!
-            {:error      :rf.error/malformed-hydration-payload
-             :frame      frame
-             :time       (interop/now-ms)
-             :where      'rf.ssr/hydrate
-             :failing-id :rf/hydrate
-             :reason     reason
-             :recovery   :no-recovery}))
-        ;; Fail CLOSED: leave the client app-db untouched, fire no
-        ;; compatibility-check fxs (there is no trustworthy server slice
-        ;; to compare against).
+        (emit-rejected-hydration! :rf.error/hydration-frame-id-mismatch
+                                  frame frame-mismatch
+                                  {:target-frame     frame
+                                   :payload-frame-id (:rf/frame-id payload)})
+        ;; Fail CLOSED: leave BOTH partitions untouched, fire no
+        ;; compatibility-check fxs (the slice is not for this frame).
         {:db db})
-      (hydrate-event-handler* db rt frame payload new-db))))
+
+      :else
+      ;; Fail CLOSED on a malformed (deserialised, untrusted) payload —
+      ;; non-map payload, or present-but-non-map app-db / runtime-db slice
+      ;; (rf2-gro94, rf2-g00l2t). The slice would otherwise be coerced into
+      ;; the partition (a fail-OPEN).
+      (if-let [reason (malformed-hydration-payload! payload)]
+        (do
+          (emit-rejected-hydration! :rf.error/malformed-hydration-payload
+                                    frame reason)
+          {:db db})
+        (hydrate-event-handler* db rt frame payload new-db)))))
 
 (defn- hydrate-event-handler*
   "The structurally-valid hydration path (rf2-gro94 extracted the

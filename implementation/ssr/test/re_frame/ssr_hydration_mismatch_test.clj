@@ -51,9 +51,16 @@
 ;; (testbeds/ssr_hydration_mismatch/index.html lines 49-54). The
 ;; "deadbeef" string is the known-wrong server-hash that will not
 ;; equal whatever the client tree's actual FNV-1a hash resolves to.
+;; rf2-nv3mua: NO `:rf/frame-id` key — these tests dispatch the payload into a
+;; freshly-`make-frame`'d `client-frame` (NOT `:rf/default`), and the
+;; `:rf/hydrate` handler now fails CLOSED on a present-and-different
+;; `:rf/frame-id` (the bug fix). The pre-fix literal `:rf/frame-id :rf/default`
+;; would (correctly) be rejected as a frame-id mismatch against the synthetic
+;; frame, short-circuiting the hash-mismatch path these tests exercise. An
+;; absent frame-id is the documented no-conflict shape — the dispatch target
+;; stands — which is what these render-hash-mismatch tests intend.
 (def ^:private mismatch-payload
   {:rf/version     1
-   :rf/frame-id    :rf/default
    :rf/render-hash "deadbeef"
    :rf/app-db      {:count 0}})
 

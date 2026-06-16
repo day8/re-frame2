@@ -55,9 +55,20 @@
 ;; (testbeds/ssr_basic/index.html lines 58-73). Pinning the literal here
 ;; keeps the JVM-side migration anchored to the wire shape the (now
 ;; deleted) Playwright spec observed.
+;; rf2-nv3mua: NO `:rf/frame-id` key. The pre-fix literal stamped
+;; `:rf/frame-id :rf/default`, but these JVM tests dispatch the payload into a
+;; freshly-`make-frame`'d `client-frame` (NOT `:rf/default`). Now that the
+;; `:rf/hydrate` handler fails CLOSED on a present-and-different `:rf/frame-id`
+;; (the bug fix), a literal `:rf/default` stamp against a synthetic
+;; `client-frame` would (correctly) be rejected as a frame-id mismatch. An
+;; absent `:rf/frame-id` is the documented no-conflict shape — the dispatch
+;; target stands — which is what these baseline tests intend (the testbed
+;; itself hydrated `:rf/default` and matched; the synthetic-frame migration is
+;; what introduced the latent mismatch the bug had been masking). The frame-id
+;; mismatch + match paths are covered explicitly by the dedicated tests below
+;; and in ssr_hydration_mismatch_test.
 (def ^:private baseline-payload
   {:rf/version     1
-   :rf/frame-id    :rf/default
    :rf/render-hash nil
    :rf/app-db      {:count 7 :title "seeded"}
    :rf/response    {:status   200
@@ -789,6 +800,99 @@
       (is (= payload returned) "hydration proceeded (no frame-id to conflict)")
       (is (= 7 (rf/subscribe-once client-frame [:count]))
           "the seeded slice landed — an absent payload :rf/frame-id is no conflict"))))
+
+;; ===========================================================================
+;; rf2-nv3mua — the :rf/hydrate HANDLER enforces frame-id validation too, so
+;; the direct-dispatch split path (`hydrate!`'s documented post-mount-verify
+;; escape hatch) cannot bypass it. `hydrate!` validates+throws pre-dispatch
+;; (covered above); these cover the handler boundary reached by a direct
+;; `dispatch-sync [:rf/hydrate payload] {:frame target}`.
+;; ===========================================================================
+
+(deftest direct-dispatch-frame-id-mismatch-fails-closed
+  (testing "rf2-nv3mua: a direct dispatch of [:rf/hydrate payload] whose
+            present :rf/frame-id names a DIFFERENT frame than the dispatch
+            target leaves app-db AND runtime-db unchanged and emits
+            :rf.error/hydration-frame-id-mismatch — the handler will not
+            silently install a server slice rendered for another frame.
+            This is the bypass the bead names: hydrate! throws pre-dispatch,
+            but a direct dispatch hits ONLY the handler."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "nv3mua direct-dispatch client"
+                                       :platform :client})]
+      ;; Seed a recognisable pre-hydration client slice so we can prove it
+      ;; SURVIVES (was not replaced by the wrong-frame payload).
+      (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
+      (rf/dispatch-sync [::inc] {:frame client-frame})  ;; count 0 → 1
+      (let [payload {:rf/frame-id    :some/other-frame
+                     :rf/app-db      {:count 42 :title "wrong-frame slice"}
+                     :rf/runtime-db  {:rf.runtime/machines {:snapshots {:m :installed}}}
+                     :rf/render-hash "deadbeef"}
+            traces  (capture-traces!
+                      (fn []
+                        (rf/dispatch-sync [:rf/hydrate payload]
+                                          {:frame client-frame})))]
+        ;; app-db partition untouched (fail closed).
+        (is (= 1 (rf/subscribe-once client-frame [:count]))
+            "app-db :count survives — the wrong-frame slice was NOT installed")
+        (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+            "app-db :title survives — the wrong-frame slice was NOT installed")
+        ;; runtime-db partition untouched (no hydration metadata, no machine
+        ;; snapshots from the rejected payload).
+        (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+            "no hydration metadata stashed — the runtime-db partition is left unchanged")
+        (is (nil? (get-in (rf/runtime-db-value client-frame)
+                          [:rf.runtime/machines :snapshots]))
+            "the payload's runtime-db slice did NOT land — runtime-db untouched")
+        ;; the structured mismatch surfaced, carrying the two frames.
+        (let [mismatch (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                          (:operation %))
+                                      traces))]
+          (is (some? mismatch)
+              (str "must emit :rf.error/hydration-frame-id-mismatch; saw: "
+                   (pr-str (mapv :operation traces))))
+          (when mismatch
+            (is (= client-frame (-> mismatch :tags :target-frame))
+                ":target-frame is the dispatch target frame")
+            (is (= :some/other-frame (-> mismatch :tags :payload-frame-id))
+                ":payload-frame-id is the payload's (server) frame stamp")))))))
+
+(deftest direct-dispatch-matching-frame-id-hydrates-normally
+  (testing "rf2-nv3mua: a direct dispatch whose :rf/frame-id MATCHES the
+            dispatch target installs the slice normally (the validation is
+            precise — it rejects only present-and-DIFFERENT, never a match)."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "nv3mua matching-frame client"
+                                       :platform :client})
+          ;; Stamp the payload's :rf/frame-id with the SAME frame we hydrate
+          ;; into — server + client agree, so the slice lands. A render-hash
+          ;; is carried so hydration metadata is stashed (the :hydrated? proof).
+          payload      {:rf/frame-id    client-frame
+                        :rf/app-db      {:count 7 :title "seeded"}
+                        :rf/render-hash "deadbeef"}]
+      (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+      (is (= 7 (rf/subscribe-once client-frame [:count]))
+          "matching frame-id → the server slice installed")
+      (is (= "seeded" (rf/subscribe-once client-frame [:title]))
+          "matching frame-id → :title seeded from the payload")
+      (is (true? (rf/subscribe-once client-frame [:hydrated?]))
+          "hydration metadata stashed — the hydrate proceeded"))))
+
+(deftest direct-dispatch-absent-frame-id-hydrates-normally
+  (testing "rf2-nv3mua: a direct dispatch whose payload carries NO
+            :rf/frame-id is no conflict — the dispatch target stands and the
+            slice installs (the documented client-only / no-server-slice
+            fallback shape). This is the path the baseline tests rely on."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "nv3mua absent-frame-id client"
+                                       :platform :client})
+          ;; Deliberately NO :rf/frame-id key.
+          payload      {:rf/app-db {:count 5 :title "no-frame-id"}}]
+      (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+      (is (= 5 (rf/subscribe-once client-frame [:count]))
+          "absent frame-id → the slice installed (no conflict)")
+      (is (= "no-frame-id" (rf/subscribe-once client-frame [:title]))
+          "absent frame-id → :title seeded"))))
 
 (deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
   (testing "rf2-3w6dmy finding 1: hydrate!'s VERIFY contract is
