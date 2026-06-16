@@ -218,8 +218,18 @@
 
 (def push-url-meta
   "Metadata for the `:rf.nav/push-url` fx registration. Spec 012
-  §Multi-frame routing (rf2-w50qm)."
+  §Multi-frame routing (rf2-w50qm).
+
+  EP-0015 (rf2-1wmni6 / rf2-pbbo68 — the history half of the scroll/history
+  fx pair): the arg is a full app URL string whose query/fragment are
+  carrier-shaped (`?token=…`, `#access_token=…`). The core fx trace records
+  `:rf.fx/args` verbatim onto `:rf.fx/handled`, so the URL would reach the
+  trace bus / Xray / MCP / epoch egress raw. The whole-value `:sensitive`
+  mark `[[]]` redacts the URL arg to `:rf/redacted` on the EGRESS copy — the
+  handler still pushes the real URL in-process (the projection touches only
+  the trace tags, never the handler input)."
   {:platforms #{:client}
+   :sensitive [[]]
    :doc       "Push the URL to the browser history (HTML5 pushState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
@@ -247,8 +257,15 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 
 (def replace-url-meta
   "Metadata for the `:rf.nav/replace-url` fx registration. Spec 012
-  §Multi-frame routing (rf2-w50qm)."
+  §Multi-frame routing (rf2-w50qm).
+
+  EP-0015 (rf2-1wmni6 / rf2-pbbo68): same carrier-shaped URL arg as
+  `:rf.nav/push-url` — the blocked-popstate restore URL flows through this
+  fx, so it can carry the rejecting route's query/fragment carriers. The
+  whole-value `:sensitive` mark `[[]]` redacts it on the trace EGRESS copy
+  while the handler still replaces the real URL in-process."
   {:platforms #{:client}
+   :sensitive [[]]
    :doc       "Replace the URL in the browser history (HTML5 replaceState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012

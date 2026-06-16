@@ -18,6 +18,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.routing.can-leave :as can-leave]
+            [re-frame.routing.egress :as egress]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
@@ -228,12 +229,22 @@
             ;; error-projection listener attribute the trace per-frame.
             fallback?
             (conj [:emit-error :rf.error/no-such-handler
-                   (cond-> {:url url
-                            :kind :route
-                            :recovery :replaced-with-default}
-                     frame        (assoc :frame frame)
-                     throw-reason (assoc :reason throw-reason)
-                     malformed?   (assoc :reason :malformed-url))])))
+                   ;; EP-0015 (rf2-n1f4rh): `:rf.error/no-such-handler` is a
+                   ;; production-survivable / off-box-observable error
+                   ;; category EP-0015 requires to FAIL CLOSED. The route-miss
+                   ;; URL has no matched route → no schema to consult, and is
+                   ;; the class most likely to carry secret carriers
+                   ;; (`?token=…`, `#access_token=…`). Redact the query/
+                   ;; fragment carrier VALUES (keep the structured path +
+                   ;; `:reason`) before the error crosses the trace / log /
+                   ;; SSR-projection egress boundary.
+                   (-> (cond-> {:url url
+                                :kind :route
+                                :recovery :replaced-with-default}
+                         frame        (assoc :frame frame)
+                         throw-reason (assoc :reason throw-reason)
+                         malformed?   (assoc :reason :malformed-url))
+                       egress/redact-url-tag)])))
         ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
         ;; allocated/activation traces, the slice publish (targeting
         ;; `:current`, so sibling routing-runtime keys are untouched),

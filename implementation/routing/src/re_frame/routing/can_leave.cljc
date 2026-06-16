@@ -26,6 +26,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.routing.egress :as egress]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
@@ -206,11 +207,25 @@
         ;; emitting frame's epoch + obeys the frame trace-disable gate — in
         ;; a multi-frame app a block can otherwise not be filtered to the
         ;; frame that caused it.
+        ;; EP-0015 (rf2-jfaucw): the blocked-navigation diagnostic trace
+        ;; carries the raw `:requested-url` under a custom slot the
+        ;; per-registration marks chokepoint does not walk. A blocked target
+        ;; URL can carry query/fragment carriers (`?token=…`,
+        ;; `#access_token=…`), and this trace is a framework-shaped
+        ;; observation record (epoch / Xray / MCP / log egress). Redact the
+        ;; query/fragment carrier VALUES (keep the path) before the trace
+        ;; crosses the egress boundary. The DURABLE pending-nav slot below
+        ;; keeps the raw `:requested-url` — `continue-handler` re-dispatches
+        ;; it to resume the navigation — and its off-box epoch egress is
+        ;; already fail-closed by the redact-whole-runtime-db default
+        ;; (EP-0001 ruling #14); only this trace slot needed projection.
         (trace/emit! :rf.event :rf.route/navigation-blocked
-                     (cond-> {:requested-url   requested-url
-                              :rejecting-route (:route-id current-route)
-                              :rejecting-guard guard-id}
-                       frame-id (assoc :frame frame-id)))
+                     (egress/redact-url-tag
+                       (cond-> {:requested-url   requested-url
+                                :rejecting-route (:route-id current-route)
+                                :rejecting-guard guard-id}
+                         frame-id (assoc :frame frame-id))
+                       :requested-url))
         ;; Per Spec 012 §Navigation blocking §Default flow step 4d and the
         ;; Events table: `:rf.route/navigation-blocked` is a USER event the
         ;; runtime dispatches when a `:can-leave` guard rejects — apps may

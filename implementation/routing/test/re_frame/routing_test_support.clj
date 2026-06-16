@@ -92,11 +92,29 @@
   `snapshot-schema-fns` / `restore-schema-fns!` pair (rf2-l4ljvr) rather
   than reaching the raw `validator-fn` / `explainer-fn` atoms — the
   snapshot also preserves the printer, so the cleanup restores the full
-  prior bundle."
+  prior bundle.
+
+  rf2-ps05ug: the stub is process-global, so while it is installed EVERY
+  schema-validating boundary uses it — including the routing recordable
+  allocation cofx, whose `:schema` is now a real Malli VECTOR
+  (`[:map [:token :string] [:counter :int]]`). A Malli vector is not a
+  callable predicate (and although a vector IS `ifn?` — it implements IFn
+  for index lookup — calling it as `(schema value)` throws for a
+  non-integer `value`), so a naive call would throw and the fail-closed
+  `validate-with-registered-fn` would coerce that to a FALSE, spuriously
+  rejecting the well-formed generated nav-allocation during an unrelated
+  param-validation test. The stub therefore only adjudicates ACTUAL fn
+  schemas (`fn?` — the predicate schemas these tests install) and PASSES
+  any other (Malli vector / map) schema. The explainer is symmetric."
   []
   (let [snap     (schemas/snapshot-schema-fns)
-        validate (fn [schema value] (boolean (schema value)))
-        explain  (fn [_schema value] {:reason :stub-explainer :value value})]
+        validate (fn [schema value]
+                   (if (fn? schema)
+                     (boolean (schema value))
+                     true))                          ;; non-predicate (Malli) schema → pass
+        explain  (fn [schema value]
+                   (when (fn? schema)
+                     {:reason :stub-explainer :value value}))]
     (schemas/set-schema-fns! {:validate validate :explain explain})
     (fn [] (schemas/restore-schema-fns! snap))))
 

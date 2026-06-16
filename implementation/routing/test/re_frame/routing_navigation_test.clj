@@ -8,6 +8,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.routing :as routing]
+            [re-frame.routing.egress :as egress]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]
             [re-frame.routing.registry :as registry]))
@@ -722,14 +723,19 @@
       ;; error-projections the DoS cap feeds (spec/012 §Keyword-interning
       ;; cap). Assert the TRACE — not just the slice `:reason` — so the
       ;; telemetry-symmetry gap with url_change regression-trips.
+      ;; EP-0015 (rf2-n1f4rh): the trace's `:url` is now egress-PROJECTED —
+      ;; the query KEYS (the DoS-cap signal the dashboard needs) are preserved
+      ;; while the carrier VALUES are redacted. The slice/push above keep the
+      ;; RAW url (in-process); only this off-box trace slot is scrubbed.
       (is (some (fn [ev]
                   (and (= :rf.warning/malformed-url (:operation ev))
-                       (= url (-> ev :tags :url))
+                       (= (egress/redact-url-carriers url) (-> ev :tags :url))
                        (= :too-many-keys (-> ev :tags :reason))))
                 @traces)
           ":rf.warning/malformed-url trace fires on the navigate fail-closed
-           over-cap path, carrying the requested URL + :reason :too-many-keys
-           — symmetric with the URL-driven path (url_change.cljc:190-193)"))))
+           over-cap path, carrying the egress-projected URL (keys kept, values
+           redacted) + :reason :too-many-keys — symmetric with the URL-driven
+           path (url_change.cljc) and EP-0015-projected (rf2-n1f4rh)"))))
 
 ;; ---- T6: :on-match dispatches AND :transition :loading observable ----
 
