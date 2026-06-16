@@ -4401,17 +4401,21 @@
 (def ^:private orient-registrar-kinds
   "The registrar kinds whose COUNTS the orientation summary reports — the
    closed v1 registrar set (mirrors `handler-meta`'s `registrar-kinds`),
-   including the three resources-artefact kinds (`:resource` / `:mutation` /
-   `:resource-scope`, EP-0016 / rf2-f8s9g6) so a resources-heavy app's
-   orientation summary names its cached-read / write / scope-resolver
+   including `:interceptor` (the registered-interceptor kind — `reg-interceptor`
+   stores a `{:before}` / `{:after}` / `{:factory}` descriptor under it; event/
+   frame `:interceptors` chains carry REFERENCES into this kind, EP-0022) so an
+   app using `reg-interceptor` surfaces its registered-interceptor count on
+   first contact, and the three resources-artefact kinds (`:resource` /
+   `:mutation` / `:resource-scope`, EP-0016 / rf2-f8s9g6) so a resources-heavy
+   app's orientation summary names its cached-read / write / scope-resolver
    counts (zero on an app that uses none — `registrar-count` is defensively
    zero on an empty registrar). `:event` / `:sub` / `:fx` additionally
    surface their full sorted id vectors (the most navigable surfaces for
    'what can I drive / read'); the rest contribute counts only so the
    summary stays compact and under the wire cap. Drill via `list-handlers
    {kind ...}` for the full ids of any kind."
-  [:event :sub :fx :cofx :view :frame :route :flow :head :error-projector
-   :resource :mutation :resource-scope])
+  [:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
+   :error-projector :resource :mutation :resource-scope])
 
 (defn- registrar-count
   "Count of registered ids under `kind`, defensively zero on a registrar
