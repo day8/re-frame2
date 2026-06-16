@@ -1,16 +1,39 @@
 # 026 — Module-view Panel
 
-> The Xray-side consumer contract for EP-0013 app values + runtime realms:
-> the **(realm, frame) address space** of the running process and the
-> **disposition-6 demand-trigger** for per-module descriptor provenance.
+> The Xray-side consumer contract for **two** runtime-structure models, side
+> by side: the EP-0023 **`image -> frame -> event stream`** public model
+> (images as registration-set values, frames as execution contexts,
+> frame-derived resolution as the lookup path), and the retained EP-0013
+> internal substrate (the **(realm, frame) address space** + the
+> **disposition-6 demand-trigger** for per-module descriptor provenance).
 
 Status: **shipped** — rf2-wtg9z4 (address space) + rf2-at0oen (per-module
-provenance). The realm/frame address space renders from public seams, and the
-MODULES section reads real per-module provenance off each realm's installed app
-value via the public `rf/installed-app` read seam (EP-0013 disposition 6,
-PR #4061). A process running entirely on the `reg-*` sugar / load-order path
-carries no constructed app value, so its MODULES section shows the honest
-no-module caption.
+provenance) + **rf2-32siq3.12** (the EP-0023 image/frame model). The realm/frame
+address space renders from public seams, the MODULES section reads real
+per-module provenance off each realm's installed app value via the public
+`rf/installed-app` read seam (EP-0013 disposition 6, PR #4061), and the FRAMES
+section presents each EP-0023 live image-loaded frame as an execution context
+carrying its resolved image (the generation's `[kind id]` descriptors). A
+process running entirely on the `reg-*` sugar / load-order path carries no
+constructed app value, so its MODULES section shows the honest no-module
+caption; a process not using `rf/make-frame` image-loaded frames shows the
+honest no-image caption in the FRAMES section.
+
+## EP-0023 partial supersession (rf2-32siq3.12)
+
+[EP-0023](../../../docs/EP/EP-0023-image-loaded-frames.md) makes the PUBLIC
+architecture `image -> frame -> event stream`, **partially superseding** the
+EP-0013 app/realm surface while RETAINING the realm machinery as the internal
+installation substrate. This tab is the cohesive home for BOTH:
+
+- the EP-0023 PUBLIC model (the FRAMES/IMAGES section, §8) — rendered FIRST,
+  because it is the public model the operator reasons in;
+- the EP-0013 internal substrate (the REALMS + MODULES sections, §3/§4) —
+  retained below as the implementation structure the public model rides on.
+
+The two read DIFFERENT surfaces and are each demand-gated: a process using one
+and not the other renders only the section it has. §8 is the normative contract
+for the EP-0023 model on this tab.
 
 ## §1 Purpose & scope
 
@@ -35,9 +58,18 @@ Xray module-view demands it*. This is that view (see §4).
 
 ## §2 Layout
 
-Two stacked sections (the shared `theme/section` rhythm):
+Three stacked sections (the shared `theme/section` rhythm) — the EP-0023
+public model FIRST (§8), then the retained EP-0013 substrate (§3/§4):
 
 ```
+│ ▼ FRAMES  (N)                                                   │
+│   :counter/main                                                 │
+│     image     12 descriptors · 6 kinds  :docs.counter/v2        │
+│     caps      :rf.capability/http                               │
+│     resolves  this frame resolves (kind id) through its image   │
+│       event :counter/inc    docs.counter.v2                     │
+│       sub   :counter/value  docs.counter.v2                     │
+│ ─────────────────────────────────────────────────────────────  │
 │ ▼ REALMS  (N)                                                   │
 │   :rf.realm/default  · 2 frames                                 │
 │     frames: :app/main  :app/cart                                │
@@ -50,9 +82,11 @@ Two stacked sections (the shared `theme/section` rhythm):
 │     source    shop.cart:12                                      │
 ```
 
-(In a single-realm process the modules list with the realm dimension
-implicit; with more than one realm each realm's modules sit under an uppercase
-realm header — zero-ceremony.)
+The FRAMES section presents the EP-0023 `image -> frame` model (an image as
+its `[kind id]` descriptor set, a frame as the execution context running it);
+see §8. In a single-realm process the modules list renders with the realm
+dimension implicit; with more than one realm each realm's modules sit under an
+uppercase realm header — zero-ceremony.
 
 ## §3 REALMS section — the (realm, frame) address space
 
@@ -200,3 +234,116 @@ Cmd-K palette picks it up automatically (the palette reads
   zero-module-app caption / no-provenance caption via
   `any-provenance?` / `any-modules?`, incl. the explicit `:modules {}`
   constructed app — rf2-e0mq7a).
+
+## §8 FRAMES / IMAGES section — the EP-0023 public model (rf2-32siq3.12)
+
+The EP-0023 `image -> frame -> event stream` public model on this tab. It
+presents the three load-bearing nouns
+([EP-0023 §Specification Summary](../../../docs/EP/EP-0023-image-loaded-frames.md)):
+
+- **image** — the selected registration-set VALUE a frame resolves against.
+  The inspectable, sealed form is the *resolved image generation*: a
+  `{[kind id] descriptor}` resolver plus the union capability requirements and
+  the kinds present. An image is presented AS THAT SET OF `[kind id]`
+  descriptors — *"which registrations are visible to this frame?"*. Each
+  descriptor carries its **provenance**: a source namespace (`:rf.provenance/ns`
+  string), an inline coordinate (`:rf.provenance/image` / `:rf.provenance/inline`),
+  or the framework-standard marker (`:standard true`). An image is data, not
+  state, and not the running object (EP-0023 §Image).
+- **frame** — the live EXECUTION CONTEXT that POINTS AT the ONE resolved image
+  generation it runs (EP-0023 §Frame). Presented as a frame-row: the frame id
+  (or `<anonymous>` for a direct, no-id frame object), the image summary
+  (`N descriptors · K kinds`), the host capability keys, the active-substrate
+  adapter binding presence, and the resolved descriptor set. The frame is
+  *"what has happened in this run?"*; the image is *"what can this frame
+  run?"* (EP-0023 §Two Boundaries).
+- **frame-derived RESOLUTION** — the lookup path
+  `target frame -> resolved image generation -> registration resolution`
+  (EP-0023 §Specification). The SAME `(kind, id)` resolves to DIFFERENT
+  descriptors in frames running different images, because each frame resolves
+  through its own generation. The section makes this visible: every frame-row's
+  descriptor set is *that frame's* resolution, not a global registry.
+
+### §8.1 Xray-beside-the-target as its OWN image (EP-0023 §Xray Beside The Target)
+
+The load-bearing dogfooding the EP names: Xray is itself a running surface with
+registrations, state, views, subscriptions, and effects, and it MUST NOT share
+the target's registration set.
+
+> Xray runs in its own frame. Xray inspects the target frame. That keeps the
+> inspection tool from becoming part of the thing being inspected.
+
+Xray therefore models itself as a **separate image/frame**, NOT as shared
+registration state:
+
+- `image_view_reads/xray-image` constructs Xray's OWN EP-0023 `rf/image` — an
+  inert value selecting Xray's own source namespaces (`:include-ns
+  ["day8.re-frame2-xray.**"]`, under which every `:rf.xray/*` registration is
+  authored and stamped `:rf.provenance/ns`, which survives production elision).
+  It is Xray's instruction set as data.
+- Xray's `:rf.xray/*` registrations do NOT leak INTO a target frame's image:
+  a target frame's image selects the TARGET's own namespaces, not Xray's.
+- A target frame's registrations do NOT leak INTO Xray's image: the two images
+  select disjoint source namespaces, so a frame built from one cannot resolve
+  the other's registrations.
+- Xray reads the target frame's **generation + state as DATA** through the
+  live-read seam (`image_view_reads`), never by sharing the target's
+  registrar. The target remains ordinary data from the tool's point of view.
+
+`image_view_reads/xray-image-isolated-from?` is the registration-disjointness
+predicate (compares the two images' `:include-ns` selectors); the
+`image_view_reads_cljs_test` asserts the isolation against a real target frame
+built via `re-frame.live-frame/make-frame` — the assertion the .29 dogfooding
+review verifies.
+
+### §8.2 Demand-gating & empty state
+
+The EP-0023 sections are demand-gated like the realm dimension. EP-0023's
+public model is OPT-IN over the retained EP-0013 substrate: a process that
+never calls `rf/make-frame` with `:images` has an empty live-frame registry, so
+`project-image-view` reports `:images?` false and the FRAMES section renders
+the calm **no-image caption** (`image_view_helpers/no-images-caption`) naming
+the `rf/image` / `rf/make-frame` remedy — the honest *not-using-images-yet*
+state, not a broken surface. A frame whose generation resolves zero descriptors
+does not flip `:images?` (there is no image content to show).
+
+### §8.3 Data sources & privacy
+
+- `:rf.xray/image-view` — the FRAMES/IMAGES composite; reads the EP-0023
+  live-frame registry (`re-frame.live-frame/live-frames`) + each frame's sealed
+  generation (`re-frame.image-assembly/resolve-descriptor`) at recompute time
+  via the fail-soft `image_view_reads` seam, and projects via the pure
+  `image_view_helpers/project-image-view`. **Read-only** — enumerating live
+  frames and reading sealed generations pins nothing and dispatches nothing (a
+  sealed generation is an immutable VALUE, not a routing path).
+- The surface carries frame/image **ids and structural descriptors** — frame
+  ids, image ids, `[kind id]` pairs, provenance namespace strings / inline
+  coordinates, and capability keywords. These are **structural descriptors**,
+  not app-db values. No handler values or app-db data egress through this
+  surface (frame STATE — app-db / runtime-db — is the App-db tab's concern; this
+  tab shows the IMAGE, the instruction set).
+
+### §8.4 Implementation & tests
+
+- `panels/image_view_helpers.cljc` — the pure `data → data` projection
+  (`descriptor-provenance` · `project-generation` · `project-frame-row` ·
+  `project-frames` · `resolve-in-frame` · `project-image-view` ·
+  `provenance-summary` · `image-row-summary` · `no-images-caption`);
+  JVM-testable.
+- `panels/image_view_reads.cljs` — the fail-soft live read seam (`live-frames`
+  · `resolve-descriptor` · `image-view-data`) over the EP-0023 core surfaces
+  (`re-frame.live-frame` / `re-frame.image` / `re-frame.image-assembly`), PLUS
+  the Xray-as-its-own-image constructor (`xray-image` · `xray-image-id` ·
+  `xray-source-glob` · `xray-image-isolated-from?`). Xray may require these core
+  namespaces directly — bundle isolation forbids `implementation/` requiring
+  from `tools/`, not the reverse, the same pattern Xray uses for
+  `re-frame.frame` / `re-frame.registrar`.
+- `panels/module_view.cljs` — extended with the FRAMES section (`frame-row` ·
+  `descriptor-rows` · `frames-section-body`) + the `:rf.xray/image-view` sub.
+- Tests: `panels/image_view_helpers_cljs_test.cljc` (the generation/image
+  projection, the frame-row shape, the frame-derived resolution — same id /
+  different image → different descriptor, the demand-gated `:images?`
+  decision, the display strings) + `panels/image_view_reads_cljs_test.cljs`
+  (the Xray-as-its-own-image isolation against a real target frame, the
+  fail-soft live-read seam end-to-end, frame-derived resolution through a real
+  generation).

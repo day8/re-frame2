@@ -1,16 +1,44 @@
 (ns day8.re-frame2-xray.panels.module-view
   "Module-view tab — the EP-0013 disposition-6 demand-trigger surface
-  (rf2-wtg9z4).
+  (rf2-wtg9z4) PLUS the EP-0023 `image -> frame` public model (rf2-32siq3.12).
 
   ## What this tab shows
 
+  TWO models, side by side — the cohesive home for runtime-structure
+  inspection (per Mike's 'cohesive sub-domains get their own tab' ruling). It
+  is a BROWSE surface (Static-style — registry-wide, not event-coupled).
+
+  ### EP-0013 substrate (retained internally)
+
   The (realm, frame) ADDRESS SPACE of the running process (EP-0013
-  disposition 3): every installed runtime realm, and the frames each
-  realm holds. It is a BROWSE surface (Static-style — registry-wide, not
-  event-coupled), the cohesive home for app-value / realm / module
-  inspection (per Mike's 'cohesive sub-domains get their own tab' ruling —
-  realm/module structure earns its own L4 tab rather than piling into
-  App-db).
+  disposition 3): every installed runtime realm, and the frames each realm
+  holds, plus the per-module ownership / capability / descriptor provenance.
+
+  ### EP-0023 public model (rf2-32siq3.12)
+
+  EP-0023 makes the PUBLIC architecture `image -> frame -> event stream`,
+  partially superseding the EP-0013 app/realm surface while RETAINING the
+  realm machinery as the internal substrate above. This tab surfaces the
+  public nouns:
+
+    - **IMAGES** — an image presented as a registration-set VALUE: the
+      resolved generation's `[kind id]` descriptors (\"which registrations are
+      visible to this frame?\"), with each descriptor's provenance (source
+      namespace / inline / framework standard).
+    - **FRAMES** — a frame presented as an EXECUTION CONTEXT that points at
+      the ONE resolved image generation it runs.
+    - **frame-derived RESOLUTION** — the lookup path `target frame -> resolved
+      image generation -> registration resolution`: what a given frame
+      resolves a `(kind, id)` to, via its generation. The same id resolves to
+      DIFFERENT descriptors in frames running different images.
+
+  Xray itself runs in its OWN image/frame and inspects the target frame as
+  DATA (EP-0023 §Xray Beside The Target) — `image_view_reads/xray-image` is
+  Xray's separate registration set; the inspector never shares the target's.
+
+  The EP-0023 sections are DEMAND-GATED (like the realm dimension): a process
+  not using `rf/make-frame` image-loaded frames renders the calm no-image
+  caption — the honest not-using-images state.
 
       │ REALMS                                                          │
       │   :rf.realm/default  · 2 frames                                 │
@@ -66,6 +94,8 @@
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.module-view-helpers :as h]
+            [day8.re-frame2-xray.panels.image-view-helpers :as ih]
+            [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
             [day8.re-frame2-xray.theme.section :as section]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -134,6 +164,31 @@
    :letter-spacing "0.4px"
    :text-transform "uppercase"
    :padding        "6px 0 2px 0"})
+
+(def ^:private frame-id-style
+  {:color       (:accent tokens)
+   :font-weight 600
+   :font-family mono-stack
+   :font-size   "12px"
+   :padding     "4px 0 1px 0"})
+
+(def ^:private frame-fact-style
+  {:color       (:text-secondary tokens)
+   :font-family mono-stack
+   :font-size   "11px"
+   :padding     "0 0 0 18px"})
+
+(def ^:private frame-fact-label-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private descriptor-row-style
+  {:color       (:text-secondary tokens)
+   :font-family mono-stack
+   :font-size   "11px"
+   :padding     "0 0 0 36px"})
+
+(def ^:private descriptor-prov-style
+  {:color (:text-tertiary tokens)})
 
 ;; ---- module row ----------------------------------------------------------
 
@@ -206,6 +261,74 @@
               :style       realm-frames-style}
         (str "frames: " (str/join "  " (map str frames)))])]))
 
+;; ---- EP-0023 image/frame row (rf2-32siq3.12) -----------------------------
+
+(defn- descriptor-rows
+  "Render a frame's resolved image as its `[kind id]` descriptor list —
+  the image presented as a registration-set VALUE (EP-0023 §Image). Each row
+  is `kind/id   <provenance>`. Capped to keep the browse calm; the count line
+  carries the full total. Pure hiccup."
+  [{:keys [descriptors descriptor-count] :as _image}]
+  (let [shown (take 24 descriptors)]
+    (into [:div]
+          (concat
+            (for [{:keys [kind id provenance]} shown]
+              [:div {:style descriptor-row-style}
+               (str kind " " id)
+               " "
+               [:span {:style descriptor-prov-style}
+                (ih/provenance-summary provenance)]])
+            (when (> descriptor-count (count shown))
+              [[:div {:style descriptor-prov-style}
+                (str "… " (- descriptor-count (count shown)) " more")]])))))
+
+(defn- frame-row
+  "Render one live frame as an EXECUTION CONTEXT pointing at its resolved
+  image generation (EP-0023 §Frame). Shows the frame id, the image summary (N
+  descriptors · K kinds), capability requirements, and the resolved `[kind
+  id]` descriptor set (the image as a value). Pure hiccup."
+  [{:keys [frame-id image capabilities has-adapter?] :as _frame-row}]
+  (let [fid-name (if frame-id (str frame-id) "<anonymous>")]
+    [:div {:data-testid (str "rf-xray-module-view-frame-" fid-name)}
+     [:div {:data-testid (str "rf-xray-module-view-frame-" fid-name "-id")
+            :style       frame-id-style}
+      fid-name]
+     [:div {:style frame-fact-style}
+      [:span {:style frame-fact-label-style} "image     "]
+      (ih/image-row-summary image)
+      ;; Name the composed image ids when present (an anonymous image carries
+      ;; no `:rf.image/id` → a nil entry; drop it rather than print "nil").
+      (when-let [named (seq (remove nil? (:images image)))]
+        (str "  " (str/join " " (map pr-str named))))]
+     (when (seq capabilities)
+       [:div {:style frame-fact-style}
+        [:span {:style frame-fact-label-style} "caps      "]
+        (str/join "  " (sort-by str capabilities))])
+     (when has-adapter?
+       [:div {:style frame-fact-style}
+        [:span {:style frame-fact-label-style} "adapter   "]
+        "active-substrate binding"])
+     [:div {:style frame-fact-style}
+      [:span {:style frame-fact-label-style} "resolves  "]
+      "this frame resolves (kind id) through its image generation"]
+     (descriptor-rows image)]))
+
+(defn- frames-section-body
+  "The FRAMES / IMAGES section body — every live image-loaded frame, each as
+  an execution context carrying its resolved image (its generation's `[kind
+  id]` descriptors). When NO live frame runs a generation, the calm no-image
+  caption (EP-0023's public model is opt-in over the retained substrate).
+  Pure hiccup."
+  [{:keys [frames images?] :as _image-view}]
+  (if images?
+    (into [:div {:data-testid "rf-xray-module-view-frames-list"}]
+          (for [{:keys [frame-id] :as fr} frames]
+            (with-meta (frame-row fr)
+              {:key (str (or frame-id "<anonymous>"))})))
+    [:div {:data-testid "rf-xray-module-view-frames-empty"
+           :style       awaiting-caption-style}
+     ih/no-images-caption]))
+
 ;; ---- public view ---------------------------------------------------------
 
 (defn- modules-section-body
@@ -268,11 +391,25 @@
   caption."
   []
   (let [{:keys [realms multi-realm?] :as _data}
-        @(rf/subscribe [:rf.xray/module-view])]
+        @(rf/subscribe [:rf.xray/module-view])
+        {:keys [frame-count] :as image-view}
+        @(rf/subscribe [:rf.xray/image-view])]
     [:section {:data-testid "rf-xray-module-view"
                :style       panel-root-style}
      [:div {:style panel-scroll-container-style}
-      ;; REALMS — the installed realms and each realm's frames.
+      ;; FRAMES / IMAGES — the EP-0023 PUBLIC model: every live image-loaded
+      ;; frame as an execution context carrying its resolved image (the
+      ;; generation's [kind id] descriptors), plus the frame-derived
+      ;; resolution path. Rendered FIRST — EP-0023 is the public model; the
+      ;; EP-0013 realm/module sections below are the retained internal
+      ;; substrate (rf2-32siq3.12).
+      (section/section-row
+        {:label  "Frames"
+         :testid "rf-xray-module-view-frames"
+         :count* frame-count}
+        (frames-section-body image-view))
+      ;; REALMS — the installed realms and each realm's frames (EP-0013
+      ;; substrate, retained internally).
       (section/section-row
         {:label  "Realms"
          :testid "rf-xray-module-view-realms"
@@ -319,6 +456,26 @@
                              (rf/frame-ids)
                              frame/frame-realm
                              rf/installed-app)))
+
+  ;; `:rf.xray/image-view` — the EP-0023 PUBLIC `image -> frame` model
+  ;; (rf2-32siq3.12). Reads the EP-0023 live-frame registry + sealed image
+  ;; generations via the fail-soft `image-view-reads` seam and projects via
+  ;; the pure `image-view-helpers/project-image-view`: every live
+  ;; image-loaded frame as an execution context carrying its resolved image
+  ;; (the generation's [kind id] descriptors). Read-only — enumerating live
+  ;; frames + reading sealed generations pins nothing and dispatches nothing
+  ;; (a sealed generation is an immutable VALUE, not a routing path). Like
+  ;; `:rf.xray/module-view` it does NOT compose off an `:rf.xray/*` app-db
+  ;; slot: the live-frame registry is a process-global fact (it lives in
+  ;; `re-frame.live-frame`, not Xray's app-db); the sub reads it directly at
+  ;; recompute time and a tab activation re-renders the panel which
+  ;; re-derefs. Xray inspects the target frame as DATA here; Xray's OWN
+  ;; image (`image-view-reads/xray-image`) is a separate registration set
+  ;; that never mixes with a target frame's image (EP-0023 §Xray Beside The
+  ;; Target).
+  (rf/reg-sub :rf.xray/image-view
+    (fn [_db _query]
+      (image-reads/image-view-data)))
 
   ;; Register the Dynamic Module-view tab with the internal L4 tab
   ;; registry. Order 9 — after the Derivation-Graph (order 8), keeping the
