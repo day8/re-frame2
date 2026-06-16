@@ -416,6 +416,10 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-ma0wvq"
     :description "Spawned-actor ownership resolver `(fn [frame-id event-id]) -> actor-id|nil` (Spec 014 §Abort on actor destroy). Returns the spawned actor's address that owns `event-id` — i.e. `event-id` itself when it is registered in the frame's runtime-db spawn registry (`re-frame.machines.paths/spawned-path`) — else nil. The INVERSION of the old http→machines coupling (rf2-ma0wvq): the machines artefact OWNS the `:spawned` registry shape, so the structural membership walk lives next to it; re-frame.http-registry consults this hook (instead of re-stating the path + walking it itself) to decide whether a managed request belongs to a spawned actor, and falls back to nil when the machines artefact is absent. Step-1 set semantics = registry membership (declarative `:spawn` / `:spawn-all` only), set-identical to the pre-inversion walk; a separate step-2 bead widens it to imperative spawns under its own destroy-cancellation test."}
+   {:key         :machines/project-ssr-runtime-db
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-jm2u63"
+    :description "SSR hydration projector for the durable `:rf.runtime/machines` slice `(fn [runtime-db frame-id]) -> machines-slice`. `re-frame.ssr.payload-policy/project-runtime-db` consults it so each machine snapshot's `:data` is redacted/elided per the owning machine's `:data-schema` `:sensitive?` / `:large?` classification under `:rf.egress/ssr-hydration` (the same `marks/marks-for :event <actor-id>` marks the trace-egress chokepoint uses, via `marks/redact-with-paths` then `project-egress`) BEFORE it rides the hydration wire — closing the raw-classified-machine-data hydration leak (EP-0015 §6/§8). Mirrors the resources `:ssr/extend-runtime-db-projection` model; absent the machines artefact the slice rides unchanged."}
 
    ;; ---- re-frame.routing (rf2-k682) -----------------------------------------
    {:key         :routing/reg-route
