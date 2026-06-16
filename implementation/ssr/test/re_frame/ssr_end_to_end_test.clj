@@ -168,8 +168,23 @@
           ;; ---- (6) hydration on a separate "client" frame ---------------
           (let [client-frame (rf/make-frame
                                {:doc      "Hydrated client frame"
-                                :platform :client})]
-            (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+                                :platform :client})
+                ;; rf2-nv3mua: in a real SSR deployment the server and client
+                ;; carry the SAME logical frame id (e.g. `:app/main`) — the
+                ;; payload's `:rf/frame-id` is validated against the client
+                ;; hydration target and a present-and-different value is now
+                ;; (correctly) rejected as `:rf.error/hydration-frame-id-
+                ;; mismatch`. This JVM lifecycle uses two distinct synthetic
+                ;; frame instances (one `:server`, one `:client`) to exercise
+                ;; both platforms in one process; re-stamp the payload's
+                ;; `:rf/frame-id` to the client target so the wire stamp
+                ;; matches the frame it hydrates into (the deployment-shape
+                ;; invariant), exactly as `build-server-payload`-under-the-
+                ;; client-frame does in the boot helper tests. The payload-
+                ;; SHAPE assertions above (lines 159-166) still pin the
+                ;; server stamp on the as-built payload.
+                hydrate-payload (assoc payload :rf/frame-id client-frame)]
+            (rf/dispatch-sync [:rf/hydrate hydrate-payload] {:frame client-frame})
             (let [client-db (rf/app-db-value client-frame)
                   ;; EP-0001 (rf2-vzld77): the hydration metadata is durable
                   ;; runtime-db state.
