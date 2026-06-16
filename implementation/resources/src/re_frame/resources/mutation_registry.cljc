@@ -21,6 +21,7 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.classification :as classification]
+            [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]))
 
@@ -141,6 +142,30 @@
                 :invalidate-timing timing
                 :has-optimistic?   (contains? spec :optimistic)
                 :has-optimistic-tags? (contains? spec :optimistic-tags)}))))
+  ;; EP-0019 Decision 3 — `:on-conflict` is a CLOSED two-value enum
+  ;; (`:invalidate` default | `:force`). It is OPTIONAL (nil defaults to
+  ;; `:invalidate` at settle time), but a non-nil value outside the enum is a
+  ;; typo (e.g. `:invlaidate`, or a mistyped `:force`) that would register
+  ;; cleanly and then SILENTLY fall back to the default `:invalidate` rollback
+  ;; rule at settle time — masking the author's intent (a mistyped `:force`
+  ;; would then NOT clobber a concurrent write as the author expected). Reject
+  ;; it loudly at the authoring boundary. Per Spec 016 §Optimistic settle.
+  (let [oc (:on-conflict spec)]
+    (when (and (some? oc) (not (contains? mstate/on-conflict-policies oc)))
+      (throw (registration-error
+               :rf.error/invalid-mutation-spec
+               'rf/reg-mutation
+               (str "mutation " mutation-id " declares an :on-conflict of "
+                    (pr-str oc) " outside the closed enum "
+                    (pr-str (sort mstate/on-conflict-policies)) ". A typo "
+                    "(e.g. :invlaidate, or a mistyped :force) would register "
+                    "cleanly and then silently fall back to the default "
+                    ":invalidate rollback rule at settle time, masking the "
+                    "author's intent. Per Spec 016 §Optimistic settle / "
+                    "EP-0019 Decision 3.")
+               {:mutation-id mutation-id
+                :on-conflict oc
+                :valid       mstate/on-conflict-policies}))))
   nil)
 
 ;; ---- reg-mutation / clear-mutation ---------------------------------------

@@ -62,6 +62,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
             [re-frame.resources.classification :as classification]
+            [re-frame.resources.mutation-registry :as mutation-registry]
             [re-frame.resources.mutation-runtime :as mutation-runtime]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
@@ -1051,10 +1052,23 @@
   structural impossibility. Already-terminal (`:success` / `:error`) instances
   ride through unchanged (a settled write's durable outcome is real).
 
-  Returns `[runtime-db' dangled-instance-ids]`. No-op (returns `[runtime-db
-  []]`) when the snapshot carries no mutation instances (a mutation-free
-  restore). PURE w.r.t. the host side table (the work-ledger host handles are
-  cleared separately — the mutation's work-ledger row is dangled by
+  EP-0019 Q3 GUARD — a dangled OPTIMISTIC write also ROLLS BACK its recorded
+  apply (the entry shows the optimistic value with no in-flight write to confirm
+  it — an accepted-error-shaped terminal). The rollback runs INSIDE this same
+  pure pass (`mutation-runtime/dangle-rollback-optimistic`), NOT as a second
+  post-restore dispatched event that could RACE a fresh load: an UNMOVED
+  `:revision` restores the recorded `:before` verbatim; a CONFLICT (the entry's
+  revision moved) marks the entry durably STALE in place (the read path refetches
+  on the next live-owner ensure — no dispatch, no race), unless `:on-conflict
+  :force` restores the inverse anyway. The mutation `:on-conflict` policy is read
+  off the process-global mutation registry (registration state survives the
+  restore). `settled-at` (the restore's causal time) stamps both the dangled
+  instance `:settled-at` and the durable stale `:invalidated-at` on a conflict.
+
+  Returns `[runtime-db' dangled-instance-ids rolled-back-keys]`. No-op (returns
+  `[runtime-db [] []]`) when the snapshot carries no mutation instances (a
+  mutation-free restore). PURE w.r.t. the host side table (the work-ledger host
+  handles are cleared separately — the mutation's work-ledger row is dangled by
   `dangle-non-terminal-work!`, work-kind `:mutation`)."
   [runtime-db settled-at]
   (let [instances (get-in runtime-db (mutation-runtime/instances-path))
@@ -1063,12 +1077,26 @@
                               (map key))
                         instances)]
     (if (empty? pending)
-      [runtime-db []]
-      [(reduce (fn [rdb instance-id]
-                 (update-in rdb (mutation-runtime/instance-path instance-id)
-                            mutation-runtime/instance-dangled settled-at))
-               runtime-db pending)
-       pending])))
+      [runtime-db [] []]
+      (let [[rdb' rolled-keys]
+            (reduce
+              (fn [[rdb rk] instance-id]
+                (let [inst (get-in rdb (mutation-runtime/instance-path instance-id))
+                      ;; EP-0019 Q3 — roll back the recorded optimistic apply
+                      ;; (conflict-aware, INSIDE the pass) BEFORE settling the
+                      ;; instance terminal, so the restored cache shows truth (the
+                      ;; restored `:before`, or a durable-stale entry the read path
+                      ;; refetches), never a dangling optimistic value with no
+                      ;; in-flight write to confirm it.
+                      spec (mutation-registry/mutation-meta (:mutation/id inst))
+                      [rdb2 keys2] (mutation-runtime/dangle-rollback-optimistic
+                                     rdb inst spec settled-at)]
+                  [(update-in rdb2 (mutation-runtime/instance-path instance-id)
+                              mutation-runtime/instance-dangled settled-at)
+                   (into rk keys2)]))
+              [runtime-db []]
+              pending)]
+        [rdb' pending rolled-keys]))))
 
 (defn clear-host-transients-on-restore!
   "Clear the restored `frame-id`'s HOST-SIDE transient resource caches that the
@@ -1295,7 +1323,17 @@
              ;; carry no real restore epoch), keeping the unit harness's existing
              ;; behaviour intact.
              settled-at (or restore-time-ms clock-ms)
-             [rdb''' dangled-mutations] (dangle-pending-mutations! rdb'' settled-at)
+             ;; EP-0019 Q3 — the dangle ALSO rolls back any recorded optimistic
+             ;; apply INSIDE this pass (`rolled-mutation-keys` are the keys the
+             ;; rollback restored / durably-staled). A restore-before may have
+             ;; re-created / dropped entries + tags, so recompute the reverse
+             ;; indexes once more AFTER the dangle when the rollback touched the
+             ;; cache (otherwise the earlier `subtree'` recompute is current).
+             [rdb-dangled dangled-mutations rolled-mutation-keys]
+             (dangle-pending-mutations! rdb'' settled-at)
+             rdb''' (if (seq rolled-mutation-keys)
+                      (update rdb-dangled state/resources-key state/recompute-indexes)
+                      rdb-dangled)
              ;; rf2-obi8rr — compute the restore-reconcile trace rows as INTENTS
              ;; (plain `{:level :op :tags}` data). They are emitted inline below
              ;; for the direct (unit-test) path, or deferred onto the returned
@@ -1309,6 +1347,9 @@
                                  :orphaned-owners   (vec (:orphaned reconciled))
                                  :dangled-work      (vec dangled)
                                  :dangled-mutations (vec dangled-mutations)
+                                 ;; EP-0019 Q3 — the optimistic keys a dangled
+                                 ;; optimistic write rolled back INSIDE this pass.
+                                 :rolled-back-mutation-keys (vec rolled-mutation-keys)
                                  :clock-skews       (:skews reconciled)}}]
                        cat
                        [;; per-owner row for every STALE-NAV route owner released
