@@ -54,9 +54,9 @@ The full inventory is in [10 — Testing](../api/10-testing.md), and the working
 
 A **realm** is the container your registrations live in — the registrar, the adapter selection, the capability map, the frame registry (a frame is an isolated instance of your app's state and loop). A single-realm app never names one, because no realm means the default realm, by rule. The public constructors — `rf/realm`, `rf/module`, `rf/app`, `rf/install!`, `rf/reinstall!`, `rf/dispose-realm!` — plus the realm-targeted registrar queries ship from `re-frame.core` today. A constructed realm isolates installation and queries: its own registrar and capability map make it the natural unit for hermetic tests and multi-program inspection.
 
-!!! note "What a realm can't do yet"
+!!! note "Targeting a non-default realm"
 
-    Live dispatch through a non-default realm is a future slice. For now, dispatch (sending an event into the loop) and subscribe (reading a derived value) still resolve through the default realm. So treat a constructed realm as an isolated registrar-and-capability container, not yet a second running program. The contract rows are in [spec/API.md §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013); the model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md).
+    Live dispatch through a non-default realm is supported via the `:realm` dispatch option: dispatch (sending an event into the loop) and subscribe (reading a derived value) resolve against the named realm's own registrar, so a constructed realm is a fully running program — not just an isolated registrar-and-capability container. Omit `:realm` and resolution still routes through the default realm, by the absence-is-default rule. The contract rows are in [spec/API.md §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013); the model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md).
 
 ## The worked examples
 
