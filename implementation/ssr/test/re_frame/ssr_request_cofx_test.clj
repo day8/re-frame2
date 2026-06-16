@@ -2,9 +2,11 @@
   "Coverage for the :rf.server/request cofx + per-frame request slot
   (rf2-e825b). Per Spec 011 §Server-only `reg-cofx` for request context.
 
-  The cofx surfaces the active HTTP request map to event handlers so
-  setup events can read URL, headers, session cookies, etc. without
-  threading the request through as an event arg. Mechanism:
+  The cofx surfaces the active HTTP request map to event handlers as an
+  AMBIENT, host-transient read — for NON-DURABLE request reads (branching on
+  `:request-method`, reading a header for a non-durable decision). Durable
+  request-derived facts use the recordable boundary pattern instead, covered
+  by `re-frame.ssr-request-durable-fact-test` (rf2-aqwvhh). Mechanism:
 
     1. The host adapter (rf2-ny6v7 ships the Ring adapter) populates
        the per-frame request slot via `re-frame.ssr/set-request!`

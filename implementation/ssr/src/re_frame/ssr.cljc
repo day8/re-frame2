@@ -385,19 +385,50 @@ under rf2-ny6v7's Ring adapter; host-defined for other adapters) so handlers
 can read URL, headers, session cookies, etc. without threading the request as
 an event arg.
 
+GRADE — AMBIENT, host-transient read. This cofx is for NON-DURABLE request
+reads: branching on `:request-method`, reading a header for a decision that
+does NOT fold into durable app-db / runtime-db. EP-0017 §1: the ambient grade
+is legal only where NO durable write depends on the value — its supplier
+re-runs on replay, so it never re-presents the value a recorded run actually
+saw (and after per-request frame teardown it reads nil). A handler that folds a
+request-derived fact into the hydration payload (durable app-db) through THIS
+cofx is the SSR analogue of the ambient-localStorage replay hole (rf2-aqwvhh /
+the rf2-16ck78 family).
+
+DURABLE request-derived facts — the boundary pattern (rf2-aqwvhh). When a setup
+handler writes durable state from the request (auth user / session state read
+from a cookie, an `accept-language` folded into a locale slice, …), the host
+adapter SANITIZES the request at the boundary and supplies the derived fact as
+a recordable leaf, so it lands on the causal token and replay re-presents it
+verbatim. Two slice-A-legal shapes, both replayable:
+
+  - EVENT PAYLOAD — the host dispatches the setup event WITH the derived fact:
+    `[:auth/server-init {:user (extract-user request)}]`. The fact rides
+    `:event`, recorded as part of the dispatch.
+  - PROVIDED recordable `:rf.cofx` LEAF — register an app-owned
+    `{:recordable? true :provided? true}` cofx (e.g. `:auth.session/user`) and
+    the host adapter STAMPS the sanitized value onto the boot dispatch token
+    (`{:rf.cofx {:auth.session/user …}}`). The handler declares
+    `:rf.cofx/requires [:auth.session/user]`; a record missing it fails LOUDLY
+    with `:rf.error/missing-required-cofx` rather than silently re-reading the
+    host. NEVER stamp the whole request map onto the token — it carries
+    secrets / PII and is a host handle (Spec 011 §Request storage substrate);
+    stamp only the sanitized derived projection.
+
 The host adapter populates the per-frame slot via `re-frame.ssr/set-request!`
 once per request before the drain begins. A server-side event handler consumes
-it by declaring `{:rf.cofx/requires [:rf.server/request]}` on its registration
-and reading the value FLAT under `:rf.server/request`. The supplier runs at
-context assembly, reading the active frame's slot; it is never recorded, and
-replay re-runs it.
+the AMBIENT read by declaring `{:rf.cofx/requires [:rf.server/request]}` on its
+registration and reading the value FLAT under `:rf.server/request`. The supplier
+runs at context assembly, reading the active frame's slot; it is never recorded,
+and replay re-runs it.
 
 Tests and conformance harnesses that drive the drain without a host adapter
 `re-frame.ssr/set-request!` the target frame's slot before dispatching (the
 visible seam — there is no `inject-cofx` value override anymore: `inject-cofx`
 is removed in EP-0017).
 
-Per Spec 011 §Server-only `reg-cofx` for request context."
+Per Spec 011 §Server-only `reg-cofx` for request context + §Durable
+request-derived facts."
    :platforms #{:server}}
   request/request-cofx)
 

@@ -5,9 +5,28 @@
 
   The `:rf.server/request` cofx surfaces the active HTTP request map to
   event handlers that declare `:rf.cofx/requires [:rf.server/request]`
-  (EP-0017 — `inject-cofx` is removed). Use cases: reading the URL inside
-  `:rf/server-init`, pulling a session cookie in `:auth/check-session`,
-  branching on `:request-method`, etc.
+  (EP-0017 — `inject-cofx` is removed). It is an AMBIENT, host-transient
+  read — legal for NON-DURABLE request reads (branching on
+  `:request-method`, reading a header for a decision that does not fold
+  into durable app-db / runtime-db).
+
+  DURABLE request-derived facts use the boundary pattern, NOT this ambient
+  read (rf2-aqwvhh). EP-0017 §1: an ambient supplier re-runs on replay, so a
+  durable write that folds a value read through `:rf.server/request` (an auth
+  user / session state folded into the hydration payload) is a replay hole —
+  replay re-runs the live supplier instead of re-presenting the value the
+  recorded run saw (and reads nil after per-request frame teardown). When a
+  setup handler writes durable state from the request, the host adapter
+  SANITIZES the request and supplies the derived fact as a recordable leaf so
+  it lands on the causal token: either as EVENT PAYLOAD
+  (`[:auth/server-init {:user (extract-user request)}]`) or as a PROVIDED
+  recordable `:rf.cofx` leaf (an app-owned
+  `{:recordable? true :provided? true}` cofx the host stamps onto the boot
+  token; a record missing it fails loudly with
+  `:rf.error/missing-required-cofx`). The whole request map NEVER rides the
+  token — only the sanitized projection (Spec 011 §Request storage
+  substrate). See `re-frame.ssr`'s `:rf.server/request` registration doc for
+  the full pattern.
 
   The mechanism is a per-frame slot — NOT a single dynamic var — so two
   simultaneous per-request frames (the common SSR shape under concurrent
@@ -168,8 +187,13 @@
 
   The request is HOST-CONTROLLED INPUT (a read of the active host wire-shape),
   delivered to handlers that declare `:rf.cofx/requires [:rf.server/request]`
-  and never recorded — replay re-runs it. Tests / conformance harnesses that
-  drive the drain without a host adapter `set-request!` the slot for the
-  target frame first (the visible seam), exactly as before."
+  and never recorded — replay re-runs it (and reads nil after the per-request
+  frame's slot is cleared). Because the read is unrecorded, this AMBIENT cofx
+  is for NON-DURABLE request reads only; a durable request-derived fact uses
+  the recordable boundary pattern (event payload or a provided recordable
+  `:rf.cofx` leaf the host stamps after sanitizing the request — rf2-aqwvhh).
+  Tests / conformance harnesses that drive the drain without a host adapter
+  `set-request!` the slot for the target frame first (the visible seam),
+  exactly as before."
   []
   (get-request frame/*current-frame*))
