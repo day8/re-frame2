@@ -36,16 +36,26 @@
             [re-frame.image        :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.source-store :as source-store]
-            [re-frame.live-frame   :as lf]))
+            [re-frame.live-frame   :as lf]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — clear the EP-0023 process-state atoms (the live-frame registry and
 ;; the framework-standard registry) per case. Does NOT touch the shared
 ;; registrar (slice .9 note); the source-store reprojection test snapshots +
 ;; restores the source store itself, locally.
+;;
+;; EP-0023 collapse slice 1 (rf2-32siq3.32): `make-frame` now creates a RUNNABLE
+;; backing record (app-db / queue / sub-cache) via `reg-frame`, which needs a
+;; substrate adapter — so the plain-atom adapter is installed (and the registrar
+;; snapshot/restored) via `make-reset-runtime-fixture`. These cases still assert
+;; the reload/diff/reproject contract; the backing record is an allocation side
+;; effect they do not otherwise inspect.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
     (lf/clear-live-frames!)
     (asm/clear-standards!)
