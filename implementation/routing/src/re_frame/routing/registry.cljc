@@ -563,6 +563,35 @@
 
     :else v))
 
+(defn- enum-keyword-token
+  "The INVERSE of the `[:rf.route/enum-keyword #{names}]` decode in
+  `coerce-by-type-form` (rf2-dcmkke). Given a slot's normalized
+  coercion `type-form` (from `:rf.route/query-coerce` /
+  `:rf.route/params-coerce`) and a route value `v`, return the URL-token
+  representation `route-url` should emit.
+
+  For a declared keyword-enum slot whose value is a keyword in the
+  allowlist, this is the keyword's NAME (`:asc` -> `\"asc\"`) — the exact
+  token `match-url` decodes back to the canonical enum keyword. Without
+  this, `url/url-encode` would host-`(str :asc)` to `\":asc\"` and emit
+  `%3Aasc`, which `match-url`'s enum decoder does not recognise (it reads
+  only the declared names), so the prism would not round-trip
+  (EP-0012 §Route Prism Laws; Spec 012 §924-936 — `:enum :asc :desc` is
+  represented on the wire as `desc`, decoded to `:desc`).
+
+  Every OTHER case is a passthrough: a non-enum slot, a non-keyword value,
+  or a keyword whose name is not in the allowlist (which `route-url`'s
+  schema validation has already rejected before emission — so the
+  passthrough is only ever reached for the admitted values). `url-encode`
+  then stringifies the admitted scalar as before."
+  [type-form v]
+  (if (and (keyword? v)
+           (vector? type-form)
+           (= :rf.route/enum-keyword (first type-form))
+           (contains? (second type-form) (name v)))
+    (name v)
+    v))
+
 (defn query-key->url-token
   "The REVERSIBLE URL-string token for a declared query keyword `k`
   (rf2-jlufhn). A namespaced keyword keeps its namespace in the token so
@@ -1271,7 +1300,15 @@
                                       (remove (fn [[_ v]] (nil? v))
                                               query-params)))
          route-meta   (registrar/lookup :route route-id)
-         pattern      (:path route-meta)]
+         pattern      (:path route-meta)
+         ;; rf2-dcmkke: the precompiled coercion tables (the SAME tables
+         ;; `match-url` decodes against) let the emission side run the
+         ;; INVERSE of the enum-keyword decode — a declared keyword-enum
+         ;; value emits its token name (`:asc` -> `asc`) so the prism
+         ;; round-trips. Nil-safe: an undeclared route has empty tables and
+         ;; `enum-keyword-token` is a passthrough for every key.
+         params-coerce (:rf.route/params-coerce route-meta)
+         query-coerce  (:rf.route/query-coerce route-meta)]
      (when (nil? pattern)
        (throw (route-error
                 :rf.error/no-such-route
@@ -1401,9 +1438,13 @@
                    (or (= ch \:) (= ch \*))
                    (let [splat?  (= ch \*)
                          [end k] (param-seg-bounds pattern n i)
+                         ;; rf2-dcmkke: map a declared keyword-enum value to
+                         ;; its token name (`:asc` -> `asc`) before encoding
+                         ;; so the path-side enum round-trips through match-url.
                          v       (->> (get path-params k)
                                       (reject-empty-segment k (if splat? "splat" "path"))
-                                      (assert-url-value! route-id :params k))]
+                                      (assert-url-value! route-id :params k)
+                                      (enum-keyword-token (get params-coerce k)))]
                      (recur end (conj parts (encode-param splat? v))))
 
                    :else
@@ -1479,8 +1520,13 @@
                    (or (= ch \:) (= ch \*))
                    (let [splat?  (= ch \*)
                          [end k] (param-seg-bounds pattern n i)
+                         ;; rf2-dcmkke: a declared keyword-enum path param
+                         ;; emits its token name (`:desc` -> `desc`), the
+                         ;; inverse of match-url's enum decode, so it
+                         ;; round-trips rather than emitting `%3Adesc`.
                          v       (->> (require-param k (if splat? "splat" "path"))
-                                      (assert-url-value! route-id :params k))]
+                                      (assert-url-value! route-id :params k)
+                                      (enum-keyword-token (get params-coerce k)))]
                      (recur end (conj parts (encode-param splat? v))))
 
                    :else
@@ -1509,6 +1555,12 @@
            ;; `:account/id` into one `id=` URL key and breaking the EP-0012
            ;; route-prism law. A string key (an undeclared caller-supplied
            ;; query key the route did not name) is emitted verbatim.
+           ;; rf2-dcmkke: a declared keyword-enum query VALUE emits its token
+           ;; name (`:asc` -> `asc`), the inverse of match-url's enum decode,
+           ;; so the value round-trips back to the canonical keyword instead
+           ;; of `(str :asc)` -> `%3Aasc` (which match-url reads as the string
+           ;; `":asc"`). Applies after the key/value CEDN guard; a non-enum
+           ;; value (or a string key the route never declared) is a passthrough.
            qs (when (seq emitted-query)
                 (str "?"
                      (clojure.string/join "&"
@@ -1518,7 +1570,8 @@
                                                      (query-key->url-token k)
                                                      k))
                                    "="
-                                   (url/url-encode v)))
+                                   (url/url-encode (enum-keyword-token
+                                                     (get query-coerce k) v))))
                             emitted-query))))
            ;; Per Spec 012 §Fragments §Programmatic navigation with
            ;; fragments: the 4-arity emits `#fragment` when non-nil and
