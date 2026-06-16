@@ -1023,14 +1023,20 @@
                     :params {:slug "w"} :frame :rf/default}))))))
 
 ;; ===========================================================================
-;; 17b. `resources` introspection rekeys to the public scoped-key vector
-;;      (rf2-jtlq7l) — the internal byte `key-id` must not leak
+;; 17b. `resources` introspection keys `:entries` on the CEDN-1 byte `key-id`
+;;      (rf2-jtlq7l intent, rf2-ka2nkx correction) — callers destructure /
+;;      filter via each entry's kind-preserving `:resource/key` vector
 ;; ===========================================================================
 
-(deftest resources-introspection-rekeys-to-scoped-key-vector
-  (testing "rf2-jtlq7l — `(resources {:frame f})` returns `:entries` keyed by
-            each entry's `:resource/key` VECTOR `[scope resource-id params]`,
-            not the internal CEDN byte `key-id` storage key"
+(deftest resources-introspection-keys-by-byte-key-id
+  (testing "rf2-ka2nkx (supersedes the rf2-jtlq7l vector-rekey): `(resources
+            {:frame f})` returns `:entries` keyed on the CEDN-1 byte `key-id`
+            STRING (the same key the runtime storage / SSR wire / indexes use,
+            which CANNOT collapse CEDN-distinct sequential-params entries); each
+            entry carries its kind-preserving `:resource/key` VECTOR `[scope
+            resource-id params]` for destructure / filter. Rekeying onto the
+            `=`-colliding scoped-key vector (the original rf2-jtlq7l approach)
+            collapsed a list-params and a vector-params entry onto one map key"
     (rf/reg-resource :intro/article (article-spec))
     (let [k1 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "one"})
           k2 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
@@ -1042,34 +1048,70 @@
       (let [{:keys [resource-ids entries]} (re-frame.resources/resources {:frame :rf/default})]
         (testing "the static registry still lists the registered id"
           (is (contains? (set resource-ids) :intro/article)))
-        (testing "entry keys are scoped-key VECTORS, not byte key-id strings"
-          (is (= #{k1 k2} (set (keys entries)))
-              "the public accessor keys by :resource/key vector")
-          (is (every? vector? (keys entries))
-              "every entry key is a [scope resource-id params] vector")
-          (is (not-any? string? (keys entries))
-              "no internal byte key-id (a string) leaks through the accessor")
-          (is (not (contains? entries (state/key-id k1)))
-              "the byte key-id is NOT a public entry key"))
-        (testing "callers can destructure the public key shape + filter by it"
-          (let [[scope rid params] k1]
+        (testing "entry keys are the CEDN-1 byte key-id STRINGS (collapse-proof)"
+          (is (= #{(state/key-id k1) (state/key-id k2)} (set (keys entries)))
+              "the public accessor keys by the byte key-id, matching internal storage")
+          (is (every? string? (keys entries))
+              "every entry key is the byte key-id string")
+          (is (contains? entries (state/key-id k1))
+              "the byte key-id IS the public entry key"))
+        (testing "each entry carries its kind-preserving :resource/key VECTOR for
+                  destructure + scope/resource filtering (the rf2-jtlq7l goal,
+                  served via the entry not the map key)"
+          (is (= #{k1 k2} (set (map :resource/key (vals entries))))
+              "every entry exposes its scoped-key vector")
+          (is (every? vector? (map :resource/key (vals entries)))
+              "every :resource/key is a [scope resource-id params] vector")
+          (let [[scope rid params] (some #(when (= k1 (:resource/key %)) (:resource/key %))
+                                         (vals entries))]
             (is (= :rf.scope/global scope))
             (is (= :intro/article rid))
             (is (= {:slug "one"} params)))
-          ;; Filtering by [scope resource-id] over the vector keys is the
-          ;; documented use the byte key-id blocked.
           (is (= #{k1 k2}
-                 (set (for [[[scope rid params] _e] entries
+                 (set (for [e (vals entries)
+                            :let [[scope rid params] (:resource/key e)]
                             :when (and (= :rf.scope/global scope)
                                        (= :intro/article rid))]
                         [scope rid params])))
               "every entry filters cleanly by scope + resource-id"))
-        (testing "the entry value is carried through unchanged (still byte-keyed
-                  in internal storage)"
-          (is (= :intro/article (-> entries (get k1) :resource/key second)))
+        (testing "the entry value is carried through unchanged (byte-keyed
+                  in internal storage too)"
+          (is (= :intro/article (-> entries (get (state/key-id k1)) :resource/key second)))
           (let [raw (get-in (rf/runtime-db-value :rf/default) (state/entries-path))]
             (is (every? string? (keys raw))
                 "internal runtime storage remains byte-keyed (string key-ids)")))))))
+
+(deftest resources-introspection-keeps-cedn-distinct-scoped-keys-distinct
+  (testing "rf2-ka2nkx ADVERSARIAL: `(resources {:frame f})` preserves ONE
+            returned entry per byte-keyed runtime entry when two entries have
+            CEDN-distinct but Clojure-= scoped-key vectors (vector params vs
+            list params). The former vector-rekey `assoc`'d one entry OVER the
+            other (the `=`-collapse), reporting ONE entry for TWO live ones"
+    (rf/reg-resource :intro/article (article-spec))
+    (let [kv (state/scoped-resource-key :rf.scope/global :intro/article {:xs [1 2 3]})
+          kl (state/scoped-resource-key :rf.scope/global :intro/article {:xs '(1 2 3)})
+          ev (assoc (state/empty-entry :intro/article kv) :status :loaded :data {:v 1})
+          el (assoc (state/empty-entry :intro/article kl) :status :loaded :data {:l 1})]
+      (is (= kv kl) "the scoped-key VECTORS are Clojure-= (the collapse routed around)")
+      (is (not= (state/key-id kv) (state/key-id kl)) "their byte key-ids differ")
+      ;; write both entries the runtime way (byte-keyed paths) — a `{kv .. kl ..}`
+      ;; literal would itself throw `Duplicate key` (kv and kl are Clojure-=).
+      (frame/swap-runtime-db! :rf/default
+        (fn [rdb] (-> (or rdb {})
+                      (assoc-in (state/entry-path kv) ev)
+                      (assoc-in (state/entry-path kl) el))))
+      (let [{:keys [entries]} (re-frame.resources/resources {:frame :rf/default})]
+        (is (= 2 (count entries))
+            "TWO distinct returned entries — no =-collapse onto one map key")
+        (is (= #{(state/key-id kv) (state/key-id kl)} (set (keys entries)))
+            "keyed on the byte key-ids of BOTH entries")
+        (is (= {:v 1} (:data (get entries (state/key-id kv)))) "vector entry intact")
+        (is (= {:l 1} (:data (get entries (state/key-id kl)))) "list entry NOT overwritten")
+        (testing "each entry carries its kind-preserving :resource/key"
+          (is (vector? (-> (get entries (state/key-id kv)) :resource/key (nth 2) :xs))
+              "vector-params entry preserves vector kind on :resource/key")
+          (is (seq? (-> (get entries (state/key-id kl)) :resource/key (nth 2) :xs))
+              "list-params entry preserves list kind on :resource/key"))))))
 
 (deftest resources-introspection-without-frame-returns-empty-entries
   (testing "rf2-jtlq7l — `(resources)` (no frame) still returns

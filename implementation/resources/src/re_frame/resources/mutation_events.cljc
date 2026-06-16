@@ -1286,31 +1286,42 @@
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [instance mutation]}]]
   (let [runtime-db (or rt {})
         instances  (get-in runtime-db (mstate/instances-path))
-        target-ids (cond
-                     (some? instance) (filter #(= % instance) (keys instances))
-                     (some? mutation) (keep (fn [[iid inst]]
-                                              (when (= mutation (:mutation/id inst)) iid))
-                                            instances)
-                     :else            nil)
-        target-ids (vec target-ids)
+        ;; rf2-8iciw8 — the `:rf.runtime/mutations` map is keyed on the CEDN-1
+        ;; byte `key-id`; the storage targets (`dissoc` / `get`) MUST be those
+        ;; byte key-ids, never the raw caller-supplied instance id (which is
+        ;; `=`-coarser than the byte identity for sequential ids). An explicit
+        ;; `:instance` is matched by its OWN byte key-id so a `[:row 7]` clear
+        ;; does NOT also gate a CEDN-distinct `'(:row 7)` row.
+        target-kids (cond
+                      (some? instance) (let [k (mstate/instance-key-id instance)]
+                                         (when (contains? instances k) [k]))
+                      (some? mutation) (keep (fn [[kid inst]]
+                                               (when (= mutation (:mutation/id inst)) kid))
+                                             instances)
+                      :else            nil)
+        target-kids (vec target-kids)
         ;; collect in-flight work ids for the cleared instances (abort + cancel)
         in-flight  (into []
-                         (keep (fn [iid]
-                                 (let [inst (get instances iid)
+                         (keep (fn [kid]
+                                 (let [inst (get instances kid)
                                        wid  (:current-work inst)]
                                    (when wid
                                      [wid (:transport (work-ledger/get-record runtime-db wid))]))))
-                         target-ids)
+                         target-kids)
         rdb'       (-> runtime-db
                        (update-in (mstate/instances-path)
-                                  (fn [m] (reduce dissoc m target-ids)))
+                                  (fn [m] (reduce dissoc m target-kids)))
                        (as-> db (reduce (fn [d [wid _]]
                                           (work-ledger/update-record
                                             d wid work-ledger/mark-terminal
                                             :cancelled {:reason :mutation-clear}))
-                                        db in-flight)))]
+                                        db in-flight)))
+        ;; surface the kind-preserving `:instance/id` values in the trace (the
+        ;; byte key-ids are an opaque storage detail), read off the rows BEFORE
+        ;; they were dissoc'd.
+        cleared-ids (mapv #(:instance/id (get instances %)) target-kids)]
     (trace/emit! :rf.event :rf.mutation/cleared
-                 {:rf.frame/id frame-id :cleared target-ids
+                 {:rf.frame/id frame-id :cleared cleared-ids
                   :aborted (mapv first in-flight)})
     {:rf.db/runtime rdb'
      ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the token the

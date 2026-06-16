@@ -317,9 +317,9 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
 - **Signature**:
   ```clojure
   (resources)            → {:resource-ids [...] :entries {}}
-  (resources {:frame …}) → {:resource-ids [...] :entries {<scoped-key> <entry>}}
+  (resources {:frame …}) → {:resource-ids [...] :entries {<key-id> <entry>}}
   ```
-- **Description**: Resource introspection for a frame target — the static registry (every registered id) plus, with `:frame`, the live per-frame resource-instance entries.
+- **Description**: Resource introspection for a frame target — the static registry (every registered id) plus, with `:frame`, the live per-frame resource-instance entries. The `:entries` map is keyed on the CEDN-1 byte `key-id` string (the same key the runtime storage / SSR wire use; it cannot collapse CEDN-distinct sequential-params entries the way an `=`-keyed scoped-key vector would). Each entry carries its kind-preserving scoped-resource-key `[scope resource-id params]` under `:resource/key` for destructure / scope-and-resource filtering.
 
 ### `mutation-meta`
 

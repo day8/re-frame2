@@ -268,6 +268,54 @@
       (is (= privacy/redacted-sentinel (:frame-secret projected)) "frame mark fired")
       (is (= "ok" (:title projected)) "unclassified sibling rides verbatim"))))
 
+(deftest project-data-elides-owner-data-schema-large-slot
+  (testing "rf2-260yhk: a resource-owned per-slot :data-schema :large? mark
+            (layer (a)) ELIDES its slot to the :rf.size/large-elided marker —
+            NOT riding RAW — REGARDLESS of frame classification (the canonical
+            fine-grained owner surface, firing even frameless; resource cache
+            data does not live at a frame app-db path). The CO-EQUAL counterpart
+            to project-params' large axis, which already did this"
+    (let [big  (apply str (repeat 500 "x"))
+          spec {:data-schema [:map
+                              [:body  {:large? true} :string]
+                              [:title :string]]}
+          projected (classification/project-data
+                      {:body big :title "public"} spec nil :rf.egress/ssr-hydration)]
+      (is (contains? (:body projected) :rf.size/large-elided)
+          "the owner-marked :body slot is elided to the size marker, even frameless")
+      (is (= "public" (:title projected)) "the unmarked sibling rides verbatim")
+      (is (not (str/includes? (pr-str projected) big))
+          "the raw large value does NOT ride on the wire"))))
+
+(deftest project-data-sensitive-wins-over-large-owner-slot
+  (testing "rf2-260yhk: a :data-schema slot marked BOTH :sensitive? and :large?
+            redacts (sensitive wins over large — the shared walker ordering,
+            same as project-params + HTTP body)"
+    (let [spec {:data-schema [:map [:token {:sensitive? true :large? true} :string]]}
+          projected (classification/project-data
+                      {:token (apply str (repeat 200 "z"))} spec nil :rf.egress/ssr-hydration)]
+      (is (= privacy/redacted-sentinel (:token projected))
+          "sensitive wins — the slot is the redaction sentinel, not a large marker"))))
+
+(deftest ssr-serialize-entry-elides-owner-data-schema-large-slot
+  (reg! :report/card {:data-schema [:map
+                                    [:blob {:large? true} :string]
+                                    [:name :string]]})
+  (testing "rf2-260yhk END-TO-END: a :serialize resource whose OWN :data-schema
+            marks a slot :large? ELIDES that slot on SSR projection — the
+            canonical fine-grained owner surface fires WITHOUT requiring a
+            matching frame app-db mark (the bug: the large leaf rode RAW)"
+    (let [big (apply str (repeat 1000 "q"))
+          k   (state/scoped-resource-key :rf.scope/global :report/card {:slug "r"})
+          e   (entry {:resource-id :report/card :data {:blob big :name "ok"}})
+          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+      (is (contains? (:blob (:data we)) :rf.size/large-elided)
+          "the owner-marked :blob slot is elided on the serialized entry")
+      (is (= "ok" (:name (:data we))) "the unmarked sibling rides verbatim")
+      (is (= :loaded (:status we)) "metadata (status) still rides")
+      (is (not (str/includes? (pr-str we) big))
+          "no raw large value rides on the serialized entry"))))
+
 ;; ===========================================================================
 ;; 4. SSR projection — the reconciliation end-to-end
 ;; ===========================================================================

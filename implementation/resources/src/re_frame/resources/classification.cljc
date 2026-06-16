@@ -64,7 +64,6 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.marks :as marks]
             [re-frame.path :as path]
-            [re-frame.privacy :as privacy]
             [re-frame.projection :as projection]
             [re-frame.resources.scope-registry :as scope-registry]))
 
@@ -322,27 +321,32 @@
 ;; composed layers, both deferring to SHARED primitives (never a
 ;; family-private resource elider):
 ;;
-;;   (a) the RESOURCE-OWNED per-slot `:data-schema` `:sensitive?` marks (the
-;;       canonical fine-grained owner surface, issue 11) redact their slots
-;;       to the `:rf/redacted` sentinel via the shared
-;;       `re-frame.privacy/redact-paths`. This is the OWNER's declaration
-;;       firing irrespective of frame app-db classification — a resource that
-;;       marks `[:token]` sensitive in its `:data-schema` redacts that slot on
-;;       SSR even when the frame's app-db classification says nothing about it
-;;       (resource cache data does not live at a frame app-db path).
+;;   (a) the RESOURCE-OWNED per-slot `:data-schema` `:sensitive?` AND `:large?`
+;;       marks (the canonical fine-grained owner surface, issue 11) project
+;;       through the shared frame-independent `re-frame.marks/redact-with-paths`
+;;       walker — `:sensitive?` slots redact to the `:rf/redacted` sentinel,
+;;       `:large?` slots elide to the `:rf.size/large-elided` marker. This is
+;;       the OWNER's declaration firing irrespective of frame app-db
+;;       classification — a resource that marks `[:token]` sensitive in its
+;;       `:data-schema` redacts that slot on SSR even when the frame's app-db
+;;       classification says nothing about it, and a `[:body]` `:large?` slot
+;;       elides on the wire whether or not the frame independently marks it
+;;       (resource cache data does not live at a frame app-db path; rf2-260yhk).
+;;       This is the SAME walker the CO-EQUAL `project-params` already uses for
+;;       the params component of the key — one walker, two owner surfaces.
 ;;   (b) the data is THEN projected through the merged frame-owned
 ;;       `re-frame.projection/project-egress` (over `elide-wire-value`) under
 ;;       the boundary profile, so any path the FRAME ALSO classifies redacts /
 ;;       elides as defense-in-depth.
 ;;
-;; "Sensitive wins over large" holds across both: a slot the owner marks
-;; sensitive is already the redaction sentinel before (b) runs, and the
-;; sentinel is a non-matchable scalar the walker descends into nothing
-;; (idempotent under re-projection). Per-slot `:large?` owner marks compose
-;; through (b) when the frame also declares the path large; the common
-;; whole-resource-large case is the coarse `:large?` root-prop omit
-;; (`whole-entry-disposition` → `:omit`), so the durable large entry never
-;; reaches this serialize path at all.
+;; "Sensitive wins over large" holds across both: at the same slot the owner
+;; walker already resolves to the redaction sentinel (the walker's intrinsic
+;; ordering), and the sentinel is a non-matchable scalar the frame walker
+;; descends into nothing (idempotent under re-projection). The common
+;; whole-resource-large case is still the coarse `:large?` root-prop omit
+;; (`whole-entry-disposition` → `:omit`), so the durable whole-large entry
+;; never reaches this serialize path at all; the per-slot owner `:large?` here
+;; is the FINE-GRAINED complement for a `:serialize` entry with a large leaf.
 ;; ---------------------------------------------------------------------------
 
 (defn project-data
@@ -354,35 +358,46 @@
 
   Two composed layers, both shared primitives:
 
-    (a) the resource-owned `:data-schema` `:sensitive?` per-slot marks
-        (`data-schema-marks`) redact their slots to the `:rf/redacted`
-        sentinel via `re-frame.privacy/redact-paths` — the OWNER's fine-grained
-        declaration, firing regardless of frame app-db classification;
+    (a) the resource-owned `:data-schema` `:sensitive?` AND `:large?` per-slot
+        marks (`data-schema-marks`) project through the shared
+        `re-frame.marks/redact-with-paths` walker — `:sensitive?` slots redact
+        to the `:rf/redacted` sentinel, `:large?` slots elide to the
+        `:rf.size/large-elided` marker (sensitive wins at a co-marked slot) —
+        the OWNER's fine-grained declaration, firing regardless of frame app-db
+        classification (the CO-EQUAL counterpart to `project-params`);
     (b) the result is projected through the merged frame-owned
         `re-frame.projection/project-egress` (over `elide-wire-value`) under
         `boundary-profile`, so any path the FRAME classifies composes as
         defense-in-depth.
 
   When `frame-id` is nil (a frameless / pure projection — a test harness or
-  a tool with no resolvable frame), layer (b) is SKIPPED and the owner-redacted
+  a tool with no resolvable frame), layer (b) is SKIPPED and the owner-projected
   data rides as-is: the coarse whole-entry disposition
   (`whole-entry-disposition`) is the resource-owned authority that governs
   redact / omit, so a frameless serialized entry must not be over-redacted to
   the frame walker's fail-closed sentinel merely because no frame scope is
   carried (that fail-closed posture is for app-db egress, not the
-  resource-owned decision) — but the OWNER's own `:data-schema` sensitive marks
-  STILL fire (layer (a) is frame-independent). `spec` nil / no data-schema →
-  layer (a) is a no-op. Pure."
+  resource-owned decision) — but the OWNER's own `:data-schema` `:sensitive?` /
+  `:large?` marks STILL fire (layer (a) is frame-independent). `spec` nil / no
+  data-schema → layer (a) is a no-op. Pure."
   [data spec frame-id boundary-profile]
-  (let [sensitive-paths (keys (:sensitive (data-schema-marks spec)))
-        owner-redacted  (if (seq sensitive-paths)
-                          (privacy/redact-paths data sensitive-paths)
+  (let [{:keys [sensitive large]} (data-schema-marks spec)
+        ;; layer (a): BOTH owner axes through the SAME shared frame-independent
+        ;; `re-frame.marks/redact-with-paths` walker the CO-EQUAL `project-params`
+        ;; uses (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`,
+        ;; sensitive wins over large at the same slot). A per-slot `:data-schema`
+        ;; `:large?` leaf is therefore ELIDED to the size marker on the wire
+        ;; rather than riding RAW — the fine-grained owner complement to the
+        ;; coarse whole-resource-large `:omit` (rf2-260yhk). No marks → `data`
+        ;; rides unchanged into layer (b).
+        owner-projected (if (or (seq sensitive) (seq large))
+                          (marks/redact-with-paths data (keys sensitive) (keys large))
                           data)]
     (if frame-id
-      (projection/project-egress owner-redacted
+      (projection/project-egress owner-projected
                                  {:frame             frame-id
                                   :rf.egress/profile boundary-profile})
-      owner-redacted)))
+      owner-projected)))
 
 ;; ---------------------------------------------------------------------------
 ;; Params projection — the CO-EQUAL fine-grained owner surface for the scoped

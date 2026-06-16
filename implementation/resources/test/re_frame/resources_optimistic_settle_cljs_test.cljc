@@ -74,7 +74,9 @@
 
 (defn- runtime-db [] (rf/runtime-db-value :rf/default))
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
-(defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations instance-id]))
+;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
+;; byte `key-id` (`state/key-id`), not the raw id; resolve through it.
+(defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
 (defn- reply-success! [args result]
@@ -350,17 +352,18 @@
                                               (optimistic-entry 6 true 10)}
                                     :tag-index {} :owner-index {}}
                mstate/mutations-key
-               {:f1 (pending-optimistic-instance
-                      [(mstate/record-optimistic-entry article-key before :patch)])}}
+               {(mstate/instance-key-id :f1)
+                (pending-optimistic-instance
+                  [(mstate/record-optimistic-entry article-key before :patch)])}}
           out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 7777})
           e   (get-in out [state/resources-key :entries (state/key-id article-key)])]
       (testing "the optimistic value was ROLLED BACK to the recorded :before"
         (is (= 9 (get-in e [:data :article :favoritesCount])) "count reverted")
         (is (= false (get-in e [:data :article :favorited])) "heart un-flipped"))
       (testing "the instance is terminally dangled (the same pass)"
-        (is (= :error (get-in out [mstate/mutations-key :f1 :status])))
-        (is (= :dangling-on-restore (:reason (get-in out [mstate/mutations-key :f1 :error]))))
-        (is (nil? (get-in out [mstate/mutations-key :f1 :current-work]))))))
+        (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :status])))
+        (is (= :dangling-on-restore (:reason (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :error]))))
+        (is (nil? (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :current-work]))))))
   (testing "CONFLICT — a moved revision marks the entry durably STALE in the pass
             (NOT a racing dispatch), the read path refetches on next ensure"
     (let [before (merge (state/empty-entry :r/article article-key)
@@ -373,8 +376,9 @@
                                               (optimistic-entry 8 false 100)}
                                     :tag-index {} :owner-index {}}
                mstate/mutations-key
-               {:f1 (pending-optimistic-instance
-                      [(mstate/record-optimistic-entry article-key before :patch)])}}
+               {(mstate/instance-key-id :f1)
+                (pending-optimistic-instance
+                  [(mstate/record-optimistic-entry article-key before :patch)])}}
           out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 7777})
           e   (get-in out [state/resources-key :entries (state/key-id article-key)])]
       (testing "the conflicted entry is NOT restored — the newer truth (100) is kept"
@@ -384,4 +388,4 @@
         (is (= 7777 (:invalidated-at e))
             ":invalidated-at stamped from the restore causal time, in the reconcile pass"))
       (testing "the instance is still terminally dangled"
-        (is (= :error (get-in out [mstate/mutations-key :f1 :status])))))))
+        (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :status])))))))

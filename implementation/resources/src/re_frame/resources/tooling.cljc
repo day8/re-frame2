@@ -455,23 +455,30 @@
   - `:selectors` / `:authority` / `:source` / `:schema` / `:doc` / `:derive`
                      — carried through from the resource's static node.
 
-  Returns `{scoped-key <node>}` for every live entry in the frame's cache
-  (`{}` when the frame has no entries, an unknown / destroyed frame, or no
-  resource cache subtree). JVM-runnable — the cache entries + work records
-  are serializable EDN runtime-db facts (no host handles ride them; those
-  live in the side table)."
+  Returns `{<key-id> <node>}` for every live entry in the frame's cache —
+  keyed on the CEDN-1 byte `key-id` STRING (the same key the runtime storage
+  / SSR wire / indexes use), with each node carrying its kind-preserving
+  scoped-resource-key VECTOR under `:id`. `{}` when the frame has no entries,
+  an unknown / destroyed frame, or no resource cache subtree. JVM-runnable —
+  the cache entries + work records are serializable EDN runtime-db facts (no
+  host handles ride them; those live in the side table)."
   [frame-id]
   (let [runtime-db (frame/frame-runtime-db-value frame-id)
         entries    (get-in runtime-db (state/entries-path))]
     (reduce-kv
-      ;; rf2-9e0tyq — `:entries` is keyed on the opaque byte `key-id`; the live
-      ;; node's `:id` / inputs use the entry's own `:resource/key` VECTOR (the
-      ;; canonical fact identity), read from the entry, not the map key.
-      (fn [acc _k-id entry]
+      ;; rf2-9e0tyq / rf2-ka2nkx — `:entries` is keyed on the opaque byte
+      ;; `key-id`; the live node's `:id` / inputs use the entry's own
+      ;; `:resource/key` VECTOR (the canonical fact identity), read from the
+      ;; entry, not the map key. The RETURNED map MUST stay keyed on the byte
+      ;; `key-id` too: rekeying onto the `=`-colliding scoped-key vector would
+      ;; `assoc` one CEDN-distinct entry over the other (a list-params and a
+      ;; vector-params entry are Clojure-= as vectors), reporting ONE node for
+      ;; TWO live entries (rf2-ka2nkx).
+      (fn [acc k-id entry]
         (let [scoped-key  (:resource/key entry)
               resource-id (second scoped-key)
               static-node (resource-algebra-view resource-id)]
-          (assoc acc scoped-key
+          (assoc acc k-id
                  (live-node-for runtime-db scoped-key entry static-node))))
       {}
       (or entries {}))))

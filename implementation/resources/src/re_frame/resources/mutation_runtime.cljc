@@ -45,23 +45,55 @@
 
 (def mutations-key
   "The reserved runtime-db key for the mutation-instance subtree
-  (`:rf.runtime/mutations`). A map `{<instance-id> <instance>}`, keyed by
-  mutation INSTANCE id so concurrent submissions of the same mutation id
-  do not clobber each other. Per Spec 016 §Cache home and write authority /
-  EP-0003 §Mutations."
+  (`:rf.runtime/mutations`). A map `{<key-id> <instance>}`, keyed on the
+  CEDN-1 byte `key-id` of the mutation INSTANCE id (see `instance-key-id`) so
+  concurrent submissions of the same mutation id do not clobber each other.
+  Per Spec 016 §Cache home and write authority / EP-0003 §Mutations."
   :rf.runtime/mutations)
+
+(defn instance-key-id
+  "The CEDN-1 BYTE-IDENTITY map-key for a mutation INSTANCE id — its
+  `canonical-bytes` string (rf2-8iciw8). The SAME canonical identity the
+  resource cache key uses (`state/key-id`), applied to the instance id.
+
+  WHY (the EP-0012 `=`-collapse fix, mirrored for mutations): a caller MAY
+  supply a sequential / collection instance id (a row-keyed form addresses its
+  instance by `[:row 7]`; `validate-instance-id!` accepts any serializable
+  EDN). The instance id was used DIRECTLY as a Clojure map key under
+  `:rf.runtime/mutations`, and Clojure map keys compare by `=`, which is
+  COARSER than the authoritative CEDN-1 byte identity for SEQUENTIAL
+  vector-vs-list — `(= [:row 7] '(:row 7))` is TRUE while their
+  `canonical-bytes` differ (`v[…]` vs `l(…)`). Two CEDN-distinct submissions
+  could therefore address the SAME runtime row and clobber / gate each other.
+  Keying on the canonical-bytes STRING makes the map-key comparison EXACTLY
+  the CEDN-1 byte identity, so a list-id row and a vector-id row get DISTINCT
+  instances — without re-erasing the kind (the kind-preserving instance id is
+  stored alongside on the instance as `:instance/id`). The bytes string is
+  plain serializable EDN, so it rides the epoch / restore / trace wire with no
+  custom handler — exactly the resource cache (`state/key-id`) discipline.
+
+  Total on a `validate-instance-id!`-conforming id (`serializable-edn?` →
+  `canonical-bytes` is total on canonical EDN). Per EP-0003 §Mutations /
+  Conventions §Canonical EDN identity."
+  [instance-id]
+  (state/key-id instance-id))
 
 (defn instances-path
   "Runtime-db-relative path to the mutation-instances map
-  `{<instance-id> <instance>}`. Per Spec 016 §Cache home."
+  `{<key-id> <instance>}` — keyed on the CEDN-1 byte `key-id`
+  (`instance-key-id`), NOT the raw instance id (rf2-8iciw8). Per Spec 016
+  §Cache home."
   []
   [mutations-key])
 
 (defn instance-path
   "Runtime-db-relative path to a single mutation instance by its instance
-  id. Per EP-0003 §Mutations (runtime state keyed by mutation instance id)."
+  id — the map is keyed on the instance id's CEDN-1 byte `key-id`
+  (`instance-key-id`), so two CEDN-distinct sequential ids (`[:row 7]` vs
+  `'(:row 7)`) address DISTINCT rows (rf2-8iciw8). Per EP-0003 §Mutations
+  (runtime state keyed by mutation instance id)."
   [instance-id]
-  [mutations-key instance-id])
+  [mutations-key (instance-key-id instance-id)])
 
 ;; ---- durable mutation-instance shape -------------------------------------
 ;;

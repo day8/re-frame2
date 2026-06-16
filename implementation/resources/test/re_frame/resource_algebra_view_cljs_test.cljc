@@ -11,9 +11,10 @@
   multi-trigger evaluation set, the `:scoped-resource-key` lifecycle, with
   `:selectors` (the `:rf.resource/*` read facts) and `:commands` (the
   transport descriptors). `…/resource-cache-algebra-view` reports one node
-  per live cache entry keyed by its scoped resource key, with the realized
-  scope/param edges, the entry status, the work-ledger link, and the
-  host-transient in-flight handle address.
+  per live cache entry keyed by its CEDN-1 byte `key-id` (with the scoped
+  resource key carried on the node's `:id`), with the realized scope/param
+  edges, the entry status, the work-ledger link, and the host-transient
+  in-flight handle address.
 
   These tests pin the registrar-derived projection: the fixed
   classifications, the declared-input lowering (params + scope; `{:from-db}`
@@ -229,8 +230,8 @@
           scoped-key (install-live-entry! :rf/default :article/by-slug scope params
                                           {:status :loaded :owner [:route :route/article 17]})
           view       (resources-tooling/resource-cache-algebra-view :rf/default)
-          node       (get view scoped-key)]
-      (is (some? node) "the live entry is keyed by its concrete scoped resource key")
+          node       (get view (state/key-id scoped-key))]
+      (is (some? node) "the live entry node is reachable by its byte key-id")
       (is (has-live-fixed-classifications? node)
           "the live node keeps the fixed process classifications (lifecycle is the map form)")
       (is (= scoped-key (:id node)) "the node id is the concrete scoped key (live fact identity)")
@@ -258,7 +259,7 @@
           scoped-key (install-live-entry! :rf/default :article/by-slug scope params
                                           {:owner [:route :route/article 9] :in-flight? true})
           node       (get (resources-tooling/resource-cache-algebra-view :rf/default)
-                          scoped-key)
+                          (state/key-id scoped-key))
           work-id    (work-ledger/resource-work-id scoped-key 1)]
       (is (= :fetching (:status node)))
       (testing "the work-ledger link carries the work id + a serializable record summary"
@@ -268,6 +269,37 @@
         (is (= #{[:route :route/article 9]} (get-in node [:work-ledger :record :owners]))))
       (testing "the host-transient in-flight handle address names the work id"
         (is (= [[:rf.http/in-flight work-id]] (:host-transient node)))))))
+
+(deftest live-view-keeps-cedn-distinct-scoped-keys-distinct
+  (testing "rf2-ka2nkx ADVERSARIAL: two live entries whose params differ ONLY by
+            EDN collection kind (vector vs list) are Clojure-= as scoped-key
+            VECTORS but CEDN-distinct (distinct byte key-ids). The cache
+            algebra view must report TWO distinct nodes (one per byte-keyed
+            runtime entry), NOT collapse them onto one `=`-colliding key"
+    (rf/reg-resource :article/by-slug (article-spec))
+    (let [scope  :rf.scope/global
+          pv     {:xs [1 2 3]}
+          pl     {:xs '(1 2 3)}
+          kv     (install-live-entry! :rf/default :article/by-slug scope pv
+                                      {:status :loaded :owner [:lease :v 1]})
+          kl     (install-live-entry! :rf/default :article/by-slug scope pl
+                                      {:status :loaded :owner [:lease :l 1]})
+          view   (resources-tooling/resource-cache-algebra-view :rf/default)]
+      (is (= kv kl) "the scoped-key VECTORS are Clojure-= (the collapse routed around)")
+      (is (not= (state/key-id kv) (state/key-id kl))
+          "their byte key-ids differ (v[…] vs l(…))")
+      (is (= 2 (count view)) "TWO distinct nodes — no =-collapse onto one map key")
+      (is (= #{(state/key-id kv) (state/key-id kl)} (set (keys view)))
+          "the view is keyed on the byte key-ids of BOTH entries")
+      (testing "each node keeps its kind-preserving scoped-key on :id"
+        (let [nv (get view (state/key-id kv))
+              nl (get view (state/key-id kl))]
+          (is (= kv (:id nv)) "vector node keeps its vector key")
+          (is (= kl (:id nl)) "list node keeps its list key")
+          (is (vector? (-> nv :id (nth 2) :xs)) "vector-params node preserves vector kind")
+          (is (seq?    (-> nl :id (nth 2) :xs)) "list-params node preserves list kind")
+          (is (not= (:lifecycle nv) (:lifecycle nl))
+              "the two nodes carry their OWN distinct owner sets (not gated together)"))))))
 
 ;; ---- registry semantics --------------------------------------------------
 

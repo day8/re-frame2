@@ -1072,16 +1072,21 @@
   `dangle-non-terminal-work!`, work-kind `:mutation`)."
   [runtime-db settled-at]
   (let [instances (get-in runtime-db (mutation-runtime/instances-path))
+        ;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the CEDN-1 byte
+        ;; `key-id`; iterate the map's OWN keys (already byte key-ids) and
+        ;; operate on the direct `[mutations-key <key-id>]` path. Do NOT re-feed
+        ;; a byte key-id through `instance-path` (that would re-encode it).
         pending   (into []
                         (comp (filter (fn [[_ inst]] (mutation-runtime/pending? inst)))
                               (map key))
                         instances)]
     (if (empty? pending)
       [runtime-db [] []]
-      (let [[rdb' rolled-keys]
+      (let [[rdb' rolled-keys dangled-ids]
             (reduce
-              (fn [[rdb rk] instance-id]
-                (let [inst (get-in rdb (mutation-runtime/instance-path instance-id))
+              (fn [[rdb rk dids] key-id]
+                (let [inst-path (conj (mutation-runtime/instances-path) key-id)
+                      inst (get-in rdb inst-path)
                       ;; EP-0019 Q3 — roll back the recorded optimistic apply
                       ;; (conflict-aware, INSIDE the pass) BEFORE settling the
                       ;; instance terminal, so the restored cache shows truth (the
@@ -1091,12 +1096,15 @@
                       spec (mutation-registry/mutation-meta (:mutation/id inst))
                       [rdb2 keys2] (mutation-runtime/dangle-rollback-optimistic
                                      rdb inst spec settled-at)]
-                  [(update-in rdb2 (mutation-runtime/instance-path instance-id)
+                  [(update-in rdb2 inst-path
                               mutation-runtime/instance-dangled settled-at)
-                   (into rk keys2)]))
-              [runtime-db []]
+                   (into rk keys2)
+                   ;; surface the kind-preserving `:instance/id` in the returned
+                   ;; dangled-id list (the byte key-id is opaque storage detail).
+                   (conj dids (:instance/id inst))]))
+              [runtime-db [] []]
               pending)]
-        [rdb' pending rolled-keys]))))
+        [rdb' dangled-ids rolled-keys]))))
 
 (defn clear-host-transients-on-restore!
   "Clear the restored `frame-id`'s HOST-SIDE transient resource caches that the
