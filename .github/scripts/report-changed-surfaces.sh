@@ -604,6 +604,40 @@ else
           cljs_node_test=true
         fi
         ;;
+      tools/machines-viz/*)
+        # rf2-z0cw6s — tools/machines-viz ships day8/re-frame2-machines-viz
+        # (the MachineChart component + read-only viewer + Mermaid/SCXML/
+        # PNG/SVG/share-URL export surfaces, rf2-o9arp). It is a CLJS-only
+        # tool (no JVM unit tests, no MCP wrapper): its src+test are listed
+        # as :source-paths of the consolidated :node-test AND :browser-test
+        # builds (implementation/shadow-cljs.edn). So a CLJS/CLJC change
+        # must fire BOTH the `cljs` (node-test) job and the `cljs-browser`
+        # job — the latter runs the `*-dom-cljs-test` export/redaction +
+        # chart DOM suites under headless Chromium (where EP-0015 image-
+        # export egress is verified). No tools_jvm / mcp_conformance /
+        # template_expensive fan-out: machines-viz has no JVM suite, is not
+        # consumed by an MCP wrapper, and is not part of the deps-new
+        # template's generated app.
+        #
+        # spec-md guard (mirrors story/xray above): a pure documentation
+        # change under tools/machines-viz/spec/**.md cannot affect any
+        # compiled output, so it fires nothing runtime — covered by
+        # docs.yml + the nightly full matrix.
+        case "$file" in
+          tools/machines-viz/spec/*.md)
+            : # spec doc only — no runtime/CLJS fan-out
+            ;;
+          *)
+            # Every non-spec-md change (src/test .cljs/.cljc, deps.edn,
+            # public/viewer.html, README, EDN) conservatively fires the
+            # node-test + browser gates. The node-test build picks up the
+            # *_cljs_test suites; the browser build picks up the
+            # *-dom-cljs-test export/chart-DOM suites.
+            cljs_node_test=true
+            cljs_browser=true
+            ;;
+        esac
+        ;;
       tools/story-mcp/*)
         # rf2-os0c1 — MCP wrappers don't run in a browser; story-xray-browser
         # exercises the Story/Xray CLJS runtimes via Playwright and is
