@@ -299,18 +299,35 @@
   walked root). rf2-uv2q2 — the diff accessor threads each leaf's path
   so per-slice elision honours schema declarations.
 
+  Optional `:frame` — the frame whose elision policy applies (EP-0015
+  frame-owned egress). EP-0002 / EP-0015: the wire-egress frame is the
+  one the accessor RESOLVED for the read, NOT the eval-time ambient
+  scope. Every accessor here first resolves a frame-id (`resolve-frame`)
+  to pick WHICH frame's app-db / trace ring / runtime-db it reads, then
+  the value is projected under THAT SAME frame's classification. Without
+  the explicit `:frame`, `elide-wire-value` would fall back to the
+  carried-invariant ambient scope (`frame/resolve-current-frame`), which
+  under an MCP/eval seam is nil or the Xray/`:rf/default` frame — so a
+  `(get-app-db {:frame :host})` read would project `:host`'s value under
+  no frame (fail-closed → whole value redacted) or the wrong frame's
+  policy. Threading the resolved `:frame` keeps the read and its
+  projection on the same frame. A truly frameless value (no resolved
+  frame) passes `:frame` nil and fails closed in the walker
+  (`:rf/redacted`) unless `:include-sensitive? true` waives it.
+
   Every direct-read accessor on this runtime calls this fn before a
   value crosses the off-box boundary (MUST-inventory rows #15 / #17 /
   #19). rf2-rcogp — the safe path is the short path."
   ([value]
    (egress-value value nil))
-  ([value {:keys [include-sensitive? include-large? path]
+  ([value {:keys [include-sensitive? include-large? path frame]
            :or   {include-sensitive? false
                   include-large?     false}}]
    (rf/elide-wire-value value
                         (cond-> {:rf.size/include-sensitive? include-sensitive?
                                  :rf.size/include-large?     include-large?}
-                          (seq path) (assoc :path (vec path))))))
+                          (seq path)   (assoc :path (vec path))
+                          (some? frame) (assoc :frame frame)))))
 
 (defn egress-record
   "The single named off-box safe-egress fn for one epoch record. Routes
@@ -407,8 +424,11 @@
   partition opt-in lifts the runtime-db redaction, NOT the per-slot privacy
   / size posture. `:include-sensitive?` / `:include-large?` carry through to
   that inner walk; `:path` threads the absolute slice path so declarations
-  keyed by path still match. The partition opt-out is the partition default;
-  it composes with — does not override — the value-level off-box defaults.
+  keyed by path still match; `:frame` threads the resolved frame so the
+  inner walk projects against THAT frame's classification (EP-0015
+  frame-owned egress), not the eval-time ambient scope. The partition
+  opt-out is the partition default; it composes with — does not override —
+  the value-level off-box defaults.
 
   This is the partition-distinguishing peer of `egress-value` (app-db
   partition): app-db egresses subject to per-slot elision, runtime-db
@@ -480,8 +500,10 @@
 ;; `config/suppress-sensitive?`): a framework-published trace consumer
 ;; default-SUPPRESSES whole `:sensitive? true` events. The runtime/MCP
 ;; seam's opt-back-in is the per-call `:include-sensitive?` opt (NOT the
-;; panel's global `:rf.privacy/show-sensitive?` UI toggle — the seam is
-;; per-call, so the gate is per-call too). We compose against the ONE
+;; panel's local-render egress profile — the seam is per-call, so the gate
+;; is per-call too; the panel's `:rf.xray/egress-profile` governs the
+;; on-box trace-collector display, not this off-box accessor). We compose
+;; against the ONE
 ;; framework primitive `re-frame.core/sensitive?` (re-export of
 ;; `re-frame.privacy/sensitive?`) rather than reimplementing the
 ;; `:sensitive? true` check, exactly as `config/sensitive-event?` does.
@@ -499,6 +521,41 @@
   (if include-sensitive?
     events
     (into [] (remove rf/sensitive?) events)))
+
+;; ---------------------------------------------------------------------------
+;; Per-event frame resolution for trace-value egress (rf2-5b2ct2)
+;; ---------------------------------------------------------------------------
+;;
+;; EP-0015 frame-owned egress: a trace event's VALUES must project under the
+;; classification of the FRAME THAT EMITTED IT. A trace event carries its
+;; frame on `[:tags :frame]` (the router stamps it on most in-cascade emits)
+;; or top-level `:frame` — the same precedence the framework's
+;; `trace.tooling`/`trace.projection` frame-routing reads. For a per-frame
+;; ring read (`get-trace-buffer`) every surviving event already belongs to
+;; the resolved frame, but `get-issues` MERGES rings across frames, so each
+;; event must project under its OWN frame, not one ambient/resolved frame.
+;; When an event carries no frame (a frameless emit), fall back to the
+;; accessor's resolved frame so the read and the projection stay aligned;
+;; a truly frameless value then fails closed in the walker.
+
+(defn- trace-event-frame
+  "Resolve the frame-id a trace event belongs to for value egress
+  (EP-0015 frame-owned projection). Reads `[:tags :frame]` then top-level
+  `:frame` (the framework trace frame-routing precedence). `fallback` is
+  the accessor's resolved frame, used when the event carries none. rf2-5b2ct2."
+  [ev fallback]
+  (or (get-in ev [:tags :frame])
+      (:frame ev)
+      fallback))
+
+(defn- egress-trace-event
+  "Egress one trace event's VALUES under its OWN frame's classification
+  (EP-0015 frame-owned egress, rf2-5b2ct2). The event's frame resolves
+  from its `[:tags :frame]` / top-level `:frame`, falling back to the
+  accessor's resolved `fid`. `egress-opts` carries the caller's
+  `:include-sensitive?` / `:include-large?` opt-ins."
+  [ev fid egress-opts]
+  (egress-value ev (assoc egress-opts :frame (trace-event-frame ev fid))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inspection band (9 accessors)
@@ -539,9 +596,9 @@
                              (assoc :flat true))
              events      (-> (trace-tooling/trace-buffer fid filter-opts)
                              (drop-sensitive-events include-sensitive?))
-             scrubbed    (mapv #(egress-value % {:include-sensitive? include-sensitive?
-                                                 :include-large?     include-large?})
-                               events)]
+             egress-opts {:include-sensitive? include-sensitive?
+                          :include-large?     include-large?}
+             scrubbed    (mapv #(egress-trace-event % fid egress-opts) events)]
          {:ok?    true
           :frame  fid
           :events scrubbed
@@ -610,7 +667,12 @@
           ;; whole-db case is unchanged (value IS the walked root).
           :value (egress-value value {:include-sensitive? include-sensitive?
                                       :include-large?     include-large?
-                                      :path               path})})))))
+                                      :path               path
+                                      ;; EP-0015 frame-owned egress: project
+                                      ;; the value under the SAME frame the
+                                      ;; read resolved (`fid`), not the
+                                      ;; eval-time ambient scope (rf2-5b2ct2).
+                                      :frame              fid})})))))
 
 (defn- project-changed-paths
   "Project the `(before, after)` pair into the changed-paths slice diff
@@ -630,9 +692,11 @@
   op (scalar change, container-kind flip, redaction) buckets into
   `:changed`. `egress-opts` carries the caller's `:include-sensitive?`
   / `:include-large?` opt-in so the diff slices honour the same
-  trust-boundary override the sibling accessors expose. Each slice is
-  egress'd at its ABSOLUTE leaf `:path` so schema-declared sensitive /
-  large paths still match against the isolated slice."
+  trust-boundary override the sibling accessors expose, and the resolved
+  `:frame` so every slice projects under that frame's classification
+  (EP-0015 frame-owned egress, rf2-5b2ct2) rather than the ambient scope.
+  Each slice is egress'd at its ABSOLUTE leaf `:path` so schema-declared
+  sensitive / large paths still match against the isolated slice."
   [before after egress-opts]
   (let [{:keys [flat-rows]} (diff-engine/project before after)
         egress-at (fn [v path] (egress-value v (assoc egress-opts :path path)))]
@@ -693,7 +757,12 @@
                 diff   (project-changed-paths
                          before after
                          {:include-sensitive? include-sensitive?
-                          :include-large?     include-large?})]
+                          :include-large?     include-large?
+                          ;; EP-0015 frame-owned egress: each changed-path
+                          ;; slice projects under the SAME frame the diff
+                          ;; resolved (`fid`), not the ambient scope
+                          ;; (rf2-5b2ct2).
+                          :frame              fid})]
             {:ok?      true
              :frame    fid
              :epoch-id epoch-id
@@ -789,9 +858,14 @@
                 snapshot      (get-in (rf/runtime-db-value fid) snapshot-path)
                 rt-egress     {:include-sensitive?  include-sensitive?
                                :include-large?      include-large?
-                               :include-runtime-db? include-runtime-db?}
+                               :include-runtime-db? include-runtime-db?
+                               ;; EP-0015 frame-owned egress: the runtime-db
+                               ;; snapshot projects under the resolved frame
+                               ;; `fid` (rf2-5b2ct2).
+                               :frame               fid}
                 spec-edn      (egress-value spec {:include-sensitive? include-sensitive?
-                                                  :include-large?     include-large?})]
+                                                  :include-large?     include-large?
+                                                  :frame              fid})]
             (if (nil? snapshot)
               ;; Registered but not yet brought to life — no live snapshot
               ;; in the runtime-db partition. Succeed with the spec so the
@@ -822,16 +896,24 @@
 (defn get-machine-list
   "Tool: `get-machine-list`. List of registered machines per frame
   with current spec. Returns `{:ok? true :machines <map>}` where the
-  map is keyed by machine-id."
+  map is keyed by machine-id.
+
+  EP-0015 frame-owned egress (rf2-5b2ct2): each machine spec is a static
+  REGISTRY value, but the wire walker classifies against a KNOWN frame —
+  the operating frame (explicit `:frame`, else the sole registered frame)
+  is resolved and threaded so the spec projects under that frame's policy
+  rather than fail-closing under the eval-time ambient scope."
   ([] (get-machine-list nil))
-  ([{:keys [include-sensitive? include-large?] :as _opts}]
-   (let [ids (machines/machines)]
+  ([{:keys [include-sensitive? include-large? frame] :as _opts}]
+   (let [ids (machines/machines)
+         fid (resolve-frame frame)]
      {:ok?      true
       :machines (into {}
                       (map (fn [mid]
                              [mid (egress-value (machines/machine-meta mid)
                                                 {:include-sensitive? include-sensitive?
-                                                 :include-large?     include-large?})]))
+                                                 :include-large?     include-large?
+                                                 :frame              fid})]))
                       ids)
       :count    (count ids)})))
 
@@ -935,7 +1017,11 @@
                            {:scope scope :resource-id resource-id :params params})
              egress-opts {:include-sensitive?  include-sensitive?
                           :include-large?      include-large?
-                          :include-runtime-db? include-runtime-db?}
+                          :include-runtime-db? include-runtime-db?
+                          ;; EP-0015 frame-owned egress: project the
+                          ;; runtime-db payloads under the resolved frame
+                          ;; `fid` (rf2-5b2ct2).
+                          :frame               fid}
              ;; PER-SLOT egress (rf2-tgm1xu): the projection redacts ONLY the
              ;; payload values (scope/params/data/error) BEFORE summarizing,
              ;; while the metadata projects from the raw entry — so the rows
@@ -1008,7 +1094,11 @@
            :frame fid :resource-id resource-id}
           (let [egress-opts {:include-sensitive?  include-sensitive?
                              :include-large?      include-large?
-                             :include-runtime-db? include-runtime-db?}]
+                             :include-runtime-db? include-runtime-db?
+                             ;; EP-0015 frame-owned egress: project the
+                             ;; runtime-db payload under the resolved frame
+                             ;; `fid` (rf2-5b2ct2).
+                             :frame               fid}]
             ;; PER-SLOT egress (rf2-tgm1xu): the projection redacts only the
             ;; payload values (scope/params/data/error) before summarizing;
             ;; the metadata projects from the raw entry. The RAW scoped-key
@@ -1039,11 +1129,15 @@
   trace projections (`lifecycle-timeline` / `invalidation-graph`) apply to
   their value-bearing fields (scope / params / cause / matched). Routes
   through `egress-value` with the off-box defaults; `include-sensitive?` /
-  `include-large?` opt the matching declared slots back in (rf2-e0mq7a)."
-  [{:keys [include-sensitive? include-large?]}]
+  `include-large?` opt the matching declared slots back in (rf2-e0mq7a).
+  `:frame` threads the accessor's resolved frame so the value-bearing trace
+  fields project under THAT frame's classification (EP-0015 frame-owned
+  egress, rf2-5b2ct2) rather than the eval-time ambient scope."
+  [{:keys [include-sensitive? include-large? frame]}]
   (fn [value]
-    (egress-value value {:include-sensitive? include-sensitive?
-                         :include-large?     include-large?})))
+    (egress-value value (cond-> {:include-sensitive? include-sensitive?
+                                 :include-large?     include-large?}
+                          (some? frame) (assoc :frame frame)))))
 
 (defn get-resource-history
   "Tool: `get-resource-history`. The BOUNDED lifecycle history for a
@@ -1079,7 +1173,8 @@
                            (drop-sensitive-events include-sensitive?))
              egress-fn (resource-trace-egress-fn
                          {:include-sensitive? include-sensitive?
-                          :include-large?     include-large?})
+                          :include-large?     include-large?
+                          :frame              fid})
              rows      (-> (resources-helpers/lifecycle-timeline events egress-fn)
                            (resources-helpers/filter-history-rows
                              {:resource-id resource-id :nav-token nav-token :limit limit}))]
@@ -1118,7 +1213,8 @@
                            (drop-sensitive-events include-sensitive?))
              egress-fn (resource-trace-egress-fn
                          {:include-sensitive? include-sensitive?
-                          :include-large?     include-large?})
+                          :include-large?     include-large?
+                          :frame              fid})
              rows      (cond->> (resources-helpers/invalidation-graph events egress-fn)
                          (some? tag) (filter #(some #{tag} (:tags %))))]
          {:ok?           true
@@ -1163,9 +1259,14 @@
          ;; at the off-box seam before the issue filter walks them.
          events   (drop-sensitive-events events include-sensitive?)
          issues   (filterv #(contains? issue-op-types (:op-type %)) events)
-         scrubbed (mapv #(egress-value % {:include-sensitive? include-sensitive?
-                                          :include-large?     include-large?})
-                        issues)]
+         ;; EP-0015 frame-owned egress (rf2-5b2ct2): `get-issues` MERGES the
+         ;; per-frame rings, so each issue must project under its OWN frame's
+         ;; classification (read off `[:tags :frame]` / `:frame`), not one
+         ;; ambient/resolved frame. A frameless issue has no fallback frame
+         ;; here (the merge spans every frame), so it fails closed.
+         egress-opts {:include-sensitive? include-sensitive?
+                      :include-large?     include-large?}
+         scrubbed (mapv #(egress-trace-event % nil egress-opts) issues)]
      {:ok?    true
       :issues scrubbed
       :count  (count scrubbed)})))
@@ -1191,13 +1292,24 @@
   `:include-large?` carry the same trust-boundary opt-in the sibling
   accessors expose.
 
+  EP-0015 frame-owned egress (rf2-5b2ct2): handler metadata is a
+  process-global REGISTRY value, not frame-scoped app-db, but the wire
+  walker classifies against a KNOWN frame — with none it fails closed
+  (whole-redact). The accessor resolves the operating frame (the explicit
+  `:frame` opt, else the sole registered frame via `resolve-frame`) and
+  threads it so the metadata projects under that frame's policy rather
+  than redacting wholesale under the eval-time ambient scope.
+
   Returns `{:ok? true :handlers <vec> :count <n>}`. Optional `:kind`
   arg narrows to a single registrar kind (`:event`, `:sub`, `:fx`,
-  `:cofx`, `:machine`, `:flow`, `:frame`, `:view`, `:reg-machine`)."
+  `:cofx`, `:machine`, `:flow`, `:frame`, `:view`, `:reg-machine`).
+  Optional `:frame` picks the frame whose classification applies."
   ([] (get-handlers {}))
-  ([{:keys [kind include-sensitive? include-large?] :as _opts}]
-   (let [egress-opts {:include-sensitive? include-sensitive?
-                      :include-large?     include-large?}
+  ([{:keys [kind include-sensitive? include-large? frame] :as _opts}]
+   (let [fid     (resolve-frame frame)
+         egress-opts {:include-sensitive? include-sensitive?
+                      :include-large?     include-large?
+                      :frame              fid}
          kinds   (if (some? kind) [kind] registrar-kinds)
          walked  (for [k kinds
                        [id meta] (rf/registrations k)]
@@ -1222,11 +1334,15 @@
   values into the source slot, so the accessor egresses unconditionally
   rather than judging per-read whether THIS value happens to be safe.
   `:include-sensitive?` / `:include-large?` carry the same trust-boundary
-  opt-in the sibling accessors (`get-handlers`) expose.
+  opt-in the sibling accessors (`get-handlers`) expose. EP-0015 frame-owned
+  egress (rf2-5b2ct2): the operating frame (explicit `:frame`, else the
+  sole registered frame) is resolved and threaded so the source-coord
+  projects under that frame's classification rather than fail-closing
+  under the eval-time ambient scope.
 
   Returns `{:ok? true :kind <kw> :id <any> :source-coord <map>}` or
   `{:ok? false :reason :no-source-coord ...}`."
-  [{:keys [kind id include-sensitive? include-large?] :as _opts}]
+  [{:keys [kind id include-sensitive? include-large? frame] :as _opts}]
   (cond
     (nil? kind) {:ok? false :reason :missing-kind
                  :hint "Pass :kind <registrar-kind>."}
@@ -1245,7 +1361,8 @@
          :id           id
          :source-coord (egress-value coord
                                      {:include-sensitive? include-sensitive?
-                                      :include-large?     include-large?})}))))
+                                      :include-large?     include-large?
+                                      :frame              (resolve-frame frame)})}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mutation band (3 accessors)
@@ -1467,13 +1584,19 @@
   applied to the eval'd result with caller's `:include-sensitive?` /
   `:include-large?` opt-in.
 
+  EP-0015 frame-owned egress (rf2-5b2ct2): the eval'd value projects under
+  a KNOWN frame — the caller's explicit `:frame` opt wins, else the sole
+  registered frame (`resolve-frame`). Without a resolvable frame the walker
+  fails closed (`:rf/redacted`) unless `:include-sensitive? true` waives it,
+  rather than leaning on the eval-time ambient scope.
+
   The synchronous-extent binding of `*current-origin*` per Lock #4 / I6
   is the server's responsibility (the wrapper sits *around* the user's
   form); the runtime's role is the egress-side scrub."
   ([value] (eval-form-result value nil))
   ([value opts]
    {:ok?   true
-    :value (egress-value value opts)}))
+    :value (egress-value value (assoc opts :frame (resolve-frame (:frame opts))))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Meta band (2 accessors)
