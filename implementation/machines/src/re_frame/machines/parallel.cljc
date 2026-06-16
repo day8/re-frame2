@@ -131,12 +131,16 @@
         (assoc :rf/parent-id      (:rf/parent-id parent-machine))
         (assoc :rf/platform       (:rf/platform parent-machine))
         (assoc :rf/frame          (:rf/frame parent-machine))
-        ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): inherit the causal
-        ;; recordable-coeffect token so a region's guard / action reads
-        ;; `:rf.cofx` causally too. The cached spec's value is overlaid live in
-        ;; `region-spec-overlaid` (the token is dynamic, stamped per dispatch by
-        ;; `prepare-machine-ctx`).
-        (assoc :rf/cofx           (:rf/cofx parent-machine))
+        ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): the causal
+        ;; recordable-coeffect token is transition-local, NOT registration-time
+        ;; data — `prepare-machine-ctx` stamps `:rf/cofx` per dispatch. The cache
+        ;; is populated at registration time, so we must NOT bake a value (or even
+        ;; the key) in here: a stale `:rf/cofx` cached from the priming dispatch
+        ;; would otherwise leak into a later transition whose parent carries none
+        ;; (rf2-gqr4vs). `region-spec-overlaid` is the single choke-point that
+        ;; overlays the LIVE `:rf/cofx` onto the cached spec — present iff the
+        ;; current parent carries it, dissoc'd otherwise — so the absent path
+        ;; leaves no stale slot for `callback-ctx`'s presence check to read.
         (assoc :rf/region         region-name))))
 
 (defn region-machine
@@ -357,12 +361,19 @@
                   :rf/frame    (:rf/frame parent-machine))
       ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): overlay the live causal
       ;; recordable-coeffect token so a region guard / action reads the CURRENT
-      ;; dispatch's `:rf.cofx` (the cache was populated at registration time,
-      ;; before the token was stamped). Only when present so the absent path
-      ;; leaves the cached spec free of a stale slot — `callback-ctx` keys off
-      ;; presence.
+      ;; dispatch's `:rf.cofx`. `:rf/cofx` is transition-local — `callback-ctx`
+      ;; keys off its PRESENCE — so the overlay must MATCH the live parent
+      ;; exactly: assoc when the parent carries it, DISSOC otherwise. A bare
+      ;; `(contains? parent-machine ...)`-gated assoc left a stale slot intact
+      ;; when the live parent carried none, leaking a cached coeffect into a
+      ;; later transition (rf2-gqr4vs). Dissoc on the absent path guarantees the
+      ;; cached spec can never surface a coeffect the current caller did not
+      ;; carry — even if the cache faulted in under a coeffect-carrying parent.
       (contains? parent-machine :rf/cofx)
-      (assoc :rf/cofx (:rf/cofx parent-machine)))))
+      (assoc :rf/cofx (:rf/cofx parent-machine))
+
+      (not (contains? parent-machine :rf/cofx))
+      (dissoc :rf/cofx))))
 
 (defn- reduce-regions
   "Apply `step-fn` to each region of `parent-machine` in declaration
