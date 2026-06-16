@@ -31,7 +31,8 @@
   activates when `*current-realm*` is ambiently bound around the request (the
   router / host-adapter pattern — `frame/call-with-realm`), which is how the
   bzw8gd side-channel writes are also driven."
-  (:require [clojure.string :as str]
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -249,3 +250,117 @@
               (fn [] (lifecycle/destroy-frame-quietly! fid)))))
         (finally
           (rf/dispose-realm! rid))))))
+
+;; ===========================================================================
+;; (3) FINAL __rf_payload reflects the NON-DEFAULT realm frame's app-db /
+;;     runtime-db — the writer's `build-final-payload` re-establishes the
+;;     carried realm so `frame-app-db-value` / `frame-runtime-db-value`
+;;     resolve the (realm, frame) slot, not the missing default-realm key.
+;; ===========================================================================
+
+(defn- stream-payload-edn
+  "Parse the `__rf_payload` final-chunk EDN out of a streamed document body.
+  The payload is a `#:rf{…}` namespace-map; `clojure.edn/read-string` reads
+  it (the namespaced keys round-trip)."
+  [body]
+  (some-> (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>" body)
+          second
+          edn/read-string))
+
+(deftest streaming-final-payload-reflects-realm-frame-state-on-daemon-thread
+  (testing "rf2-tbr67x: a non-default-realm request frame carrying seeded
+            app-db / runtime-db state streams a FINAL __rf_payload whose
+            :rf/app-db (and :rf/runtime-db) are projected FROM THAT REALM
+            FRAME — even though the writer's `build-final-payload` runs on a
+            FRESH daemon thread with NO ambient `frame/*current-realm*`. Before
+            the fix, `build-final-payload` read `frame-app-db-value` /
+            `frame-runtime-db-value` through `*current-realm*` (unbound on the
+            writer thread), missing the frame stored at the [realm frame-id]
+            slot — so the payload carried nil app-db even though the streamed
+            HTML came from the realm frame."
+    (let [rid :tbr67x/payload-realm
+          fid :tbr67x/payload-frame]
+      (rf/realm {:id rid :adapter ssr/adapter})
+      (try
+        (with-realm-registrar rid
+          (fn []
+            (rf/reg-frame fid {:platform :server :doc "realm payload frame"})
+            (rf/reg-view* :tbr67x/payload-root
+              (fn [] [:main [:h1 "Realm payload"]]))))
+        ;; Seed the realm frame's app-db + a durable runtime-db slice UNDER the
+        ;; realm scope (the writes resolve `(frame id)` through *current-realm*).
+        (frame/call-with-realm rid
+          (fn []
+            (frame/replace-app-db! fid {:token "realm-db" :n 7})
+            (frame/replace-runtime-db!
+              fid {:rf.runtime/routing {:current {:handler :tbr67x/home}}})))
+        (let [opts     {:on-create nil
+                        :root-view [:tbr67x/payload-root]
+                        :emit-hash? true
+                        :payload   :rf.ssr.payload/whole-app-db}
+              rendered (frame/call-with-realm rid
+                         (fn [] (#'streaming/render-streaming-shell! fid opts)))]
+          (is (= rid (:realm-id rendered))
+              "render-streaming-shell! captured the non-default realm-id")
+          (let [sb     (StringBuilder.)
+                out    (collecting-output-stream sb)
+                writer (Thread.
+                         ^Runnable
+                         (fn []
+                           ;; The writer must rely solely on the carried
+                           ;; :realm-id — NO ambient realm on this thread.
+                           (assert (nil? frame/*current-realm*))
+                           (@#'streaming/run-streaming-writer! out fid rendered opts)))]
+            (.start writer)
+            (.join writer 10000)
+            (is (not (.isAlive writer)) "the writer thread completed")
+            (let [body    (str sb)
+                  payload (stream-payload-edn body)]
+              (is (some? payload) "the final __rf_payload parsed")
+              (is (= fid (:rf/frame-id payload))
+                  "the payload pins the realm frame's id")
+              ;; THE bug assertion: the projected app-db is the realm frame's
+              ;; seeded value, NOT nil. A writer-thread read without the realm
+              ;; rebinding would resolve the default-realm key (a miss) and
+              ;; ship :rf/app-db nil under the whole-app-db policy.
+              (is (= {:token "realm-db" :n 7} (:rf/app-db payload))
+                  "rf2-tbr67x: the final payload's :rf/app-db is projected from
+                   the NON-DEFAULT realm frame (the writer re-established the
+                   carried realm around build-final-payload)")
+              (is (= {:handler :tbr67x/home}
+                     (get-in payload [:rf/runtime-db :rf.runtime/routing :current]))
+                  "rf2-tbr67x: the final payload's :rf/runtime-db durable slice
+                   is also projected from the realm frame"))))
+        (finally
+          (frame/call-with-realm rid
+            (fn [] (lifecycle/destroy-frame-quietly! fid)))
+          (rf/dispose-realm! rid))))))
+
+(deftest streaming-final-payload-default-realm-unchanged
+  (testing "rf2-tbr67x: the final-payload realm rebinding is a no-op for a
+            DEFAULT-realm frame — a default-realm streamed payload still
+            carries the frame's app-db (the single-realm path is unchanged)."
+    (rf/reg-frame :tbr67x/default-frame {:platform :server})
+    (rf/reg-view* :tbr67x/default-root (fn [] [:main [:h1 "Default payload"]]))
+    (frame/replace-app-db! :tbr67x/default-frame {:token "default-db"})
+    (let [fid      :tbr67x/default-frame
+          opts     {:on-create nil
+                    :root-view [:tbr67x/default-root]
+                    :emit-hash? true
+                    :payload   :rf.ssr.payload/whole-app-db}
+          rendered (#'streaming/render-streaming-shell! fid opts)]
+      (is (contains? #{nil realm/default-realm-id} (:realm-id rendered))
+          "a default-realm frame captures the default realm-id — call-with-realm
+           treats it as the byte-identical no-binding path")
+      (let [sb     (StringBuilder.)
+            out    (collecting-output-stream sb)
+            writer (Thread.
+                     ^Runnable
+                     (fn []
+                       (@#'streaming/run-streaming-writer! out fid rendered opts)))]
+        (.start writer)
+        (.join writer 10000)
+        (is (not (.isAlive writer)) "the writer thread completed")
+        (let [payload (stream-payload-edn (str sb))]
+          (is (= {:token "default-db"} (:rf/app-db payload))
+              "the default-realm streamed payload carries the frame's app-db"))))))
