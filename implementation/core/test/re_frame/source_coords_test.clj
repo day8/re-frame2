@@ -141,7 +141,7 @@
 (deftest source-coords-on-reg-cofx
   (testing "reg-cofx stamps :ns / :line / :file"
     (rf/reg-cofx :rf2-k84s/reg-cofx-sample
-                 (fn [ctx] ctx))
+                 (fn [] :sample))
     (assert-coords (rf/handler-meta :cofx :rf2-k84s/reg-cofx-sample)
                    :cofx :rf2-k84s/reg-cofx-sample)))
 

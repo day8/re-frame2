@@ -109,7 +109,7 @@
 
 (deftest reg-cofx-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-cofx emits a real :file under CLJS"
-    (rf/reg-cofx :rf2-mdjp/reg-cofx-sample (fn [ctx] ctx))
+    (rf/reg-cofx :rf2-mdjp/reg-cofx-sample (fn [] :sample))
     (let [f (:file (rf/handler-meta :cofx :rf2-mdjp/reg-cofx-sample))]
       (is (not= "NO_SOURCE_PATH" f)))))
 

@@ -924,7 +924,7 @@
                (fn [_ _] nil))
 
     ;; ---- :cofx --------------------------------------------------------
-    (rf/reg-cofx :rf2-o1bp/cofx1 (fn [cofx _] cofx))
+    (rf/reg-cofx :rf2-o1bp/cofx1 (fn [] :stub))
 
     ;; ---- :view --------------------------------------------------------
     ;; reg-view* is the JVM-safe registration path. On CLJS it wraps the
