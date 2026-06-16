@@ -777,6 +777,85 @@
         (is (= :dispatch (get-in (first shape-traces) [:tags :offending-key]))
             "the diagnostic names the offending legacy top-level key")))))
 
+(deftest reg-event-bare-app-db-shaped-return-is-effect-map-shape-not-committed
+  (testing "EP-0018 §4 closed-effects contract (rf2-tqrr1d) — a BARE app-db-shaped
+            return (a map of application keys, e.g. `{:count 1}`, NOT wrapped in
+            `{:db …}`) is rejected as `:rf.error/effect-map-shape`
+            (`:recovery :logged-and-skipped`): its application top-level key is
+            FOREIGN to the closed `#{:db :rf.db/runtime :fx}` effect map. This is
+            DISTINCT from the legacy-`:dispatch`-shortcut case (a known v1
+            shortcut id) — it is the db-RETURN convenience the EP-0018 collapse
+            removed (`reg-event-db`'s bare-db return is GONE; the db-write is the
+            explicit `:db` effect). A regression that partially revived the old
+            db-return convenience for application keys — committing `{:count 1}`
+            as app-db, or otherwise avoiding the shape error — passes the existing
+            `{:db …}` positive tier while VIOLATING the closed contract; this
+            lock turns it RED. The lock has two legs: the offending app key emits
+            the shape error, AND app-db is NOT mutated to the bare map"
+    (let [traces (atom [])]
+      (rf/reg-sub :evt-conf/bare-count (fn [db _] (:count db :absent)))
+      ;; Seed app-db with a sentinel so a wrongly-committed bare return is
+      ;; observable (the bare `{:count 1}` would clobber `:count :seeded`).
+      (rf/reg-event :evt-conf/bare-seed! (fn [{:keys [db]} _] {:db (assoc db :count :seeded)}))
+      ;; A handler returning a BARE app-db-shaped map — `:count` is a FOREIGN
+      ;; top-level effect key, NOT the `{:db …}` write effect.
+      (rf/reg-event :evt-conf/bare-db-return (fn [_ _] {:count 1}))
+      (rf/dispatch-sync [:evt-conf/bare-seed!])
+      (rf/register-listener! :evt-conf/bare-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/bare-db-return])
+      (rf/unregister-listener! :evt-conf/bare-recorder)
+      (is (= :seeded @(rf/subscribe [:evt-conf/bare-count]))
+          "the bare `{:count 1}` return was NOT committed as app-db (the db-return convenience is GONE)")
+      (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
+                                       (= :count (get-in % [:tags :offending-key])))
+                                 @traces)]
+        (is (seq shape-traces)
+            "the bare app-db-shaped return's foreign app key emits :rf.error/effect-map-shape naming :count")
+        (is (= :logged-and-skipped (:recovery (first shape-traces)))
+            "the bare-db-return shape diagnostic carries :recovery :logged-and-skipped")))))
+
+(deftest reg-event-app-handler-runtime-effect-keeps-the-diagnostic-unless-framework-authority
+  (testing "EP-0018 §Conformance + EP-0001 (rf2-tqrr1d) — an app-authored
+            `reg-event` handler returning `{:rf.db/runtime …}` keeps the
+            `:rf.warning/app-handler-runtime-effect` diagnostic UNLESS the
+            handler has framework-write authority. `:rf.db/runtime` is the
+            runtime-db partition reserved BY CONVENTION for framework /
+            runtime-extension code (NOT a security boundary — the effect is
+            still applied, `:recovery :warned`); an ordinary app handler emitting
+            it is the dev diagnostic, while a framework-authority handler (the
+            reserved `:rf/framework-authority? true` registration meta) writes it
+            silently. The existing tier only proves `:rf.db/runtime` PRESENT in
+            the coeffects map — this locks the RETURN-side authority guard. A
+            regression that dropped the diagnostic for app handlers (or fired it
+            for framework-authority handlers) turns the respective leg RED. The
+            diagnostic rides the dev trace bus, so observe it via a trace
+            listener filtering on `:operation`"
+    (let [app-traces (atom [])
+          fw-traces  (atom [])]
+      ;; Leg 1 — an APP handler (no authority) returning :rf.db/runtime fires
+      ;; the diagnostic.
+      (rf/reg-event :evt-conf/app-writes-runtime
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/marker :app-wrote}}))
+      (rf/register-listener! :evt-conf/app-runtime-recorder (fn [ev] (swap! app-traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/app-writes-runtime])
+      (rf/unregister-listener! :evt-conf/app-runtime-recorder)
+      (let [warn-traces (filter #(= :rf.warning/app-handler-runtime-effect (:operation %)) @app-traces)]
+        (is (seq warn-traces)
+            "an APP handler returning :rf.db/runtime keeps the :rf.warning/app-handler-runtime-effect diagnostic")
+        (is (= :warned (:recovery (first warn-traces)))
+            "the diagnostic carries :recovery :warned (the effect is still applied — convention, not enforcement)"))
+      ;; Leg 2 — a FRAMEWORK-AUTHORITY handler (the reserved
+      ;; `:rf/framework-authority? true` registration meta) writes :rf.db/runtime
+      ;; WITHOUT the diagnostic.
+      (rf/reg-event :evt-conf/fw-writes-runtime
+        {:rf/framework-authority? true}
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/marker :fw-wrote}}))
+      (rf/register-listener! :evt-conf/fw-runtime-recorder (fn [ev] (swap! fw-traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/fw-writes-runtime])
+      (rf/unregister-listener! :evt-conf/fw-runtime-recorder)
+      (is (empty? (filter #(= :rf.warning/app-handler-runtime-effect (:operation %)) @fw-traces))
+          "a FRAMEWORK-AUTHORITY handler writes :rf.db/runtime silently — NO app-handler-runtime-effect diagnostic"))))
+
 (deftest reg-event-unchanged-db-return-is-a-true-noop
   (testing "EP-0018 §4 (rf2-na5i1z): a `{:db db}` return that re-installs the
             SAME app-db value is a true no-op — app-db is unchanged AND the
