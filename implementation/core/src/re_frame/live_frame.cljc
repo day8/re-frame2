@@ -258,10 +258,16 @@
                    frame concern, image is a behaviour concern (EP-0023 §Image
                    Patching And Overrides).
     :capabilities  the host capability map the image's `:rf.image/requires` is
-                   checked against (optional). When supplied, any required
-                   capability the map does not provide fails loud
-                   (`:rf.error/image-missing-capability`) BEFORE the generation is
-                   returned — the EP-0023 §Public API frame-boundary check.
+                   checked against (optional). The check runs UNCONDITIONALLY at
+                   the frame boundary: any required capability the map does not
+                   provide fails loud (`:rf.error/image-missing-capability`)
+                   BEFORE the generation is returned — the EP-0023 §Public API
+                   frame-boundary check. An ABSENT `:capabilities` map provides
+                   nothing, so an image with a non-empty `:rf.image/requires`
+                   fails just as it would against `{}` (EP-0013 fail-loud
+                   parity); supplying the map is therefore mandatory for any
+                   image that declares requirements. A no-op when the image
+                   requires nothing.
     :adapter       the active-substrate adapter binding/configuration (optional).
                    Carried on the object; the adapter binding is part of the live
                    frame object, never the frame-state value (EP-0023 §Host
@@ -284,11 +290,17 @@
                       (asm/assemble images)
                       (asm/assemble images descriptors))]
      ;; Capability check at the FRAME boundary (EP-0023 §Public API): a required
-     ;; capability absent from the supplied map fails BEFORE the generation is
-     ;; runnable. Only meaningful when capabilities are supplied; the union
-     ;; requires set rides the generation (`:rf.gen/requires`).
-     (when (some? capabilities)
-       (asm/check-capabilities! (:rf.gen/requires generation) capabilities))
+     ;; capability absent from the frame's `:capabilities` fails BEFORE the
+     ;; generation is runnable. The check runs UNCONDITIONALLY so a frame that
+     ;; supplies NO `:capabilities` map still fails any non-empty
+     ;; `:rf.image/requires` — an absent map provides nothing, exactly as
+     ;; `{}` does. This preserves EP-0013's fail-loud install-time capability
+     ;; check (`app_value/check-capabilities!`, which reads an absent realm
+     ;; capability map as `#{}` and fails any unmet requirement) at the new
+     ;; frame boundary; guarding the call on `(some? capabilities)` would let a
+     ;; frame run an image whose requirements were never satisfied. A no-op when
+     ;; the union `:rf.gen/requires` is empty (the common no-requirements path).
+     (asm/check-capabilities! (:rf.gen/requires generation) capabilities)
      (let [frame-object
            (cond-> {object-marker  true
                     generation-key generation}

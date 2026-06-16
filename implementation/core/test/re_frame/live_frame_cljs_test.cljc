@@ -14,7 +14,11 @@
     * a duplicate live `:id` FAILS LOUD (`:rf.error/live-frame-id-conflict`);
     * a direct (no-id) frame object BYPASSES the registry;
     * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`);
-    * the capability frame-boundary check fails loud on a missing capability.
+    * the capability frame-boundary check (rf2-32siq3.6): fails loud on a missing
+      capability; an image with requirements but NO `:capabilities` map fails
+      (the check is unconditional — EP-0013 fail-loud parity); an image with no
+      requirements needs no `:capabilities` map; the multi-image requires UNION
+      is checked as one set at the frame boundary.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -236,3 +240,55 @@
                                counter-pool)]
       (is (lf/frame-object? frame))
       (is (= {:rf.capability/http ::http-impl} (:rf.frame/capabilities frame))))))
+
+(deftest absent-capabilities-map-fails-a-required-image
+  (testing "an image declaring :rf.image/requires but supplied NO :capabilities
+            map fails loud at the frame boundary — an absent map provides
+            nothing (EP-0013 fail-loud parity), so the check is NOT skipped"
+    (let [img (image/image {:id :articles/browser
+                            :include-ns ["examples.counter"]
+                            :rf.image/requires #{:rf.capability/http}})]
+      (is (= :rf.error/image-missing-capability
+             (err-id #(lf/make-frame {:id :articles/main
+                                      :images [img]}
+                                     counter-pool)))
+          "no :capabilities key at all still fails the non-empty requires")
+      (testing "the frame id was NOT registered (creation aborted before insert)"
+        (is (not (contains? (lf/live-frame-ids) :articles/main)))))))
+
+(deftest no-requirements-needs-no-capabilities-map
+  (testing "an image with empty/absent :rf.image/requires creates a frame with
+            NO :capabilities map — the unconditional check is a no-op when the
+            generation requires nothing"
+    (let [img   (image/image {:include-ns ["examples.counter"]})
+          frame (lf/make-frame {:images [img]} counter-pool)]
+      (is (lf/frame-object? frame))
+      (is (= #{} (:rf.gen/requires (lf/frame-generation frame))))
+      (is (not (contains? frame :rf.frame/capabilities))
+          "no :capabilities supplied → the slot is absent on the object"))))
+
+(deftest multi-image-requires-union-checked-at-the-frame-boundary
+  (testing "two images each declaring a distinct capability: the frame's
+            generation carries the UNION, and the :capabilities map must satisfy
+            ALL of it or creation fails loud"
+    (let [pool  [(reg-desc "examples.counter" :event :counter/inc ::inc)
+                 (reg-desc "examples.cart"    :event :cart/add    ::add)]
+          img-a (image/image {:id :counter/img :include-ns ["examples.counter"]
+                              :rf.image/requires #{:rf.capability/http}})
+          img-b (image/image {:id :cart/img :include-ns ["examples.cart"]
+                              :rf.image/requires #{:rf.capability/schemas}})]
+      (testing "a :capabilities map satisfying only ONE image fails the union"
+        (is (= :rf.error/image-missing-capability
+               (err-id #(lf/make-frame {:images [img-a img-b]
+                                        :capabilities {:rf.capability/http ::http-impl}}
+                                       pool)))))
+      (testing "a :capabilities map satisfying the FULL union creates the frame,
+                and the union rides the generation"
+        (let [frame (lf/make-frame
+                      {:images [img-a img-b]
+                       :capabilities {:rf.capability/http    ::http-impl
+                                      :rf.capability/schemas ::schemas}}
+                      pool)]
+          (is (lf/frame-object? frame))
+          (is (= #{:rf.capability/http :rf.capability/schemas}
+                 (:rf.gen/requires (lf/frame-generation frame)))))))))
