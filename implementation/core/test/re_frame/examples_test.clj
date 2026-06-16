@@ -385,7 +385,7 @@
             with the :rf/app-db slice"
     (require 'ssr.core :reload)
     (rf/init! ssr/adapter)
-    (let [client-frame (rf/make-frame {:doc "ssr-example client frame"
+    (let [client-frame (frame/make-frame {:doc "ssr-example client frame"
                                        :platform :client})
           payload      {:rf/version     1
                         :rf/render-hash "abc12345"
@@ -407,7 +407,7 @@
             payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
     (require 'ssr.core :reload)
     (rf/init! ssr/adapter)
-    (let [client-frame (rf/make-frame {:doc "ssr-example verify-match frame"
+    (let [client-frame (frame/make-frame {:doc "ssr-example verify-match frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
           client-tree  [:div.page [:h1 "Recent articles"]]
@@ -429,7 +429,7 @@
             (the verify step the example's `run` wires via :render-tree-fn)"
     (require 'ssr.core :reload)
     (rf/init! ssr/adapter)
-    (let [client-frame (rf/make-frame {:doc "ssr-example verify-divergent frame"
+    (let [client-frame (frame/make-frame {:doc "ssr-example verify-divergent frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
           payload      {:rf/version 1
@@ -452,7 +452,7 @@
             validate fail-closed before installation)"
     (require 'ssr.core :reload)
     (rf/init! ssr/adapter)
-    (let [client-frame (rf/make-frame {:doc "ssr-example fail-closed frame"
+    (let [client-frame (frame/make-frame {:doc "ssr-example fail-closed frame"
                                        :platform :client})]
       ;; Seed a known app-db value first so we can prove it survives.
       (rf/dispatch-sync [:articles/loaded {:value [{:id "keep" :title "Keep" :body "b"}]}]
@@ -734,7 +734,7 @@
       ;; Full drain: registers the machine, dispatches into it, asserts the
       ;; app-db landed at :authed. Uses the `:fx-overrides` seam to swap
       ;; `:rf.http/managed` for the per-test canned-success stub.
-      (let [f (rf/make-frame {:fx-overrides {:rf.http/managed :auth.login/canned-success}})]
+      (let [f (frame/make-frame {:fx-overrides {:rf.http/managed :auth.login/canned-success}})]
         (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                               {:email "a@b.com"
                                                :password "secret"}]]
@@ -747,7 +747,7 @@
       ;; a fourth :submit fails the guard and lands at :locked-out. Uses
       ;; `rf/with-fx-overrides` — the lexical-scope counterpart to the
       ;; per-frame `:fx-overrides` opt on `make-frame`.
-      (let [f (rf/make-frame {})]
+      (let [f (frame/make-frame {})]
         (rf/with-fx-overrides {:rf.http/managed :auth.login/canned-failure}
           (dotimes [_ 3]
             (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
