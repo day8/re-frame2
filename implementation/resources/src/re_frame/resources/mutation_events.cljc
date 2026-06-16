@@ -78,13 +78,15 @@
 
 ;; ---- durable timestamps ---------------------------------------------------
 ;;
-;; EP-0010 / EP-0017: every durable mutation timestamp is a recordable coeffect
-;; — the instance / work-ledger `:started-at` is the `:rf.mutation/execute`
+;; EP-0010 / EP-0017: every durable mutation timestamp is a recordable coeffect,
+;; DECLARED via `:rf.cofx/requires [:rf/time-ms]` and consumed FLAT from the
+;; coeffects map (rf2-601ife — not reached through the whole `:rf.cofx` token).
+;; The instance / work-ledger `:started-at` is the `:rf.mutation/execute`
 ;; token's `:rf/time-ms` (rf2-dsyqmz); the terminal `:settled-at` + any patch /
 ;; populate `:loaded-at` is the reply token's completion time (`:completed-at`,
-;; carried on the reply event's `:rf.cofx`, rf2-40dqi6 / rf2-r65m41). No
-;; ambient clock is read at a durable write site, so this ns no longer defines
-;; a `now-ms` helper (the remaining timer DELAYS are advisory host transients
+;; the reply event's causal `:rf/time-ms`, rf2-40dqi6 / rf2-r65m41). No ambient
+;; clock is read at a durable write site, so this ns no longer defines a
+;; `now-ms` helper (the remaining timer DELAYS are advisory host transients
 ;; computed from the durable absolute timestamps).
 
 (defn- stale-at-for
@@ -1037,7 +1039,7 @@
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
-    cofx :rf.cofx, app-db :db}
+    time-ms :rf/time-ms, app-db :db}
    [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
@@ -1089,13 +1091,14 @@
         ;; would collide on a bare work-id and abort/supersede each other's
         ;; in-flight write. Qualifying with the frame id isolates them.
         request-id (work-ledger/managed-request-id frame-id work-id)
-        ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
-        ;; `:rf.mutation/execute` writes the durable instance + work-ledger
-        ;; `:started-at` from the TRIGGERING TOKEN'S `:time-ms` (the causal
-        ;; world input the router stamped once at the dispatch boundary), NOT
-        ;; an ambient clock read in the reducer. Replay-stable: the same
-        ;; execute token mints the same `:started-at`.
-        started-at (:rf/time-ms cofx)
+        ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps + EP-0017
+        ;; declared-only delivery (rf2-601ife): `:rf.mutation/execute` writes the
+        ;; durable instance + work-ledger `:started-at` from the TRIGGERING
+        ;; TOKEN'S causal `:rf/time-ms` (DECLARED via `:rf.cofx/requires`,
+        ;; consumed FLAT — not reached through the `:rf.cofx` token), NOT an
+        ;; ambient clock read in the reducer. Replay-stable: the same execute
+        ;; token mints the same `:started-at`.
+        started-at time-ms
         transport-id (or (:transport spec) transport/default-transport)
         ;; the mutation's :request returns the Spec 014 managed-HTTP args
         ;; (the causal write); the runtime owns reply addressing.
@@ -1502,18 +1505,20 @@
   (the instance-layer spelling — kh9jz6 / EP-0007).
 
   Event shape: `[_ <verification-payload> <http-result>]`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx, app-db :db}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms, app-db :db}
    [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
   (let [where      'rf.mutation.internal/succeeded
         runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
-        ;; And Work-Ledger Timestamps: the reply is a CAUSAL TOKEN; the host
-        ;; completion time (`:completed-at`, read ONCE at the transport
-        ;; finalisation boundary) rides the reply event's `:rf.cofx`
-        ;; `:rf/time-ms`. The handler MUST NOT re-read the clock. It carries onto
-        ;; the canonical reply as `:completed-at` and is the source of the
+        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery
+        ;; (rf2-601ife): the reply is a CAUSAL TOKEN; the host completion time
+        ;; (`:completed-at`, read ONCE at the transport finalisation boundary)
+        ;; rides the reply event's causal `:rf/time-ms`, DECLARED via
+        ;; `:rf.cofx/requires` and consumed FLAT here. The handler MUST NOT
+        ;; re-read the clock NOR reach through the `:rf.cofx` token. It carries
+        ;; onto the canonical reply as `:completed-at` and is the source of the
         ;; terminal `:settled-at` + any patch/populate `:loaded-at`.
-        completed-at (:rf/time-ms cofx)
+        completed-at time-ms
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. The internal mutation reply
         ;; target receives it directly; the decoded result is `:value`.
@@ -1779,18 +1784,19 @@
   `:error` stores) is read back from the canonical reply.
 
   Event shape: `[_ <verification-payload> <http-result>]`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx, app-db :db}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms, app-db :db}
    [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
   (let [where      'rf.mutation.internal/failed
         runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
-        ;; And Work-Ledger Timestamps: a terminal mutation reply writes
-        ;; `:settled-at` from the reply completion time. The host
-        ;; `:completed-at` (read ONCE at the transport finalisation boundary)
-        ;; rides the reply event's `:rf.cofx` `:rf/time-ms`; the handler
-        ;; MUST NOT re-read the clock. Carried onto the canonical reply as
-        ;; `:completed-at`.
-        completed-at (:rf/time-ms cofx)
+        ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery
+        ;; (rf2-601ife): a terminal mutation reply writes `:settled-at` from the
+        ;; reply completion time. The host `:completed-at` (read ONCE at the
+        ;; transport finalisation boundary) rides the reply event's causal
+        ;; `:rf/time-ms`, DECLARED via `:rf.cofx/requires` and consumed FLAT
+        ;; here; the handler MUST NOT re-read the clock NOR reach through the
+        ;; `:rf.cofx` token. Carried onto the canonical reply as `:completed-at`.
+        completed-at time-ms
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. `:error` carries the closed
         ;; `:rf.http/*` envelope the instance `:error` also stores.

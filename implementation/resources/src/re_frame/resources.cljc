@@ -357,18 +357,39 @@
            timers/cancel-poll-timers-meta
            timers/cancel-poll-timers-handler)
 
+;; EP-0017: a time-consuming resource / mutation handler DECLARES the
+;; framework-stamped causal-time fact `:rf/time-ms` via `:rf.cofx/requires`
+;; (rf2-601ife). Under EP-0017 declared-only delivery the runtime stages
+;; EXACTLY the facts a handler declares, FLAT in the coeffects map — nothing
+;; implicit, including `:rf/time-ms` (re-frame.cofx ns docstring; the router
+;; stamps it on the dispatch envelope's `:rf.cofx`, but the handler only
+;; SEES it if it declares it). The handlers read the delivered flat
+;; `(:rf/time-ms coeffects)` for their replay-relevant freshness decisions and
+;; durable timestamps (fresh-skip / `:started-at` / `:invalidated-at` /
+;; `:completed-at` → `:loaded-at` / `:settled-at` / stale-timer re-check) — NOT
+;; through the whole `:rf.cofx` token. Declaring it also makes `handler-meta`
+;; expose the time requirement so strict replay + tooling can see the
+;; dependency. `:rf/time-ms` is the framework's ONE built-in recordable+provided
+;; cofx (re-frame.cofx); it is registered, so a declaration is never the
+;; `:rf.error/unregistered-cofx` typo case.
+(def ^:private time-meta
+  (assoc framework-authority-meta
+         :rf.cofx/requires [:rf/time-ms]))
+
 ;; EP-0017: the load-causing events (ensure / refetch / mutation execute)
-;; DECLARE the RECORDABLE generation-allocation cofx via `:rf.cofx/requires`
-;; (rf2-abyycr). Their handlers read the recorded allocation FLAT under
-;; `:coeffects :rf.resource/generation-allocation` (`{:generation N :counter
-;; N}`) and write only the `:generation` value durably — they no longer
-;; re-mint `(inc snapshot)` from an ambient read at the write site. The
-;; allocation is recorded on the token (generator-backed recordable cofx) so
-;; replay reproduces an identical generation; the host high-water advances via
-;; the `:rf.resource/commit-generation` fx (`max`).
+;; DECLARE the RECORDABLE generation-allocation cofx AND the framework-stamped
+;; `:rf/time-ms` via `:rf.cofx/requires` (rf2-abyycr / rf2-601ife). Their
+;; handlers read the recorded allocation FLAT under `:coeffects
+;; :rf.resource/generation-allocation` (`{:generation N :counter N}`) and the
+;; causal time FLAT under `:coeffects :rf/time-ms` — they no longer re-mint
+;; `(inc snapshot)` from an ambient read NOR reach through the whole `:rf.cofx`
+;; token for the time fact. The allocation is recorded on the token
+;; (generator-backed recordable cofx) so replay reproduces an identical
+;; generation; the host high-water advances via the
+;; `:rf.resource/commit-generation` fx (`max`).
 (def ^:private generation-meta
   (assoc framework-authority-meta
-         :rf.cofx/requires [:rf.resource/generation-allocation]))
+         :rf.cofx/requires [:rf.resource/generation-allocation :rf/time-ms]))
 
 ;; Public resource events (map payloads). Per Spec 016 §Events.
 (events/reg-event :rf.resource/ensure
@@ -377,8 +398,10 @@
 (events/reg-event :rf.resource/refetch
                      generation-meta
                      resource-events/refetch-handler)
+;; EP-0017 (rf2-601ife): `invalidate-tags` writes the durable `:invalidated-at`
+;; fact from the event's causal `:rf/time-ms`, so it declares the time cofx.
 (events/reg-event :rf.resource/invalidate-tags
-                     framework-authority-meta
+                     time-meta
                      resource-events/invalidate-tags-handler)
 (events/reg-event :rf.resource/release-owner
                      framework-authority-meta
@@ -400,26 +423,36 @@
 ;; themselves (only `:rf.resource/refetch` dispatches), but carry the
 ;; framework-authority stamp for family uniformity. User code MUST NOT
 ;; dispatch them directly.
+;; EP-0017 (rf2-601ife): the focus / reconnect scans make a replay-relevant
+;; active-stale SELECTION against the token's causal `:rf/time-ms`, so they
+;; declare the time cofx (the scan writes nothing durable itself, but a
+;; replayed signal must SELECT the same set the recorded time dictated).
 (events/reg-event :rf.resource/window-focused
-                     framework-authority-meta
+                     time-meta
                      resource-events/window-focused-handler)
 (events/reg-event :rf.resource/network-reconnected
-                     framework-authority-meta
+                     time-meta
                      resource-events/network-reconnected-handler)
 
 ;; Framework-internal reply handlers. Per Spec 016 §Events / §Transport.
 ;; User code MUST NOT dispatch these.
+;; EP-0017 (rf2-601ife / rf2-rl27r2): the reply + stale-timer handlers consume
+;; the reply / timer token's causal `:rf/time-ms` — succeeded → durable
+;; `:loaded-at` / `:stale-at`; failed + aborted → the canonical reply's
+;; `:completed-at` (rf2-rl27r2 — failure / cancellation replies now carry it,
+;; symmetric with success + mutation); stale-fired → a replay-stable freshness
+;; re-check. Each declares the time cofx so the fact is delivered flat.
 (events/reg-event :rf.resource.internal/succeeded
-                     framework-authority-meta
+                     time-meta
                      resource-events/succeeded-handler)
 (events/reg-event :rf.resource.internal/failed
-                     framework-authority-meta
+                     time-meta
                      resource-events/failed-handler)
 (events/reg-event :rf.resource.internal/aborted
-                     framework-authority-meta
+                     time-meta
                      resource-events/aborted-handler)
 (events/reg-event :rf.resource.internal/stale-fired
-                     framework-authority-meta
+                     time-meta
                      resource-events/stale-fired-handler)
 (events/reg-event :rf.resource.internal/gc-fired
                      framework-authority-meta
@@ -459,11 +492,15 @@
 (events/reg-event :rf.mutation/clear
                      framework-authority-meta
                      mutation-events/clear-handler)
+;; EP-0017 (rf2-601ife): the mutation reply handlers consume the reply token's
+;; causal `:rf/time-ms` for the canonical reply's `:completed-at` → the durable
+;; instance `:settled-at` + any patch / populate `:loaded-at`, so they declare
+;; the time cofx (success + failure both, symmetric).
 (events/reg-event :rf.mutation.internal/succeeded
-                     framework-authority-meta
+                     time-meta
                      mutation-events/succeeded-handler)
 (events/reg-event :rf.mutation.internal/failed
-                     framework-authority-meta
+                     time-meta
                      mutation-events/failed-handler)
 
 ;; Passive mutation subs. Per EP-0003 §Mutations.
