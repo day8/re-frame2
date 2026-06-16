@@ -99,6 +99,26 @@
         (is (= 1 (count removals)))
         (is (= {:before-index 1 :before-value :b} (first removals)))))))
 
+(deftest r6-vector-scattered-remove-shifted-was-index
+  (testing "rf2-1njv97 — a SCATTERED (multi-element) removal must report the
+            TRUE before-index in the `(was N)` suffix. `[:a :b :c :d] →
+            [:a :c]` drops :b (before-idx 1) and :d (before-idx 3); the
+            surviving :c sits at after-index 1 and WAS at before-index 2.
+            The pre-fix deletes-shift fixed-point inferred before-idx 3 here
+            (counting both deletes as ≤-cursor) — the regression this guards."
+    (let [before [:a :b :c :d]
+          after  [:a :c]
+          p (engine/project before after)]
+      ;; After-index 0 = :a (unchanged at before-idx 0, no suffix).
+      ;; After-index 1 = :c, which was at before-index 2.
+      (is (= :same-shifted (engine/op-at p [1])))
+      (is (= 2 (engine/shifted-was-index p [1]))
+          "surviving :c must report `(was 2)`, not `(was 3)`")
+      ;; The :vector-removals channel stays correct (it already replayed).
+      (is (= [{:before-index 1 :before-value :b}
+              {:before-index 3 :before-value :d}]
+             (get-in p [:vector-removals []]))))))
+
 ;; ---- R7 type change -----------------------------------------------------
 
 (deftest r7-scalar-to-container

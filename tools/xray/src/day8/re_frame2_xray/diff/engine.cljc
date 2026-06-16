@@ -399,70 +399,83 @@
   `{after-index was-before-index}` for every after-element whose
   identity moved positionally (op `:same-shifted`).
 
-  The logic walks the after-vector left→right, replaying each edit in
-  before-index order to maintain a running `(before-cursor, after-cursor)`
-  pair. Every after-position that the edit script LEFT ALONE moves by
-  exactly `(inserts-so-far - deletes-so-far)`; positions with edits
-  (`:+` / `:r`) are skipped because they classify under :added /
-  :modified, not :same-shifted."
-  [after-len edits-at-this-vector]
-  (let [;; Normalise edits to {idx, kind} sorted by idx ascending. We
-        ;; need the chronological order along the after-vector to
-        ;; compute the running shift offset. `:+` edits are keyed by
-        ;; their AFTER-index; `:-` edits are keyed by their BEFORE-
-        ;; index. `:r` edits sit at a shared index (same in both
-        ;; vectors) by Editscript's structure-preserving guarantee.
-        insert-idxs  (->> edits-at-this-vector
-                          (filter (fn [edit] (= :+ (second edit))))
-                          (map (fn [edit] (peek (first edit))))
-                          (sort)
-                          vec)
-        delete-idxs  (->> edits-at-this-vector
-                          (filter (fn [edit] (= :- (second edit))))
-                          (map (fn [edit] (peek (first edit))))
-                          (sort)
-                          vec)
-        replace-idxs (->> edits-at-this-vector
-                          (filter (fn [edit] (= :r (second edit))))
-                          (map (fn [edit] (peek (first edit))))
-                          (into #{}))
-        ;; Skip after-indices that ARE edits themselves.
-        skip-after?  (fn [after-idx]
-                       (or (contains? (set insert-idxs) after-idx)
-                           (contains? replace-idxs after-idx)))
-        ;; Count inserts ≤ after-idx.
-        inserts-at-or-before
-        (fn [after-idx] (count (filter (fn [i] (<= i after-idx)) insert-idxs)))]
-    (reduce
-      (fn [acc after-idx]
-        (if (skip-after? after-idx)
+  The logic REPLAYS the edit script against a live `survivors` list of
+  ORIGINAL before-indices — the same technique `resolve-vector-removals`
+  (rf2-yucxn) uses for the removals channel. This is mandatory because
+  Editscript emits `:-` edits at POST-shift indices applied SEQUENTIALLY
+  against a shrinking vector — they are NOT stable before-indices. The
+  pre-fix `delete-idxs ≤ cursor` fixed-point (rf2-1njv97) mis-read those
+  post-shift indices as before-indices and over-counted deletes for any
+  scattered/multi-element removal (`[:a :b :c :d] → [:a :c]` reported the
+  surviving `:c` as `(was 3)` instead of `(was 2)`; the single-delete case
+  worked only by coincidence).
+
+  Replay procedure:
+    1. `survivors` starts as `(range before-len)` — every before-index.
+    2. Apply each `:-` in Editscript order: edit-index `i` removes the
+       element CURRENTLY at `survivors[i]` (post-shift), shrinking the list.
+       What remains are the before-indices of all surviving elements, in
+       after-order.
+    3. Splice each `:+` (keyed by AFTER-index, ascending) into the survivor
+       list as a `nil` insert-marker, so the list aligns 1:1 with the
+       after-vector by index.
+  The resulting `slots` vector maps `after-index → original before-index`
+  (or `nil` for an inserted slot). Positions with edits (`:+` / `:r`) are
+  skipped from the output because they classify under :added / :modified,
+  not :same-shifted; an after-index whose before-index equals it (no move)
+  is likewise omitted."
+  [before-len edits-at-this-vector]
+  (let [;; `:+` edits are keyed by their AFTER-index; `:-` edits carry
+        ;; POST-shift edit-indices in Editscript order (NOT before-indices);
+        ;; `:r` edits sit at a shared, surviving index.
+        delete-edit-idxs (->> edits-at-this-vector
+                              (filter (fn [edit] (= :- (second edit))))
+                              (mapv (fn [edit] (peek (first edit)))))
+        insert-idxs      (->> edits-at-this-vector
+                              (filter (fn [edit] (= :+ (second edit))))
+                              (map (fn [edit] (peek (first edit))))
+                              (sort)
+                              vec)
+        replace-idxs     (->> edits-at-this-vector
+                              (filter (fn [edit] (= :r (second edit))))
+                              (map (fn [edit] (peek (first edit))))
+                              (into #{}))
+        ;; Step 1+2 — replay the `:-` deletes against the survivor list of
+        ;; original before-indices, removing the post-shift slot each time.
+        survivors-after-deletes
+        (loop [survivors  (vec (range before-len))
+               [i & more] delete-edit-idxs]
+          (if (nil? i)
+            survivors
+            (recur (if (and (>= i 0) (< i (count survivors)))
+                     (into (subvec survivors 0 i)
+                           (subvec survivors (inc i)))
+                     ;; Defensive: a malformed out-of-range edit-index is
+                     ;; skipped rather than crashing the projection.
+                     survivors)
+                   more)))
+        ;; Step 3 — splice insert-markers (nil) at each `:+` after-index so
+        ;; the slot vector aligns position-for-position with the after-vector.
+        slots
+        (reduce (fn [acc after-idx]
+                  (let [after-idx (min after-idx (count acc))]
+                    (into (conj (subvec acc 0 after-idx) nil)
+                          (subvec acc after-idx))))
+                survivors-after-deletes
+                insert-idxs)
+        insert-set (set insert-idxs)]
+    ;; Emit `{after-index before-index}` only for surviving (non-edit) slots
+    ;; whose position actually moved.
+    (reduce-kv
+      (fn [acc after-idx before-idx]
+        (if (or (nil? before-idx)                  ; inserted slot → :added
+                (contains? insert-set after-idx)
+                (contains? replace-idxs after-idx) ; replaced slot → :modified
+                (= after-idx before-idx))          ; unmoved → no suffix
           acc
-          (let [;; Each `:+` at index ≤ after-idx shifts the after-
-                ;; index up by 1 from the before-cursor. Each `:-`
-                ;; at index ≤ before-cursor shifts the before-cursor
-                ;; up. We solve by binary-friendly subtraction:
-                ;; before-idx ≈ after-idx - inserts-so-far + deletes-
-                ;; so-far. Compute fixed-point by walking deletes.
-                inserts-so-far (inserts-at-or-before after-idx)
-                ;; First-cut: ignore deletes (the simple insert case).
-                tentative-before (- after-idx inserts-so-far)
-                ;; Then add the count of deletes whose before-index is
-                ;; ≤ the inferred before-cursor — those slots were
-                ;; cleared out from the before-vector before this row.
-                deletes-shift
-                (loop [seen 0
-                       cursor tentative-before]
-                  (let [n (count (filter (fn [i] (<= i cursor)) delete-idxs))]
-                    (if (= n seen)
-                      seen
-                      (recur n (+ tentative-before n)))))
-                inferred-before (+ tentative-before deletes-shift)]
-            (if (and (>= inferred-before 0)
-                     (not= after-idx inferred-before))
-              (assoc acc after-idx inferred-before)
-              acc))))
+          (assoc acc after-idx before-idx)))
       {}
-      (range after-len))))
+      (vec slots))))
 
 (defn- group-edits-by-vector-parent
   "Group all edits by their parent path WHEN the parent is a vector.
@@ -960,12 +973,15 @@
           shift-suffix
           (reduce
             (fn [acc [parent-path edits]]
-              (let [parent-val (value-at after parent-path)
-                    n (cond
-                        (vector? parent-val)     (count parent-val)
-                        (sequential? parent-val) (count parent-val)
-                        :else 0)
-                    shifts (shift-suffixes-for-vector n edits)]
+              (let [;; The shift replay reconstructs survivor before-indices
+                    ;; from the BEFORE-side length (rf2-1njv97); the after
+                    ;; length is recoverable from the slot vector itself.
+                    before-val (value-at before parent-path)
+                    before-len (cond
+                                 (vector? before-val)     (count before-val)
+                                 (sequential? before-val) (count before-val)
+                                 :else 0)
+                    shifts (shift-suffixes-for-vector before-len edits)]
                 (reduce-kv
                   (fn [acc' after-idx before-idx]
                     (assoc acc' (conj (vec parent-path) after-idx) before-idx))

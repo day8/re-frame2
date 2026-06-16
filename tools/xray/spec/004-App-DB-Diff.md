@@ -276,6 +276,16 @@ first — reporting one before-value repeatedly and dropping the rest.
 The replay recovers the true before-index + before-value for every
 removed element regardless of contiguity or multiplicity.
 
+The `:same-shifted` **shift-suffix projection uses the same replay**
+(rf2-1njv97): the `(was N)` before-index of a surviving element is the
+original index left in the survivor list once the `:-` edits have been
+replayed (and the `:+` insert-markers spliced in), *not* an arithmetic
+`after-index − inserts + deletes` count. Treating the post-shift `:-`
+edit-indices as before-indices over-counted deletes for scattered /
+multi-element removals (`[:a :b :c :d] → [:a :c]` reported the surviving
+`:c` as `(was 3)` instead of `(was 2)`); the single-delete case lined up
+only by coincidence.
+
 > **Renderer note (rf2-vu42n, fixed).** The inline vector / list / seq
 > body renderer **consumes** this `:vector-removals` channel (plus the
 > `:same-shifted` shift projection) via `sequential-diff-children`,
