@@ -236,8 +236,23 @@
 (events/reg-event :rf/url-requested
                      url-requested-meta
                      can-leave/url-requested-handler)
+;; EP-0015 (rf2-jfaucw): the runtime dispatches `[:rf.route/navigation-blocked
+;; pending-nav]` on every block, carrying the pending-nav map as the event
+;; arg. That map carries route CARRIERS — `:requested-url` (a target URL with
+;; potential `?token=…` / `#access_token=…`) and `:requested-by-event` (the
+;; full original nav event vector, whose args can carry params/query secrets).
+;; The dispatched-event TRACE (`:rf.event/dispatched` `:rf.event/v`, and the
+;; bare `:event` slot on any error trace) is an egress surface the
+;; per-registration marks chokepoint walks: declare those two carrier slots
+;; `:sensitive` (paths rooted at the arg-map — the pending-nav map) so
+;; `re-frame.marks/project-event-tags` redacts them to `:rf/redacted` on the
+;; trace egress copy. The handler / pending-nav sub still see the raw map
+;; in-process (marks touch only the trace tags), so continue/cancel resume
+;; behaviour is unaffected; the durable runtime-db slot's off-box epoch egress
+;; is already fail-closed by the redact-whole-runtime-db default (ruling #14).
 (events/reg-event :rf.route/navigation-blocked
-                     framework-authority-meta
+                     (assoc framework-authority-meta
+                            :sensitive [[:requested-url] [:requested-by-event]])
                      can-leave/navigation-blocked-handler)
 (events/reg-event :rf.route/continue
                      framework-authority-meta

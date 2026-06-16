@@ -203,8 +203,21 @@
     [:rf.nav/capture-scroll {:url url}]))
 
 (def capture-scroll-meta
-  "Metadata for the `:rf.nav/capture-scroll` fx registration."
+  "Metadata for the `:rf.nav/capture-scroll` fx registration.
+
+  EP-0015 (rf2-1wmni6 / rf2-pbbo68): the args carry `{:url ...}` — a
+  reconstructed route URL whose query/fragment are carrier-shaped values
+  (`?token=…`, `#access_token=…`). The core fx trace surface records
+  `:rf.fx/args` verbatim onto `:rf.fx/handled` (and the JVM
+  `:rf.fx/skipped-on-platform` branch echoes `:url`), so the URL would
+  otherwise reach the trace bus / Xray / MCP / epoch egress raw. The
+  `:sensitive` path-mark declares `[:url]` so the marks chokepoint
+  (`re-frame.marks/project-trace-event` via `re-frame.trace/build-event`)
+  redacts it to `:rf/redacted` on the EGRESS copy — the handler still
+  receives the real URL in-process (the projection touches only the trace
+  tags, never the handler input), so scroll capture keeps working."
   {:platforms #{:client}
+   :sensitive [[:url]]
    :doc       "Capture the current browser scroll position into the
 host-side per-frame transient scroll-position cache (keyed by url)
 before leaving a route. The cache is NOT runtime-db state and does not
@@ -237,8 +250,31 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
                   {:rf.fx/id :rf.nav/capture-scroll :url url})))
 
 (def scroll-fx-meta
-  "Metadata for the `:rf.nav/scroll` fx registration."
+  "Metadata for the `:rf.nav/scroll` fx registration.
+
+  EP-0015 (rf2-1wmni6 / rf2-pbbo68): the args carry `:from` / `:to` route
+  DESCRIPTORS (each `{:id :params :query}`) and a `:fragment` — all
+  carrier-shaped (route params can be document-ids / tokens; a `#fragment`
+  can be an OAuth implicit-grant token). The core fx trace records
+  `:rf.fx/args` verbatim onto `:rf.fx/handled`, so these would reach the
+  trace bus / Xray / MCP / epoch egress raw. The `:sensitive` path-marks
+  declare `[:from :params]` / `[:from :query]` / `[:to :params]` /
+  `[:to :query]` / `[:fragment]` so the marks chokepoint redacts them to
+  `:rf/redacted` on the EGRESS copy. This is invisible to the handler:
+  `scroll-fx-handler` reads ONLY `:strategy` / `:saved-pos` / `:fragment`
+  and never touches `:from` / `:to`, and the marks projection runs in
+  `build-event` on the trace tags AFTER the handler already received the
+  real args — so scroll restoration / fragment scrolling are unaffected.
+  The route `:id` keyword is kept (it names the shape, carries no secret).
+  Marks are unconditional path declarations (the canonical EP-0015 fx-args
+  mechanism) — route params/query/fragment are always carrier-shaped, so a
+  blanket trace scrub of those slots is the correct posture rather than a
+  per-route schema decision (which the fx layer cannot make — it does not
+  carry the matched route's schema)."
   {:platforms #{:client}
+   :sensitive [[:from :params] [:from :query]
+               [:to :params]   [:to :query]
+               [:fragment]]
    :doc       "Per Spec 012 §Scroll restoration. Args: {:strategy :from
 :to :saved-pos :fragment}. Standard strategies are :top, :restore,
 :preserve. Map-form strategies are host-extensible; the runtime treats

@@ -29,7 +29,8 @@
 
   Internal namespace; the public facade is `re-frame.routing`. Per the
   rf2-2yabr cohesion split convention: NAVIGATION-PLAN seam."
-  (:require [re-frame.routing.events :as routing-events]
+  (:require [re-frame.routing.egress :as egress]
+            [re-frame.routing.events :as routing-events]
             [re-frame.routing.scroll :as scroll]
             [re-frame.trace :as trace]))
 
@@ -184,7 +185,18 @@
 
   Each intent is `[:emit level op tags]`."
   [{:keys [throw-reason malformed? no-not-found? url frame]}]
-  (let [tag (fn [base] (cond-> base frame (assoc :frame frame)))]
+  (let [;; EP-0015 (rf2-n1f4rh): these are route-MISS / malformed-URL
+        ;; diagnostics — there is NO matched route and therefore NO
+        ;; `:params` / `:query` schema to consult, yet the requested URL is
+        ;; the class most likely to carry secret material (`?token=…`,
+        ;; `?code=…`, `#access_token=…`). Redact the query/fragment carrier
+        ;; VALUES (keeping the structured path) BEFORE the warning crosses
+        ;; the trace bus / Xray / MCP / log / SSR-projection egress boundary.
+        ;; Default-on scrub (no schema to target) — the no-schema analogue of
+        ;; `navigate/redact-route-error-tags`.
+        tag (fn [base] (-> base
+                           (cond-> frame (assoc :frame frame))
+                           egress/redact-url-tag))]
     (cond-> []
       throw-reason
       (conj [:emit :warning :rf.warning/malformed-url
