@@ -1235,6 +1235,9 @@
                  overlays
                  machine-data
                  machine-data-inferred?
+                 machine-data-sensitive
+                 machine-data-large
+                 machine-data-raw?
                  fit-signal
                  testid]
           :or   {direction         :tb
@@ -1244,6 +1247,14 @@
                  show-minimap?     false
                  show-controls?    true
                  show-background?  true
+                 ;; rf2-27e38h (EP-0015) — Context-band egress defaults:
+                 ;; local-redacted ON (raw? false), empty classification
+                 ;; sets. A host feeding live `:data` declares the
+                 ;; sensitive/large slots; the value-free type-caption
+                 ;; production feeder is a redaction no-op.
+                 machine-data-sensitive #{}
+                 machine-data-large     #{}
+                 machine-data-raw?      false
                  ;; rf2-5tz9p — the Context panel's sole production feeder is
                  ;; the static INFERRED shape (Xray's `static-context-shape`,
                  ;; key→type-caption). Default the inferred badge ON so the
@@ -1554,7 +1565,12 @@
                             fired-edge-id-set guard-blocked-edge-id-set
                             sim? callback edge-callback
                             density theme
-                            machine-id machine-data machine-data-inferred?]
+                            machine-id machine-data machine-data-inferred?
+                            ;; rf2-27e38h — a change in the Context-band
+                            ;; egress classification / raw opt-in must
+                            ;; rebuild the projected band display.
+                            machine-data-sensitive machine-data-large
+                            machine-data-raw?]
                 {:keys [js-nodes js-edges]}
                 (project+convert!
                   cache-key
@@ -1601,7 +1617,17 @@
                                ;; corner-pinned title strip + Context overlay).
                                :machine-id        machine-id
                                :machine-data      machine-data
-                               :machine-data-inferred? machine-data-inferred?})))
+                               :machine-data-inferred? machine-data-inferred?
+                               ;; rf2-27e38h (EP-0015) — local-redacted
+                               ;; Context-band egress contract. The band is
+                               ;; serialised into SVG/PNG/clipboard, so live
+                               ;; `:data` values are redacted by default; the
+                               ;; host declares which slots are sensitive/large
+                               ;; (from the machine's `:data-schema`) and may
+                               ;; opt into raw via `:machine-data-raw?`.
+                               :machine-data-sensitive machine-data-sensitive
+                               :machine-data-large machine-data-large
+                               :machine-data-raw? machine-data-raw?})))
                 aria-label (str "State machine"
                                 (when machine-id
                                   (str ": " (name machine-id)))

@@ -33,6 +33,7 @@
       JVM.
     - **Topology parsing** — lives in `chart.layout`."
   (:require [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.context-redaction :as ctx-redact]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
@@ -1281,15 +1282,39 @@
    {:keys [highlight-ids from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click edge-points edge-labels
            fired-edge-ids guard-blocked-edge-ids chart palette
-           machine-id machine-data machine-data-inferred?]
+           machine-id machine-data machine-data-inferred?
+           machine-data-sensitive machine-data-large machine-data-raw?]
     :or   {chart vc/chart-regular edge-points {} edge-labels {}
            fired-edge-ids #{} guard-blocked-edge-ids #{}
-           machine-data-inferred? true}}]
+           machine-data-inferred? true
+           machine-data-sensitive #{} machine-data-large #{}
+           machine-data-raw? false}}]
   (let [;; rf2-az6e2 — resolve the chart-semantic token map for the
         ;; active theme ONCE. nil → dark chart-tokens (a theme-less
         ;; caller keeps the dark surface). Threaded onto every node/edge
         ;; `:data {:palette}` so the renderers paint the active theme.
         ct (or palette (tokens/chart-tokens))
+        ;; rf2-27e38h (EP-0015) — the Context band is serialised into the
+        ;; SVG / PNG / clipboard export (export/chart-as-svg clones the
+        ;; live viewport DOM). It defaults to a LOCAL-REDACTED projection:
+        ;; a `:machine-data-sensitive` key renders `:rf/redacted` and a
+        ;; large value is elided WITHOUT a content head, so a host feeding
+        ;; live `:data` cannot leak a schema-marked secret/large slot into
+        ;; an egress artefact. `:machine-data-raw? true` is the explicit
+        ;; trusted-local (`:rf.egress/local-raw`) opt-in that skips it.
+        ;; The production feeder's value-free type-caption shape is a
+        ;; no-op under redaction, so the default surface is unchanged.
+        ctx-display (when (seq machine-data)
+                      (let [redacted (if machine-data-raw?
+                                       machine-data
+                                       (ctx-redact/redact-context
+                                         machine-data
+                                         {:sensitive machine-data-sensitive
+                                          :large     machine-data-large}))]
+                        (mapv (fn [[k v]]
+                                [(if (keyword? k) (str (symbol k)) (str k))
+                                 (ctx-redact/display-string v)])
+                              redacted)))
         ;; rf2-uw3vmi — guarded-fork branch-order. Derived ONCE from the
         ;; ordered `:edges` vector (the parse preserves the source
         ;; candidate vector order, which IS the engine's first-pass-wins
@@ -1529,13 +1554,11 @@
                                           :machineName (when machine-id
                                                          (name machine-id))
                                           :parallel    (boolean parallel?)
-                                          :context     (when (seq machine-data)
-                                                         (mapv (fn [[k v]]
-                                                                 [(if (keyword? k)
-                                                                    (str (symbol k))
-                                                                    (str k))
-                                                                  (pr-str v)])
-                                                               machine-data))
+                                          ;; rf2-27e38h — the local-redacted
+                                          ;; band display rows (computed once
+                                          ;; above; never the raw values unless
+                                          ;; `:machine-data-raw?` opted in).
+                                          :context     ctx-display
                                           :contextInferred (boolean
                                                              machine-data-inferred?)))
                        :draggable false
