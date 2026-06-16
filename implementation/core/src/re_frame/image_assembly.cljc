@@ -657,10 +657,15 @@
   diagnostic distinguishes a missing CAPABILITY from a missing REGISTRATION.
   Returns `requires`.
 
-  SLICE .6 SEAM: this is the fail-loud point the capability slice calls at the
-  FRAME boundary (slice .7 supplies the frame's `:capabilities`). `assemble`
-  does NOT call it — pure assembly has no frame capability map. Slice .6 owns
-  wiring this into frame creation."
+  `capabilities` may be nil — a frame that supplies NO `:capabilities` map
+  provides nothing, so ANY non-empty `requires` fails loud (a nil map is read as
+  `{}`, parallel to EP-0013's `app_value/check-capabilities!` reading an absent
+  realm capability map as `#{}`). A no-op only when `requires` is empty.
+
+  This is the fail-loud point the FRAME boundary calls (`live-frame/make-frame`
+  supplies the frame's `:capabilities`). `assemble` does NOT call it — pure
+  assembly has no frame capability map; the union `:rf.image/requires` set rides
+  the generation (`:rf.gen/requires`) for this frame-boundary step."
   [requires capabilities]
   (let [missing (remove #(contains? capabilities %) requires)]
     (when (seq missing)

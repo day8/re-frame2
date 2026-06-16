@@ -22,7 +22,11 @@
       invariant-coupled standard);
     * `:replace-standard` on a replaceable standard succeeds;
     * missing application interceptor reference FAILS LOUD;
-    * missing capability FAILS LOUD (the .6 seam fn).
+    * capability checking (rf2-32siq3.6): missing capability FAILS LOUD; an
+      empty/absent `:rf.image/requires` is a no-op; an absent (nil) or empty
+      `:capabilities` map fails any non-empty requires (EP-0013 fail-loud
+      parity); a partial-capability map fails on exactly the unmet subset; the
+      multi-image requires UNION is collected and checked as one set.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -406,6 +410,70 @@
            (asm/check-capabilities! #{:rf.capability/http}
                                     {:rf.capability/http ::http-impl
                                      :rf.capability/schemas ::s})))))
+
+(deftest empty-requires-is-a-no-op
+  (testing "check-capabilities! with NO requirements is a no-op regardless of the
+            supplied map — including an empty or nil capability map"
+    (is (= #{} (asm/check-capabilities! #{} {:rf.capability/http ::http-impl})))
+    (is (= #{} (asm/check-capabilities! #{} {})))
+    (is (= #{} (asm/check-capabilities! #{} nil)))))
+
+(deftest absent-capability-map-fails-non-empty-requires
+  (testing "a nil :capabilities map provides nothing, so ANY non-empty requires
+            fails loud — an absent map is read as {} (EP-0013 fail-loud parity)"
+    (is (= :rf.error/image-missing-capability
+           (assembly-error-id
+             #(asm/check-capabilities! #{:rf.capability/http} nil))))
+    (testing "an empty {} map behaves identically to nil"
+      (is (= :rf.error/image-missing-capability
+             (assembly-error-id
+               #(asm/check-capabilities! #{:rf.capability/http} {})))))))
+
+(deftest partial-capabilities-fail-on-the-unmet-subset
+  (testing "when SOME required capabilities are supplied but not all, the check
+            fails loud and the diagnostic names exactly the missing subset"
+    (let [ex (try (asm/check-capabilities!
+                    #{:rf.capability/http :rf.capability/schemas :rf.capability/storage}
+                    {:rf.capability/http ::http-impl})
+                  nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
+          d  (ex-data ex)]
+      (is (= :rf.error/image-missing-capability (:rf.error/id d)))
+      (testing "the missing subset is exactly the unmet capabilities, sorted
+                (the :extra slots are merged at the top level of the ex-data)"
+        (is (= [:rf.capability/schemas :rf.capability/storage]
+               (:missing-capabilities d))))
+      (testing "the supplied set names what the frame DID provide (a CAPABILITY
+                gap, not a registration gap)"
+        (is (= [:rf.capability/http]
+               (:supplied-capabilities d)))))))
+
+(deftest multi-image-requires-union-then-checked
+  (testing "the generation's :rf.gen/requires is the UNION across all images'
+            :rf.image/requires, and check-capabilities! is satisfied only when
+            EVERY image's requirement is supplied"
+    (let [pool [(reg-desc "a.core" :event :a/e ::a)
+                (reg-desc "b.core" :event :b/e ::b)]
+          img-a (image/image {:id :a/img :include-ns ["a.core"]
+                              :rf.image/requires #{:rf.capability/http}})
+          img-b (image/image {:id :b/img :include-ns ["b.core"]
+                              :rf.image/requires #{:rf.capability/schemas}})
+          gen   (asm/assemble [img-a img-b] pool)]
+      (testing "the union of both images' requires rides the generation"
+        (is (= #{:rf.capability/http :rf.capability/schemas}
+               (:rf.gen/requires gen))))
+      (testing "a map satisfying only ONE image's requirement still fails loud
+                — the union must be fully satisfied"
+        (is (= :rf.error/image-missing-capability
+               (assembly-error-id
+                 #(asm/check-capabilities! (:rf.gen/requires gen)
+                                           {:rf.capability/http ::http-impl})))))
+      (testing "a map satisfying the FULL union passes"
+        (is (= #{:rf.capability/http :rf.capability/schemas}
+               (asm/check-capabilities! (:rf.gen/requires gen)
+                                        {:rf.capability/http    ::http-impl
+                                         :rf.capability/schemas ::schemas
+                                         :rf.capability/extra   ::ignored})))))))
 
 ;; ===========================================================================
 ;; 8. Descriptor-coordinate identity (the source coordinate errors/winners use)
