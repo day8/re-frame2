@@ -1181,11 +1181,15 @@
     ;; matched against the composed node at `:id` (lowering +
     ;; storage/evaluation/lifecycle classification + `:refinement`); each
     ;; `:expect-edge` must be PRESENT (membership) and each
-    ;; `:expect-absent-edge` ABSENT. A family whose fixture registers nothing
-    ;; contributes no nodes (present-family-only), so the subs+machines subset
-    ;; fixture is unaffected. `:mode :static` (default) or `:live` (defaulting
-    ;; the frame to `:rf/default` when the call omits `:frame`). Mirror of the
-    ;; JVM runner.
+    ;; `:expect-absent-edge` ABSENT. `:expect-graph` (rf2-ska8zk) is a SUBMAP
+    ;; matched against the WHOLE graph map — it pins the GRAPH-LEVEL
+    ;; `:mode`/`:frame` shape so a live graph that drops or misreports
+    ;; `{:mode :live :frame …}` fails even when its nodes/edges are correct.
+    ;; A family whose fixture registers nothing contributes no nodes
+    ;; (present-family-only), so the subs+machines subset fixture is
+    ;; unaffected. `:mode :static` (default) or `:live` (defaulting the frame
+    ;; to `:rf/default` when the call omits `:frame`). Mirror of the JVM
+    ;; runner.
     :derivation-graph
     (let [contributors  {:subs      {:static-fn  subs-tooling/sub-algebra-view
                                      :live-fn    subs-tooling/sub-cache-algebra-view
@@ -1209,6 +1213,19 @@
           nodes         (:nodes graph)
           edges         (set (:edges graph))
           submap?       (fn [sub m] (every? (fn [[k v]] (= v (get m k))) sub))
+          ;; rf2-ska8zk — GRAPH-LEVEL expectations. The static/live composers
+          ;; carry top-level `:mode` (`:static`/`:live`) and, for the live
+          ;; graph, `:frame`. Without this check a port returning the right
+          ;; live machine node while omitting/misreporting `{:mode :live
+          ;; :frame …}` would still pass the broad fixture (false positive
+          ;; against [Derivations.md] §Live graph). `:expect-graph` is a
+          ;; SUBMAP matched against the whole graph map, so it asserts only
+          ;; the keys the fixture pins (`:mode`, `:frame`) and ignores
+          ;; `:nodes`/`:edges` (asserted by `:expect-nodes`/`:expect-edges`).
+          graph-fails   (let [want (:expect-graph call)]
+                          (when (and want (not (submap? want graph)))
+                            [(str "graph expected superset of " want
+                                  " got " (select-keys graph (keys want)))]))
           node-fails    (keep (fn [{:keys [id] :as expect-node}]
                                 (let [node (get nodes id)
                                       want (dissoc expect-node :id)]
@@ -1224,7 +1241,7 @@
                                 (when (contains? edges edge)
                                   (str "edge should be ABSENT but present: " edge)))
                               (:expect-absent-edges call))
-          fails         (concat node-fails edge-fails absent-fails)]
+          fails         (concat graph-fails node-fails edge-fails absent-fails)]
       {:passed? (empty? fails)
        :detail  (when (seq fails)
                   (str "derivation-graph (" (or (:mode call) :static) "):\n    "
@@ -1675,4 +1692,37 @@
       ;; suite are dropped; every example / framework registration
       ;; survives — so subsequent test namespaces' `:each` fixtures
       ;; see the same baseline our predecessors did.
+      (reset! registrar/kind->id->metadata @pretest-registrar))))
+
+;; rf2-ska8zk — NEGATIVE self-test for the `:expect-graph` graph-level guard.
+;; Mirror of the JVM `derivation-graph-expect-graph-guard`. Proves the
+;; runner's graph-level submap check bites: a `:derivation-graph` call whose
+;; `:expect-graph` misreports the live graph's `:mode`/`:frame` must FAIL
+;; (`:passed? false`), otherwise the broad fixture's live-mode assertion is a
+;; no-op and the capability claim would silently overclaim against
+;; [Derivations.md] §Live graph. With an empty registrar the live composer
+;; returns `{:mode :live :frame :rf/default :nodes {} :edges []}`, so the
+;; check is exercised directly with no fixture registration. Saves / restores
+;; the registrar (like the corpus runner) so it doesn't leak into siblings.
+(deftest derivation-graph-expect-graph-guard-cljs
+  (reset! pretest-registrar @registrar/kind->id->metadata)
+  (try
+    (reset-runtime!)
+    (let [run (fn [call] (run-call call))]
+      (is (:passed? (run {:call :derivation-graph :mode :live
+                          :expect-graph {:mode :live :frame :rf/default}}))
+          "the true live graph shape must pass")
+      (is (not (:passed? (run {:call :derivation-graph :mode :live
+                               :expect-graph {:mode :static}})))
+          "a wrong live graph :mode must fail the runner")
+      (is (not (:passed? (run {:call :derivation-graph :mode :live
+                               :expect-graph {:mode :live :frame :rf/other}})))
+          "a wrong live graph :frame must fail the runner")
+      (is (not (:passed? (run {:call :derivation-graph :mode :static
+                               :expect-graph {:mode :static :frame :rf/default}})))
+          "asserting a :frame on the frame-agnostic static graph must fail")
+      (is (:passed? (run {:call :derivation-graph :mode :static
+                          :expect-graph {:mode :static}}))
+          "the true static graph shape must pass"))
+    (finally
       (reset! registrar/kind->id->metadata @pretest-registrar))))
