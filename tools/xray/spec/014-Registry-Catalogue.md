@@ -563,6 +563,25 @@ remain deferred.)
 | `:rf.xray/set-registered-machines-override-for-test` | `[_ ov]` | Test-only override hook. |
 | `:rf.xray/set-machine-snapshots-override-for-test` | `[_ ov]` | Test-only override hook. |
 
+## Module-view tab (EP-0013 substrate + EP-0023 image/frame model)
+
+Spec: [`026-Module-View-Panel.md`](./026-Module-View-Panel.md). The cohesive
+home for runtime-structure inspection: the EP-0023 `image -> frame` PUBLIC
+model (the FRAMES/IMAGES section, §8) plus the retained EP-0013 `(realm,
+frame)` / module substrate (the REALMS + MODULES sections, §3/§4). A BROWSE
+surface (registry-wide, not event-coupled) — read-only, dispatches nothing.
+
+### Subscriptions
+
+| Sub | Returns |
+|---|---|
+| `:rf.xray/module-view` | Composite — the EP-0013 `(realm, frame)` address space + per-module provenance. Reads the public `rf/realm-ids` · `rf/frame-ids` · `rf/frame-realm` · `rf/installed-app` seams at recompute; projects via `module_view_helpers/project-module-view`. (rf2-wtg9z4 / rf2-at0oen.) |
+| `:rf.xray/image-view` | Composite — the EP-0023 `image -> frame` model (rf2-32siq3.12). `{:frames [<frame-row> …] :frame-count :images?}` over the live-frame registry: each live image-loaded frame as an execution context carrying its resolved image (the generation's `[kind id]` descriptors + per-descriptor provenance). Reads the EP-0023 live-frame registry (`re-frame.live-frame/live-frames`) + sealed generations (`re-frame.image-assembly/resolve-descriptor`) via the fail-soft `image_view_reads` seam; projects via `image_view_helpers/project-image-view`. `:images?` false → the no-image caption (EP-0023's public model is opt-in over the retained substrate). Xray inspects the target frame as DATA here; Xray's OWN image (`image_view_reads/xray-image`) is a separate registration set that never mixes with a target frame's image (EP-0023 §Xray Beside The Target). |
+
+Both subs are L4-tab-internal — `module_view.cljs` registers no panel-internal
+events (a browse surface). The tab is registered via `reg-l4-tab!` (id
+`:module-view`, label **"Modules"**), so it is NOT in `panel_enum.cljc`.
+
 ## Static mode
 
 Spec: [`007-UX-IA.md`](./007-UX-IA.md) §Static mode +

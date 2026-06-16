@@ -324,6 +324,13 @@
    ;; The disposition-6 demand-trigger surface; the per-module provenance
    ;; section is scaffolded behind the awaiting-seam caption.
    :rf.xray/module-view
+   ;; rf2-32siq3.12 — EP-0023 image/frame model on the Module-view tab: the
+   ;; live image-loaded frames as execution contexts, each carrying its
+   ;; resolved image (the generation's [kind id] descriptors). Reads the
+   ;; EP-0023 live-frame registry + sealed generations via the fail-soft
+   ;; `image-view-reads` seam; presents Xray itself as its OWN image
+   ;; inspecting the target frame as data (EP-0023 §Xray Beside The Target).
+   :rf.xray/image-view
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
    ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows
