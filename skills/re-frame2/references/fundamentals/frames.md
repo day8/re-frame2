@@ -125,7 +125,7 @@ Per-test isolated frame, from `examples/reagent/login/core.cljs`:
   (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))))
 ```
 
-Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Holding the frame as a value and passing it directly (`{:frame f}`, `(rf/app-db-value f)`) is the EP-0023 **direct frame object** pattern: the frame is born in the test scope and dies with it, with no entry in any process-local frame-id registry. That is the right shape for tests and harnesses — reach for an `:id`-registered frame only when mounted code must address it by id.
+Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Holding the frame handle/id as a value and passing it directly (`{:frame f}`, `(rf/app-db-value f)`) is the EP-0023 anonymous-frame test pattern: the frame is born in the test scope and dies with it, with no entry in any process-local frame-id registry. On the landed API `f` is a gensym frame-id (a keyword), not an object — "direct frame object" is reserved for the (unlanded) object-API section. That is the right shape for tests and harnesses — reach for an `:id`-registered frame only when mounted code must address it by id.
 
 And establishing the app frame at boot (the runtime infers no frame, so you register it explicitly and scope it at the root):
 

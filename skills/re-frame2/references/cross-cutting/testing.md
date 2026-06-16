@@ -48,7 +48,7 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
                 {:images     [(rf/image {:include-ns ["shop.cart.**"
                                                       "shop.test-doubles.**"]})]
                  :initial-db {:cart/items []}})]
-    (rf/dispatch-sync frame [:cart/add "SKU-1"])
+    (rf/dispatch-sync [:cart/add "SKU-1"] {:frame frame})
     (is (= ["SKU-1"] @(rf/subscribe frame [:cart/items])))))
 ```
 
