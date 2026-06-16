@@ -64,7 +64,7 @@
   (preload/register-trace-collector!)
   (trace-collector/reset-for-test!)
   (config/reset-suppressed-count!)
-  (config/set-show-sensitive! false))
+  (config/set-egress-profile! config/default-egress-profile))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

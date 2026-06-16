@@ -1272,7 +1272,7 @@ User CHOSE to load them. First session is honest about what's filtered.
 
 ### Auto-filter chip strip (data-classification)
 
-Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under default `:rf.privacy/show-sensitive? false`), Xray's chrome surfaces the count via per-row redaction markers + Settings → Diagnostics — NOT as an auto-filter chip. (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Xray does not auto-add filters on the user's behalf.
+Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md), the framework emits trace events with sentinel-tagged values. When the trace bus drops sensitive content (under the default `:rf.egress/local-redacted` egress profile), Xray's chrome surfaces the count via per-row redaction markers + Settings → Diagnostics — NOT as an auto-filter chip. (Earlier drafts also placed a per-session totals tooltip on the Mode pill widget; that widget was dropped, so the markers + Settings panel are the only session-totals surfaces.) The auto-filter mechanism described in earlier round designs collapses into the standard ribbon-pill UX: any user-added OUT pill for an event-id is the canonical filter. Xray does not auto-add filters on the user's behalf.
 
 ### v1 ships: right-click → edit-popup (NOT silent append)
 
@@ -1704,7 +1704,7 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 
 ### What Xray does NOT do
 
-- **No "reveal redacted value" button.** Ever. The only path to seeing sensitive payloads is the host-level opt-in `(xray-config/configure! {:rf.privacy/show-sensitive? true})` which is a deliberate code-level act gating FUTURE events. The walker drops the value before the trace bus buffers it; the value is unrecoverable at render time. Drop-and-forget is the contract.
+- **No "reveal redacted value" button.** Ever. The only path to seeing sensitive payloads is the host-level opt-in `(xray-config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})` — the EP-0015 trusted-local per-`(tool, frame)` reveal grain, a deliberate code-level act gating FUTURE events. The walker drops the value before the trace bus buffers it; the value is unrecoverable at render time. Drop-and-forget is the contract.
 - **No fetch button for `:rf/redacted`.** Distinguishes from `:rf.size/large-elided`. The two sentinels MUST have different affordances.
 - **No schema-based marking** (rejected per [spec/015](../../../spec/015-Data-Classification.md)). Xray renders sentinels from the seven first-class marking sites only.
 

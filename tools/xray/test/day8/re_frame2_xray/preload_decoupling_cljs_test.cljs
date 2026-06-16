@@ -163,7 +163,7 @@
     (core/configure! {:rf.xray/auto-open? false
                       :rf.xray/keybinding-enabled? false})
     (core/set-auto-open! false)
-    (core/set-show-sensitive! false)
+    (core/set-egress-profile! :rf.egress/local-redacted)
     (is (not (trace-collector-registered?))
         "configure! did NOT register the trace collector")
     (is (not (epoch-collector-registered?))

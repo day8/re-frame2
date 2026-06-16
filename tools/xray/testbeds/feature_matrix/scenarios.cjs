@@ -1927,7 +1927,8 @@ async function runConfigurePartialUpdate(page, state) {
     const preProjectRoot  = cfg.get_project_root();
     const preLayoutHost   = cfg.get_layout_host_selector();
     const preAutoOpen     = cfg.auto_open_enabled_QMARK_();
-    const preShowSens     = cfg.get_show_sensitive();
+    const preEgressProf   = cfg.get_egress_profile();
+    const localRaw        = kw('rf.egress', 'local-raw');
 
     // Multi-key configure — every slot round-trips in one call.
     const opts1 = cljs.PersistentArrayMap.fromArray([
@@ -1935,7 +1936,7 @@ async function runConfigurePartialUpdate(page, state) {
       kw('rf.xray', 'project-root'),          '/tmp/probe-multi-key',
       kw('rf.xray', 'layout-host-selector'),  '#rf2-qd5r6-probe-host',
       kw('rf.xray', 'auto-open?'),            false,
-      kw('rf.privacy', 'show-sensitive?'),     true,
+      kw('rf.xray', 'egress-profile'),        localRaw,
     ], true, false);
     cfg.configure_BANG_(opts1);
 
@@ -1951,8 +1952,8 @@ async function runConfigurePartialUpdate(page, state) {
     if (cfg.auto_open_enabled_QMARK_() !== false) {
       issues.push(`:rf.xray/auto-open? expected false; got ${cfg.auto_open_enabled_QMARK_()}`);
     }
-    if (cfg.get_show_sensitive() !== true) {
-      issues.push(`:rf.privacy/show-sensitive? expected true; got ${cfg.get_show_sensitive()}`);
+    if (!eq(cfg.get_egress_profile(), localRaw)) {
+      issues.push(`:rf.xray/egress-profile expected :rf.egress/local-raw; got ${cljs.pr_str(cfg.get_egress_profile())}`);
     }
 
     // Partial-update — second configure with ONLY :rf.xray/editor
@@ -1973,8 +1974,8 @@ async function runConfigurePartialUpdate(page, state) {
     if (cfg.auto_open_enabled_QMARK_() !== false) {
       issues.push(`:rf.xray/auto-open? regressed on partial configure; got ${cfg.auto_open_enabled_QMARK_()}`);
     }
-    if (cfg.get_show_sensitive() !== true) {
-      issues.push(`:rf.privacy/show-sensitive? regressed on partial configure; got ${cfg.get_show_sensitive()}`);
+    if (!eq(cfg.get_egress_profile(), localRaw)) {
+      issues.push(`:rf.xray/egress-profile regressed on partial configure; got ${cljs.pr_str(cfg.get_egress_profile())}`);
     }
 
     // set-auto-open!(null) round-trips to the default true.
@@ -1993,14 +1994,14 @@ async function runConfigurePartialUpdate(page, state) {
       issues.push(`set-layout-host-selector!(null) expected '[data-rf-xray-host]'; got ${cfg.get_layout_host_selector()}`);
     }
 
-    // Restore pre-state. set-show-sensitive! true → false triggers
-    // the trace-bus retroactive scrub per Spec 009 §Privacy
-    // (rf2-lqmje); that's expected and not visible from here.
+    // Restore pre-state. Narrowing the egress profile :rf.egress/local-raw
+    // → redacting default triggers the trace-bus retroactive scrub per
+    // Spec 009 §Privacy (rf2-lqmje); that's expected and not visible here.
     cfg.set_editor_BANG_(preEditor);
     cfg.set_project_root_BANG_(preProjectRoot);
     cfg.set_layout_host_selector_BANG_(preLayoutHost);
     cfg.set_auto_open_BANG_(preAutoOpen);
-    cfg.set_show_sensitive_BANG_(preShowSens);
+    cfg.set_egress_profile_BANG_(preEgressProf);
 
     return { ok: true, issues };
   });

@@ -11,7 +11,7 @@
   Story→Xray focus entry point, rf2-crtmq) / `load-theme` — plus the
   four highest-traffic boot-time config knobs exposed by `config.cljc`
   (`configure!` / `set-editor!` / `set-auto-open!` /
-  `set-show-sensitive!`).
+  `set-egress-profile!`).
 
   Per `spec/API.md` §Wider public surface, additional public surfaces
   live in their own namespaces: the full per-key setter inventory in
@@ -308,14 +308,16 @@
 (def configure!
   "Top-level Xray configuration. Every key lives under the
   `:rf.xray/*` reserved namespace (per rf2-xea9u — the `:rf.<tool>/*`
-  convention for re-frame2 tools' boot-time config). Cross-tool keys
-  live under their own reserved namespace (e.g.
-  `:rf.privacy/show-sensitive?` is read by Xray AND Story).
+  convention for re-frame2 tools' boot-time config). The on-box reveal
+  grain is per-tool (EP-0015 issue 7): there is NO single cross-tool
+  toggle.
 
     `{:rf.xray/editor <kw>}`                — 'Open in editor' preference.
     `{:rf.xray/layout-host-selector <css>}` — true-inline layout host selector.
     `{:rf.xray/auto-open? <bool>}`          — default true-inline auto-open.
-    `{:rf.privacy/show-sensitive? <bool>}`   — cross-tool `:sensitive?` trace gate.
+    `{:rf.xray/egress-profile <kw>}`        — on-box dev-UI egress profile
+       (`:rf.egress/local-redacted` default / `:rf.egress/local-raw`
+       trusted-local reveal opt-in — EP-0015 per-(tool,frame) grain).
 
   Future phases extend with theme / buffer keys. Hosts typically call
   once at boot, before Xray auto-opens. Returns nothing."
@@ -334,9 +336,12 @@
   `{:custom <uri-template>}`. `nil` resets to `:vscode`."
   config/set-editor!)
 
-(def set-show-sensitive!
-  "Replace the cross-tool `:rf.privacy/show-sensitive?` flag. When
-  `false` (default), Xray's trace collector drops `:sensitive? true`
-  events; when `true`, every event reaches the buffer. `nil` resets
-  to the default (`false`)."
-  config/set-show-sensitive!)
+(def set-egress-profile!
+  "Replace Xray's on-box dev-UI `:rf.egress/*` profile (EP-0015
+  per-(tool,frame) reveal grain, rf2-h40lt2). `:rf.egress/local-redacted`
+  (default) suppresses `:sensitive? true` display in Xray's trace
+  collector; `:rf.egress/local-raw` is the trusted-local operator opt-in
+  that reveals sensitive AND large values verbatim. `nil` resets to the
+  default. Replaces the retired process-global `set-show-sensitive!`
+  (`:rf.privacy/show-sensitive?`)."
+  config/set-egress-profile!)

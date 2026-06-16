@@ -938,9 +938,9 @@
                               " sensitive trace event"
                               (when (not= 1 redacted-count) "s")
                               " suppressed by default. Set "
-                              ":rf.privacy/show-sensitive? true via "
-                              "(xray-config/configure! ...) to "
-                              "surface them.")
+                              ":rf.xray/egress-profile :rf.egress/local-raw "
+                              "via (xray-config/configure! ...) to "
+                              "reveal them on this trusted-local machine.")
             :style       {:color       (:magenta tokens)
                           :font-weight 600
                           :font-size   (:caption type-scale)}}

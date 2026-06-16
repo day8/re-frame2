@@ -75,8 +75,8 @@
     trace emit path; there is nothing to listen to.
   - It does NOT change Xray's ingest filters: the privacy gate
     still suppresses `:sensitive? true` events unless the host has
-    opted in via `(xray-config/configure! {:rf.privacy/show-sensitive?
-    true})`.
+    opted in via `(xray-config/configure! {:rf.xray/egress-profile
+    :rf.egress/local-raw})` — the EP-0015 trusted-local reveal grain.
   - It does NOT mutate the host's state. The host owns its event
     source; the drop-in is a one-way pump from there into Xray's
     buffer.

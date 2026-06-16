@@ -688,7 +688,7 @@ follow-on).
   `configure!` surface; `{:rf.xray/settings <map>}` bulk-set;
   `:rf.xray/editor` / `:rf.xray/project-root` /
   `:rf.xray/layout-host-selector` / `:rf.xray/auto-open?` /
-  `:rf.privacy/show-sensitive?` enumeration.
+  `:rf.xray/egress-profile` enumeration.
 - [`018-Event-Spine.md`](./018-Event-Spine.md) §9 — full architectural
   contract (modal not panel, why; reset semantics; future sections).
 

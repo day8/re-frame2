@@ -22,7 +22,7 @@
 (defn- xray-init! []
   (xray-test-support/reset-all!)
   (trace-collector/reset-for-test!)
-  (config/set-show-sensitive! false)
+  (config/set-egress-profile! config/default-egress-profile)
   (config/reset-suppressed-count!))
 
 (use-fixtures :each

@@ -143,8 +143,8 @@
         (get db :trace-buffer [])))
 
     ;; Total count of :sensitive? trace events the collector has
-    ;; suppressed under the current `:rf.privacy/show-sensitive?` setting
-    ;; (rf2-azls9). The shell's bottom-rail renders a `[● REDACTED N]`
+    ;; suppressed under the current local-render egress profile
+    ;; (`:rf.xray/egress-profile`; rf2-h40lt2). The shell's bottom-rail renders a `[● REDACTED N]`
     ;; hint when this is positive so the user sees why the buffer is
     ;; shorter than the runtime's actual emit count.
     ;;
@@ -752,9 +752,10 @@
     ;;     ruling). Also seeds the slot at first mount.
     ;;
     ;;   `:rf.xray/clear-trace-buffer` — drop the slot entirely.
-    ;;     Dispatched by `trace-collector/retroactive-scrub!` on the
-    ;;     `:rf.privacy/show-sensitive?` true → false transition, and
-    ;;     from the Settings popup's "Clear buffer now" affordance.
+    ;;     Dispatched by `trace-collector/retroactive-scrub!` when the
+    ;;     local-render egress profile narrows `:rf.egress/local-raw` →
+    ;;     redacting default, and from the Settings popup's "Clear buffer
+    ;;     now" affordance.
 
     ;; Clear the mirrored slot in lockstep with the framework's
     ;; per-frame rings + Xray's frameless secondary ring (dispatched

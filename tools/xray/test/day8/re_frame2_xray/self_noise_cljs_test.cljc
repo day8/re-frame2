@@ -27,13 +27,13 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- reset-state [test-fn]
-  ;; Each test starts with the defaults: flag off, counter empty,
-  ;; rings empty. Same shape as `sensitive-trace-cljs-test`.
-  (config/set-show-sensitive! false)
+  ;; Each test starts with the defaults: egress profile redacting, counter
+  ;; empty, rings empty. Same shape as `sensitive-trace-cljs-test`.
+  (config/set-egress-profile! config/default-egress-profile)
   (config/reset-suppressed-count!)
   #?(:cljs (trace-collector/reset-for-test!))
   (test-fn)
-  (config/set-show-sensitive! false)
+  (config/set-egress-profile! config/default-egress-profile)
   (config/reset-suppressed-count!)
   #?(:cljs (trace-collector/reset-for-test!)))
 
