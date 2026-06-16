@@ -24,6 +24,45 @@
       build on (EP-0023 §Frame — \"a reference to the resolved image generation
       it is running\").
 
+  ## Image hot reload (rf2-32siq3.10 — LANDED here)
+
+  This ns also owns the EP-0023 HOT-RELOAD surface: `rf/reload-images!` plus
+  the source-store reprojection path (EP-0023 §Hot Reload / §Tests, Stories,
+  SSR, And Hot Reload).
+
+    * `reload-images!` — the public frame-targeted, composition-REPLACING
+      reload. It takes the SAME `:images` vector shape as `make-frame`, targets
+      ONE frame (by id or direct frame object), re-assembles the new `:images`
+      into a fresh sealed generation, and SWAPS that generation onto the frame
+      WHILE PRESERVING FRAME MEMORY — app-db, runtime-db, caches, lifecycle, and
+      every other frame-owned slot continue unchanged; ONLY `:rf.frame/generation`
+      moves (EP-0023 §Hot Reload — \"Hot reload must not be implemented by
+      tearing down and recreating the frame\"). It returns a reload REPORT naming
+      the `:added` / `:changed` / `:removed` / `:retained` `[kind id]` sets so
+      the runtime can invalidate only what changed. For an `:id`-bearing frame
+      the registry slot is updated IN PLACE (the same id keeps naming the same
+      live context); a direct (no-id) frame object's reloaded copy is returned
+      for the caller to hold.
+
+    * `reproject-live-frames!` — the source-store-change path (EP-0023 §Default
+      Image Semantics / §Hot Reload: \"a `reg-*` re-eval in a namespace selected
+      by an explicit `:include-ns` image reprojects and swaps affected
+      explicit-image frames\"). It re-resolves EVERY registered live frame from
+      its OWN `:rf.gen/images` composition against the CURRENT source store and
+      swaps the freshly-assembled generation onto any frame whose resolution
+      changed — EXPLICIT-image frames included, not only default-image frames. A
+      frame whose composition re-resolves byte-for-byte is left untouched (no
+      spurious swap).
+
+  Reload is frame-targeted: reloading `:counter/left` swaps the generation THAT
+  frame runs; it does not move `:counter/right` merely because the two frames
+  previously shared a sealed generation object (EP-0023 §Image — \"Reload is
+  frame-targeted\"). The generation is an immutable value, so the swap is a
+  single `assoc` that preserves frame identity for every other slot; a future
+  state-container slice that adds an app-db ATOM slot is preserved by identity
+  through the same `assoc` (the atom — hence the memory — is carried through
+  untouched).
+
   ## Id spaces — the heart of the same-id story (EP-0023 §Id Spaces)
 
   Two PUBLIC id spaces with DIFFERENT scopes meet here:
@@ -74,7 +113,12 @@
   calls `make-frame` with `:images` never reaches these fns (Closure DCE removes
   them). The resolution seam adds a single dynamic binding around the cascade
   (the no-generation default path pays one `frame-object?` predicate then runs
-  with zero binding cost — see [[call-with-frame-resolution]]). The requires are
+  with zero binding cost — see [[call-with-frame-resolution]]). Reload runs on
+  the development hot-reload / explicit `reload-images!` path (not a per-event
+  hot path, not a DEBUG-gated branch): pure re-assembly via
+  `image-assembly/assemble` plus one registry `swap!` per swapped frame. An app
+  that never hot-reloads never reaches them (Closure DCE removes them). The
+  requires are
   `re-frame.image-assembly` (the merged assembly entry point),
   `re-frame.registrar` (the `*generation*` resolution seam + the closed kind
   set), and `re-frame.error` (fail-loud diagnostics) — all already in the core
@@ -329,6 +373,40 @@
     frame-object))
 
 ;; ===========================================================================
+;; Generation resolution (shared by make-frame and reload-images!)
+;; ===========================================================================
+;;
+;; `make-frame` (.8/.6) and `reload-images!` (.10) BOTH turn an `:images` vector
+;; + a frame `:capabilities` map into ONE sealed, capability-checked generation.
+;; Factor that out so reload resolves a new generation with byte-identical
+;; semantics to creation: same `:images`-is-a-vector validation, same
+;; `image-assembly/assemble` path (live source store OR an explicit descriptor
+;; pool), same unconditional frame-boundary capability check.
+
+(defn- resolve-generation!
+  "Validate `images` (must be a vector — EP-0023 §Image Composition), assemble it
+  into ONE sealed generation (against the live source store when `descriptors` is
+  nil, else against the explicit pool — matching `assemble`'s two arities), and
+  run the FRAME-BOUNDARY capability check against `capabilities` (unconditional:
+  an absent map provides nothing, EP-0013 fail-loud parity). Returns the sealed
+  generation. The shared resolution `make-frame` and `reload-images!` both use,
+  so a reload resolves with byte-identical semantics to creation. Fail-loud on a
+  non-vector `:images`, an assembly error, or a missing capability."
+  [images capabilities descriptors]
+  (let [images     (if (some? images) (validate-images! images) [])
+        generation (if (nil? descriptors)
+                     (asm/assemble images)
+                     (asm/assemble images descriptors))]
+    ;; Capability check at the FRAME boundary (EP-0023 §Public API): a required
+    ;; capability absent from the frame's `:capabilities` fails BEFORE the
+    ;; generation is runnable. UNCONDITIONAL so a frame that supplies NO
+    ;; `:capabilities` map still fails any non-empty `:rf.image/requires` — an
+    ;; absent map provides nothing, exactly as `{}` does (EP-0013 fail-loud
+    ;; install-time parity). A no-op when the union `:rf.gen/requires` is empty.
+    (asm/check-capabilities! (:rf.gen/requires generation) capabilities)
+    generation))
+
+;; ===========================================================================
 ;; make-frame — the public constructor (EP-0023 §Public API)
 ;; ===========================================================================
 
@@ -385,33 +463,243 @@
                                    matching `image-assembly/assemble`'s 2-arity."
   ([opts] (make-frame opts nil))
   ([{:keys [images id initial-db capabilities adapter]} descriptors]
-   (let [images     (if (some? images) (validate-images! images) [])
-         generation (if (nil? descriptors)
-                      (asm/assemble images)
-                      (asm/assemble images descriptors))]
-     ;; Capability check at the FRAME boundary (EP-0023 §Public API): a required
-     ;; capability absent from the frame's `:capabilities` fails BEFORE the
-     ;; generation is runnable. The check runs UNCONDITIONALLY so a frame that
-     ;; supplies NO `:capabilities` map still fails any non-empty
-     ;; `:rf.image/requires` — an absent map provides nothing, exactly as
-     ;; `{}` does. This preserves EP-0013's fail-loud install-time capability
-     ;; check (`app_value/check-capabilities!`, which reads an absent realm
-     ;; capability map as `#{}` and fails any unmet requirement) at the new
-     ;; frame boundary; guarding the call on `(some? capabilities)` would let a
-     ;; frame run an image whose requirements were never satisfied. A no-op when
-     ;; the union `:rf.gen/requires` is empty (the common no-requirements path).
-     (asm/check-capabilities! (:rf.gen/requires generation) capabilities)
-     (let [frame-object
-           (cond-> {object-marker  true
-                    generation-key generation}
-             (some? id)           (assoc :rf.frame/id id)
-             (some? initial-db)   (assoc :rf.frame/initial-db initial-db)
-             (some? capabilities) (assoc :rf.frame/capabilities capabilities)
-             (some? adapter)      (assoc :rf.frame/adapter adapter))]
-       ;; An :id-bearing frame registers in the process-local live-frame
-       ;; registry (fail-loud on a duplicate). A direct (no-id) frame object
-       ;; BYPASSES the registry — the caller holds the returned object directly
-       ;; (EP-0023 §Frame / §Public API).
-       (if (some? id)
-         (register-live-frame! id frame-object)
-         frame-object)))))
+   (let [generation (resolve-generation! images capabilities descriptors)
+         frame-object
+         (cond-> {object-marker  true
+                  generation-key generation}
+           (some? id)           (assoc :rf.frame/id id)
+           (some? initial-db)   (assoc :rf.frame/initial-db initial-db)
+           (some? capabilities) (assoc :rf.frame/capabilities capabilities)
+           (some? adapter)      (assoc :rf.frame/adapter adapter))]
+     ;; An :id-bearing frame registers in the process-local live-frame
+     ;; registry (fail-loud on a duplicate). A direct (no-id) frame object
+     ;; BYPASSES the registry — the caller holds the returned object directly
+     ;; (EP-0023 §Frame / §Public API).
+     (if (some? id)
+       (register-live-frame! id frame-object)
+       frame-object))))
+
+;; ===========================================================================
+;; Image hot reload (EP-0023 §Hot Reload, rf2-32siq3.10)
+;; ===========================================================================
+;;
+;; The conceptual event (EP-0023 §Hot Reload):
+;;
+;;     registration set changed
+;;     execution context continues
+;;
+;; Reload swaps the sealed generation a frame runs WHILE PRESERVING FRAME
+;; MEMORY. Because the generation is an immutable VALUE the frame object carries
+;; under `:rf.frame/generation`, and the .9 resolution seam derives resolution
+;; SOLELY from that slot, swapping the generation is the whole job: a single
+;; `assoc` that replaces `:rf.frame/generation` and PRESERVES every other slot
+;; (id, initial-db, capabilities, adapter — and, once a later slice adds them,
+;; the app-db / runtime-db / cache ATOMS, carried through by identity, hence the
+;; memory). Reload must NOT tear down and recreate the frame (EP-0023 §Hot
+;; Reload), so it never re-runs `make-frame`; it re-assembles a generation and
+;; assocs it on.
+
+;; ---- the reload diff (EP-0023 §Hot Reload — "a concrete diff") ------------
+
+(defn generation-diff
+  "Compute the reload DIFF between an `old` and a `new` sealed generation as four
+  `[kind id]` sets (EP-0023 §Hot Reload — \"A good reload result should be a
+  concrete diff\"):
+
+    :added    keys present in `new` but not `old`
+    :removed  keys present in `old` but not `new`
+    :changed  keys present in BOTH whose resolved descriptor is not `=`
+    :retained keys present in BOTH whose resolved descriptor IS `=`
+
+  Keys are `[kind id]` pairs (the resolver's keys). \"changed\" is by descriptor
+  value equality, so an unchanged registration selected by a different image
+  composition is `:retained`, not `:changed` — that lets the runtime invalidate
+  only what actually changed (changed subs clear caches; retained frame memory
+  continues). Pure — a function of the two generations' resolvers."
+  [old new]
+  (let [old-res (:rf.gen/resolver old)
+        new-res (:rf.gen/resolver new)
+        old-ks  (set (keys old-res))
+        new-ks  (set (keys new-res))
+        both    (filter new-ks old-ks)
+        changed (into #{} (remove #(= (get old-res %) (get new-res %))) both)
+        retained (into #{} (filter #(= (get old-res %) (get new-res %))) both)]
+    {:added    (into #{} (remove old-ks) new-ks)
+     :removed  (into #{} (remove new-ks) old-ks)
+     :changed  changed
+     :retained retained}))
+
+;; ---- target resolution (frame id OR direct frame object) -------------------
+
+(defn- resolve-reload-target
+  "Resolve a `reload-images!` `target` to the live frame OBJECT to reload.
+  `target` is EITHER a frame id (looked up in the process-local live-frame
+  registry) OR a direct frame object (used as-is). FAIL-LOUD when an id names no
+  live frame (`:rf.error/reload-no-such-frame`) or `target` is neither a frame
+  object nor a registered id. Returns the live frame object."
+  [target]
+  (cond
+    (frame-object? target)
+    target
+
+    (some? (live-frame target))
+    (live-frame target)
+
+    :else
+    (error/throw-error!
+      :rf.error/reload-no-such-frame
+      'rf/reload-images!
+      (str "rf/reload-images!: target " (pr-str target) " names no live frame. "
+           "Reload targets ONE frame, by a frame id registered in the "
+           "process-local live-frame registry or a direct frame object returned "
+           "by rf/make-frame. Live frame ids: " (pr-str (vec (live-frame-ids)))
+           ".")
+      {:recovery :target-a-live-frame-id-or-a-direct-frame-object
+       :extra    {:target target
+                  :live-frame-ids (vec (live-frame-ids))}})))
+
+;; ---- the in-place generation swap (PRESERVES FRAME MEMORY) -----------------
+
+(defn- swap-generation
+  "Return `frame-object` with ONLY `:rf.frame/generation` replaced by
+  `new-generation`. Every other slot — id, initial-db, capabilities, adapter,
+  and any future state-container atoms — is preserved by `assoc` (atoms by
+  identity), so frame memory continues across the swap (EP-0023 §Hot Reload).
+  Pure."
+  [frame-object new-generation]
+  (assoc frame-object generation-key new-generation))
+
+(defn- swap-frame-generation!
+  "Swap `new-generation` onto `frame-object`, returning the RELOADED frame
+  object. For an `:id`-bearing frame the live-frame registry slot is updated IN
+  PLACE (the same id keeps naming the same live context, now running the new
+  generation) — but ONLY when the registry currently holds THIS object (so a
+  reload of a stale object handle does not clobber a frame re-registered under
+  the id since). A direct (no-id) frame object's reloaded copy is simply
+  returned for the caller to hold. Returns the reloaded frame object."
+  [frame-object new-generation]
+  (let [reloaded (swap-generation frame-object new-generation)
+        id       (:rf.frame/id frame-object)]
+    (when (some? id)
+      ;; Update the registry slot in place, but only if it still holds THIS
+      ;; object — guards against clobbering a frame re-registered under the id.
+      (swap! live-frames
+             (fn [m]
+               (if (identical? frame-object (get m id))
+                 (assoc m id reloaded)
+                 m))))
+    reloaded))
+
+;; ---- reload-images! — the public reload (EP-0023 §Public API) --------------
+
+(defn reload-images!
+  "Hot-reload ONE frame's whole image composition, PRESERVING FRAME MEMORY
+  (EP-0023 §Hot Reload / §Public API — `rf/reload-images!`). PUBLIC.
+
+  `target` is EITHER a frame id (looked up in the process-local live-frame
+  registry) OR a direct frame object (`make-frame`'s return value). `opts` is a
+  map taking the SAME `:images` vector shape as `make-frame`:
+
+    :images  a VECTOR of image values — the frame's NEW, COMPLETE image
+             composition (the only spelling; always a vector — EP-0023 §Image
+             Composition). Reload is composition-REPLACING: it replaces the whole
+             `:images` vector, not one member (EP-0023 deliberately does not
+             define a partial-image-member reload for v1). A non-vector `:images`
+             fails loud (`:rf.error/make-frame-bad-images`), exactly as in
+             `make-frame`.
+
+  Reload re-assembles `:images` into a FRESH sealed generation (capability-
+  checked against the frame's OWN `:rf.frame/capabilities`, byte-identical to
+  creation), then SWAPS that generation onto the frame — only
+  `:rf.frame/generation` moves; app-db, runtime-db, caches, lifecycle, and every
+  other frame slot continue unchanged (EP-0023 §Hot Reload — \"Hot reload must
+  not be implemented by tearing down and recreating the frame\"). It does NOT
+  mutate the old generation and does NOT move sibling frames that previously
+  shared it (reload is frame-targeted — EP-0023 §Image).
+
+  Returns the reload REPORT:
+
+    {:rf.frame/frame  <reloaded frame object>
+     :rf.reload/diff  {:added #{[kind id] …} :changed #{…}
+                       :removed #{…} :retained #{…}}}
+
+  For an `:id`-bearing frame, the live-frame registry slot is updated IN PLACE,
+  so the id keeps naming the same live context (now running the new generation);
+  the reloaded object is returned under `:rf.frame/frame` for callers holding a
+  direct reference. A direct (no-id) frame object's reloaded copy is returned the
+  same way for the caller to hold.
+
+  Two arities mirror `make-frame`:
+    (reload-images! target opts)             — re-assemble against the LIVE source store.
+    (reload-images! target opts descriptors) — against an explicit descriptor pool
+                                               (tests / harnesses / a pre-snapshotted
+                                               store), matching `assemble`'s 2-arity."
+  ([target opts] (reload-images! target opts nil))
+  ([target {:keys [images]} descriptors]
+   (let [frame-object   (resolve-reload-target target)
+         old-generation (frame-generation frame-object)
+         capabilities   (:rf.frame/capabilities frame-object)
+         new-generation (resolve-generation! images capabilities descriptors)
+         reloaded       (swap-frame-generation! frame-object new-generation)]
+     {:rf.frame/frame reloaded
+      :rf.reload/diff (generation-diff old-generation new-generation)})))
+
+;; ===========================================================================
+;; Source-store reprojection (EP-0023 §Default Image Semantics / §Hot Reload,
+;; rf2-32siq3.10)
+;; ===========================================================================
+;;
+;; The dirtying rule is NOT default-image-only (EP-0023 §Default Image
+;; Semantics): "Any source-store change invalidates resolved generations whose
+;; image selectors might include the changed source slot: default images,
+;; explicit `:include-ns` images, and composed images containing them." A
+;; `reg-*` re-eval in a namespace an EXPLICIT `:include-ns` image selects must
+;; reproject and swap THAT frame's generation too — not only default-image
+;; frames.
+;;
+;; Implementation: re-resolve EVERY registered live frame from its OWN image
+;; composition (the normalized `:rf.gen/images` carried on its generation)
+;; against the CURRENT live source store, and swap the freshly-assembled
+;; generation onto any frame whose resolution CHANGED. A frame that re-resolves
+;; byte-for-byte (= old generation) is left untouched — no spurious swap, no
+;; sibling movement. This is the `reg-*` hot-reload path the EP describes; the
+;; explicit `reload-images!` above is the composition-REPLACING counterpart.
+
+(defn reproject-live-frame!
+  "Re-resolve ONE registered live `frame-id` from its current generation's OWN
+  image composition (`:rf.gen/images`) against the CURRENT live source store,
+  and swap the freshly-assembled generation onto the frame when it CHANGED
+  (EP-0023 §Default Image Semantics — a source-store change reprojects affected
+  EXPLICIT-image frames, not only default-image frames). Returns the reload diff
+  `{:added … :changed … :removed … :retained …}` when the frame moved, or nil
+  when its composition re-resolved byte-for-byte (no swap). A no-op for a
+  frame-id not currently live."
+  [frame-id]
+  (when-let [frame-object (live-frame frame-id)]
+    (let [old-generation (frame-generation frame-object)
+          images         (vec (:rf.gen/images old-generation))
+          capabilities   (:rf.frame/capabilities frame-object)
+          new-generation (resolve-generation! images capabilities nil)]
+      (when-not (= old-generation new-generation)
+        (swap-frame-generation! frame-object new-generation)
+        (generation-diff old-generation new-generation)))))
+
+(defn reproject-live-frames!
+  "Reproject EVERY registered live frame against the CURRENT live source store
+  (the `reg-*` hot-reload path — EP-0023 §Default Image Semantics / §Hot Reload).
+  For each live frame, re-resolve its OWN `:rf.gen/images` composition and swap
+  the new generation on when it changed; this reprojects EXPLICIT-image frames
+  (whose `:include-ns` selectors match a changed namespace) as well as
+  default-image frames, not only the latter. A frame whose composition
+  re-resolves byte-for-byte is left untouched.
+
+  Returns `{frame-id reload-diff}` for every frame that MOVED (empty when none
+  did). Direct (no-id) frame objects are not in the registry, so they are not
+  reprojected here — their owners reload them explicitly via `reload-images!`."
+  []
+  (reduce (fn [moved frame-id]
+            (if-let [diff (reproject-live-frame! frame-id)]
+              (assoc moved frame-id diff)
+              moved))
+          {}
+          (live-frame-ids)))
