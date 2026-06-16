@@ -308,11 +308,18 @@
            ;; rather than reporting a settled pass it did not earn.
            (loop [[level & more] levels]
              (cond
-               (nil? level)
-               {:status :settled :boundary required}
-
+               ;; The deadline is re-checked BEFORE this branch returns so it
+               ;; also covers the TERMINAL flush: the last (richest) flush can
+               ;; run within budget on entry yet blow the wall-clock budget as
+               ;; it returns. Checking here — not only at the top of the next
+               ;; iteration — means an over-budget terminal flush refuses with
+               ;; a fail-closed `:flush-timeout` instead of a settled pass it
+               ;; did not earn (rf2-65bnwl).
                (and deadline (> (interop/now-ms) deadline))
                (flush-timeout-result required provided step)
+
+               (nil? level)
+               {:status :settled :boundary required}
 
                :else
                (do (when-let [f (get flushes level)]
