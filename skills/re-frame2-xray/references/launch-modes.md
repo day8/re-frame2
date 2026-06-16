@@ -229,7 +229,7 @@ press).
 (require '[day8.re-frame2-xray.core :as xray])
 
 (xray/init!
- {:default-frame :app/main ; observed frame for the spine
+ {:target-frame :app/main ; observed frame for the spine
  :theme :dark ; / :light (settings persist)
  :density :compact ; / :cosy (settings persist)
  :buffer-depths {:epoch 50}}) ; per-frame ring depth
@@ -238,10 +238,10 @@ press).
 ```
 
 All four opts are wired today (the recognised set is exactly
-`:default-frame :theme :density :buffer-depths`, per the `init!` docstring
+`:target-frame :theme :density :buffer-depths`, per the `init!` docstring
 in [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)):
 
-- `:default-frame` dispatches `:rf.xray/set-target-frame`.
+- `:target-frame` dispatches `:rf.xray/set-target-frame`.
 - `:theme` / `:density` write the persisted Settings shape and apply the
  matching class / font-size immediately (no reload).
 - `:buffer-depths` honours `{:epoch <n>}` only — it drives the substrate's
