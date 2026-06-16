@@ -131,12 +131,32 @@
         (is (= :area        (:rf.flow/id tags))    ":rf.flow/id names the failing flow")
         (is (= :area        (:failing-id tags))    ":failing-id mirrors the flow id")
         (is (= [:rect :area] (:path tags))         ":path is the flow's output path")
-        (is (= -12          (:value tags))         ":value carries the failing output")
-        ;; `build-event` hoists `:recovery` from `:tags` to the event's
-        ;; top level (per the trace error-shape hoist contract).
+        ;; rf2-u9bjgr (EP-0015 fail-closed) — the flow's `:schema` here is a
+        ;; PREDICATE FN (`(fn [v] ...)`), which is OPAQUE to the pure-data
+        ;; walker (`walker/schema-opaque?`: non-vector, non-keyword). The
+        ;; shared redaction seam (`:schemas/redact-validation-tags`) the
+        ;; flow-output emit-site routes through fails CLOSED on an opaque
+        ;; schema: it cannot prove the value is non-sensitive (an opaque
+        ;; compiled/fn schema may carry a `{:sensitive? true}` slot the walker
+        ;; can't see), so it scrubs every value-bearing slot to `:rf/redacted`
+        ;; and stamps `:sensitive? true`. The failing value is therefore NOT
+        ;; carried verbatim on the trace — but it IS still written to app-db
+        ;; (asserted above: validation is observational, not a rollback). The
+        ;; supported route to surface the raw value is registering the VECTOR
+        ;; Malli form (walkable, provably flag-free), per the
+        ;; `:rf.warning/schema-walker-opaque` nudge.
+        (is (= :rf/redacted (:value tags))         ":value redacted fail-closed (opaque fn schema)")
+        ;; `build-event` hoists `:recovery` AND `:sensitive?` from `:tags` to
+        ;; the event's top level (per the trace error-shape hoist contract —
+        ;; `trace/build-event` dissocs both from `:tags` and re-stamps them at
+        ;; the top so Spec 009 §Privacy's top-level-only `:sensitive?` read
+        ;; sees the fail-closed redaction signal).
+        (is (= true         (:sensitive? ev))      ":sensitive? stamped (hoisted to top level) by fail-closed redaction")
         (is (= :no-recovery (:recovery ev))        ":recovery :no-recovery (hoisted to top level)")
         (is (= :rf/default  (:frame tags))         ":frame stamped")
-        (is (some? (:explain tags))                ":explain carries the registered explainer's output")
+        ;; `:explain` is a value-bearing slot — scrubbed to the sentinel by the
+        ;; same fail-closed redaction (it carried `{:failed -12}` pre-redaction).
+        (is (= :rf/redacted (:explain tags))       ":explain redacted symmetrically with :value")
         (is (string? (:reason tags))               ":reason is a human-readable string")))))
 
 ;; ---------------------------------------------------------------------------
