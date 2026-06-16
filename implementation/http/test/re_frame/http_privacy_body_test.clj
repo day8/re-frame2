@@ -122,6 +122,26 @@
     (is (= :omit (body/off-box-body-disposition nil)))
     (is (= :omit (body/off-box-body-disposition (fn [_ _] {}))))))
 
+(deftest off-box-disposition-omits-opaque-registry-ref
+  (testing "an OPAQUE keyword registry-ref :decode is :omit off-box — the
+            shared schema walker cannot inspect a registry ref (it returns
+            {} per-slot marks), so :classify would ride the body UNCHANGED.
+            EP-0015 issue 5 requires fail-CLOSED when classification is
+            unknown (rf2-y1pgdl)"
+    ;; A bare keyword that is NOT a known decode mode is taken by
+    ;; `schema-decode?` as a registry ref — but the walker can only
+    ;; introspect the VECTOR form. Off-box it must fail closed.
+    (is (= :omit (body/off-box-body-disposition :my-app/token-schema)))
+    (is (= :omit (body/off-box-body-disposition :user/profile)))))
+
+(deftest off-box-disposition-omits-opaque-compiled-schema
+  (testing "an OPAQUE non-vector schema value (a compiled m/schema object /
+            a map / any non-vector non-keyword-mode form) is :omit off-box —
+            the walker cannot introspect it, so fail-closed (rf2-y1pgdl)"
+    ;; A map (or any non-vector, non-keyword decode value the walker treats
+    ;; as an opaque leaf returning {}) must NOT ride :classify off-box.
+    (is (= :omit (body/off-box-body-disposition {:opaque :compiled-schema-stand-in})))))
+
 ;; ---- 5. per-slot :large? elision (rf2-jhyccs) -----------------------------
 
 (deftest classify-decoded-elides-large-slot
@@ -166,6 +186,24 @@
     (is (= :rf/redacted (body/off-box-classify-body {:a 1} (fn [_ _] {}))))
     (is (= body/off-box-body-marker
            (body/off-box-classify-body {:a 1} :text)))))
+
+(deftest off-box-classify-body-omits-opaque-registry-ref
+  (testing "an OPAQUE keyword registry-ref :decode OMITS the body off-box —
+            the walker cannot inspect a registry ref's per-slot marks, so the
+            body must NOT ride unchanged (the rf2-y1pgdl fail-open leak: a
+            sensitive/large opaque-ref body slipping through classified-but-
+            unredacted)"
+    (is (= :rf/redacted (body/off-box-classify-body {:token "bearer-secret"}
+                                                    :my-app/token-schema)))
+    (is (= body/off-box-body-marker
+           (body/off-box-classify-body {:token "secret" :blob "huge"}
+                                       :user/profile)))))
+
+(deftest off-box-classify-body-omits-opaque-compiled-schema
+  (testing "an OPAQUE non-vector schema value OMITS the body off-box —
+            fail-closed (rf2-y1pgdl)"
+    (is (= :rf/redacted (body/off-box-classify-body {:secret "x"}
+                                                    {:opaque :compiled})))))
 
 (deftest off-box-classify-body-classifies-schema-bodies
   (testing "a SCHEMA body rides CLASSIFIED off-box — per-slot sensitive
