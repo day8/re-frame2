@@ -4,12 +4,22 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 
 ## Common cases
 
-- `:nrepl-port-not-found` → tell the user to start their dev build with `shadow-cljs watch <build>`.
-- `:browser-runtime-not-attached` → tell the user to open the app in a browser tab.
-- `:runtime-not-preloaded` → the `re-frame2-pair.runtime` namespace isn't loaded into the app. Quote the `:hint` verbatim; the fix is two lines in `shadow-cljs.edn` (see `SKILL.md` §Setup). Common after a fresh clone or when the consumer added re-frame2-pair without the preload entry.
+- `:nrepl-port-not-found` → no shadow-cljs nREPL is reachable at all — this is the **pre-connection degraded-mode** envelope every tool short-circuits to before any runtime check. Tell the user to start their dev build with `shadow-cljs watch <build>`.
 - `:debug-disabled` → re-frame2's `interop/debug-enabled?` is false (production build, or `goog.DEBUG` was set false). The trace stream and epoch history are elided in this build.
 - `:ns-not-loaded :missing :re-frame2` → re-frame2 isn't loaded; check the user's deps.
 - `:no-frames-registered` → no frame is up yet. Tell the user to call `(rf/init!)` (or wait for app boot).
+
+### `discover-app` preload-failure ladder
+
+When `discover-app` can't find the runtime marker, it runs a **diagnostic ladder** that returns one of four *named* reasons instead of a single blanket "not preloaded" — each names a **different** root cause with a **different** recovery, so translate the exact `:reason` the server returned (don't collapse them). Each rung carries `:build` (the targeted id) plus a targeted `:hint`; quote the `:hint` verbatim.
+
+- `:nrepl-unreachable` → the JVM round-trip failed — the nREPL socket is dead even though the MCP server is up (the shadow-cljs JVM stopped, or restarted leaving a stale socket). Recovery: restart `shadow-cljs watch` and retry; the MCP server reconnects on the next tool call.
+- `:build-not-running` → nREPL is reachable but shadow isn't running the **targeted** build (a build-id typo, not a short-tail — suffix resolution already ran). Carries `:running-builds` (what IS up) plus `:running-builds-arg-forms` (each in the paste-ready `:build` arg form). Recovery: re-target a running build — `discover-app {build: ":other-build"}` (or set `SHADOW_CLJS_BUILD_ID`).
+- `:no-runtime-connected` → the build IS running but no CLJS runtime answered — no browser tab has connected, or the tab's WebSocket dropped. Carries `:running-builds`. Recovery: open the app in a browser tab, or if a tab is open, reload the page so the runtime reconnects. **You can't reload a browser yourself — relay the `:hint` to the user.** (This is the failure the old `:browser-runtime-not-attached` reason named.)
+- `:runtime-loaded-but-preload-missing` → a CLJS runtime is alive but the `re-frame2-pair.runtime` preload marker is absent — **this is the normal missing-preload case.** The fix is the two-line `shadow-cljs.edn` preload entry (see `SKILL.md` §Setup). Common after a fresh clone, or when the consumer wired in the MCP server but not the `@day8/re-frame2-pair` preload package.
+- `:runtime-not-preloaded` → **degradation fallback only.** Fires when the ladder *itself* errors mid-diagnosis (e.g. a transient nREPL failure), so the response degrades to this blanket reason with the generic preload hint. On the normal missing-preload path the server returns `:runtime-loaded-but-preload-missing` (above), not this — so if you see `:runtime-not-preloaded`, suspect a flaky connection, not just a missing preload entry.
+
+Source of truth: the catalogue's *Failure-path diagnostic ladder* section + `diagnose-preload-failure!`.
 - `:ambiguous-frame` → multiple frames are registered and no session pin is set. The envelope is recovery-shaped: `:operation` (the refusing op), `:available-frames` (the app frames you may pick from), `:operating-realm`, `:selected-frame` (the current pin, nil = none), and `:event` / `:query` when the op knew it. Pin one of `:available-frames` with `set-operating-frame {frame: ":foo"}` (the escape from this refusal — SKILL.md §Multi-frame model), or pass a per-call `frame: ":foo"` arg.
 - `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
 
