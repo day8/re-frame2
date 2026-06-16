@@ -354,7 +354,8 @@
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: unknown image key " k
-             " — use :id, :include-ns, :registrations, or :rf.image/requires.")
+             " — use :id, :include-ns, :registrations, :rf.image/requires, "
+             ":replace, or :replace-standard.")
         {:recovery :remove-or-correct-the-key
          :extra    {:image (:id spec) :unknown-key k}})))
   (let [id         (:id spec)
