@@ -401,6 +401,27 @@
 ;; ---------------------------------------------------------------------------
 ;; Errors
 
+(defn- value-free-summary
+  "EP-0015 / Spec 015 §Author guidance for the exception-path residual —
+  a value-FREE diagnostic for a rejected payload `v`. Projection cannot
+  walk `ex-data` after the fact, so a thrown error must NOT carry the raw
+  payload (a forged share URL can smuggle `:snapshot {:data …}` /
+  arbitrary runtime values). We name the SHAPE — type tag + (for maps)
+  the key SET — never the values. The reader still recovers the category
+  + structural diagnostics; no secret-bearing slot survives."
+  [v]
+  (cond
+    (map? v)  {:type :map  :keys (vec (sort-by str (keys v))) :count (count v)}
+    (vector? v) {:type :vector :count (count v)}
+    (set? v)  {:type :set :count (count v)}
+    (sequential? v) {:type :seq}
+    (string? v) {:type :string :length (count v)}
+    (keyword? v) {:type :keyword :value v}     ; a keyword IS a state name/address, not data
+    (number? v) {:type :number}
+    (boolean? v) {:type :boolean}
+    (nil? v)  {:type :nil}
+    :else     {:type :value}))
+
 (defn- decode-error
   "Throw the documented `:rf.machines-viz.share/decode-failed` ex-info.
 
@@ -478,7 +499,9 @@
                           :recovery    :supply-a-valid-chart-state
                           :reason      :invalid-chart-state
                           :message     msg
-                          :chart-state chart-state}))))
+                          ;; rf2-8nzxib — value-FREE summary, NOT the raw
+                          ;; chart-state (which can carry runtime :data).
+                          :chart-state-summary (value-free-summary chart-state)}))))
      (let [envelope    (canonicalise
                          {:rf.machines-viz.share/v       current-version
                           :rf.machines-viz.share/chart   allowlisted
@@ -556,7 +579,9 @@
                      (contains? envelope :rf.machines-viz.share/chart))
         (decode-error :missing-envelope
                       "payload missing :rf.machines-viz.share/v or …/chart"
-                      {:envelope envelope}))
+                      ;; rf2-8nzxib — a forged payload's :envelope can carry
+                      ;; raw runtime values; report only its value-free shape.
+                      {:envelope-summary (value-free-summary envelope)}))
       (let [v     (:rf.machines-viz.share/v envelope)
             chart (:rf.machines-viz.share/chart envelope)
             ;; Versions are integer-valued strings ("1" at v1.0).
@@ -577,7 +602,9 @@
         (when-not (valid-chart-state? chart)
           (decode-error :invalid-chart-state
                         "…/chart does not validate against the ChartState schema"
-                        {:chart chart}))
+                        ;; rf2-8nzxib — a forged :chart can smuggle
+                        ;; :snapshot {:data …}; report value-free shape only.
+                        {:chart-summary (value-free-summary chart)}))
         envelope))))
 
 (defn decode-share-url-safe
