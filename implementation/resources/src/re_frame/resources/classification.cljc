@@ -435,3 +435,77 @@
     (if (or (seq sensitive) (seq large))
       (marks/redact-with-paths params (keys sensitive) (keys large))
       params)))
+
+;; ---------------------------------------------------------------------------
+;; Invalid-params error-payload projection (rf2-99j4e4).
+;;
+;; `validate+canonicalize-params` (resource + mutation registries) throws
+;; `:rf.error/resource-invalid-params` / `:rf.error/mutation-invalid-params`
+;; on a `:params-schema` conformance failure, carrying the failing params under
+;; `:params` and the registered explainer's output under `:error`. Both ride
+;; PUBLIC thrown error data AND any downstream error-capture / logging / trace
+;; egress (the AI-boundary + logs threat model). Without projection a params
+;; slot the owner marked `:sensitive?` (e.g. `[:token {:sensitive? true} …]`)
+;; would leak RAW whenever validation failed on a DIFFERENT, non-sensitive
+;; sibling field — the same sibling-leak class the SSR `:serialize` key
+;; (`project-params`) and the schema-validation hot-path traces
+;; (`re-frame.schemas.validate/redact-tags`) already close.
+;;
+;; This routes the error payload through the SAME two shared primitives the
+;; rest of the resources family egress uses — never a registry-private elider:
+;;
+;;   :params  — the CO-EQUAL fine-grained owner surface `project-params`:
+;;              each `:params-schema` `:sensitive?` slot redacts to
+;;              `:rf/redacted`, each `:large?` slot elides to the
+;;              `:rf.size/large-elided` marker, plain slots ride verbatim
+;;              (so the non-sensitive failing field stays diagnostic).
+;;   :error   — the registered explainer's output (Malli's explanation carries
+;;              the failing VALUE verbatim at its root `:value` and per-error
+;;              `:value` slots), routed through THE shared schema-aware
+;;              redaction seam `:schemas/redact-validation-tags` — the same one
+;;              the boundary interceptor / cofx-value / machine-`:data` /
+;;              sub-override / flow-output emit sites use. When the schema
+;;              declares ANY `:sensitive?` slot the whole `:error` blob scrubs
+;;              to `:rf/redacted` (a conforming sensitive sibling rides inside
+;;              the whole explanation, so the whole-payload scrub is the
+;;              correct scope — mirrors the schemas hot-path whole-payload
+;;              decision); otherwise it rides verbatim.
+;;
+;; Schemas-optional: when the `:schemas/redact-validation-tags` hook is unbound
+;; (schemas artefact absent) there is no schema to redact `:error` against and
+;; the seam falls through verbatim — consistent with the no-validator path that
+;; never produced an `:error` in the first place. `project-params` is
+;; schema-hook-independent for the redact axis (it reads the owner's
+;; `:params-schema` marks through the shared walker, the same one already
+;; gating SSR egress), so the `:params` slot is projected regardless.
+;; ---------------------------------------------------------------------------
+
+(defn redact-invalid-params-error
+  "Project the `:params` + `:error` (explainer output) slots of an invalid-params
+  failure error payload against the resource / mutation `spec`'s OWNER per-slot
+  `:params-schema` classification (rf2-99j4e4). Returns
+  `{:params <projected> :error <projected-or-nil>}`:
+
+    - `:params` is projected through `project-params` (the CO-EQUAL fine-grained
+      owner surface — `:sensitive?` slots redact, `:large?` slots elide); and
+    - `:error` (the explainer output, which carries the failing params VERBATIM
+      under Malli's `:value` slots) is routed through THE shared schema-aware
+      redaction seam `:schemas/redact-validation-tags`: the whole `:error` blob
+      scrubs to `:rf/redacted` when `spec`'s `:params-schema` declares ANY
+      `:sensitive?` slot, else rides verbatim.
+
+  Same two shared primitives the resources family egress already uses (the SSR
+  key projection + the schemas validation-failure redactor) — never a
+  registry-private elider. `error` may be nil (no explainer registered); the
+  `:error` key is then nil. Pure (modulo the memoised walker + the late-bound
+  redaction hook)."
+  [params error spec]
+  (let [schema     (:params-schema spec)
+        redact-fn  (late-bind/get-fn-cached :schemas/redact-validation-tags)
+        ;; The explainer output carries the failing params verbatim; treat it as
+        ;; the `:explain` value-bearing slot the shared seam scrubs whole-payload.
+        redacted-e (if (and redact-fn (some? schema) (some? error))
+                     (:explain (redact-fn schema {:explain error}))
+                     error)]
+    {:params (project-params params spec)
+     :error  redacted-e}))
