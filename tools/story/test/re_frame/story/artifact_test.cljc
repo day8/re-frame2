@@ -224,6 +224,7 @@
             silently skipped — this probe would record no call. Post-fix: the
             probe :dispatch! runs AND the fx-overrides still apply."
     (let [dispatch-calls (atom [])
+          dispatch-opts  (atom [])
           fx-hits        (atom [])]
       ;; A 'real' effect remapped to a stub by the fx decision, so we can also
       ;; confirm the override rides the wrapped dispatch path (not just that
@@ -238,10 +239,17 @@
             ;; RECORDS it was invoked, then delegates to the real headless
             ;; drain so the replay still settles. `:provides :headless` so the
             ;; settled-boundary does not refuse the bare [:dispatch …] step.
+            ;; The optional 3-arity carries the EP-0017 dispatch opts (rf2-srgvzp)
+            ;; — the same shape the boundary's 6-arity threads — so we can also
+            ;; confirm the replay's strict mint policy rides the adapter path.
             probe-hooks {:provides  :headless
-                         :dispatch! (fn probe-dispatch! [frame-id event-vector]
-                                      (swap! dispatch-calls conj event-vector)
-                                      (boundary/drain-sync! frame-id event-vector))
+                         :dispatch! (fn probe-dispatch!
+                                      ([frame-id event-vector]
+                                       (probe-dispatch! frame-id event-vector nil))
+                                      ([frame-id event-vector opts]
+                                       (swap! dispatch-calls conj event-vector)
+                                       (swap! dispatch-opts conj opts)
+                                       (boundary/drain-sync! frame-id event-vector opts)))
                          :flush!    {:headless (fn [_frame-id] nil)}}
             a   (artifact/make-run-artifact
                   {:event-program [[:dispatch [:rep/fire]]]
@@ -252,7 +260,10 @@
             "the supplied richer :dispatch! WAS invoked — the fx reapplication
              wrapped it instead of bypassing it with a direct dispatch-sync*")
         (is (= [:stub] @fx-hits)
-            "the fx override still rode the wrapped dispatch path (real → stub)")))))
+            "the fx override still rode the wrapped dispatch path (real → stub)")
+        (is (= [{:rf.cofx/mint-policy :strict}] @dispatch-opts)
+            "the replay's strict mint policy rode the adapter's :dispatch! opts
+             (EP-0017 strict-by-default replay)")))))
 
 (deftest replay-isolation-fresh-frame-each-time
   (testing "two replays of the same artifact each run into their own fresh
@@ -309,6 +320,70 @@
       (is (= :rep/caller-frame (:frame res)))
       (is (contains? @frame/frames :rep/caller-frame)
           "the caller-supplied frame is NOT destroyed"))))
+
+;; ===========================================================================
+;; EP-0017: recordable-coeffect envelopes survive run-artifact replay,
+;; replayed under STRICT mint policy by default (rf2-srgvzp)
+;; ===========================================================================
+
+(deftest replay-delivers-recorded-cofx-verbatim
+  (testing "a [:dispatch evec {:rf.cofx {…}}] step in the :event-program
+            re-presents the recorded recordable-coeffect value verbatim on
+            replay — the handler reads the recorded provided fact, not a
+            fresh host read"
+    (let [seen (atom nil)]
+      (rf/reg-cofx :rep.cofx/delta {:recordable? true}
+                   (fn [] (throw (ex-info "generator must not run on replay" {}))))
+      (rf/reg-event :rep/use-delta
+        {:rf.cofx/requires [:rep.cofx/delta]}
+        (fn [{:keys [db rep.cofx/delta]} _]
+          (reset! seen delta)
+          {:db (assoc db :delta delta)}))
+      (let [a   (artifact/make-run-artifact
+                  {:event-program
+                   [[:dispatch [:rep/use-delta]
+                     {:rf.cofx {:rf/time-ms 1781078400123 :rep.cofx/delta 42}}]]})
+            res (artifact/replay-run-artifact a)]
+        (is (= :pass (:status res)))
+        (is (= 42 @seen) "the recorded recordable cofx value replayed verbatim")
+        (is (= 42 (:delta (:app-db res))))))))
+
+(deftest replay-is-strict-incomplete-record-fails-loud
+  (testing "replay dispatches with :rf.cofx/mint-policy :strict by default —
+            a generator-backed recordable fact ABSENT from the recorded
+            envelope fails loudly (:rf.error/missing-required-cofx) rather
+            than minting a fresh value mid-replay"
+    (let [gen-calls (atom 0)
+          fired?    (atom false)]
+      (rf/reg-cofx :rep.cofx/missing {:recordable? true}
+                   (fn [] (swap! gen-calls inc) 5))
+      (rf/reg-event :rep/needs-missing
+        {:rf.cofx/requires [:rep.cofx/missing]}
+        (fn [_ _] (reset! fired? true) {}))
+      ;; The recorded envelope is INCOMPLETE — it carries the framework
+      ;; :rf/time-ms but not the declared :rep.cofx/missing fact.
+      (let [a   (artifact/make-run-artifact
+                  {:event-program
+                   [[:dispatch [:rep/needs-missing]
+                     {:rf.cofx {:rf/time-ms 1781078400123}}]]})
+            res (artifact/replay-run-artifact a)]
+        (is (zero? @gen-calls)
+            "strict replay ran NO generator — an incomplete record never re-mints")
+        (is (false? @fired?) "the handler never ran (the incomplete record halts)")
+        (is (contains? #{:error :cannot-run} (:status res))
+            "replay failed loudly rather than passing a fresh-minted value")))))
+
+(deftest replay-strict-bare-step-no-cofx-still-replays
+  (testing "a bare [:dispatch evec] step with NO recorded envelope still
+            replays under strict — the handler declares no recordable fact,
+            so strict mint policy is inert (zero ceremony, byte-identical to
+            the pre-EP-0017 path)"
+    (rf/reg-event :rep/plain (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (let [a   (artifact/make-run-artifact
+                {:event-program [[:dispatch [:rep/plain]] [:dispatch [:rep/plain]]]})
+          res (artifact/replay-run-artifact a)]
+      (is (= :pass (:status res)))
+      (is (= 2 (:n (:app-db res))) "the bare dispatch program replayed unchanged"))))
 
 ;; ===========================================================================
 ;; :network route stubs survive replay (rf2-tymyh)
