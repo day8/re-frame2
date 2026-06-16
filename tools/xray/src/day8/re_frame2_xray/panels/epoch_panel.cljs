@@ -66,6 +66,68 @@
                             (try (rf/handler-meta :interceptor icpt-id)
                                  (catch :default _ nil)))}))))
 
+;; ---- declared-recordable resolver (rf2-n9v5ga / EP-0017 §9) ---------------
+;;
+;; The RECORDABLE COEFFECTS lens shows the focused handler's DECLARED
+;; RECORDABLE LEAVES (EP-0017 §9; docs/EP-0017 §661-666; spec/009 §155) —
+;; the handler's declared inputs (`:rf.cofx/requires`), restricted to the
+;; recordable grade — NOT every arbitrary leaf that rode the raw dispatch
+;; token (EP-0017 does NOT deliver an undeclared leaf to the handler). The
+;; pure projection cannot read the registry, so this resolver lives in the
+;; sub (like `resolve-event-interceptors`) and threads the declared id SET
+;; into `project-numbered`.
+;;
+;; The declared recordable set = the bare cofx ids of the event's
+;; `:rf.cofx/requires` whose cofx registration is `:recordable?` (an
+;; ambient-grade fact runs a supplier and is never recorded, so it is NOT a
+;; recordable leaf). `:rf/time-ms` is framework-stamped + always recordable,
+;; handled verbatim by the projection independent of this set. A
+;; parameterized `[id arg]` requirement delivers under the bare `id`, so we
+;; key on the leaf id. Fail-soft: any registry lookup that throws degrades
+;; to nil → the projection's show-all fallback rather than crashing.
+
+(defn- requires-leaf-id
+  "The bare cofx leaf id of one `:rf.cofx/requires` entry — a keyword
+  verbatim, or the head of a parameterized `[id arg]` pair (the fact
+  delivers under the bare id, EP-0017 §4)."
+  [entry]
+  (cond
+    (keyword? entry) entry
+    (vector? entry)  (first entry)
+    :else            nil))
+
+(defn- recordable-cofx-id?
+  "True iff `cofx-id` is registered as a RECORDABLE-grade coeffect
+  (`:recordable? true` on its `reg-cofx` metadata). `:rf/time-ms` is the
+  framework's always-recordable provided fact. Fail-soft on lookup error."
+  [cofx-id]
+  (or (= cofx-id :rf/time-ms)
+      (boolean
+        (:recordable? (try (rf/handler-meta :cofx cofx-id)
+                           (catch :default _ nil))))))
+
+(defn resolve-event-recordables
+  "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017 §9,
+  rf2-n9v5ga): the bare cofx ids of `:rf.cofx/requires` whose cofx
+  registration is recordable-grade. nil when the event is unregistered or
+  declares no recordable requirements — the projection then falls back to
+  its documented show-all behaviour. The RECORDABLE COEFFECTS lens uses this
+  set to filter the raw token's `:rf.cofx` leaves down to what the handler
+  declared + received, so an undeclared leaf that merely rode the token is
+  not falsely presented as a recordable input."
+  [event-id]
+  (when (some? event-id)
+    (let [meta     (try (rf/handler-meta :event event-id)
+                        (catch :default _ nil))
+          requires (:rf.cofx/requires meta)]
+      (when (seq requires)
+        (let [recordables (into #{}
+                                (comp (keep requires-leaf-id)
+                                      (filter recordable-cofx-id?))
+                                requires)]
+          (when (seq recordables)
+            recordables))))))
+
 ;; ---- public Panel surface ------------------------------------------------
 
 ;; Re-export the view-side `Panel` so the spine + panel-registry
@@ -120,7 +182,13 @@
                              (proj/project-numbered
                                record
                                {:resolve-event-interceptors
-                                resolve-event-interceptors}))]
+                                resolve-event-interceptors
+                                ;; rf2-n9v5ga — the declared-recordable
+                                ;; resolver: the RECORDABLE COEFFECTS lens
+                                ;; filters the raw token's leaves to the
+                                ;; handler's declared recordable inputs.
+                                :resolve-event-recordables
+                                resolve-event-recordables}))]
         {:status         status
          :epoch-id       (or focus-epoch-id (:epoch-id record))
          :record         record

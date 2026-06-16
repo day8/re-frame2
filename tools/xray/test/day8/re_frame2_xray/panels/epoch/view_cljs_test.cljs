@@ -418,6 +418,35 @@
       (is (string/includes? (or value-text "") "42")
           "the cofx value renders in the body"))))
 
+(deftest coeffect-body-renders-parameterized-request-arg-test
+  (testing "rf2-lz6gl9 — a PARAMETERIZED `[id arg]` cofx step (carrying
+            `:input` from `:rf.cofx/arg`) renders the request arg on a
+            DISTINCT labelled line, separate from the produced value, so a
+            reviewer reads both 'what was asked' and 'what it produced'. The
+            view previously rendered only `:id` + `:value`."
+    (let [step {:step :coeffect :badge :COEFFECT :step-number 2
+                :id :session :value {:user-id 42} :input :auth-token}
+          tree (view/render-coeffect-step step)
+          input-text (text-of tree "rf-xray-epoch-coeffect-input-session")
+          value-text (text-of tree "rf-xray-epoch-coeffect-value-session")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-coeffect-input-session"))
+          "the parameterized request arg renders on its own line")
+      (is (string/includes? (or input-text "") ":auth-token")
+          "the request arg value renders distinctly")
+      (is (string/includes? (or value-text "") "42")
+          "the produced value still renders separately")
+      (is (not (string/includes? (or value-text "") ":auth-token"))
+          "the request arg does NOT bleed into the produced-value line"))))
+
+(deftest coeffect-body-omits-input-line-for-bare-cofx-test
+  (testing "rf2-lz6gl9 — a BARE (non-parameterized) cofx step (no `:input`)
+            renders NO request-arg line"
+    (let [step {:step :coeffect :badge :COEFFECT :step-number 2
+                :id :now :value #inst "2026-01-01"}
+          tree (view/render-coeffect-step step)]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-coeffect-input-now"))
+          "no :input on the step → no request-arg line rendered"))))
+
 ;; ---- rf2-9fyn40 · EP-0017 §9 — RECORDABLE COEFFECTS step ----------------
 
 (deftest recordable-cofx-time-ms-renders-verbatim-test
