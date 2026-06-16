@@ -23,6 +23,7 @@
   adapter."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
@@ -63,7 +64,7 @@
 
 (deftest cofx-reads-populated-request
   (testing "(set-request! frame req) → :rf.cofx/requires [:rf.server/request] → handler reads req"
-    (let [server-frame (rf/make-frame
+    (let [server-frame (frame/make-frame
                          {:doc      "SSR request frame"
                           :platform :server})
           request      {:request-method :get
@@ -89,7 +90,7 @@
 
 (deftest get-request-mirrors-cofx
   (testing "ssr/get-request is the public read surface — same value as the cofx"
-    (let [server-frame (rf/make-frame {:platform :server})
+    (let [server-frame (frame/make-frame {:platform :server})
           request      {:request-method :post
                         :uri            "/api/articles"
                         :body           "{\"title\":\"new\"}"}]
@@ -105,7 +106,7 @@
 
 (deftest cofx-injects-nil-when-slot-unpopulated
   (testing "cofx returns nil when no host adapter has populated the slot"
-    (let [server-frame (rf/make-frame {:platform :server})
+    (let [server-frame (frame/make-frame {:platform :server})
           observed     (atom :unset)]
       (rf/reg-event :req-test/read-empty
         {:rf.cofx/requires [:rf.server/request]}
@@ -133,7 +134,7 @@
 (deftest cofx-is-skipped-on-client-frame
   (testing ":rf.server/request is skipped on a :platform :client frame
             and emits :rf.cofx/skipped-on-platform"
-    (let [client-frame (rf/make-frame {:platform :client})
+    (let [client-frame (frame/make-frame {:platform :client})
           traces       (collect-traces! ::req-client)
           observed     (atom :unset)]
       (rf/reg-event :req-test/read-on-client
@@ -173,8 +174,8 @@
 
 (deftest two-frames-carry-independent-request-data
   (testing "two simultaneous per-request frames have isolated request slots"
-    (let [frame-a    (rf/make-frame {:platform :server :doc "request A"})
-          frame-b    (rf/make-frame {:platform :server :doc "request B"})
+    (let [frame-a    (frame/make-frame {:platform :server :doc "request A"})
+          frame-b    (frame/make-frame {:platform :server :doc "request B"})
           request-a  {:uri "/articles/aaa" :headers {"cookie" "session=user-a"}}
           request-b  {:uri "/articles/bbb" :headers {"cookie" "session=user-b"}}
           observed-a (atom :unset)
@@ -205,7 +206,7 @@
 
 (deftest clear-request-removes-the-slot
   (testing "clear-request! removes the per-frame slot — subsequent reads return nil"
-    (let [server-frame (rf/make-frame {:platform :server})
+    (let [server-frame (frame/make-frame {:platform :server})
           request      {:uri "/x"}]
       (ssr/set-request! server-frame request)
       (is (= request (ssr/get-request server-frame)))
@@ -235,7 +236,7 @@
 (deftest set-request-is-the-test-seam
   (testing "set-request! supplies the request for a harness-driven drain; the
             declared cofx reads it (replacing the retired 2-arity override)"
-    (let [server-frame (rf/make-frame {:platform :server})
+    (let [server-frame (frame/make-frame {:platform :server})
           explicit     {:uri "/explicit" :headers {"x-test" "1"}}
           observed     (atom :unset)]
       (ssr/set-request! server-frame explicit)
@@ -257,7 +258,7 @@
 
 (deftest cofx-works-under-ssr-server-preset
   (testing "the cofx surfaces the request under a :preset :ssr-server frame"
-    (let [server-frame (rf/make-frame {:preset :ssr-server})
+    (let [server-frame (frame/make-frame {:preset :ssr-server})
           request      {:uri "/preset" :request-method :get}
           observed     (atom :unset)]
       (ssr/set-request! server-frame request)
