@@ -1,15 +1,28 @@
 # EP-0023: Images And Frame-Loaded Instruction Sets
 
-Status: proposal
+Status: final
 Type: standards-track
 
-> This EP proposes `image -> frame -> event stream` as the public model for
+> This EP establishes `image -> frame -> event stream` as the public model for
 > frame-loaded registration sets. It partially supersedes EP-0013's public
 > app/realm surface while retaining the shipped realm machinery as an internal
-> installation substrate. Normative homes after acceptance: `spec/API.md`,
+> installation substrate. Normative homes: `spec/API.md`,
 > `spec/001-Registration.md`, `spec/002-Frames.md`,
 > `spec/Spec-Schemas.md`, `spec/Runtime-Subsystems.md`, and
 > `spec/Conventions.md`.
+>
+> **Graduated 2026-06-16 (Mike-ruled via the `rf2-32siq3.32` decision).**
+> EP-0023 is GRADUATED. The engine was verified flagship-quality and correct
+> across three final reviews (resolution coherence, the fail-loud assembly
+> lattice, cache coherence, hot reload, provenance elision; the conformance
+> suite reports zero contract gaps). The public model `image -> frame -> event
+> stream` ships with `rf/image` exported. Per the ruling, a sequenced
+> post-graduation wave (the object-returning `make-frame` collapse, runnable-
+> object unification, the facade export of object `make-frame` / `reload-images!`,
+> reproject-on-`reg-*` wiring, standard-registry population, and the remaining
+> caller migration) does **not** block graduation and is tracked under the
+> `rf2-32siq3` epic. This EP partially supersedes EP-0013, whose status is now
+> `superseded-by EP-0023`.
 
 ## Abstract
 
@@ -65,7 +78,7 @@ Non-goals:
   `:rf.interceptor/path` invariant that standard replacement must not break.
 - **EP-0009** — governs status bookkeeping. This EP uses supersession rather
   than post-implementation amendment because EP-0013 is final and shipped.
-- **Target specs** — the accepted contract graduates into `spec/API.md`,
+- **Target specs** — the graduated contract lives in `spec/API.md`,
   `spec/001-Registration.md`, `spec/002-Frames.md`, `spec/Spec-Schemas.md`,
   `spec/Runtime-Subsystems.md`, and `spec/Conventions.md`.
 
@@ -1586,11 +1599,11 @@ Reload uses the same `:images` spelling:
 
 ## Backwards Compatibility And EP-0013 Partial Supersession
 
-EP-0013 is final and shipped, so this proposal cannot be a post-implementation amendment in the EP-0009 sense. It is a **partial supersession**: it preserves EP-0013's isolation decisions and much of its implementation substrate, but replaces the beginner-facing public model and addressing surface.
+EP-0013 is final and shipped, so this EP is not a post-implementation amendment in the EP-0009 sense. It is a **partial supersession**: it preserves EP-0013's isolation decisions and much of its implementation substrate, but replaces the beginner-facing public model and addressing surface.
 
-If this EP is accepted and graduates, the EP-0009-valid bookkeeping is: EP-0013's status becomes `superseded-by EP-00XX`, and this EP records what carries forward and what is replaced. The word "partial" is explanatory, not a separate status value.
+Now that this EP has graduated, the EP-0009-valid bookkeeping is recorded: EP-0013's status is `superseded-by EP-0023`, and this EP records what carries forward and what is replaced (see the surface-disposition table below). The word "partial" is explanatory, not a separate status value.
 
-The proposal **retains** EP-0013's D1 runtime-realm machinery as the internal installation boundary: a registrar container, adapter/capability owner, frame registry, host-transient owner, disposal boundary, and compatibility home for the default registration path. It also requires the a15n62 invariant in substance: live dispatch, subscribe, fx, and cofx resolution must be derived from the frame being targeted, not from a process-global registrar.
+This EP **retains** EP-0013's D1 runtime-realm machinery as the internal installation boundary: a registrar container, adapter/capability owner, frame registry, host-transient owner, disposal boundary, and compatibility home for the default registration path. It also requires the a15n62 invariant in substance: live dispatch, subscribe, fx, and cofx resolution must be derived from the frame being targeted, not from a process-global registrar.
 
 What changes is the public story. Instead of asking users to reason about an app value installed into a realm and then addressed by `(realm, frame)`, the main public model becomes:
 
@@ -1698,9 +1711,9 @@ event stream = the program
 17. Update Xray and guide surfaces to show images as registration-set values and frames as execution contexts.
 18. Add conformance fixtures for same-id/different-image isolation, same-image/two-frame memory isolation, namespace glob selection, generation sharing/reload isolation, explicit standard replacement policy, capability checking, process-local frame-id uniqueness, and direct frame-object test targeting.
 
-### Implementation Beads To File After Acceptance
+### Implementation Beads
 
-This EP should not create implementation beads until the proposal is accepted. Once accepted, file the work as narrow, ordered beads rather than one broad "implement images" bead. The intended bead split is:
+Implementation proceeded after acceptance as narrow, ordered beads rather than one broad "implement images" bead, tracked under the `rf2-32siq3` epic. The bead split was:
 
 | Bead | Scope | Depends On | Acceptance |
 | --- | --- | --- | --- |
@@ -1797,11 +1810,15 @@ operator to accept, reject, defer, or request a narrower replacement surface.
 
 ## Recommendation
 
-Accept this EP as a standards-track proposal.
+Accepted as a standards-track EP and graduated (Mike-ruled via the
+`rf2-32siq3.32` decision, 2026-06-16).
 
-The public model should be `image -> frame -> event stream`. EP-0013's realm
-machinery should remain available as the internal installation substrate while
-new public docs and APIs teach image-loaded frames. The implementation wave
-should land the provenance-preserving registration source store, image assembly
-and caching, frame-derived registration resolution, explicit replacement
-winners, and guide/tooling updates before graduation.
+The public model is `image -> frame -> event stream`. EP-0013's realm
+machinery remains available as the internal installation substrate while
+public docs and APIs teach image-loaded frames. The implementation wave landed
+the provenance-preserving registration source store, image assembly and
+caching, frame-derived registration resolution, explicit replacement winners,
+and guide/tooling updates ahead of graduation; the conformance suite reports
+zero contract gaps. A sequenced post-graduation wave (the object-returning
+`make-frame` collapse and related caller migration) is tracked under the
+`rf2-32siq3` epic and does not block graduation.

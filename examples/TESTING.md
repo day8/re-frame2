@@ -321,13 +321,20 @@ The exception is bounded by four conditions, all of which must hold:
    collision is purely theoretical *and already prevented by the build
    split*; it is not a risk the convention needs to guard against here.
 3. **If either fixture is ever added to a shared wrapper / showcase /
-   `test:browser` bundle, the ids MUST be revisited and prefixed.** The
-   moment a `*-cljs-test` wrapper (or any combined demo) co-`:require`s
-   both `counter.core` and `counter-slim-and-fast.core` into one bundle,
-   the shared ids would overwrite each other in the single shared registry
-   — and, because the handlers are currently byte-identical, *silently*
-   until the twins diverge. This exception does not survive co-loading;
-   prefix one (or both) stems before that happens.
+   `test:browser` bundle, the ids MUST be disambiguated first** — either
+   give each frame its own explicit image (disjoint `:include-ns`
+   selectors supplied via `:images`, so each frame resolves only its own
+   fixture's registrations) or prefix one (or both) stems before
+   co-loading. The moment a `*-cljs-test` wrapper (or any combined demo)
+   co-`:require`s both `counter.core` and `counter-slim-and-fast.core`
+   into one default image — the implicit projection over every `reg-*`
+   loaded with no explicit `:images` — that image **fails loud** on the
+   cross-namespace `(kind, id)` collision (`:rf.error/image-duplicate-id`
+   at frame-creation time), naming both source namespaces. There is no
+   silent last-write-wins: a naive co-load of the two byte-identical twins
+   is a refused assembly, not a silent clobber — which is exactly why
+   explicit images or prefixed ids are the way to co-mount them. This
+   exception does not survive co-loading into one image.
 4. **The bundle-isolation gate is the regression surface that keeps this
    boundary honest.** `npm run test:reagent-slim:bundle-isolation`
    (the `cljs-reagent-slim-bundle-isolation` CI job) releases each fixture
@@ -344,10 +351,13 @@ borrowing the canonical counter's feature namespace rather than its own.
 
 The second carve-out is the same principle applied across reactive
 *substrates* rather than across two Reagent bridges. The UIx and Helix
-counter + login examples deliberately register the **same app-global
-registry ids** as their Reagent siblings — and, like Exception 1, the
-id-identity *is* the cross-substrate parity demonstration, not an
-oversight (this carve-out also originates in the per-example
+counter + login examples deliberately register the **same registration
+ids** as their Reagent siblings — ids scoped to the **image** a frame
+resolves against, not to one process-global registry, so the same id may
+legitimately exist in two different images meaning two different things —
+and, like Exception 1, the id-identity *is* the cross-substrate parity
+demonstration, not an oversight (this carve-out also originates in the
+per-example
 [`examples/uix/README.md` §Shared registration ids](uix/README.md#shared-registration-ids--deliberate-build-isolated),
 which now defers here as the canonical statement):
 
@@ -357,7 +367,7 @@ which now defers here as the canonical statement):
 > [`examples/uix/login_uix`](uix/login_uix/), and
 > [`examples/helix/counter_helix`](helix/counter_helix/) +
 > [`examples/helix/login_helix`](helix/login_helix/) intentionally register
-> the *same* app-global ids** across all three substrates — the `:counter/*`
+> the *same* image-scoped ids** across all three substrates — the `:counter/*`
 > event + sub ids (`:counter/initialise`, `:counter/inc`, `:counter/dec`,
 > `:counter/value`), the `:auth.login/flow` machine event, the
 > `:auth.login.demo/managed-stub` fx, the `:auth.login/state` /
@@ -396,10 +406,18 @@ must hold:
    is purely theoretical *and already prevented by the build split*.
 3. **If any of these examples is ever folded into a shared wrapper /
    showcase / `test:browser` bundle alongside a sibling substrate, the ids
-   MUST be revisited and prefixed first.** Because the twins start byte-
-   identical, a co-load would overwrite the shared events/subs/fx/machine/
-   schema in the single registry *silently* — until one substrate's
-   handlers diverge. This exception does not survive co-loading.
+   MUST be disambiguated first** — either give each frame its own explicit
+   image (disjoint `:include-ns` selectors supplied to `rf/make-frame` /
+   `reg-frame` via `:images`, so each frame resolves only its own
+   substrate's registrations) or prefix the ids before co-loading them
+   into one default image. The default image — the implicit projection
+   over every `reg-*` loaded with no explicit `:images` — **fails loud**
+   on a cross-namespace `(kind, id)` collision (`:rf.error/image-duplicate-id`
+   at frame-creation time), naming both source namespaces; there is no
+   silent last-write-wins on that path. So a naive co-load of the byte-
+   identical twins into one default image is a refused assembly, not a
+   silent clobber. This exception does not survive co-loading into one
+   image.
 4. **The bundle-isolation gate is the regression surface that keeps the
    build split honest.** Each per-substrate build is released as its own
    advanced bundle and grepped in isolation (CI confirms a Reagent

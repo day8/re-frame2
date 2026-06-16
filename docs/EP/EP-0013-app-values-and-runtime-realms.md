@@ -1,6 +1,6 @@
 # EP-0013: App Values And Runtime Realms
 
-Status: final
+Status: superseded-by EP-0023
 Type: standards-track
 
 > This EP defines the long-term architecture in which the application program
@@ -41,6 +41,24 @@ Type: standards-track
 > realm owns the registrar that event / sub / fx / cofx resolution routes against,
 > the runtime resolves a frame's handlers from the owning frame's realm registrar,
 > and `:rf.realm/id` is carried beside `:rf.frame/id` on the dispatch envelope.
+>
+> **Partially superseded by EP-0023 (Mike-ruled via the `rf2-32siq3.32`
+> decision, 2026-06-16).** EP-0023 establishes `image -> frame -> event stream`
+> as the public model, so EP-0013's status is `superseded-by EP-0023`. The
+> supersession is partial — it is a public-surface replacement, not a teardown:
+>
+> - **Carries forward (retained):** EP-0013's isolation decisions and the D1
+>   runtime-realm machinery as the internal installation/ownership substrate —
+>   registrar container, adapter/capability owner, frame registry, host-transient
+>   owner, disposal boundary, and the default-registration path. The realm-aware
+>   live-resolution invariant (`rf2-a15n62`) carries forward, restated at the
+>   frame boundary: the targeted frame's resolved image generation determines the
+>   registration universe.
+> - **Replaced (public surface):** the beginner-facing app/realm teaching surface
+>   and `(realm, frame)` addressing. The public value becomes `rf/image`; public
+>   operations target a frame; `rf/app` / `rf/module` re-express as image values /
+>   image fragments. See EP-0023 §"Backwards Compatibility And EP-0013 Partial
+>   Supersession" for the full surface-disposition table.
 
 ## Implementation errata
 
