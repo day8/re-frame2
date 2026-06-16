@@ -380,6 +380,7 @@ Resource state uses [Pattern-RemoteData](Pattern-RemoteData.md) semantics, but d
  :invalidated-at <ms-or-nil>
  :attempt        <int>
  :generation     <int>
+ :revision        <int>
  :request-id     <request-id-or-nil>
  :current-work   <work-id-or-nil>
  :tags           <set>
@@ -387,6 +388,8 @@ Resource state uses [Pattern-RemoteData](Pattern-RemoteData.md) semantics, but d
 ```
 
 `:resource/id` is the registered resource id (a bare keyword); `:resource/key` is the entry's own scoped resource key (the `[scope resource-id params]` tuple, [§Resource identity](#resource-identity)); `:current-work` points at the in-flight attempt's `:work/id` (the join to the [work ledger](#frame-work-ledger), cleared when no attempt is live — [§Restore and replay](#restore-and-replay)). The `:keep-previous?` projection pointer `:previous-key` rides the entry too ([§Paginated and previous data](#paginated-and-previous-data)). The durable entry stores **facts**; `:loading?` / `:fetching?` / `:stale?` / `:has-data?` are derived, never stored.
+
+`:revision` (base `0`) is the per-entry **write identity** — a monotone counter bumped on **every authoritative durable entry write** (load success, controlled patch, populate, and an invalidation-driven freshness settle), **unconditionally** and never gated on whether `:data` changed. It is **distinct** from `:generation`: `:generation` is the work / stale-suppression identity bumped at load **start**, whereas `:revision` moves only when an authoritative write actually **settles** the entry. The distinction is load-bearing for [EP-0019](../docs/EP/EP-0019-optimistic-mutation-rollback.md) optimistic-mutation rollback, whose settle-time conflict check compares a recorded `:revision` (observed at optimistic-apply time) against the entry's current `:revision` to decide whether a recorded inverse is still a truthful "before" — a value-gated token would miss a freshness-only settle (`:loaded-at` / `:stale-at` re-stamped while `:data` is `=`-shared, [§Structural sharing](#structural-sharing)) and let a later rollback silently clobber newer freshness with a stale snapshot.
 
 This deliberately **refines** Pattern-RemoteData's broad `:error` state. The load-bearing invariants (MUST):
 
