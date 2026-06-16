@@ -430,6 +430,16 @@
        :tags
        :result))
 
+(defn- computed-input-values
+  "The `:input-values` slot of the LAST `:rf.flow/computed` trace for
+  `flow-id` — the per-input elided values vector."
+  [flow-id]
+  (->> (by-op :rf.flow/computed)
+       (filterv #(= flow-id (-> % :tags :flow-id)))
+       last
+       :tags
+       :input-values))
+
 (deftest propagation-default-sensitive-input-inherits-to-output
   (testing "a flow reading a SENSITIVE input path emits a SENSITIVE output by
             default (no explicit classification key) — Spec 015:313's
@@ -598,6 +608,68 @@
     (rf/dispatch-sync [:seed-rt])
     (is (= privacy/redacted-sentinel (computed-result :route-token-echo))
         "the output derived from a sensitive runtime-db slot is redacted")))
+
+(deftest runtime-db-qualified-input-value-is-elided-on-computed-trace
+  ;; rf2-p44r3u — the INPUT-VALUE leg of the runtime-qualified path. The
+  ;; `propagation-runtime-db-qualified-input` test above proves the derived
+  ;; OUTPUT is redacted; this proves the INPUT VALUE the flow read does not
+  ;; egress raw on the `:rf.flow/computed` `:input-values` slot. Pre-fix,
+  ;; `elide-inputs` seeded `elide-wire-value` with the DECLARED input path
+  ;; `[:rf.db/runtime :rf.runtime/routing :current :token]`, but the sensitive
+  ;; declaration is keyed at the STRIPPED runtime-db path
+  ;; `[:rf.runtime/routing :current :token]` (the registry is partition-blind),
+  ;; so the seed path never matched the declaration and the raw "RT-SECRET"
+  ;; rode the input-values slot. The fix normalizes the runtime-qualified
+  ;; input path (strip the partition key) before the elision walk, reusing the
+  ;; SAME registry normalization (`input-resolve-path`) the propagation path
+  ;; already uses.
+  (testing "a sensitive runtime-db-qualified input value is elided (not raw)
+            on the `:rf.flow/computed` `:input-values` slot"
+    (reg-fw-runtime-handler! :seed-rt
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:token "RT-SECRET"}}}}))
+    (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
+    (rf/reg-flow {:id     :route-token-echo
+                  ;; Declassify the OUTPUT so the flow recomputes / emits a
+                  ;; non-redacted result — isolating the INPUT-VALUE leg from
+                  ;; the (separately-tested) output propagation.
+                  :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
+                  :output (fn [t] {:echo t})
+                  :path   [:derived :route-token]
+                  :rf.egress/output-sensitivity :rf.egress/public})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed-rt])
+    (let [iv (computed-input-values :route-token-echo)]
+      (is (vector? iv)
+          ":input-values preserves the per-input slot vector shape")
+      (is (= [privacy/redacted-sentinel] iv)
+          "the sensitive runtime-db input value is redacted on :input-values
+           (elided against the STRIPPED runtime declaration path, not the
+           raw [:rf.db/runtime …] seed path) — the raw token never egresses"))))
+
+(deftest runtime-db-qualified-input-value-is-elided-on-failed-trace
+  ;; rf2-p44r3u — the SAME normalization must apply on the FAILURE path. A
+  ;; flow reading a sensitive runtime-db-qualified input whose `:output`
+  ;; THROWS must not leak the raw input value on the `:rf.flow/failed`
+  ;; `:inputs` slot either (the trace bus is the wire boundary on both the
+  ;; success and the failure paths — `elide-inputs` is shared).
+  (testing "a sensitive runtime-db-qualified input value is elided (not raw)
+            on the `:rf.flow/failed` `:inputs` slot"
+    (reg-fw-runtime-handler! :seed-rt
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:token "RT-SECRET"}}}}))
+    (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
+    (rf/reg-flow {:id     :route-token-boom
+                  :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
+                  :output (fn [_] (throw (ex-info "boom" {})))
+                  :path   [:derived :route-token]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed-rt])
+    (let [failures (by-op :rf.flow/failed)
+          inputs   (-> failures last :tags :inputs)]
+      (is (= 1 (count failures)) ":rf.flow/failed fired")
+      (is (vector? inputs) ":inputs preserves the per-input slot vector shape")
+      (is (= [privacy/redacted-sentinel] inputs)
+          "the sensitive runtime-db input value is redacted on the failure
+           path's :inputs slot — the raw token never egresses"))))
 
 (deftest runtime-db-whole-value-effect-preserves-flow-elision-declarations
   ;; rf2-gom797 — a durable `:rf.db/runtime` whole-value effect must NOT clobber

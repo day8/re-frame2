@@ -605,7 +605,7 @@
     [(vec (concat whole-sens per-sens))
      (vec (concat whole-lg   per-large))]))
 
-(defn- input-resolve-path
+(defn ^:no-doc input-resolve-path
   "Resolve one flow `:inputs` path to the absolute declaration-coordinate
   path the elision registry is keyed by (plain path vectors, partition-
   blind — `add-marks` / schema / a flow's own propagated mark all store
@@ -614,7 +614,16 @@
   partition key so its `…rest` matches a declaration on that runtime-db
   slot (e.g. a sensitive route param / machine-data slot declared via
   `add-marks`). Partition-aware by construction — the SAME machinery, one
-  pass, per the rf2-ihfz9o COMPOSE-WITH-rf2-4eisfr note."
+  pass, per the rf2-ihfz9o COMPOSE-WITH-rf2-4eisfr note.
+
+  NOT private (rf2-p44r3u): `re-frame.flows/elide-inputs` reuses this SAME
+  normalization when seeding `elision/elide-wire-value`'s `:path` opt for a
+  flow's per-input trace value, so the `:rf.flow/computed` `:input-values`
+  and `:rf.flow/failed` `:inputs` slots elide a runtime-qualified input
+  against the STRIPPED declaration path — closing the input-value leak
+  where the registry keyed the sensitive declaration at the stripped path
+  but the trace seed carried the raw `[:rf.db/runtime …]` path and never
+  matched it."
   [input-path]
   (if (= :rf.db/runtime (first input-path))
     (subvec (vec input-path) 1)

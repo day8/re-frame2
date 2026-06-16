@@ -150,11 +150,27 @@
   bus is the wire boundary on both paths, so a flow reading a large or
   sensitive input must not surface it raw on either.
 
+  rf2-p44r3u: the `:path` opt seeds which declaration `elide-wire-value`
+  matches the value against, so it MUST be the DECLARATION-COORDINATE path,
+  not the raw `:inputs` path. For a runtime-db-qualified input
+  `[:rf.db/runtime …rest]` (rf2-4eisfr) the value is read from runtime-db at
+  `…rest` and the elision registry keys its declaration at that STRIPPED
+  `…rest` path (the registry is partition-blind — `add-marks` / schema store
+  bare path vectors). Seeding the walk with the raw `[:rf.db/runtime …]`
+  path therefore never matched the declaration and surfaced the input value
+  RAW even though the same slot's derived output was correctly redacted. We
+  normalize each input path through the SAME `registry/input-resolve-path`
+  the flow-output propagation path already uses (`input-overlaps-declaration?`),
+  so success and failure trace input values elide against the stripped
+  runtime declaration path. A bare app-db input is unchanged by the
+  resolver, so this is a no-op for the common (app-db) case.
+
   Callers gate this behind their own outer `interop/debug-enabled?` so the
   walk is DCE'd in CLJS production (rf2-drr4z); this fn does not re-gate."
   [frame-id flow input-values]
   (mapv (fn [input-path v]
-          (elision/elide-wire-value v {:frame frame-id :path input-path}))
+          (elision/elide-wire-value
+            v {:frame frame-id :path (registry/input-resolve-path input-path)}))
         (:inputs flow)
         input-values))
 
