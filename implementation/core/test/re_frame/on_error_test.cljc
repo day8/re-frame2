@@ -19,6 +19,7 @@
   contract under `:advanced` + `goog.DEBUG=false`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.error-emit :as error-emit]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -405,7 +406,7 @@
                        (fn [_ _] {:fx [[:goum9x/real-fx]]}))
       ;; Per-call override redirects :goum9x/real-fx to an id that is NOT
       ;; registered → override-fallthrough; runtime uses :goum9x/real-fx.
-      (let [f (rf/make-frame {})]
+      (let [f (frame/make-frame {})]
         (rf/dispatch-sync [:goum9x/run-bad-override]
                           {:frame f
                            :fx-overrides {:goum9x/real-fx :goum9x/not-registered}})
