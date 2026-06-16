@@ -162,25 +162,25 @@
       (is (= "section-3" (:fragment @seen))
           "the handler receives the RAW :fragment (scrolling needs it)"))))
 
-(deftest push-url-handled-trace-redacts-url-arg
-  (testing "rf2-1wmni6/rf2-pbbo68: :rf.nav/push-url's :rf.fx/handled trace
-            redacts the whole URL arg (carrier-shaped), handler unaffected"
+(deftest push-url-not-marked-routes-real-url
+  (testing "rf2-1wmni6/rf2-pbbo68: :rf.nav/push-url is deliberately NOT
+            `:sensitive` — the pushed URL is the navigation's behavioural
+            identity (the open-redirect gate already cleared it), and the
+            `:effects-routed` conformance contract + epoch :effects projection
+            assert the ACTUAL routed URL. Carrier-bearing route-miss / blocked
+            URLs are scrubbed at their diagnostic emit sites instead, so
+            push-url's :rf.fx/handled trace shows the real same-origin URL."
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
-    (let [seen (atom nil)]
-      (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta (fn [_ _] nil))
-      (reg-jvm-fx! :rf.nav/push-url nav-fx/push-url-meta
-                   (fn [_ url] (reset! seen url)))
-      (let [args (handled-trace-for
-                   :rf.nav/push-url
-                   [:rf/url-requested {:url "/articles/secret-doc"}])]
-        ;; The trace egress copy is the whole-value sentinel.
-        (is (= privacy/redacted-sentinel args)
-            "the push-url URL arg is redacted on the :rf.fx/handled trace")
-        ;; The handler still pushed the real URL in-process.
-        (is (string? @seen) "the handler received the raw URL string")
-        (is (re-find #"secret-doc" @seen)
-            "the in-process handler URL is NOT redacted")))))
+    (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta (fn [_ _] nil))
+    (reg-jvm-fx! :rf.nav/push-url nav-fx/push-url-meta  (fn [_ _] nil))
+    (let [args (handled-trace-for
+                 :rf.nav/push-url
+                 [:rf/url-requested {:url "/articles/intro"}])]
+      ;; A normal same-origin app URL rides verbatim on the trace (behavioural
+      ;; identity, not a redacted carrier) — push-url carries no :sensitive mark.
+      (is (= "/articles/intro" args)
+          "the push-url URL routes/traces the real same-origin URL"))))
 
 ;; ===========================================================================
 ;; rf2-n1f4rh — route-miss diagnostics redact the raw requested URL.
