@@ -135,15 +135,22 @@ B.7 as before.
   throwing validator). The mint policy threads in via a `mint-policy` arg to
   `deliver-declared-cofx` (default `:live`, the router default); the binding
   points (`:test` preset / replay → `:strict`) are slice-B.8's job.
-  **Open tail noted for Mike:** the **structural-EDN-always** half of the
-  `:rf.error/cofx-value-invalid` path (rejecting a non-EDN recordable value —
-  a host object — independent of a declared `:schema`) was NOT built in B.7.
-  No shipped generator currently mints a non-EDN value, and the named first
-  consumer (EP-0016 temp-ids) is schema-validated, so the `:schema` half
-  covers the demonstrated need; a cross-runtime "is-this-EDN / host-object"
-  predicate is a separable design decision (what counts as EDN on CLJS vs JVM)
-  best ruled on its own rather than smuggled into the generator wave. Filed
-  for follow-up should a generator without a `:schema` ever ship.
+  **The structural-EDN-always half is now built (rf2-rmroo4 slice A for
+  supplied values; rf2-uqz2ir for generated values; production-hardened
+  rf2-q34j26).** A non-EDN recordable value — a host object reaching the
+  durable token whether supplied at the dispatch boundary or freshly generated,
+  independent of any declared `:schema` — is `:rf.error/cofx-value-invalid`
+  (`:rf.cofx/value-error :non-edn-recordable-value`), and the check is
+  **ALWAYS-ON** (a hard error in dev AND production per Open Issue 9): folding a
+  non-EDN value into the durable causal record is corrupt durable state
+  regardless of build, the same `:dispatched-at` causal-token precedent the
+  envelope map-shape / `:rf/time-ms` checks enforce. The cross-runtime
+  "is-this-EDN / host-object" predicate is the data-only allow-list walker
+  `re-frame.recordable` (accepts the EDN leaf + collection kinds, rejects host
+  handles by construction). (Originally B.7 left this half deferred behind a
+  dev gate with the rationale that no shipped generator minted a non-EDN value;
+  the production-hardening closes the gate so the contract holds in production
+  too, not only where the dev walk runs.)
 - **Mint policies — DEFERRED (`rf2-5spzo7`, slice-B.8).** `:live` (router
   default), `:strict` (hard-wired for replay; the `:test` preset default), and
   `:explicit-live` (declared-nondeterminism escape), wired to their normative

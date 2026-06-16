@@ -600,13 +600,15 @@
 ;; (`re-frame.recordable`) and error shape (`:rf.error/cofx-value-invalid`,
 ;; reason `:non-edn-recordable-value`).
 ;;
-;; DEV-MODE — gated on `interop/debug-enabled?`, like the slice-A supplied-value
-;; walk: the value a generator produces is identical in production, so dev-time
-;; catching suffices, and the deep per-value walk DCEs out of the production hot
-;; path under `:advanced` + `goog.DEBUG=false`. The declared-`:schema` check
-;; (`validate-recordable-value!`, above) stays the ALWAYS-ON production
-;; causal-token contract; this structural always-EDN gate is the dev-time
-;; complement that fires even when no `:schema` was declared.
+;; ALWAYS-ON — NOT gated on `interop/debug-enabled?` (rf2-q34j26, EP-0017 Open
+;; Issue 9 — structural EDN always, hard error in production too), matching the
+;; slice-A supplied-value walk (router/diagnostics.cljc) now hardened the same
+;; way: a generated host handle folds a non-EDN value into the durable record
+;; (epoch ledger / replay / SSR / Xray), corrupt durable state in production as
+;; much as dev. The declared-`:schema` check (`validate-recordable-value!`,
+;; above) is the complementary always-on per-supplier causal-token contract;
+;; this structural always-EDN gate is the floor that fires even when no
+;; `:schema` was declared.
 
 (defn- emit-cofx-generated-value-non-edn!
   "Emit `:rf.error/cofx-value-invalid` for a GENERATED recordable value that is
@@ -665,24 +667,32 @@
                :bad-type            bad-type}})))
 
 (defn- validate-generated-recordable-value!
-  "DEV-MODE structural-EDN check of a GENERATED recordable `value` for
+  "ALWAYS-ON structural-EDN check of a GENERATED recordable `value` for
   `cofx-id`, run at the generator write-back site BEFORE the value is folded
-  into the in-flight `:rf.cofx` causal record (rf2-rmroo4 slice B). The first
-  non-recordable leaf throws `:rf.error/cofx-value-invalid` (reason
-  `:non-edn-recordable-value`); a fully-EDN value passes and returns `value`.
+  into the in-flight `:rf.cofx` causal record (rf2-rmroo4 slice B;
+  production-hardened rf2-q34j26). The first non-recordable leaf throws
+  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`); a
+  fully-EDN value passes and returns `value`.
 
-  DEV-MODE — gated on `interop/debug-enabled?`: a generator minting a host
-  handle is a DEV-TIME author error, the produced value is identical in
-  production, and the deep walk DCEs out of the production hot path. The
-  declared-`:schema` check stays the always-on production contract; this is the
-  structural complement that fires even with no `:schema`. Reuses the slice-A
-  walker (`re-frame.recordable`); the reported path is rooted at the fact id so
-  it reads from the coeffect key, not the per-value walk root."
+  ALWAYS-ON — NOT gated on `interop/debug-enabled?` (EP-0017 §3 / §5 / Open
+  Issue 9 — structural EDN always, hard error in production too): a generated
+  value that is a host handle folds a non-EDN value into the durable causal
+  record (written back into `:rf.cofx`, captured in the epoch ledger, replayed,
+  shipped in the SSR payload, read by Xray) — corrupt durable state, not a dev
+  nicety, the same causal-token contract the declared-`:schema` check already
+  enforces always-on. The walk runs once per generated fact and short-circuits
+  at the first non-EDN leaf; generation is already the rare slice-B branch (a
+  declared-absent generator-backed fact under `:live`). The declared-`:schema`
+  check stays the complementary always-on production contract; this is the
+  structural always-EDN floor that fires even with no `:schema` (closing the
+  EP-0017 errata tail — a generator without a `:schema` minting a host handle
+  no longer escapes to a far-away replay / Xray / SSR failure). Reuses the
+  slice-A walker (`re-frame.recordable`); the reported path is rooted at the
+  fact id so it reads from the coeffect key, not the per-value walk root."
   [cofx-id value failing-id frame-id]
-  (when interop/debug-enabled?
-    (when-let [bad (recordable/explain-non-recordable value)]
-      (let [rooted (update bad :path #(into [cofx-id] %))]
-        (emit-cofx-generated-value-non-edn! cofx-id rooted value failing-id frame-id))))
+  (when-let [bad (recordable/explain-non-recordable value)]
+    (let [rooted (update bad :path #(into [cofx-id] %))]
+      (emit-cofx-generated-value-non-edn! cofx-id rooted value failing-id frame-id)))
   value)
 
 ;; ---- generation at processing-start (EP-0017 §5 step 3 / slice B.7) --------
@@ -719,11 +729,12 @@
   A successful run emits the dev-only `:rf.cofx/generated` trace op (fact-name
   + supplier id) so traces are self-describing even though the record is flat,
   then validates the produced value: against the registration's `:schema` (a
-  PRODUCTION hard error on mismatch — the validation throw propagates) AND, in
-  DEV builds, structurally against the recordable-EDN walker (rf2-rmroo4 slice
-  B / rf2-uqz2ir — a generator that mints a non-EDN host handle throws
-  `:rf.error/cofx-value-invalid` reason `:non-edn-recordable-value`, BEFORE the
-  value is written back into the durable record). The emit / scope shape
+  PRODUCTION hard error on mismatch — the validation throw propagates) AND
+  structurally against the recordable-EDN walker (rf2-rmroo4 slice B /
+  rf2-uqz2ir / production-hardened rf2-q34j26 — a generator that mints a non-EDN
+  host handle throws `:rf.error/cofx-value-invalid` reason
+  `:non-edn-recordable-value` in dev AND production, BEFORE the value is written
+  back into the durable record). The emit / scope shape
   mirrors `run-ambient-supplier`; the op differs (`:rf.cofx/generated` vs
   `:rf.cofx/run`) because generation produces a RECORDED fact, not an ambient
   read."
@@ -756,12 +767,12 @@
             ;; source-coord like every other cofx emit.
             (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id)
             ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
-            ;; slice B, rf2-uqz2ir): a generator that mints a host handle fails
-            ;; loudly HERE — at the source, before the write-back into the
-            ;; durable `:rf.cofx` record — not far away at replay / Xray / SSR.
-            ;; DEV-MODE-gated; reuses the slice-A walker + error shape. Runs
-            ;; AFTER `:schema` so a declared `:schema` mismatch (the prod
-            ;; contract) is reported first.
+            ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
+            ;; that mints a host handle fails loudly HERE — at the source, before
+            ;; the write-back into the durable `:rf.cofx` record — not far away
+            ;; at replay / Xray / SSR. ALWAYS-ON (production hard error too);
+            ;; reuses the slice-A walker + error shape. Runs AFTER `:schema` so a
+            ;; declared `:schema` mismatch is reported first.
             (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id))
           outcome))
       (do
