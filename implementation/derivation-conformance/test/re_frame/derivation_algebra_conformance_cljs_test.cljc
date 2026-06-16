@@ -105,6 +105,24 @@
             [re-frame.derivation.graph :as graph]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            ;; EP-0015 / EP-0017 redaction conformance arms (rf2-zt5j96 /
+            ;; rf2-iormgq) — the in-tree egress primitives the umbrella egress
+            ;; arms compose: `re-frame.identity` mints the stable opaque
+            ;; scoped-key handle (the CEDN-1 canonical-bytes hash), and
+            ;; `re-frame.privacy` carries the `:rf/redacted` sentinel
+            ;; `rf/elide-wire-value` writes. These are `implementation/`-resident
+            ;; (NOT a `tools/` reach), so the cross-family conformance surface
+            ;; proves the egress LAW over the REAL composer output without
+            ;; importing the named first-consumer Xray (bundle isolation).
+            [re-frame.identity :as identity]
+            [re-frame.privacy :as privacy]
+            ;; the in-tree derived-sensitivity readback surfaces (rf2-iormgq):
+            ;; `re-frame.elision/sensitive-declarations` is the per-frame
+            ;; registry the flow propagation installs into, and
+            ;; `re-frame.marks/sub-output-sensitive?` is the resolved sub-output
+            ;; propagation table populated on each sub-cache recompute.
+            [re-frame.elision :as elision]
+            [re-frame.marks :as marks]
             ;; load-bearing side-effecting requires: each façade registers
             ;; its registrar kind / framework events / subs so the family is
             ;; live (the same loads the composer test performs).
@@ -945,3 +963,593 @@
     (testing "specifically, no work-ledger record was created by the selector read"
       (is (= (:rf.runtime/work-ledger rt-before) (:rf.runtime/work-ledger rt-after))
           "reading a resource selector starts no resource work (§Evaluation policy rule 1)"))))
+
+;; ===========================================================================
+;; (g) TOOL REDACTION — the §Conformance 'Tool redaction' law over OFF-BOX
+;;     GRAPH EGRESS (rf2-zt5j96 / rf2-iormgq; EP-0015 + EP-0017; spec/
+;;     Derivations.md §Conformance 'Tool redaction' + §Redaction metadata).
+;;
+;; Every prior arm reads the RAW on-box graph the composer
+;; (`re-frame.derivation.graph`) assembles — correct-as-designed
+;; (the EP-0014 tail-2 ruling, rf2-6y7wnb: the composer is raw-on-box;
+;; redaction is an EGRESS concern owned by the frame elision policy via the
+;; shared `rf/elide-wire-value` walker, applied at the WIRE BOUNDARY where a
+;; consuming tool ships the graph OFF-BOX, NOT at the registrar-derived
+;; composer). So a passing conformance run that NEVER projects the graph
+;; through an egress boundary cannot catch a raw sensitive scope / params /
+;; derived value leaving through an identity-embedded graph position, nor a
+;; projection that drops graph connectivity. These arms close that gap.
+;;
+;; ## Where the egress boundary lives, and why this surface re-composes it
+;;
+;; The graph-level egress CALL SITE is BORN in the named first consumer Xray
+;; (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`)
+;; — a `tools/` artefact this cross-family conformance surface MUST NOT
+;; `:require` (tools/README.md bundle isolation: the dependency arrow flows
+;; conformance → implementation, never conformance → tools). But that call
+;; site is built ENTIRELY from `implementation/`-resident primitives:
+;; `rf/elide-wire-value` (the single shared per-frame fail-closed value
+;; walker, EP-0015 §11) for value-bearing node fields, and
+;; `identity/canonical-bytes` (the CEDN-1 canonical token, EP-0012) hashed
+;; into a stable opaque handle for the identity-embedded scoped key the
+;; value-path walk is structurally blind to. So these arms re-compose the
+;; SAME egress projection from those in-tree primitives and run it over the
+;; REAL composer output (`graph/live-derivation-graph` over contributors that
+;; return the realized sensitive shapes) — proving the LAW holds against the
+;; actual assembled graph, with no tool reach. `egress-project-graph` below
+;; is the conformance surface's faithful mirror of the Xray call site's
+;; semantics; if the law it asserts ever diverges from the tool, the Xray
+;; redaction suite (`derivation-graph-redaction-cljs-test`) is the per-tool
+;; pin and this is the cross-family pin — two independent witnesses to one
+;; law.
+;; ===========================================================================
+
+;; ---- the in-tree egress projection (mirrors the Xray call site) ----------
+
+(defn- opaque-scoped-key-handle
+  "A STABLE, ONE-WAY opaque handle for one secret-bearing scoped-key
+  component — the `implementation/`-resident analogue of the Xray
+  `opaque-handle`. Deterministic from the value (same value ⇒ same handle,
+  so connectivity survives) but IRREVERSIBLE: a HASH of the value's CEDN-1
+  canonical token (`identity/canonical-bytes`), never the token itself.
+  FAILS CLOSED to the `:rf/redacted` sentinel for any value outside the
+  CEDN-1 identity domain or on any error — never host-stringify a secret
+  onto the wire. Idempotent: hashing an already-`[:rf.resource/opaque …]`
+  handle yields a stable handle-of-handle."
+  [v]
+  (try
+    (let [token  (identity/canonical-bytes v)
+          digest #?(:clj  (Integer/toHexString (hash token))
+                    :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
+      [:rf.resource/opaque digest])
+    (catch #?(:clj Throwable :cljs :default) _
+      privacy/redacted-sentinel)))
+
+(defn- scoped-resource-key?
+  "True when `v` is a live resource SCOPED KEY — a 3-tuple
+  `[cache-scope resource-id canonical-params]` (the resource's concrete live
+  fact identity, Derivations §Fact identity): the MIDDLE element is the
+  registration `resource-id` keyword and the LAST is the canonical-params
+  MAP. A static resource node's `:id` is a bare keyword (not this shape), so
+  only LIVE resource identities match; an already-projected scoped key keeps
+  the shape, so re-projection is well-defined."
+  [v]
+  (and (vector? v)
+       (= 3 (count v))
+       (keyword? (nth v 1))
+       (map? (nth v 2))))
+
+(defn- project-scoped-key
+  "Project a live resource scoped key `[scope resource-id params]` into its
+  egress form `[<scope-handle> resource-id <params-handle>]` — the scope and
+  params replaced by stable opaque handles, the registration `resource-id`
+  PRESERVED (a tool still sees WHICH resource). Idempotent."
+  [[scope resource-id params]]
+  [(opaque-scoped-key-handle scope) resource-id (opaque-scoped-key-handle params)])
+
+(defn- project-identity-in-path
+  "Replace any live resource scoped key embedded in `path` (e.g. the
+  `:output` runtime path `[:runtime [:rf.runtime/resources :entries
+  <scoped-key>]]`) with its projected form, so the secret-bearing scoped key
+  never egresses through a structure position."
+  [path]
+  (if (sequential? path)
+    (mapv (fn [el]
+            (cond
+              (scoped-resource-key? el) (project-scoped-key el)
+              (sequential? el)          (project-identity-in-path el)
+              :else                     el))
+          path)
+    path))
+
+(defn- project-resource-inputs
+  "Project a live resource node's realized `:inputs`
+  `[[:scope <scope>] [:param <params>]]` — opaque the `[:scope …]` /
+  `[:param …]` payloads (the realized scope + params edges carry the same
+  sensitive identity). Other input shapes ride through untouched."
+  [inputs]
+  (if (sequential? inputs)
+    (mapv (fn [in]
+            (if (and (vector? in) (= 2 (count in)) (#{:scope :param} (first in)))
+              [(first in) (opaque-scoped-key-handle (second in))]
+              in))
+          inputs)
+    inputs))
+
+(defn- project-resource-node-identity
+  "Project ONE live resource node's secret-bearing IDENTITY fields — the
+  positions the value-path `rf/elide-wire-value` walk is structurally blind
+  to: `:id` (the scoped key), `:output` (the scoped key embedded in the
+  runtime path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads,
+  and `:work-ledger :record :resource/key`. Structure / classification fields
+  are untouched."
+  [node]
+  (cond-> node
+    (scoped-resource-key? (:id node))
+    (update :id project-scoped-key)
+
+    (contains? node :output)
+    (update :output project-identity-in-path)
+
+    (contains? node :inputs)
+    (update :inputs project-resource-inputs)
+
+    (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
+    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
+
+(defn- resource-node-key?
+  "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
+  whose scoped key embeds a secret-bearing scope/params. A static resource
+  node key `[:resource <bare-keyword>]` does NOT match."
+  [node-key]
+  (and (vector? node-key)
+       (= :resource (first node-key))
+       (scoped-resource-key? (second node-key))))
+
+(defn- project-resource-node-key
+  "Project a live resource node KEY `[:resource <scoped-key>]` to
+  `[:resource <projected-scoped-key>]`; other node keys ride through."
+  [node-key]
+  (if (resource-node-key? node-key)
+    [:resource (project-scoped-key (second node-key))]
+    node-key))
+
+(def ^:private value-bearing-node-keys
+  "The value-bearing summary fields the egress walk runs through
+  `rf/elide-wire-value` under the frame's policy (Xray's
+  `value-bearing-node-keys`). Identity-embedded positions are handled by the
+  scoped-key projection, not this value walk."
+  [:value :params :query :state])
+
+(defn- egress-project-graph
+  "Project a `DerivationGraph` through `frame-id`'s egress policy for the
+  off-box wire boundary — the conformance surface's faithful mirror of the
+  Xray `redact-graph-for-egress` call site, built from `implementation/`
+  primitives only (no tools reach).
+
+    - value-bearing node fields → `rf/elide-wire-value` under the named
+      frame's own policy (passed as the `:frame` opt so it applies THAT
+      frame's classification regardless of any ambient scope);
+    - FAIL-CLOSED on an UNREACHABLE frame — a `:frame` opt naming no LIVE
+      frame is treated by `rf/elide-wire-value` exactly like the frameless
+      case (rf2-t55hxg.18: a frame-id alone is not policy-bearing — it must
+      resolve to a live frame via `frame/frame`, else the walker fails closed
+      to `:rf/redacted`). We pass the named frame id THROUGH even when it is
+      unreachable so the walker takes its own dead-frame fail-closed branch
+      rather than resolving an AMBIENT frame (which, unlike Xray's
+      `:ambient-frame nil` harness, this cross-family fixture binds to
+      `:rf/default`) — a nil opts map would let the frameless walk resolve to
+      that ambient frame and ship the value RAW under its empty policy;
+    - identity-embedded scoped keys (node KEY, `:id`, `:output`, `:inputs`,
+      `:work-ledger :record :resource/key`, AND every edge endpoint) →
+      stable opaque handles, the SAME projection applied consistently so the
+      remap keeps connectivity.
+
+  `:mode` / `:frame` unchanged; STRUCTURE preserved (a redacted value/param
+  is still an edge; the node is still present + classified)."
+  [graph frame-id]
+  ;; Always carry the named frame id as the explicit `:frame` opt. A LIVE
+  ;; frame applies its own policy; an unreachable / nil frame is treated by
+  ;; `rf/elide-wire-value` as the dead-frame fail-closed case (it must resolve
+  ;; to a live frame, else redact whole) — NEVER resolving the ambient frame.
+  (let [walk-opts  {:frame frame-id}
+        redact-node
+        (fn [node]
+          (-> (reduce
+                (fn [n k]
+                  (if (contains? n k)
+                    (assoc n k (rf/elide-wire-value (get n k) walk-opts))
+                    n))
+                node
+                value-bearing-node-keys)
+              project-resource-node-identity))]
+    (-> graph
+        (update :nodes (fn [nodes]
+                         (into {}
+                               (map (fn [[k node]]
+                                      [(project-resource-node-key k)
+                                       (redact-node node)]))
+                               nodes)))
+        (update :edges (fn [edges]
+                         (mapv (fn [edge]
+                                 (cond-> edge
+                                   (resource-node-key? (:from edge))
+                                   (update :from project-resource-node-key)
+                                   (resource-node-key? (:to edge))
+                                   (update :to project-resource-node-key)))
+                               (or edges [])))))))
+
+;; ---- (g) resource identity egress redaction (rf2-zt5j96) -----------------
+;;
+;; The umbrella OFF-BOX graph-egress arm the conformance gap names: a live
+;; resource node carries its sensitive scope/params NOT in a value-bearing
+;; field but in its IDENTITY — the concrete scoped key
+;; `[cache-scope resource-id canonical-params]` that is simultaneously the
+;; node KEY, the `:id`, the `:output` runtime-path tail, the realized
+;; `:inputs` `[:scope …]` / `[:param …]`, the `:work-ledger :record
+;; :resource/key`, AND the edge endpoints naming it. The §1-6 arms above pin
+;; the RAW composed graph (`cplus-live-graph-realizes-non-route-nodes-and-edges`
+;; pins raw scoped keys at exactly these positions); this arm projects that
+;; raw graph through the shared egress boundary and proves no raw secret
+;; survives anywhere while the registration resource-id stays visible and the
+;; graph stays connected.
+
+(def ^:private egress-frame :app/egress-secure)
+
+(def ^:private secret-token "tenant-jwt-9f3a-SECRET")
+(def ^:private secret-scope  [:rf.scope/tenant secret-token])
+(def ^:private secret-params {:slug "welcome" :auth-token secret-token})
+(def ^:private egress-scoped-key
+  ;; [cache-scope resource-id canonical-params] — the live fact identity.
+  [secret-scope :article/by-slug secret-params])
+(def ^:private egress-nav-token 23)
+
+(defn- egress-live-contributors
+  "Contributors whose `:resources` / `:routes` live-fns return the realized
+  shapes a route-owned fetch under a sensitive (tenant-scoped) activation
+  produces, so the composer's live node-wrapping + edge derivation runs over
+  the concrete sensitive scoped key. Mirrors `resource-cache-algebra-view`'s
+  live-node-for shape (`re-frame.resources.tooling`)."
+  []
+  {:resources
+   {:live-shape :map
+    :static-fn  (constantly {})
+    :live-fn    (constantly
+                  {egress-scoped-key
+                   {:id          egress-scoped-key
+                    :kind        :process :refinement :resource-process
+                    :rf/family   :resources
+                    :inputs      [[:scope secret-scope] [:param secret-params]]
+                    :output      [:runtime [:rf.runtime/resources :entries egress-scoped-key]]
+                    :storage     :runtime-db
+                    :authority   {:kind :remote :system :server}
+                    :evaluation  #{:on-route}
+                    :lifecycle   {:kind   :scoped-resource-key
+                                  :owners #{[:route :route/article egress-nav-token]}}
+                    :status      :loading
+                    :work-ledger {:work/id 99
+                                  :record  {:work/id      99
+                                            :status       :pending
+                                            :resource/key egress-scoped-key}}}})}
+   :routes
+   {:live-shape :node
+    :static-fn  (constantly {})
+    :live-fn    (constantly
+                  {:id :rf/route :kind :process :refinement :route-fact
+                   :rf/family :routes
+                   :route-id :route/article :params {:slug "welcome"}
+                   :nav-token egress-nav-token
+                   :owner [:route :route/article egress-nav-token]
+                   :output [:runtime [:rf.runtime/routing :current]]
+                   :storage :runtime-db :evaluation :on-route :lifecycle :frame})}})
+
+(defn- contains-secret?
+  "Deep-walk `v` and return true iff the raw secret token string appears
+  ANYWHERE (a leaf, a key, inside a scope/params, a work-ledger record, an
+  :output path — anywhere). Strict boolean."
+  [v]
+  (boolean
+    (cond
+      (= v secret-token) true
+      (map? v)           (some contains-secret? (concat (keys v) (vals v)))
+      (coll? v)          (some contains-secret? v)
+      :else              false)))
+
+(defn- projected-scoped-key?
+  "True when `v` keeps the 3-tuple scoped-key SHAPE after egress projection —
+  `[<scope-handle> resource-id <params-handle>]`: the registration
+  resource-id keyword is PRESERVED in the middle, scope + params replaced by
+  opaque handles (structure preserved, secrets withheld)."
+  [v]
+  (and (vector? v)
+       (= 3 (count v))
+       (keyword? (nth v 1))))
+
+(deftest g-live-resource-identity-redacted-at-graph-egress
+  ;; A sensitive scope/params fixture, projected through the shared graph
+  ;; egress boundary, asserting NO raw secret survives anywhere, the
+  ;; non-sensitive resource id remains visible, all identity positions use the
+  ;; SAME stable opaque scoped key, and edges still connect.
+  (rf/reg-frame egress-frame {:doc "off-box egress conformance frame"})
+  (let [raw      (graph/live-derivation-graph egress-frame (egress-live-contributors))
+        redacted (egress-project-graph raw egress-frame)]
+
+    (testing "PRECONDITION — the composer assembled the live sensitive resource
+              node + its route-owned activation edge over the concrete scoped
+              key (the raw on-box graph DOES carry the secret)"
+      (is (contains? (:nodes raw) [:resource egress-scoped-key])
+          "the live resource node is keyed by the raw sensitive scoped key")
+      (is (contains-secret? raw)
+          "sanity: the raw composed graph carries the secret token"))
+
+    (testing "(a) NO raw secret token survives ANYWHERE in the egressed graph —
+              not in the node key, :id, :inputs, :output, work-ledger, or edges"
+      (is (not (contains-secret? redacted))
+          "the secret must NOT appear anywhere in the off-box graph"))
+
+    (testing "(b) the non-sensitive resource id remains VISIBLE and every
+              identity position uses the SAME stable opaque scoped key"
+      (let [node          (-> redacted :nodes vals first)
+            node-key      (-> redacted :nodes keys first)
+            key-scoped    (second node-key)
+            id-scoped     (:id node)
+            output-scoped (last (second (:output node)))
+            ledger-scoped (get-in node [:work-ledger :record :resource/key])]
+        (is (= :resource (first node-key)) "still a :resource node key")
+        (is (projected-scoped-key? key-scoped) "still a 3-tuple scoped-key shape")
+        (is (= :article/by-slug (nth key-scoped 1))
+            "the registration resource-id is PRESERVED (a tool sees WHICH resource)")
+        (is (not= secret-scope (nth key-scoped 0)) "the scope component is opaqued")
+        (is (not= secret-params (nth key-scoped 2)) "the params component is opaqued")
+        (is (= key-scoped id-scoped output-scoped ledger-scoped)
+            "ALL identity positions (node key, :id, :output, work-ledger) project
+             to the SAME stable opaque scoped key — one fact, one identity")))
+
+    (testing "(c) graph CONNECTIVITY survives — the node is still present +
+              classified, and the route-owned edge naming it still connects to
+              the (consistently remapped) projected node key"
+      (is (not (contains? (:nodes redacted) [:resource egress-scoped-key]))
+          "the raw-scoped-key node key is gone")
+      (let [node     (-> redacted :nodes vals first)
+            node-key (-> redacted :nodes keys first)
+            edge     (->> (:edges redacted)
+                          (filter #(= :param (:role %)))
+                          first)]
+        (is (= :process (:kind node)) "still classified by superkind")
+        (is (= :resource-process (:refinement node)))
+        (is (some? edge) "the route → resource :param edge is still present")
+        (is (= node-key (:to edge))
+            "the edge :to is remapped to the SAME projected node key (consistent
+             remap — connectivity preserved)")))
+
+    (testing "(d) the realized :inputs scope/params, the :output entry path,
+              and the work-ledger :resource/key keep their structural shape but
+              carry no raw secret"
+      (let [node (-> redacted :nodes vals first)]
+        (is (= [:scope :param] (mapv first (:inputs node)))
+            "the [:scope …] / [:param …] input roles survive")
+        (is (not= secret-scope  (second (first (:inputs node)))))
+        (is (not= secret-params (second (second (:inputs node)))))
+        (is (= :runtime (first (:output node))) ":output is still a runtime address")
+        (is (= [:rf.runtime/resources :entries] (take 2 (second (:output node))))
+            "the :output runtime path prefix survives")
+        (let [rec (get-in node [:work-ledger :record])]
+          (is (= 99 (:work/id rec)) "the non-secret work id rides through")
+          (is (= :pending (:status rec)))
+          (is (projected-scoped-key? (:resource/key rec))
+              "the work-ledger :resource/key keeps the scoped-key shape"))))))
+
+(deftest g-graph-egress-for-unknown-frame-fails-closed
+  ;; The §Conformance fail-closed clause for the GRAPH egress boundary:
+  ;; projecting under an UNKNOWN / never-registered frame must not ship value
+  ;; fields raw under no policy. The value-path walk fails closed to
+  ;; :rf/redacted; the identity projection is frame-INDEPENDENT (it is a
+  ;; one-way hash, never policy-bearing) so it still opaques the scoped key.
+  (rf/reg-frame egress-frame {:sensitive {:app-db [[:cart :items]]}})
+  ;; a value-bearing live sub node at a frame-sensitive path, alongside the
+  ;; sensitive resource identity.
+  (let [contributors
+        (assoc (egress-live-contributors)
+               :subs
+               {:live-shape :map
+                :static-fn  (constantly {})
+                :live-fn    (constantly
+                              {[:cart/items]
+                               {:id      [:cart/items] :kind :derivation :rf/family :subs
+                                :inputs  [] :output [:fact [:cart/items]]
+                                :storage :ephemeral :evaluation :on-demand
+                                :lifecycle :subscription-cache-entry
+                                :value   {:cart {:items secret-token}}}})})
+        raw (graph/live-derivation-graph egress-frame contributors)]
+    (testing "PRECONDITION — the raw graph carries the secret in a value field
+              AND in the resource identity"
+      (is (contains-secret? raw)))
+    (testing "egress under an UNKNOWN frame fails closed: the value-bearing
+              field is redacted to :rf/redacted (no reachable policy ⇒ no raw
+              ship), and the identity scoped key is opaqued — NO secret survives"
+      (let [redacted (egress-project-graph raw :app/does-not-exist)
+            sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
+        (is (= privacy/redacted-sentinel (:value sub))
+            "the whole value-bearing field is redacted under no reachable policy")
+        (is (not (contains-secret? redacted))
+            "no raw secret survives — value-path fail-closed + frame-independent
+             identity projection cover both leak channels")))
+    (testing "egress under the KNOWN frame redacts the frame-declared sensitive
+              value path while keeping the structure"
+      (let [redacted (egress-project-graph raw egress-frame)
+            sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
+        (is (= privacy/redacted-sentinel (get-in sub [:value :cart :items]))
+            "the frame-declared sensitive [:cart :items] leaf is redacted")
+        (is (= :derivation (:kind sub)) "the sub node is still present + classified")
+        (is (not (contains-secret? redacted)))))))
+
+(deftest g-graph-egress-is-idempotent
+  ;; A forwarder pipeline that double-projects must not corrupt the graph: the
+  ;; opaque handle of a handle is stable, the :rf/redacted sentinel is a
+  ;; non-matchable scalar.
+  (rf/reg-frame egress-frame {})
+  (let [raw   (graph/live-derivation-graph egress-frame (egress-live-contributors))
+        once  (egress-project-graph raw egress-frame)
+        twice (egress-project-graph once egress-frame)]
+    (is (= (set (keys (:nodes once))) (set (keys (:nodes twice))))
+        "node keys are stable under re-projection")
+    (is (not (contains-secret? twice)) "still no secret after double projection")
+    (is (= (-> once :nodes vals first :id)
+           (-> twice :nodes vals first :id))
+        "the projected scoped-key identity is stable under re-projection")))
+
+;; ===========================================================================
+;; (h) DERIVED-OUTPUT SENSITIVITY INHERITANCE (rf2-iormgq; EP-0015 §Derived
+;;     sensitivity; spec/Derivations.md). The cross-family suite registers a
+;;     sub / flow pair but never installs frame-owned sensitive input policy,
+;;     never uses `:rf.egress/output-sensitivity`, and never projects derived
+;;     outputs at a trust boundary — so the surface would still pass if a
+;;     framework-known derivation copied a frame-sensitive app-db value into a
+;;     sub/flow output and the readback let it leave raw, or if an
+;;     `:rf.egress/public` declassification were ignored. These arms install
+;;     the frame-sensitive input, register the sub + flow under each of the
+;;     three closed `:rf.egress/output-sensitivity` claims
+;;     (`:rf.egress/inherit` default, `:rf.egress/sensitive`,
+;;     `:rf.egress/public`), drive the derivation, and project the derived
+;;     outputs at the off-box / local-redacted boundary — asserting inherited /
+;;     forced outputs redact while public claims remain enumerable + unredacted.
+;;
+;;     Subs resolve sensitivity into the per-frame propagation table
+;;     (`marks/sub-output-sensitive?`, populated on each sub-cache recompute)
+;;     and stamp the `:sub/run` trace `:rf.sub/value` slot; flows install the
+;;     resolved whole-output declaration into the frame elision registry
+;;     (`elision/sensitive-declarations`) and redact the `:rf.flow/computed`
+;;     `:result` slot AND the app-db destination slot. The trust-boundary
+;;     readback below reads the FLOW's app-db output back through the same
+;;     shared `rf/elide-wire-value` walker the trace path uses — the §Direct
+;;     reads / project-egress boundary — so the inherited / forced output is
+;;     redacted and the declassified output is enumerable.
+;; ===========================================================================
+
+(def ^:private sens-frame :app/derived-sensitivity)
+
+(defn- privacy-decls
+  "The frame's installed sensitive elision declarations (`{path decl}`) — the
+  per-frame registry the flow derived-output propagation installs its
+  resolved whole-output mark into (`re-frame.elision/sensitive-declarations`,
+  the union of `:source :frame` / `:source :flow` / `:source :marks`
+  entries)."
+  [frame-id]
+  (elision/sensitive-declarations frame-id))
+
+(defn- read-flow-output-at-egress
+  "Read flow output path `path` back from `frame-id`'s app-db through the
+  shared `rf/elide-wire-value` egress walker under `frame-id`'s policy — the
+  §Direct reads trust-boundary readback. The walker reads the same per-frame
+  elision registry the flow propagation installed into, so an inherited /
+  forced-sensitive flow output redacts to `:rf/redacted` while a declassified
+  (`:rf.egress/public`) output rides enumerable + raw."
+  [frame-id path]
+  (let [db (frame/frame-app-db-value frame-id)]
+    (rf/elide-wire-value (get-in db path)
+                         {:frame frame-id :path path})))
+
+(deftest h-default-inherit-redacts-derived-sub-and-flow-output
+  ;; default `:rf.egress/inherit` (no explicit claim): a derivation reading a
+  ;; FRAME-sensitive app-db path emits a sensitive output by default (taint by
+  ;; default — fail-closed). Proven over BOTH the sub and the flow.
+  (rf/reg-frame sens-frame {:sensitive {:app-db [[:user :ssn]]}})
+  (rf/with-frame sens-frame
+    (rf/reg-event ::seed-user
+                  (fn [{:keys [db]} [_ ssn]]
+                    {:db (assoc-in db [:user :ssn] ssn)}))
+    ;; SUB — a layer-1 reader over the frame-sensitive [:user :ssn] path; the
+    ;; default-inherit claim ⇒ its resolved output is sensitive.
+    (rf/reg-sub ::ssn-sub (fn [db _] (get-in db [:user :ssn])))
+    ;; FLOW — the policy twin: reads the same sensitive input, materializes a
+    ;; derived copy into app-db; default-inherit ⇒ the propagated whole-output
+    ;; declaration installs at the flow's :path.
+    (rf/reg-flow {:id     ::ssn-copy-flow
+                  :inputs [[:user :ssn]]
+                  :output (fn [ssn] {:copy ssn})
+                  :path   [:derived :ssn-copy]}))
+  (testing "the flow inherited a propagated whole-output sensitive declaration
+            at its :path (the derived output is tainted by default)"
+    (is (contains? (set (keys (privacy-decls sens-frame)))
+                   [:derived :ssn-copy])
+        "the default-inherit flow output :path carries a propagated sensitive mark"))
+  (rf/dispatch-sync [::seed-user "123-45-6789"] {:frame sens-frame})
+  (testing "the flow's materialized derived output redacts at the trust boundary
+            (the frame-sensitive value did not leave raw)"
+    (is (= privacy/redacted-sentinel
+           (read-flow-output-at-egress sens-frame [:derived :ssn-copy]))
+        "the inherited-sensitive flow output is redacted on egress readback"))
+  (testing "the sub's resolved output is sensitive after a real recompute
+            (the propagation table reflects the inherited taint)"
+    (rf/with-frame sens-frame
+      @(rf/subscribe [::ssn-sub]))
+    (is (true? (marks/sub-output-sensitive? sens-frame ::ssn-sub))
+        "reading the layer-1 sub over a frame-sensitive path resolves its
+         output sensitive (default inherit)")))
+
+(deftest h-explicit-sensitive-forces-redaction-even-from-public-input
+  ;; explicit `:rf.egress/output-sensitivity :rf.egress/sensitive` force-marks
+  ;; the output sensitive EVEN from a non-sensitive (public) input.
+  (rf/reg-frame sens-frame {})    ; NO frame-sensitive declarations
+  (rf/with-frame sens-frame
+    (rf/reg-event ::seed-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+    ;; FLOW — public input :n, but force-marked sensitive output.
+    (rf/reg-flow {:id     ::forced-flow
+                  :inputs [[:n]]
+                  :output (fn [n] {:derived n})
+                  :path   [:derived :forced]
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
+    ;; SUB — public input, force-marked sensitive via register-marks
+    ;; (`reg-sub` stashes the leading meta map's output-sensitivity claim).
+    (rf/reg-sub ::forced-sub {:rf.egress/output-sensitivity :rf.egress/sensitive}
+                (fn [db _] (:n db))))
+  (testing "the force-marked flow output installs a whole-output sensitive
+            declaration at its :path despite the PUBLIC input"
+    (is (contains? (set (keys (privacy-decls sens-frame))) [:derived :forced])
+        "explicit :rf.egress/sensitive force-marks the output even from a public input"))
+  (rf/dispatch-sync [::seed-n 42] {:frame sens-frame})
+  (testing "the force-marked flow output redacts at the trust boundary"
+    (is (= privacy/redacted-sentinel
+           (read-flow-output-at-egress sens-frame [:derived :forced]))
+        "explicit :rf.egress/sensitive output is redacted on egress readback"))
+  (testing "the force-marked sub resolves sensitive even from a public input"
+    (rf/with-frame sens-frame
+      @(rf/subscribe [::forced-sub]))
+    (is (true? (marks/sub-output-sensitive? sens-frame ::forced-sub))
+        "explicit :rf.egress/sensitive on the sub forces sensitive resolution")))
+
+(deftest h-explicit-public-declassifies-sensitive-input
+  ;; explicit `:rf.egress/output-sensitivity :rf.egress/public` DECLASSIFIES:
+  ;; the author asserts the derived output is safe to surface despite a
+  ;; SENSITIVE input (the hash/mask/aggregate opt-out). The output rides
+  ;; enumerable + unredacted.
+  (rf/reg-frame sens-frame {:sensitive {:app-db [[:secret]]}})
+  (rf/with-frame sens-frame
+    (rf/reg-event ::seed-secret (fn [{:keys [db]} [_ s]] {:db (assoc db :secret s)}))
+    ;; FLOW — reads the SENSITIVE [:secret] input but DECLASSIFIES its derived
+    ;; (de-sensitised) output.
+    (rf/reg-flow {:id     ::hashed-flow
+                  :inputs [[:secret]]
+                  :output (fn [s] (hash s))      ; author de-sensitised
+                  :path   [:derived :secret-hash]
+                  :rf.egress/output-sensitivity :rf.egress/public})
+    ;; SUB — declassified output over a sensitive frame.
+    (rf/reg-sub ::hashed-sub {:rf.egress/output-sensitivity :rf.egress/public}
+                (fn [db _] (hash (:secret db)))))
+  (testing "the :rf.egress/public flow installs NO whole-output declaration at
+            its :path — the declassify suppresses the propagated mark"
+    (is (not (contains? (set (keys (privacy-decls sens-frame))) [:derived :secret-hash]))
+        ":rf.egress/public declassifies — no propagated sensitive mark installed"))
+  (rf/dispatch-sync [::seed-secret "top-secret"] {:frame sens-frame})
+  (testing "the declassified flow output rides ENUMERABLE + UNREDACTED at the
+            trust boundary (the public claim is honoured, not ignored)"
+    (let [out (read-flow-output-at-egress sens-frame [:derived :secret-hash])]
+      (is (integer? out)
+          "the declassified hash output is enumerable + raw (NOT redacted)")
+      (is (not= privacy/redacted-sentinel out)
+          "the :rf.egress/public claim is honoured — the output is not redacted")))
+  (testing "the declassified sub resolves NON-sensitive even over a sensitive frame"
+    (rf/with-frame sens-frame
+      @(rf/subscribe [::hashed-sub]))
+    (is (false? (marks/sub-output-sensitive? sens-frame ::hashed-sub))
+        ":rf.egress/public on the sub declassifies its resolved output")))
