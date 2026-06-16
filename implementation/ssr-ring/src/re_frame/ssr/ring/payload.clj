@@ -60,6 +60,13 @@
   ([frame-id app-db runtime-db render-hash {:as policy-opts}]
    (payload-policy/build-payload
     frame-id
-    (payload-policy/apply-policy app-db policy-opts)
+    ;; rf2-bt9kct — allowlist FIRST (`apply-policy`), THEN run the surviving
+    ;; slice through the centralized `:rf.egress/ssr-hydration` projection
+    ;; seeded at the request frame, so a frame-classified sensitive/large path
+    ;; inside an allowlisted (or whole-app-db) slice redacts/elides as
+    ;; defense-in-depth before it serializes into `:rf/app-db` (EP-0015 §14).
+    (payload-policy/project-app-db-egress
+     (payload-policy/apply-policy app-db policy-opts)
+     frame-id)
     render-hash
     (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db)))))

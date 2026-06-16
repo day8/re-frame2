@@ -463,9 +463,27 @@
             ;; the client would parse and discard. `failed?` continuations
             ;; carry `:delta nil` (also falsy here), so the `not failed?`
             ;; arm is now redundant but kept for intent clarity.
-            (when (and (not failed?) (seq delta))
-              (vreset! phase [:continuation-delta id])
-              (write-chunk! out (streaming/hydrate-delta-script id (pr-str delta))))
+            ;; rf2-uc3cs4 — a streaming hydration delta is browser-delivered
+            ;; hydration state, so it obeys the SAME allowlist-first-then-
+            ;; project boundary the final `__rf_payload` does (EP-0015 §14): an
+            ;; off-allowlist changed key is DROPPED by the handler `:payload`
+            ;; policy and a frame-sensitive child inside an allowed changed key
+            ;; redacts under `:rf.egress/ssr-hydration`. `project-delta` runs
+            ;; the raw delta through `payload-policy/apply-policy` +
+            ;; `project-app-db-egress` under the request frame on THIS daemon
+            ;; thread (inside the carried realm + `with-frame` scope re-bound
+            ;; above for the continuation render — so `project-app-db-egress`'s
+            ;; frame walk resolves the realm frame's elision registry). A delta
+            ;; that projects to empty (every changed key off-allowlist, or all
+            ;; redacted away to an empty map) emits NO script.
+            (let [projected (frame/call-with-realm realm-id
+                              (fn []
+                                (rf/with-frame frame-id
+                                  (streaming/project-delta delta frame-id
+                                                           {:payload payload}))))]
+              (when (and (not failed?) (map? projected) (seq projected))
+                (vreset! phase [:continuation-delta id])
+                (write-chunk! out (streaming/hydrate-delta-script id (pr-str projected)))))
             ;; Pop the drained entry, append any nested continuations at
             ;; the tail (FIFO), continue until empty.
             (recur (into (pop queue) continuations)))))
