@@ -16,6 +16,7 @@
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.frame-classification :as frame-class]
+            [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -503,7 +504,16 @@
           ":rf.flow/failed fires once on the first drain (initial evaluation throws)")
       (let [tags (:tags (first evs))]
         (is (= :boom (:flow-id tags)))
-        (is (some? (:ex tags))     ":ex carries the thrown exception")
+        ;; rf2-iqh5yf: the raw Throwable `:ex` slot is GONE — replaced by a
+        ;; structured, EDN-safe exception summary (`:exception-message` plain
+        ;; string + `:exception-data` ex-data map). No raw Throwable rides the
+        ;; trace bus / epoch capture / tooling listeners by default.
+        (is (not (contains? tags :ex))
+            "no raw Throwable `:ex` slot — replaced by a structured summary")
+        (is (= "boom" (:exception-message tags))
+            ":exception-message carries the plain message string")
+        (is (= {:why :test} (:exception-data tags))
+            ":exception-data carries the (non-sensitive) ex-data map")
         (is (= :rf/default (:frame tags)))
         (is (= [1] (:inputs tags)) ":inputs records what was read just before the throw")))
     ;; Driving another input change re-attempts (last-inputs was not
@@ -1308,6 +1318,92 @@
           "the flow threw once on the sensitive handler's drain")
       (is (true? (:sensitive? (first failures)))
           ":rf.flow/failed carries the top-level `:sensitive? true` stamp too"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-iqh5yf — `:rf.flow/failed` must NOT deliver a raw Throwable, and a
+;; sensitive flow's exception ex-data must be redacted before the trace
+;; crosses the bus / epoch capture / tooling listeners. The throwing flow's
+;; ex-data carries a secret; assert it is redacted while flow-id / frame
+;; attribution is preserved.
+;; ---------------------------------------------------------------------------
+
+(deftest flow-failed-emits-structured-summary-not-raw-throwable
+  (testing "rf2-iqh5yf — `:rf.flow/failed` carries a structured EDN-safe
+            exception summary (`:exception-message` + `:exception-data`),
+            NEVER a raw Throwable under `:ex`"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-flow {:id     :boom
+                  :inputs [[:n]]
+                  :output (fn [_] (throw (ex-info "kaboom" {:code 42})))
+                  :path   [:doomed]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [tags (:tags (last (by-op :rf.flow/failed)))]
+      (is (not (contains? tags :ex))
+          "no raw `:ex` Throwable slot rides the trace bus")
+      (is (= "kaboom" (:exception-message tags))
+          ":exception-message is the plain message string")
+      (is (= {:code 42} (:exception-data tags))
+          ":exception-data is the EDN-safe ex-data map")
+      ;; The whole tags payload must be EDN-round-trippable — a raw Throwable
+      ;; is not (it cannot be `pr-str`/`read-string`-round-tripped), so this
+      ;; is the structural guard the bead asks for (no raw object reaches
+      ;; epoch capture / off-box tooling).
+      (is (= tags (read-string (pr-str tags)))
+          "the :rf.flow/failed tags are EDN round-trippable (no raw object)"))))
+
+(deftest flow-failed-redacts-ex-data-when-frame-sensitive
+  (testing "rf2-iqh5yf — when the flow's frame declares ANY sensitive app-db
+            classification, a throwing flow's ex-data (which may embed the
+            secret it read / interpolated) is REDACTED to the `:rf/redacted`
+            sentinel before listeners / epoch capture / tooling observe it;
+            flow-id / frame attribution is preserved"
+    (install-sensitive! :rf/default [:auth :token])
+    (rf/reg-event :auth/signed-in
+                     {:interceptors [[:rf.interceptor/path [:auth]]]}
+                     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
+    (rf/reg-flow {:id     :auth/derived-user
+                  :inputs [[:auth :token]]
+                  ;; The exception ex-data smuggles the sensitive value the
+                  ;; flow just read — the exact leak class the bead names.
+                  :output (fn [tok] (throw (ex-info "derive failed"
+                                                    {:leaked-token tok})))
+                  :path   [:auth :derived-user]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:auth/signed-in "TOP-SECRET"])
+    (let [failures (by-op :rf.flow/failed)
+          tags     (:tags (last failures))]
+      (is (= 1 (count failures)) ":rf.flow/failed fired once")
+      ;; Attribution preserved.
+      (is (= :auth/derived-user (:flow-id tags)) ":flow-id attribution preserved")
+      (is (= :rf/default (:frame tags))          ":frame attribution preserved")
+      (is (true? (:sensitive? (last failures)))
+          "the event is stamped sensitive (off-box shippers drop it)")
+      ;; The ex-data is redacted wholesale — the sensitive frame handles
+      ;; secrets, so the framework cannot prove the author-keyed ex-data map
+      ;; is secret-free (mirrors project-machine-error-tags).
+      (is (= privacy/redacted-sentinel (:exception-data tags))
+          ":exception-data is redacted to the sentinel for a sensitive frame")
+      ;; The raw token must NOT appear anywhere in the delivered tags.
+      (is (not (contains? (set (tree-seq coll? seq tags)) "TOP-SECRET"))
+          "the raw secret token does not appear anywhere in the failed-trace tags"))))
+
+(deftest flow-failed-ex-data-rides-verbatim-when-frame-not-sensitive
+  (testing "rf2-iqh5yf — a NON-sensitive frame's flow-failed ex-data rides
+            verbatim (the projection is precise, not a blanket scrub —
+            symmetric with every other per-registration projection)"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-flow {:id     :boom
+                  :inputs [[:n]]
+                  :output (fn [_] (throw (ex-info "boom" {:detail :useful})))
+                  :path   [:doomed]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [tags (:tags (last (by-op :rf.flow/failed)))]
+      (is (= {:detail :useful} (:exception-data tags))
+          "ex-data is preserved verbatim when no frame sensitivity is declared")
+      (is (not (true? (:sensitive? (last (by-op :rf.flow/failed)))))
+          "no sensitive stamp on a non-sensitive frame"))))
 
 (deftest flow-skip-trace-inherits-sensitive-from-schema-scope
   (testing "Spec 013:242 — `:rf.flow/skip` is stamped `:sensitive?` when the

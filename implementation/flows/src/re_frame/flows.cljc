@@ -412,12 +412,30 @@
           ;; be a large or sensitive blob, and the trace bus is the wire
           ;; boundary. Outer debug-enabled? gate elides the walk in CLJS
           ;; prod (rf2-drr4z).
+          ;; rf2-iqh5yf: emit a STRUCTURED, EDN-safe exception summary —
+          ;; `:exception-message` (the plain message string) + `:exception-data`
+          ;; (the ex-info ex-data map, or nil) — NEVER the raw Throwable. A bare
+          ;; Throwable is not EDN-serializable and the central trace projection
+          ;; switch (`re-frame.marks/project-trace-event`) has no branch for a
+          ;; bare `:ex` slot, so before this fix the raw object reached trace
+          ;; delivery, epoch capture, and tooling listeners unprojected — and a
+          ;; flow `:output` throwing `ex-info` with app secrets in `ex-data`
+          ;; (or an interpolated message) leaked them off-box. The summary
+          ;; shape matches every other `:rf.error/*` category in the Spec 009
+          ;; catalogue (`:exception-message`; machine adds `:exception-data`);
+          ;; `project-trace-event` redacts the `:exception-data` slot
+          ;; fail-closed when the flow's frame declares any sensitivity (the
+          ;; flows analogue of `project-machine-error-tags`). The cascade-level
+          ;; `:rf.error/flow-eval-exception` (router) retains the live
+          ;; `:exception` for stack-trace introspection on its OWN error row.
           (when interop/debug-enabled?
             (trace/emit! :flow :rf.flow/failed
-                         {:flow-id flow-id
-                          :ex      e
-                          :inputs  (elide-inputs frame-id flow new-inputs)
-                          :frame   frame-id}))
+                         {:flow-id           flow-id
+                          :exception-message #?(:clj (.getMessage ^Throwable e)
+                                                :cljs (.-message e))
+                          :exception-data    (ex-data e)
+                          :inputs            (elide-inputs frame-id flow new-inputs)
+                          :frame             frame-id}))
           ;; Per rf2-je5p8: wrap the throw in an ex-info carrying the
           ;; flow-attribution slot `:rf.flow/failed-id`.
           ;; The router's `flows-after-interceptor` catch stashes the
