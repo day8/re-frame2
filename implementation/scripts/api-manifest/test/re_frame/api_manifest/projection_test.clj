@@ -54,3 +54,59 @@
     ;; The committed skills/ surface exists and carries many *.md files.
     (let [files (proj/require-markdown-files "skills/" (proj/repo-file "skills"))]
       (is (pos? (count files))))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0017 keyword-drift guard (rf2-tawage).
+;;
+;; The projection checks scope to public-VAR references and exclude the
+;; `:rf/*` keyword namespace, so a surface could reintroduce stale EP-0017
+;; keyword vocabulary (`:rf.world/inputs`) and stay green. The keyword guard
+;; flags a `:rf.world/inputs` mention NOT accompanied on its line by a
+;; retirement/rename/migration marker.
+;; ---------------------------------------------------------------------------
+
+(deftest keyword-drift-flags-bare-stale-mention
+  (testing "a fresh :rf.world/inputs mention with no retirement marker is flagged"
+    (let [probs (proj/ep0017-keyword-drift-problems
+                  "docs/guide/x.md"
+                  [[10 "Supply recordable facts under :rf.world/inputs on dispatch."]])]
+      (is (= 1 (count probs)))
+      (is (= 10 (:line (first probs))))
+      (is (= "docs/guide/x.md" (:file (first probs))))
+      (is (re-find #"renamed to the flat :rf.cofx" (:detail (first probs)))))))
+
+(deftest keyword-drift-allows-rename-mention-naming-replacement
+  (testing "a :rf.world/inputs line that names the :rf.cofx replacement is approved"
+    (is (empty? (proj/ep0017-keyword-drift-problems
+                  "spec/Spec-Schemas.md"
+                  [[5 "The EP-0010 :rf.world/inputs field is renamed to :rf.cofx (EP-0017)."]])))))
+
+(deftest keyword-drift-allows-error-id-and-prose-markers
+  (testing "the :rf.error/world-inputs-renamed error id marks a legitimate mention"
+    (is (empty? (proj/ep0017-keyword-drift-problems
+                  "spec/002-Frames.md"
+                  [[1 "Supplying :rf.world/inputs is a hard error :rf.error/world-inputs-renamed."]]))))
+  (testing "the prose words retired/renamed/migrat each mark a legitimate mention"
+    (is (empty? (proj/ep0017-keyword-drift-problems
+                  "x.md"
+                  [[1 "The :rf.world/inputs key is retired."]
+                   [2 "A migration mention of :rf.world/inputs."]])))))
+
+(deftest keyword-drift-ignores-lines-without-the-keyword
+  (testing "lines that do not mention :rf.world/inputs produce no problems"
+    (is (empty? (proj/ep0017-keyword-drift-problems
+                  "x.md"
+                  [[1 "Declare coeffects via :rf.cofx/requires; values arrive flat."]
+                   [2 "The :rf.cofx envelope map is the one nested record."]])))))
+
+(deftest keyword-drift-over-files-tags-repo-relative-file
+  (testing "the file-driver scans committed surfaces and flags zero on the
+            live tree (every committed :rf.world/inputs mention is a
+            retirement/rename reference)"
+    ;; The committed docs/guide/ + skills/ surfaces carry only
+    ;; retirement/rename mentions, so the live scan must be clean — a
+    ;; regression catches a fresh reintroduction.
+    (let [guide-files (proj/markdown-files (proj/repo-file "docs" "guide"))]
+      (is (pos? (count guide-files)))
+      (is (empty? (proj/keyword-drift-problems-over-files guide-files))
+          "live drift: a docs/guide file reintroduced stale :rf.world/inputs"))))

@@ -214,6 +214,79 @@
     (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
 
 ;; ---------------------------------------------------------------------------
+;; EP-0017 keyword-drift guard (rf2-tawage).
+;;
+;; The projection checks above all scope to PUBLIC-VAR references and
+;; deliberately exclude the `:rf/*` reserved keyword namespace (the leading
+;; `(` discriminator drops `:rf/…` keywords so a `(rf/<var>` sweep does not
+;; drown in `:rf/default` etc.). That scoping is correct for var-rename
+;; drift, but it means a projection can reintroduce STALE EP-0017 KEYWORD
+;; vocabulary — `:rf.world/inputs` (renamed to the flat `:rf.cofx` map),
+;; grouped/non-flat `:rf.cofx` sub-maps, or coeffect prose missing the
+;; `:rf.cofx/requires` declaration — and every var-resolution check stays
+;; green.
+;;
+;; This guard closes that gap with a targeted KEYWORD-level scan. EP-0017's
+;; keyword surface is a small closed set:
+;;   - `:rf.world/inputs` is RETIRED (renamed to `:rf.cofx`, no alias). Its
+;;     only legitimate appearance is a retirement / rename / migration
+;;     mention — a line that ALSO names the `:rf.cofx` replacement, the
+;;     `:rf.error/world-inputs-renamed` hard error, or the words
+;;     retired/renamed/removed/superseded/migration. A `:rf.world/inputs`
+;;     mention WITHOUT such a marker is fresh stale vocabulary and is RED.
+;;
+;; The scan is per-line and prose-level (these surfaces are markdown), and
+;; intentionally CONSERVATIVE: it only fires on the retired keyword absent a
+;; same-line retirement marker, so historical/migration prose — which always
+;; names the replacement on the same line — stays green, while a fresh
+;; reintroduction in teaching prose goes red.
+;; ---------------------------------------------------------------------------
+
+(def ^:private world-inputs-retirement-markers
+  "Same-line tokens that mark a `:rf.world/inputs` mention as a legitimate
+   retirement / rename / migration reference (rather than fresh stale
+   vocabulary). A `:rf.world/inputs` line carrying ANY of these is approved;
+   one carrying NONE is flagged. The replacement keyword `:rf.cofx` and the
+   `:rf.error/world-inputs-renamed` error id are the strongest markers; the
+   prose words cover narrative migration mentions."
+  [":rf.cofx"
+   ":rf.error/world-inputs-renamed"
+   "world-inputs-renamed"
+   "retired" "renamed" "removed" "superseded" "migrat"])
+
+(defn ep0017-keyword-drift-problems
+  "Return a seq of EP-0017 keyword-drift problem maps for `lines` (a seq of
+   `[line-no text]`), tagged with `file` (repo-relative). Flags each
+   `:rf.world/inputs` mention NOT accompanied on its line by a retirement /
+   rename / migration marker (see `world-inputs-retirement-markers`).
+
+   Pure over the supplied lines so the contract is unit-testable with
+   synthetic inputs (rf2-tawage)."
+  [file lines]
+  (keep (fn [[n text]]
+          (when (str/includes? text ":rf.world/inputs")
+            (let [lc (str/lower-case text)]
+              (when-not (some #(str/includes? lc (str/lower-case %))
+                              world-inputs-retirement-markers)
+                {:file file :line n :raw ":rf.world/inputs"
+                 :detail (str "stale EP-0017 keyword — :rf.world/inputs was "
+                              "renamed to the flat :rf.cofx map (no alias); a "
+                              "mention must be an explicit retirement/rename/"
+                              "migration reference (name :rf.cofx or the "
+                              ":rf.error/world-inputs-renamed error on the line)")}))))
+        lines))
+
+(defn keyword-drift-problems-over-files
+  "Run `ep0017-keyword-drift-problems` over every file in `files` (io/file
+   seq), returning the concatenated problem seq with repo-relative `:file`
+   tags. The driver projection checks fold this into their problem list so a
+   keyword-drift reintroduction goes RED alongside any var-resolution drift."
+  [files]
+  (mapcat (fn [^java.io.File f]
+            (ep0017-keyword-drift-problems (repo-relative f) (numbered-lines f)))
+          files))
+
+;; ---------------------------------------------------------------------------
 ;; Reporting.
 ;; ---------------------------------------------------------------------------
 

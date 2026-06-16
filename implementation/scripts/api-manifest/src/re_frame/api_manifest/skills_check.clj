@@ -63,12 +63,19 @@
         results   (for [file files
                         ref  (proj/alias-call-references "rf" (proj/numbered-lines file))]
                     (assoc ref :file (proj/repo-relative file)))
-        problems  (keep (fn [{:keys [var line raw file]}]
-                          (when-not (or (contains? core-vars var)
-                                        (contains? allow var))
-                            {:file file :line line :raw raw
-                             :detail "no re-frame.core manifest row"}))
-                        results)]
+        var-problems (keep (fn [{:keys [var line raw file]}]
+                             (when-not (or (contains? core-vars var)
+                                           (contains? allow var))
+                               {:file file :line line :raw raw
+                                :detail "no re-frame.core manifest row"}))
+                           results)
+        ;; EP-0017 keyword-drift guard (rf2-tawage): scan the SAME checked
+        ;; skill files (the migration skill is already excluded above, where
+        ;; the retired keyword legitimately appears) for stale
+        ;; `:rf.world/inputs` vocabulary reintroduced outside an explicit
+        ;; retirement/rename mention.
+        kw-problems  (proj/keyword-drift-problems-over-files files)
+        problems     (concat var-problems kw-problems)]
     (proj/report-with-floor! "skills/ (excl. re-frame-migration)"
                              (count results) min-references problems)))
 
