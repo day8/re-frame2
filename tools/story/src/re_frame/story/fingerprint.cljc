@@ -297,6 +297,29 @@
   perturbs the hash)."
   #{:rf/time-ms})
 
+(def ^:private cofx-carrier-keys
+  "The slot keys that hold a flat `:rf.cofx`-shaped recordable-coeffect map
+  carrying the framework-stamped wall-clock `:rf/time-ms` — every carrier
+  `strip-cofx-stamps` must reach into to drop the volatile fact:
+
+  - `:rf.cofx` — the envelope's flat recordable-coeffect map. Rides a
+    `:rf.event/dispatched` trace event's `:tags` (rf2-jt854w — the router
+    dev-stamps it onto the enqueue trace) AND, per rf2-1xdotm, sits as the
+    top-level POST-generation replay-token slot on an `:rf/epoch-record`.
+  - `:rf.event/cofx` — the POST-generation flat replay token the router
+    dev-stamps onto the `:rf.event/run-start` trace event's `:tags`
+    (rf2-1xdotm, Spec 009 §Trace event shape). It is the SAME post-generation
+    cofx map the epoch record's `:rf.cofx` slot is sourced from
+    (`find-trigger-event` reads it off this tag), so it carries the same
+    framework `:rf/time-ms` and false-drifts the `:epoch-tape` slice
+    identically unless stripped.
+
+  NOT included: `:rf.event/coeffects` — the USER-INJECTED coeffect subset
+  (router.cljc §2020 / Spec 009 §407). The framework does not stamp its
+  wall-clock `:rf/time-ms` there, so a `:rf/time-ms` under that slot would be
+  caller-supplied semantic data; stripping it could mask a real difference."
+  #{:rf.cofx :rf.event/cofx})
+
 (defn- trace-event?
   "True iff `m` is a trace event (Spec 009 §Trace event shape): a map
   carrying both `:operation` and `:op-type`. Pure data → data."
@@ -305,14 +328,31 @@
 
 (defn- strip-cofx-stamps
   "Drop the per-run volatile facts (`volatile-cofx-keys` — the framework-stamped
-  wall-clock `:rf/time-ms`) from a trace event's `[:tags :rf.cofx]` recordable-
-  coeffect map, leaving the semantic caller-supplied owner-qualified facts
-  intact (rf2-jt854w / EP-0017 rf2-alc1lf). No-op when the tag is absent or not
-  a map. Pure data → data."
-  [tags]
-  (if (map? (:rf.cofx tags))
-    (update tags :rf.cofx #(apply dissoc % volatile-cofx-keys))
-    tags))
+  wall-clock `:rf/time-ms`) from EVERY flat recordable-coeffect map `m` carries
+  under a `cofx-carrier-keys` slot (`:rf.cofx` / `:rf.event/cofx`), leaving the
+  semantic caller-supplied owner-qualified facts intact (rf2-jt854w / EP-0017
+  rf2-alc1lf / rf2-1xdotm). A slot that is absent or not a map is left untouched.
+  Pure data → data; idempotent.
+
+  Three carriers route through here, all sharing the SAME post-generation /
+  envelope flat cofx token whose framework `:rf/time-ms` is per-RUN volatile —
+  two semantically-equal programs replayed into FRESH frames mint DIFFERENT
+  `:rf/time-ms`, so the determinism gate / semantic-diff / `:run-hash`
+  false-drifts (`:epoch-tape` slice) unless it is stripped here:
+
+  - a `:rf.event/dispatched` TRACE EVENT's `:tags` `:rf.cofx` (rf2-jt854w);
+  - a `:rf.event/run-start` TRACE EVENT's `:tags` `:rf.event/cofx` (rf2-1xdotm —
+    the post-generation replay token the epoch record is sourced from);
+  - an `:rf/epoch-record`'s top-level `:rf.cofx` slot (rf2-1xdotm — the pinned
+    replay token a Tool-Pair replay supplies under `:rf.cofx/mint-policy
+    :strict`). Same volatile class as the trace-event carriers, one slot up."
+  [m]
+  (reduce (fn [acc carrier-k]
+            (if (map? (get acc carrier-k))
+              (update acc carrier-k #(apply dissoc % volatile-cofx-keys))
+              acc))
+          m
+          cofx-carrier-keys))
 
 (defn- strip-trace-tags
   "Drop the per-run stamp keys (`volatile-trace-tag-keys`) from a trace
@@ -343,9 +383,10 @@
 
 (defn strip-run-stamps
   "Strip the per-run stamps that ride a trace event (`:id`, `:time`) or an
-  epoch record (`:frame`) — the common-key stamps `project` cannot strip
-  globally without erasing app-db data (rf2-5x1wt.8). Recursive across
-  maps, vectors, sets, and seqs, so it reaches trace events nested in an
+  epoch record (`:frame`, plus the volatile `:rf/time-ms` in its top-level
+  `:rf.cofx` replay token — rf2-1xdotm) — the common-key stamps `project`
+  cannot strip globally without erasing app-db data (rf2-5x1wt.8). Recursive
+  across maps, vectors, sets, and seqs, so it reaches trace events nested in an
   epoch record's `:trace-events` and epoch records nested in a run-result's
   `:epoch-tape`. Pure data → data; idempotent.
 
@@ -357,7 +398,13 @@
     (map? x)
     (let [m (cond-> x
               (trace-event? x) (-> (dissoc :id :time) strip-trace-tags)
-              (epoch-record? x) (dissoc :frame))]
+              ;; An epoch record loses its per-run `:frame` stamp AND the
+              ;; framework-stamped `:rf/time-ms` nested in its top-level
+              ;; `:rf.cofx` replay token (rf2-1xdotm) — the latter is per-RUN
+              ;; volatile, the same class `strip-trace-tags` strips off the
+              ;; trace-event `:tags` carrier; without it the `:epoch-tape`
+              ;; slice false-drifts on a fresh-frame replay.
+              (epoch-record? x) (-> (dissoc :frame) strip-cofx-stamps))]
       (persistent!
         (reduce-kv (fn [acc k v] (assoc! acc k (strip-run-stamps v)))
                    (transient {})

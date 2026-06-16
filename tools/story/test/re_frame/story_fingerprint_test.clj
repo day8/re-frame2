@@ -234,6 +234,78 @@
       (is (not= (fp/canonicalize a) (fp/canonicalize b))
           ":rf/time-ms outside a :rf.cofx trace tag is semantic app data"))))
 
+(defn- run-start-trace-event
+  "A minimal `:rf.event/run-start` trace event carrying the post-generation
+  flat replay token under the `:rf.event/cofx` tag (rf2-1xdotm — the router
+  dev-stamps it; the epoch record's `:rf.cofx` slot is sourced from here)."
+  [cofx]
+  {:operation :rf.event/run-start
+   :op-type   :rf.event
+   :tags      {:rf.event/v    [:some/event]
+               :rf.event/cofx cofx}})
+
+(deftest run-start-cofx-time-ms-is-stripped
+  (testing "two run-start trace events differing ONLY in the framework
+            wall-clock :rf.event/cofx :rf/time-ms canonicalize = and hash equal"
+    (let [a (run-start-trace-event {:rf/time-ms 1000 :counter/delta 4})
+          b (run-start-trace-event {:rf/time-ms 9999 :counter/delta 4})]
+      (is (= (fp/canonicalize a) (fp/canonicalize b))
+          "differing only in :rf/time-ms must canonicalize =")
+      (is (= (fp/canonical-hash a) (fp/canonical-hash b))
+          "differing only in :rf/time-ms must hash equal")))
+  (testing "the semantic post-generation facts survive — an owner-qualified
+            leaf difference still perturbs the value + hash"
+    (let [base   (run-start-trace-event {:rf/time-ms 1000 :counter/delta 4})
+          delta' (run-start-trace-event {:rf/time-ms 1000 :counter/delta 5})]
+      (is (not= (fp/canonicalize base) (fp/canonicalize delta'))
+          "a :counter/delta difference in the replay token must perturb the value")
+      (is (not= (fp/canonical-hash base) (fp/canonical-hash delta'))
+          "and the hash"))))
+
+;; ===========================================================================
+;; EPOCH-RECORD :rf.cofx REPLAY-TOKEN :rf/time-ms STRIP (rf2-1xdotm)
+;; ===========================================================================
+;;
+;; `build-record` now pins the POST-generation flat `:rf.cofx` replay token as
+;; a FIRST-CLASS top-level slot on the `:rf/epoch-record` (Spec-Schemas
+;; §`:rf/epoch-record`) so a Tool-Pair replay can re-present the exact facts
+;; the original run consumed under `:rf.cofx/mint-policy :strict`. That token
+;; carries the framework-stamped `:rf/time-ms` — epoch-ms WALL-CLOCK, minted
+;; fresh per dispatch — so two semantically-equal programs replayed into FRESH
+;; frames pin DIFFERENT `:rf/time-ms` on the record's `:rf.cofx` slot, and the
+;; `:epoch-tape` slice false-drifts (determinism gate → :non-deterministic,
+;; semantic-diff → {:same? false}, golden mismatch) unless `strip-run-stamps`
+;; strips it. It is the record-slot peer of the trace-tag `[:tags :rf.cofx]`
+;; carrier above — one slot up, same volatile class.
+
+(defn- epoch-record-with-cofx
+  "A minimal `:rf/epoch-record` (`:epoch-id` + a load-bearing slot so
+  `epoch-record?` recognises the carrier) pinning a top-level `:rf.cofx`
+  replay token (rf2-1xdotm)."
+  [cofx]
+  {:epoch-id    1
+   :db-after    {:answer 42}
+   :outcome     :ok
+   :rf.cofx     cofx})
+
+(deftest epoch-record-cofx-time-ms-is-stripped
+  (testing "two epoch records differing ONLY in the framework wall-clock
+            top-level :rf.cofx :rf/time-ms canonicalize = and hash equal"
+    (let [a (epoch-record-with-cofx {:rf/time-ms 1000 :counter/delta 4})
+          b (epoch-record-with-cofx {:rf/time-ms 9999 :counter/delta 4})]
+      (is (= (fp/canonicalize a) (fp/canonicalize b))
+          "differing only in :rf/time-ms must canonicalize =")
+      (is (= (fp/canonical-hash a) (fp/canonical-hash b))
+          "differing only in :rf/time-ms must hash equal")))
+  (testing "the semantic caller-supplied replay facts survive — an
+            owner-qualified leaf difference still perturbs the value + hash"
+    (let [base   (epoch-record-with-cofx {:rf/time-ms 1000 :counter/delta 4})
+          delta' (epoch-record-with-cofx {:rf/time-ms 1000 :counter/delta 5})]
+      (is (not= (fp/canonicalize base) (fp/canonicalize delta'))
+          "a :counter/delta difference in the replay token must perturb the value")
+      (is (not= (fp/canonical-hash base) (fp/canonical-hash delta'))
+          "and the hash"))))
+
 ;; ===========================================================================
 ;; STRUCTURAL TYPE TAGS — map / set / vector / seq are distinguishable (rf2-lvrqa)
 ;; ===========================================================================
