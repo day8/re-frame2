@@ -95,11 +95,17 @@
                      "marker; the agent re-fetches via `get-path` "
                      "using the handle's path. Schemas are the only "
                      "nomination path — there is no runtime "
-                     "declaration API for size. Pass false to "
-                     "bypass elision and receive the raw value — "
-                     "useful when the agent has explicit override "
-                     "permission for the slot (e.g. debugging the "
-                     "elided value itself).")})
+                     "declaration API for size. This is the SIZE "
+                     "axis only (EP-0015 §10): false overlays "
+                     "`include-large? true` on the surface's "
+                     "`:rf.egress/off-box-tool` profile floor so "
+                     "large slots ride verbatim, but declared-"
+                     "sensitive slots STILL redact to `:rf/redacted`. "
+                     "Seeing raw sensitive values needs the separate "
+                     "`include-sensitive true` opt-in, honoured only "
+                     "under `--allow-sensitive-reads`; the opt-ins "
+                     "thread through the walk rather than bypassing "
+                     "it.")})
 
 (def cache-property
   "Per-tool descriptor slot for the `:cache` opt-in (rf2-3rt1f).
