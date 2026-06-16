@@ -60,7 +60,15 @@
             [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.http-managed :as http-managed]
             [re-frame.views        :as views]
-            [re-frame.machines]))
+            [re-frame.machines]
+            ;; rf2-32siq3.40 — EP-0023 image-loaded frames. The probe roots the
+            ;; registration SOURCE STORE so `:rf.provenance/ns` is in the
+            ;; :advanced reachability graph (it must SURVIVE DCE — a production
+            ;; descriptor field, not a dev-only sentinel). It does NOT root the
+            ;; image-loading path (make-frame / assemble / check-capabilities!),
+            ;; so those image-assembly fns DCE when unused.
+            [re-frame.source-store :as source-store]
+            [re-frame.source-coords :as source-coords]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -569,6 +577,64 @@
                      {:rf.probe/override-summary-removed-ic  nil
                       :rf.probe/override-summary-replaced-ic :rf.probe/override-summary-stub-ic}}))
 
+;; ---- rf2-32siq3.40: EP-0023 image-loaded frames — provenance survives, ----
+;;       image-assembly fns elide when unused
+;;
+;; EP-0023 §Namespace-Selected Images: every `reg-*` descriptor carries
+;; `:rf.provenance/ns` as a CANONICAL STRING — a PRODUCTION descriptor field,
+;; not optional debug metadata. `:include-ns` image assembly reads it, so it
+;; MUST SURVIVE `:advanced` + goog.DEBUG=false or namespace-selected images
+;; cannot work. Before this probe touch the survival was only HAND-MODELED
+;; (source_store_cljs_test/provenance-from-pending-coords-when-ns-stripped binds
+;; `*pending-coords*` and hand-strips `:ns`); it was never run under a real
+;; elision gate.
+;;
+;; This is the OPPOSITE direction from the dev-only sentinels above: the
+;; `rf.provenance/ns` keyword's string fragment must be PRESENT in the
+;; production bundle (it is asserted under PROD_SURVIVING_SENTINELS in
+;; check-elision.cjs, not DEV_ONLY_SENTINELS). The probe roots it by recording a
+;; descriptor through the SAME `record-descriptor!` path `reg-*` walks — under
+;; `:advanced` the descriptor's `:ns` slot is stripped (merge-coords returns the
+;; user metadata unchanged) but `record-descriptor!` derives the canonical
+;; provenance string from the surviving `*pending-coords*` binding and stamps
+;; `:rf.provenance/ns`, exactly the production path. The probe also asserts the
+;; survival at RUNTIME (the build's init-fn would throw if the keyword DCE'd and
+;; the read-back returned nil), making the methodology assertion belt-and-braces.
+;;
+;; Conversely, the EP-0023 image-ASSEMBLY fns (make-frame / assemble /
+;; check-capabilities!) carry NO debug gate and ride the runtime/SSR
+;; image-loading path; image_assembly.cljc's own docstring states "an app that
+;; never assembles an image never reaches these fns (Closure DCE removes them)."
+;; The probe deliberately does NOT root that path, so the distinctive
+;; assembly-only string `check-capabilities!` mints
+;; ("rf/make-frame: the image requires capabilities the frame does not supply")
+;; must be ABSENT from the production bundle — asserted under
+;; PROD_ABSENT_WHEN_UNUSED_SENTINELS in check-elision.cjs.
+
+(defn ^:export touch-image-frame-provenance! []
+  ;; Model the production descriptor shape: the macro path's `:ns` slot is
+  ;; stripped under :advanced, but the reg-* macro's `*pending-coords*` binding
+  ;; survives (prod-coords-form keeps `:ns`). record-descriptor! derives
+  ;; `:rf.provenance/ns` from the live binding — the production-surviving path.
+  (binding [source-coords/*pending-coords* {:ns "re-frame.elision-probe.image"}]
+    (let [stored (source-store/record-descriptor!
+                   :event :rf.probe/image-frame-provenance
+                   {:handler-fn (fn [{:keys [db]} _] {:db db})})]
+      ;; Runtime assertion: provenance MUST survive :advanced. If the
+      ;; `:rf.provenance/ns` keyword were DCE'd, this read returns nil and the
+      ;; init-fn throws, failing the build run.
+      (when-not (string? (:rf.provenance/ns stored))
+        (throw (ex-info "elision-probe: :rf.provenance/ns did not survive :advanced"
+                        {:stored stored})))))
+  ;; Touch the public read API so the provenance keyword stays in the
+  ;; reachability graph through a documented entry point too.
+  (let [_d (source-store/descriptor-for :event :rf.probe/image-frame-provenance
+                                        "re-frame.elision-probe.image")]
+    nil)
+  ;; Clean up the probe's source-store slot so it does not perturb other touches.
+  (source-store/forget-descriptor! :event :rf.probe/image-frame-provenance
+                                   "re-frame.elision-probe.image"))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -584,6 +650,7 @@
   (touch-teardown!)
   (touch-doc-metadata!)
   (touch-interceptor-override-summary!)
+  (touch-image-frame-provenance!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))

@@ -89,6 +89,15 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
 
+(defn- err-data
+  "The full `ex-data` of a thrown re-frame2 error, or nil. The `:extra` slots
+  (`:missing-capabilities` / `:supplied-capabilities`) are merged at the top
+  level of the ex-data — see `re-frame.error/throw-error!`."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (ex-data e))))
+
 (def ^:private counter-pool
   [(reg-desc "examples.counter" :event :counter/inc ::inc)
    (reg-desc "examples.counter" :sub   :counter/value ::value)])
@@ -403,3 +412,98 @@
           (is (lf/frame-object? frame))
           (is (= #{:rf.capability/http :rf.capability/schemas}
                  (:rf.gen/requires (lf/frame-generation frame)))))))))
+
+;; ---- capability-union BOUNDARY diagnostic is structured (rf2-32siq3.40
+;;      minor c) -------------------------------------------------------------
+;;
+;; The .31 review found the make-frame BOUNDARY capability failures asserted
+;; only the `:rf.error/id` discriminator, while the bare `check-capabilities!`
+;; unit test (image_assembly_cljs_test/partial-capabilities-fail-on-the-unmet-
+;; subset) asserts the structured `:missing-capabilities` / `:supplied-
+;; capabilities` slots. The frame-boundary failure rides the SAME error helper,
+;; so the boundary diagnostic must carry the SAME structured slots — pinning
+;; that the union check at the frame boundary names the unmet subset and the
+;; supplied set, not just the error id.
+
+(deftest capability-boundary-diagnostic-carries-structured-slots
+  (testing "the make-frame frame-boundary capability failure carries the SAME
+            structured :missing-capabilities / :supplied-capabilities slots as
+            the bare check-capabilities! unit test — the diagnostic names the
+            unmet subset (sorted) and what the frame DID supply, at the boundary"
+    (let [pool  [(reg-desc "examples.counter" :event :counter/inc ::inc)
+                 (reg-desc "examples.cart"    :event :cart/add    ::add)]
+          ;; Two images → a UNION requires of {http schemas}; the frame supplies
+          ;; only http, so the boundary check fails on the unmet schemas subset.
+          img-a (image/image {:id :counter/img :include-ns ["examples.counter"]
+                              :rf.image/requires #{:rf.capability/http}})
+          img-b (image/image {:id :cart/img :include-ns ["examples.cart"]
+                              :rf.image/requires #{:rf.capability/schemas
+                                                   :rf.capability/storage}})
+          d (err-data #(lf/make-frame {:id :articles/main
+                                       :images [img-a img-b]
+                                       :capabilities {:rf.capability/http ::http-impl}}
+                                      pool))]
+      (is (= :rf.error/image-missing-capability (:rf.error/id d))
+          "the boundary union failure is :rf.error/image-missing-capability")
+      (testing ":missing-capabilities names exactly the unmet union subset, sorted"
+        (is (= [:rf.capability/schemas :rf.capability/storage]
+               (:missing-capabilities d))))
+      (testing ":supplied-capabilities names what the frame DID provide (a
+                CAPABILITY gap, not a registration gap)"
+        (is (= [:rf.capability/http]
+               (:supplied-capabilities d))))
+      (testing "the conflicting frame id was NOT registered (creation aborted)"
+        (is (not (contains? (lf/live-frame-ids) :articles/main)))))))
+
+;; ===========================================================================
+;; 7. Host-handle exclusion — the EP-0023 §Host Boundary two-boundaries
+;;    invariant at the OBJECT boundary (rf2-32siq3.40 MAJOR-2)
+;; ===========================================================================
+;;
+;; The .31 review found the EP two-boundaries invariant (host handles / adapter
+;; binding NEVER enter the frame-state value) untested at the EP-0023 OBJECT
+;; boundary. make-frame stores :rf.frame/adapter + :rf.frame/capabilities on the
+;; frame object (the host-handle slots); existing tests assert they are
+;; PRESERVED across reload, but none asserts they are EXCLUDED from the
+;; serializable frame-state projection.
+;;
+;; The runnable state container (the app-db/cache atoms) is deferred to .32, so
+;; the serializable frame-state SEED available at this slice is :rf.frame/
+;; initial-db. The invariant tested here: the adapter binding and the capability
+;; map handed to make-frame are confined to their OWN object slots and never
+;; bleed into :rf.frame/initial-db (the serializable state), and the host-handle
+;; slots are a distinct, non-serializable concern from the state slot.
+
+(deftest host-handles-excluded-from-serializable-frame-state
+  (testing "the adapter binding + capability map ride DEDICATED object slots
+            (:rf.frame/adapter, :rf.frame/capabilities) and are EXCLUDED from the
+            serializable frame-state seed (:rf.frame/initial-db) — the EP-0023
+            §Host Boundary two-boundaries invariant: host handles never enter the
+            frame-state value (MAJOR-2)"
+    (let [img        (image/image {:include-ns ["examples.counter"]
+                                   :rf.image/requires #{:rf.capability/http}})
+          adapter    {:rf.adapter/kind :reagent :rf.adapter/render-root ::host-handle}
+          caps       {:rf.capability/http ::http-impl}
+          state-seed {:count 7 :user/name "ada"}
+          frame      (lf/make-frame {:images     [img]
+                                     :initial-db state-seed
+                                     :adapter    adapter
+                                     :capabilities caps}
+                                    counter-pool)]
+      (testing "the host handles ride their OWN object slots (preserved)"
+        (is (= adapter (:rf.frame/adapter frame)))
+        (is (= caps    (:rf.frame/capabilities frame))))
+      (testing "the serializable frame-state seed is EXACTLY :initial-db — no
+                adapter binding, no capability map bled into it"
+        (is (= state-seed (:rf.frame/initial-db frame)))
+        (let [serializable (:rf.frame/initial-db frame)]
+          (is (not (contains? serializable :rf.frame/adapter))
+              "the adapter binding is NOT in the serializable state value")
+          (is (not (contains? serializable :rf.frame/capabilities))
+              "the capability map is NOT in the serializable state value")
+          (is (not-any? #{::host-handle ::http-impl} (vals serializable))
+              "no host-handle VALUE leaked into the serializable state value")))
+      (testing "the host-handle slots are a DISTINCT concern from the state slot
+                (object slots ≠ the serializable frame-state seed)"
+        (is (not= (:rf.frame/adapter frame)      (:rf.frame/initial-db frame)))
+        (is (not= (:rf.frame/capabilities frame) (:rf.frame/initial-db frame)))))))
