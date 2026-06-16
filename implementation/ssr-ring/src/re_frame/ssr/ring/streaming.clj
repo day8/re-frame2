@@ -492,12 +492,27 @@
       ;; as `:phase :final-payload` rather than leaking out as the prior
       ;; `:continuation-template`/`:shell-html` phase.
       (vreset! phase [:final-payload nil])
-      (let [final-payload (rf/with-frame frame-id
-                            (streaming/build-final-payload
-                              frame-id doc-hash
-                              {:version       version
-                               :schema-digest schema-digest
-                               :payload       payload}))]
+      ;; rf2-tbr67x / EP-0013 §Realm Conformance: re-establish the frame's
+      ;; carried realm on THIS daemon thread around `build-final-payload`, the
+      ;; SAME `call-with-realm realm-id` binding the continuation render uses
+      ;; above. `build-final-payload` reads the projected app-db / runtime-db
+      ;; via `frame/frame-app-db-value` / `frame/frame-runtime-db-value`, which
+      ;; resolve `(frame frame-id)` through `frame/*current-realm*`. The writer
+      ;; thread has NO ambient realm (the request thread's `*current-realm*`
+      ;; does not cross the thread boundary), so a non-default-realm frame
+      ;; stored at the `[realm frame-id]` slot was MISSED here — the final
+      ;; `__rf_payload` carried nil / wrong app-db + runtime-db even though the
+      ;; streamed HTML (shell + continuations) came from the realm frame. nil
+      ;; `realm-id` ⇒ default realm ⇒ NO binding (byte-identical single-realm
+      ;; path), exactly like the continuation-render rebinding.
+      (let [final-payload (frame/call-with-realm realm-id
+                            (fn []
+                              (rf/with-frame frame-id
+                                (streaming/build-final-payload
+                                  frame-id doc-hash
+                                  {:version       version
+                                   :schema-digest schema-digest
+                                   :payload       payload}))))]
         ;; Shared id-pinned, `</script>`-escaped payload <script>
         ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
