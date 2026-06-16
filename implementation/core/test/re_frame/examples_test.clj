@@ -46,6 +46,16 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
+  ;; clear-all! also drops the framework's ONE built-in coeffect registration
+  ;; (`:rf/time-ms` — recordable, provided; registered by a toplevel `reg-cofx`
+  ;; form in re-frame.cofx). The resources example's `handle-request` dispatches
+  ;; `:rf.resource/ensure`, whose handler now DECLARES `:rf.cofx/requires
+  ;; [:rf.resource/generation-allocation :rf/time-ms]` (rf2-601ife) — so the
+  ;; framework cofx must be present in the registrar or declared-only delivery
+  ;; raises `:rf.error/unregistered-cofx`. Transitive require is idempotent once
+  ;; loaded, so reload here to re-fire the registration body (mirrors the
+  ;; http/machines/ssr reloads below).
+  (require 're-frame.cofx :reload)
   ;; clear-all! also drops the framework-shipped fxs that register at
   ;; namespace load time (e.g. :rf.http/managed and its canned-stub
   ;; siblings). Reload the relevant ns so the toplevel reg-fx forms run
