@@ -599,6 +599,54 @@
     (is (= privacy/redacted-sentinel (computed-result :route-token-echo))
         "the output derived from a sensitive runtime-db slot is redacted")))
 
+(deftest runtime-db-whole-value-effect-preserves-flow-elision-declarations
+  ;; rf2-gom797 — a durable `:rf.db/runtime` whole-value effect must NOT clobber
+  ;; the elision declaration registry that lives in the SAME runtime-db
+  ;; partition at `[:rf.runtime/elision …]`. Pre-fix, `commit-frame-transition!`
+  ;; installed the effect's whole-value runtime-db verbatim, dropping every
+  ;; reserved `:rf.runtime/*` subsystem child (incl. `:rf.runtime/elision`) the
+  ;; effect did not itself carry — so a framework-authority event that seeded
+  ;; `:rf.runtime/routing` left the frame with NO flow-sourced elision
+  ;; declarations after commit, even though they were correctly read pre-commit
+  ;; (the existing `propagation-runtime-db-qualified-input` only asserts the
+  ;; SAME-event redaction, which reads the pre-commit registry). This regression
+  ;; pins POST-COMMIT declaration survival.
+  (testing "a durable `:rf.db/runtime` whole-value commit preserves the
+            flow-sourced elision declarations (the registry is a reserved
+            `:rf.runtime/elision` sibling, not application runtime-db)"
+    ;; Framework-authority handler that seeds the routing subsystem with a
+    ;; WHOLE-VALUE runtime-db effect carrying ONLY :rf.runtime/routing — the
+    ;; shape `partitioned_commit_test` / the bead repro use.
+    (reg-fw-runtime-handler! :seed-rt
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:token "RT-SECRET"}}}}))
+    (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
+    (rf/reg-flow {:id     :route-token-echo
+                  :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
+                  :output (fn [t] {:echo t})
+                  :path   [:derived :route-token]})
+    ;; Pre-dispatch: BOTH the directly-marked runtime input slot and the
+    ;; propagated flow output declaration are present.
+    (is (contains? (sensitive-decls :rf/default) [:rf.runtime/routing :current :token])
+        "the directly-marked runtime-db input path is declared before dispatch")
+    (is (contains? (sensitive-decls :rf/default) [:derived :route-token])
+        "the propagated flow output declaration is present before dispatch")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed-rt])
+    ;; POST-COMMIT — the bug: a whole-value :rf.db/runtime commit must NOT have
+    ;; wiped the elision registry. Both declarations must survive.
+    (is (contains? (sensitive-decls :rf/default) [:rf.runtime/routing :current :token])
+        "the directly-marked runtime-db input declaration SURVIVES the durable runtime-db commit")
+    (is (contains? (sensitive-decls :rf/default) [:derived :route-token])
+        "the propagated flow output declaration SURVIVES the durable runtime-db commit")
+    ;; And the runtime-db seed actually committed (the effect's payload landed).
+    (is (= "RT-SECRET"
+           (get-in (frame/frame-runtime-db-value :rf/default)
+                   [:rf.runtime/routing :current :token]))
+        "the framework-authority runtime-db seed committed durably")
+    ;; The elision sub-tree coexists in the SAME committed runtime-db partition.
+    (is (some? (get (frame/frame-runtime-db-value :rf/default) :rf.runtime/elision))
+        "the :rf.runtime/elision subsystem child coexists with :rf.runtime/routing post-commit")))
+
 (deftest propagation-flow-dag-upstream-to-downstream
   (testing "flow→flow DAG propagation: flow B reading flow A's sensitive
             output :path inherits A's propagated mark. The topo-ordered drain

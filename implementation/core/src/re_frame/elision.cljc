@@ -114,6 +114,48 @@
     :else
     runtime-db))
 
+(defn ^:no-doc reconcile-runtime-db-effect
+  "Reconcile the durable elision registry across a whole-value
+  `:rf.db/runtime` partition commit (rf2-gom797).
+
+  A framework-authority event may return a `:rf.db/runtime` effect whose
+  value WHOLE-VALUE-REPLACES the runtime-db partition (Spec 002 §A runtime
+  effect replaces only runtime-db; router commit decision #5). But the
+  elision declaration registry at `[:rf.runtime/elision]` is a CROSS-CUTTING
+  durable subsystem child mutated OUT-OF-BAND by `reg-flow` / `add-marks` /
+  the frame-classification walker — NOT by the event returning the effect.
+  A whole-value runtime-db effect that seeds an UNRELATED subsystem (e.g.
+  `:rf.runtime/routing`) and does not itself carry `:rf.runtime/elision`
+  would otherwise DROP the registry on commit, silently losing every
+  flow-sourced / mark-sourced / frame-declared elision declaration — so the
+  post-commit frame would emit raw values that were correctly redacted
+  pre-commit (the durable privacy/trace contract breaks after any
+  runtime-db-writing event).
+
+  This preserves the existing `:rf.runtime/elision` sub-tree from
+  `prev-runtime-db` into `new-runtime-db` UNLESS the committing effect
+  ITSELF carries an `:rf.runtime/elision` key (an explicit full-frame
+  install — epoch-restore / SSR-hydration — legitimately replaces the
+  registry, so its decision is honoured verbatim, including an intentional
+  clear). When the effect omits the key, the prior registry is carried
+  forward; when there was no prior registry, nothing is added (a frame that
+  never used elision stays clean — `runtime-db-effect-whole-value-commit`).
+
+  Returns the reconciled runtime-db value. `new-runtime-db` is the
+  whole-value effect payload; `prev-runtime-db` is the pre-commit
+  runtime-db partition value (may be nil for a fresh frame)."
+  [new-runtime-db prev-runtime-db]
+  (let [new-runtime-db (or new-runtime-db {})]
+    (if (contains? new-runtime-db :rf.runtime/elision)
+      ;; The effect speaks about elision explicitly (full-frame install /
+      ;; deliberate clear) — honour it verbatim.
+      new-runtime-db
+      ;; The effect is silent about elision — carry the prior registry
+      ;; forward through the same prune logic so a frame that never used
+      ;; elision is left without a stray nil sub-tree.
+      (write-elision-slot new-runtime-db
+                          (get prev-runtime-db :rf.runtime/elision)))))
+
 (defn ^:no-doc swap-elision-slot!
   "Read-transform-write helper for the per-frame elision registry.
 
