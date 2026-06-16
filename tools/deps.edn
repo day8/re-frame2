@@ -2,15 +2,17 @@
 ;;
 ;; The published artefacts are
 ;;   - xray/       (day8/re-frame2-xray)
+;;   - machines-viz/ (day8/re-frame2-machines-viz)
 ;;   - mcp-base/    (day8/re-frame2-mcp-base)
 ;;   - re-frame2-pair-mcp/   (@day8/re-frame2-pair-mcp, npm only)
 ;;   - story/       (day8/re-frame2-story)
 ;;   - story-mcp/   (day8/re-frame2-story-mcp)
 ;;   - template/    (day8/re-frame2-template — git-coord, not Clojars
 ;;                   per rf2-dolpf §2.5)
-;; see tools/xray/deps.edn, tools/mcp-base/deps.edn,
-;; tools/re-frame2-pair-mcp/deps.edn, tools/story/deps.edn,
-;; tools/story-mcp/deps.edn, and tools/template/deps.edn.
+;; see tools/xray/deps.edn, tools/machines-viz/deps.edn,
+;; tools/mcp-base/deps.edn, tools/re-frame2-pair-mcp/deps.edn,
+;; tools/story/deps.edn, tools/story-mcp/deps.edn, and
+;; tools/template/deps.edn.
 ;;
 ;; Other tool directories (machines-viz-mcp/, mcp-conformance/) are
 ;; spec-only or Node-only today — no `deps.edn` / CLJ surface to
@@ -19,10 +21,28 @@
 ;; self-contained JVM conformance test; it is run from its own
 ;; directory and is not coordinated here.
 ;;
-;; (Per rf2-yamkm the `tools/machines-viz/` artefact was collapsed:
-;; the pure Mermaid emitter relocated to `implementation/machines/`,
-;; and the live chart-component role was absorbed by Xray's Machine
-;; Inspector panel (PR #1400/#1402/#1407).)
+;; ## machines-viz is shipped (rf2-o9arp), NOT collapsed (rf2-z0cw6s)
+;;
+;; A prior note here said `tools/machines-viz/` had been COLLAPSED
+;; (rf2-yamkm — Mermaid relocated, chart role absorbed by Xray). That is
+;; STALE. rf2-o9arp REVIVED machines-viz as its own published artefact:
+;; `tools/machines-viz/deps.edn` declares real `:paths ["src"]`, a
+;; runtime transit-cljs dep, a `:test` alias, and a `:clein/build` for
+;; `day8/re-frame2-machines-viz` with the SAME lockstep posture as Xray.
+;; Xray now CONSUMES machines-viz (its Machine Inspector re-exports the
+;; chart via thin shims), rather than owning the chart. The Mermaid
+;; emitter lives in THIS jar again (rf2-sqhqu), not implementation/machines.
+;;
+;; ## Why machines-viz is NOT in the JVM aggregate :test (CLJS-only)
+;;
+;; Like Xray, machines-viz is CLJS-only (the chart `:require`s
+;; `@xyflow/react` + `elkjs`, JVM-unloadable). Its tests run under the
+;; consolidated `implementation/shadow-cljs.edn` `:node-test` build
+;; (`*_cljs_test`) AND the `:browser-test` build (`*-dom-cljs-test` — the
+;; DOM/export suites), NOT on the JVM. So it sits in the coordinator
+;; `:deps` (classpath only; nothing requires it on the JVM) but its tests
+;; are intentionally absent from the JVM aggregate `:test` `:extra-paths`
+;; below — the same justified exclusion the Xray coverage-gap note records.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every tool artefact onto a single
@@ -49,11 +69,12 @@
 ;; the *coordinator's* classpath; nothing under implementation/ may
 ;; :require anything under tools/.
 {:paths []
- :deps  {day8/re-frame2-xray     {:local/root "xray"}
-         day8/re-frame2-mcp-base  {:local/root "mcp-base"}
-         day8/re-frame2-pair-mcp  {:local/root "re-frame2-pair-mcp"}
-         day8/re-frame2-story     {:local/root "story"}
-         day8/re-frame2-story-mcp {:local/root "story-mcp"}}
+ :deps  {day8/re-frame2-xray         {:local/root "xray"}
+         day8/re-frame2-machines-viz {:local/root "machines-viz"}
+         day8/re-frame2-mcp-base     {:local/root "mcp-base"}
+         day8/re-frame2-pair-mcp     {:local/root "re-frame2-pair-mcp"}
+         day8/re-frame2-story        {:local/root "story"}
+         day8/re-frame2-story-mcp    {:local/root "story-mcp"}}
 
  :aliases
  {;; Aggregate JVM-side test run across every tool whose tests are
@@ -66,6 +87,10 @@
   ;;   - tools/xray/ — CLJS-side only (DOM + Reagent shell). Its tests
   ;;     run under the implementation/shadow-cljs.edn :node-test build,
   ;;     not on the JVM.
+  ;;   - tools/machines-viz/ — CLJS-only (rf2-z0cw6s). Same posture as
+  ;;     Xray: tests run under the implementation/shadow-cljs.edn
+  ;;     :node-test build (`*_cljs_test`) + :browser-test build
+  ;;     (`*-dom-cljs-test`, the DOM/export suites), not on the JVM.
   ;;   - tools/re-frame2-pair-mcp/ — CLJS Node-script. Its tests run under
   ;;     tools/re-frame2-pair-mcp/shadow-cljs.edn :server-test (mirrored in
   ;;     tools/shadow-cljs.edn).

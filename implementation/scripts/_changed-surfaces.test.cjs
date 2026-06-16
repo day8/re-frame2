@@ -180,6 +180,49 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-z0cw6s — tools/machines-viz is a CLJS-only tool (day8/re-frame2-machines-viz):
+// its src+test are :source-paths of the consolidated :node-test AND :browser-test
+// builds, so a CLJS change fires cljs (node-test) + cljs-browser, and nothing else
+// (no JVM suite, no MCP wrapper, not in the deps-new template's :app).
+
+test('machines-viz src .cljs change runs cljs + cljs-browser (rf2-z0cw6s)', () => {
+  const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('machines-viz src .cljc change runs cljs + cljs-browser (rf2-z0cw6s)', () => {
+  const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/scxml.cljc');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('machines-viz test-tree change runs cljs + cljs-browser (rf2-z0cw6s)', () => {
+  const result = classify('tools/machines-viz/test/day8/re_frame2_machines_viz/export_dom_cljs_test.cljs');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+});
+
+test('machines-viz does NOT fan out to tools_jvm / mcp_conformance / template_expensive (rf2-z0cw6s)', () => {
+  const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs');
+  assert.equal(result.tools_jvm, 'false');
+  assert.equal(result.mcp_conformance, 'false');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('machines-viz spec-only .md change fires nothing runtime (rf2-z0cw6s)', () => {
+  const result = classify('tools/machines-viz/spec/API.md');
+  assert.equal(result.cljs_node_test, 'false');
+  assert.equal(result.cljs_browser, 'false');
+  assert.equal(result.tools_jvm, 'false');
+});
+
+test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () => {
+  const result = classify('tools/machines-viz/deps.edn');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+});
+
 // rf2-4ka7c2.1 — API-manifest probe routing false-green fix. The CLJS-only
 // adapter / Xray / pair-MCP public surfaces live in the sidecar
 // (spec/api-manifest-metadata.edn) under :cljs-only and are carried into

@@ -373,8 +373,8 @@ boolean GitHub-Actions outputs per surface:
 |---|---|
 | `implementation_jvm` | JVM artefact under `implementation/` changed; gates JVM unit + conformance jobs. |
 | `adapter_diagnostic` | Adapter artefact changed; gates the diagnostic skip-ok JVM classpath probes. |
-| `cljs_node_test` | A surface that compiles into the consolidated `:node-test` build changed (core, any adapter, any feature artefact, `spec/conformance/fixtures/*`, the build config in `implementation/{shadow-cljs.edn,package.json,package-lock.json}` + `implementation/scripts/*`, or a `.cljs`/`.cljc` file under `tools/{story,xray}/{src,test}` — rf2-f79t8); gates the `cljs` job (`shadow-cljs compile node-test` + `node out/node-test.js`). |
-| `cljs_browser` | CLJS surface that the browser tests cover changed; gates the separate `cljs-browser` job (`:browser-test` DOM build via Playwright). |
+| `cljs_node_test` | A surface that compiles into the consolidated `:node-test` build changed (core, any adapter, any feature artefact, `spec/conformance/fixtures/*`, the build config in `implementation/{shadow-cljs.edn,package.json,package-lock.json}` + `implementation/scripts/*`, a `.cljs`/`.cljc` file under `tools/{story,xray}/{src,test}` — rf2-f79t8 — or any non-spec-md change under `tools/machines-viz/*` — rf2-z0cw6s, whose `{src,test}` are also `:node-test` source paths); gates the `cljs` job (`shadow-cljs compile node-test` + `node out/node-test.js`). |
+| `cljs_browser` | CLJS surface that the browser tests cover changed (incl. any non-spec-md `tools/machines-viz/*` change — rf2-z0cw6s, whose `*-dom-cljs-test` export/chart-DOM suites run under `:browser-test` where EP-0015 image-export egress is verified); gates the separate `cljs-browser` job (`:browser-test` DOM build via Playwright). |
 | `cljs_prod` | Surface that release-mode probes (`browser-test-prod-elision`, schemas boundary prod) cover changed. |
 | `bundle_isolation` | Surface that can affect bundle boundaries (adapters, build scripts, examples used as probes, package metadata) changed. |
 | `reagent_slim_bundle` | Reagent Slim adapter / its example / its check script changed. |
@@ -481,6 +481,7 @@ must re-run the matrix).
 | S10 | `tools/template/*` |   |   |   |   |   |   |   |   |   | ✓ |   |   |   |   |   |
 | S11 | `tools/story/{src,testbeds}/**`, `tools/xray/{src,testbeds}/**` (runtime-extension files — rf2-k9ekz; `.cljs`/`.cljc` also fire `cljs_node_test` — rf2-f79t8) |   |   | ✓ |   |   |   |   |   | ✓ |   | ✓ |   | ✓ |   |   |
 | S11a | `tools/story/{spec,test,bench}/**`, `tools/xray/{spec,test}/**`, `tools/{story,xray}/{deps.edn,README.md}` (non-runtime under story/xray; a `.cljs`/`.cljc` file under `test/**` still compiles into `:node-test` and fires `cljs_node_test` — rf2-f79t8 — but `spec/**.md`, `bench/**`, `deps.edn`, `README.md` do not) |   |   | ✓ |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
+| S11b | `tools/machines-viz/*` (rf2-z0cw6s — `day8/re-frame2-machines-viz`, the shipped MachineChart + viewer + Mermaid/SCXML/PNG/SVG/share-URL export tool; CLJS-only, `{src,test}` are `:node-test` + `:browser-test` source paths. Every non-spec-md change fires `cljs_node_test` + `cljs_browser` — the latter runs the `*-dom-cljs-test` export/redaction suites verifying EP-0015 image-export egress. `spec/**.md` fires nothing. No JVM/MCP/template fan-out: CLJS-only, no MCP wrapper, not in the deps-new `:app`) |   |   | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |   |
 | S12 | `tools/story-mcp/*` |   |   |   |   |   |   |   |   | ✓ |   | ✓ |   |   |   |   |
 | S13 | `tools/re-frame2-pair-mcp/*`, `tools/mcp-base/*` |   |   |   |   |   |   |   |   | ✓ |   | ✓ | ✓ |   |   |   |
 | S14 | `tools/mcp-conformance/*` |   |   |   |   |   |   |   |   |   |   | ✓ | ✓ |   |   |   |

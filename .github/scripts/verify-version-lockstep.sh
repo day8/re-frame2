@@ -19,9 +19,12 @@
 # (for non-core) :local/root "../core".
 #
 # Per rf2-lwtke the deployable jars under tools/* also participate in
-# lockstep — every Clojars-publishable tool (xray, story, story-mcp)
-# carries :clein/build :version "../../VERSION" and must not hand-edit
-# a literal :mvn/version for any day8/re-frame2-* artefact.
+# lockstep — every Clojars-publishable tool (xray, story, story-mcp,
+# machines-viz) carries :clein/build :version "../../VERSION" and must
+# not hand-edit a literal :mvn/version for any day8/re-frame2-* artefact.
+# tools/machines-viz/ (rf2-o9arp) ships day8/re-frame2-machines-viz with
+# the same lockstep posture as xray — :local/root "../../implementation/core"
+# in dev, rewritten to :mvn/version at release.
 # tools/re-frame2-pair-mcp/ ships as a Node binary on npm and carries no
 # :clein/build alias, so it is intentionally excluded. tools/template/
 # is similarly excluded as of rf2-40vmd (rf2-dolpf §2.5): it ships via
@@ -285,6 +288,7 @@ declare -A TOOLS_PATHS=(
   [xray]="xray"
   [story]="story"
   [story-mcp]="story-mcp"
+  [machines-viz]="machines-viz"
 )
 
 # Newline-separated `tool|"day8/re-frame2-x {:local/root \"…\"}"` pairs
@@ -298,10 +302,11 @@ story|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
 story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
 story-mcp|day8/re-frame2-story {:local/root "../story"}
+machines-viz|day8/re-frame2 {:local/root "../../implementation/core"}
 EOF
 )
 
-TOOLS=(xray story story-mcp)
+TOOLS=(xray story story-mcp machines-viz)
 
 for tool in "${TOOLS[@]}"; do
   subpath="${TOOLS_PATHS[$tool]}"
