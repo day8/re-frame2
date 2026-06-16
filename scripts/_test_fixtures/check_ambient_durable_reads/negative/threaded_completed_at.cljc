@@ -1,14 +1,14 @@
 (ns fixtures.threaded-completed-at
   "NEGATIVE fixture: the CORRECT pattern. The durable `:completed-at` /
-  `:loaded-at` values are THREADED from the reply token's `:rf.world/inputs`
-  `:time-ms` (a supplied causal time), never read ambiently here. The function
-  takes `completed-at` as a parameter and binds `time-ms` from the token. Must
-  stay GREEN (0 findings)."
+  `:loaded-at` values are THREADED from the reply token's `:rf.cofx`
+  `:rf/time-ms` (a supplied causal time), never read ambiently here. The
+  function takes `completed-at` as a parameter and binds `time-ms` from the
+  token. Must stay GREEN (0 findings)."
   (:require [re-frame.interop :as interop]))   ;; required but not read at a durable site
 
 (defn build-reply
   [token outcome]
-  (let [time-ms (get-in token [:rf.world/inputs :time-ms])]
+  (let [time-ms (get-in token [:rf.cofx :rf/time-ms])]
     {:outcome      outcome
      :completed-at time-ms
      :loaded-at    time-ms}))

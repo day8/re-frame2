@@ -4,7 +4,7 @@
   names (`t0` / `elapsed`) and write NO durable field key, so they never match
   the violating `:durable-key <ambient-read>` shape in the first place. The
   durable `:updated-at` here is threaded from the reply token's causal
-  `:rf.world/inputs` `:time-ms` (the CORRECT pattern), NOT a fresh ambient read.
+  `:rf.cofx` `:rf/time-ms` (the CORRECT pattern), NOT a fresh ambient read.
 
   rf2-nftz2s §3: the generic `interop/debug-enabled?` window allowlist was
   REMOVED — a debug probe being merely NEAR a durable write no longer exempts
@@ -21,5 +21,5 @@
         elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
     {:result     result
      ;; durable timestamp threaded from the causal token — NOT an ambient read
-     :updated-at (get-in reply-token [:rf.world/inputs :time-ms])
+     :updated-at (get-in reply-token [:rf.cofx :rf/time-ms])
      :elapsed-ms elapsed}))
