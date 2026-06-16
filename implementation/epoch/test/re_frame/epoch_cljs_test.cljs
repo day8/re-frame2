@@ -105,7 +105,7 @@
 ;;
 ;; FAITHFUL repro for the standard_epochs button-18 symptom. Mirrors the
 ;; live wiring: an app-db schema registered for the frame (button 19's
-;; [:auth]) PLUS a plain reg-event-db carrying the inline `:schema`
+;; [:auth]) PLUS a plain reg-event handler carrying the inline `:schema`
 ;; metadata button 18 uses verbatim. Dispatch the bad arg; the
 ;; `:rf.error/schema-validation-failure :where :event` violation MUST be
 ;; captured into the triggering epoch's `:trace-events` — exactly where

@@ -46,8 +46,8 @@
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). The
 ;; framework-shipped :rf.http/managed family registers at ns-load and
-;; survives the snapshot; per-test reg-event-* / reg-sub-* roll back
-;; on the way out.
+;; survives the snapshot; per-test reg-event / reg-sub registrations roll
+;; back on the way out.
 (use-fixtures :each
   (fn [test-fn]
     ;; Drop any in-flight registry leaks between tests.

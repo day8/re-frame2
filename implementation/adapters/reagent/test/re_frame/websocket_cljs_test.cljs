@@ -42,7 +42,7 @@
 ;;
 ;; The websocket example's sub-namespaces — `websocket.schema`,
 ;; `websocket.connection`, `websocket.messages` — each install their
-;; reg-machine / reg-event-* / reg-sub / reg-app-schema entries at
+;; reg-machine / reg-event / reg-sub / reg-app-schema entries at
 ;; ns-load time (the production-app idiom; loading the ns IS the
 ;; registration). The example's `core.cljs` then registers the top-level
 ;; `:ws.app/initialise` event in the same idiomatic ns-load shape.

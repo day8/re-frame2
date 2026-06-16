@@ -51,7 +51,7 @@
 ;; ---- shared dispatch + sub --------------------------------------------------
 
 (deftest dispatch-sync-cljs
-  (testing "dispatch-sync runs an event-db handler under the Reagent adapter"
+  (testing "dispatch-sync runs a reg-event handler returning a :db effect under the Reagent adapter"
     (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:counter/init])
