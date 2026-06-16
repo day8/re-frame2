@@ -2142,6 +2142,25 @@
     (trace/with-handler-scope
       (trace/handler-scope-from-meta :event event-id scope-meta)
       (let [start-ms  (interop/now-ms)
+            ;; rf2-1xdotm — the POST-GENERATION flat `:rf.cofx` replay token:
+            ;; the causal cofx map AS IT WAS after `assemble-initial-ctx`'s
+            ;; declared-only delivery ran (every generator-backed recordable
+            ;; fact minted at processing-start written back into the in-flight
+            ;; `:rf.cofx` — re-frame.cofx/deliver-declared-cofx). It carries
+            ;; the framework `:rf/time-ms` provided fact AND every generated
+            ;; fact, so the epoch record (via `find-trigger-event`) can pin it
+            ;; as a first-class `:rf.cofx` slot and a Tool-Pair replay can
+            ;; re-present the EXACT facts the original run consumed under
+            ;; `:rf.cofx/mint-policy :strict` (EP-0017 §Recordable coeffects +
+            ;; Tool-Pair §Replay-mint-policy). Read off `initial-ctx`'s always-
+            ;; staged `:rf.cofx` coeffect. Dev-only — the whole run-start
+            ;; `trace/emit!` body DCEs under `:advanced` + `goog.DEBUG=false`,
+            ;; and the slot is reachable only through `find-trigger-event` at
+            ;; epoch-assembly time (itself dev-gated). The marks chokepoint
+            ;; (`marks/project-cofx-token-tags`) redacts per-cofx-id declared
+            ;; `:sensitive` / `:large` slots before any off-box egress.
+            run-cofx  (when interop/debug-enabled?
+                        (get-in initial-ctx [:coeffects :rf.cofx]))
             _         (trace/emit! :rf.event :rf.event/run-start
                                    ;; rf2-9vx0jk — `:rf.interceptor/override-
                                    ;; summary` rides the run-start TRACE tag
@@ -2165,7 +2184,14 @@
                                             :rf.trace/phase    :run-start}
                                      override-summary
                                      (assoc :rf.interceptor/override-summary
-                                            override-summary)))
+                                            override-summary)
+                                     ;; rf2-1xdotm — the post-generation flat
+                                     ;; `:rf.cofx` replay token. Threaded only
+                                     ;; when present (dev builds; a cascade
+                                     ;; whose envelope carried no cofx map
+                                     ;; omits the slot).
+                                     (some? run-cofx)
+                                     (assoc :rf.event/cofx run-cofx)))
             event-ok? (validate-event! event-id event handler-meta frame)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
             ;; rf2-hhh92: the HANDLER-BODY-only elapsed — the interceptor

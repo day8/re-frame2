@@ -424,7 +424,8 @@
          ;; absent; `(:rf.db/app nil)` is nil, which consumers already tolerate.
          db-before (get frame-state-before frame/app-partition-key)
          db-after  (get frame-state-after  frame/app-partition-key)
-         {:keys [event-id event dispatch-id]} (capture/find-trigger-event events)
+         {:keys [event-id event dispatch-id] trigger-cofx :rf.cofx}
+         (capture/find-trigger-event events)
          ;; Per rf2-ecu37: one fused walk producing all three
          ;; projections, replacing three independent transducer
          ;; passes over the same buffer. Mirrors `find-trigger-event`'s
@@ -480,6 +481,21 @@
               :effects            effects}
        event-id    (assoc :event-id event-id)
        event       (assoc :trigger-event event)
+       ;; Per rf2-1xdotm — pin the POST-GENERATION flat `:rf.cofx` replay
+       ;; token (the causal cofx as it was after the router's declared-only
+       ;; delivery ran: every generator-backed recordable fact minted at
+       ;; processing-start written back into the in-flight `:rf.cofx`, plus
+       ;; the framework `:rf/time-ms`). It is the slot a Tool-Pair replay
+       ;; supplies alongside `:rf.cofx/mint-policy :strict` to re-present the
+       ;; EXACT facts the original run consumed (EP-0017 §Recordable coeffects
+       ;; + Tool-Pair §Replay-mint-policy). Spelled bare per the record-layer
+       ;; vocabulary (Spec-Schemas §`:rf/epoch-record`). Conditional `cond->`
+       ;; (rf2-kl5p1 shape): a halt path with no `:event/run-start` buffered,
+       ;; or a production build whose dev-only run-start cofx tag is elided,
+       ;; omits the slot — which the open-map schema admits. The marks
+       ;; chokepoint redacts declared-sensitive recordable facts at the emit
+       ;; site, so the value pinned here is already projection-safe.
+       trigger-cofx (assoc :rf.cofx trigger-cofx)
        ;; Per rf2-rly4a — pin the settling cascade's `:dispatch-id` as a
        ;; first-class record slot. It is the stable cross-counter-space
        ;; link between the epoch ring (epoch-id space) and the raw trace

@@ -1103,6 +1103,34 @@
                      cofx-map)]
         (assoc tags :rf.event/coeffects walked)))))
 
+(defn- project-cofx-token-tags
+  "Walk the post-generation flat `:rf.cofx` replay token the
+  `:rf.event/run-start` trace carries (rf2-1xdotm): a one-fact-per-owner-
+  qualified-key map (`:rf/time-ms`, generated recordable facts, supplied
+  facts). Redact each fact's value against the cofx-id's registered
+  `:sensitive` / `:large` marks — the SAME per-cofx-id rule
+  `project-cofx-tags` applies to the `:rf.event/coeffects` slot, so a
+  declared-sensitive recordable fact never surfaces raw on the run-start
+  trace (the epoch record's `:rf.cofx` replay slot reads off this redacted
+  shape). The framework `:rf/time-ms` fact carries no marks and rides
+  verbatim. Pass-through when the slot is not a map."
+  [tags]
+  (let [cofx-map (:rf.event/cofx tags)]
+    (if-not (map? cofx-map)
+      tags
+      (let [walked (reduce-kv
+                     (fn [acc cofx-id v]
+                       (let [marks (cofx-marks cofx-id)]
+                         (if-not marks
+                           (assoc acc cofx-id v)
+                           (let [sens     (or (:sensitive marks) [])
+                                 large    (or (:large marks) [])
+                                 redacted (redact-with-paths v sens large)]
+                             (assoc acc cofx-id redacted)))))
+                     (empty cofx-map)
+                     cofx-map)]
+        (assoc tags :rf.event/cofx walked)))))
+
 (defn- project-cofx-run-tags
   "Walk the produced-value op shape shared by `:rf.cofx/run` (ambient
   supplier, rf2-hhh92) and `:rf.cofx/generated` (slice-B.7 recordable
@@ -1536,6 +1564,16 @@
 
                       (and (map? tags) (contains? tags :rf.event/coeffects))
                       (project-cofx-tags)
+
+                      ;; rf2-1xdotm — the `:rf.event/run-start` trace carries
+                      ;; the post-generation flat `:rf.cofx` replay token under
+                      ;; `:rf.event/cofx`; redact each fact's value against the
+                      ;; cofx-id's declared marks (the same per-cofx-id rule
+                      ;; `:rf.event/coeffects` uses) so a declared-sensitive
+                      ;; recordable fact never egresses raw on the run-start
+                      ;; trace / epoch record's replay slot.
+                      (and (map? tags) (contains? tags :rf.event/cofx))
+                      (project-cofx-token-tags)
 
                       ;; The t1 / t2 pending-`:db` emits stamp the full
                       ;; app-db under `:rf.event/db`; redact against the

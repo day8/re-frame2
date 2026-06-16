@@ -182,6 +182,93 @@
              (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
           ":dispatch-id slot equals the cascade's trace :rf.trace/dispatch-id tag"))))
 
+;; ---- rf2-1xdotm: the epoch record carries the POST-GENERATION :rf.cofx -----
+;;
+;; Per EP-0017 §Recordable coeffects + Tool-Pair §Replay-mint-policy: replay
+;; re-drives a recorded event through the application's own handlers by
+;; dispatching it with the RECORDED `:rf.cofx` (so the handler folds the exact
+;; facts the original run consumed) plus `:rf.cofx/mint-policy :strict` (so
+;; recordable facts are re-presented and NEVER re-minted). That contract is
+;; only realisable if the epoch record exposes the complete post-generation
+;; flat `:rf.cofx` replay token — the cofx map AS IT WAS after generators ran
+;; during the original dispatch, including both the framework `:rf/time-ms`
+;; provided fact AND every generator-backed recordable fact minted at
+;; processing-start (re-frame.cofx/deliver-declared-cofx writes the generated
+;; value back into the in-flight `:rf.cofx` record).
+;;
+;; Before rf2-1xdotm the assembled `:rf/epoch-record` carried `:trigger-event`
+;; / `:event-id` / `:dispatch-id` but NO first-class `:rf.cofx` replay token,
+;; so a tool replaying from the record could not supply the exact facts the
+;; original run consumed: under strict replay it would miss the generated fact
+;; and fail with `:rf.error/missing-required-cofx`. These tests reproduce the
+;; gap with a generator-backed recordable cofx and pin the fix end-to-end —
+;; dispatch once with no supplied fact (generator mints it), assert the record
+;; carries the post-generation `:rf.cofx`, then replay the recorded event under
+;; `:strict` from that token and assert NO generator call occurs and the
+;; handler receives the recorded value.
+
+(deftest epoch-record-carries-post-generation-rf-cofx
+  (testing "rf2-1xdotm — the assembled :rf/epoch-record exposes the complete
+            post-generation flat :rf.cofx replay token: the framework
+            :rf/time-ms provided fact AND the generator-backed recordable fact
+            minted during the ORIGINAL dispatch (the value as it was AFTER the
+            generator ran, written back into the in-flight :rf.cofx)"
+    (rf/reg-frame :test/main {})
+    ;; A generator-backed recordable cofx (recordable, NOT provided, with a
+    ;; value-returning supplier). Declared-absent on the token + :live policy
+    ;; ⇒ the generator runs at processing-start and the produced value is
+    ;; written back into the in-flight :rf.cofx record (EP-0017 §5 step 3).
+    (let [gen-calls (atom 0)]
+      (rf/reg-cofx :test/minted
+        {:recordable? true
+         :doc "A generator-backed recordable fact — minted on :live, recorded."}
+        (fn [] (swap! gen-calls inc) {:token (str "gen-" @gen-calls)}))
+      (rf/reg-event :mint
+        {:rf.cofx/requires [:rf/time-ms :test/minted]}
+        (fn [{:keys [db] minted :test/minted t :rf/time-ms} _]
+          {:db (assoc db :recorded-token (:token minted) :recorded-at t)}))
+
+      ;; Dispatch ONCE with no :test/minted supplied (only the framework time
+      ;; fact). Default router mint policy is :live, so the generator mints the
+      ;; fact and the runtime records it on the post-generation token.
+      (rf/dispatch-sync [:mint] {:frame   :test/main
+                                 :rf.cofx {:rf/time-ms 1781078400123}})
+      (is (= 1 @gen-calls) "the generator ran exactly once during the record dispatch")
+
+      (let [r          (last (rf/epoch-history :test/main))
+            recorded   (:rf.cofx r)]
+        ;; The record carries the complete post-generation flat :rf.cofx token.
+        (is (map? recorded)
+            "the epoch record carries a first-class :rf.cofx replay token")
+        (is (= 1781078400123 (:rf/time-ms recorded))
+            ":rf.cofx carries the framework :rf/time-ms provided fact")
+        (is (= {:token "gen-1"} (:test/minted recorded))
+            ":rf.cofx carries the GENERATED recordable fact — the value as it
+             was AFTER the generator ran during the original dispatch (the
+             post-generation token), not a pre-generation / absent envelope")
+
+        ;; ---- REPLAY under :strict from the recorded token --------------------
+        ;; Re-drive the RECORDED event with the recorded :rf.cofx and
+        ;; :rf.cofx/mint-policy :strict (the Tool-Pair replay gesture). The
+        ;; recorded fact is PRESENT on the supplied token, so it is delivered
+        ;; verbatim and the generator does NOT run again (strict ⇒ no host read,
+        ;; no re-mint). The replay reproduces the recorded run faithfully.
+        (reset! gen-calls 0)
+        (rf/reg-frame :test/replay {})
+        (rf/dispatch-sync (:trigger-event r)
+                          {:frame                :test/replay
+                           :rf.cofx              recorded
+                           :rf.cofx/mint-policy  :strict})
+        (is (= 0 @gen-calls)
+            "strict replay supplied the recorded fact verbatim — the generator
+             did NOT re-mint (the missing-required / re-mint failure the
+             post-generation :rf.cofx record kills)")
+        (is (= "gen-1" (:recorded-token (rf/app-db-value :test/replay)))
+            "the replay handler received the RECORDED generated value, not a
+             freshly-minted one")
+        (is (= 1781078400123 (:recorded-at (rf/app-db-value :test/replay)))
+            "the replay handler received the recorded :rf/time-ms")))))
+
 ;; ---- rf2-bh56rc: :committed-at is the committing token's causal time -------
 ;;
 ;; Per EP-0010 §Time (epoch record causal time) + Spec 002 §The World-Input
