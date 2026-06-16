@@ -52,6 +52,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.cofx :as cofx]
             [re-frame.error-emit :as error-emit]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
@@ -237,6 +238,82 @@
       (is (false? @had-time?)
           "an undeclared recordable leaf is never staged into the coeffects map"))))
 
+(deftest reg-event-declared-rf-time-ms-is-delivered-flat-from-the-token
+  (testing "EP-0017 §2/§5 recordable-delivery on reg-event (rf2-q5w74i): a
+            handler that DECLARES `:rf.cofx/requires [:rf/time-ms]` receives the
+            recordable `:rf/time-ms` fact FLAT from the supplied/stamped
+            `:rf.cofx` causal token — the framework's one provided recordable
+            coeffect. This is the POSITIVE counterpart to
+            `reg-event-undeclared-cofx-is-not-staged` (declared-only delivery):
+            declared → delivered flat; undeclared → never staged"
+    (let [seen (atom ::unset)]
+      (rf/reg-event :evt-conf/reads-time
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [{:keys [rf/time-ms]} _] (reset! seen time-ms) {}))
+      (rf/dispatch-sync [:evt-conf/reads-time]
+                        {:rf.cofx {:rf/time-ms 1781078400123}})
+      (is (= 1781078400123 @seen)
+          "the DECLARED :rf/time-ms arrived FLAT under its id from the causal token"))))
+
+(deftest reg-event-registered-but-absent-provided-fact-is-missing-required-cofx
+  (testing "EP-0017 §5/§7 provided-recordable on reg-event (rf2-q5w74i): a
+            DECLARED PROVIDED recordable fact (registered `{:recordable? true
+            :provided? true}` — NO generator) that is ABSENT from the supplied
+            causal token is the hard error `:rf.error/missing-required-cofx` —
+            the cascade halts before the handler runs (it fails loudly rather
+            than silently re-reading the host). This is DISTINCT from the typo
+            case (`:rf.error/unregistered-cofx`, already covered): the id IS
+            registered, it is just not supplied. The error rides the always-on
+            error channel; observe it via the throw + a trace listener"
+    (let [traces (atom [])
+          fired? (atom false)]
+      (rf/reg-cofx :evt-conf/required-boundary
+        {:recordable? true :provided? true})
+      (rf/reg-event :evt-conf/needs-boundary
+        {:rf.cofx/requires [:evt-conf/required-boundary]}
+        (fn [_ _] (reset! fired? true) {}))
+      (rf/register-listener! :evt-conf/missing-recorder (fn [ev] (swap! traces conj ev)))
+      ;; Dispatch WITHOUT supplying the provided fact on the token.
+      (let [thrown (thrown-error-id #(rf/dispatch-sync [:evt-conf/needs-boundary]))]
+        (rf/unregister-listener! :evt-conf/missing-recorder)
+        (is (false? @fired?)
+            "the handler never ran — missing-required halts the cascade before the handler")
+        (is (= :rf.error/missing-required-cofx thrown)
+            "a registered-but-absent provided fact raises :rf.error/missing-required-cofx")
+        (let [errs (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces)]
+          (is (seq errs)
+              "the missing-required error fanned out on the trace bus")
+          (is (= :evt-conf/required-boundary (get-in (first errs) [:tags :rf.cofx/id]))
+              ":rf.cofx/id names the absent provided fact"))))))
+
+(deftest inject-cofx-is-off-the-public-facade-and-the-removal-is-a-hard-error
+  (testing "EP-0017 slice A.3 + rf2-w9xyx1 (rf2-q5w74i): the v1 ctx→ctx
+            `inject-cofx` delivery idiom is REMOVED with no alias —
+            `:rf.cofx/requires` is the ONE declaration surface. The umbrella
+            lock has TWO legs: (1) `inject-cofx` is OFF the public `rf/`
+            facade entirely — there is NO public `re-frame.core/inject-cofx`
+            var (a re-introduced working public facade var goes RED); (2) the
+            migration alarm survives as the always-on hard-error thrower
+            (`re-frame.cofx/inject-cofx`), raising `:rf.error/inject-cofx-
+            removed` and naming `:rf.cofx/requires` as the replacement (a
+            removal that stopped throwing, or dropped the replacement guidance,
+            goes RED)"
+    ;; Leg 1 — OFF the public facade. JVM-only var-reflection probe: the
+    ;; public facade carries no `inject-cofx` var. (CLJS has no runtime vars;
+    ;; the CLJS publics surface is policed by the api-manifest --check gate.)
+    #?(:clj
+       (is (nil? (ns-resolve 're-frame.core 'inject-cofx))
+           "there is NO public re-frame.core/inject-cofx var — the facade surface is removed"))
+    ;; Leg 2 — the surviving private thrower is the always-on hard error.
+    (is (= :rf.error/inject-cofx-removed
+           (thrown-error-id #(cofx/inject-cofx :evt-conf/anything)))
+        "the surviving inject-cofx thrower raises :rf.error/inject-cofx-removed")
+    (let [reason (thrown-error-reason #(cofx/inject-cofx :evt-conf/anything))]
+      (is (string? reason)
+          "the removal stub raises an ex-info carrying a :reason string")
+      (is (re-find #":rf.cofx/requires" reason)
+          "the replacement guidance names `:rf.cofx/requires` (the one declaration surface)"))))
+
 ;; ===========================================================================
 ;; (2) Effect-map shape — closed return contract, nil/{} no-op, foreign-key
 ;;     and legacy-shortcut rejection.
@@ -301,6 +378,157 @@
             "a foreign / legacy top-level effect key emits :rf.error/effect-map-shape")
         (is (= :dispatch (get-in (first shape-traces) [:tags :offending-key]))
             "the diagnostic names the offending legacy top-level key")))))
+
+(deftest reg-event-unchanged-db-return-is-a-true-noop
+  (testing "EP-0018 §4 (rf2-na5i1z): a `{:db db}` return that re-installs the
+            SAME app-db value is a true no-op — app-db is unchanged AND the
+            change-trace stream reflects the no-op (`:rf.event/db-noop` fires,
+            `:rf.event/db-changed` does NOT). A regression that treated every
+            `{:db …}` return as a write (firing db-changed unconditionally,
+            re-running dependent subs) would turn this RED. The observable
+            stable surface for the no-op-vs-changed distinction is the dev
+            trace bus, so observe it via a trace listener filtering `:operation`"
+    (let [traces (atom [])]
+      (rf/reg-sub :evt-conf/noop-seed (fn [db _] (:seed db :untouched)))
+      (rf/reg-event :evt-conf/noop-seed! (fn [{:keys [db]} _] {:db (assoc db :seed :set)}))
+      ;; A handler that returns `{:db db}` — the SAME value it was handed, the
+      ;; canonical unchanged-db return.
+      (rf/reg-event :evt-conf/noop-rewrite (fn [{:keys [db]} _] {:db db}))
+      (rf/dispatch-sync [:evt-conf/noop-seed!])
+      ;; Listen only across the no-op dispatch so the seed write's db-changed
+      ;; does not pollute the assertion.
+      (rf/register-listener! :evt-conf/noop-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/noop-rewrite])
+      (rf/unregister-listener! :evt-conf/noop-recorder)
+      (is (= :set @(rf/subscribe [:evt-conf/noop-seed]))
+          "the `{:db db}` rewrite left app-db at its prior value (a true no-op)")
+      (let [ops (set (map :operation @traces))]
+        (is (contains? ops :rf.event/db-noop)
+            "an unchanged `{:db db}` return fires :rf.event/db-noop")
+        (is (not (contains? ops :rf.event/db-changed))
+            "an unchanged `{:db db}` return does NOT fire :rf.event/db-changed")))))
+
+(deftest reg-event-db-nil-return-is-coerced-to-empty-map-with-diagnostic
+  (testing "EP-0018 §4 + rf2-ekq28v (rf2-na5i1z): a `{:db nil}` return is
+            COERCED to `{}` at the commit boundary (app-db is always a map,
+            never nil — the v1 nil-footgun is removed structurally) AND emits
+            the dev-mode `:rf.warning/db-nil-coerced` diagnostic for
+            accidental-wipe visibility. The diagnostic rides the trace bus, so
+            observe it via a trace listener filtering on `:operation`. A
+            regression that wiped app-db to nil (or coerced silently) goes RED"
+    (let [traces  (atom [])
+          db-seen (atom ::unset)]
+      ;; Seed a non-trivial app-db so the coercion-to-`{}` is observable.
+      (rf/reg-event :evt-conf/nil-seed! (fn [{:keys [db]} _] {:db (assoc db :k :v)}))
+      (rf/reg-event :evt-conf/return-nil-db (fn [_ _] {:db nil}))
+      ;; A follow-up handler reads app-db so we can prove it is `{}` (a map),
+      ;; never nil — `(:k db)` is absent and `(map? db)` holds.
+      (rf/reg-event :evt-conf/inspect-db (fn [{:keys [db]} _] (reset! db-seen db) {}))
+      (rf/dispatch-sync [:evt-conf/nil-seed!])
+      (rf/register-listener! :evt-conf/nil-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/return-nil-db])
+      (rf/unregister-listener! :evt-conf/nil-recorder)
+      (rf/dispatch-sync [:evt-conf/inspect-db])
+      (is (map? @db-seen)
+          "app-db after a `{:db nil}` return is a MAP, never nil")
+      (is (not (contains? @db-seen :k))
+          "the `{:db nil}` return coerced app-db to an EMPTY map (the prior :k is gone)")
+      (let [coerce-traces (filter #(= :rf.warning/db-nil-coerced (:operation %)) @traces)]
+        (is (seq coerce-traces)
+            "a `{:db nil}` return emits the :rf.warning/db-nil-coerced diagnostic")
+        (is (= :warned (:recovery (first coerce-traces)))
+            "the coercion diagnostic carries :recovery :warned (the value is still applied)")))))
+
+(deftest reg-event-deliberate-empty-db-clear-emits-no-diagnostic
+  (testing "EP-0018 §4 + rf2-ekq28v (rf2-na5i1z): a DELIBERATE clear — returning
+            `{:db {}}` (a distinct, non-nil empty map) — clears app-db WITHOUT
+            the `:rf.warning/db-nil-coerced` diagnostic, distinguishing the
+            intentional empty-map clear from the accidental-nil footgun. A
+            regression that warned on a deliberate `{:db {}}` clear goes RED"
+    (let [traces (atom [])]
+      (rf/reg-sub :evt-conf/clear-mark (fn [db _] (:mark db :untouched)))
+      (rf/reg-event :evt-conf/clear-seed! (fn [{:keys [db]} _] {:db (assoc db :mark :set)}))
+      (rf/reg-event :evt-conf/clear-db    (fn [_ _] {:db {}}))
+      (rf/dispatch-sync [:evt-conf/clear-seed!])
+      (rf/register-listener! :evt-conf/clear-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/clear-db])
+      (rf/unregister-listener! :evt-conf/clear-recorder)
+      (is (= :untouched @(rf/subscribe [:evt-conf/clear-mark]))
+          "the deliberate `{:db {}}` clear emptied app-db (the prior :mark is gone)")
+      (is (empty? (filter #(= :rf.warning/db-nil-coerced (:operation %)) @traces))
+          "a deliberate `{:db {}}` clear emits NO :rf.warning/db-nil-coerced diagnostic"))))
+
+(deftest reg-event-malformed-fx-value-is-logged-and-skipped-without-aborting-siblings
+  (testing "EP-0018 §4 + rf2-24zly (rf2-na5i1z): a non-sequential `:fx` VALUE
+            (the forgot-the-outer-vector typo — e.g. `{:fx {:dispatch […]}}`)
+            is the `:rf.error/effect-map-shape` diagnostic
+            (`:recovery :logged-and-skipped`) and is DROPPED — it never reaches
+            `fx/do-fx` to throw a raw host exception AFTER the db commit. The
+            sibling `:db` write STILL commits and the cascade is NOT aborted. A
+            regression that let the malformed `:fx` escape (a raw host throw,
+            app-db left mutated, downstream events abandoned) goes RED"
+    (let [traces    (atom [])
+          sentinel? (atom false)]
+      (rf/reg-sub :evt-conf/fx-shape-db (fn [db _] (:committed db :absent)))
+      ;; A sentinel the malformed `:fx` would dispatch IF the map-shaped value
+      ;; were wrongly walked as a pair — it must NOT run.
+      (rf/reg-event :evt-conf/fx-shape-sentinel (fn [_ _] (reset! sentinel? true) {}))
+      (rf/reg-event :evt-conf/malformed-fx
+        (fn [{:keys [db]} _]
+          ;; `:db` is a well-formed sibling; `:fx` is a non-sequential MAP
+          ;; (the documented forgot-the-outer-vector typo).
+          {:db (assoc db :committed :yes)
+           :fx {:dispatch [:evt-conf/fx-shape-sentinel]}}))
+      (rf/register-listener! :evt-conf/fx-shape-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/malformed-fx])
+      (rf/unregister-listener! :evt-conf/fx-shape-recorder)
+      (is (= :yes @(rf/subscribe [:evt-conf/fx-shape-db]))
+          "the sibling `:db` write committed — a malformed `:fx` does NOT abort the cascade")
+      (is (false? @sentinel?)
+          "the non-sequential `:fx` value was DROPPED — it was not walked as a pair (sentinel never dispatched)")
+      (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
+                                       (= :fx (get-in % [:tags :offending-key])))
+                                 @traces)]
+        (is (seq shape-traces)
+            "a non-sequential `:fx` value emits :rf.error/effect-map-shape naming :fx")
+        (is (= :logged-and-skipped (:recovery (first shape-traces)))
+            "the malformed-:fx diagnostic carries :recovery :logged-and-skipped")))))
+
+(deftest reg-event-final-effects-boundary-polices-after-interceptor-effects
+  (testing "EP-0018 §4 + rf2-u1kdvg (rf2-na5i1z): the FINAL-effects boundary —
+            not only the per-handler-return check — polices the closed
+            effect-map. An `:after` interceptor that injects a FOREIGN
+            top-level effect key AFTER the handler-return policing has run is
+            still caught at the final boundary: the foreign key emits
+            `:rf.error/effect-map-shape` and is dropped (never silently honoured
+            at the partition commit). A regression that only policed the
+            handler return (letting an `:after`-injected foreign key through)
+            goes RED. EP-0022 reference-only: the interceptor is registered via
+            the public surface and referenced by id"
+    (let [traces (atom [])]
+      (rf/reg-sub :evt-conf/boundary-db (fn [db _] (:committed db :absent)))
+      ;; EP-0022: register the `:after`-injecting interceptor through the
+      ;; PUBLIC reg-interceptor surface; reference it by id in the chain.
+      (rf/reg-interceptor :evt-conf/inject-foreign
+        {:after (fn [ctx]
+                  ;; Inject a FOREIGN top-level effect key into the final
+                  ;; effects map AFTER the handler-return policing already ran.
+                  (assoc-in ctx [:effects :evt-conf/foreign] :should-be-dropped))})
+      (rf/reg-event :evt-conf/handler-with-after
+        {:interceptors [:evt-conf/inject-foreign]}
+        (fn [{:keys [db]} _] {:db (assoc db :committed :yes)}))
+      (rf/register-listener! :evt-conf/boundary-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:evt-conf/handler-with-after])
+      (rf/unregister-listener! :evt-conf/boundary-recorder)
+      (is (= :yes @(rf/subscribe [:evt-conf/boundary-db]))
+          "the handler's well-formed `:db` write committed")
+      (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
+                                       (= :evt-conf/foreign (get-in % [:tags :offending-key])))
+                                 @traces)]
+        (is (seq shape-traces)
+            "an :after-interceptor-injected foreign key is policed at the FINAL boundary")
+        (is (= :logged-and-skipped (:recovery (first shape-traces)))
+            "the final-boundary diagnostic carries :recovery :logged-and-skipped")))))
 
 ;; ===========================================================================
 ;; (3) Registration SHAPE — registers under :event with the ONE wrapper,
@@ -369,6 +597,53 @@
           "the raw :rf.cofx/requires is retained on the registry entry")
       (is (contains? meta :rf.cofx/requires-parsed)
           "the parsed entry vector is stored for the satisfaction step"))))
+
+(deftest reg-event-chain-references-an-interceptor-from-public-reg-interceptor
+  (testing "EP-0022 public authoring surface (rf2-9g5xla): an application
+            interceptor used by an event chain is registered through the PUBLIC
+            `rf/reg-interceptor` form — NOT only the programmatic
+            `rf/reg-interceptor*` helper. EP-0022 makes `reg-interceptor` the
+            public authoring surface (demoting `->interceptor` to an internal
+            lowering constructor); this tier must exercise THAT path so a
+            regression in the public facade / macro / metadata route for
+            `reg-interceptor` goes RED rather than passing on the internal
+            helper. The chain is reference-only: the event registration carries
+            the interceptor ID, not an inline value. `handler-meta :interceptor`
+            surfaces the registered descriptor + the registration metadata"
+    (let [ran? (atom false)]
+      (rf/reg-sub :evt-conf/public-icpt-marker (fn [db _] (:public-icpt-marker db)))
+      ;; PUBLIC authoring surface — `rf/reg-interceptor` (macro on JVM,
+      ;; fn-alias on CLJS), WITH a registration-metadata map (`:doc`) so the
+      ;; metadata route is exercised, not just the descriptor.
+      (rf/reg-interceptor :evt-conf/audit
+        {:doc "an application audit interceptor authored via reg-interceptor"}
+        {:before (fn [ctx] (reset! ran? true) ctx)})
+      ;; handler-meta for the :interceptor kind surfaces the registered
+      ;; descriptor + the registration metadata (EP-0022).
+      (let [imeta (rf/handler-meta :interceptor :evt-conf/audit)]
+        (is (some? imeta)
+            "reg-interceptor registers under the :interceptor kind (handler-meta finds it)")
+        (is (= "an application audit interceptor authored via reg-interceptor" (:doc imeta))
+            "the registration metadata (:doc) is retained on the :interceptor entry")
+        (is (contains? imeta :rf/interceptor-descriptor)
+            "handler-meta surfaces the registered :rf/interceptor-descriptor (the public path)")
+        (is (fn? (:before (:rf/interceptor-descriptor imeta)))
+            "the descriptor carries the authored :before slot"))
+      ;; The event chain references the public-registered interceptor by ID —
+      ;; reference-only (an inline value would be :rf.error/inline-interceptor-removed).
+      (rf/reg-event :evt-conf/uses-public-icpt
+        {:interceptors [:evt-conf/audit]}
+        (fn [{:keys [db]} _] {:db (assoc db :public-icpt-marker :handler-ran)}))
+      (let [emeta (rf/handler-meta :event :evt-conf/uses-public-icpt)]
+        (is (= [:evt-conf/audit :rf/event-handler] (chain-ids (:interceptors emeta)))
+            "the event chain carries the interceptor REFERENCE (id), before the framework wrapper"))
+      ;; Dispatch proves the public-registered interceptor actually runs in the
+      ;; event chain (the reference resolved to the registered descriptor).
+      (rf/dispatch-sync [:evt-conf/uses-public-icpt])
+      (is (true? @ran?)
+          "the public-registered interceptor's :before ran in the event chain")
+      (is (= :handler-ran @(rf/subscribe [:evt-conf/public-icpt-marker]))
+          "the event handler ran after the public-registered interceptor"))))
 
 ;; ===========================================================================
 ;; (4) The retired public names — facade-exported `^:no-doc` throwing stubs
