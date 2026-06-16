@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.tools.operating-frame
   "Tools: set-operating-frame + reset-operating-frame + get-operating-frame
-  (rf2-zomfq); the realm dimension (EP-0013 disposition 3, rf2-09ijml).
+  (rf2-zomfq).
 
   The three operating-frame ops the [Tool-Pair contract][1] mandates
   (§Tool-surface obligations) for any pair-shaped tool surface. They are
@@ -9,29 +9,28 @@
   consumer escape the tier-4 `:ambiguous-frame` refusal a multi-frame app
   otherwise traps them in.
 
-  ## The realm dimension (EP-0013 disposition 3, rf2-09ijml)
+  ## The public address is the frame (EP-0023)
 
-  A frame lives in a runtime REALM; the (realm, frame) PAIR is its full
-  address — a frame-id is unique only WITHIN a realm. The operating-frame
-  ladder's tier-3 sole-app-frame resolution is therefore realm-scoped: it
-  counts only the app frames in the OPERATING REALM (the session realm pin,
-  else the default realm). These same three ops carry the realm half of the
-  address rather than minting a parallel `set/reset/get-operating-realm`
-  trio — the (realm, frame) pair is ONE addressing surface:
+  The EP-0023 public model is `image -> frame -> event stream` (EP-0023
+  §Specification, §Surface dispositions). The public target of every
+  frame-scoped op is a FRAME — a process-local frame id in the live-frame
+  registry (or a direct frame object in tests/harnesses). EP-0023 collapses
+  EP-0013's two-part `(realm, frame)` address into ONE public frame-id
+  space: the frame is the thing you pin, and its resolution universe is the
+  resolved image generation it runs.
 
-  - `set-operating-frame` accepts an OPTIONAL `realm` arg (pin the operating
-    realm; validated against `(rf/realm-ids)`). Either `frame`, `realm`, or
-    both may be supplied — pinning the realm alone re-scopes tier-3 to that
-    realm's app frames.
-  - `reset-operating-frame` clears BOTH the frame pin and the realm pin.
-  - `get-operating-frame` reports the realm dimension (`:realms`,
-    `:operating-realm`, `:selected-realm`, `:frame-realms`) alongside the
-    frame triple — it routes through the runtime's `frames-list`, which now
-    carries those slots.
-
-  A single-realm app (every frame in `:rf.realm/default`) never needs the
-  realm arg — the operating realm is the default realm and realm-scoping is
-  a no-op, byte-identical to the pre-realm ladder.
+  So `set-operating-frame` pins a FRAME ID, full stop — there is no public
+  realm pin. The EP-0013 realm survives only as the INTERNAL installation /
+  container substrate (registrar seating, adapter/capability storage,
+  disposal, the single-realm-default compatibility home — EP-0023 §Surface
+  dispositions: \"realm — internal installation/container\"). The
+  installation-boundary info is still reported by `get-operating-frame` /
+  `discover-app` / `orient` as LABELED implementation structure (the
+  `:realms` / `:operating-realm` / `:frame-realms` slots; EP-0023 §Surface
+  dispositions: \"Tooling may still expose the internal installation
+  boundary, but should label it as such\"), never as the central addressing
+  model. `reset-operating-frame` also clears the internal realm pin the
+  tier-3 sole-frame resolver uses, so a session resets to a clean posture.
 
   ## The gap these close
 
@@ -127,62 +126,40 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- set-form
-  "Build the validate-then-pin eval form for an OPTIONAL `realm-id` and/or
-  `frame-id` (keywords; nil when not supplied).
+  "Build the validate-then-pin eval form for a `frame-id` keyword.
 
-  Order matters: the realm is pinned FIRST (via `select-realm!`) so the
-  post-pin `frames-list` view (and the frame-membership check) is already
-  scoped to the new operating realm. A bad realm short-circuits with
-  `:no-such-realm` (no frame pin happens); a bad frame short-circuits with
-  `:no-such-frame`. With both valid (or absent), the pins land and the fresh
-  `frames-list` map returns — carrying the frame triple AND the realm slots."
-  [realm-id frame-id]
-  (let [realm-clause
-        (when realm-id
-          (str "(if (some #{" (pr-str realm-id) "} (:realms (re-frame2-pair.runtime/frames-list)))"
-               "  (re-frame2-pair.runtime/select-realm! " (pr-str realm-id) ")"
-               "  {:ok? false :reason :no-such-realm"
-               "   :realm " (pr-str realm-id)
-               "   :realms (:realms (re-frame2-pair.runtime/frames-list))})"))
-        frame-clause
-        (when frame-id
-          (str "(if (some #{" (pr-str frame-id) "} (:frames (re-frame2-pair.runtime/frames-list)))"
-               "  (re-frame2-pair.runtime/select-frame! " (pr-str frame-id) ")"
-               "  {:ok? false :reason :no-such-frame"
-               "   :frame " (pr-str frame-id)
-               "   :frames (:frames (re-frame2-pair.runtime/frames-list))})"))]
-    (ef/emit
-      (ef/rt-raw
-        (str "(let [realm-r " (if realm-clause realm-clause "{:ok? true}") "]"
-             "  (if (false? (:ok? realm-r))"
-             "    realm-r"
-             "    (let [frame-r " (if frame-clause frame-clause "{:ok? true}") "]"
-             "      (if (false? (:ok? frame-r))"
-             "        frame-r"
-             "        (re-frame2-pair.runtime/frames-list)))))")))))
+  Validation and the pin write are ONE eval form against the same runtime
+  read — no check-then-act race across two round-trips. `frames-list`
+  returns the `{:ok? :frames :selected :operating …}` map; we read
+  `:frames`, test membership, and either `select-frame!` (returning the
+  fresh map) or refuse with `:no-such-frame` (carrying the registered
+  `:frames` so the caller can pick a valid target)."
+  [frame-id]
+  (ef/emit
+    (ef/rt-raw
+      (str "(if (some #{" (pr-str frame-id) "} (:frames (re-frame2-pair.runtime/frames-list)))"
+           "  (re-frame2-pair.runtime/select-frame! " (pr-str frame-id) ")"
+           "  {:ok? false :reason :no-such-frame"
+           "   :frame " (pr-str frame-id)
+           "   :frames (:frames (re-frame2-pair.runtime/frames-list))})"))))
 
 (defn set-operating-frame-tool [conn raw-args]
   (let [frame-str (wire/arg raw-args :frame)
         frame     (some-> frame-str args/->frame-keyword)
-        realm-str (wire/arg raw-args :realm)
-        realm     (some-> realm-str args/->frame-keyword)
         build-id  (wire/arg-build conn raw-args)]
     (cond
-      (and (nil? frame) (nil? realm))
+      (nil? frame)
       (js/Promise.resolve
         (wire/err-text
           {:ok?    false
            :reason :missing-frame
-           :hint   (str "usage: set-operating-frame {frame \":stories\"} "
-                        "and/or {realm \":shop/realm\"}. "
-                        "Pin the session's operating frame (and/or realm) so "
-                        "subsequent frame-targeted ops (dispatch, snapshot, "
-                        "get-path, subscribe, …) resolve to it instead of "
-                        "refusing with :ambiguous-frame. The (realm, frame) pair "
-                        "is the full address — pinning the realm re-scopes "
-                        "tier-3 sole-frame resolution to that realm's app frames "
-                        "(EP-0013). Call get-operating-frame to see the "
-                        "registered frames + realms.")}))
+           :hint   (str "usage: set-operating-frame {frame \":stories\"}. "
+                        "Pin the session's operating frame so subsequent "
+                        "frame-targeted ops (dispatch, snapshot, get-path, "
+                        "subscribe, …) resolve to it instead of refusing with "
+                        ":ambiguous-frame. The public address is the FRAME id "
+                        "(EP-0023: image -> frame -> event stream); call "
+                        "get-operating-frame to see the registered frames.")}))
 
       ;; rf2-wdxyx3 finding 1 — refuse pinning a reserved `:rf/*` TOOL frame
       ;; as the session's operating frame BEFORE any nREPL round-trip. A
@@ -217,7 +194,7 @@
                         "(sliced) read of the tool frame.")}))
 
       :else
-      (let [form (set-form realm frame)]
+      (let [form (set-form frame)]
         (probe/eval-after-runtime!
           conn build-id form :set-operating-frame-failed
           (fn [v]
@@ -228,27 +205,15 @@
             ;; success. The runtime shapes resolve into one the agent can
             ;; rely on:
             ;;   - success: `frames-list`'s {:ok? true :frames :app-frames
-            ;;     :selected :operating + realm slots} map → `ok-text`;
-            ;;     `:selected` / `:selected-realm` now equal the just-pinned
-            ;;     frame / realm.
-            ;;   - unknown realm: {:ok? false :reason :no-such-realm :realm
-            ;;     :realms} → `err-text` with a corrective hint (EP-0013).
+            ;;     :selected :operating + installation-boundary slots} map →
+            ;;     `ok-text`; `:selected` now equals the just-pinned frame.
             ;;   - unknown frame: {:ok? false :reason :no-such-frame :frame
             ;;     :frames} → `err-text` with a corrective hint.
             ;;   - degraded runtime (non-map) → `err-text` :unexpected-shape.
             (cond
               (not (map? v))
               (wire/err-text {:ok? false :reason :unexpected-shape
-                              :frame frame :realm realm :value v})
-
-              (= :no-such-realm (:reason v))
-              (wire/err-text
-                (assoc v :hint
-                       (str "realm " realm " is not installed. "
-                            "Pick one of " (vec (:realms v))
-                            " — call get-operating-frame to list the installed "
-                            "realms. (A single-realm app has only "
-                            ":rf.realm/default and needs no realm arg.)")))
+                              :frame frame :value v})
 
               (false? (:ok? v))
               (wire/err-text
@@ -262,12 +227,15 @@
 ;; ---------------------------------------------------------------------------
 ;; reset-operating-frame
 ;;
-;; Clear BOTH session pins — the frame pin (`select-frame! nil`) and the
-;; realm pin (`select-realm! nil`, EP-0013 rf2-09ijml) — and read back the
-;; map so the caller sees the post-reset state (`:selected nil`,
-;; `:selected-realm nil`, `:operating` / `:operating-realm` now the tier-3/4
-;; resolution and the default realm). One eval form — clear then re-read — so
-;; the reported map reflects the cleared pins.
+;; Clear the session's frame pin (`select-frame! nil`) and read back the map
+;; so the caller sees the post-reset state (`:selected nil`, `:operating`
+;; now the tier-3/4 resolution). It ALSO clears the runtime's internal realm
+;; pin (`select-realm! nil`) — the realm is the internal installation
+;; substrate the tier-3 sole-frame resolver scopes to (EP-0023 §Surface
+;; dispositions: realm is internal installation/container), not a public
+;; address, so clearing it returns the resolver to the default-installation
+;; posture. One eval form — clear then re-read — so the reported map reflects
+;; the cleared pins.
 ;; ---------------------------------------------------------------------------
 
 (defn- reset-form []
@@ -308,9 +276,14 @@
 ;; ---------------------------------------------------------------------------
 ;; get-operating-frame
 ;;
-;; Pure read — the normative triple (Tool-Pair lines 394-401). Routes
-;; through the runtime's `frames-list`, the SAME accessor `discover-app`
-;; consults, so the two never disagree about what's registered or pinned.
+;; Pure read — the normative triple (Tool-Pair §Tool-surface obligations:
+;; `:frames` / `:selected` / `:operating`) plus the LABELED-internal
+;; installation-boundary slots (`:realms` / `:operating-realm` /
+;; `:frame-realms` — EP-0023 §Surface dispositions: tooling may expose the
+;; internal installation boundary, labeled as implementation structure).
+;; Routes through the runtime's `frames-list`, the SAME accessor
+;; `discover-app` consults, so the two never disagree about what's registered
+;; or pinned.
 ;; ---------------------------------------------------------------------------
 
 (defn- get-form []

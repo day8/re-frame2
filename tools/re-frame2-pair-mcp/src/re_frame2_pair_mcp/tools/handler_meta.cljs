@@ -5,21 +5,35 @@
   Direct introspection on the registrar — `where is `:user/login`
   registered?` answered without a wide-authority `eval-cljs` round-trip.
 
-  ## Realm-targeting (EP-0013, optional)
+  ## Realm-targeting — the internal installation boundary (optional)
 
-  Both tools accept an OPTIONAL `:realm` arg — a realm-id keyword. When
+  EP-0023 makes the public model `image -> frame -> event stream` and
+  demotes the EP-0013 realm to the INTERNAL installation / container
+  substrate (EP-0023 §Surface dispositions: \"realm — internal
+  installation/container\"; realm-scoped registrar queries are \"retained as
+  implementation/migration/tooling surface … Tooling may still expose the
+  internal installation boundary, but should label it as such\").
+
+  Both tools therefore accept an OPTIONAL `:realm` arg — a realm-id keyword
+  naming an INTERNAL installation container — for inspecting a multi-realm
+  installation's per-container registrar. It is NOT a public address and is
+  needed only when a tool wants to drill into the internal substrate. When
   ABSENT (the overwhelming common case) the tools resolve through the
-  DEFAULT realm exactly as before — byte-identical (absence = the default
-  realm, the EP-0013 issue-2 documented rule). When PRESENT, the eval form
-  routes through the public MAP-SHAPED realm-targeted query forms that
-  EP-0013 stage 8 shipped — `(rf/handler-meta {:realm r :kind k :id id})` /
-  `(rf/registrations {:realm r :kind k})` (open-issue 11: map-shaped is the
-  ruled public form, unambiguous against the keyword arities) — so the tool
-  reads ONLY that realm's registrar. This is the realm-aware seam the bead
-  asks for: it's free (a shipped public surface), additive, and degrades to
-  the default-realm path. Discovering WHICH realms exist / a frame's realm /
-  the realm-scoped operating-frame ladder are deferred (no public realm
-  enumeration or frame→realm read ships yet) — see the rf2-1koiq1 follow-ups.
+  default registrar exactly as before — byte-identical (absence = the
+  default container, the documented default-resolution rule). When PRESENT,
+  the eval form routes through the MAP-SHAPED realm-targeted query forms
+  (retained from EP-0013) — `(rf/handler-meta {:realm r :kind k :id id})` /
+  `(rf/registrations {:realm r :kind k})` — so the tool reads ONLY that
+  container's registrar. It's additive and degrades to the default path.
+
+  The forward direction (EP-0023): a frame's inspectable registration set is
+  its resolved IMAGE GENERATION (the same `(kind, id)` can resolve
+  differently per frame). Re-keying these reads to resolve through the
+  operating frame's image generation — and surfacing image/inline
+  provenance + replacement decisions — is the follow-on once the
+  object-frame public addressing and the frame-image-generation read API
+  land (the EP-0023 make-frame collapse wave); `list-subscriptions` is the
+  per-frame exemplar.
 
   ## handler-meta
 
@@ -171,22 +185,25 @@
   (str/join ", " (sort (map name supported-kinds))))
 
 ;; ---------------------------------------------------------------------------
-;; Realm targeting (EP-0013, rf2-1koiq1).
+;; Realm targeting — the internal installation boundary (EP-0023 §Surface
+;; dispositions: realm is internal installation/container; realm-scoped
+;; registrar queries retained as tooling surface, labeled as such).
 ;;
-;; The OPTIONAL `:realm` arg is a realm-id keyword. ABSENT ⇒ nil ⇒ the
-;; default realm (the byte-identical existing path). PRESENT ⇒ the realm-id
-;; keyword threaded into the public map-shaped query form. A blank/missing
-;; value parses to nil (absence = default realm — no error, since `:realm`
-;; is optional); a non-blank but unreadable value returns `[:err …]` so the
-;; tool surfaces a structured `:invalid-realm-edn` rather than silently
-;; ignoring a typo'd realm.
+;; The OPTIONAL `:realm` arg names an INTERNAL installation container (a
+;; realm-id keyword), not a public address. ABSENT ⇒ nil ⇒ the default
+;; container (the byte-identical existing path). PRESENT ⇒ the realm-id
+;; keyword threaded into the map-shaped query form. A blank/missing value
+;; parses to nil (absence = default container — no error, since `:realm` is
+;; optional); a non-blank but unreadable value returns `[:err …]` so the tool
+;; surfaces a structured `:invalid-realm-edn` rather than silently ignoring a
+;; typo'd realm.
 ;; ---------------------------------------------------------------------------
 
 (defn- parse-realm
-  "Coerce the OPTIONAL `:realm` MCP arg (a realm-id keyword string) to a
-  CLJS value. Returns `[:ok kw-or-nil]` — an absent/blank value is
-  `[:ok nil]` (absence = default realm) — or `[:err :invalid-realm-edn]`
-  when a non-blank value won't read as EDN."
+  "Coerce the OPTIONAL `:realm` MCP arg (an internal installation-container
+  id keyword string) to a CLJS value. Returns `[:ok kw-or-nil]` — an
+  absent/blank value is `[:ok nil]` (absence = default container) — or
+  `[:err :invalid-realm-edn]` when a non-blank value won't read as EDN."
   [s]
   (if (or (nil? s) (and (string? s) (str/blank? s)))
     [:ok nil]
@@ -206,14 +223,14 @@
 (defn- registrar-form
   "Build the eval form for a registrar `(kind, id)` lookup.
 
-  DEFAULT realm (`realm` is nil): route through
+  DEFAULT container (`realm` is nil): route through
   `re-frame2-pair.runtime/registrar-describe` — the existing path, which
   carries the `:not-registered` envelope on a miss and the
   `:handler-fn-hash` augmentation. Byte-identical to before.
 
-  EXPLICIT realm (EP-0013): route through the public map-shaped form
+  EXPLICIT internal container: route through the map-shaped form
   `(re-frame.core/handler-meta {:realm r :kind k :id id})` so the read hits
-  ONLY that realm's registrar (open-issue 11). Wrap the result to match
+  ONLY that installation container's registrar. Wrap the result to match
   `registrar-describe`'s shape — drop the unserialisable `:handler-fn`
   Function ref (rf2-l7vnd) and emit the `{:ok? false :reason
   :not-registered …}` envelope on a miss — so the tool's response is
@@ -353,16 +370,16 @@
 (defn- list-form
   "Build the eval form returning the sorted id vector for a kind.
 
-  DEFAULT realm (`realm` is nil): the fourteen registrar kinds route through
-  `re-frame2-pair.runtime/registrar-list`; `:machine` wraps
+  DEFAULT container (`realm` is nil): the fourteen registrar kinds route
+  through `re-frame2-pair.runtime/registrar-list`; `:machine` wraps
   `re-frame.core/machines` (Spec 005 §Querying machines — every event
   handler with `:rf/machine? true`). Byte-identical to before.
 
-  EXPLICIT realm (EP-0013): route through the public map-shaped form
+  EXPLICIT internal container: route through the map-shaped form
   `(re-frame.core/registrations {:realm r :kind k})` and lift the sorted
-  id vector off it, so the enumeration covers ONLY that realm's registrar
-  (open-issue 11). `:machine` is rejected before reaching here when a realm
-  is supplied (machines derive from the default realm)."
+  id vector off it, so the enumeration covers ONLY that installation
+  container's registrar. `:machine` is rejected before reaching here when a
+  realm is supplied (machines derive from the default container)."
   [realm kind]
   (cond
     (= :machine kind) "(vec (sort (re-frame.core/machines)))"

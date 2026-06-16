@@ -352,12 +352,15 @@
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0013 realm-targeting (rf2-1koiq1).
+;; Internal installation-boundary targeting (EP-0023 §Surface dispositions —
+;; realm is the internal installation/container substrate; realm-scoped
+;; registrar queries retained as tooling surface, labeled as such).
 ;;
-;; The OPTIONAL `:realm` arg threads a realm-id keyword into the public
-;; map-shaped query forms `(rf/handler-meta {:realm r :kind k :id id})` /
-;; `(rf/registrations {:realm r :kind k})` (EP-0013 open-issue 11). ABSENT ⇒
-;; the byte-identical default-realm path (no `:realm` key on the response).
+;; The OPTIONAL `:realm` arg names an INTERNAL installation container (not a
+;; public address) and threads its id into the map-shaped query forms
+;; `(rf/handler-meta {:realm r :kind k :id id})` / `(rf/registrations
+;; {:realm r :kind k})`. ABSENT ⇒ the byte-identical default-container path
+;; (no `:realm` key on the response).
 ;; ---------------------------------------------------------------------------
 
 (defn- with-form-capture!
