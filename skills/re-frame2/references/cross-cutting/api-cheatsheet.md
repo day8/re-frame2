@@ -57,25 +57,31 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure |
 | `rf/make-machine-handler` | `(machine)` → event-fx handler |
 
-## App values and realms (EP-0013, `re-frame.core`)
+## Images and frames (EP-0023, `re-frame.core`)
 
-The **advanced** composition surface: a single-realm app never spells a realm (every app boots into the implicit **default realm**). Reach for these only to compose modules into an app value, inspect a program before install, or run a second program in-process.
+The public multi-frame model is `image -> frame -> event stream`: an image is the selected registration set a frame runs, a frame is the isolated execution context, the event stream is the program. A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame resolves the implicit *default image* over it. Reach for explicit images only when the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames).
 
 | Surface | Shape |
 |---|---|
-| `rf/module` | `({:id … :owns {…} :requires #{…} :events {…} :subs {…} …})` → **module value** — inert, no registrar side effect |
-| `rf/app` | `({:id … :modules [m1 m2 …]})` → **app value** by deterministic composition; same-(kind,id) collision throws `:rf.error/app-composition-collision` |
-| `rf/app-registrations` | `(app kind)` / `({:app a :kind k})` → `{id descriptor}` for a kind — static coverage view, no install |
-| `rf/app-requires` | `(app)` → set of `:rf.capability/*` an app value declares (union of its modules' `:requires`) |
-| `rf/app-owns` | `(app path)` → the module id that owns app-db `path`, or `nil` |
-| `rf/install!` | `(app)` (default realm) / `(realm app)` → seat an app value into a realm; capability-checks first (`:rf.error/missing-capability` before any mutation), returns the realm |
-| `rf/reinstall!` | `(new-app)` / `(realm new-app opts)` → hot-reload by diffing; returns `{:realm :reason :added :changed :removed}` |
-| `rf/realm` | `({:id … :adapter? … :capabilities? {…}})` → construct + register a **hermetic** realm (its own registrar atom); duplicate `:id` throws `:rf.error/realm-id-conflict`. Composes: `(-> (rf/realm {:id …}) (rf/install! app))` |
-| `rf/dispose-realm!` | `(realm-or-id)` → drop a constructed realm (release its registrar for GC). Default realm is a no-op |
-| `rf/realm-ids` | `()` → set of installed realm ids; always includes the default (`#{:rf.realm/default}` for a single-realm app) |
-| `rf/frame-realm` | `(frame-id)` → the realm id a frame belongs to (default realm in a single-realm app); the frame-side half of the (realm, frame) address |
+| `rf/image` | `({:include-ns [<ns-glob> …] :registrations {…} :rf.image/requires #{…} :replace {…} :replace-standard {…} :id …})` → **inert image value** (pure data, no realm/registrar side effect). `:include-ns` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match pattern fails image assembly. Supplied to a frame via the `:images` vector. |
 
-The realm-targeted **map-shaped** registrar queries read only the named realm: `(rf/registrations {:realm r :kind k})`, `(rf/handler-meta {:realm r :kind k :id id})`, `(rf/handler-ids {:realm r :kind k})`. The keyword arities (`(rf/registrations :event)`) are byte-identical to the default-realm map form — a single-realm caller never spells a realm.
+Object `make-frame` (returns the live frame object, accepts `:images`) and frame-targeted `reload-images!` are the in-progress facade wave (implementation in `re-frame.live-frame`); today the facade still exports the EP-0013 record `make-frame`. Construct image *values* with `rf/image`; create callable frames with `reg-frame` + `frame-provider` (see [`../fundamentals/frames.md`](../fundamentals/frames.md)).
+
+## EP-0013 → EP-0023 migration surface (`re-frame.core`)
+
+EP-0023 supersedes EP-0013's public app/realm vocabulary; the realm machinery is **retained internally** as the installation substrate. These surfaces are **migration-only / internal**, not the taught public model — target a frame instead.
+
+| Surface | Disposition / shape |
+|---|---|
+| `rf/migration-map` | `{surface-kw {:status … :replacement … :guidance …}}` — the EP-0013→EP-0023 dispositions as inspectable data |
+| `rf/migration-explain` | `(surface-kw)` → one-line migration guidance for an EP-0013 public name, or nil |
+| `rf/assert-process-local-frame-id!` | `(frame-id)` / `(frame-id target-realm)` → fail-loud `:rf.error/cross-realm-frame-id` when a frame id is already live in another realm (the EP-0023 process-local frame-id break) |
+| `rf/app` / `rf/module` | EP-0013 app/module composition — **publicly replaced** by `rf/image` (app) / image fragment (module). Retained for migration. |
+| `rf/install!` / `rf/reinstall!` / `rf/installed-app` | EP-0013 realm install/hot-reload/inspect — **retained internal**; the public path is `make-frame` `:images` / `reload-images!` / inspect a frame's resolved image generation |
+| `rf/realm` / `rf/dispose-realm!` / `rf/realm-ids` / `rf/frame-realm` | EP-0013 realm container + `(realm, frame)` address — **retained internal**; target a frame (frame id, or direct frame object for tests) |
+| `rf/app-registrations` / `rf/app-requires` / `rf/app-owns` | EP-0013 app-value static queries — retained for migration/tooling |
+
+The realm-targeted **map-shaped** registrar queries (`(rf/registrations {:realm r :kind k})`, `(rf/handler-meta {:realm r :kind k :id id})`, `(rf/handler-ids {:realm r :kind k})`) are a retained tooling/migration surface over the internal realm registrar; the public model resolves lookups through the target frame's image generation. The keyword arities (`(rf/registrations :event)`) are byte-identical to the default form — a single-frame caller never spells a realm.
 
 ## Routing — `day8/re-frame2-routing`
 

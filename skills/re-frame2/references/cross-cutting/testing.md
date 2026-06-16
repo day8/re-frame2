@@ -36,26 +36,25 @@ Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the tes
 
 Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framework registrations cannot be reloaded and will be gone for the rest of the run.
 
-> **The shared-registrar fixture vs. the per-realm fixture (EP-0013 shipped).** `make-reset-runtime-fixture` snapshots and restores the *shared* default-realm registrar around each test — the right tool for the common single-realm case, where every frame draws behaviour from one process-wide table. It stays the default and is what to use now. EP-0013 also shipped the **realm** surface (see [`fundamentals/frames.md` §Realms](../fundamentals/frames.md)): a hermetic test can instead construct a *fresh realm* with `rf/realm`, compose its program from `rf/module` / `rf/app` values, and `rf/install!` exactly the program + capabilities it needs — isolation then falls out of standing up a throwaway container (its own registrar atom) rather than snapshot/restore over a global, with `rf/dispose-realm!` for teardown. One constraint to know: a hermetic realm isolates the **registrar / query surface** (handlers, subs, capability checks) — assert over what `rf/install!` seated and what the realm-targeted queries return. Live **frame** dispatch/subscribe still route through the default realm (realm-aware frames are a later EP-0013 slice, and `:frame` descriptors can only be installed into the default realm), so for end-to-end dispatch/subscribe through a live frame keep using `make-reset-runtime-fixture` + the default realm. Reach for the per-realm shape when a test genuinely needs registrar isolation (multi-tenant / parallel-app / two-adapter scenarios) or wants to install a precise app value; reach for `make-reset-runtime-fixture` for ordinary single-realm tests. Either way, never `rf/runtime`.
+> **The shared-registrar fixture vs. an isolated image/frame (EP-0023).** `make-reset-runtime-fixture` snapshots and restores the *shared* default registrar around each test — the right tool for the common single-frame case, where every frame draws behaviour from one process-wide registration source. It stays the default and is what to use now. When a test genuinely needs *behaviour* isolation (its own registration set, not just its own state), the EP-0023 public path is an **image + frame**: select the registrations under test into an `(rf/image {:include-ns [...]})`, create a frame from it, and let that frame resolve against its own image generation — see [`fundamentals/frames.md` §Images, frames, and the realm substrate](../fundamentals/frames.md#images-frames-and-the-realm-substrate-ep-0023--the-multi-frame-public-model). State setup stays a frame concern (`:initial-db`, a restored frame-state value, or setup dispatches); behaviour setup is an image concern (select or override registrations before the frame runs). The EP-0013 `rf/realm` / `rf/app` / `rf/module` / `rf/install!` surface is **retained internal / migration-only** under EP-0023 — do not teach it as the test-isolation path; reach for `make-reset-runtime-fixture` for ordinary single-frame tests and an explicit image for behaviour-isolated ones.
 
-### Testing app values and realms (the install/reinstall cleanup hazard)
+### Behaviour isolation in tests — image, not a global install
 
-`make-reset-runtime-fixture` snapshot/restores the **registrar**, but a realm's *seated app value* (what `rf/install!` / `rf/reinstall!` stored at the realm boundary) is **not** registrar state — the fixture does not reset it. So a default-realm `rf/install!` in one test **leaks** into the next: a sibling test that diffs or reinstalls sees the stale app value. The guidance:
+A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeffect supplier, a narrower route table) wants a different **image**, not a process-global registrar mutation. Those are image changes — they produce another image generation rather than mutating shared state under the running frame. The shape (against the in-progress object `make-frame` / `:images` facade wave — see `fundamentals/frames.md`):
 
-- **Prefer a fresh realm per test.** Construct one with `rf/realm`, install into it, and tear it down in a `try/finally`:
+```clojure
+(deftest cart-add-isolated
+  (let [frame (rf/make-frame
+                {:images     [(rf/image {:include-ns ["shop.cart.**"
+                                                      "shop.test-doubles.**"]})]
+                 :initial-db {:cart/items []}})]
+    (rf/dispatch-sync frame [:cart/add "SKU-1"])
+    (is (= ["SKU-1"] @(rf/subscribe frame [:cart/items])))))
+```
 
-  ```clojure
-  (deftest install-isolated
-    (let [r (rf/realm {:id :test/realm-1 :adapter plain-atom/adapter})]
-      (try
-        (rf/install! r (rf/app {:id :test/app :modules [my-module]}))
-        ;; assert over realm-targeted queries
-        (is (contains? (rf/handler-ids {:realm r :kind :event}) :cart/add))
-        (finally (rf/dispose-realm! r)))))
-  ```
-
-- **Use realm-targeted queries** (`{:realm r …}`) to assert — they read only that realm, so the assertion can't accidentally pass off a default-realm registration.
-- **Avoid default-realm `rf/install!` / `rf/reinstall!` in ordinary tests** unless you explicitly bracket the cleanup — `make-reset-runtime-fixture` will not undo the seated app value for you. If a test genuinely must seat into the default realm, add its own teardown that clears the seated value before and after.
+- **The frame is a direct object** (no `:id`) — born in the test, discarded with it, never entering the process-local frame-id registry. That is the EP-0023 direct-frame-object test pattern.
+- **Override behaviour through the image**, not a global install: an `rf/image` `:replace` / `:replace-standard` declares an exact winning descriptor (order never silently decides), so a swap is data the test states rather than last-writer-wins on a shared table.
+- **Until the object `make-frame` / `:images` facade lands**, keep ordinary single-frame tests on `make-reset-runtime-fixture` + `with-new-frame`; reach for the image shape above when a test must isolate *behaviour*, not just state.
 
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 
