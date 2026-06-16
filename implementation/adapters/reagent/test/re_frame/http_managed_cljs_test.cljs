@@ -34,6 +34,7 @@
             ;; validator; without this require they'd soft-pass.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.http-managed :as http-managed]
             ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) gate on explicit
@@ -275,10 +276,10 @@
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
-    (let [left  (rf/make-frame {:doc "left"
+    (let [left  (frame/make-frame {:doc "left"
                                 :fx-overrides
                                 {:rf.http/managed :rf.http/managed-canned-success}})
-          right (rf/make-frame {:doc "right"
+          right (frame/make-frame {:doc "right"
                                 :fx-overrides
                                 {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})

@@ -27,6 +27,7 @@
    subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
@@ -66,7 +67,7 @@
    Both reach the same end-state: parent machine at :idle with cleared
    :data."
   []
-  (rf/make-frame {:on-create [:work/flow [:reset]]}))
+  (frame/make-frame {:on-create [:work/flow [:reset]]}))
 
 ;; ============================================================================
 ;; (1) SPAWN CASCADE — :start spawns 3 children

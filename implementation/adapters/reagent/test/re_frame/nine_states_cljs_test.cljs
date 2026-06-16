@@ -25,6 +25,7 @@
    leaves them intact for any subsequent test ns."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
@@ -75,7 +76,7 @@
   {:rf.http/managed :nine-states.http/managed-demo})
 
 (defn- new-frame []
-  (rf/make-frame
+  (frame/make-frame
     {:on-create    [:nine-states.app/initialise]
      :fx-overrides demo-overrides}))
 
@@ -199,7 +200,7 @@
     ;; setup event.
     (is (some? (rf/handler-meta :event :nine-states.story/load-failing))
         ":nine-states.story/load-failing registered (stories.cljs required)")
-    (with-new-frame [f (rf/make-frame
+    (with-new-frame [f (frame/make-frame
                          {:on-create    [:nine-states.app/initialise]
                           :fx-overrides story-failure-overrides})]
       ;; Drive the variant's setup load event. The canned-failure stub
@@ -225,7 +226,7 @@
     ;; with no per-variant override. Guards that success and failure stay
     ;; SEPARATELY represented (acceptance: keep the success lifecycle
     ;; variant proving canned-success).
-    (with-new-frame [f (rf/make-frame
+    (with-new-frame [f (frame/make-frame
                          {:on-create    [:nine-states.app/initialise]
                           :fx-overrides {:rf.http/managed
                                          :rf.http/managed-canned-success}})]
