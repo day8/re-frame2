@@ -23,6 +23,11 @@ Thumbs.db
 .env.local
 .envrc
 
+# Throwaway test fixtures created under the repo so a repo-relative path can
+# reach them across all Bash flavours (rf2-6m7pn4 — Windows path portability).
+/.scratch/
+**/.scratch/
+
 # AI working tree (local-only — findings, map, super-prompt playground)
 # Per docs/the-mayor-method.md
 /ai/
