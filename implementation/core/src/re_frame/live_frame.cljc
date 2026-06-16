@@ -47,8 +47,24 @@
   app/realm surface while RETAINING the realm machinery as an internal
   substrate; this slice introduces the image-loaded public frame object without
   disturbing the existing `reg-frame` / `re-frame.frame/make-frame` callers. The
-  later slices wire frame-derived live resolution (.9) and reload (.10) on the
-  frame object this slice returns.
+  reload slice (.10) wires image replacement on the frame object this slice
+  returns.
+
+  ## Frame-derived live resolution (rf2-32siq3.9 — LANDED here)
+
+  This ns also owns the EP-0023 resolution-routing SEAM
+  ([[call-with-frame-resolution]]): bind `re-frame.registrar/*generation*` to a
+  frame object's sealed generation around a thunk, and every `(kind, id)` lookup
+  inside it — dispatch / subscribe / fx / cofx / view / resource all funnel
+  through `registrar/lookup` — resolves through the TARGET frame's OWN image
+  generation, not the global/default registrar (EP-0023 §Frame-derived live
+  registration resolution). This is the same observable contract the a15n62
+  slice shipped for the EP-0013 realm substrate (`registrar/*registrar*` bound
+  to a realm's atom), restated for an EP-0023 frame OBJECT that carries its
+  generation directly. Two frames running DIFFERENT images resolve the same
+  `[kind id]` to their OWN image's descriptor; absence (a nil target / no
+  generation) falls through to the registrar atom path, byte-identical for every
+  existing caller (absence-is-default).
 
   ## Production elision
 
@@ -56,10 +72,15 @@
   hot path, not a DEBUG-gated branch). It is pure map assembly over the result
   of `image-assembly/assemble` plus one registry `swap!`. An app that never
   calls `make-frame` with `:images` never reaches these fns (Closure DCE removes
-  them). The only requires are `re-frame.image-assembly` (the merged assembly
-  entry point) and `re-frame.error` (fail-loud diagnostics) — both already in
-  the core spine."
+  them). The resolution seam adds a single dynamic binding around the cascade
+  (the no-generation default path pays one `frame-object?` predicate then runs
+  with zero binding cost — see [[call-with-frame-resolution]]). The requires are
+  `re-frame.image-assembly` (the merged assembly entry point),
+  `re-frame.registrar` (the `*generation*` resolution seam + the closed kind
+  set), and `re-frame.error` (fail-loud diagnostics) — all already in the core
+  spine."
   (:require [re-frame.image-assembly :as asm]
+            [re-frame.registrar      :as registrar]
             [re-frame.error          :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -159,6 +180,85 @@
   the live-resolution (.9) slice resolves registrations against."
   [frame-object]
   (get frame-object generation-key))
+
+;; ===========================================================================
+;; Frame-derived live registration resolution (EP-0023 §Frame-derived live
+;; registration resolution, rf2-32siq3.9)
+;; ===========================================================================
+;;
+;; EP-0023 restates the a15n62 invariant in image/frame terms:
+;;
+;;     target frame -> resolved image generation -> registration resolution
+;;
+;; The headline use cases (same-id / different-image frames on one page, Xray
+;; beside the target, progressive docs examples) all depend on ONE prerequisite:
+;; live dispatch / subscribe / fx / cofx / view / resource lookups must resolve
+;; through the TARGET frame's resolved image generation, not the global/default
+;; registrar. The a15n62 slice already shipped this for the EP-0013 realm
+;; substrate by binding `registrar/*registrar*` to a frame's REALM registrar
+;; atom; this slice ships the same observable contract for an EP-0023 frame
+;; OBJECT, which carries its generation directly under `:rf.frame/generation`.
+;;
+;; The mechanism is a SINGLE binding seam, mirroring
+;; `re-frame.frame/call-with-frame-realm-registrar`: bind `registrar/*generation*`
+;; to the frame object's sealed generation around a thunk, and EVERY `(kind, id)`
+;; lookup inside it (`registrar/lookup` is the universal chokepoint dispatch /
+;; subscribe / fx / cofx / view / resource all funnel through) resolves through
+;; the frame's OWN image's resolver. Two frames running DIFFERENT images thus
+;; resolve the same `[:event :boot/init]` to their OWN image's descriptor.
+;;
+;; ALL-OR-NOTHING (the a15n62 coherence rule, restated): the binding covers the
+;; WHOLE cascade — event handler + every cofx injection + the whole fx walk +
+;; view/resource lookup — so a frame-local handler's effects resolve in the same
+;; image as the handler. Routing only some lookups would be an incoherent
+;; half-dispatch.
+;;
+;; ABSENCE-IS-DEFAULT (the load-bearing fall-through): a nil frame object, or a
+;; frame object carrying no generation, binds NOTHING — `registrar/*generation*`
+;; stays nil and resolution falls through to the registrar atom path (the
+;; single-realm default AND the a15n62 realm-routed path alike), byte-identical
+;; for every existing caller. This slice is purely ADDITIVE: it introduces a new
+;; resolution dimension for EP-0023 frame objects without disturbing any path
+;; that does not target one.
+;;
+;; DERIVED from the carried frame object, never an ambient binding (EP-0002
+;; carried-invariant): the generation is read off the frame the caller targets,
+;; not inferred from process state. A plain fn (not a macro) so CLJS sibling-ns
+;; callers use it with no `:require-macros` plumbing.
+
+(defn frame-resolution-generation
+  "Return the resolved image generation a `frame-target` resolves registrations
+  through, or nil when the target carries none. `frame-target` is an EP-0023
+  frame OBJECT (the only target this slice resolves a generation from); a nil
+  target, a non-object value, or an object with no `:rf.frame/generation` slot
+  yields nil — the absence-is-default signal that no generation routing is
+  needed and resolution falls through to the registrar atom path. Pure."
+  [frame-target]
+  (when (frame-object? frame-target)
+    (frame-generation frame-target)))
+
+(defn call-with-frame-resolution
+  "Invoke `thunk` with `registrar/*generation*` bound to `frame-target`'s
+  resolved image generation WHEN the target carries one; otherwise invoke
+  `thunk` with NO binding (the absence-is-default registrar-atom path). Returns
+  the thunk's value. This is the EP-0023 frame-derived resolution seam
+  (rf2-32siq3.9): every event / subscription / fx / cofx / view / resource
+  `(kind, id)` lookup inside `thunk` resolves through the targeted frame's OWN
+  image generation coherently (ALL-OR-NOTHING — `registrar/lookup` is the single
+  chokepoint they all funnel through).
+
+  `frame-target` is an EP-0023 frame OBJECT (`make-frame`'s return value). A nil
+  target, a non-object value, or an object with no generation binds nothing and
+  runs `thunk` on the default registrar-atom path — byte-identical to every
+  existing caller. DERIVED from the carried frame object, never an ambient
+  binding (EP-0002 carried-invariant). The default (no-generation) path pays
+  one `frame-object?` predicate + one keyword read and then runs `thunk` with
+  ZERO dynamic-binding cost."
+  [frame-target thunk]
+  (if-let [gen (frame-resolution-generation frame-target)]
+    (binding [registrar/*generation* gen]
+      (thunk))
+    (thunk)))
 
 ;; ===========================================================================
 ;; :images validation (EP-0023 §Image Composition — \"`:images`, always a

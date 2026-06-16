@@ -162,6 +162,77 @@
   []
   (or *registrar* kind->id->metadata))
 
+;; ---- the active resolved image GENERATION (EP-0023 §Frame-derived live
+;;      registration resolution, rf2-32siq3.9) --------------------------------
+;;
+;; EP-0023 restates the a15n62 invariant in image/frame terms:
+;;
+;;     target frame -> resolved image generation -> registration resolution
+;;
+;; A live frame OBJECT (`re-frame.live-frame/make-frame`) carries a SEALED
+;; image generation under `:rf.frame/generation` rather than addressing a realm
+;; registrar atom. The generation's `:rf.gen/resolver` is the id-disjoint
+;; `{[kind id] descriptor}` map a frame resolves `(kind, id)` lookups through
+;; (the descriptor is the SAME registration-metadata shape `register!` stores —
+;; it carries `:handler-fn` and every standard metadata key — because the
+;; source store records `register!`'s metadata verbatim, so a generation-routed
+;; `lookup` returns a value byte-shape-identical to a registrar-routed one).
+;;
+;; `*generation*` is the resolution-routing seam: when BOUND (a dispatch /
+;; subscribe / fx / cofx / view / resource lookup is in flight against an
+;; EP-0023 frame object), `lookup` / `handler` / `registrations` / `ids`
+;; resolve through the generation's resolver FIRST instead of the registrar
+;; atom. When nil — the absence-is-default path, EVERY existing caller (the
+;; EP-0013 realm-routed dispatch and the single-realm default path alike) — the
+;; reads target `active-registrar`'s atom exactly as before, byte-identical.
+;; This var is consulted with ONE nil check on the read hot path; the dominant
+;; production path leaves it unbound and pays a single `nil?` branch.
+;;
+;; PERF / coherence: like `*registrar*`, the binding is established ONCE per
+;; cascade / subscribe-build by `re-frame.live-frame/call-with-frame-resolution`
+;; (DERIVED from the carried frame object, never an ambient binding — EP-0002),
+;; so event + cofx + fx + sub resolve coherently through the SAME generation
+;; (ALL-OR-NOTHING — routing only some would be an incoherent half-dispatch
+;; where a frame-local handler's effects resolve in the global registrar).
+;;
+;; No `:require` on `re-frame.image-assembly` (that ns requires THIS one — a
+;; back-require would cycle): the resolver is read as plain map data via the
+;; documented `:rf.gen/*` shape. `re-frame.live-frame` (which DOES require
+;; image-assembly) owns the binding seam and the generation read API.
+(def ^:dynamic *generation*
+  "The active resolved image GENERATION (a sealed `re-frame.image-assembly`
+  generation value), or nil for the registrar-atom path. Bound by
+  `re-frame.live-frame/call-with-frame-resolution` around a dispatch /
+  subscribe / fx / cofx / view / resource resolution targeting an EP-0023 frame
+  OBJECT, so `(kind, id)` lookups resolve through the frame's OWN image
+  generation rather than the global/default registrar (EP-0023 §Frame-derived
+  live registration resolution, rf2-32siq3.9). nil ⇒ the absence-is-default
+  registrar-atom path — byte-identical for every existing caller."
+  nil)
+
+(defn- generation-resolver
+  "The `{[kind id] descriptor}` resolver map of the currently-bound
+  `*generation*`, or nil when no generation is bound. Reads the documented
+  `:rf.gen/resolver` slot directly (no `image-assembly` require — that ns
+  requires this one). Pure."
+  []
+  (when-let [gen *generation*]
+    (:rf.gen/resolver gen)))
+
+(defn- kind-registrations-from-resolver
+  "Project a generation `resolver` (keyed `[kind id]`) into the registrar's
+  `{id metadata}` query shape for one `kind` — the frame's OWN registrations
+  of that kind. Pure. Used by the generation-routed `registrations` / `ids`
+  query API so a frame-scoped query sees only the frame's image registrations."
+  [resolver kind]
+  (persistent!
+    (reduce-kv (fn [acc [k id] descriptor]
+                 (if (= k kind)
+                   (assoc! acc id descriptor)
+                   acc))
+               (transient {})
+               resolver)))
+
 ;; ---- registration ---------------------------------------------------------
 
 (defonce ^:private replacement-hooks
@@ -633,11 +704,25 @@
 (defn lookup
   "Return the metadata map registered for (kind, id), or nil.
 
+  EP-0023 §Frame-derived live registration resolution (rf2-32siq3.9): when an
+  EP-0023 frame OBJECT's image generation is in scope (`*generation*` bound by
+  `re-frame.live-frame/call-with-frame-resolution`), the `(kind, id)` resolves
+  through the FRAME'S OWN generation resolver — so two frames running different
+  images resolve the same `[kind id]` to their OWN image's descriptor. The
+  generation's resolver is keyed `[kind id]`; the descriptor is the same
+  registration-metadata shape `register!` stores (the source store records it
+  verbatim), so the return value is byte-shape-identical to the registrar path.
+  When `*generation*` is unbound — the absence-is-default path, EVERY existing
+  caller (single-realm + the a15n62 realm-routed dispatch) — resolution targets
+  the `active-registrar` atom exactly as before, one `nil?` branch on the read.
+
   Uses paired `get` calls rather than `(get-in ... [kind id])` — `get-in`
   allocates a path vector per call (rf2-mqv4m), and `lookup` runs per
   dispatch (event handler), per fx (handler), and per sub (handler)."
   [kind id]
-  (-> @(active-registrar) (get kind) (get id)))
+  (if-let [resolver (generation-resolver)]
+    (get resolver [kind id])
+    (-> @(active-registrar) (get kind) (get id))))
 
 (defn handler
   "Return just the handler fn from the metadata, or nil. The handler is
@@ -668,13 +753,24 @@
   argument is the metadata-map only — the registration id is reachable
   from the metadata's `:ns` / `:line` / `:file` / `:doc` / `:tags` /
   custom slots (id-by-keyword filtering composes via the caller's own
-  `filter` over the result map's keys when needed)."
+  `filter` over the result map's keys when needed).
+
+  EP-0023 (rf2-32siq3.9): when a frame generation is in scope (`*generation*`
+  bound), the `{id metadata}` map is PROJECTED from the generation's resolver
+  for `kind` — only the ids the frame's OWN image carries, so a generation-
+  scoped query (a per-frame fx walk, a view-id resolution) sees the frame's
+  registration universe, not the global registrar's. Unbound ⇒ the registrar
+  atom path, byte-identical."
   ([kind]
-   (get @(active-registrar) kind {}))
+   (if-let [resolver (generation-resolver)]
+     (kind-registrations-from-resolver resolver kind)
+     (get @(active-registrar) kind {})))
   ([kind pred-fn]
    (into {}
          (filter (fn [[_id meta]] (pred-fn meta)))
-         (get @(active-registrar) kind {}))))
+         (if-let [resolver (generation-resolver)]
+           (kind-registrations-from-resolver resolver kind)
+           (get @(active-registrar) kind {})))))
 
 (defn handler-meta
   "Public alias for lookup. Used by tooling."
