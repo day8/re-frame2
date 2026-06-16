@@ -10,7 +10,7 @@ If you want the design rationale rather than the comparison, read [Inside out: w
 
 !!! note "Resources are an optional artefact, and pre-alpha"
 
-    Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**: the read path and the mutation path have landed, but three parity-relevant features (optimistic rollback, polling, infinite feeds) are not built yet and are tracked as design proposals. Every "proposed" row below names its tracking proposal so you can see exactly where the edge is. Nothing here is back-compat-frozen.
+    Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**: the read path, the mutation path, and optimistic mutation rollback have all landed. Two parity-relevant features (polling, infinite feeds) are not built yet and are tracked as design proposals. Every "proposed" row below names its tracking proposal so you can see exactly where the edge is. Nothing here is back-compat-frozen.
 
 ## How to read the status column
 
@@ -20,7 +20,7 @@ Each row carries a status. They mean precisely:
 |---|---|
 | **Landed** | Shipped in the reference implementation (`re-frame.resources`) and pinned by tests. |
 | **Different by design** | A capability the query libraries have, expressed differently here on purpose — usually because re-frame2 already has a more general mechanism (the subscription graph, the event loop) that subsumes it. |
-| **Proposed (EP-00NN)** | A real parity gap, *deferred*, with an open enhancement-proposal PR working out the design. Not in the shipped contract. The proposal numbers below — EP-0019 (optimistic rollback), EP-0020 (active-owner polling), EP-0021 (infinite resources) — are landing as proposal PRs and are tracked under the [pre-alpha resource parity tranche] beads `rf2-byl7bk.1` / `.2` / `.3`. |
+| **Proposed (EP-00NN)** | A real parity gap, *deferred*, with an open enhancement-proposal PR working out the design. Not in the shipped contract. The proposal numbers below — EP-0020 (active-owner polling), EP-0021 (infinite resources) — are landing as proposal PRs and are tracked under the [pre-alpha resource parity tranche]. Optimistic rollback (EP-0019) has since *landed* and moved out of this column. |
 | **Out of scope** | Deliberately not a resources concern — a different artefact, a different phase, or a non-goal. |
 
 ## The parity matrix
@@ -39,7 +39,7 @@ Each row carries a status. They mean precisely:
 | **Mutation consequences (patch/populate/seed)** | `setQueryData` in `onSuccess` | `onQueryStarted` + `updateQueryData` | `mutate` with `optimisticData`/`populateCache` | declarative `:patches` / `:populates` / `:removes` from the reply, then tag invalidation, with explicit timing | **Landed** |
 | **Mutation completion continuation** | `onSuccess` / `onError` callbacks | lifecycle callbacks | promise resolution | call-site `:reply-to` **event** (not a callback); fires only for the accepted terminal reply | **Landed** |
 | **Projection / `select`** | `select` option | `selectFromResult` | derived in component | no `:select` key — projections are ordinary subscriptions layered over `[:rf.resource/data …]` | **Different by design** |
-| **Optimistic updates + rollback** | `onMutate` snapshot + `onError` rollback | `updateQueryData` + `undo` patch | `optimisticData` + `rollbackOnError` | **not built** — write a managed-HTTP write whose failure handler restores prior app-db | **Proposed (EP-0019)** |
+| **Optimistic updates + rollback** | `onMutate` snapshot + `onError` rollback | `updateQueryData` + `undo` patch | `optimisticData` + `rollbackOnError` | `:optimistic` (exact-target) / `:optimistic-tags` (tag-addressed) plan applied pre-request; runtime records the inverse; deterministic commit / rollback / reconcile on settle, with `:on-conflict` governing a contested rollback | **Landed** |
 | **Polling / refetch interval** | `refetchInterval` | `pollingInterval` | `refreshInterval` | **not built** — focus/reconnect revalidation has landed; *timed* polling has not | **Proposed (EP-0020)** |
 | **Refetch on window focus / reconnect** | `refetchOnWindowFocus` / `refetchOnReconnect` | `refetchOnFocus` / `refetchOnReconnect` | `revalidateOnFocus` / `revalidateOnReconnect` | `install-revalidation-listeners!` per frame; refetches only entries that are *stale AND owned* | **Landed** |
 | **Infinite / load-more** | `useInfiniteQuery` | `infiniteQuery` (recent) | `useSWRInfinite` | **not built** — numbered/cursor pages are ordinary resources with `:keep-previous?`; a canonical accumulating-feed model is deferred | **Proposed (EP-0021)** |
@@ -152,15 +152,42 @@ In TanStack and SWR, keeping reads honest after a write is an imperative call yo
 
 The fail-closed floor matters: a bare `:rf.resource/invalidate-tags` with no scope is a loud error, not a silent global blast across every tenant. "Invalidate this tag wherever it lives" is possible — `:cross-scope? true` — but it is an *audited* operation that must carry a `:cause` and is a privacy-relevant trace event. See [Writes invalidate by tag — causally](../concepts/server-state.md#writes-invalidate-by-tag--causally) and [Spec 016 §Scoped invalidation descriptors](../../../spec/016-Resources.md#scoped-invalidation-descriptors-per-target).
 
+## Optimistic updates with rollback — landed
+
+The query libraries all ship optimistic UI: flip the cache immediately, snapshot the prior value, revert on server rejection (`onMutate`/`onError` rollback in TanStack, `updateQueryData` + undo patch in RTK, `optimisticData` + `rollbackOnError` in SWR). re-frame2 now matches this on the mutation path, with one deliberate divergence on contested rollback.
+
+A mutation declares an **optimistic plan** applied *before* the request leaves, in one of two forward forms — the twins of the success-time consequence keys:
+
+- **`:optimistic`** — `(fn [params] -> {target patch-fn})`, the exact-target twin of `:patches`. A `nil` patch-fn removes the entry optimistically; a patch over an absent key seeds it.
+- **`:optimistic-tags`** — `(fn [params] -> [{:scope … :tags #{…} :patch (fn [old] new)}])`, the tag-addressed twin of `:invalidates`. It patches every cached entry carrying the tag in its scope — the cross-view-consistency case (flip a favorite and have it flip on the detail, every list, and the session feed at once) you can't enumerate by exact key.
+
+```clojure
+(rf/reg-mutation :realworld/favorite
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :request       (fn [{:keys [slug]} _ctx] ...)
+   :optimistic-tags (fn [{:keys [slug]}]
+                      [{:scope :rf.scope/global
+                        :tags  #{[:article slug]}
+                        :patch (fn [article] (update-favorite article true))}])
+   :populates     (fn [{:keys [slug]} result]
+                    {{:resource :realworld/article :params {:slug slug}} result})
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :realworld/session} :tags #{[:feed]}}])})
+```
+
+Three properties are worth holding onto, because they are where re-frame2 differs from a hand-rolled `onMutate` snapshot:
+
+- **The runtime records the inverse — you don't.** It snapshots each touched entry verbatim before patching, so a rollback restores exactly what existed, never an author-written undo patch that can drift from the forward change.
+- **Settle is deterministic, with no wall-clock race.** It is decided on recorded facts — the generation acceptance verdict and a per-entry `:revision`. An accepted `:ok` reply commits (the authoritative `:populates`/`:patches` overwrite the optimistic value, then `:invalidates` runs); an accepted `:error`/`:cancelled` rolls back; a stale/superseded reply rolls back nothing.
+- **Contested rollback is governed by `:on-conflict`, and the default diverges from the query libraries.** When a concurrent write landed on the entry between the apply and a failure, the recorded inverse is a stale "before." The default `:invalidate` declines to restore it and marks the entry stale so the read path refetches the authoritative value — the read path is the recovery authority, re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore. `:force` restores the inverse anyway (the single-writer escape, with a tooling warning).
+
+A view renders the in-flight optimistic state from the instance sub's derived **`:optimistic?`** flag (true between the pre-request apply and settle). The optimistic surface is exact-key or tag-within-named-scope only, both **fail-closed** on a nil-resolving `{:from-db …}` scope — there is no scope-agnostic optimistic write, so it cannot leak across viewers, tenants, or SSR requests. The normative contract is [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); the worked write is in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
+
 ## The honest gaps
 
 These are real parity gaps. They are deferred, tracked, and have open design proposals. Do not let the rest of this page's confidence obscure them.
-
-### Optimistic updates with rollback — proposed (EP-0019)
-
-The query libraries all ship optimistic UI: flip the cache immediately, snapshot the prior value, revert on server rejection (`onMutate`/`onError` rollback in TanStack, `updateQueryData` + undo patch in RTK, `optimisticData` + `rollbackOnError` in SWR). re-frame2's mutation path is **not** optimistic today — a mutation settles its instance state and applies cache consequences only on the accepted reply, and the success trace *reserves* the rollback shape (`:affected-keys`, patch/snapshot/reconciliation slots) but rollback itself is deferred ([Spec 016 §Mutations](../../../spec/016-Resources.md#mutations-first-public-beta-gate), [§Deferred slices](../../../spec/016-Resources.md#deferred-slices)).
-
-**Until it lands:** use a managed-HTTP write whose failure handler restores the prior app-db value (the optimistic flip lives in your app-db, not the cache). This is the [When resources are the wrong tool](../concepts/server-state.md#when-resources-are-the-wrong-tool) guidance. The design is being worked under EP-0019 / bead `rf2-byl7bk.1`; getting deterministic rollback right under overlapping mutations, stale/superseded replies, and scoped invalidation is exactly why it is a proposal rather than a quick add.
 
 ### Polling / refetch-interval — proposed (EP-0020)
 
@@ -187,7 +214,6 @@ A query library is the obvious default in React because it is the *only* server-
 
     - **A handful of reads, no caching story.** A [managed HTTP request](../concepts/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
     - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../concepts/machines.md), not a cached read.
-    - **Optimistic UI with rollback.** Not expressible as a mutation today (above) — use a managed HTTP write with a restoring failure handler.
 
 Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../where-state-lives.md) has the decision table.
 
@@ -195,9 +221,9 @@ Reach for resources when cached server reads start multiplying and the per-read 
 
 **The summary, one more time:**
 
-- **Matched:** keyed cache, staleness, dedupe, GC, tag invalidation, mutations + consequences, focus/reconnect revalidation, keep-previous paging, SSR/hydration, devtools — all **landed**.
-- **Different by design:** per-frame cache, required structural scope, owners-vs-observers, passive views, subscriptions-instead-of-`select`, declarative causal invalidation.
-- **Not built yet:** optimistic rollback (EP-0019), polling (EP-0020), infinite feeds (EP-0021).
+- **Matched:** keyed cache, staleness, dedupe, GC, tag invalidation, mutations + consequences, optimistic updates with rollback, focus/reconnect revalidation, keep-previous paging, SSR/hydration, devtools — all **landed**.
+- **Different by design:** per-frame cache, required structural scope, owners-vs-observers, passive views, subscriptions-instead-of-`select`, declarative causal invalidation, `:on-conflict :invalidate` as the contested-rollback default.
+- **Not built yet:** polling (EP-0020), infinite feeds (EP-0021).
 - **Out of scope:** normalized/GraphQL caches, offline/cross-tab.
 
 ---
