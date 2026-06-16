@@ -148,31 +148,57 @@
   standard-registry
   (atom {}))
 
+(defonce ^{:doc "A MONOTONIC generation integer for the framework-standard
+  registry (EP-0023 §Image — the resolved-generation cache's
+  framework-standard-registration generation key leg). Bumped on every
+  `register-standard!` / `forget-standard!` / `clear-standards!` mutation; read
+  by the resolved-generation cache key so a cached generation is invalidated the
+  instant any standard descriptor changes. Starts at 0."
+            :private true}
+  standard-generation*
+  (atom 0))
+
+(defn standard-generation
+  "The framework-standard registry's MONOTONIC generation integer (EP-0023
+  §Image — the resolved-generation cache key's standard-registration leg).
+  Increments on every `register-standard!` / `forget-standard!` /
+  `clear-standards!`; equal across two reads ⇒ the standard set is unchanged and
+  a sealed generation assembled then may be reused."
+  []
+  @standard-generation*)
+
 (defn register-standard!
   "Contribute a framework-standard descriptor for `[kind id]`. `descriptor` is
   stamped `:standard true`; its replacement policy comes from
   `:rf.standard/replaceable?` (default false) and `:rf.standard/requires-conformance`
   (default `#{}`). Idempotent per `[kind id]` — re-registering replaces the slot
-  (the standard owner's hot-reload path). Returns the stamped descriptor."
+  (the standard owner's hot-reload path). Bumps the standard generation so the
+  resolved-generation cache invalidates. Returns the stamped descriptor."
   [kind id descriptor]
   (let [desc (-> descriptor
                  (assoc :kind kind :id id :standard true)
                  (update :rf.standard/replaceable? boolean)
                  (update :rf.standard/requires-conformance #(set (or % #{}))))]
     (swap! standard-registry assoc [kind id] desc)
+    (swap! standard-generation* inc)
     desc))
 
 (defn forget-standard!
   "Remove the framework-standard descriptor for `[kind id]`. Mirror of
-  `register-standard!` for the standard owner's teardown path."
+  `register-standard!` for the standard owner's teardown path. Bumps the
+  standard generation."
   [kind id]
   (swap! standard-registry dissoc [kind id])
+  (swap! standard-generation* inc)
   nil)
 
 (defn clear-standards!
-  "Reset the framework-standard registry. Test fixtures use this between cases."
+  "Reset the framework-standard registry. Test fixtures use this between cases.
+  Bumps the standard generation so a cache keyed on the prior generation
+  invalidates."
   []
   (reset! standard-registry {})
+  (swap! standard-generation* inc)
   nil)
 
 (defn standard-descriptors
@@ -702,6 +728,151 @@
   [(into {} (mapcat #(:replace % {})) images)
    (into {} (mapcat #(:replace-standard % {})) images)])
 
+(defn- assemble*
+  "The PURE assembly pipeline: select → union standards → validate → seal.
+  Returns the sealed generation. `images` is already a normalized vector;
+  `descriptors` is the candidate pool. This is the function the cache wraps —
+  it has no cache awareness, so every cache MISS computes one full generation
+  here (the SSR re-seal the cache exists to avoid). Throws on every fail-loud
+  condition exactly as before (a throwing input is NOT cached)."
+  [images descriptors]
+  (let [;; A representative image id for diagnostics (the first that carries
+        ;; one); collision/winner errors also name exact coordinates.
+        image-id (some :rf.image/id images)
+        selected (select-for-images images descriptors)
+        standard (standard-descriptors)
+        all-ds   (into (vec selected) standard)
+        [rep rep-std] (replace-maps images)]
+    ;; (3) Fail loud on any unsupported descriptor kind before sealing.
+    (check-supported-kinds! image-id all-ds)
+    ;; (4) Fail loud on any :replace / :replace-standard declaration for a key
+    ;;     with no real collision — a replacement is for an intentional
+    ;;     collision, never a silent order override. Runs before resolution so
+    ;;     a stale/typo'd declaration fails before any winner is matched.
+    (check-replacement-keys-collide! image-id (distinct-by-id all-ds) rep rep-std)
+    (let [;; (5) Project into the sealed resolver — every collision resolved
+          ;;     by a declared winner or thrown (order never decides).
+          resolver (build-resolver image-id all-ds rep rep-std)]
+      ;; (6) Validate application interceptor references against the sealed set.
+      (check-references! image-id resolver)
+      ;; (7) Seal.
+      {:rf.gen/resolver resolver
+       :rf.gen/images   images
+       :rf.gen/requires (image-requires images)
+       :rf.gen/kinds    (into #{} (map first) (keys resolver))})))
+
+;; ===========================================================================
+;; Resolved-generation cache (EP-0023 §Image — "The reference implementation
+;; MUST cache resolved generations") + rf2-3sjdmi (cache-key correctness)
+;; ===========================================================================
+;;
+;; Resolved generations are IMMUTABLE and may be physically shared across many
+;; frames when the same image inputs resolve to the same descriptor set. SSR is
+;; the primary motivation: a request-scoped frame must NOT re-run glob
+;; selection + validation + sealing on every request when the inputs are
+;; unchanged. The cache turns the repeated `assemble` of an unchanged
+;; composition into a single map lookup returning the SAME sealed object.
+;;
+;; ---- the cache key (EP-0023 minimum key) ----------------------------------
+;;
+;; The EP's minimum key is:
+;;
+;;     normalized :images vector
+;;     + registration source-store generation
+;;     + framework-standard registration generation
+;;     + inline descriptor fingerprints
+;;     + declared replacement maps
+;;
+;; The NORMALIZED IMAGE VALUES carry, by value, every one of the
+;; image-side legs already:
+;;
+;;   * `:rf.image/include-ns` — the glob selection input;
+;;   * `:rf.image/inline`     — the inline descriptor fingerprints (the inline
+;;                              descriptors themselves, lowered + stamped, are
+;;                              part of the image value — equal images ⇒ equal
+;;                              inline fingerprints);
+;;   * `:replace` / `:replace-standard` — the declared replacement maps.
+;;
+;; So the image vector IS the "normalized :images + inline fingerprints +
+;; replacement maps" portion of the key. This is the rf2-3sjdmi correctness
+;; point: the key is built from the image INPUTS, NOT from `:rf.gen/resolver`
+;; alone — two compositions differing ONLY in `:replace` carry different image
+;; values, so they occupy different cache slots and can never cache-collide on
+;; a shared resolver shape.
+;;
+;; The two store-side legs are the monotonic generations:
+;;
+;;   * single-arity (live store): `source-store/store-generation` —
+;;     the registered descriptor pool's generation; ANY reg-*/forget-*/clear
+;;     bumps it.
+;;   * the framework-standard generation: `standard-generation` — ANY
+;;     register-standard!/forget-standard!/clear bumps it.
+;;
+;; For the EXPLICIT-POOL arity `(assemble images descriptors)` the registered
+;; pool is supplied directly (tests / a pre-snapshotted store), NOT read from
+;; the live store — so the store generation is NOT a faithful invalidation
+;; signal there. The honest pool leg in that arity is the descriptor pool
+;; itself (a value), so the explicit-pool key folds in the descriptors rather
+;; than the store generation. The standard generation still applies (standards
+;; are always read live).
+;;
+;; This is a FINER key than the EP minimum (the EP permits a finer
+;; descriptor-set fingerprint so unrelated store changes need not invalidate)
+;; only in that two distinct stores at the same generation integer never alias
+;; — the store-generation is keyed per active store (see source-store). It is
+;; never COARSER: any change to a selected, standard, inline, OR replacement
+;; input changes a key leg and forces a re-seal.
+
+(defonce ^{:doc "cache-key → sealed generation. The resolved-generation cache
+  (EP-0023 §Image). A plain map atom: an SSR request assembling an unchanged
+  composition hits this in O(1) and reuses the SAME sealed object rather than
+  re-running selection + validation + sealing."
+            :private true}
+  generation-cache
+  (atom {}))
+
+(defn clear-generation-cache!
+  "Drop every cached resolved generation. Test fixtures call this between cases
+  so a stale generation never leaks across a test that mutated the store /
+  standard registry out from under the generation counters. Idempotent."
+  []
+  (reset! generation-cache {})
+  nil)
+
+(defn cache-size
+  "The number of distinct cached resolved generations (introspection / tests)."
+  []
+  (count @generation-cache))
+
+(defn- cache-key
+  "Build the resolved-generation cache key for a normalized image vector under
+  a descriptor `pool-leg` (the store-generation integer for the live-store
+  arity, or the explicit descriptor pool value for the explicit-pool arity).
+  The image vector carries the inline fingerprints + replacement maps by value;
+  `pool-leg` + the standard generation are the store-side legs. A vector so it
+  hashes + compares as a value."
+  [images pool-leg]
+  [images pool-leg (standard-generation)])
+
+(defn- assemble-cached
+  "Look the normalized `images` up in the resolved-generation cache under
+  `[images pool-leg standard-generation]`; on a MISS compute the sealed
+  generation via `assemble*` (against `descriptors`), cache it, and return it.
+  A cache HIT returns the SAME sealed object — this is the SSR no-re-seal
+  guarantee. A throwing `assemble*` (a fail-loud validation) is NOT cached: the
+  exception propagates and the slot stays empty, so a corrected input on the
+  next call recomputes cleanly."
+  [images descriptors pool-leg]
+  (let [k (cache-key images pool-leg)]
+    (if-let [hit (find @generation-cache k)]
+      (val hit)
+      (let [gen (assemble* images descriptors)]
+        ;; Cache only a successfully sealed generation (assemble* threw on a
+        ;; fail-loud input, so we never reach here for one). swap! is enough —
+        ;; a benign double-compute under contention seals to an equal value.
+        (swap! generation-cache assoc k gen)
+        gen))))
+
 (defn assemble
   "Resolve `images` (a seq of normalized `rf/image` values) into a SEALED,
   VALIDATED image generation (EP-0023 §Image Validation). The integration of
@@ -724,10 +895,28 @@
   here — pure assembly has no frame; it is the slice-.6 / slice-.7 frame-boundary
   step. The union image-requires set is carried on the generation for that step.
 
+  ## Resolved-generation caching (EP-0023 §Image — MUST cache)
+
+  Sealed generations are immutable and may be physically shared across frames
+  when the same inputs resolve to the same descriptor set. `assemble` caches by
+  the EP minimum key — normalized image vector (which carries inline
+  fingerprints + the declared `:replace` / `:replace-standard` maps by value) +
+  the registration source-store generation + the framework-standard generation
+  — so a repeated assembly of an UNCHANGED composition returns the SAME sealed
+  object without re-running selection + validation + sealing. This is the SSR
+  fast path. ANY change to a selected, standard, inline, or replacement input
+  bumps a key leg and forces a re-seal; two compositions differing only in
+  `:replace` never cache-collide (rf2-3sjdmi).
+
   Two arities:
-    (assemble images)            — select against the live source store.
+    (assemble images)            — select against the live source store; the
+                                   key's pool leg is the live source-store
+                                   generation.
     (assemble images descriptors)— select against an explicit descriptor pool
-                                   (tests / harnesses / a pre-snapshotted store).
+                                   (tests / harnesses / a pre-snapshotted
+                                   store); the key's pool leg is the descriptor
+                                   pool value itself (the live store generation
+                                   does not describe an explicit pool).
 
   `images` may be a single image value (wrapped) or a seq. Returns the sealed
   generation:
@@ -737,33 +926,18 @@
      :rf.gen/requires #{:rf.capability/* …}
      :rf.gen/kinds    #{kind …}}"
   ([images]
-   (assemble images (source-store-descriptors)))
+   (let [images (if (map? images) [images] (vec images))]
+     ;; Live-store arity: the pool leg is the source-store generation. Read it
+     ;; BEFORE selecting so the cached object is keyed to the store snapshot it
+     ;; was assembled from.
+     (assemble-cached images
+                      (source-store-descriptors)
+                      (source-store/store-generation))))
   ([images descriptors]
-   (let [images   (if (map? images) [images] (vec images))
-         ;; A representative image id for diagnostics (the first that carries
-         ;; one); collision/winner errors also name exact coordinates.
-         image-id (some :rf.image/id images)
-         selected (select-for-images images descriptors)
-         standard (standard-descriptors)
-         all-ds   (into (vec selected) standard)
-         [rep rep-std] (replace-maps images)]
-     ;; (3) Fail loud on any unsupported descriptor kind before sealing.
-     (check-supported-kinds! image-id all-ds)
-     ;; (4) Fail loud on any :replace / :replace-standard declaration for a key
-     ;;     with no real collision — a replacement is for an intentional
-     ;;     collision, never a silent order override. Runs before resolution so
-     ;;     a stale/typo'd declaration fails before any winner is matched.
-     (check-replacement-keys-collide! image-id (distinct-by-id all-ds) rep rep-std)
-     (let [;; (5) Project into the sealed resolver — every collision resolved
-           ;;     by a declared winner or thrown (order never decides).
-           resolver (build-resolver image-id all-ds rep rep-std)]
-       ;; (6) Validate application interceptor references against the sealed set.
-       (check-references! image-id resolver)
-       ;; (7) Seal.
-       {:rf.gen/resolver resolver
-        :rf.gen/images   images
-        :rf.gen/requires (image-requires images)
-        :rf.gen/kinds    (into #{} (map first) (keys resolver))}))))
+   (let [images (if (map? images) [images] (vec images))]
+     ;; Explicit-pool arity: the pool leg is the descriptor pool value itself —
+     ;; the live store generation does not describe a supplied pool.
+     (assemble-cached images descriptors descriptors))))
 
 ;; ===========================================================================
 ;; The resolver READ API — the surface slices .7 / .8 (frame loading,
