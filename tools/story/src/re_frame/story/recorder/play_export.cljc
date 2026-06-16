@@ -118,6 +118,20 @@
        (= 1 (count event))
        (= redacted-event-id (first event))))
 
+(defn- cofx-opts
+  "Normalise a captured recordable-coeffect map into the optional step
+  opts map (`{:rf.cofx <map>}`) the runner threads into the dispatch
+  opts (EP-0017 §3 — the dispatch-opts key is `:rf.cofx`). Returns nil
+  when `cofx` is not a non-empty map, so a recording with no captured
+  coeffects emits the byte-identical 2-element step (zero ceremony for
+  single-realm / no-cofx recordings, mirroring the realm absent-key
+  rule). `:rf/time-ms` rides along verbatim — it is always safe to
+  surface (EP-0017 §3) and is the framework-stamped causal token replay
+  must re-present rather than restamp."
+  [cofx]
+  (when (and (map? cofx) (seq cofx))
+    {:rf.cofx cofx}))
+
 (defn event->step
   "Translate a single recorded event vector into a `:play-script` step.
 
@@ -126,21 +140,34 @@
   - Anything else → `[:dispatch evec]`.
 
   Returns nil for malformed inputs so the caller can filter them out
-  in one pass."
-  [event]
-  (cond
-    (redacted? event)
-    nil
+  in one pass.
 
-    (pred/assertion-event? event)
-    [:dispatch-sync event]
+  The 2-arity `(event->step event cofx)` carries a captured flat
+  `:rf.cofx` map (EP-0017 §3) onto the step as a trailing opts map —
+  `[:dispatch evec {:rf.cofx <map>}]` — so the runner can re-supply the
+  recorded recordable coeffects on replay (rather than restamping a fresh
+  `:rf/time-ms` or failing `:rf.error/missing-required-cofx` for a provided
+  fact). A nil / empty `cofx` emits the byte-identical 2-element step."
+  ([event] (event->step event nil))
+  ([event cofx]
+   (let [opts (cofx-opts cofx)
+         tag  (cond
+                (redacted? event)
+                nil
 
-    (and (vector? event)
-         (pos? (count event))
-         (keyword? (first event)))
-    [:dispatch event]
+                (pred/assertion-event? event)
+                :dispatch-sync
 
-    :else nil))
+                (and (vector? event)
+                     (pos? (count event))
+                     (keyword? (first event)))
+                :dispatch
+
+                :else nil)]
+     (cond
+       (nil? tag)  nil
+       (some? opts) [tag event opts]
+       :else        [tag event]))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: entry-shape translation (rf2-d5u89)
@@ -169,7 +196,11 @@
   [entry]
   (case (and (map? entry) (:kind entry))
     :event/dispatch
-    (event->step (:event entry))
+    ;; rf2-l2cn5d (EP-0017): the entry carries the captured flat `:rf.cofx`
+    ;; map (recorder appends it alongside the event vector). Thread it onto
+    ;; the dispatch step so replay re-presents the recorded recordable
+    ;; coeffects. Absent / empty cofx emits the bare 2-element step.
+    (event->step (:event entry) (:rf.cofx entry))
 
     :dom/click
     (when-let [sel (:selector entry)]
@@ -190,24 +221,40 @@
   "Normalise an arbitrary `events`-vector member to an `:entries`-shape
   map. Pure data → data; tolerates the legacy bare-event-vector
   shape (`[:my/event ...]`) by lifting it into
-  `{:kind :event/dispatch :event <vec> :t 0}`."
-  [x]
-  (cond
-    (and (map? x) (contains? x :kind))
-    x
+  `{:kind :event/dispatch :event <vec> :t 0}`.
 
-    (vector? x)
-    {:kind :event/dispatch :event x :t 0}
+  `cofx` (rf2-l2cn5d, EP-0017) is the captured flat recordable-coeffect
+  map for THIS member of a parallel bare-events / cofx pair; when
+  non-empty it rides onto the lifted entry under `:rf.cofx` so the bare
+  `:events` path (the MCP `record-as-variant` surface) preserves cofx
+  the same way the rich `:entries` path does."
+  ([x] (coerce-entry x nil))
+  ([x cofx]
+   (cond
+     (and (map? x) (contains? x :kind))
+     x
 
-    :else nil))
+     (vector? x)
+     (cond-> {:kind :event/dispatch :event x :t 0}
+       (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))
+
+     :else nil)))
 
 (defn- bare-events->entries
   "Coerce a legacy bare-events vector to the new `:entries` shape so
-  the translator's wait-insertion + entry walker work uniformly."
-  [events]
-  (->> (or events [])
-       (mapv coerce-entry)
-       (filterv some?)))
+  the translator's wait-insertion + entry walker work uniformly.
+
+  `cofx-vec` (rf2-l2cn5d, EP-0017) is an OPTIONAL parallel vector of
+  captured `:rf.cofx` maps, index-aligned with `events`. When supplied,
+  each bare event is lifted carrying its captured coeffect map. Already-
+  rich `:entries` members carry their own `:rf.cofx`, so the parallel
+  vector is consulted only for bare members."
+  ([events] (bare-events->entries events nil))
+  ([events cofx-vec]
+   (let [cofx-vec (vec (or cofx-vec []))]
+     (->> (or events [])
+          (map-indexed (fn [i x] (coerce-entry x (get cofx-vec i))))
+          (filterv some?)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: wait-step insertion (rf2-d5u89)
@@ -367,6 +414,15 @@
                          stamps NOTHING, so a single-realm recording's body is
                          byte-identical to the pre-realm shape and replays
                          unchanged (zero ceremony).
+      :cofx              optional — a parallel vector of captured flat
+                         `:rf.cofx` maps (rf2-l2cn5d, EP-0017), index-aligned
+                         with a BARE `events` vector. Each non-empty entry rides
+                         onto its dispatch step as `[:dispatch evec {:rf.cofx …}]`
+                         so replay re-presents the recorded recordable coeffects
+                         (provided facts + the framework `:rf/time-ms`) instead
+                         of restamping. Ignored for rich `:entries` input — those
+                         members carry their own `:rf.cofx`. Empty / absent emits
+                         the byte-identical 2-element steps.
 
   Returns a map: `{:script [...steps] :auto-run? bool :name str? :rf.realm/id kw?}`.
   The script is pre-coerced via `runner/coerce-script` so it round-
@@ -378,12 +434,12 @@
   ([events]
    (recording->play-script events {}))
   ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions
-                   auto-run? wait-threshold-ms realm]
+                   auto-run? wait-threshold-ms realm cofx]
             :or   {auto-assert?         false
                    auto-run?            true
                    max-auto-assertions  default-max-auto-assertions
                    wait-threshold-ms    default-wait-threshold-ms}}]
-   (let [entries        (bare-events->entries events)
+   (let [entries        (bare-events->entries events cofx)
          dispatch-steps (entries->steps entries
                                         {:wait-threshold-ms wait-threshold-ms})
          assert-steps   (if auto-assert?

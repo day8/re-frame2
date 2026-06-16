@@ -1536,31 +1536,40 @@
   Returns the worker thread so a test can `.join` (with timeout) when
   it needs determinism on whether the worker has finished pushing.
   Most callers just spawn-and-forget — the `:duration-ms` window the
-  tool sleeps in is more than long enough for the polled push."
-  [events]
-  (doto (Thread.
-          ^Runnable
-          (fn []
-            ;; Poll `recording?` with a 1ms park between probes — far
-            ;; finer-grained than the original 20ms sleep. Bails after
-            ;; 5s if the recorder never opens (a tool bug; the test
-            ;; assertions will catch it).
-            (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
-              (loop []
-                (cond
-                  (recorder/recording?)
-                  (doseq [ev events]
-                    (recorder/record-event! ev))
+  tool sleeps in is more than long enough for the polled push.
 
-                  (< (System/nanoTime) deadline)
-                  (do (Thread/sleep 1)
-                      (recur))
+  rf2-l2cn5d (EP-0017): the 2-arity `(drive-events-during-recording
+  events cofx-vec)` pushes a parallel, index-aligned vector of captured
+  flat `:rf.cofx` maps (the framework `:rf/time-ms` + any provided facts
+  a dispatch carried) via the recorder's 2-arity `record-event!`, so a
+  test can exercise the capture→write-back cofx-preservation path the
+  same way the live trace listener does."
+  ([events] (drive-events-during-recording events nil))
+  ([events cofx-vec]
+   (let [cofx-vec (vec (or cofx-vec []))]
+     (doto (Thread.
+             ^Runnable
+             (fn []
+               ;; Poll `recording?` with a 1ms park between probes — far
+               ;; finer-grained than the original 20ms sleep. Bails after
+               ;; 5s if the recorder never opens (a tool bug; the test
+               ;; assertions will catch it).
+               (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
+                 (loop []
+                   (cond
+                     (recorder/recording?)
+                     (doseq [[i ev] (map-indexed vector events)]
+                       (recorder/record-event! ev (get cofx-vec i)))
 
-                  ;; Timed out; bail. The test's :recorded-event-count
-                  ;; assertion will surface the miss.
-                  :else nil)))))
-    (.setDaemon true)
-    (.start)))
+                     (< (System/nanoTime) deadline)
+                     (do (Thread/sleep 1)
+                         (recur))
+
+                     ;; Timed out; bail. The test's :recorded-event-count
+                     ;; assertion will surface the miss.
+                     :else nil)))))
+       (.setDaemon true)
+       (.start)))))
 
 (deftest record-as-variant-not-found
   (testing "unknown source variant ⇒ tool-execution error"
@@ -1748,6 +1757,66 @@
         (is (and (integer? run-n) (pos? run-n) (<= run-n n))
             (str "the recording replayed — :test/bump dispatches incremented :n to "
                  (pr-str run-n) " (captured " n "); a dead :play slot would leave :n nil"))))))
+
+(deftest record-as-variant-preserves-captured-cofx
+  (testing "rf2-l2cn5d (EP-0017): a captured :rf.cofx envelope rides into BOTH
+            the rendered snippet AND the written-back :script body, so replay
+            re-presents the recorded recordable coeffects (provided facts +
+            the framework :rf/time-ms) rather than restamping"
+    (config/set-allow-writes! true)
+    ;; Drive a single dispatch carrying a recorded flat :rf.cofx map.
+    (drive-events-during-recording
+      [[:counter/inc]]
+      [{:rf/time-ms 1781078400123 :counter/delta 7}])
+    (let [r (invoke "record-as-variant"
+                    {:variant-id     "story.button/primary"
+                     :new-variant-id "story.button/cofx-recorded"
+                     :duration-ms    100
+                     :write-back     true})
+          s (:structuredContent r)
+          n (:recorded-event-count s)]
+      (is (success? r))
+      (is (true? (:written-back? s)))
+      (is (pos? n) "the recorder captured at least one event")
+      ;; The written-back :script body carries the cofx envelope on each
+      ;; recorded dispatch step — [:dispatch [:counter/inc] {:rf.cofx {…}}].
+      (let [body  (story/variant->edn :story.button/cofx-recorded)
+            steps (:script (:play-script body))]
+        (is (every? (fn [step]
+                      (and (= :dispatch (first step))
+                           (= [:counter/inc] (second step))
+                           (= {:rf/time-ms 1781078400123 :counter/delta 7}
+                              (:rf.cofx (nth step 2 nil)))))
+                    steps)
+            "every written-back dispatch step carries the recorded :rf.cofx map"))
+      ;; The rendered snippet text surfaces the cofx envelope too (it is
+      ;; rendered FROM the scrubbed events + parallel cofx).
+      (is (re-find #":rf.cofx" (:play-snippet s))
+          "the snippet text carries the :rf.cofx envelope")
+      (is (re-find #":rf/time-ms 1781078400123" (:play-snippet s))
+          "the recorded :rf/time-ms is surfaced verbatim (always-safe per EP-0017)"))))
+
+(deftest record-as-variant-no-cofx-is-byte-identical
+  (testing "rf2-l2cn5d: a recording with no captured coeffects writes the
+            pre-EP-0017 2-element dispatch steps (zero ceremony)"
+    (config/set-allow-writes! true)
+    (drive-events-during-recording [[:counter/inc] [:counter/inc]])
+    (let [r (invoke "record-as-variant"
+                    {:variant-id     "story.button/primary"
+                     :new-variant-id "story.button/no-cofx"
+                     :duration-ms    100
+                     :write-back     true})
+          s (:structuredContent r)
+          n (:recorded-event-count s)]
+      (is (success? r))
+      (is (pos? n))
+      (let [body (story/variant->edn :story.button/no-cofx)]
+        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
+                :auto-run? true}
+               (:play-script body))
+            "no captured cofx → bare 2-element dispatch steps, unchanged from pre-fix")
+        (is (not (re-find #":rf.cofx" (:play-snippet s)))
+            "the snippet carries no :rf.cofx slot when nothing was captured")))))
 
 (deftest record-as-variant-snippet-honours-doc-and-alias
   (testing ":doc and :alias flow into the rendered snippet"

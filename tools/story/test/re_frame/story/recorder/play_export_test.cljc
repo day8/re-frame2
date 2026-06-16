@@ -47,6 +47,50 @@
     (is (nil? (export/event->step ["not-keyword"])))
     (is (nil? (export/event->step "not-a-vector")))))
 
+;; ---- rf2-l2cn5d (EP-0017): captured cofx rides the dispatch step ----------
+
+(deftest event-step-carries-captured-cofx
+  (testing "a captured flat :rf.cofx map rides onto the step as a 3rd opts map"
+    (is (= [:dispatch [:counter/inc] {:rf.cofx {:rf/time-ms 123 :counter/delta 4}}]
+           (export/event->step [:counter/inc] {:rf/time-ms 123 :counter/delta 4}))
+        "an ordinary event with cofx → [:dispatch evec {:rf.cofx …}]")
+    (is (= [:dispatch-sync [:rf.assert/path-equals [:n] 3] {:rf.cofx {:rf/time-ms 9}}]
+           (export/event->step [:rf.assert/path-equals [:n] 3] {:rf/time-ms 9}))
+        "an assertion event with cofx still rides the :dispatch-sync rail"))
+  (testing "nil / empty cofx emits the byte-identical 2-element step"
+    (is (= [:dispatch [:counter/inc]]
+           (export/event->step [:counter/inc] nil)))
+    (is (= [:dispatch [:counter/inc]]
+           (export/event->step [:counter/inc] {}))
+        "an empty cofx map is treated as absent — no opts slot")
+    (is (= [:dispatch [:counter/inc]]
+           (export/event->step [:counter/inc]))
+        "the 1-arity is the bare-step path")))
+
+(deftest recording-threads-parallel-cofx-vector
+  (testing "a parallel :cofx vector (index-aligned with bare events) rides onto
+            the matching dispatch steps; :rf/time-ms is preserved verbatim"
+    (let [events [[:counter/inc] [:auth/login {:user "x"}] [:counter/dec]]
+          cofx   [{:rf/time-ms 100 :counter/delta 4}
+                  nil
+                  {:rf/time-ms 300}]
+          spec   (export/recording->play-script events {:cofx cofx})]
+      (is (= [[:dispatch [:counter/inc] {:rf.cofx {:rf/time-ms 100 :counter/delta 4}}]
+              [:dispatch [:auth/login {:user "x"}]]
+              [:dispatch [:counter/dec] {:rf.cofx {:rf/time-ms 300}}]]
+             (:script spec))
+          "each non-nil cofx member rides its step; nil members emit bare steps"))))
+
+(deftest recording-without-cofx-is-byte-identical
+  (testing "no :cofx opt → the pre-EP-0017 2-element steps (zero ceremony)"
+    (let [events [[:counter/inc] [:counter/dec]]]
+      (is (= (export/recording->play-script events {})
+             (export/recording->play-script events {:cofx []}))
+          "an empty parallel cofx vector is byte-identical to no :cofx opt")
+      (is (= [[:dispatch [:counter/inc]] [:dispatch [:counter/dec]]]
+             (:script (export/recording->play-script events {:cofx [nil nil]})))
+          "all-nil cofx members emit bare steps"))))
+
 ;; ---- recording-level translation -----------------------------------------
 
 (deftest simple-recording-three-dispatches
