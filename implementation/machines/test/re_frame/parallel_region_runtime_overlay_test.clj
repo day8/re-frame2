@@ -149,3 +149,71 @@
             "client run scheduled — the cache was NOT poisoned by the prior server overlay")
         (is (empty? (of-op cli-tr :rf.machine.timer/skipped-on-server))
             "no stale server-skip leaked from the prior run")))))
+
+;; ---- rf2-gqr4vs: transition-local `:rf/cofx` must not survive the cache ----
+
+;; A parallel machine whose region action captures the causal `:rf.cofx`
+;; coeffect threaded onto the action ctx. The `:capture` action records what it
+;; saw so the test can assert presence / absence per transition. `(:type
+;; :parallel)` exercises the same `region-machine` cache + `region-spec-overlaid`
+;; choke-point as the platform/frame overlay above.
+(def cofx-capture-spec
+  {:type    :parallel
+   :data    {}
+   :regions {:a {:initial :one
+                 :states  {:one {:on {:go {:action :capture}}}}}
+             :b {:initial :rest
+                 :states  {:rest {}}}}})
+
+(deftest region-cofx-does-not-leak-from-cache-into-later-transition
+  (testing "rf2-gqr4vs: priming the region cache from a parent carrying
+   `:rf/cofx`, then running a LATER transition whose parent carries NO
+   `:rf/cofx`, must surface NO `:rf.cofx` on the region action ctx — the
+   transition-local coeffect cannot survive on the cached region spec."
+    (let [seen      (atom [])
+          ;; A shared `:capture` action recording the cofx slot it observed.
+          spec      (assoc-in cofx-capture-spec [:actions :capture]
+                              (fn [{cofx :rf.cofx :as ctx}]
+                                (swap! seen conj {:has? (contains? ctx :rf.cofx)
+                                                  :cofx cofx})
+                                {:data (:data ctx)}))
+          installed (parallel/install-region-cache spec)]
+      ;; 1. PRIME the cache from a parent carrying a causal coeffect token —
+      ;;    reproducing the bug origin: the cached region spec captures the
+      ;;    coeffect-carrying parent.
+      (parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
+      (parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :b)
+      ;; 2. The LIVE transition's parent carries NO `:rf/cofx` (a pure-fn / no-
+      ;;    router caller, or a dispatch that simply did not thread the token).
+      (let [snap (parallel-snapshot installed)]
+        (parallel/machine-transition installed snap [:go]))
+      (is (= 1 (count @seen)) "the region :capture action ran exactly once")
+      (is (false? (:has? (first @seen)))
+          "the action ctx carried NO :rf.cofx — the cached coeffect did not leak
+           (callback-ctx keys off presence; the overlay dissoc'd the stale slot)")
+      (is (nil? (:cofx (first @seen)))
+          "and the destructured value is nil, never the primed {:rf/time-ms 1}"))))
+
+(deftest region-cofx-overlays-live-value-when-parent-carries-it
+  (testing "rf2-gqr4vs (symmetric): when the LIVE parent DOES carry `:rf/cofx`,
+   the region action ctx surfaces THAT value — the overlay threads the current
+   dispatch's coeffect through region pure logic, even when the cache was primed
+   under a DIFFERENT coeffect."
+    (let [seen      (atom [])
+          spec      (assoc-in cofx-capture-spec [:actions :capture]
+                              (fn [{cofx :rf.cofx :as ctx}]
+                                (swap! seen conj {:has? (contains? ctx :rf.cofx)
+                                                  :cofx cofx})
+                                {:data (:data ctx)}))
+          installed (parallel/install-region-cache spec)]
+      ;; Prime under one coeffect …
+      (parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
+      ;; … then transition under a DIFFERENT live coeffect.
+      (let [live (assoc installed :rf/cofx {:rf/time-ms 99})
+            snap (parallel-snapshot live)]
+        (parallel/machine-transition live snap [:go]))
+      (is (= 1 (count @seen)) "the region :capture action ran exactly once")
+      (is (true? (:has? (first @seen)))
+          "the action ctx carried :rf.cofx (the live parent supplied it)")
+      (is (= {:rf/time-ms 99} (:cofx (first @seen)))
+          "and it was the LIVE value, not the primed {:rf/time-ms 1}"))))
