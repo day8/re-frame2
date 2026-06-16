@@ -109,7 +109,7 @@ Every operation eventually becomes a short ClojureScript form evaluated through 
 
 ## Setup — preload `re-frame2-pair.runtime`
 
-The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism. This is re-frame2-pair's runtime-helper requirement, separate from Xray's devtools preload and true-inline `[data-rf-xray-host]` panel contract. **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
+The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism. This is re-frame2-pair's runtime-helper requirement, separate from Xray's devtools preload and true-inline `[data-rf-xray-host]` panel contract. **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. When `discover-app` can't find the marker it runs a diagnostic ladder; the normal missing-preload verdict is `:reason :runtime-loaded-but-preload-missing` (a runtime is live but the marker is absent). See [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder) for the full set of reasons and the recovery each calls for.
 
 First install the preload package as a dev dependency in the consumer app:
 
@@ -117,7 +117,7 @@ First install the preload package as a dev dependency in the consumer app:
 npm install -D @day8/re-frame2-pair
 ```
 
-This is a **separate package from the MCP server** (`@day8/re-frame2-pair-mcp`, installed globally) — the MCP server does NOT ship the `preload/` directory, so installing only the server leaves `discover-app` failing with `:runtime-not-preloaded`. Then the two-line `shadow-cljs.edn` change:
+This is a **separate package from the MCP server** (`@day8/re-frame2-pair-mcp`, installed globally) — the MCP server does NOT ship the `preload/` directory, so installing only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. Then the two-line `shadow-cljs.edn` change:
 
 ```clojure
 {:source-paths ["src"
@@ -132,14 +132,15 @@ Where the runtime lives:
 - **npm consumers**: the `@day8/re-frame2-pair` package (`npm install -D` above) ships the `preload/` directory; the source-path entry above points there.
 - **Local-dev / linked checkouts**: substitute the absolute path to `skills/re-frame2-pair/preload/` for the `node_modules/...` entry (no package install needed — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)).
 
-Verification — run `discover-app` (the MCP tool `mcp__re-frame2-pair__discover-app`). The success result is the runtime health map merged with `:ok? true` and `:build-id`, e.g. `:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :app` (plus `:session-id`, `:selected-frame`, `:operating-frame` and the other health slots). If the preload is missing you get back:
+Verification — run `discover-app` (the MCP tool `mcp__re-frame2-pair__discover-app`). The success result is the runtime health map merged with `:ok? true` and `:build-id`, e.g. `:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :app` (plus `:session-id`, `:selected-frame`, `:operating-frame` and the other health slots). If the preload is missing — a runtime is live but the marker is absent — you get back the **normal missing-preload** verdict:
 
 ```edn
-{:ok? false :reason :runtime-not-preloaded
+{:ok? false :reason :runtime-loaded-but-preload-missing
+ :build :app
  :hint "re-frame2-pair.runtime is not loaded into this build. Add the preload entry to your shadow-cljs.edn: ..."}
 ```
 
-Report the hint to the user verbatim — they can fix it in seconds without re-cloning anything.
+Report the hint to the user verbatim — they can fix it in seconds without re-cloning anything. (`:runtime-loaded-but-preload-missing` is one rung of the discover-app preload-failure ladder; a `:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable` verdict means a *different* fix — see [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder). The blanket `:runtime-not-preloaded` is the degradation fallback the server returns only when the ladder itself errors mid-diagnosis.)
 
 **Registering the MCP server takes a fresh session, not `--continue`.** Wiring `@day8/re-frame2-pair-mcp` into the agent host (`claude mcp add`, or editing `settings.json`) only takes effect in sessions that **start** afterwards. A session resumed with `claude --continue` will not surface the re-frame2-pair tools even though `claude mcp list` reports the server `Connected` — exit and start a new session (`claude --resume`, or a plain new `claude`) after registering the server. This is agent-host behaviour, not a server flag; the same applies after pulling MCP source changes and rebuilding `out/server.js`.
 
@@ -191,7 +192,7 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 
 You **cannot reload a browser yourself** — so when the verdict is non-`:fresh`, relay the `:freshness :hint` to the user as the single next step rather than firing reads that will return blank.
 
-If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-not-preloaded}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
+If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-loaded-but-preload-missing}` (the normal missing-preload verdict) or another rung of the preload-failure ladder (`:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable`). Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
 
 **Fallback — resolve the build yourself only if `discover-app {port}` can't.** The normal path is `discover-app {port: <url-port>}` (above): the MCP server reads the `:dev-http` map for you and the resolved build **sticks** as the session default. Reach for manual resolution **only** when that returns `:reason :port-unresolved` (the port maps to no build) or an ambiguous-build diagnostic. Then: re-frame2-pair targets a shadow-cljs app, so the build behind a browser URL is discoverable from the application `shadow-cljs.edn` — locate that file (find it; do not assume a path), read its `:dev-http` config, and correlate the URL port to the build it serves (a top-level `{port [roots]}` map whose roots include a build `:output-dir`, or a per-build `:dev-http {:port N}`). Pass that build id explicitly with `discover-app {build: ...}`; it then sticks like any other resolution path.
 
@@ -199,7 +200,7 @@ If any precondition fails, the script returns a structured edn error like `{:ok?
 
 **Port discovery is automatic — you don't configure it.** On the first tool call the MCP server discovers the live shadow-cljs nREPL on its own (a cascade ending in shadow's `roots/list` / HTTP probe; multiple running builds trigger a host prompt so you pick one), and absorbs shadow restarts transparently. When discovery misses (no running shadow, non-default port, exotic setup), the operator passes `--port-file <abs>` or sets `SHADOW_CLJS_NREPL_PORT`. The full cascade, the overrides, and the retired bash-shim's port-scanning are in [references/mcp-transport.md §Install / configure](references/mcp-transport.md#install--configure-one-time) — you rarely need any of it.
 
-Between user turns, the nREPL session persists. A full page refresh in the browser drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect step is needed. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) before proceeding; if it's missing the op refuses with the structured `:runtime-not-preloaded` hint above.
+Between user turns, the nREPL session persists. A full page refresh in the browser drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect step is needed. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) before proceeding; if it's missing the op refuses with the runtime-side `:runtime-not-preloaded` hint pointing at this §Setup. (That per-op marker check is distinct from `discover-app`'s richer preload-failure ladder, which on the same missing-marker condition reports the more precise `:runtime-loaded-but-preload-missing` — see [references/errors.md](references/errors.md#discover-app-preload-failure-ladder).)
 
 If you want a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` (formal name `mcp__re-frame2-pair__get-re-frame2-pair-instructions`) — it returns inline onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming-subscribe semantics, the wire pipeline) with no nREPL round-trip.
 
