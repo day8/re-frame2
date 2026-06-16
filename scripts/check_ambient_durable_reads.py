@@ -61,8 +61,12 @@ mint (`:created-at`, `:completed-at`, `:errored-at`, `:restored-at`,
 `:installed-at`, `:registered-at`, `:updated-at`, `:detected-at`) and the
 durable-id keys (`:id`, `:entry-id`, `:request-id`, `:instance-id`,
 `:mutation-id`, `:temp-id`, `:correlation-id`). The CORRECT replacement is to
-thread the value from the reply/dispatch token's `:rf.world/inputs` `:time-ms`
-(or a supplied uuid/random world input) — never to read the host here.
+thread the value from the reply/dispatch token's flat `:rf.cofx` recordable-
+coeffect map — `(:rf/time-ms (:rf.cofx envelope))` for durable wall-clock time,
+or a supplied uuid/random recordable coeffect declared via `:rf.cofx/requires`
+— never to read the host here. (EP-0017 retired the `:rf.world/inputs` envelope
+in favour of the flat `:rf.cofx` map, with no alias; see docs/spec/002-Frames.md
+§Recordable coeffects.)
 
 
 WHY SCOPE BY NAMESPACE TOO (defence against false positives)
@@ -75,7 +79,8 @@ the sanctioned sites the spec calls out:
      the durable-write set, so a `:detected-at (interop/now-ms)` inside
      `(trace/emit! ...)` (router/diagnostics) or the `:completed-at
      (interop/epoch-now-ms)` transport-boundary causal read (http_transport —
-     the read that FEEDS `:rf.world/inputs`, sanctioned by EP-0010 step 4) is
+     the read that FEEDS the reply token's `:rf.cofx`, sanctioned by EP-0010
+     step 4) is
      never scanned. The frame-container `:created-at` lifecycle stamp
      (frame.cljc) is a host-transient frame-instance side table, also out of
      scope.
@@ -144,8 +149,8 @@ from typing import Iterable, NamedTuple
 #   - re_frame/frame.cljc                           -> frame-instance host-transient side table
 #   - resources/timers.cljc                         -> timer scheduling / cancellation
 #   - http/http_transport*.cljc, resources/transport*  -> effect-interpreter
-#       boundary (the causal `:completed-at` read that FEEDS :rf.world/inputs)
-#   - cofx.cljc, router.cljc world-input minting     -> the causal boundary itself
+#       boundary (the causal `:completed-at` read that FEEDS the token's :rf.cofx)
+#   - cofx.cljc, router.cljc :rf.cofx minting        -> the causal boundary itself
 DURABLE_WRITE_SUFFIXES: tuple[str, ...] = (
     # resource reducers + reply handlers
     "implementation/resources/src/re_frame/resources/events.cljc",
@@ -471,8 +476,10 @@ def scan(
 _FIX_HINT = (
     "EP-0010 §The Boundary Is Already Visible: a transition that performs a "
     "DURABLE write must be deterministic w.r.t. the host clock / RNG. Read the "
-    "value from the reply/dispatch token's `:rf.world/inputs` `:time-ms` (or a "
-    "supplied uuid/random world input) and thread it into the durable field — "
+    "value from the reply/dispatch token's flat `:rf.cofx` recordable-coeffect "
+    "map — `(:rf/time-ms (:rf.cofx envelope))` for durable wall-clock time, or a "
+    "supplied uuid/random recordable coeffect declared via `:rf.cofx/requires` "
+    "— and thread it into the durable field — "
     "do NOT read `interop/now-ms` / `js/Date.now` / `random-uuid` etc. at the "
     "durable write site. If this read is genuinely diagnostic (does not "
     "influence a durable write) move it into trace/perf code, or annotate the "
