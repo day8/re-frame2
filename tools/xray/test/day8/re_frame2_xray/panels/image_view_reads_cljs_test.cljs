@@ -19,6 +19,7 @@
   sealed generations (the fail-soft seam) so the projection runs end-to-end on
   the values `make-frame` / `assemble` actually produce."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.set :as set]
             [re-frame.image :as image]
             [re-frame.live-frame :as live-frame]
             [re-frame.image-assembly :as image-assembly]
@@ -58,35 +59,87 @@
       ;; yields equal values and touches no registry.
       (is (= img (reads/xray-image)) "rf/image is pure — equal values"))))
 
+;; A descriptor authored under XRAY's OWN source namespace (the shape the live
+;; source store stamps for every :rf.xray/* registration). Used to give Xray's
+;; `day8.re-frame2-xray.**` glob something to select from an EXPLICIT pool, so
+;; the resolver-keyset comparison can be exercised deterministically without
+;; depending on what the live store carries in the test JVM.
+(def ^:private xray-pool
+  [{:kind :event :id :rf.xray/refresh :rf.provenance/ns "day8.re-frame2-xray.panels.foo" :impl :refresh}
+   {:kind :sub   :id :rf.xray/tab     :rf.provenance/ns "day8.re-frame2-xray.panels.bar" :impl :tab}])
+
+;; The combined pool both images select from in the explicit-pool arity. Xray's
+;; glob selects the xray-authored descriptors; the target's glob selects the
+;; app.counter ones. Disjoint by construction.
+(def ^:private combined-pool (into target-pool xray-pool))
+
 (deftest xray-image-isolated-from-target-image
   (testing "Xray's image and the target frame's image are REGISTRATION-DISJOINT
-            — Xray's registrations do not leak into / from the target's image
-            (the .29-review invariant)"
-    (is (true? (reads/xray-image-isolated-from? target-image))
-        "Xray (day8.re-frame2-xray.**) and the target (app.counter) select
-         disjoint source namespaces → isolated")
-    ;; The negative: an image that DID select Xray's namespaces would NOT be
-    ;; isolated — the predicate is a real check, not a constant true.
+            — assemble BOTH and compare resolver keysets; Xray's [kind id]s do
+            not leak into / from the target's image (the strengthened
+            .29-review invariant)"
+    ;; Explicit-pool arity: both images select from `combined-pool`. Xray
+    ;; resolves its own :rf.xray/* ids; the target resolves :counter/* — the two
+    ;; resolver keysets are disjoint → isolated.
+    (is (true? (reads/xray-image-isolated-from? target-image combined-pool))
+        "Xray (day8.re-frame2-xray.**) and the target (app.counter) resolve
+         disjoint [kind id] sets → isolated")
+    ;; The negative: an image that DID select Xray's namespaces resolves Xray's
+    ;; OWN ids, so the keysets OVERLAP → NOT isolated. The predicate is a real
+    ;; keyset-disjointness check, not a constant true.
     (let [leaky (image/image {:id :leaky/img
                               :include-ns ["day8.re-frame2-xray.**" "app.counter"]})]
-      (is (false? (reads/xray-image-isolated-from? leaky))
-          "an image selecting Xray's namespaces is NOT isolated from Xray"))))
+      (is (false? (reads/xray-image-isolated-from? leaky combined-pool))
+          "an image selecting Xray's namespaces shares Xray's [kind id]s → NOT
+           isolated"))))
+
+(deftest xray-isolation-is-keyset-not-selector-string
+  (testing "the predicate compares RESOLVER KEYSETS, not :include-ns selector
+            STRINGS — two DIFFERENT globs that select OVERLAPPING namespaces are
+            correctly reported NOT isolated (the proxy a string comparison would
+            miss)"
+    ;; `day8.re-frame2-xray.**` (Xray's glob) and `day8.re-frame2-xray.panels.*`
+    ;; (this target's glob) are DIFFERENT strings — a string-intersection check
+    ;; would wrongly call them isolated. But BOTH select the xray-authored
+    ;; descriptor under `day8.re-frame2-xray.panels.foo`, so their resolver
+    ;; keysets SHARE [:event :rf.xray/refresh] → the keyset check correctly
+    ;; reports NOT isolated.
+    (let [overlap-target (image/image {:id :overlap/img
+                                       :include-ns ["day8.re-frame2-xray.panels.*"]})
+          xray-sel       (set (:rf.image/include-ns (reads/xray-image)))
+          target-sel     (set (:rf.image/include-ns overlap-target))]
+      (is (empty? (set/intersection xray-sel target-sel))
+          "the two :include-ns selector STRINGS are disjoint (the old proxy
+           would call this isolated)")
+      (is (false? (reads/xray-image-isolated-from? overlap-target xray-pool))
+          "but the two RESOLVER KEYSETS overlap → the strengthened predicate
+           correctly reports NOT isolated"))))
 
 (deftest xray-and-target-resolvers-do-not-share-registrations
   (testing "a frame built from Xray's image and a frame built from the target's
-            image have DISJOINT resolver keysets — neither sees the other's
-            registrations (Xray is NOT part of the thing being inspected)"
-    ;; Assemble the target generation against its explicit pool. (Xray's image
-    ;; selects the LIVE source store, where Xray's own :rf.xray/* regs live;
-    ;; the target pool is explicit + carries no :rf.xray/* descriptor, so the
-    ;; two resolver keysets cannot overlap regardless of what is loaded.)
-    (let [target-gen (image-assembly/assemble [target-image] target-pool)
-          target-keys (set (keys (:rf.gen/resolver target-gen)))]
-      ;; The target frame resolves ITS ids; none are :rf.xray/* and none come
-      ;; from Xray's source namespaces.
-      (is (contains? target-keys [:event :counter/inc]))
+            image have DISJOINT resolver keysets BIDIRECTIONALLY — neither sees
+            the other's registrations (Xray is NOT part of the thing being
+            inspected)"
+    ;; Assemble BOTH generations against the same combined pool, then compare
+    ;; their resolver keysets directly (the invariant `xray-image-isolated-from?`
+    ;; encodes), in BOTH directions.
+    (let [xray-gen    (image-assembly/assemble [(reads/xray-image)] combined-pool)
+          target-gen  (image-assembly/assemble [target-image] combined-pool)
+          xray-keys   (reads/resolver-keyset xray-gen)
+          target-keys (reads/resolver-keyset target-gen)]
+      ;; Each frame resolves ITS own ids.
+      (is (contains? xray-keys [:event :rf.xray/refresh])
+          "Xray's frame resolves Xray's own [kind id]")
+      (is (contains? target-keys [:event :counter/inc])
+          "the target's frame resolves the target's own [kind id]")
+      ;; Bidirectional non-leakage: no Xray id in the target's keyset, and no
+      ;; target id in Xray's keyset.
+      (is (empty? (set/intersection xray-keys target-keys))
+          "the two resolver keysets are disjoint")
       (is (every? (fn [[_ id]] (not= "rf.xray" (namespace id))) target-keys)
-          "no :rf.xray/* id leaked into the target frame's image"))))
+          "no :rf.xray/* id leaked INTO the target frame's image")
+      (is (every? (fn [[_ id]] (= "rf.xray" (namespace id))) xray-keys)
+          "no target id leaked INTO Xray's image"))))
 
 ;; ---- live reads of the real registry (fail-soft seam) --------------------
 

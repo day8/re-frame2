@@ -75,19 +75,27 @@
       {:kind :rf.prov/standard}
       {:kind :rf.prov/unknown}
 
-  Pure `data -> data`; JVM-testable."
+  The three provenance slots are MUTUALLY EXCLUSIVE on a well-formed
+  descriptor, so this `cond`'s branch order tracks core's
+  `re-frame.image-assembly/descriptor-coordinate` (the ground-truth
+  source-coordinate fn) — `:standard` first, then the inline image coordinate,
+  then the registered `:rf.provenance/ns` — rather than introducing a different
+  precedence the projection would have to defend. (`descriptor-coordinate`'s
+  final `:else` is the registered-ns case; here that leg is explicit so an
+  unrecognized descriptor falls through to `:rf.prov/unknown` instead of
+  `{:ns nil}`.) Pure `data -> data`; JVM-testable."
   [descriptor]
   (cond
-    (:rf.provenance/ns descriptor)
-    {:kind :rf.prov/ns :ns (:rf.provenance/ns descriptor)}
+    (:standard descriptor)
+    {:kind :rf.prov/standard}
 
     (:rf.provenance/image descriptor)
     {:kind   :rf.prov/inline
      :image  (:rf.provenance/image descriptor)
      :inline (:rf.provenance/inline descriptor)}
 
-    (:standard descriptor)
-    {:kind :rf.prov/standard}
+    (:rf.provenance/ns descriptor)
+    {:kind :rf.prov/ns :ns (:rf.provenance/ns descriptor)}
 
     :else
     {:kind :rf.prov/unknown}))
