@@ -1330,6 +1330,76 @@
               (map #(vec (rest %))))
         paths))
 
+;; The reserved inner event-id the runtime dispatches into a PARENT machine
+;; when one of its `:spawn`-spawned children FAILS (Spec 005 §`:on-error`;
+;; re-frame2's spelling of XState v5 `invoke onError`). The dispatched shape is
+;; `[:rf.machine.spawn/error <invoke-id> <error>]`; `<error>` (the 3rd element)
+;; is CHILD-owned — the child's raw `:output-key` result or an exception
+;; envelope carrying `:exception-data`. Inlined here (not a require on the
+;; machines artefact, which ships ABOVE core) so the marks chokepoint can
+;; recognise it without a load cycle.
+(def ^:private spawn-error-event-id :rf.machine.spawn/error)
+
+(defn- spawn-error-event?
+  "True when `v` is a `[:rf.machine.spawn/error <invoke-id> <error>]` synthetic
+  event vector (the parent-failure control-flow event)."
+  [v]
+  (and (vector? v)
+       (>= (count v) 3)
+       (= spawn-error-event-id (first v))))
+
+(defn- summarize-spawn-error-event
+  "Summarize the synthetic spawn-error event vector for trace egress
+  (rf2-0gdic7 / rf2-lft14p). Keep the STRUCTURAL routing facts — the reserved
+  `:rf.machine.spawn/error` id and the `<invoke-id>` (the parent's
+  `:spawn`-bearing state path the runtime routes on) — and replace the
+  CHILD-owned `<error>` payload (3rd element, plus any further args) with the
+  `:rf/redacted` sentinel. The parent's local control flow still reads the RAW
+  error off `:event` at runtime (`(nth ev 2)`); this projection runs ONLY at the
+  egress chokepoint, so the parent transition / guard / action semantics are
+  unchanged — only the off-box trace surface is summarized. Conservative
+  fail-closed posture symmetric with `project-machine-error-tags`: a payload we
+  cannot classify against the PARENT's marks does not egress raw."
+  [event]
+  (into [(nth event 0) (nth event 1) privacy/redacted-sentinel]
+        ;; drop any extra args past the canonical 3 (none in the current
+        ;; shape, but fail-closed if the shape ever grows)
+        (repeat (max 0 (- (count event) 3)) privacy/redacted-sentinel)))
+
+(defn- project-spawn-synthetic-payloads
+  "Summarize the two CHILD-owned / unclassifiable spawn payloads that egress
+  through machine traces, UNCONDITIONALLY (independent of the trace machine's
+  declared marks) — rf2-0gdic7 / rf2-lft14p / rf2-mxboxi:
+
+    - `:start` (on `:rf.machine.spawn/spawned`) — the newborn child's start
+      args; can hold credentials / large data (the same reason
+      `reject-unregistered-spawn!` deliberately carries NO spawn args). Summarized
+      to `:rf/redacted`.
+    - the synthetic `[:rf.machine.spawn/error <invoke-id> <error>]` event the
+      parent receives, wherever it rides a machine trace: under the bare
+      `:event` slot (`:rf.machine/event-received` / `:rf.machine/transition` /
+      unhandled-event rows) and under `:input :event` (the parent's
+      `:rf.machine/guard-evaluated` / `:rf.machine/action-ran` for the
+      `:on-error` transition). The 3rd element (the child error payload) is
+      summarized; the reserved id + invoke-id survive so the trace stays
+      locatable.
+
+  All other event vectors ride untouched (their own marks still apply via
+  `project-event-tags`); the summary is precise to the reserved id / `:start`
+  slot."
+  [tags]
+  (cond-> tags
+    (contains? tags :start)
+    (assoc :start privacy/redacted-sentinel)
+
+    (spawn-error-event? (:event tags))
+    (assoc :event (summarize-spawn-error-event (:event tags)))
+
+    (and (map? (:input tags))
+         (spawn-error-event? (get-in tags [:input :event])))
+    (assoc-in [:input :event]
+              (summarize-spawn-error-event (get-in tags [:input :event])))))
+
 (defn- project-machine-tags
   "Walk machine `:data`-bearing trace tag shapes. Marks declared on
   `reg-machine` (and bridged from the `:data-schema`) are paths rooted at the
@@ -1366,7 +1436,14 @@
   rows that still legitimately carry the addressed-id under that key
   (`:rf.machine/started` — the BIRTH signal keyed by the type/singleton id)."
   [tags]
-  (let [machine-id (or (:actor-id tags) (:machine-id tags))
+  ;; The CHILD-OWNED synthetic on-error payload and the `:start` payload are
+  ;; summarized UNCONDITIONALLY (independent of the parent/spawn machine's
+  ;; marks) — rf2-0gdic7 / rf2-lft14p / rf2-mxboxi. Run these first so they
+  ;; apply even when the trace's machine declares no `:data` marks (a child's
+  ;; secret cannot be classified against its PARENT's marks, and an inline
+  ;; child's `:start` args are unclassifiable here at all).
+  (let [tags       (project-spawn-synthetic-payloads tags)
+        machine-id (or (:actor-id tags) (:machine-id tags))
         marks      (machine-marks machine-id)]
     (if-not marks
       tags
@@ -1381,7 +1458,8 @@
             ;; Bare-`:data`-map projection (paths rooted at the `:data` map).
             project-data (fn [v] (when v (redact-with-paths v data-sens data-large)))
             ;; A guard/action `:input` map: redact its `:data` sub-slot;
-            ;; leave `:event` to project-event-tags.
+            ;; leave `:event` to project-event-tags / the synthetic-payload
+            ;; summary above.
             project-input (fn [input]
                             (if (and (map? input) (contains? input :data))
                               (assoc input :data (project-data (:data input)))
