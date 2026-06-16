@@ -1,6 +1,20 @@
 (ns day8.re-frame2-xray.static.shared.realm
   "Realm dimension for Xray's static-registry browse + handler-resolution
-  (rf2-dfaey7, a15n62 / EP-0013).
+  (EP-0013 internal installation substrate).
+
+  ## The realm is retained-internal, not the public model
+
+  The EP-0023 PUBLIC model is `image -> frame -> event stream` (images as
+  registration-set values, frames as execution contexts). The realm is the
+  RETAINED-INTERNAL installation substrate the public model rides on — kept
+  where it still earns its keep, but NOT the central/beginner-facing public
+  vocabulary (mirrors the `re-frame.migration` disposition map: `rf/realm`
+  → retained-internal). EP-0023 Consequence #4/#9: tooling MAY show the
+  internal installation boundary but must LABEL it as implementation
+  structure, not present it as a peer public browse dimension. So
+  `realm-badge` renders ONLY in a genuinely multi-realm browse and titles
+  itself as the internal installation realm; a single-realm browse (the
+  overwhelming common case) carries no realm chrome at all.
 
   ## Why this exists
 
@@ -135,10 +149,13 @@
 ;; ---- realm chip ----------------------------------------------------------
 
 (defn realm-badge
-  "Render a small chip naming a row's owning realm — shown ONLY when the
-  browse spans more than one realm AND the row is NOT in the default realm
-  (the default realm reads as 'unqualified', so it carries no chip even in a
-  multi-realm browse — only the explicit, non-default realms get a label).
+  "Render a small chip naming a row's owning INTERNAL installation realm —
+  shown ONLY when the browse spans more than one realm AND the row is NOT in
+  the default realm (the default realm reads as 'unqualified', so it carries
+  no chip even in a multi-realm browse — only the explicit, non-default
+  realms get a label). The realm is the EP-0013 retained-internal
+  installation substrate, not a peer public browse dimension; the chip's
+  title labels it as implementation structure (EP-0023 Consequence #4/#9).
 
   `opts`:
     :testid     — the data-testid to stamp (required so each panel scopes it
@@ -152,7 +169,8 @@
   ([realm-id testid {:keys [conflict?]}]
    (when (and (multi-realm?) (realm-of realm-id))
      [:span {:data-testid testid
-             :title       (str "owning realm " (pr-str realm-id)
+             :title       (str "owning installation realm (EP-0013 internal "
+                               "substrate) " (pr-str realm-id)
                                (when conflict?
                                  " · this id also exists in another realm"))
              :style       {:display        "inline-flex"
