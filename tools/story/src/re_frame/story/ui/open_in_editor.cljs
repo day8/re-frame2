@@ -10,7 +10,7 @@
   consume now. Story keeps its existing public chip API
   (`open-chip` / `open-chip-for-variant` / `open-source-coord!`) but
   delegates URI resolution to `resolve-uri` and adds a parallel
-  dispatch path (`:rf.story/open-in-editor` reg-event-fx) so a panel
+  dispatch path (`:rf.story/open-in-editor` reg-event) so a panel
   that doesn't render the chip directly can still hand off a
   source-coord through re-frame.
 
@@ -118,7 +118,7 @@
 ;; Per rf2-r2un8 (porting Xray's structure): URI building is extracted
 ;; into one helper so the chip path and the dispatch path share the same
 ;; logic — chip's `:href`, chip's `:on-click`, the inspector launcher, and
-;; the `:rf.story/open-in-editor` event-fx all call `resolve-uri`.
+;; the `:rf.story/open-in-editor` event all call `resolve-uri`.
 
 (defn- parse-file-line
   "Parse a `\"file:line\"` (or bare `\"file\"`) display string into the
@@ -395,7 +395,7 @@
 
   Registers two framework primitives:
 
-    - `:rf.story/open-in-editor` reg-event-fx — the dispatch shape any
+    - `:rf.story/open-in-editor` reg-event — the dispatch shape any
       host panel that wants the trace bus to record the click can fire.
       Accepts either a bare source-coord map or a wrapper
       `{:source-coord <coord-or-string>}`. The handler resolves the URI
@@ -428,7 +428,7 @@
   ;;       navigates the URI directly via `open!` (the endpoint needs the
   ;;       structured coord, so a uri-only arg uses the URI path).
   ;;
-  ;; Per rf2-wn3bh the event-fx now emits `:source-coord` (not `:uri`) so
+  ;; Per rf2-wn3bh the event now emits `:source-coord` (not `:uri`) so
   ;; the endpoint is preferred; the `:uri` shape stays for callers that
   ;; hold a pre-resolved URI.
   ;;

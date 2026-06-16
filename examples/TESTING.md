@@ -22,7 +22,7 @@ surfaces change and in the scheduled/manual expensive workflow.
 | `npm run test:examples`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
 | `npm run test:examples-compile`    | **Compile-coverage gate.** `shadow-cljs compile` over EVERY declared standalone `:examples/*` build (the list is derived from `shadow-cljs.edn`, so a new example build is swept automatically). Fails on any compile-time error AND on any warning (a typo'd init-fn surfaces as an `:undeclared-var` warning, and `compile` exits 0 on warnings). NOT a Playwright/runtime check — no `spec.cjs` involved. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 
-The two surfaces are independent:
+The three surfaces are independent:
 
 - `test:browser` is **one bundle, one page, every test**. Every example
   namespace that is `:require`'d by a `*-cljs-test` wrapper is loaded into
@@ -415,7 +415,7 @@ A new example added to the `test:browser` surface needs:
    Per the convention above.
 2. **A prefixed id namespace.** Pick a stem (your example's folder name
    in `kebab-case` is a good default) and stick to it for every
-   `reg-event-*`, `reg-sub`, `reg-machine`, `reg-frame`, schema, etc.
+   `reg-event`, `reg-sub`, `reg-machine`, `reg-frame`, schema, etc.
 3. **A wrapper test ns** under
    `implementation/adapters/<substrate>/test/re_frame/<example>_cljs_test.cljs`
    ending in `-cljs-test` so the `:browser-test` build picks it up via

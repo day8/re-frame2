@@ -473,7 +473,7 @@
   `filterv` over its output (rf2-2zncm). Feeds the tape-evaluated
   expectation matchers (`:rf.assert/schema-error`, `:rf.assert/caused` /
   `:rf.assert/no-cascade-rerender`, rf2-5x1wt.31) that — unlike a
-  `reg-event-fx`-backed assertion — carry NO handler and so must be
+  `reg-event`-backed assertion — carry NO handler and so must be
   collected from the plan, not the `:rf.story/assertions` accumulator."
   [plan executed-script]
   (try
@@ -496,7 +496,7 @@
   run, an exactly-expected violation passes.
 
   `:rf.assert/schema-error` is NOT dispatched into the frame (it has no
-  reg-event-fx handler — it is tape-evaluated), so collecting the DECLARED
+  reg-event handler — it is tape-evaluated), so collecting the DECLARED
   atoms here is the single path that feeds the consumption matcher.
 
   Defined as a FILTER over the shared `plan-assertion-atoms` collector —
@@ -946,7 +946,7 @@
 
   The tape-evaluated kinds (`:rf.assert/schema-error`, the causal / cascade
   family, the browser-tier oracle family) are NOT double-processed: they
-  carry no reg-event-fx handler, so `exec-assert!` records a no-op step-skip
+  carry no reg-event handler, so `exec-assert!` records a no-op step-skip
   for them and never dispatches — `result/run-result` already evaluates them
   against the epoch tape from the plan's `:schema-expectations` /
   `:causal-expectations` (collected by `plan-schema-expectations` /

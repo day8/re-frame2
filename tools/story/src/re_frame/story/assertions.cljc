@@ -25,7 +25,7 @@
   ## Record, don't throw (per `004-Assertions.md` §Record-don't-throw semantics)
 
   Each `:rf.assert/*` event is dispatched through the standard re-frame
-  cascade. The handler is a plain `reg-event-fx` that:
+  cascade. The handler is a plain `reg-event` handler that:
 
   1. Evaluates the assertion semantics against the frame's current app-db
      (or the subscribed value, or the trace bus, or the machine snapshot).
@@ -49,7 +49,7 @@
   a handler.
 
   Per the `downstream EPs consume foundation` rule each assertion is a
-  regular re-frame event registered against `re-frame.core/reg-event-fx`
+  regular re-frame event registered with `re-frame.core/reg-event`
   — Story adds NO new registry kind for assertions. The vocabulary is
   enumerable via `(rf/registrations :event #(re-find #\"^:rf\\.assert/\"
   (str (:id %))))` per the existing registrar query API.
@@ -64,7 +64,7 @@
     `:passed? true` (used by Stage 5's `run-variant` test entry, and by
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the recognised canonical assertion ids:
-    the seven REGISTERED `reg-event-fx` handlers PLUS the tape-evaluated
+    the seven REGISTERED `reg-event` handlers PLUS the tape-evaluated
     `:rf.assert/schema-error` (rf2-5x1wt.21), which plan construction
     recognises but which is deliberately NEVER installed as a handler
     (it is evaluated against the epoch tape in `result.cljc`, not
@@ -389,7 +389,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The canonical seven — defined as plain helper fns that produce the
 ;; assertion record. The `install-canonical-assertions!` boot fn wraps
-;; each in a `reg-event-fx` shell that consults the cofx for the frame
+;; each in a `reg-event` shell that consults the cofx for the frame
 ;; + dispatch-id and writes the record.
 ;; ---------------------------------------------------------------------------
 
@@ -597,7 +597,7 @@
 ;;
 ;; `:rf.assert/schema-error` declares that the run is EXPECTED to emit one
 ;; schema validation failure on a named surface. Unlike the seven app-db /
-;; trace-bus assertions it is NOT a `reg-event-fx` handler dispatched into
+;; trace-bus assertions it is NOT a `reg-event` handler dispatched into
 ;; the frame — it carries no app-db semantics. It is a TAPE-evaluated
 ;; expectation: the runner pairs each declared `:rf.assert/schema-error`
 ;; against the projected `:rf.error/schema-validation-failure` evidence
@@ -618,7 +618,7 @@
   NET-NEW `:rf.assert/schema-error` (rf2-5x1wt.21, spec/017 §Schema rule —
   the EXPECTED-schema-violation declaration). `:rf.assert/schema-error` is
   recognised (so plan construction accepts it) but is NOT installed as a
-  `reg-event-fx` handler: it is tape-evaluated in the result boundary, not
+  `reg-event` handler: it is tape-evaluated in the result boundary, not
   dispatched into the frame (see the section comment above)."
   #{id-path-equals
     id-path-matches
@@ -728,7 +728,7 @@
 ;; legal in exactly two positions: terminal `:assertions` and the in-script
 ;; `[:assert …]` checkpoint. Both positions produce ONE assertion-record
 ;; shape (the `[:assert …]` checkpoint dispatches the wrapped atom, whose
-;; reg-event-fx handler records the canonical record — rf2-5x1wt.17).
+;; reg-event handler records the canonical record — rf2-5x1wt.17).
 ;;
 ;; The shipping ergonomic script steps `:assert-db` / `:assert-dom` are NOT
 ;; authoring-distinct assertion kinds — they are sugar that FOLDS onto the
@@ -900,7 +900,7 @@
 ;; tape is the source of truth (spec/017 §Risks — "evidence projections
 ;; drift: use the epoch tape as source of truth").
 ;;
-;; Like `:rf.assert/schema-error` they carry NO `reg-event-fx` handler: they
+;; Like `:rf.assert/schema-error` they carry NO `reg-event` handler: they
 ;; are not dispatched into the frame, they are evaluated in the result
 ;; boundary (`re-frame.story.result/match-causal-expectations`) against the
 ;; projected `:reactive-counts`. They require the `:reactive-counts`
@@ -1014,7 +1014,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- handler-for-evaluator
-  "Build the `reg-event-fx` handler body for `assertion-id` whose
+  "Build the `reg-event` handler body for `assertion-id` whose
   evaluator returns the record extras.
 
   The handler reads `:db` directly from cofx — which the router has
@@ -1085,7 +1085,7 @@
   `004-Assertions.md` §Record-don't-throw semantics."
   []
   (when config/enabled?
-    ;; Internal event-db handler used by `record!`. Appends a record to
+    ;; Internal event handler used by `record!`. Appends a record to
     ;; the variant frame's [:rf.story/assertions] slot.
     (rf/reg-event
       ::append

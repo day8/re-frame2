@@ -6,7 +6,7 @@
   The defmacros themselves live in `re-frame.story` so end-users
   writing `(story/reg-story ...)` find `reg-story` as a Var on the
   public ns (matching the pattern `re-frame.core` uses for
-  `reg-event-db`).
+  `reg-event`).
 
   Per `001-Authoring.md` §Registration macros every emitted form threads through
   `(when re-frame.story.config/enabled? ...)` so the closure compiler
@@ -49,7 +49,7 @@
 
   Returns a compile-time Clojure form (a `cond->` expression) that
   evaluates to the map at runtime. Mirrors
-  `re-frame.core/reg-event-db`'s coord-capture pattern.
+  `re-frame.core/reg-event`'s coord-capture pattern.
 
   ## :file resolution (rf2-ulxi)
 

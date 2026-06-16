@@ -75,7 +75,7 @@
       (is (contains? events :rf.assert/state-is))
       (is (contains? events :rf.assert/no-warnings))
       (is (contains? events :rf.assert/effect-emitted))))
-  (testing ":rf.assert/schema-error is NOT a reg-event-fx handler (rf2-5x1wt.21)
+  (testing ":rf.assert/schema-error is NOT a reg-event handler (rf2-5x1wt.21)
             — it is tape-evaluated, not dispatched into the frame"
     (let [events (re-frame.registrar/registrations :event)]
       (is (not (contains? events :rf.assert/schema-error))))))

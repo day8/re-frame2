@@ -63,7 +63,7 @@
 ;; ===========================================================================
 ;; rf2-ysr4y — per-fx scenarios (HTTP / analytics / websocket / navigation)
 ;;
-;; Each scenario registers an event-fx that emits the fx-id under test, runs
+;; Each scenario registers an event that emits the fx-id under test, runs
 ;; a variant with the matching `force-fx-stub`, then asserts:
 ;;
 ;;   1. The lifecycle reaches :ready (no crash).

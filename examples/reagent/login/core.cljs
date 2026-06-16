@@ -116,7 +116,7 @@
 ;; machine `:data` slot, so neither the app-db schema-marks bridge
 ;; (`populate-sensitive-from-schemas!`) nor the machine `:data-schema` egress
 ;; bridge (`register-data-schema-marks!`) applies, and a machine handler does
-;; not stash event-arg `:sensitive` paths (reg-event-fx skips that for
+;; not stash event-arg `:sensitive` paths (reg-event skips that for
 ;; `:rf/machine?`). So this slot mark does NOT by itself redact the password
 ;; from the dispatched event vector. The password's real off-box egress path
 ;; is the HTTP request body — redacted by the per-request `:sensitive? true`
@@ -394,7 +394,7 @@
 ;; :auth.login/flow)` reads (so the `:where :machine-data` walker resolves the
 ;; `:data-schema` and it VALIDATES) AND bridges the schema's `:sensitive?` /
 ;; `:large?` slots into snapshot-egress redaction — both in one place. The
-;; former hand-stamped `reg-event-fx` + `make-machine-handler` composition
+;; former hand-stamped `reg-event` + `make-machine-handler` composition
 ;; (which ran neither side-effect automatically) is gone.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."

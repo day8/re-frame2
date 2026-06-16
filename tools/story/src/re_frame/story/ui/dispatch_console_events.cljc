@@ -13,7 +13,7 @@
   The dispatch console's autocomplete is read once per keystroke; the
   registry is process-global mutable state. A sub would require a
   reactive layer (a wrapper atom around the registrar that bumps on
-  every `reg-event-*`) and would deliver no useful caching since the
+  every `reg-event`) and would deliver no useful caching since the
   filter recomputes on every prefix change. A plain query fn is the
   honest shape — and it stays pure-data so tests can stub
   `registered-event-ids` via `with-redefs`.

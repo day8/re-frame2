@@ -341,7 +341,7 @@ markdown_extensions:
         # emit <pre class="language-cljs-rf2">; docs/tools/playground's bootstrap turns
         # each into a CM6 editor whose last form is MOUNTED as a reagent2
         # component, evaluated against re-frame2's OWN public API (re-frame.core
-        # v2 — reg-event-db / reg-sub / dispatch / subscribe). The re-frame2 SCI
+        # v2 — reg-event / reg-sub / dispatch / subscribe). The re-frame2 SCI
         # bundle (cljs/playground-rf2.js, built by docs/tools/playground/sci) is
         # loaded on demand only on pages that have a ```cljs-rf2 cell. Plain
         # ```cljs cells are unchanged.

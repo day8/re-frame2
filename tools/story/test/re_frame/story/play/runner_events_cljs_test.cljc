@@ -213,7 +213,7 @@
 (deftest run-terminal-assertions-skips-tape-evaluated-no-double-process
   (testing "a tape-evaluated terminal atom (:rf.assert/schema-error) is NOT
             dispatched by run-terminal-assertions! — it carries no
-            reg-event-fx handler; the result boundary owns its verdict
+            reg-event handler; the result boundary owns its verdict
             against the tape, so no handler-backed record is minted here
             (rf2-nyjoa critical guard against double-processing)"
     (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
@@ -415,7 +415,7 @@
 ;;
 ;; rf2-5x1wt.19 — the runtime now consumes the `.18`-folded plan: a shipping
 ;; `:assert-db` step is rewritten to the canonical `[:assert
-;; [:rf.assert/path-equals …]]` checkpoint, whose reg-event-fx handler
+;; [:rf.assert/path-equals …]]` checkpoint, whose reg-event handler
 ;; records the CANONICAL `:rf.assert/path-equals` record on the slot. There
 ;; is no longer a synthetic `:rf.assert/db` / `:rf.assert/dom` rail — one
 ;; assertion-record vocabulary.
@@ -1233,7 +1233,7 @@
 ;; An in-script `[:assert [:rf.assert/schema-error …]]` /
 ;; `[:assert [:rf.assert/caused …]]` / `[:assert [:rf.assert/no-cascade-
 ;; rerender …]]` checkpoint names a TAPE-EVALUATED assertion family: these
-;; ids carry NO `reg-event-fx` handler — the result boundary mints their
+;; ids carry NO `reg-event` handler — the result boundary mints their
 ;; verdict against the epoch tape (`re-frame.story.result`). Before the
 ;; `tape-evaluated-assertion?` guard, `exec-assert!` special-cased ONLY the
 ;; DOM family, so every other id (schema-error / causal) fell through to
@@ -1360,7 +1360,7 @@
 
 (deftest tape-evaluated-assertion?-classifies-every-non-dispatched-family
   (testing "schema-error and the causal family are tape-evaluated (no
-            reg-event-fx handler); the dispatchable seven, the DOM family,
+            reg-event handler); the dispatchable seven, the DOM family,
             and the browser-tier oracle family are NOT"
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/schema-error {}]))))
     (is (true? (boolean (tape-evaluated-assertion? [:rf.assert/caused {:event :e}]))))
@@ -1376,7 +1376,7 @@
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/a11y-structural])))
         "a11y-structural is routed to the browser executor, not this classifier")
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/path-equals [:k] 1])))
-        "a dispatchable canonical assertion (has a reg-event-fx handler) is NOT tape-evaluated")
+        "a dispatchable canonical assertion (has a reg-event handler) is NOT tape-evaluated")
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/state-is :loaded])))
         "another of the dispatchable seven is NOT tape-evaluated")
     (is (false? (boolean (tape-evaluated-assertion? [:rf.assert/dom-visible "div"])))

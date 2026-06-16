@@ -61,7 +61,7 @@ The orchestrator and the runner consume `playwright` and `http-server` out of `i
 
 ## Reagent
 
-The full set of worked examples — twenty-three in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. There is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
+The full set of worked examples — twenty-four in total (counting each 7GUIs task individually), each paired with a shadow-cljs build id. There is no per-example Playwright spec — adapter-level smoke coverage lives at [`implementation/adapters/reagent/testbed/spec.cjs`](../implementation/adapters/reagent/testbed/spec.cjs) and the broader contract coverage lives in `npm run test:cljs` / `test:xray-feature-gate` / `test:bundle-isolation` / `test:perf-bundle`.
 
 Build any example directly via shadow-cljs:
 

@@ -200,7 +200,7 @@
 ;; expansion logic lives in `re-frame.story.macros`; the defmacro forms
 ;; here are thin wrappers so consumers writing
 ;; `(:require [re-frame.story :as story])` find the macros on the
-;; public ns (mirroring `re-frame.core`'s pattern for `reg-event-db`).
+;; public ns (mirroring `re-frame.core`'s pattern for `reg-event`).
 ;;
 ;; Each macro captures `&form` meta + `*file*` + `(ns-name *ns*)` from
 ;; the caller's compile environment. The helper merges these into

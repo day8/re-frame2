@@ -10,7 +10,7 @@
     URI when the coord carries `:file`.
   - The chip carries the `data-test` hook for the e2e suite.
   - `open-chip-for-variant` reads `:source` off the variant body.
-  - rf2-r2un8 — `:rf.story/open-in-editor` reg-event-fx + `:rf.editor/open`
+  - rf2-r2un8 — `:rf.story/open-in-editor` reg-event + `:rf.editor/open`
     reg-fx produce a resolved URI through the same allowlist seam the
     chip uses (Xray-parity port)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -452,7 +452,7 @@
 ;; ---- resolve-uri (rf2-r2un8) --------------------------------------------
 ;;
 ;; `resolve-uri` is the extracted URI-building helper the chip path, the
-;; `open-source-coord!` imperative path, and the dispatch-based event-fx
+;; `open-source-coord!` imperative path, and the dispatch-based event
 ;; all share. Pinning its contract here means the chip's `:href`, the
 ;; inspector launcher, and the fx-emitted `:uri` always agree on the
 ;; URI shape — one source of truth. Mirrors Xray's resolve-uri (port
@@ -512,7 +512,7 @@
   the fx args without touching `window.location`. Same pattern Xray's
   test suite uses.
 
-  Per rf2-wn3bh the event-fx now emits the structured `:source-coord`
+  Per rf2-wn3bh the event now emits the structured `:source-coord`
   (so the fx can prefer the dev-server endpoint). The capture stub
   resolves the coord through the SAME `resolve-uri` helper the chip uses
   and records the resolved URI under `:uri` so the existing
