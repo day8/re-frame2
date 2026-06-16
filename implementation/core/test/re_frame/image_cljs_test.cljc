@@ -157,8 +157,10 @@
 
 ;; ============================================================================
 ;; :replace / :replace-standard — declared-winner maps (EP-0023 §Image
-;; Patching And Overrides). BARE structural slots — validated here (must be
-;; maps when supplied) and carried through uninterpreted.
+;; Patching And Overrides). The constructor validates the STRUCTURAL shape of
+;; each entry (the [kind id] key + the winner source coordinate, rf2-32siq3.20)
+;; and carries the validated map through uninterpreted; the SEMANTIC winner
+;; resolution against the actual selected collisions is the assembly slice's job.
 ;; ============================================================================
 
 (deftest image-rejects-non-map-replace-keys
@@ -182,13 +184,18 @@
 
 (deftest image-carries-replace-keys-through
   (testing "valid :replace / :replace-standard maps carry through to the value"
-    (let [rep      {[:event :counter/inc] :docs.counter.v3/counter-inc}
-          rep-std  {[:fx :http] :app.http/winner}
+    (let [rep      {[:event :counter/inc] {:ns "docs.counter.v3"}}
+          rep-std  {[:fx :http] {:standard true}}
           v        (image/image {:id :combo
                                  :replace          rep
                                  :replace-standard rep-std})]
       (is (= rep     (:replace v)))
       (is (= rep-std (:replace-standard v)))))
+  (testing "an inline winner coordinate carries through"
+    (let [rep {[:fx :checkout.http/post]
+               {:image :checkout/story :inline [:reg-fx :checkout.http/post]}}
+          v   (image/image {:id :checkout/story :replace rep})]
+      (is (= rep (:replace v)))))
   (testing "an empty :replace map is still carried through (present-when-supplied)"
     ;; cond-> branches on (:replace spec) truthiness; an empty map is truthy.
     (let [v (image/image {:id :e :replace {}})]
@@ -198,6 +205,92 @@
     (let [v (image/image {:id :bare :include-ns ["docs.counter.v2"]})]
       (is (not (contains? v :replace)))
       (is (not (contains? v :replace-standard))))))
+
+;; rf2-32siq3.20 — replacement map ENTRY-shape validation at the image boundary.
+;; Malformed keys / winner coordinates must fail loud at rf/image with an
+;; actionable :rf.error/invalid-image, BEFORE assembly's collision checks
+;; destructure the key (where a keyword key would surface as `nth not supported`).
+
+(deftest replace-key-must-be-a-kind-id-pair
+  (testing "a keyword :replace key (not a [kind id] vector) throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {:counter/inc {:ns "a.b"}}}))))
+  (testing "a wrong-arity key (1- or 3-element vector) throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:event] {:ns "a.b"}}})))
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:event :counter/inc :extra]
+                                                  {:ns "a.b"}}}))))
+  (testing "the bad-key diagnostic rides the top-level ex-data"
+    (let [data (try (image/image {:id :y :replace {:nope {:ns "a.b"}}})
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                      (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= :replace (:replace-map data)))
+      (is (= :nope (:bad-key data))))))
+
+(deftest replace-key-kind-must-be-supported
+  (testing "an unsupported registration kind in the key throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:bogus-kind :counter/inc]
+                                                  {:ns "a.b"}}}))))
+  (testing "the unsupported-kind diagnostic carries the bad kind"
+    (let [data (try (image/image {:id :y
+                                  :replace-standard {[:nope :x] {:standard true}}})
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                      (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= :replace-standard (:replace-map data)))
+      (is (= :nope (:bad-kind data))))))
+
+(deftest replace-winner-must-be-a-supported-coordinate
+  (testing "a keyword winner (not a coordinate map) throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:event :counter/inc]
+                                                  :docs.counter.v3/winner}}))))
+  (testing "a malformed registered coordinate (:ns not a string) throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:event :counter/inc]
+                                                  {:ns :not-a-string}}}))))
+  (testing "a registered coordinate with extra keys throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:event :counter/inc]
+                                                  {:ns "a.b" :stray 1}}}))))
+  (testing "a malformed inline coordinate (:inline not a 2-vector) throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :x
+                                        :replace {[:fx :checkout.http/post]
+                                                  {:image :s :inline [:reg-fx]}}}))))
+  (testing "the bad-winner diagnostic rides the top-level ex-data"
+    (let [data (try (image/image {:id :y
+                                  :replace {[:event :counter/inc] 99}})
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                      (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= 99 (:bad-winner data)))))
+  (testing "all three valid coordinate shapes are accepted"
+    (is (some? (image/image {:id :a :replace {[:event :e] {:ns "x.y"}}})))
+    (is (some? (image/image {:id :b
+                             :replace {[:fx :p]
+                                       {:image :s :inline [:reg-fx :p]}}})))
+    (is (some? (image/image {:id :c
+                             :replace-standard {[:fx :rf.nav/push-url]
+                                                {:standard true}}})))))
 
 ;; ============================================================================
 ;; inline :registrations — lowering to inline descriptors
@@ -247,6 +340,62 @@
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
                           (image/image {:registrations {:reg-event [:not-a-tuple]}})))))
+
+;; rf2-32siq3.18 — inline tuple ARITY is exact. EP-0023 §Image Fragments admits
+;; only [id metadata body] (handler) and [id metadata] (metadata-only). [id],
+;; [], non-vectors, and 4+-tuples fail loud at rf/image rather than being
+;; coerced (a [id] silently treated as nil-metadata, a [id meta body extra]
+;; silently dropping the extra slot).
+
+(deftest inline-accepts-exactly-two-and-three-tuples
+  (testing "a 3-tuple [id metadata body] is accepted (handler)"
+    (let [body (fn [_ _] {})
+          v    (image/image {:id :i
+                             :registrations {:reg-event [[:counter/inc {:doc "x"} body]]}})
+          d    (first (:rf.image/inline v))]
+      (is (= :counter/inc (:id d)))
+      (is (= body (:impl d)))
+      (is (= {:doc "x"} (:metadata d)))))
+  (testing "a 2-tuple [id metadata] is accepted (metadata-only)"
+    (let [v (image/image {:id :i :registrations {:reg-fx [[:my/fx {:doc "y"}]]}})
+          d (first (:rf.image/inline v))]
+      (is (= :my/fx (:id d)))
+      (is (not (contains? d :impl)))
+      (is (= {:doc "y"} (:metadata d))))))
+
+(deftest inline-rejects-too-short-tuple
+  (testing "a 1-tuple [id] (no metadata slot) throws :rf.error/invalid-image"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :i :registrations {:reg-event [[:counter/inc]]}}))))
+  (testing "an empty tuple [] throws"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :i :registrations {:reg-event [[]]}}))))
+  (testing "the diagnostic names the image, the section, and the offending entry"
+    (let [data (try (image/image {:id :my/image
+                                  :registrations {:reg-sub [[:counter/value]]}})
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                      (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= :my/image (:image data)))
+      (is (= :reg-sub (:section data)))
+      (is (= [:counter/value] (:entry data))))))
+
+(deftest inline-rejects-too-long-tuple
+  (testing "a 4-tuple [id metadata body extra] throws (extra slot not silently dropped)"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image
+                            {:id :i
+                             :registrations {:reg-event [[:counter/inc {} (fn [_ _] {}) :extra]]}}))))
+  (testing "the offending 4-tuple is named in the diagnostic"
+    (let [entry [:counter/inc {} (fn [_ _] {}) :extra]
+          data  (try (image/image {:id :i :registrations {:reg-event [entry]}})
+                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                       (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= entry (:entry data))))))
 
 (deftest anonymous-image-inline-omits-image-coordinate
   (testing "anonymous image inline descriptors omit :rf.provenance/image"

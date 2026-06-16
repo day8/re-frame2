@@ -220,19 +220,30 @@
   Stamps the inline source coordinate (`:rf.provenance/image` + the
   `:rf.provenance/inline [section id]` pair) so an inline descriptor has a
   stable name for errors and replacement winners. The body (when present) is
-  carried under `:impl`; the metadata under `:metadata` (omitted when empty)."
+  carried under `:impl`; the metadata under `:metadata` (omitted when empty).
+
+  The arity is EXACT: an inline entry MUST be a 3-tuple `[id metadata body]`
+  (handler) or a 2-tuple `[id metadata]` (metadata-only) — EP-0023 §Image
+  Fragments admits only those two shapes. A 1-tuple `[id]` (no metadata slot)
+  and a 4+-tuple `[id metadata body extra…]` (a trailing slot that would be
+  silently ignored) both fail loud rather than be coerced — a malformed
+  registration entry is a typo or a stale call shape, not a metadata-only
+  entry with `nil` metadata or an entry with an extra argument the framework
+  drops."
   [image-id section kind entry]
-  (when-not (and (vector? entry) (>= (count entry) 1))
+  (when-not (and (vector? entry) (<= 2 (count entry) 3))
     (error/throw-error!
       :rf.error/invalid-image
       'rf/image
-      (str "rf/image: inline " section " entry must be a [id metadata body] or "
-           "[id metadata] tuple — got " (pr-str entry) ".")
+      (str "rf/image: inline " section " entry must be a [id metadata body] "
+           "(handler) or [id metadata] (metadata-only) tuple — got " (pr-str entry)
+           " (" (if (vector? entry) (str "arity " (count entry)) "not a vector")
+           ").")
       {:recovery :use-a-call-shaped-tuple
        :extra    {:image image-id :section section :entry entry}}))
   (let [id       (nth entry 0)
         metadata (nth entry 1 nil)
-        has-body (>= (count entry) 3)
+        has-body (= 3 (count entry))
         body     (when has-body (nth entry 2))]
     (cond-> {:kind                kind
              :id                  id
@@ -295,10 +306,93 @@
   declared-winner maps (`{[kind id] winner-source-coordinate}`). They are BARE
   structural slots (the EP-0017 v5 line, per Conventions §`:rf.image/*`) carried
   through UNINTERPRETED here — the image value is inert data; the assembly slice
-  (rf2-32siq3.4) reads them to resolve collisions. This slice validates only
-  that each is a map (its detailed winner-coordinate validation against the
-  actual selected collisions is the assembly slice's fail-loud job)."
+  (rf2-32siq3.4) reads them to resolve collisions. The constructor validates the
+  STRUCTURAL shape of each entry (`validate-replacement-map!`): the map and each
+  key/value, so a malformed key or winner coordinate fails loud at `rf/image`
+  with an actionable diagnostic rather than reaching assembly's collision checks
+  as a generic `nth not supported` destructuring error or a misleading
+  no-collision report (rf2-32siq3.20). The SEMANTIC winner-coordinate validation
+  AGAINST the actual selected collisions (does this key really collide? does the
+  coordinate name exactly one selected descriptor?) stays the assembly slice's
+  fail-loud job."
   #{:id :include-ns :registrations :rf.image/requires :replace :replace-standard})
+
+(def ^:private valid-kinds
+  "The closed registry-kind set a `:replace` / `:replace-standard` key may name,
+  derived from `reg-section->kind`'s values so it stays in lockstep with the
+  closed `re-frame.registrar/kinds` set without coupling this pure ns to the
+  registrar (which would pull `interop` and friends onto this otherwise
+  `re-frame.error`-only slice)."
+  (set (vals reg-section->kind)))
+
+(defn- valid-winner-coordinate?
+  "True when `coord` is a structurally well-formed replacement winner SOURCE
+  coordinate (EP-0023 §Image Fragments — the descriptor source-coordinate shape
+  produced by `image-assembly/descriptor-coordinate`). One of:
+
+    {:ns \"source.ns\"}                      a registered descriptor (string ns)
+    {:image <id> :inline [section id]}      an inline descriptor
+    {:standard true}                        a framework-standard descriptor
+
+  Structural only — whether the coordinate actually names a selected descriptor
+  is the assembly slice's semantic job. Pure."
+  [coord]
+  (boolean
+    (and (map? coord)
+         (or (and (string? (:ns coord)) (= #{:ns} (set (keys coord))))
+             (and (some? (:image coord))
+                  (let [inl (:inline coord)]
+                    (and (vector? inl) (= 2 (count inl))))
+                  (= #{:image :inline} (set (keys coord))))
+             (and (true? (:standard coord)) (= #{:standard} (set (keys coord))))))))
+
+(defn- validate-replacement-map!
+  "Fail-loud STRUCTURAL validation of a `:replace` / `:replace-standard` map at
+  the image boundary (rf2-32siq3.20). `map-key` is `:replace` or
+  `:replace-standard` (named in diagnostics); `m` the declared-winner map;
+  `image-id` the containing image's id (when known). Pure.
+
+  Each entry MUST be an exact two-element `[kind id]` vector key — the `kind` a
+  member of the closed registry-kind set — mapping to a supported winner source
+  coordinate (`{:ns …}`, `{:image … :inline [section id]}`, or
+  `{:standard true}`). A malformed key (non-vector, wrong arity, or an
+  unsupported kind) or a malformed winner coordinate throws
+  `:rf.error/invalid-image` with an actionable diagnostic BEFORE assembly's
+  `check-replacement-keys-collide!` destructures the key — so a keyword key no
+  longer surfaces as `nth not supported`, and a typo'd coordinate no longer
+  masquerades as a stale winner. The SEMANTIC checks (real collision? winner
+  names exactly one selected descriptor?) remain the assembly slice's job."
+  [image-id map-key m]
+  (doseq [[k winner] m]
+    (when-not (and (vector? k) (= 2 (count k)))
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: " map-key " key must be an exact two-element [kind id] "
+             "vector — got " (pr-str k)
+             " (" (if (vector? k) (str "arity " (count k)) "not a vector") ").")
+        {:recovery :use-a-kind-id-pair-key
+         :extra    {:image image-id :replace-map map-key :bad-key k}}))
+    (let [kind (nth k 0)]
+      (when-not (contains? valid-kinds kind)
+        (error/throw-error!
+          :rf.error/invalid-image
+          'rf/image
+          (str "rf/image: " map-key " key " (pr-str k) " names an unsupported "
+               "registration kind " (pr-str kind) " — use one of "
+               (pr-str (vec (sort valid-kinds))) ".")
+          {:recovery :use-a-supported-registration-kind
+           :extra    {:image image-id :replace-map map-key :bad-key k :bad-kind kind}})))
+    (when-not (valid-winner-coordinate? winner)
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: " map-key " winner for key " (pr-str k)
+             " must be a source coordinate map — {:ns \"source.ns\"}, "
+             "{:image image-id :inline [section id]}, or {:standard true} — got "
+             (pr-str winner) ".")
+        {:recovery :use-a-supported-winner-source-coordinate
+         :extra    {:image image-id :replace-map map-key :bad-key k :bad-winner winner}}))))
 
 (defn image
   "Construct an IMAGE value — a selected registration-set value, as INERT data
@@ -338,8 +432,11 @@
 
   PURE — no realm, no registrar, no side effect (an `image` call is data, not
   registration). Throws `:rf.error/invalid-image` when `:include-ns` is not a
-  vector of strings, when an inline entry is malformed, or when the spec carries
-  an unknown top-level key."
+  vector of strings, when an inline entry is not a `[id metadata]` /
+  `[id metadata body]` tuple, when the spec carries an unknown top-level key,
+  or when a `:replace` / `:replace-standard` entry is structurally malformed
+  (a non-`[kind id]` key, an unsupported kind, or an unsupported winner source
+  coordinate)."
   [spec]
   (when-not (map? spec)
     (error/throw-error!
@@ -379,7 +476,10 @@
             (str "rf/image: " k " must be a map from a [kind id] pair to a "
                  "winner source coordinate — got " (pr-str m) ".")
             {:recovery :use-a-replacement-winner-map
-             :extra    {:image id :bad-key k :received m}}))))
+             :extra    {:image id :bad-key k :received m}}))
+        ;; Structural validation of each entry (rf2-32siq3.20): the [kind id]
+        ;; key and the winner source coordinate, fail-loud before assembly.
+        (validate-replacement-map! id k m)))
     (cond-> {:rf.image/include-ns include-ns
              :rf.image/inline     (registrations->inline-descriptors
                                     id (get spec :registrations {}))
