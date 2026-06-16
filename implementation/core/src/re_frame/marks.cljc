@@ -1530,6 +1530,48 @@
       (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true)
       tags)))
 
+(defn- project-flow-failed-tags
+  "Walk the `:rf.flow/failed` tag shape (rf2-iqh5yf). The trace carries the
+  throwing flow's structured exception summary — `:exception-message` (plain
+  string) + `:exception-data` (the ex-info `ex-data` map) — alongside
+  `:flow-id` / `:inputs` / `:frame`. The `:inputs` slot already rode the
+  wire-elision walker at emit time (`re-frame.flows/elide-inputs`); the
+  `:exception-data` map is the developer's arbitrary, author-keyed payload —
+  the SAME exposure class `project-machine-error-tags` covers for a thrown
+  machine action's `ex-data`.
+
+  Per [Security.md §Author guidance for exceptions under path-level
+  `:sensitive?`] the framework does NOT taint-track values into ex-data
+  keys — a flow `:output` that throws `(ex-info msg {:token tok})` over a
+  sensitive input has put the secret at an author-chosen key the path-keyed
+  walker cannot resolve. So the conservative, footgun-prevention posture
+  (mirroring the machine path and `resolve-sub-output-marks`'s layer-1
+  treatment): when the flow's FRAME declares ANY sensitive elision
+  declaration — the frame handles secrets, and a flow read one — elide the
+  WHOLE `:exception-data` slot to `:rf/redacted` and stamp `:sensitive? true`
+  before the error trace crosses the bus / epoch-capture / AI-MCP egress
+  boundary. The structural slots (`:flow-id` / `:frame` / `:exception-message`
+  / `:inputs`) stay intact: `:flow-id` / `:frame` carry no user value and are
+  the attribution consumers need; `:inputs` was already elided; the
+  category-only `:exception-message` is left as-is (per the same author
+  guidance — name the failure category, not the value).
+
+  A flow whose frame declares NO SENSITIVE classification rides
+  `:exception-data` verbatim (precise, not a blanket scrub — symmetric with
+  every other per-registration projection; gated on SENSITIVE declarations
+  only, like `project-machine-error-tags`'s `(seq (:sensitive marks))` —
+  `:large` does not apply: the slot is a developer-shaped diagnostic, not an
+  app-data path graph). Frame resolution comes off `:frame`; a nil /
+  unresolvable frame FAILS CLOSED (redacts), matching `elide-wire-value`."
+  [tags]
+  (let [frame-id (:frame tags)]
+    (if (and (contains? tags :exception-data)
+             (some? (:exception-data tags))
+             (or (nil? frame-id)
+                 (seq (elision/sensitive-declarations frame-id))))
+      (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true)
+      tags)))
+
 (defn- machine-op?
   [operation]
   (let [n (and (keyword? operation) (namespace operation))]
@@ -1694,6 +1736,20 @@
                            (contains? tags :rf.interceptor/override-summary))
                       (project-override-summary-tags)
 
+                      ;; rf2-iqh5yf — the `:rf.flow/failed` trace carries a
+                      ;; throwing flow's structured exception summary, including
+                      ;; the developer's arbitrary `:exception-data` ex-info map.
+                      ;; A flow `:output` that throws over a sensitive input may
+                      ;; smuggle the secret into an author-keyed ex-data slot the
+                      ;; path-keyed walker cannot resolve, so redact the whole
+                      ;; `:exception-data` fail-closed when the flow's frame
+                      ;; declares sensitivity (the flows analogue of the machine
+                      ;; clause below). Keyed on the operation so it reaches the
+                      ;; flow op-type's `:exception-data` distinctly from the
+                      ;; machine error category.
+                      (and (map? tags) (= :rf.flow/failed operation))
+                      (project-flow-failed-tags)
+
                       ;; rf2-zsm03 — the `:rf.error/machine-action-exception`
                       ;; trace carries the thrown action's `ex-data` under a
                       ;; bare `:exception-data` slot. Its op namespace is
@@ -1702,7 +1758,11 @@
                       ;; machine's declared `:sensitive` marks here so an
                       ;; action that throws app secrets inside a sensitive
                       ;; machine does not leak them past the egress boundary.
-                      (and (map? tags) (contains? tags :exception-data))
+                      ;; Guarded off the flow op so the two `:exception-data`
+                      ;; carriers route to their own projector.
+                      (and (map? tags)
+                           (not= :rf.flow/failed operation)
+                           (contains? tags :exception-data))
                       (project-machine-error-tags))]
       (assoc event :tags tags'))))
 
