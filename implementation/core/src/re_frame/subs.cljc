@@ -34,6 +34,7 @@
   policies, no deferred-grace timer, no batched dispose."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
+            [re-frame.live-frame :as live-frame]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -862,6 +863,23 @@
                v*       (maybe-validate-sub-override! v query-v sub-meta frame-id)]
            (adapter/make-derived-value [] (constantly v*)))))))
 
+(defn- frame-resolution-target
+  "EP-0023 §Frame-derived live registration resolution (rf2-uejnt3): given the
+  CARRIED frame target `subscribe` holds in `frame-id`, return the EP-0023 frame
+  OBJECT to derive the resolution generation from — the object itself when the
+  target IS one (the direct-object `(rf/subscribe frame query-v)` form), or the
+  live-frame registry's object for a frame-id KEYWORD. nil for any target that
+  names no live image-loaded frame — the absence-is-default signal that
+  `live-frame/call-with-frame-resolution` binds NOTHING and the build resolves
+  through the registrar atom path, byte-identical for every existing caller.
+  Mirrors `re-frame.router/frame-resolution-target` (the dispatch-side twin).
+  Pure read of the carried target + the process-local live-frame registry."
+  [target]
+  (cond
+    (live-frame/frame-object? target) target
+    (keyword? target)                 (live-frame/live-frame target)
+    :else                             nil))
+
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity ambient form
@@ -992,8 +1010,22 @@
    ;; (`frame/realm-registrar-for-frame` returns nil) — byte-identical to the
    ;; pre-realm subscribe path. DERIVED from the carried frame-id, never ambient
    ;; (EP-0002).
+   ;;
+   ;; EP-0023 (rf2-uejnt3): ALSO route the BUILD path through the target frame's
+   ;; resolved IMAGE generation when `frame-id` names an image-loaded frame —
+   ;; NESTED inside the realm binding so `registrar/lookup :sub` (and the layer-2+
+   ;; input `subscribe` calls inside `compute-and-cache!`) resolve the sub handler
+   ;; through the frame's OWN image (rf2-32siq3.9's seam, invoked at the live
+   ;; subscribe entry). Two frames running DIFFERENT images thus build the same
+   ;; sub-id against their own image's descriptor. A target naming no image-loaded
+   ;; frame (every realm-only / single-realm frame) derives no generation, so this
+   ;; binds nothing and the build resolves through the registrar atom exactly as
+   ;; before (absence-is-default). DERIVED from the carried target (EP-0002).
    (frame/call-with-frame-realm-registrar
      (frame/frame frame-id)
+     (fn []
+   (live-frame/call-with-frame-resolution
+     (frame-resolution-target frame-id)
      (fn []
    (or
      #?(:cljs
@@ -1061,7 +1093,7 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v)))))))))) ;; close fn + call-with-frame-realm-registrar (rf2-a15n62)
+             (compute-and-cache! frame-id query-v)))))))))))) ;; close fn + call-with-frame-resolution (rf2-uejnt3) + fn + call-with-frame-realm-registrar (rf2-a15n62)
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then
