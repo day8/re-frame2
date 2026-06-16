@@ -201,6 +201,31 @@
   (testing "valid map + trailing scalar ⇒ ::malformed"
     (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} 42")]
       (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  ;; rf2-rtg9t1 — `]`-injection. The earlier wrap-in-`[…]` guard accepted
+  ;; a ONE-element vector; attacker text `{…}] <junk>` wraps to
+  ;; `[{…}] <junk>]` where the injected `]` closes the wrapper EARLY, so
+  ;; `read-string` reads the clean 1-element vector `[{…}]` and silently
+  ;; discards the trailing junk → the cursor was ACCEPTED. The
+  ;; EOF-sentinel exhaustion check rejects it: the injected `]` truncates
+  ;; the read before the appended sentinel, so the result no longer ends
+  ;; with the sentinel ⇒ ::malformed.
+  (testing "valid map + injected ] + trailing map ⇒ ::malformed (not silently accepted)"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] {:junk 1}")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "valid map + injected ] + trailing scalar ⇒ ::malformed"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] 42")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "valid map + injected ] + trailing tagged literal ⇒ ::malformed"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}] #foo/bar 1")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "valid map + injected ] alone (no trailing form) ⇒ ::malformed"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}]")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "attacker reproduces the eof sentinel keyword as a trailing form ⇒ ::malformed"
+    (let [evil (cursor/b64-encode
+                 (str "{:v 1 :offset 0 :total 1 :sig \"s\"} "
+                      (pr-str :re-frame.mcp-base.cursor/cursor-eof-sentinel)))]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
   (testing "a single clean cursor (incl. trailing whitespace) still round-trips"
     (let [clean (cursor/encode-cursor {:v 1 :offset 0 :total 1 :sig "s"})]
       (is (= {:v 1 :offset 0 :total 1 :sig "s"}

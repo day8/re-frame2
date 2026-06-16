@@ -298,6 +298,23 @@
              (cursor/decode-cursor
                (cursor/b64-encode "{:v 1 :after-id 1} 42")
                pair?))))
+    ;; rf2-rtg9t1 — `]`-injection runs identically on cljs.reader. The
+    ;; injected `]` closes the wrap-in-`[…]` early; the EOF-sentinel
+    ;; exhaustion check rejects because the truncated read no longer ends
+    ;; with the appended sentinel.
+    (testing "valid map + injected ] + trailing junk ⇒ ::malformed"
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor
+               (cursor/b64-encode "{:v 1 :after-id 1}] {:junk 1}")
+               pair?)))
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor
+               (cursor/b64-encode "{:v 1 :after-id 1}] 42")
+               pair?)))
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor
+               (cursor/b64-encode "{:v 1 :after-id 1}]")
+               pair?))))
     (testing "a single clean cursor still round-trips"
       (is (= {:v 1 :after-id "ev-9"}
              (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"}) pair?))))))

@@ -160,6 +160,15 @@
                    :recovery    :no-recovery
                    :reason      "EDN cursor decoded to more than one form — a cursor is one opaque payload map"})))
 
+(def ^:private eof-sentinel
+  "A sentinel keyword appended after the decoded cursor text to assert
+  the reader consumed the ENTIRE wrapped string (the string-host analog
+  of an `:eof` read sentinel — see `read-edn-no-tags`). Qualified +
+  unguessable so that even attacker-supplied text reproducing this exact
+  literal cannot pass the exhaustion check (a cursor must still be a
+  single payload map FOLLOWED by the sentinel — two forms, no more)."
+  ::cursor-eof-sentinel)
+
 (defn- read-edn-no-tags
   "Read a cursor's decoded EDN string as EXACTLY ONE form, with EVERY
   tagged literal rejected — built-in (`#inst` / `#uuid`) AND custom
@@ -169,7 +178,7 @@
   `:rf.error/mcp-cursor-bad-edn-tag` on every remaining unregistered
   tag.
 
-  ## One form, EOF-exhausted (rf2-ykv9a0)
+  ## One form, EOF-exhausted (rf2-ykv9a0, hardened rf2-rtg9t1)
 
   A cursor is ONE opaque payload map; a token whose decoded text is a
   valid map FOLLOWED by a second form — e.g.
@@ -179,24 +188,39 @@
   trailing object and weaken the opacity / corruption guard). A plain
   `read-string` reads only the FIRST form and never checks exhaustion.
 
-  We close that by wrapping the decoded text in `[ … ]` and reading the
-  WHOLE thing as one vector: a single clean form yields a one-element
-  vector (trailing whitespace / comments are absorbed), while ANY
-  trailing form yields a 2+-element vector → `bad-trailing!`. This is a
-  pure-`read-string` technique that behaves identically on the JVM
+  The earlier fix wrapped the text in `[ … ]` and accepted a
+  ONE-element vector. That guard was bypassable by `]`-INJECTION
+  (rf2-rtg9t1): attacker text `{…valid map…}] <junk>` wraps to
+  `[{…}] <junk>]`, where the injected `]` closes the wrapper early —
+  `read-string` reads the clean 1-element vector `[{…}]`, returns the
+  inner map, and SILENTLY DISCARDS everything after the injected `]`.
+
+  We close that by asserting reader EXHAUSTION via an appended sentinel:
+  wrap as `[ <text> <eof-sentinel> ]` and require the read to yield
+  EXACTLY `[<one-form> <eof-sentinel>]` — a 2-element vector whose
+  SECOND element is the sentinel. The sentinel can only land as the
+  trailing element if the reader consumed the WHOLE wrapped string
+  (no early-`]` truncation): an injected `]` truncates the read before
+  the sentinel (vector does NOT end with it ⇒ `bad-trailing!`), and any
+  genuine trailing form pushes the count past 2 (also `bad-trailing!`).
+  Trailing whitespace / comments are absorbed. This is a pure
+  `read-string` technique that behaves identically on the JVM
   (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either
   host's pushback-reader internals. Tagged literals anywhere inside the
   wrapped text still throw via the readers above. Returns the sole
-  decoded form (so the caller's `map?` / `valid?` checks are unchanged).
-  Caught by the surrounding try in `decode-cursor` → `::malformed`."
+  decoded payload form (so the caller's `map?` / `valid?` checks are
+  unchanged). Caught by the surrounding try in `decode-cursor` →
+  `::malformed`."
   [s]
   (let [opts    {:readers no-tag-readers
                  :default (fn [tag _val] (bad-tag! tag))}
-        wrapped (str "[" s "]")
+        wrapped (str "[" s " " (pr-str eof-sentinel) "]")
         forms   #?(:clj  (edn/read-string opts wrapped)
                    :cljs (cljs.reader/read-string opts wrapped))]
-    (if (and (vector? forms) (= 1 (count forms)))
-      (first forms)
+    (if (and (vector? forms)
+             (= 2 (count forms))
+             (= eof-sentinel (nth forms 1)))
+      (nth forms 0)
       (bad-trailing!))))
 
 (defn decode-cursor
