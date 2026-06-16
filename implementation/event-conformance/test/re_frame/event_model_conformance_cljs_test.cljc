@@ -153,9 +153,16 @@
           "the `{:db …}` effect committed cumulatively (the db-write IS an effect)"))))
 
 (deftest reg-event-handler-receives-the-canonical-coeffect-keys
-  (testing "EP-0018 §4 + spec/002 §Event handlers: the coeffects map a handler
-            receives carries `:db`, `:event`, `:rf.frame/id`, `:rf.db/runtime`,
-            and `:rf.cofx` — the framework-supplied baseline (NO `:event/kind`)"
+  (testing "EP-0018 §4 + spec/002 §Event handlers + EP-0017 §3/§5: the coeffects
+            map a handler receives carries `:db`, `:event`, `:rf.frame/id`,
+            `:rf.db/runtime`, and the canonical complete `:rf.cofx` RECORD — the
+            framework-supplied baseline (NO `:event/kind`). `:rf.cofx` is the
+            envelope's flat recordable-coeffect record reachable through the
+            context for generic code (per EP-0017 §5); the handler's DECLARED
+            facts are delivered FLAT under their own ids (see
+            `reg-event-rf-cofx-requires-delivers-the-fact-flat`), NOT nested
+            here. The retired `:rf.world/inputs` successor is GONE from the
+            baseline (the flat-envelope rename — EP-0017 §3)"
     (let [cofx (atom ::unset)]
       (rf/reg-event :evt-conf/inspect-cofx
         (fn [coeffects _] (reset! cofx coeffects) {}))
@@ -169,8 +176,67 @@
         (is (= :rf/default (:rf.frame/id c))
             "the ambient frame id is delivered as `:rf.frame/id`")
         (is (contains? c :rf.db/runtime) "`:rf.db/runtime` present in the coeffects map")
+        (is (contains? c :rf.cofx)
+            "the canonical complete `:rf.cofx` record is reachable in the coeffects map (the flat envelope record — EP-0017 §5)")
+        (is (map? (:rf.cofx c))
+            "`:rf.cofx` is the FLAT recordable-coeffect map (fact-name → value, no grouping sub-maps)")
+        (is (not (contains? c :rf.world/inputs))
+            "the retired `:rf.world/inputs` successor is GONE from the coeffects baseline (EP-0017 §3 flat rename)")
         (is (not (contains? c :event/kind))
             "the `:event/kind` sub-tag is GONE from the coeffects map (one form)")))))
+
+(deftest dispatch-opt-rf-world-inputs-is-the-world-inputs-renamed-hard-error
+  (testing "EP-0017 §3/§8 (rf2-k51wm0) — the OLD coeffect key: supplying the
+            retired `:rf.world/inputs` DISPATCH OPT is the hard error
+            `:rf.error/world-inputs-renamed`, naming `:rf.cofx` as the
+            replacement (no alias, no coexistence window — EP-0007 rule 2). The
+            recordable-coeffect map moved to the flat `:rf.cofx` envelope field;
+            supplying the old key fails LOUDLY rather than being silently
+            ignored. This is an always-on correctness contract (fires in
+            production too). The umbrella tier lacked this old-key negative lock.
+            A regression that re-accepted `:rf.world/inputs` (silently, or as an
+            alias) turns this RED"
+    (rf/reg-event :evt-conf/inspect-renamed (fn [_ _] {}))
+    (let [thrown (thrown-error-id
+                   #(rf/dispatch-sync [:evt-conf/inspect-renamed]
+                                      {:rf.world/inputs {:rf/time-ms 1781078400123}}))]
+      (is (= :rf.error/world-inputs-renamed thrown)
+          "the retired `:rf.world/inputs` dispatch opt is the hard error :rf.error/world-inputs-renamed"))
+    (let [reason (thrown-error-reason
+                   #(rf/dispatch-sync [:evt-conf/inspect-renamed]
+                                      {:rf.world/inputs {:rf/time-ms 1781078400123}}))]
+      (is (string? reason)
+          "the renamed-key error carries a :reason string")
+      (is (re-find #":rf.cofx" reason)
+          "the renamed-key error names `:rf.cofx` as the replacement (the flat envelope field)"))))
+
+(deftest live-event-coeffects-carry-no-rf-world-inputs-flat-delivery
+  (testing "EP-0017 §3/§5 (rf2-k51wm0) — the flat / no-live-world-inputs
+            contract: a live event's coeffects (and the supplied recordable
+            facts) carry the flat `:rf.cofx` record, NOT the retired
+            `:rf.world/inputs` nested envelope. A handler DECLARING a recordable
+            fact receives it FLAT under its id, while the canonical `:rf.cofx`
+            record (present in the coeffects) is flat too — there is NO
+            `:rf.world/inputs` key anywhere in the live coeffects, and no nested
+            `:cofx` successor. This locks the positive flat delivery against the
+            negative absence of the old shape in ONE assertion bundle. A
+            regression that re-introduced an `:rf.world/inputs` nested map in the
+            live coeffects turns this RED"
+    (let [c (atom ::unset)]
+      (rf/reg-event :evt-conf/flat-delivery
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [coeffects _] (reset! c coeffects) {}))
+      (rf/dispatch-sync [:evt-conf/flat-delivery]
+                        {:rf.cofx {:rf/time-ms 1781078400123}})
+      (let [cofx @c]
+        (is (= 1781078400123 (:rf/time-ms cofx))
+            "the declared recordable fact arrived FLAT under its id (:rf/time-ms), not nested")
+        (is (not (contains? cofx :rf.world/inputs))
+            "the live coeffects carry NO `:rf.world/inputs` key (the retired nested envelope is gone)")
+        (is (not (contains? cofx :cofx))
+            "the live coeffects carry NO nested `:cofx` successor (flat delivery only)")
+        (is (= 1781078400123 (get (:rf.cofx cofx) :rf/time-ms))
+            "the canonical complete record under `:rf.cofx` is the FLAT recordable map (fact-name → value)")))))
 
 (deftest reg-event-second-arg-is-the-event-vector
   (testing "EP-0018 §1 (D4): the handler is TWO-ARG `(fn [coeffects event-vec])`
