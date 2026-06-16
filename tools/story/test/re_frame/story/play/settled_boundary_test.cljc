@@ -14,6 +14,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core   :as rf]
             [re-frame.frame  :as frame]
+            [re-frame.interop :as interop]
             [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.registrar :as registrar]))
@@ -217,6 +218,49 @@
         (is (not= :settled (:status res)) "a flush timeout is never a settled pass")
         (is (empty? @ran)
             "the over-budget flush phase ran no flush fn (deadline already past)")
+        (is (true? (:fired (rf/app-db-value bf)))
+            "the event was dispatched before the bounded flush phase refused")))))
+
+(deftest timeout-ms-terminal-flush-over-budget-refuses
+  (testing "when the TERMINAL (richest) flush itself blows the wall-clock
+            budget, the settle is refused with :cannot-run/:flush-timeout —
+            never a silent :settled pass. The deadline check after each
+            flush MUST also cover the last flush in the ladder (rf2-65bnwl):
+            the top-of-loop check passes for the terminal :dom level (budget
+            not yet spent), the :dom flush then runs over budget, and the
+            settle must NOT report :settled."
+    (let [ran    (atom [])
+          ;; A small positive budget: the :cljs-reactive flush stays within
+          ;; it, then the terminal :dom flush deterministically pushes the
+          ;; wall clock past the deadline by busy-spinning on now-ms (no
+          ;; platform sleep — works on JVM + CLJS). This is the ONLY level
+          ;; whose post-flush deadline check the buggy code skipped.
+          budget 30
+          hooks  {:provides   :dom
+                  :timeout-ms budget
+                  :dispatch!  (fn [frame-id evec]
+                                (boundary/drain-sync! frame-id evec))
+                  :flush!     {:cljs-reactive (fn [_] (swap! ran conj :reactive))
+                               :dom           (fn [_]
+                                                (swap! ran conj :dom)
+                                                ;; burn well past the deadline
+                                                ;; so the post-flush check is
+                                                ;; unambiguously over budget
+                                                (let [stop (+ (interop/now-ms)
+                                                              (* 4 budget))]
+                                                  (while (< (interop/now-ms) stop) nil)))}}]
+      (rf/reg-event :timeout/terminal (fn [{:keys [db]} _] {:db (assoc db :fired true)}))
+      (let [res (boundary/dispatch-and-settle! bf [:timeout/terminal] hooks :dom [:click "b"])]
+        (is (not= :settled (:status res))
+            "an over-budget TERMINAL flush is never a settled pass")
+        (is (= :cannot-run    (:status res)))
+        (is (= :flush-timeout (:reason res)))
+        (is (= :dom           (:required-boundary res)))
+        (is (= :dom           (:provided-boundary res)))
+        (is (= [:click "b"]   (:step res)))
+        (is (= [:reactive :dom] @ran)
+            "the terminal flush DID run (it was within budget on entry); the
+             refusal is detected by the post-flush deadline re-check")
         (is (true? (:fired (rf/app-db-value bf)))
             "the event was dispatched before the bounded flush phase refused")))))
 
