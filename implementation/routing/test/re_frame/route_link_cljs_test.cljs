@@ -22,6 +22,10 @@
   API.md `route-link` row's click-rules paragraph."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-o3nam4: the delayed-click regression rebinds the ambient
+            ;; frame scope directly to model a real browser click firing
+            ;; after the render-time frame/provider scope has unwound.
+            [re-frame.frame :as frame]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.routing :as routing]
@@ -296,3 +300,96 @@
       (is prevented? "the framework still called preventDefault")
       (is (= :rf/url-requested (first dispatched))
           "the framework dispatched :rf/url-requested"))))
+
+;; ---- rf2-o3nam4: the click must carry the RENDER-TIME frame ---------------
+;;
+;; A real browser click runs LONG after render: the render-time dynamic
+;; `with-frame` / frame-provider scope has already unwound by the time the
+;; user clicks. Because `:route/link` is registered via `reg-view*` with the
+;; prebuilt `route-link-render` fn, it does NOT get the `reg-view` macro's
+;; injected render-time frame capture — so a pre-fix on-click closure that
+;; dispatches with only `{:source :router}` resolves the frame AMBIENTLY at
+;; click time. Clicked outside any scope that raises
+;; `:rf.error/no-frame-context`; clicked under a DIFFERENT ambient frame it
+;; silently routes the navigation to the wrong frame.
+;;
+;; The fix captures the rendering frame ONCE at render time and dispatches
+;; `:rf/url-requested` into THAT frame (preserving `:source :router`). These
+;; tests render the link under a non-default frame, then fire the click after
+;; the render scope has unwound — modelling the genuine delayed-click path the
+;; existing same-scope tests above cannot reach.
+
+(defn- click-after-scope-unwound!
+  "Render `route-link` with `props` while a `with-frame` scope pins
+  `render-frame`, capture the on-click closure, THEN invoke it with the
+  ambient frame scope cleared to `click-scope-frame` (nil ⇒ no scope at
+  all — the genuine post-render browser-click condition). Returns the
+  TARGET frame the resulting `:rf/url-requested` dispatch routed to (read
+  off the `:rf.event/dispatched` trace's `:frame` slot), plus whether the
+  click raised, and `:source`.
+
+  Capturing the closure under one frame and firing it under another (or
+  none) is exactly the async boundary a `setTimeout` / real DOM click
+  crosses; the render-time scope is gone by click time."
+  [props render-frame click-scope-frame]
+  (let [target (atom nil)
+        source (atom nil)
+        cb-key (keyword (gensym "delayed-click-"))]
+    (trace-tooling/register-listener!
+      cb-key
+      (fn [ev]
+        (when (and (= :rf.event/dispatched (:operation ev))
+                   (vector? (-> ev :tags :rf.event/v))
+                   (= :rf/url-requested (-> ev :tags :rf.event/v first)))
+          ;; The target frame rides under :tags (build-event hoists only
+          ;; :source / :recovery / :call-site to the top level — :frame
+          ;; stays in :tags); :source IS hoisted top-level.
+          (reset! target (-> ev :tags :frame))
+          (reset! source (:source ev)))))
+    (try
+      ;; RENDER under the render-frame scope, capture the closure.
+      (let [on-click (rf/with-frame render-frame
+                       (let [[_ attrs] (routing/route-link-render props)]
+                         (:on-click attrs)))
+            ;; FIRE after the render scope has unwound, under the click-time
+            ;; ambient scope (nil ⇒ no scope at all).
+            raised (try
+                     (binding [frame/*current-frame* click-scope-frame]
+                       (on-click (mk-event {})))
+                     nil
+                     (catch :default e
+                       (or (:rf.error/id (ex-data e)) :threw)))]
+        {:target-frame @target
+         :source       @source
+         :raised       raised})
+      (finally
+        (trace-tooling/unregister-listener! cb-key)))))
+
+(deftest delayed-click-with-no-ambient-scope-carries-render-frame-rf2-o3nam4
+  (testing "a link rendered under :route/owner, clicked after the render
+            scope unwound and with NO ambient frame, dispatches
+            :rf/url-requested into :route/owner — not :rf.error/no-frame-context"
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [{:keys [target-frame source raised]}
+          (click-after-scope-unwound! {:to :route/cart} :route/owner nil)]
+      (is (nil? raised)
+          "the delayed click must NOT raise :rf.error/no-frame-context")
+      (is (= :route/owner target-frame)
+          "the dispatch routed to the RENDER-TIME frame, not an ambient default")
+      (is (= :router source)
+          ":source :router is preserved on the frame-carrying dispatch"))))
+
+(deftest delayed-click-ignores-wrong-ambient-frame-rf2-o3nam4
+  (testing "even when a DIFFERENT frame is ambient at click time, the click
+            routes to the frame that RENDERED the link (the captured frame is
+            authoritative, never the click-time ambient)"
+    (rf/reg-frame :route/owner {})
+    (rf/reg-frame :route/other {})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [{:keys [target-frame source raised]}
+          (click-after-scope-unwound! {:to :route/cart} :route/owner :route/other)]
+      (is (nil? raised) "no error raised")
+      (is (= :route/owner target-frame)
+          "the dispatch routed to the render frame, NOT the wrong ambient frame")
+      (is (= :router source)))))
