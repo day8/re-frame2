@@ -279,8 +279,9 @@
       ;; Independent app-db: divergent event streams over divergent seeds. The
       ;; frame OBJECT is the dispatch target via the `{:frame …}` opt (the
       ;; canonical object-accepting form — build-envelope normalizes the object
-      ;; to its runnable-id; the positional `(dispatch frame event)` sugar is
-      ;; slice-2 facade work).
+      ;; to its runnable-id). The positional `(rf/dispatch frame event)` sugar is
+      ;; also exposed on the facade (slice 2, rf2-32siq3.32) — exercised in the
+      ;; `frame-first-positional-dispatch-forms` test below.
       (rf/dispatch-sync [:counter/inc] {:frame fa})
       (rf/dispatch-sync [:counter/inc] {:frame fa})
       (rf/dispatch-sync [:counter/inc] {:frame fb})
@@ -329,3 +330,105 @@
         (rf/destroy-frame! frame)
         (is (nil? (rf/app-db-value frame))
             "after destroy the object's backing record is gone")))))
+
+;; ===========================================================================
+;; 8. FRAME-FIRST POSITIONAL DISPATCH (EP-0023 collapse slice 2, rf2-32siq3.32)
+;;    — the public-facade `(rf/dispatch-sync frame [...])` / `(rf/dispatch frame
+;;    [...])` sugar routes the carried frame TARGET (a frame-id keyword OR a live
+;;    frame OBJECT), discriminated from the event-first `(dispatch [...] opts)`
+;;    form purely by the FIRST arg's shape (an event-vec is always a vector; a
+;;    frame target never is). Mirrors the 2-arity `(rf/subscribe frame [...])`.
+;; ===========================================================================
+
+(deftest frame-first-positional-dispatch-forms
+  (testing "EP-0023 §Public API: (rf/dispatch-sync frame [event]) and
+            (rf/dispatch frame [event]) target the carried frame — for BOTH a
+            live frame OBJECT and a frame-id keyword — END-TO-END through the
+            target frame's image, identically to the {:frame …} opt form"
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
+    (rf/reg-sub   :counter/value (fn [_db _] :global))
+    (let [pool [(event-desc "ex.counter" :counter/inc
+                            (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+                (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
+          img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})]
+      (testing "frame OBJECT as the FIRST positional dispatch arg"
+        (let [obj (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+          ;; frame-first: object is arg-1, event-vec is arg-2.
+          (rf/dispatch-sync obj [:counter/inc])
+          (rf/dispatch-sync obj [:counter/inc])
+          (is (= 2 (:n (rf/app-db-value obj)))
+              "the IMAGE inc ran twice on the object's OWN app-db (not the global)")
+          (is (= 2 @(rf/subscribe obj [:counter/value]))
+              "the 2-arity object-target subscribe reads the same app-db")))
+      (testing "frame-id KEYWORD as the FIRST positional dispatch arg"
+        (let [_ (lf/make-frame {:id :counter/main :images [img] :initial-db {:n 10}}
+                               pool)]
+          (rf/dispatch-sync :counter/main [:counter/inc])
+          (is (= 11 (:n (rf/app-db-value :counter/main)))
+              "the keyword frame-first form routes to the registered live frame")))
+      (testing "the async (queued) (rf/dispatch frame [event]) form also routes"
+        (let [obj (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+          ;; `dispatch` enqueues; drain synchronously via a frame-first sync follow-up
+          (rf/dispatch obj [:counter/inc])
+          (rf/dispatch-sync obj [:counter/inc])   ;; drains the queue + runs once more
+          (is (= 2 (:n (rf/app-db-value obj)))
+              "both the queued and the sync frame-first dispatches ran the image inc")))
+      (testing "the event-first (dispatch [event] {:frame …}) form is unaffected"
+        (let [obj (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+          (rf/dispatch-sync [:counter/inc] {:frame obj})
+          (is (= 1 (:n (rf/app-db-value obj)))
+              "event-first opts form still routes the object target byte-identically"))))))
+
+;; ===========================================================================
+;; 9. rf/reload-images! ON THE FACADE (EP-0023 collapse slice 2, rf2-32siq3.32)
+;;    — the public hot-reload export swaps a frame's whole image composition
+;;    while PRESERVING FRAME MEMORY (app-db continues; only the generation moves)
+;;    and returns the reload report. Reachable as `rf/reload-images!`.
+;; ===========================================================================
+
+(deftest reload-images-on-the-facade-swaps-generation-preserving-memory
+  (testing "EP-0023 §Hot Reload / §Public API: rf/reload-images! re-assembles the
+            new :images into a fresh generation and swaps it onto the live frame
+            WITHOUT tearing it down — app-db (frame memory) continues, and the
+            target frame's subsequent dispatch resolves through the NEW image"
+    (let [;; v1 image: inc by 1. v2 image: inc by 10 (same id, different impl).
+          pool-v1 [(event-desc "ex.counter.v1" :counter/inc
+                               (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 1)}))
+                   (sub-desc   "ex.counter.v1" :counter/value (fn [db _] (:n db)))]
+          pool-v2 [(event-desc "ex.counter.v2" :counter/inc
+                               (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 10)}))
+                   (sub-desc   "ex.counter.v2" :counter/value (fn [db _] (:n db)))]
+          img-v1 (image/image {:id :ex/counter-v1 :include-ns ["ex.counter.v1"]})
+          img-v2 (image/image {:id :ex/counter-v2 :include-ns ["ex.counter.v2"]})
+          frame  (lf/make-frame {:id :counter/main :images [img-v1] :initial-db {:n 0}}
+                                pool-v1)]
+      ;; Run the v1 image once: n 0 -> 1.
+      (rf/dispatch-sync frame [:counter/inc])
+      (is (= 1 (:n (rf/app-db-value :counter/main))) "v1 inc by 1")
+      ;; HOT RELOAD via the FACADE export — swap the whole composition to v2.
+      (let [report (rf/reload-images! :counter/main {:images [img-v2]} pool-v2)]
+        (is (map? report) "reload-images! returns a report map")
+        (is (contains? report :rf.frame/frame) "report carries the reloaded object")
+        (is (contains? report :rf.reload/diff) "report carries the generation diff")
+        (is (lf/frame-object? (:rf.frame/frame report))))
+      ;; FRAME MEMORY PRESERVED: app-db still holds the v1-computed value.
+      (is (= 1 (:n (rf/app-db-value :counter/main)))
+          "app-db (frame memory) survived the reload — not torn down + recreated")
+      ;; The frame now runs the v2 image: inc by 10.
+      (rf/dispatch-sync :counter/main [:counter/inc])
+      (is (= 11 (:n (rf/app-db-value :counter/main)))
+          "after reload the SAME live frame runs the v2 image's inc (1 + 10)")))
+  (testing "rf/reload-images! also targets a direct frame OBJECT and a bad target
+            fails loud"
+    (let [pool [(event-desc "ex.r" :r/noop (fn [{:keys [db]} _] {:db db}))]
+          img  (image/image {:include-ns ["ex.r"]})
+          obj  (lf/make-frame {:images [img] :initial-db {:n 7}} pool)
+          report (rf/reload-images! obj {:images [img]} pool)]
+      (is (lf/frame-object? (:rf.frame/frame report))
+          "a direct (no-id) object's reloaded copy is returned in the report")
+      (is (= :rf.error/reload-no-such-frame
+             (try (rf/reload-images! :no/such-live-frame {:images [img]} pool)
+                  nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                    (:rf.error/id (ex-data e)))))
+          "an unknown frame id fails loud through the facade export"))))

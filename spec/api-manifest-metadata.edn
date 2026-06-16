@@ -377,6 +377,26 @@
   ["re-frame.core" "reg-interceptor*"]    {:tier :advanced    :owner "001" :status "EP-0022"}
   ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "v1"}
+  ;; EP-0023 collapse slice 2 (rf2-32siq3.32): `reload-images!` is the public
+  ;; `rf/reload-images!` — the frame-targeted, composition-REPLACING image hot
+  ;; reload that swaps a frame's whole `:images` composition while PRESERVING
+  ;; FRAME MEMORY (app-db / runtime-db / caches / lifecycle continue; only
+  ;; `:rf.frame/generation` moves — EP-0023 §Hot Reload / §Public API).
+  ;; CLASSIFICATION (EP-0015 facade-export diff-time rule): a NEW, deliberate
+  ;; public hot-reload constructor-sibling. Tier `:advanced`, not `:front-porch`
+  ;; — same posture as its siblings `image` / `make-frame`: ordinary apps reach
+  ;; hot reload through the implicit `reg-*` re-eval + source-store reprojection
+  ;; path (`reproject-live-frames!`, an internal hook), so an EXPLICIT
+  ;; composition-replacing reload is the advanced surface for the cases that name
+  ;; their images (multiple surfaces on one page, docs/story/test image
+  ;; overrides). Owned by 002 (Frames — EP-0023's frame/image normative home, the
+  ;; sibling of `image` / `make-frame`). Status `EP-0023` (proposal-stage; the
+  ;; row exists ahead of the spec/API.md projection, which EP-0023 graduates
+  ;; separately — same posture as `image`). NON-BREAKING addition: it is a new
+  ;; name, no existing surface changes; the `rf/make-frame` repoint onto the
+  ;; OBJECT constructor + the `assert-no-dual-make-frame!` retirement are the
+  ;; later caller-migration slice, NOT this one.
+  ["re-frame.core" "reload-images!"]      {:tier :advanced    :owner "002" :status "EP-0023"}
   ;; EP-0023 (rf2-32siq3.17 — image-loaded frames): `image` is the public
   ;; `rf/image` CONSTRUCTOR — it builds an IMAGE value, the selected
   ;; registration-set value a frame resolves against (EP-0023 §Image, §Public
