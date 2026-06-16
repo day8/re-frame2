@@ -186,7 +186,7 @@ When you want the full normative contract — the node schema, every classificat
 
 ---
 
-**You can now…**
+**You can now:**
 
 - read a dependency graph a tool draws over an app you didn't write, and classify any node by its five fields
 - explain why a subscription and a flow with the same formula are one derivation under two policies

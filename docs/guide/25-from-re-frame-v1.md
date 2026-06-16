@@ -184,3 +184,12 @@ You reach past that only when v2 gives you a shape v1 didn't have. The explicit 
 One last orientation point that trips people who lived in v1's tooling. `re-frame-10x` — the v1 devtools panel — has been renamed and reimplemented as **Xray** (`day8/re-frame2-xray`). Weight the word reimplemented: Xray is not 10x ported to v2, it's a from-scratch build against re-frame2's own trace bus and epoch-history surfaces. The mental model carries over completely — events, subs, app-db diff, time-travel are all there — but the wiring underneath is new. If your v1 project depended on 10x during development, the v2 equivalent is Xray, and [the Xray tutorial](../xray/index.md) is where you meet it.
 
 That's the migration in one read. The architecture is the same architecture, the sweep is automated, and the few genuinely-new shapes (managed HTTP, flows) are improvements you'll be glad to adopt, not taxes you'll resent paying. The one rule that keeps it all honest is don't invent migration rules: the tool does what it's sure of and asks about the rest. When the migration settles, [chapter 26](reference.md) points at how to operate from there.
+
+---
+
+**You can now:**
+
+- plan a v1 migration as a bounded sweep, not a rewrite — knowing what crosses over unchanged and what genuinely changed
+- drive the automated migration from the kickoff prompt, and answer the Type B judgment calls instead of hand-editing
+- migrate the deps pay-as-you-go: swap the core coord, add a substrate adapter, and pull only the per-feature artefacts you use
+- recognise the genuinely-new shapes — single `reg-event`, managed HTTP, flows, realms, Xray — and adopt them where they improve the code they touch

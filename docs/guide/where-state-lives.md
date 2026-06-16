@@ -146,7 +146,7 @@ A value graduates to a heavier home only when it earns the upgrade — a handler
 
 ---
 
-**You can now…**
+**You can now:**
 
 - route any new value to a subscription, a flow, a resource, or a machine by asking the four questions in order
 - say what each heavier home costs, and what a value must need before it earns the promotion

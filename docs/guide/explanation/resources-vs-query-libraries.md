@@ -200,4 +200,12 @@ Reach for resources when cached server reads start multiplying and the per-read 
 - **Not built yet:** optimistic rollback (EP-0019), polling (EP-0020), infinite feeds (EP-0021).
 - **Out of scope:** normalized/GraphQL caches, offline/cross-tab.
 
+---
+
+**You can now:**
+
+- map any TanStack Query / RTK Query / SWR feature onto its re-frame2 resource counterpart, and read each row's landed / different / not-built status
+- explain the "same problem, different physics" line — a cache wired to causes, not to component lifecycle — and why scope is a required structural key
+- decide when a resource is the wrong tool, reaching instead for managed HTTP or a machine
+
 [pre-alpha resource parity tranche]: ../concepts/server-state.md
