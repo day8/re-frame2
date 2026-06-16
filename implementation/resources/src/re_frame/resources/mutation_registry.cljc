@@ -20,6 +20,7 @@
   validator and canonicalization."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]))
 
@@ -249,15 +250,22 @@
     (when schema
       (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (when (and validate (not (validate schema params)))
-          (let [explain (late-bind/get-fn-cached :schemas/explain-with-registered-fn)]
+          (let [explain (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+                ;; rf2-99j4e4 — redact the thrown error payload identically to
+                ;; the resource registry (same shared classification seam): a
+                ;; `:sensitive?` params slot must not leak through public error
+                ;; data / logs when validation fails on a non-sensitive sibling,
+                ;; and a `:large?` slot elides consistently.
+                redacted (classification/redact-invalid-params-error
+                           params (when explain (explain schema params)) spec)]
             (throw (registration-error
                      :rf.error/mutation-invalid-params
                      where
                      (str "mutation " mutation-id " params do not conform to "
                           ":params-schema. Per EP-0003 §Mutations.")
                      {:mutation-id mutation-id
-                      :params      params
-                      :error       (when explain (explain schema params))}))))))
+                      :params      (:params redacted)
+                      :error       (:error redacted)}))))))
     (state/canonicalize params)))
 
 (defn resolve-scope

@@ -27,6 +27,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.timers :as timers]
@@ -372,15 +373,24 @@
     (when schema
       (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (when (and validate (not (validate schema params)))
-          (let [explain (late-bind/get-fn-cached :schemas/explain-with-registered-fn)]
+          (let [explain (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+                ;; rf2-99j4e4 — the thrown error data + downstream egress must
+                ;; not leak a `:sensitive?` params slot (nor ride a `:large?`
+                ;; slot raw). Route `:params` + the explainer `:error` through
+                ;; the resources-family classification projection (the SAME
+                ;; per-slot owner surface SSR key egress uses + the shared
+                ;; schemas redaction seam), so the owner's `:params-schema`
+                ;; marks govern the error payload as they govern wire egress.
+                redacted (classification/redact-invalid-params-error
+                           params (when explain (explain schema params)) spec)]
             (throw (registration-error
                      :rf.error/resource-invalid-params
                      where
                      (str "resource " resource-id " params do not conform to "
                           ":params-schema. Per Spec 016 §Resource identity.")
                      {:resource-id resource-id
-                      :params      params
-                      :error       (when explain (explain schema params))}))))))
+                      :params      (:params redacted)
+                      :error       (:error redacted)}))))))
     (state/canonicalize params)))
 
 ;; ---- scope resolution (Spec 016 §Scope resolution) ------------------------
