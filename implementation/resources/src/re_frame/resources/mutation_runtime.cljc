@@ -249,13 +249,20 @@
           patched  (patch-fn old mutation-result)
           ;; structural sharing — keep the old value when nothing changed
           shared   (if (= old patched) old patched)]
-      (assoc entry
-             :data           shared
-             :status         :loaded
-             :loaded-at      clock-ms
-             :stale-at       stale-at
-             :invalidated-at nil
-             :refresh-error  nil))
+      (-> entry
+          (assoc
+            :data           shared
+            :status         :loaded
+            :loaded-at      clock-ms
+            :stale-at       stale-at
+            :invalidated-at nil
+            :refresh-error  nil)
+          ;; EP-0019 / byl7bk: a patch is an authoritative durable write
+          ;; (re-stamps :loaded-at / :stale-at, clears :invalidated-at), so it
+          ;; bumps the per-entry :revision write identity UNCONDITIONALLY —
+          ;; even on the `=`-shared structural-sharing branch. The no-usable-
+          ;; data no-op branch below makes no write and does not bump.
+          state/bump-revision))
     entry))
 
 (defn populate-entry
@@ -278,17 +285,23 @@
   (let [base   (or entry (state/empty-entry resource-id scoped-key))
         old    (:data base)
         shared (if (and (some? old) (= old populate-value)) old populate-value)]
-    (assoc base
-           :resource/id    (:resource/id base resource-id)
-           :resource/key   (or (:resource/key base) scoped-key)
-           :data           shared
-           :status         :loaded
-           :error          nil
-           :refresh-error  nil
-           :loaded-at      clock-ms
-           :stale-at       stale-at
-           :invalidated-at nil
-           :tags           (or tags (:tags base) #{}))))
+    (-> base
+        (assoc
+          :resource/id    (:resource/id base resource-id)
+          :resource/key   (or (:resource/key base) scoped-key)
+          :data           shared
+          :status         :loaded
+          :error          nil
+          :refresh-error  nil
+          :loaded-at      clock-ms
+          :stale-at       stale-at
+          :invalidated-at nil
+          :tags           (or tags (:tags base) #{}))
+        ;; EP-0019 / byl7bk: a populate is an authoritative durable write (it
+        ;; seeds / re-stamps :loaded-at / :stale-at / :tags), so it bumps the
+        ;; per-entry :revision write identity UNCONDITIONALLY — including the
+        ;; `=`-shared branch and a freshly-seeded entry (base revision 0 -> 1).
+        state/bump-revision)))
 
 ;; ---- fail-closed boundary validation (Spec 016 §Resource identity / -------
 ;;       EP-0003 §Mutations)

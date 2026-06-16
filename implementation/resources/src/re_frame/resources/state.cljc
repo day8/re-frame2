@@ -196,6 +196,20 @@
    :invalidated-at nil
    :attempt        0
    :generation     0
+   ;; `:revision` is the per-entry WRITE identity (EP-0019 / byl7bk Open
+   ;; Issue 5 ruling) — a monotone counter bumped on EVERY authoritative
+   ;; durable entry write a rollback could clobber (load success, populate,
+   ;; patch, invalidation-driven settle, and the later optimistic apply),
+   ;; UNCONDITIONALLY (never gated on `(= old new)` of `:data`). It is DISTINCT
+   ;; from `:generation`: `:generation` bumps at load START (`entry-start-load`)
+   ;; — the work / stale-suppression identity — so reusing it would
+   ;; false-conflict on every in-flight refetch, before any authoritative write
+   ;; lands. `:revision` moves only when an authoritative write actually
+   ;; SETTLES the entry. It is the substrate the EP-0019 optimistic-rollback
+   ;; settle protocol compares against (`revision-conflict?`) to decide whether
+   ;; a recorded inverse is still a truthful "before" or has been overtaken.
+   ;; Base value 0. Per Spec 016 §Status semantics / EP-0019 §Decision 2.
+   :revision       0
    :request-id     nil
    :current-work   nil
    :tags           #{}
@@ -635,15 +649,79 @@
          (or (some? (:invalidated-at entry))
              (when-let [sa (:stale-at entry)] (>= clock-ms sa))))))
 
+;; ---- per-entry revision (EP-0019 §Decision 2 / byl7bk Open Issue 5) --------
+;;
+;; `:revision` is the per-entry WRITE identity the optimistic-rollback settle
+;; protocol compares against. The EP-0019 conflict check at settle is a
+;; CANONICAL-IDENTITY comparison of the recorded revision against the entry's
+;; current revision — NOT a value diff — answering "did an authoritative write
+;; land on this entry between my optimistic apply and my reply settling?". If
+;; it did, the recorded inverse is a stale "before" and a blind restore would
+;; clobber newer truth; the settle reconciles by invalidation instead.
+;;
+;; The bump rule (byl7bk ruling, load-bearing): bump on EVERY authoritative
+;; durable entry write a rollback could clobber — UNCONDITIONALLY, never gated
+;; on `(= old new)` of `:data`. `entry-succeeded` / `patch-entry` /
+;; `populate-entry` re-stamp `:loaded-at` / `:stale-at` / `:tags` even when the
+;; new `:data` is `=`-shared, so a value-gated token would MISS that freshness
+;; settle and let a later rollback silently clobber newer freshness with a
+;; stale snapshot — a real cache-coherence bug. Bias to OVER-bump: a false
+;; conflict costs one refetch (made safe by the `:on-conflict :invalidate`
+;; default — the read path recovers truth); a MISSED conflict means silent
+;; corruption. The asymmetry favours over-bumping.
+
+(defn bump-revision
+  "Pure: increment the entry's monotone per-entry `:revision` write identity
+  (EP-0019 §Decision 2 / byl7bk Open Issue 5). The SINGLE home for the bump so
+  every authoritative durable entry write (`entry-succeeded`, `patch-entry`,
+  `populate-entry`, the invalidation-driven settle, the later optimistic apply)
+  advances it the same way — UNCONDITIONALLY, never gated on whether `:data`
+  changed. Treats an absent / nil `:revision` as 0 (a pre-EP-0019 entry or a
+  freshly-seeded one), so the bump is total over any entry shape. Returns the
+  entry with `:revision` incremented; a nil entry is returned unchanged (there
+  is nothing to bump — a missing entry carries no revision)."
+  [entry]
+  (if entry
+    (update entry :revision (fnil inc 0))
+    entry))
+
+(defn entry-revision
+  "Pure: read an entry's per-entry `:revision` write identity, defaulting to 0
+  for an absent / nil entry or a pre-EP-0019 entry that predates the fact. The
+  value the optimistic-rollback settle protocol records at apply time and
+  compares at settle time (`revision-conflict?`). Per EP-0019 §Decision 2."
+  [entry]
+  (if entry (:revision entry 0) 0))
+
+(defn revision-conflict?
+  "Pure: the EP-0019 settle-time conflict check (Decision 3). True iff the
+  entry's CURRENT revision has MOVED away from the `recorded-revision` an
+  optimistic apply observed — i.e. an authoritative durable write landed on the
+  entry between the apply and the reply settling, so the recorded inverse is a
+  stale \"before\" a blind rollback must NOT restore. A canonical-identity
+  comparison (`not=` over the monotone counter), never a value diff.
+
+  Conflict-positive (`true`) is the BIAS-SAFE answer: on a true conflict the
+  settle reconciles by invalidation (the read path recovers authoritative
+  truth); a false positive costs only a refetch, while a false negative would
+  let a stale inverse clobber newer truth. The recorded revision is read
+  through `entry-revision` semantics (an absent recorded value, e.g. an apply
+  against a then-missing entry whose revision was 0, compares against the
+  current entry's revision the same way). Per EP-0019 §Decision 3."
+  [entry recorded-revision]
+  (not= (entry-revision entry) (or recorded-revision 0)))
+
 ;; ---- entry transitions (Spec 016 §Status semantics / §Structural sharing) -
 ;;
 ;; Pure functions `(entry, …) -> entry`. They transition through
 ;; `next-status` so the five-state semantics stay in one place, write the
 ;; durable FACTS (status / data / errors / timestamps / generation /
-;; current-work / tags), and NEVER store the derived booleans. Structural
-;; sharing preserves the old `:data` value when the newly-decoded value
-;; equals the previous (identity-preserving — downstream subs stay quiet on
-;; a background refresh that returns identical EDN).
+;; revision / current-work / tags), and NEVER store the derived booleans.
+;; Structural sharing preserves the old `:data` value when the newly-decoded
+;; value equals the previous (identity-preserving — downstream subs stay quiet
+;; on a background refresh that returns identical EDN), but the `:revision`
+;; bump is UNCONDITIONAL (a value-gated bump would miss a freshness-only
+;; settle — byl7bk ruling).
 
 (defn entry-start-load
   "Transition an entry to its in-flight status for a fresh load attempt:
@@ -675,26 +753,38 @@
   stay quiet. Sets `:loaded-at` / `:stale-at` from the supplied clock +
   stale policy, clears `:error` / `:refresh-error` / `:current-work`, and
   records the produced `:tags`. Per Spec 016 §Status semantics /
-  §Structural sharing."
+  §Structural sharing.
+
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk Open Issue
+  5) — even when `:data` is `=`-shared. A success re-stamps `:loaded-at` /
+  `:stale-at` / `:tags` on the structural-sharing branch too, so this IS an
+  authoritative durable write a later optimistic rollback could clobber; a
+  value-gated bump would miss it. The `:revision` bump is therefore orthogonal
+  to the `:data` structural sharing."
   [entry {:keys [data loaded-at stale-at tags]}]
   (let [prev      (:data entry)
         ;; Structural sharing: keep the OLD value when the decoded value is
         ;; equal, so `(identical? old new-data)` holds for quiet downstream
         ;; reactions. Per Spec 016 §Structural sharing.
         shared    (if (and (some? prev) (= prev data)) prev data)]
-    (assoc entry
-           :status        :loaded
-           :data          shared
-           :error         nil
-           :refresh-error nil
-           :loaded-at     loaded-at
-           :stale-at      stale-at
-           :invalidated-at nil
-           :current-work  nil
-           ;; the new key now has its OWN data — drop the previous-key
-           ;; projection pointer (Spec 016 §Paginated and previous data).
-           :previous-key  nil
-           :tags          (or tags (:tags entry) #{}))))
+    (-> entry
+        (assoc
+          :status        :loaded
+          :data          shared
+          :error         nil
+          :refresh-error nil
+          :loaded-at     loaded-at
+          :stale-at      stale-at
+          :invalidated-at nil
+          :current-work  nil
+          ;; the new key now has its OWN data — drop the previous-key
+          ;; projection pointer (Spec 016 §Paginated and previous data).
+          :previous-key  nil
+          :tags          (or tags (:tags entry) #{}))
+        ;; EP-0019 / byl7bk: every authoritative durable write bumps the
+        ;; per-entry write identity, unconditionally — including the
+        ;; freshness-only (`=`-shared `:data`) settle the ruling names.
+        bump-revision)))
 
 (defn entry-failed
   "Transition an entry on a failed load/refresh (Spec 016 §Status
