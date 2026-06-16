@@ -194,20 +194,40 @@
   and the overrides ride it too — replay never reaches for `dispatch-sync`
   directly. This keeps replay on the SAME settlement path as a live run
   and lets the boundary's `:cannot-run` / `:error` refusals fire
-  unchanged."
+  unchanged.
+
+  EP-0017 replay fidelity (rf2-srgvzp): the wrapped `:dispatch!` is the
+  optional 3-arity `(replay-dispatch! frame-id event-vector dispatch-opts)`
+  the boundary's 6-arity `dispatch-and-settle!` invokes when a step carries
+  dispatch opts. `replay-into-frame!` builds those opts so every replayed
+  dispatch is STRICT (`:rf.cofx/mint-policy :strict`) and re-presents the
+  step's recorded `:rf.cofx` envelope verbatim — so a complete record
+  replays its recorded recordable coeffects and an incomplete record fails
+  loudly (`:rf.error/missing-required-cofx`) rather than minting a fresh
+  host value mid-replay (EP-0017 §6 binding point 1, Tool-Pair §Replay).
+  The opts are routed THROUGH `inner`'s 3-arity (the headless default
+  `drain-sync!` merges them onto the dispatch envelope), alongside the
+  lexical `fx-decisions` wrap — both survive whatever dispatch path the
+  (possibly richer-adapter) inner hook owns. A 2-arity replay (no opts)
+  stays byte-identical to the pre-EP-0017 path."
   [base-hooks fx-decisions]
-  (let [inner (or (:dispatch! base-hooks) boundary/drain-sync!)]
+  (let [inner (or (:dispatch! base-hooks) boundary/drain-sync!)
+        ;; Route the dispatch through `inner`, optionally with opts, always
+        ;; under the `fx-decisions` lexical wrap. The fx decisions and the
+        ;; EP-0017 dispatch opts are independent seams (lexical overrides vs
+        ;; per-call opts) and compose — both ride the SAME inner dispatch.
+        fire  (fn [frame-id event-vector opts]
+                (let [call (if (and (map? opts) (seq opts))
+                             #(inner frame-id event-vector opts)
+                             #(inner frame-id event-vector))]
+                  (if (seq fx-decisions)
+                    (rf/with-fx-overrides fx-decisions (call))
+                    (call))))]
     (assoc base-hooks
            :dispatch!
-           (fn replay-dispatch! [frame-id event-vector]
-             (if (seq fx-decisions)
-               ;; WRAP, don't replace: bind the fx decisions on the
-               ;; lexical-scope overrides and route THROUGH `inner` so the
-               ;; (possibly richer-adapter) dispatch path still runs and
-               ;; the overrides ride its envelope.
-               (rf/with-fx-overrides fx-decisions
-                 (inner frame-id event-vector))
-               (inner frame-id event-vector))))))
+           (fn replay-dispatch!
+             ([frame-id event-vector]      (fire frame-id event-vector nil))
+             ([frame-id event-vector opts] (fire frame-id event-vector opts))))))
 
 (defn with-network-stubs!
   "Run `thunk` with the artifact's `:network` per-route HTTP stubs
@@ -248,6 +268,25 @@
   (try (count (rf/epoch-history frame-id))
        (catch #?(:clj Throwable :cljs :default) _ 0)))
 
+(defn- step-dispatch-opts
+  "Build the per-call dispatch opts a replayed `[:dispatch …]` step carries
+  (rf2-srgvzp, EP-0017 §6 / Tool-Pair §Replay). Replay is UNCONDITIONALLY
+  STRICT: every replayed dispatch stamps `:rf.cofx/mint-policy :strict`, so a
+  generator-backed recordable fact that is ABSENT from the record fails loudly
+  (`:rf.error/missing-required-cofx`) instead of minting a fresh, divergent
+  host value mid-replay. When the step recorded a flat `:rf.cofx` envelope
+  (the framework `:rf/time-ms` plus any provided recordable facts captured at
+  record time), it is carried verbatim under `:rf.cofx` so a complete record
+  re-presents its recorded coeffects rather than restamping.
+
+  Returns the opts map (always at least the strict mint policy) — passed as
+  the boundary's `dispatch-opts`, which the replay `:dispatch!` wrap threads
+  onto the dispatch envelope. Pure data → data."
+  [step]
+  (let [cofx (runner/step-cofx step)]
+    (cond-> {:rf.cofx/mint-policy :strict}
+      (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))))
+
 (defn replay-into-frame!
   "Replay an artifact's `:event-program` into the LIVE `frame-id`,
   reapplying `fx-decisions` and settling each `[:dispatch …]` step through
@@ -282,13 +321,15 @@
          outcomes     (into []
                             (keep (fn [step]
                                     (when-let [evec (runner/step-event step)]
-                                      (let [required (boundary/step-required-boundary step)]
+                                      (let [required (boundary/step-required-boundary step)
+                                            dispatch-opts (step-dispatch-opts step)]
                                         ;; Snapshot the tape cursor BEFORE the
                                         ;; settle — this dispatch step owns the
                                         ;; records committed from here forward.
                                         (vswap! boundaries conj (epoch-count frame-id))
                                         (boundary/dispatch-and-settle!
-                                          frame-id evec replay-hooks required step)))))
+                                          frame-id evec replay-hooks required step
+                                          dispatch-opts)))))
                             (:event-program artifact))]
      (with-meta outcomes {:attribution @boundaries}))))
 

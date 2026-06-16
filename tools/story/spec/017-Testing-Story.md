@@ -2808,7 +2808,12 @@ A run artifact is a map carrying:
   vector lifts to `[:dispatch …]` through the runner's `coerce-script`, so
   a recorder MAY hand a flat event list and get a legal program. Setup and
   script fold into ONE ordered program (setup first); replay re-runs the
-  whole program, then projects the captured tape.
+  whole program, then projects the captured tape. A dispatch step MAY carry
+  a trailing opts map holding its captured flat `:rf.cofx` envelope —
+  `[:dispatch evec {:rf.cofx {…}}]` — so a recorded recordable coeffect
+  (the framework `:rf/time-ms` plus any provided recordable facts, EP-0017)
+  rides the artifact and re-presents verbatim on replay (below). A step
+  with no captured coeffects stays the bare 2-element shape (zero ceremony).
 - `:fx-decisions` is the `{fx-id override}` map of fx decisions applied at
   capture time — the same shape the dispatch `:fx-overrides` opt and the
   per-frame frame-config `:fx-overrides` slot carry (Spec 002
@@ -2854,6 +2859,21 @@ Replay MUST:
   for `dispatch-sync` directly; the boundary's `:cannot-run` / `:error`
   refusals fire unchanged, so a step that needs a richer boundary than the
   replay runner provides refuses rather than under-flushing.
+- **Replay under STRICT recordable-coeffect mint policy** — every replayed
+  dispatch stamps `:rf.cofx/mint-policy :strict` (EP-0017 §6 binding point
+  1; Tool-Pair §Replay). Replay is the faithful re-run of a captured run,
+  not authoring: a generator-backed recordable fact ABSENT from the record
+  fails loudly (`:rf.error/missing-required-cofx`) rather than minting a
+  fresh, divergent host value mid-replay. When a dispatch step carries its
+  captured `:rf.cofx` envelope (above), replay re-presents it verbatim
+  under the per-call opt, so a handler that declares `:rf.cofx/requires`
+  reads the recorded provided facts (and the recorded `:rf/time-ms`)
+  instead of restamping. The strict opt and the recorded envelope ride the
+  per-call dispatch opts THROUGH the same `settled-boundary` `:dispatch!`
+  seam the fx decisions wrap — so both survive whatever dispatch path the
+  (possibly richer-adapter) runner owns. A bare step (no recorded
+  envelope) still replays strict; with no declared recordable fact the
+  policy is inert (zero ceremony).
 - **Re-install the `:network` route stubs** (when the artifact carries a
   non-empty `:network` map) — replay calls
   `re-frame.core/install-managed-request-stubs!` with the route map for the
