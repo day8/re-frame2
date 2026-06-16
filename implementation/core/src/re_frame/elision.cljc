@@ -921,6 +921,160 @@
                        tree
                        (sensitive-value-set source-db frame-id wire-opts))))
 
+;; ---------------------------------------------------------------------------
+;; Large-value value-match — the DUAL of the sensitive engine for the :large
+;; egress axis (rf2-9o5ixx, EP-0015: sensitive + large are PEER egress axes).
+;;
+;; `elide-wire-value` elides a declared-`:large` slot to a `:rf.size/large-
+;; elided` marker by PATH. But the same large blob can be re-keyed into a
+;; DERIVED tree (a rendered `[:pre blob]`, a snapshot/evidence echo, an
+;; explain `:effective-args` slot) at a non-app-db position the path-based
+;; walker can never reach — so it crosses the wire raw. The sound posture
+;; mirrors the sensitive dual: collect the live large values (the whole
+;; subtree at each declared-`:large` path, with the marker the path-based
+;; egress would have produced) and substitute any matching leaf in the
+;; derived tree with that SAME marker.
+;;
+;; Unlike the sensitive engine there is NO non-unique-secret guard: a large
+;; value is, by classification, a big payload (no short-scalar collateral
+;; hazard), and a re-keyed copy must be elided wherever it lands regardless
+;; of whether the path-based `:app-db` slot also shipped its marker. A
+;; sensitive value that is ALSO large stays the sensitive engine's concern —
+;; sensitive wins, so the caller runs sensitive redaction FIRST and the large
+;; pass only sees what survives.
+;; ---------------------------------------------------------------------------
+
+(defn- collect-large-markers!
+  "Walk `node` at `path`, conj!ing onto transient vector `acc!` a
+  `[raw-value marker]` pair for every node sitting at a declared-`:large`
+  path (the whole subtree — the large blob — NOT its scalar leaves). Returns
+  `acc!`.
+
+  Reuses the SAME index-aware candidate-path machinery `walk` uses
+  (`decl-match` / `fork-decl-paths` / `fork-index-paths`), so a seq-indexed or
+  `:map-of`-keyed large declaration lands on the SAME node `elide-wire-value`
+  marks. A matched node is collected verbatim and NOT descended (the marker
+  replaces the whole subtree, exactly as the path-based walker does); a
+  sensitive-declared node is skipped here (sensitive wins — the sensitive
+  engine already redacted it). Non-matching collections recurse so a large
+  slot nested deeper is still reached."
+  [acc! node path decl-paths ctx]
+  (let [large-decl (decl-match decl-paths (:large ctx))
+        sensitive? (decl-sensitive? decl-paths (:sensitive ctx))]
+    (cond
+      ;; Sensitive wins — leave it to the sensitive engine.
+      sensitive? acc!
+
+      ;; A declared-large node: collect the raw value + the marker the
+      ;; path-based egress would emit, and do NOT descend (the whole subtree
+      ;; is the blob). A nil / already-marker value contributes nothing.
+      (and large-decl (some? node) (not (marker? node)))
+      (conj! acc! [node (->marker node path {:hint             (:hint large-decl)
+                                             :reason           (:source large-decl)
+                                             :as-of-epoch      (:as-of-epoch ctx)
+                                             :include-digests? (:include-digests? ctx)})])
+
+      (map? node)
+      (let [decl-prefixes (:decl-prefixes ctx)]
+        (reduce-kv (fn [a k v]
+                     (collect-large-markers! a v (conj path k)
+                                             (fork-decl-paths decl-paths k decl-prefixes) ctx))
+                   acc! node))
+
+      (vector? node)
+      (let [decl-prefixes (:decl-prefixes ctx)]
+        (reduce (fn [a i]
+                  (collect-large-markers! a (nth node i) (conj path i)
+                                          (fork-index-paths decl-paths i decl-prefixes) ctx))
+                acc! (range (count node))))
+
+      (seq? node)
+      (let [decl-prefixes (:decl-prefixes ctx)
+            idx           (volatile! -1)]
+        (reduce (fn [a x]
+                  (collect-large-markers! a x (conj path (vswap! idx inc))
+                                          (fork-index-paths decl-paths @idx decl-prefixes) ctx))
+                acc! node))
+
+      (set? node)
+      (reduce (fn [a x] (collect-large-markers! a x path decl-paths ctx)) acc! node)
+
+      :else acc!)))
+
+(defn large-value-marker-map
+  "The `{large-value marker}` map for `frame-id`'s declared-`:large` app-db
+  paths, read out of the RAW `source-db` (rf2-9o5ixx). Each key is the whole
+  blob value sitting at a declared-large path; each value is the
+  `:rf.size/large-elided` marker `elide-wire-value` would have emitted for it
+  (same `:path` / `:bytes` / `:handle` / digest under `wire-opts`).
+
+  The value-match base for redacting a DERIVED tree on the large axis — the
+  dual of `collect-sensitive-values`. A sensitive-declared node is excluded
+  (sensitive wins; the caller redacts sensitive first). Returns `{}` when
+  `source-db` is nil or the frame declares nothing large."
+  [source-db frame-id wire-opts]
+  (if (nil? source-db)
+    {}
+    (let [reg   (registry-of frame-id)
+          large (or (:declarations reg) {})]
+      (if (empty? large)
+        {}
+        (let [sensitive (or (:sensitive-declarations reg) {})
+              ctx       {:frame-id         frame-id
+                         :large            large
+                         :sensitive        sensitive
+                         :decl-prefixes    (decl-prefix-set {:large large :sensitive sensitive})
+                         :include-digests? (true? (:rf.size/include-digests? wire-opts))
+                         :as-of-epoch      (:as-of-epoch wire-opts)}
+              pairs     (persistent!
+                          (collect-large-markers! (transient []) source-db [] #{[]} ctx))]
+          (into {} pairs))))))
+
+(defn redact-matching-large-values
+  "Walk `tree`, substituting any leaf `=` to a key of `marker-map` with that
+  key's `:rf.size/large-elided` marker (rf2-9o5ixx). The large-axis dual of
+  `redact-matching-values`. Recurses maps/vectors/sets/seqs; map KEYS are
+  walked too. Returns `tree` unchanged when `marker-map` is empty.
+
+  A matched node is replaced wholesale (the blob becomes its marker) and not
+  descended further — the marker shape is terminal and idempotent under a
+  re-projection pass."
+  [tree marker-map]
+  (if (empty? marker-map)
+    tree
+    (letfn [(walk* [t]
+              (if-let [m (find marker-map t)]
+                (val m)
+                (cond
+                  (map? t)    (persistent!
+                                (reduce-kv (fn [acc k v]
+                                             (assoc! acc (walk* k) (walk* v)))
+                                           (transient {}) t))
+                  (vector? t) (mapv walk* t)
+                  (set? t)    (into #{} (map walk*) t)
+                  (seq? t)    (map walk* t)
+                  :else       t)))]
+      (walk* tree))))
+
+(defn redact-derived-large-values
+  "Value-elide a DERIVED `tree` against the live values at `frame-id`'s
+  declared-`:large` app-db paths, before wire egress (rf2-9o5ixx). The
+  large-axis dual of `redact-derived-values`: collects the
+  `{large-value marker}` map from `source-db` via `large-value-marker-map`
+  (under the egress floor `wire-opts`), then substitutes any matching leaf in
+  `tree` with the `:rf.size/large-elided` marker.
+
+  Short-circuits: a nil `tree` or nil `source-db` returns `tree`; no
+  declared-large (or no matching) values returns `tree` unwalked. The opt-out
+  (trusted-local raw) belongs to the caller."
+  [tree source-db frame-id wire-opts]
+  (cond
+    (nil? tree)      tree
+    (nil? source-db) tree
+    :else            (redact-matching-large-values
+                       tree
+                       (large-value-marker-map source-db frame-id wire-opts))))
+
 ;; EP-0015 §8 (rf2-d2r3um): no `:elision/populate-from-schemas!` hook —
 ;; schemas no longer feed the app-db egress registry (frame policy owns it).
 (late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)

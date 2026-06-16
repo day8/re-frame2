@@ -346,11 +346,14 @@
    :sub-overrides :setup-order :script-order])
 
 (defn- scrub-explain
-  "Value-redact the runtime/seeded VALUE slots of an `explain` map against
-  `variant-id`'s declared-sensitive values (rf2-12f2q). Plan-structure
-  slots pass through untouched — they are author-published discovery
-  metadata. `include?` opts out (the `--allow-sensitive-reads` + per-call
-  escape hatch).
+  "Value-scrub the runtime/seeded VALUE slots of an `explain` map against
+  `variant-id`'s frame declarations (rf2-12f2q) — on BOTH egress axes
+  (rf2-9o5ixx, EP-0015 peer axes): a leaf equal to a declared-`:sensitive?`
+  value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value
+  becomes the `:rf.size/large-elided` marker (sensitive wins where both
+  apply). Plan-structure slots pass through untouched — they are
+  author-published discovery metadata. `include?` opts out (the
+  `--allow-sensitive-reads` + per-call escape hatch).
 
   Delegates to `egress/scrub-explain-values`, which collects candidate
   secrets from BOTH the live variant-frame app-db AND the plan's own
@@ -654,7 +657,7 @@
 
    {:name           "explain-variant"
     :category       :docs
-    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. The plan-STRUCTURE slots are public discovery metadata, but the runtime-RESOLVED VALUE slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed`) are value-redacted against the variant frame's declared-sensitive values at egress (rf2-12f2q); pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). The agent mirror of the human Explain panel (rf2-ba86n.17). "
+    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. The plan-STRUCTURE slots are public discovery metadata, but the runtime-RESOLVED VALUE slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed`) are value-scrubbed against the variant frame's frame declarations at egress on BOTH axes (rf2-12f2q, rf2-9o5ixx): a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker; pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). The agent mirror of the human Explain panel (rf2-ba86n.17). "
                          "Examples: "
                          "1. Plain variant: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :explain {:source-chain [:story.cart/full] :parent-chain [] :compose [] :strict-conflicts [] :effective-args {...} :required-runner #{} ...}}. "
                          "2. Extends + compose: {:variant-id \":story.cart/full-with-discount\"} -> {:explain {:source-chain [:story.cart/full :story.cart/full-with-discount] :parent-chain [:story.cart/full] :compose [{:kind :fragment :id :frag/logged-in}] ...}}. "

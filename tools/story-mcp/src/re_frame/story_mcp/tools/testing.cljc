@@ -77,7 +77,9 @@
                         slices that would otherwise ship sensitive
                         values off-box raw)
     :app-db             post-run app-db, elided at egress
-    :rendered-hiccup / :snapshot  value-redacted derived trees
+    :rendered-hiccup / :snapshot  value-scrubbed derived trees
+                                  (sensitive -> :rf/redacted, large ->
+                                   :rf.size/large-elided)
     :elapsed-ms         wall-clock run time
     :cannot-run         present iff the run carried :cannot-run refusals
 
@@ -201,11 +203,13 @@
   outerHTML), `:target` (CSS selectors) and `:failureSummary`; a sensitive
   value rendered into the DOM (`<input value=\"<token>\">`, a `data-*`
   attribute, a PII text node) lands verbatim in node `:html`. So
-  `:violations` is value-redacted against the variant frame's
-  declared-`:sensitive?` values via `egress/scrub-frame-value` — the SAME
-  value-based redaction `explain-variant` / `record-as-variant` and the
-  live-state tools apply (every Story-MCP payload crosses elided; nothing
-  raw). Fail-closed by default; pass `:include-sensitive true` to opt out
+  `:violations` is value-scrubbed against the variant frame's frame
+  declarations via `egress/scrub-frame-value` — on BOTH egress axes: a leaf
+  equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf
+  equal to a declared-`:large` value becomes the `:rf.size/large-elided`
+  marker (the SAME value-based scrub `explain-variant` / `record-as-variant`
+  and the live-state tools apply; every Story-MCP payload crosses elided;
+  nothing raw). Fail-closed by default; pass `:include-sensitive true` to opt out
   (gated by `--allow-sensitive-reads`, per spec/Tool-Pair.md §Direct-read
   privacy posture). `run-a11y` is `:readOnlyHint true` (agent hosts
   auto-approve it), so an unscrubbed runtime read here is the wrong shape."
@@ -288,7 +292,7 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach — `:narrative` beats carry full `:db-before` / `:db-after` snapshots). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are value-scrubbed on BOTH egress axes against the same frame declarations: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the value reappears there at a non-app-db path the path walker can't reach — `:narrative` beats carry full `:db-before` / `:db-after` snapshots; sensitive wins where both apply). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
@@ -339,7 +343,7 @@
 
    {:name           "run-a11y"
     :category       :testing
-    :description    (str "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated. The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is value-redacted against the variant frame's declared-`:sensitive?` values by default (the same redaction `run-variant` / `explain-variant` apply); pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated. The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is value-scrubbed against the variant frame's frame declarations by default — on BOTH egress axes: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the same scrub `run-variant` / `explain-variant` apply); pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
                          "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "

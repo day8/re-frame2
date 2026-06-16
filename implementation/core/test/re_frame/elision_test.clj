@@ -272,6 +272,60 @@
     (is (= :frame (:reason marker)))
     (is (string? (:digest marker)))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-9o5ixx — the LARGE value-match engine (the dual of the sensitive one).
+;; `elide-wire-value` elides large by PATH; a large blob re-keyed into a
+;; DERIVED tree at a non-app-db position needs value-elision. These pin the
+;; framework `large-value-marker-map` / `redact-matching-large-values` /
+;; `redact-derived-large-values` directly.
+;; ---------------------------------------------------------------------------
+
+(deftest large-value-marker-map-collects-blob-and-marker
+  (install-class! [] [[:blob]])
+  (let [blob (vec (range 3000))
+        db   {:public "ok" :blob blob}
+        m    (rf/elision-large-value-marker-map db :rf/default {})]
+    (is (= 1 (count m)) "one declared-large path ⇒ one entry")
+    (is (contains? m blob) "keyed by the whole blob value")
+    (is (elision/marker? (get m blob)) "value is the :rf.size/large-elided marker")
+    (is (= [:blob] (get-in (get m blob) [:rf.size/large-elided :path]))
+        "the marker carries the declared app-db path")))
+
+(deftest redact-derived-large-values-elides-rekeyed-blob
+  (install-class! [] [[:blob]])
+  (let [blob   (vec (range 3000))
+        db     {:blob blob}
+        ;; the blob re-keyed into a derived tree at a non-app-db position
+        tree   [:div [:pre blob] [:span "label"]]
+        out    (rf/redact-derived-large-values tree db :rf/default {})]
+    (is (elision/marker? (get-in out [1 1]))
+        "the re-keyed large blob is replaced with the marker")
+    (is (= "label" (get-in out [2 1])) "benign leaves survive")))
+
+(deftest redact-derived-large-values-noop-without-declaration
+  (let [tree [:pre (vec (range 3000))]
+        out  (rf/redact-derived-large-values tree {:blob (vec (range 3000))} :rf/default {})]
+    (is (identical? tree out) "no declared-large path ⇒ tree returned unwalked")))
+
+(deftest large-marker-map-skips-sensitive-node
+  ;; sensitive wins: a node declared BOTH sensitive and large is left to the
+  ;; sensitive engine, so the large marker map does not claim it.
+  (install-class! [[:both]] [[:both]])
+  (let [blob (vec (range 3000))
+        m    (rf/elision-large-value-marker-map {:both blob} :rf/default {})]
+    (is (empty? m) "a sensitive-declared node is excluded from the large marker map")))
+
+(deftest redact-matching-large-values-is-idempotent-on-marker
+  ;; a tree that already carries a marker is not re-marked (the marker is not
+  ;; a key of the marker-map, and the walker treats it as terminal).
+  (install-class! [] [[:blob]])
+  (let [blob   (vec (range 3000))
+        db     {:blob blob}
+        m      (rf/elision-large-value-marker-map db :rf/default {})
+        once   (rf/redact-matching-large-values [:pre blob] m)
+        twice  (rf/redact-matching-large-values once m)]
+    (is (= once twice) "a re-projection pass is byte-identical")))
+
 (deftest walker-is-idempotent-on-large-marker
   ;; rf2-fq8ep — the walker recognises its own `:rf.size/large-elided`
   ;; marker shape at a `:large?`-declared path and passes it through
