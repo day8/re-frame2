@@ -113,6 +113,16 @@
             ;; A leaf on the registrar/late-bind spine; bundle-isolation
             ;; neutral. The default-realm keyword arities are byte-identical.
             [re-frame.realm :as realm]
+            ;; EP-0023 (rf2-32siq3.17): the public `rf/image` constructor —
+            ;; an IMAGE value, the selected registration-set value a frame
+            ;; resolves against (EP-0023 §Image, §Public API). PURE inert data
+            ;; (no realm, no registrar, no side effect), re-exported below as
+            ;; `rf/image`. `re-frame.image` lives in the core artefact and
+            ;; pulls only `clojure.string` + `re-frame.error` (the core
+            ;; spine), so it is bundle-isolation neutral; an app that never
+            ;; constructs an image leaves the constructor as Closure-DCE dead
+            ;; code.
+            [re-frame.image :as image]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
@@ -690,6 +700,20 @@
   Implementation ships in `day8/re-frame2-ssr`. Late-bound via
   `:ssr/head-snapshot`."}
   head-snapshot    rf-ssr/head-snapshot)
+
+;; ---- images (EP-0023) ----------------------------------------------------
+
+(def ^{:doc "Construct an IMAGE value — the selected registration-set value a
+  frame resolves against (EP-0023 §Image, §Public API). `rf/image` is the
+  public constructor; `spec` is a map carrying `:id` (optional), `:include-ns`
+  (a vector of namespace-glob strings selecting registered descriptors by
+  their `:rf.provenance/ns`), `:registrations` (inline registrar-keyed
+  sections), `:rf.image/requires` (the `:rf.capability/*` set), and the
+  declared-winner maps `:replace` / `:replace-standard`. Returns a normalized,
+  INERT image value — PURE: no realm, no registrar, no side effect (an image
+  is data, not registration). Supplied to `make-frame` / `reg-frame` via the
+  `:images` vector. See `re-frame.image/image`."}
+  image    image/image)
 
 ;; ---- frame management ----------------------------------------------------
 
