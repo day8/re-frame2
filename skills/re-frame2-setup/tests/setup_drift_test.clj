@@ -667,14 +667,15 @@
     (let [body @shadow-cljs-md]
       ;; The Contents TOC + the section header previously read
       ;; ":devtools block (optional, for hot-reload)", implying the Xray preload
-      ;; is opt-in hot-reload tooling. It is the day-one default; only the
-      ;; SEPARATE ^:dev/after-load hook is opt-in.
+      ;; is opt-in hot-reload tooling. It is the day-one default — not optional
+      ;; hot-reload material. (For the :browser target the module :init-fn re-runs
+      ;; after each hot reload by default, so no separate ^:dev/after-load hook is
+      ;; needed at all.)
       (is (not (str/includes? body "optional, for hot-reload"))
           (str "shadow-cljs.md still labels the `:devtools` section "
                "\"optional, for hot-reload\". The Xray preload is the day-one "
-               "default (not optional hot-reload material); only the separate "
-               "`^:dev/after-load` hook is opt-in. Reframe the section header "
-               "(rf2-agi57x).")))))
+               "default, not optional hot-reload material. Reframe the section "
+               "header (rf2-agi57x).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 12 — the generator route is USER-RUN; the skill's allowed-tools do NOT

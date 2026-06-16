@@ -17,13 +17,18 @@ ids its substrate view snippets DISPATCH/SUBSCRIBE. Two prior drifts broke that:
     prevent. This guard pins ONE shared vocabulary across the setup leaves and the
     generator template's `_shared/events.cljs` + `_shared/subs.cljs`.
 
-  * HOT-RELOAD-LIFECYCLE drift (finding 2). `references/shadow-cljs.md` /
-    `references/entry-namespace.md` had taught that shadow-cljs re-runs the module
-    `:init-fn` after EACH hot reload (so "no `:after-load` is needed"). That is the
-    wrong shadow-cljs lifecycle: `:init-fn` is the one-time startup/module-load
-    entry; `^:dev/after-load` (or `:devtools {:after-load …}`) is the explicit
-    re-render hook after a hot reload. This guard fails if the retired
-    "`:init-fn` re-runs after each hot reload" framing reappears.
+  * HOT-RELOAD-LIFECYCLE drift (finding 2). The correct shadow-cljs `:browser`
+    lifecycle is: the module `:init-fn` is wired as BOTH the startup entry and the
+    default after-load hook, so it re-runs after EACH hot reload — no separate
+    `^:dev/after-load` hook is needed, and the explicit `dispatch-sync` seed in
+    `init` is the per-reload reset boundary. This matches the generator template's
+    README §Hot reload (CI-guarded by `tools/template/.../template_test.clj`) and
+    the implementation. `references/shadow-cljs.md` / `references/entry-namespace.md`
+    had previously taught the OPPOSITE (Camp B): that `:init-fn` is a "one-time
+    startup hook" that does NOT re-run on a bare code reload, recommending a
+    separate `^:dev/after-load render!` hook. That framing is wrong. This guard
+    fails if the retired one-time-startup / "add an `^:dev/after-load` hook to
+    re-render" framing reappears.
 
 The COUNTER-KEYWORD check is a CONTAINMENT assertion, not a literal-text diff:
 
@@ -113,13 +118,23 @@ REG_SUB = re.compile(r"reg-sub\s+(:counter/[a-z0-9-]+)")
 DISPATCH = re.compile(r"dispatch\s+\[\s*(:counter/[a-z0-9-]+)")
 SUBSCRIBE = re.compile(r"(?:use-subscribe|subscribe)\s+\[\s*(:counter/[a-z0-9-]+)")
 
-# HOT-RELOAD-LIFECYCLE retired framing (finding 2). Any sentence that asserts the
-# `:init-fn` / module-init re-runs on every hot reload is the wrong mental model.
-# Two phrasings, case-insensitive, whitespace-tolerant.
+# HOT-RELOAD-LIFECYCLE retired framing (finding 2). The CORRECT shadow-cljs
+# `:browser` lifecycle is: the module `:init-fn` re-runs after each hot reload (it is
+# both the startup entry and the default after-load hook). The RETIRED (Camp B)
+# framing asserted the opposite — that `:init-fn` is a "one-time startup hook" that
+# does NOT re-run on a bare code reload, and recommended adding a separate
+# `^:dev/after-load` render hook to get hot reload. This guard fails if that retired
+# framing reappears. Patterns are case-insensitive, whitespace-tolerant, and matched
+# per-line so an honest mention can't trip a neighbouring line.
 HOT_RELOAD_DRIFT = [
-    re.compile(r"init-fn[^.\n]{0,80}re-?runs?[^.\n]{0,40}(?:each|every)[^.\n]{0,20}hot[\s-]?reload", re.IGNORECASE),
-    re.compile(r"re-?runs?[^.\n]{0,40}(?:module\s+)?:?init-fn[^.\n]{0,40}(?:after\s+)?(?:each|every)[^.\n]{0,20}hot[\s-]?reload", re.IGNORECASE),
-    re.compile(r"re-?runs?[^.\n]{0,30}the\s+module\s+:?init-fn\s+after\s+each\s+hot\s+reload", re.IGNORECASE),
+    # "the :init-fn is a one-time startup hook" (the load-bearing wrong claim).
+    re.compile(r":?init-fn[^.\n]{0,40}\bone-?time\b[^.\n]{0,30}startup", re.IGNORECASE),
+    re.compile(r"\bone-?time\b[^.\n]{0,30}startup[^.\n]{0,40}:?init-fn", re.IGNORECASE),
+    # ":init-fn is ... NOT the hot-reload hook".
+    re.compile(r":?init-fn[^.\n]{0,40}\bnot\b[^.\n]{0,20}(?:the\s+)?hot[\s-]?reload[^.\n]{0,10}hook", re.IGNORECASE),
+    # "does not re-run / re-invoke :init-fn / init [on/after a reload]".
+    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?[^.\n]{0,30}:?init(?:-fn)?", re.IGNORECASE),
+    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?\s+(?:the\s+)?:?init", re.IGNORECASE),
 ]
 
 # ADAPTER-KEY retired wording (finding 3). The current Spec 006 adapter contract
@@ -216,12 +231,16 @@ def find_hot_reload_drift(*texts_with_names: tuple[str, str]) -> list[str]:
             for pat in HOT_RELOAD_DRIFT:
                 if pat.search(line):
                     problems.append(
-                        f"HOT-RELOAD-LIFECYCLE: {name}:{lineno} asserts the :init-fn "
-                        "re-runs after each hot reload — wrong shadow-cljs lifecycle. "
-                        ":init-fn is the one-time startup/module-load entry; "
-                        "`^:dev/after-load` (or `:devtools {:after-load …}`) is the "
-                        "explicit re-render hook after a hot reload. Rewrite the "
-                        f"sentence: {line.strip()!r}"
+                        f"HOT-RELOAD-LIFECYCLE: {name}:{lineno} teaches the retired "
+                        "Camp B framing — that :init-fn is a one-time startup hook "
+                        "that does NOT re-run on a hot reload (and that you must add a "
+                        "separate ^:dev/after-load hook). That is the wrong shadow-cljs "
+                        "lifecycle. For the :browser target the module :init-fn IS "
+                        "re-invoked after each hot reload by default (it is wired as "
+                        "both the startup entry and the default after-load hook), so no "
+                        "^:dev/after-load hook is needed and the dispatch-sync seed in "
+                        "init is the per-reload reset boundary. Rewrite the sentence to "
+                        f"match the template README §Hot reload: {line.strip()!r}"
                     )
                     break
     return problems
@@ -356,20 +375,22 @@ def _self_test() -> int:
         print(f"SELF-TEST FAIL (C superset clean): unexpected {probs}")
         failures += 1
 
-    # Case D — hot-reload clean.
+    # Case D — hot-reload clean: the CORRECT (Camp A) framing.
     good_shadow = (
-        "shadow-cljs's `:browser` target runs the module `:init-fn` once at "
-        "startup; add a `^:dev/after-load` hook for an explicit re-render.\n"
+        "The `:browser` target re-runs the module `:init-fn` after each hot "
+        "reload, so no `:after-load` hook is needed; the dispatch-sync seed in "
+        "init is the per-reload reset boundary.\n"
     )
     probs = find_hot_reload_drift(("shadow-cljs.md", good_shadow))
     if probs:
         print(f"SELF-TEST FAIL (D hot-reload clean): unexpected {probs}")
         failures += 1
 
-    # Case E — the rf2-fd1mf3 finding-2 drift.
+    # Case E — the retired Camp B drift (the one-time-startup framing).
     drift_shadow = (
-        "The `:browser` target re-runs the module `:init-fn` after each hot "
-        "reload, so no `:after-load` hook is needed.\n"
+        "`:init-fn` is a one-time startup hook — it is NOT the hot-reload hook. "
+        "A plain code reload does not re-run `:init-fn`; add a `^:dev/after-load` "
+        "hook for an explicit re-render.\n"
     )
     probs = find_hot_reload_drift(("shadow-cljs.md", drift_shadow))
     if not any("HOT-RELOAD-LIFECYCLE" in p for p in probs):

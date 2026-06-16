@@ -6,7 +6,7 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 
 - The day-one `shadow-cljs.edn`
 - The `index.html` that loads the bundle
-- `:devtools` block (the Xray preload + the hot-reload after-load hook)
+- `:devtools` block (the Xray preload + the `:init-fn` hot-reload lifecycle)
 - Production build (`release`)
 - nREPL — only if you'll use `re-frame2-pair`
 - What re-frame2 does NOT need
@@ -15,7 +15,7 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 
 ## The day-one `shadow-cljs.edn`
 
-The complete default greenfield build, matching the generator template. The `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry is **part of the day-one shape** — Xray is a day-one dep (`deps-versions.md`) and the `index.html` below ships the `[data-rf-xray-host]` column it opens into, so the canonical block wires the preload that fills that column. (Without it you get a compiling app whose right-side host stays empty even though the Xray dep and host markup are present — a false-green scaffold. The dedicated `:devtools` section below explains the block and the separate hot-reload after-load hook.)
+The complete default greenfield build, matching the generator template. The `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry is **part of the day-one shape** — Xray is a day-one dep (`deps-versions.md`) and the `index.html` below ships the `[data-rf-xray-host]` column it opens into, so the canonical block wires the preload that fills that column. (Without it you get a compiling app whose right-side host stays empty even though the Xray dep and host markup are present — a false-green scaffold. The dedicated `:devtools` section below explains the block and the `:init-fn` hot-reload lifecycle.)
 
 ```clojure
 {:deps   {:aliases [:shadow]}           ;; pull classpath from deps.edn's :shadow alias
@@ -46,7 +46,7 @@ The greenfield build entry, matching the generator template. Five things matter 
 2. **`:dev-http {8280 "resources/public"}`.** The top-level dev-server form (current shadow-cljs idiom). It serves `resources/public/` on port `8280` — `index.html` lives at `resources/public/index.html`. The template uses `8280`; reuse it so a teammate on the template route sees the same number.
 3. **`:init-fn your-app.core/init`.** shadow-cljs calls this symbol at bundle-init time. The function must be exported (`(defn ^:export init [] ...)`). This is the entry point that calls `(rf/init! reagent-adapter/adapter)` — see `entry-namespace.md`. (`init` matches the generator template; the symbol name is yours to choose, as long as `:init-fn` points at it — see `entry-namespace.md`.)
 4. **One module.** A single-page re-frame2 app needs exactly one `:modules` entry. Code-splitting is possible later but not part of greenfield.
-5. **`:devtools {:preloads [day8.re-frame2-xray.preload]}`.** The day-one Xray devtools preload. Because Xray is a day-one dep (`deps-versions.md`) and `index.html` carries the `[data-rf-xray-host]` column, the canonical build wires the preload that auto-mounts Xray into that column once `rf/init!` seats the adapter. This entry is dev-only — shadow cuts `:devtools` (preloads and all) from `release` builds automatically, so Xray never ships to production. The dedicated [`:devtools` section](#devtools-block-the-xray-preload--the-hot-reload-after-load-hook) below covers this block and the separate, opt-in `^:dev/after-load` hot-reload hook.
+5. **`:devtools {:preloads [day8.re-frame2-xray.preload]}`.** The day-one Xray devtools preload. Because Xray is a day-one dep (`deps-versions.md`) and `index.html` carries the `[data-rf-xray-host]` column, the canonical build wires the preload that auto-mounts Xray into that column once `rf/init!` seats the adapter. This entry is dev-only — shadow cuts `:devtools` (preloads and all) from `release` builds automatically, so Xray never ships to production. The dedicated [`:devtools` section](#devtools-block-the-xray-preload--the-init-fn-hot-reload-lifecycle) below covers this block and the `:init-fn` hot-reload lifecycle.
 
 The template also ships a second `:test {:target :node-test ...}` build under `:builds` (for `cljs.test` runners) and `:source-paths ["src" "test" "dev"]`. That test build is out of scope for this skill (it stops at "the counter mounts"), but it's there in the scaffold — don't be surprised comparing the two.
 
@@ -128,9 +128,9 @@ Six contractual bits:
 - **CSP — dev meta tag, `'unsafe-inline'` styles.** The CSP meta tag declares `style-src 'self' 'unsafe-inline'` (matching the template). The `'unsafe-inline'` is **deliberate and load-bearing in dev**: re-frame2 views use inline `:style` props (the counter's `[:span {:style {:margin "0 1em"}}]`) and the default-on Xray devtools injects `<style>` blocks and inline styles — a strict `style-src 'self'` would emit CSP violations and break Xray styling on first run. The page chrome (the shell/host layout) lives in `css/app.css` regardless; only the per-component `:style` props need `'unsafe-inline'`. The meta tag deliberately **omits `frame-ancestors`** (browsers ignore it from `<meta>` — it is a response-header-only directive). Both tightenings — dropping `'unsafe-inline'` and adding `frame-ancestors` — belong to the production response header (see **Production hardening** below).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows. The absolute path from site root is correct for shadow-cljs's dev server.
 
-## `:devtools` block (the Xray preload + the hot-reload after-load hook)
+## `:devtools` block (the Xray preload + the `:init-fn` hot-reload lifecycle)
 
-The top-level `:dev-http` (above) already starts the dev server. The day-one build already carries the `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry (see the canonical block at the top of this file) — this section explains that preload and the **separate, opt-in** `^:dev/after-load` hot-reload hook. The `:devtools` block reproduced here is the same one from the day-one build, shown in context:
+The top-level `:dev-http` (above) already starts the dev server. The day-one build already carries the `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry (see the canonical block at the top of this file) — this section explains that preload and the `:init-fn` hot-reload lifecycle (the module `:init-fn` re-runs after each reload by default, so no extra after-load hook is wired). The `:devtools` block reproduced here is the same one from the day-one build, shown in context:
 
 ```clojure
 :builds
@@ -142,17 +142,9 @@ The top-level `:dev-http` (above) already starts the dev server. The day-one bui
   :devtools   {:preloads [day8.re-frame2-xray.preload]}}}
 ```
 
-- **`:init-fn` is a one-time startup hook — it is NOT the hot-reload hook.** shadow-cljs's `:browser` target calls the module `:init-fn` **once**, at initial module load / page load. A plain code reload (you save a `.cljs` file, shadow recompiles and ships the new code) does **not** re-run `:init-fn` — by design, so a top-level `(init)` isn't re-executed on every save (this is exactly why `:init-fn` exists rather than a bare top-level call; see the shadow-cljs [User's Guide §Lifecycle hooks](https://shadow-cljs.github.io/docs/UsersGuide.html#_lifecycle_hooks)). The explicit re-render-after-reload hook is **`^:dev/after-load`** (a metadata tag on a zero-arg fn) or, equivalently, a `:devtools {:after-load your-app.core/render!}` entry in the build. If you set *neither*, shadow swaps the freshly-compiled code into the running page but runs no hook — React does not necessarily re-render until the next state change, so edits to view code can look stale until you change state or do a full refresh.
+- **`:init-fn` runs at startup AND re-runs after each hot reload.** shadow-cljs's `:browser` target wires the module `:init-fn` as both the initial entry (called once at module load / page load) and the default after-load hook — so a plain code reload (you save a `.cljs` file, shadow recompiles and ships the new code) **re-invokes** `:init-fn` automatically. You do **not** need a separate `^:dev/after-load` hook to get a clean re-render on save; the module init re-running is what re-renders the tree. (See the shadow-cljs [User's Guide §Lifecycle hooks](https://shadow-cljs.github.io/docs/UsersGuide.html#_lifecycle_hooks): the `:browser` module `:init-fn` is the module entry, called on the initial load and again after every hot reload.) This is exactly why the scaffold's React root is held in a `defonce` (see [`entry-namespace.md` §Reagent root](entry-namespace.md)) — `init` re-runs on every save, so `create-root` must be created once and reused, not re-created each reload.
 
-  **The greenfield recipe — the simplest scaffold, with its limit stated.** This minimal counter ships **no** `^:dev/after-load` hook (matching the smallest scaffold). The cost: after editing view code you may need a state change (click `+1`) or a full page refresh to see it; the live tree won't necessarily re-render on a bare code reload. That trade is fine for greenfield. When you want reliable hot reload, add a separate render fn and an after-load hook that re-renders **without** re-seeding app-db:
-
-  ```clojure
-  ;; in your-app.core
-  (defn ^:dev/after-load render! []
-    (rdc/render react-root [counter-app]))   ;; re-render only — no rf/init!, no dispatch-sync
-  ```
-
-  Keep `(rf/init! …)` and the `(rf/dispatch-sync [:counter/initialise])` seed in `init` (the one-time startup path); the after-load hook only re-renders, so app-db state survives the reload instead of resetting to its seed on every save. (Coordinate this wording with the generator template's own hot-reload notes so the template docs and this skill teach the same `:init-fn` = startup / `^:dev/after-load` = reload-hook lifecycle.)
+  **What re-runs vs what survives.** Because `init` re-runs on every reload, anything it does runs again each save: `rf/init!` (idempotent — re-installs the adapter config only when none is seated, creates no frame), `reg-frame` on the same id (an idempotent in-place frame update), and crucially the explicit `(rf/dispatch-sync [:counter/initialise])` seed. That `dispatch-sync` seed **is the reset boundary**: it re-writes the starter app-db on every reload, so editing the `:counter/initialise` handler (or removing the `dispatch-sync` call) is what changes what a reload re-seeds. If you want demo state to *persist* across reloads instead, move the seed out of the per-reload init path (e.g. guard it so it only fires on first boot) — leaving it in init means a deliberate reset every save, which is the right default for greenfield iteration. (Keep this wording in lockstep with the generator template's own README §Hot reload, which teaches the same `:init-fn` = startup-and-after-load / `dispatch-sync` = reset-boundary lifecycle.)
 - `:preloads [day8.re-frame2-xray.preload]` — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
 - The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 
