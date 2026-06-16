@@ -41,17 +41,41 @@
   [runtime-db [_id {:keys [instance]}]]
   (get-in runtime-db (mstate/instance-path instance)))
 
+(defn optimistic?-for
+  "PURE DERIVED: is this mutation instance showing a LIVE optimistic value — an
+  optimistic apply landed (phase 1.5) but has NOT yet settled (commit / rollback
+  / reconcile, phase 4)? EP-0019 Rider 1: the flag is true between the apply and
+  the settle, so a view can render \"pending, but showing my optimistic value.\"
+
+  Derived from two durable facts, never stored as a third:
+
+  - the instance is non-terminally `:pending` (a settled `:success` / `:error`
+    instance has had its optimistic apply committed / rolled back, so the value
+    on the entry is authoritative or restored, NOT optimistic);
+  - the instance recorded an optimistic apply — its `:patch-summary` carries a
+    `:snapshot-id` (the phase-1.5 execute writes it onto the pending row; a
+    purely-pessimistic write leaves it nil).
+
+  A pessimistic write is `:optimistic? false` throughout (no snapshot id); a
+  committed / rolled-back optimistic write is `:optimistic? false` after settle
+  (no longer `:pending`)."
+  [instance]
+  (and (= :pending (:status instance))
+       (some? (-> instance :patch-summary :snapshot-id))))
+
 (defn state-sub-fn
   "Project the public `:rf.mutation/state` view-model from a durable
   instance: the stored facts (`:status` / `:result` / `:error` /
   `:affected-keys`) plus the DERIVED booleans (`:pending?` / `:success?` /
-  `:error?` / `:settled?`) computed here, never stored. Empty-state shape
-  (idle, no instance) when none. Per EP-0003 §Mutations."
+  `:error?` / `:settled?` / `:optimistic?`) computed here, never stored.
+  Empty-state shape (idle, no instance) when none. Per EP-0003 §Mutations /
+  EP-0019 Rider 1 (the `:optimistic?` derived flag)."
   [runtime-db sub-v]
   (let [i (instance-for runtime-db sub-v)]
     (if (nil? i)
       {:status :idle :result nil :error nil :affected-keys nil
-       :pending? false :success? false :error? false :settled? false}
+       :pending? false :success? false :error? false :settled? false
+       :optimistic? false}
       {:status        (:status i)
        :result        (:result i)
        :error         (:error i)
@@ -59,7 +83,8 @@
        :pending?      (= :pending (:status i))
        :success?      (= :success (:status i))
        :error?        (= :error (:status i))
-       :settled?      (mstate/terminal? (:status i))})))
+       :settled?      (mstate/terminal? (:status i))
+       :optimistic?   (optimistic?-for i)})))
 
 (defn status-sub-fn
   "Project `:rf.mutation/status` — the instance's `:status` keyword
@@ -93,7 +118,7 @@
   registrar re-wires them. Per EP-0003 §Mutations."
   []
   (subs/reg-runtime-sub :rf.mutation/state
-    {:doc "Passive read of a mutation instance's full view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled?}`, keyed by :instance id. Per EP-0003 §Mutations."}
+    {:doc "Passive read of a mutation instance's full view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}`, keyed by :instance id. The `:optimistic?` flag (EP-0019 Rider 1) is true while a live optimistic apply is showing (phase 1.5) and not yet settled. Per EP-0003 §Mutations."}
     state-sub-fn)
   (subs/reg-runtime-sub :rf.mutation/status
     {:doc "Passive read of a mutation instance's :status keyword (:idle / :pending / :success / :error). Per EP-0003 §Mutations."}
