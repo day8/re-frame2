@@ -88,6 +88,29 @@
     (is (true?  (image/ns-matches? "shop.**.http" "shop.http")))
     (is (false? (image/ns-matches? "shop.**.http" "shop.cart.https")))))
 
+(deftest consecutive-double-stars-collapse-and-bound-backtracking
+  ;; M3 guard (EP-0023 code-quality): consecutive `**` runs collapse to one
+  ;; `**` before matching, so a pathological pattern can never trigger the
+  ;; matcher's exponential-backtracking worst case. The collapse is semantics-
+  ;; preserving: a run of `**`s accepts exactly the segment sets a single `**`
+  ;; does.
+  (testing "a run of `**` is semantically equivalent to a single `**`"
+    (is (= (image/ns-matches? "**.**" "a.b.c")     (image/ns-matches? "**" "a.b.c")))
+    (is (= (image/ns-matches? "**.**.**" "a.b.c")   (image/ns-matches? "**" "a.b.c")))
+    (is (true?  (image/ns-matches? "**.**.**" "anything.at.all")))
+    (is (true?  (image/ns-matches? "**.**" "")))
+    (is (true?  (image/ns-matches? "shop.**.**.http" "shop.a.b.c.http")))
+    (is (true?  (image/ns-matches? "shop.**.**.http" "shop.http")))
+    (is (false? (image/ns-matches? "shop.**.**.http" "shop.a.b.https"))))
+  (testing "a pathological all-`**` pattern returns promptly on a NON-match
+            (no exponential blow-up) and preserves the right answer"
+    ;; Without the collapse guard, the trailing literal forces the matcher to
+    ;; fork 2^k ways across the k adjacent `**`s before reporting the non-match.
+    (is (false? (image/ns-matches? "**.**.**.**.**.**.**.**.x"
+                                   "a.b.c.d.e.f.g.h.i.j.k.l.m.n")))
+    (is (true?  (image/ns-matches? "**.**.**.**.**.**.**.**.x"
+                                   "a.b.c.d.e.f.g.h.i.j.k.l.m.x")))))
+
 (deftest matching-is-case-sensitive
   (testing "whole-namespace match is case-sensitive (literal segments)"
     (is (false? (image/ns-matches? "Docs.counter" "docs.counter")))

@@ -77,6 +77,13 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (err-id e))))
 
+(defn- assembly-error-data
+  "Run `thunk`; return the ex-data of the thrown ex-info (or nil)."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (ex-data e))))
+
 ;; ===========================================================================
 ;; 1. Successful projection — selected + inline + standard → immutable resolver
 ;; ===========================================================================
@@ -214,6 +221,51 @@
                   :replace {[:fx :checkout.http/post] {:ns "checkout.story.STALE"}}})]
       (is (= :rf.error/image-replacement-winner-unresolved
              (assembly-error-id #(asm/assemble [img] pool)))))))
+
+(deftest ambiguous-replace-winner-fails-loud
+  (testing "a :replace winner that matches MORE THAN ONE selected descriptor
+            (two genuine collisions sharing the SAME source coordinate) →
+            :rf.error/image-replacement-winner-unresolved with recovery
+            :make-the-winner-coordinate-unambiguous — the winner must name
+            exactly one survivor, not a set of indistinguishable descriptors"
+    ;; Two distinct registrations authored in the SAME provenance ns with the
+    ;; same (kind, id) but DIFFERENT impls: a genuine collision (not a dedupe),
+    ;; and BOTH carry the coordinate {:ns "checkout.story.http"}. A :ns winner
+    ;; naming that coordinate matches both, so it does NOT name one survivor.
+    (let [pool [(reg-desc "checkout.story.http" :fx :checkout.http/post ::fake-a)
+                (reg-desc "checkout.story.http" :fx :checkout.http/post ::fake-b)]
+          img  (image/image
+                 {:id :i
+                  :include-ns ["checkout.story.http"]
+                  :replace {[:fx :checkout.http/post] {:ns "checkout.story.http"}}})
+          d    (assembly-error-data #(asm/assemble [img] pool))]
+      (is (= :rf.error/image-replacement-winner-unresolved (:rf.error/id d)))
+      (testing "the recovery key is the AMBIGUOUS leg, distinct from the
+                zero-match leg's :fix-the-replacement-winner-source"
+        (is (= :make-the-winner-coordinate-unambiguous (:recovery d)))
+        (is (= 2 (:match-count d)))))))
+
+(deftest anonymous-image-inline-winner-fails-loud
+  (testing "an ANONYMOUS image (no :id) whose INLINE descriptor is named as a
+            replacement winner must FAIL LOUD — an inline winner coordinate
+            (:image <id> :inline …) requires the containing image to carry an
+            :id, so an anonymous image's inline descriptor (coordinate
+            {:image nil …}) can never be the named survivor (EP-0023:
+            an inline winner requires the containing image to have an :id)"
+    ;; A registered descriptor collides with the anonymous image's inline
+    ;; descriptor for the same (kind, id). The :replace names the inline
+    ;; coordinate with a concrete image id, but the anonymous image stamps its
+    ;; inline descriptor with :image nil → the winner matches no descriptor.
+    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
+          img  (image/image
+                 {;; NO :id — anonymous image
+                  :include-ns ["checkout.core"]
+                  :registrations {:reg-fx [[:checkout.http/post {} ::inline-fake]]}
+                  :replace {[:fx :checkout.http/post]
+                            {:image :checkout/story :inline [:reg-fx :checkout.http/post]}}})]
+      (is (= :rf.error/image-replacement-winner-unresolved
+             (assembly-error-id #(asm/assemble [img] pool)))
+          "naming an inline coordinate as a winner on an :id-less image fails loud"))))
 
 ;; ===========================================================================
 ;; 3b. Replacement declares a REAL collision only (rf2-32siq3.5 winner policy):
@@ -495,13 +547,6 @@
 ;;    declaring DIFFERENT winners for the same [kind id] FAILS LOUD; identical
 ;;    declarations across images are idempotent (order must not decide).
 ;; ===========================================================================
-
-(defn- assembly-error-data
-  "Run `thunk`; return the ex-data of the thrown ex-info (or nil)."
-  [thunk]
-  (try (thunk) nil
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (ex-data e))))
 
 (deftest cross-image-conflicting-replace-fails-loud
   (testing "two composed images declaring the SAME [kind id] :replace winner
