@@ -1644,3 +1644,164 @@
           "no record materialised from an orphan unmount")
       (is (= [] @seen)
           "no listener fan-out for an unmount with no causing cascade"))))
+
+;; ===========================================================================
+;; INVARIANT 9 — restore-induced post-settle activity does NOT back-fill into
+;;                a STALE epoch (rf2-w4q9gt)
+;; ===========================================================================
+;;
+;; The time-travel sibling of inv-1 / inv-2 / inv-8. A successful `restore-epoch!`
+;; rewinds the frame's state but runs NO ordinary cascade — so it never updates
+;; the `last-settled-epoch` anchor on its own. Left untouched, the anchor keeps
+;; pointing at whatever event settled most recently BEFORE the restore.
+;;
+;; THE BUG: a restore triggers a repaint / subscription recompute / unmount of
+;; the rewound view tree. Those fire post-settle (React commit / deref / teardown
+;; timing), so `record-render!` / `record-sub-run!` / `record-unmount!` read the
+;; stale `last-settled-epoch-id` and back-fill the restore-induced activity into
+;; the UNRELATED most-recent pre-restore epoch — corrupting that later epoch's
+;; historical `:renders` / `:sub-runs` / `:trace-events` for a frame that has
+;; been rewound past it.
+;;
+;; THE FIX (restored-target attribution, mirroring the replace-* injection
+;; siblings which re-anchor to their synthetic epoch): `perform-restore!` sets
+;; `last-settled-epoch` to the RESTORED-TARGET epoch on success. Restore-induced
+;; repaint then attributes to the epoch whose state is now installed — the
+;; honest cause — not the stale event. A failed / rejected restore returns
+;; before the re-anchor, leaving the anchor (and frame state, history,
+;; listeners) untouched.
+
+(deftest inv-9-restore-induced-render-does-not-backfill-into-stale-epoch
+  (testing "rf2-w4q9gt — after a restore to an OLDER epoch, a restore-induced
+            render fires post-settle. It must NOT back-fill into the unrelated
+            pre-restore last-settled epoch. THE corruption: pre-fix the anchor
+            still named the most-recent epoch the frame was rewound PAST, so the
+            repaint smeared into that epoch's :renders."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
+    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
+
+    (rf/dispatch-sync [:seed]        {:frame :test/main})   ;; counter 0
+    (rf/dispatch-sync [:counter-inc] {:frame :test/main})   ;; counter 1 — restore target
+    (let [target-epoch (last-epoch :test/main)]
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main}) ;; counter 2 — the pre-restore last-settled
+      (let [stale-epoch (last-epoch :test/main)]
+
+        ;; PRECONDITION — the two epochs are distinct, and the stale one is the
+        ;; frame's current last-settled (the anchor a naive back-fill would use).
+        (is (not= (:epoch-id target-epoch) (:epoch-id stale-epoch))
+            "the restore target and the pre-restore last-settled are distinct")
+        (is (= (:epoch-id stale-epoch) (state/last-settled-epoch-id :test/main))
+            "before the restore, the most-recent counter-inc is last-settled")
+
+        ;; Rewind the frame to the OLDER target epoch (counter 1).
+        (is (true? (rf/restore-epoch! :test/main (:epoch-id target-epoch)))
+            "restore to the older epoch succeeds")
+
+        ;; A restore-induced repaint fires post-settle (React-commit timing) —
+        ;; the rewound view tree re-renders.
+        (emit-render! :test/main :counter-view)
+
+        (let [stale (epoch-by-id :test/main stale-epoch)]
+          (is (= :counter-inc (:event-id stale)))
+          ;; THE INVARIANT — the restore-induced render did NOT land in the
+          ;; stale epoch the frame was rewound past.
+          (is (not (contains? (rendered-view-ids stale) :counter-view))
+              "rf2-w4q9gt — restore-induced render did NOT back-fill into the
+               stale pre-restore epoch (the corruption is gone)")
+          ;; And it attributes to the RESTORED-TARGET epoch instead — the epoch
+          ;; whose state is now installed (restored-target attribution).
+          (let [target (epoch-by-id :test/main target-epoch)]
+            (is (contains? (rendered-view-ids target) :counter-view)
+                "the restore-induced render attributes to the restored-target
+                 epoch — the honest cause of the repaint")))))))
+
+(deftest inv-9-restore-induced-sub-run-does-not-backfill-into-stale-epoch
+  (testing "rf2-w4q9gt — the SUBS sibling. A restore-induced reactive recompute
+            (React-deref timing) must not land in the stale pre-restore epoch's
+            :sub-runs. Mirrors inv-1 across a time-travel rewind."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
+    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
+
+    (rf/dispatch-sync [:seed]        {:frame :test/main})
+    (rf/dispatch-sync [:counter-inc] {:frame :test/main})   ;; counter 1 — target
+    (let [target-epoch (last-epoch :test/main)]
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main}) ;; counter 2 — stale
+      (let [stale-epoch (last-epoch :test/main)]
+
+        (is (true? (rf/restore-epoch! :test/main (:epoch-id target-epoch))))
+
+        ;; A restore-induced reactive recompute: counter sub re-derefs the rewound
+        ;; db (2 → 1).
+        (emit-sub-run! :test/main :counter 2 1)
+
+        (let [stale  (epoch-by-id :test/main stale-epoch)
+              target (epoch-by-id :test/main target-epoch)]
+          (is (not (contains? (sub-run-ids stale) :counter))
+              "rf2-w4q9gt — restore-induced sub-run did NOT back-fill into the
+               stale pre-restore epoch")
+          (is (contains? (sub-run-ids target) :counter)
+              "the restore-induced sub-run attributes to the restored-target
+               epoch"))))))
+
+(deftest inv-9-restore-induced-unmount-does-not-backfill-into-stale-epoch
+  (testing "rf2-w4q9gt — the UNMOUNT sibling. A restore that rewinds past a view
+            spawn tears that view down; the post-settle unmount must not land in
+            the stale pre-restore epoch's :trace-events. Mirrors inv-8."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
+    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
+
+    (rf/dispatch-sync [:seed]        {:frame :test/main})
+    (rf/dispatch-sync [:counter-inc] {:frame :test/main})   ;; target
+    (let [target-epoch (last-epoch :test/main)]
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main}) ;; stale
+      (let [stale-epoch (last-epoch :test/main)]
+
+        (is (true? (rf/restore-epoch! :test/main (:epoch-id target-epoch))))
+
+        ;; A restore-induced teardown fires post-settle (React-teardown timing).
+        (emit-unmount! :test/main :transient-view)
+
+        (let [stale  (epoch-by-id :test/main stale-epoch)
+              target (epoch-by-id :test/main target-epoch)]
+          (is (not (contains? (unmounted-view-ids stale) :transient-view))
+              "rf2-w4q9gt — restore-induced unmount did NOT back-fill into the
+               stale pre-restore epoch's :trace-events")
+          (is (contains? (unmounted-view-ids target) :transient-view)
+              "the restore-induced unmount attributes to the restored-target
+               epoch"))))))
+
+(deftest inv-9-failed-restore-leaves-attribution-anchor-unchanged
+  (testing "rf2-w4q9gt — a FAILED restore (unknown epoch-id) must NOT touch the
+            last-settled anchor: it returns before the re-anchor, leaving the
+            frame's attribution exactly as the most-recent real cascade left it.
+            Post-failure activity still attributes to that genuine last-settled
+            epoch — the re-anchor is success-ONLY."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
+    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
+
+    (rf/dispatch-sync [:seed]        {:frame :test/main})
+    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+    (let [live-epoch (last-epoch :test/main)]
+
+      (is (= (:epoch-id live-epoch) (state/last-settled-epoch-id :test/main))
+          "the most-recent cascade is last-settled before the failed restore")
+
+      ;; A restore to an epoch that is NOT in history fails (no-op).
+      (is (false? (rf/restore-epoch! :test/main :no-such-epoch))
+          "restore to an unknown epoch fails")
+
+      ;; THE INVARIANT — the anchor is untouched.
+      (is (= (:epoch-id live-epoch) (state/last-settled-epoch-id :test/main))
+          "rf2-w4q9gt — a failed restore left the last-settled anchor unchanged")
+
+      ;; A subsequent post-settle render still attributes to the genuine
+      ;; last-settled epoch (the failed restore changed nothing).
+      (emit-render! :test/main :counter-view)
+      (let [e (epoch-by-id :test/main live-epoch)]
+        (is (contains? (rendered-view-ids e) :counter-view)
+            "post-failure render attributes to the unchanged last-settled
+             epoch — the re-anchor is success-only")))))
