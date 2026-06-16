@@ -286,6 +286,43 @@ runWithWatchdog(
       },
     ];
 
+    // Universal isError <-> :ok? cross-check (rf2-87h71e). The spec
+    // contract (spec/003-Tool-Catalogue.md §381) is universal: EVERY
+    // `:ok? false` structuredContent MUST carry `isError === true`, and
+    // every `:ok? true` MUST carry a falsy isError. Before this assertion
+    // every isError check in the corpus was tool-specific +
+    // outcome-specific, so the sibling pair-mcp read-dom/read-ui gap
+    // (rf2-q7cavs — an `:ok? false` runtime failure envelope shipping
+    // `isError:false`) shipped GREEN. This cross-check pins the contract
+    // for an ARBITRARY structured envelope at the SDK boundary, catching
+    // any tool that decouples its isError flag from its `:ok?` slot.
+    //
+    // Reads `:ok?` from the namespace-faithful structuredContent slot
+    // (`qualify-keywords` renders `:ok?` as the JS key "ok?"). Tolerates
+    // an envelope with no `:ok?` slot (a non-`:ok?`-shaped result is out
+    // of scope — there is nothing to cross-check).
+    function assertIsErrorMatchesOk(label, resp) {
+      const sc = resp.structuredContent;
+      if (sc === undefined || sc === null || typeof sc !== 'object') return;
+      if (!Object.prototype.hasOwnProperty.call(sc, 'ok?')) return;
+      const ok = sc['ok?'];
+      if (ok === false && resp.isError !== true) {
+        throw new Error(
+          label + ' carries :ok? false but isError is not true (' +
+            JSON.stringify(resp.isError) + ') — violates the universal ' +
+            'spec/003 §381 contract (every :ok? false is isError:true). ' +
+            'A failure that is not flagged isError is cache-eligible and ' +
+            'can mask a later success (rf2-87h71e / rf2-q7cavs).',
+        );
+      }
+      if (ok === true && resp.isError === true) {
+        throw new Error(
+          label + ' carries :ok? true but isError is true — a success ' +
+            'envelope must not be flagged a fault (rf2-87h71e converse).',
+        );
+      }
+    }
+
     // Call one tool and assert the shared degraded envelope. Returns the
     // SDK response so the structuredContent dual-slot check below can
     // spot-check the assembled spool.
@@ -364,6 +401,20 @@ runWithWatchdog(
           'isError + :rf.error/writes-disabled (pre-connection refusal)',
       );
     }
+
+    // 3c-bis. Universal isError <-> :ok? cross-check across the whole
+    // degraded walk (rf2-87h71e). Every degraded / write-gate envelope
+    // collected above carries `:ok? false` and MUST be isError:true; this
+    // sweeps them ALL through the contract assertion (not just the
+    // tool-specific :nrepl-port-not-found / :writes-disabled checks). A
+    // server that decoupled isError from `:ok?` on ANY tool — the class
+    // the sibling read-dom/read-ui gap belonged to — trips RED here.
+    for (const [label, resp] of Object.entries(degradedResp)) {
+      assertIsErrorMatchesOk('tools/call ' + label + ' (degraded)', resp);
+    }
+    console.log(
+      'OK   every :ok? false envelope is isError:true (universal cross-check, rf2-87h71e)',
+    );
 
     // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every
     // pair-mcp result envelope MUST carry BOTH the wire-canonical

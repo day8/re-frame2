@@ -183,6 +183,11 @@
                  (done))))))
 
 (deftest bad-selector-error-forwarded
+  ;; rf2-q7cavs — a genuine `:ok? false` runtime failure (a thrown
+  ;; malformed-selector) MUST ride as `:isError true`, per
+  ;; spec/003-Tool-Catalogue.md §381. Before the fix the shared
+  ;; `map-result-or-blank` routed every map through `ok-text`, so this
+  ;; failure shipped `isError:false` and was cache-eligible.
   (async done
     (let [canned {:ok? false :reason :rf.error/ui-read-bad-selector
                   :message "bad selector"}]
@@ -190,9 +195,13 @@
             (fn []
               (read-ui/read-ui-tool (fresh-conn) #js {:selector "###"})))
           (.then (fn [r]
+                   (is (tu/error? r)
+                       "a thrown bad-selector failure is flagged isError")
                    (let [edn (tu/extract-edn r)]
                      (is (false? (:ok? edn)))
-                     (is (= :rf.error/ui-read-bad-selector (:reason edn))))
+                     (is (= :rf.error/ui-read-bad-selector (:reason edn)))
+                     (is (= :app (:build edn))
+                         "the failure envelope is :build-stamped too"))
                    (done)))))))
 
 (deftest blank-eval-result-becomes-structured-error-not-host-failure

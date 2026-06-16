@@ -730,8 +730,27 @@
   returns a MAP envelope (rf2-u4s4x — read-dom / read-ui). Returns a
   1-arity fn suitable as `eval-after-runtime!`'s `on-value`:
 
-    - a MAP envelope ⇒ `(wire/ok-text (assoc envelope :build build-id))`,
-      echoing the canonical resolved `:build` (rf2-8t3ct / rf2-fmho5).
+    - a `:ok? true` MAP envelope ⇒
+      `(wire/ok-text (assoc envelope :build build-id))`, echoing the
+      canonical resolved `:build` (rf2-8t3ct / rf2-fmho5).
+    - a `:ok? false` MAP envelope ⇒ `(wire/err-text ...)` carrying the
+      runtime's own structured failure verbatim, `:build`-stamped
+      (rf2-q7cavs). The runtime fn returns `:ok? false` ONLY on a
+      genuine fault — a thrown `:rf.error/read-dom-bad-selector` /
+      `:rf.error/ui-read-bad-selector` (malformed CSS ⇒ querySelectorAll
+      threw), `:rf.error/read-dom-no-document`, `:no-element`,
+      `:no-target-arg` — never as a legitimate-but-empty answer (those
+      are `:ok? true`, e.g. read-dom's `{:ok? true :count 0 :nodes []}`).
+      So branching on `:ok?` flags every fault `isError:true` per
+      spec/003-Tool-Catalogue.md §381 \"every `:ok? false` is
+      `isError:true`\" and keeps it out of the response cache (cache
+      eligibility bypasses isError), with no legitimate structured-answer
+      false-positive. This is the read-family analogue of the sibling
+      `:ok?` branches in read_sub / dispatch / operating_frame — NOT the
+      handler-meta `:not-registered` carve-out, which rides as `ok-text`
+      because a not-registered lookup is a legitimate answer-as-data, not
+      a fault (see result_envelope/error?, keyed on `::codec-error` meta,
+      a different layer).
     - a nil / non-map ⇒ `(wire/err-text {...})` carrying `:ok? false`,
       `:build`, the per-tool `:reason` / `:hint`, and any `error-extras`
       (e.g. read-dom's `:selector`) — the rf2-r5erl-safe structured
@@ -744,8 +763,17 @@
    (map-result-or-blank build-id blank-reason blank-hint nil))
   ([build-id blank-reason blank-hint error-extras]
    (fn [envelope]
-     (if (map? envelope)
+     (cond
+       (and (map? envelope) (:ok? envelope))
        (wire/ok-text (assoc envelope :build build-id))
+
+       (map? envelope)
+       ;; A genuine `:ok? false` runtime failure (bad-selector /
+       ;; no-document / no-element / no-target-arg). Forward verbatim as
+       ;; an :isError envelope per the universal `:ok? false` contract.
+       (wire/err-text (assoc envelope :build build-id))
+
+       :else
        (wire/err-text
          (merge {:ok?    false
                  :reason blank-reason
