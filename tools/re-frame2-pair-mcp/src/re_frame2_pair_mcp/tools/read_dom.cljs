@@ -90,6 +90,19 @@
   the agent recognises an elision at a glance. The wire-boundary cap step
   (`tools.cljs` §`:apply-cap`) remains the backstop.
 
+  ## Privacy — value-redact derived content (rf2-p9scds)
+
+  Rendered DOM text / attribute values can carry a secret copied out of a
+  declared-sensitive app-db slot — a non-app-db position the path-based
+  `elide-wire-value` walker can never reach. Under the off-box egress
+  posture (the published-build default) the runtime value-redacts the
+  matched nodes through `re-frame.core/redact-derived-values` against the
+  operating frame's declared-`:sensitive?` values, so a rendered secret
+  lands as `:rf/redacted` before crossing the off-box wire. The optional
+  `:frame` arg names the source frame; raw rendered content is the trusted-
+  local read (launched with `--allow-sensitive-reads`); an unresolvable
+  frame under the off-box gate fails closed with `:ambiguous-frame`.
+
   ## Wire contract
 
   Input (MCP args):
@@ -134,6 +147,7 @@
   (:require [clojure.string :as str]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
 (def default-limit
@@ -174,14 +188,18 @@
 
   Only present keys ride: an explicit `attrs` vector ⇒ exactly those
   names (no `data-*`/`aria-*` sweep); omitting it (nil) ⇒ the curated
-  default set + the sweep, resolved runtime-side. The runtime fn is
-  read-only (querySelectorAll + textContent + attribute strings)."
-  [selector sub-selector limit max-text attrs]
+  default set + the sweep, resolved runtime-side. A `frame` keyword (when
+  supplied) names the frame whose declared-sensitive app-db values the
+  rendered nodes are value-redacted against (rf2-p9scds); omitting it lets
+  the runtime resolve the operating frame. The runtime fn is read-only
+  (querySelectorAll + textContent + attribute strings)."
+  [selector sub-selector limit max-text attrs frame]
   (let [opts (cond-> {:selector selector
                       :limit    limit
                       :max-text max-text}
                (some? sub-selector) (assoc :sub-selector sub-selector)
-               (some? attrs)        (assoc :attrs attrs))]
+               (some? attrs)        (assoc :attrs attrs)
+               (some? frame)        (assoc :frame frame))]
     (ef/emit (ef/rt-call 'dom-read opts))))
 
 (defn read-dom-tool
@@ -202,6 +220,11 @@
         max-text     (let [m (wire/arg raw-args :max-text)]
                        (if (and (number? m) (pos? m)) (long m) default-max-text))
         attrs        (parse-attrs-arg (wire/arg raw-args :attrs))
+        ;; rf2-p9scds — the frame whose declared-sensitive app-db values the
+        ;; rendered nodes are value-redacted against (off-box gate). Omitted
+        ;; ⇒ the runtime resolves the operating frame and fails closed on an
+        ;; ambiguous one.
+        frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         build-id     (wire/arg-build conn raw-args)]
     (cond
       (or (nil? selector) (and (string? selector) (str/blank? selector)))
@@ -211,7 +234,7 @@
            :hint "usage: read-dom {selector '#app .counter' [sub-selector '.title'] [limit 50] [max-text 2000] [attrs [\"id\" \"data-state\"]] [build :app]}"}))
 
       :else
-      (let [form (read-dom-form selector sub-selector limit max-text attrs)]
+      (let [form (read-dom-form selector sub-selector limit max-text attrs frame)]
         ;; The runtime's `dom-read` ALWAYS returns a map, so a non-map at
         ;; `on-value` means a BLANK eval (rf2-r5erl). The shared
         ;; `probe/map-result-or-blank` projects a map → `ok-text` with the

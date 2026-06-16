@@ -93,7 +93,12 @@
          'held?   (ef/rt-raw (if pred-src
                                (str "(boolean ((" pred-src ") sample))")
                                "false"))]
-        (ef/rt-raw "{:held? held? :sample sample :t (:t r)}")))))
+        ;; rf2-p9scds — `sample-signals` fails CLOSED with an
+        ;; `:ambiguous-frame` refusal (`:ok? false`) when a frame-policy
+        ;; signal can't resolve a frame under the off-box gate. Propagate
+        ;; the refusal verbatim so the poll loop surfaces a clear error
+        ;; instead of a misleading timeout against a nil sample.
+        (ef/rt-raw "(if (false? (:ok? r)) r {:held? held? :sample sample :t (:t r)})")))))
 
 (defn watch-until-tool
   "MCP `watch-until` handler. Polls the signal-set until the compiled
@@ -191,7 +196,17 @@
                                         (.then
                                           (fn [resp]
                                             (vreset! latest resp)
-                                            (if (and (map? resp) (:held? resp))
+                                            (cond
+                                              ;; rf2-p9scds — a fail-closed
+                                              ;; refusal from `sample-signals`
+                                              ;; (`:ambiguous-frame` under the
+                                              ;; off-box gate) is terminal:
+                                              ;; surface it as an error rather
+                                              ;; than polling to a timeout.
+                                              (and (map? resp) (false? (:ok? resp)))
+                                              (resolve (wire/err-text resp))
+
+                                              (and (map? resp) (:held? resp))
                                               (resolve
                                                 (wire/ok-text
                                                   {:ok?       true
@@ -199,6 +214,8 @@
                                                    :elapsed-ms (- (js/Date.now) start)
                                                    :sample    (:sample resp)
                                                    :t         (:t resp)}))
+
+                                              :else
                                               (js/setTimeout poll poll-ms))))
                                         (.catch
                                           (fn [_]
