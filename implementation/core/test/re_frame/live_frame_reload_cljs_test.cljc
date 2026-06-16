@@ -527,43 +527,172 @@
   (testing "a BURST of reg-* (a hot-reloaded namespace re-evaluating N
             registrations) schedules at MOST ONE deferred reprojection flush — the
             coalescing gate (rf2-h4q6cy). Counting the next-tick schedules proves
-            the burst reprojects ONCE at the batch boundary, not per reg-*."
+            the burst reprojects ONCE at the batch boundary, not per reg-*. A live
+            explicit-image frame over the reloaded ns must exist for the schedule
+            to arm at all (the no-live-frame short-circuit — see the burst-with-no-
+            live-frame test below); make-frame it first."
     (let [snapshot  @source-store/kind->id->ns->descriptor
           scheduled (atom 0)
           captured  (atom nil)]
       (try
-        ;; Drain any pending flush so the burst below starts from a clean
-        ;; (un-pending) flag — the first reg-* of the burst is the false→true edge.
-        (lf/flush-pending-reprojection!)
-        ;; Redef next-tick to COUNT schedules and CAPTURE (defer) the flush —
-        ;; deliberately NOT run inline, so the dirty flag stays set through the
-        ;; whole burst exactly as a real deferred tick would leave it. If the
-        ;; coalescing gate works, only the first reg-* (false→true) schedules; the
-        ;; other four observe the flag already set and add no second tick. The
-        ;; re-arm step below stays INSIDE this redef so its schedule hits the same
-        ;; counting next-tick (outside, the real next-tick would not be counted).
-        (with-redefs [interop/next-tick (fn [f] (swap! scheduled inc)
-                                          (reset! captured f) nil)]
-          ;; A burst of 5 reg-* in one synchronous run (a namespace re-eval).
-          (doseq [n (range 5)]
-            (registrar/register! :event (keyword "burst" (str "e" n))
-              {:rf.provenance/ns "burst.feature" :handler-fn (keyword "impl" (str n))}))
-          (testing "the 5-reg-* burst scheduled exactly ONE flush (coalesced) —
-                    the deferred tick was never run during the burst"
-            (is (= 1 @scheduled)
-                "compare-and-set! gates: only the false→true transition schedules"))
-          (testing "running the single captured tick drains the whole burst at once,
-                    and a post-drain reg-* re-arms a fresh tick (flag re-armable)"
-            (when-let [tick @captured] (tick))
-            ;; The drain (`tick` → flush) cleared the dirty flag; a new reg-* is the
-            ;; next false→true edge, so it schedules again — proving the flag is not
-            ;; stuck-set after a flush. (Inside the redef, so this counts here.)
-            (registrar/register! :event :burst/e0
-              {:rf.provenance/ns "burst.feature" :handler-fn ::e0-again})
-            (is (= 2 @scheduled)
-                "a post-drain reg-* re-arms a new tick (flag cleared, re-armable)")))
+        ;; A live frame selecting the burst namespace, so the auto-reprojection
+        ;; schedule is REACHABLE (the hook short-circuits to a no-op when no live
+        ;; image frame exists). Record a descriptor in burst.feature FIRST so the
+        ;; image's :include-ns selector matches (a zero-match is fail-loud at
+        ;; image construction); construct the image AFTER. make-frame's own backing
+        ;; reg-frame fires the hook, so drain afterwards to start the burst from a
+        ;; clean (un-pending) flag — the first burst reg-* is then the false→true edge.
+        (source-store/record-descriptor!
+          :event :burst/seed
+          {:rf.provenance/ns "burst.feature" :kind :event :id :burst/seed
+           :handler-fn ::burst-seed})
+        (let [img (image/image {:id :burst/img :include-ns ["burst.feature"]})]
+          (lf/make-frame {:id :burst/main :images [img]})
+          (lf/flush-pending-reprojection!)
+          ;; Redef next-tick to COUNT schedules and CAPTURE (defer) the flush —
+          ;; deliberately NOT run inline, so the dirty flag stays set through the
+          ;; whole burst exactly as a real deferred tick would leave it. If the
+          ;; coalescing gate works, only the first reg-* (false→true) schedules; the
+          ;; other four observe the flag already set and add no second tick. The
+          ;; re-arm step below stays INSIDE this redef so its schedule hits the same
+          ;; counting next-tick (outside, the real next-tick would not be counted).
+          (with-redefs [interop/next-tick (fn [f] (swap! scheduled inc)
+                                            (reset! captured f) nil)]
+            ;; A burst of 5 reg-* in one synchronous run (a namespace re-eval).
+            (doseq [n (range 5)]
+              (registrar/register! :event (keyword "burst" (str "e" n))
+                {:rf.provenance/ns "burst.feature" :handler-fn (keyword "impl" (str n))}))
+            (testing "the 5-reg-* burst scheduled exactly ONE flush (coalesced) —
+                      the deferred tick was never run during the burst"
+              (is (= 1 @scheduled)
+                  "compare-and-set! gates: only the false→true transition schedules"))
+            (testing "running the single captured tick drains the whole burst at once,
+                      and a post-drain reg-* re-arms a fresh tick (flag re-armable)"
+              (when-let [tick @captured] (tick))
+              ;; The drain (`tick` → flush) cleared the dirty flag; a new reg-* is the
+              ;; next false→true edge, so it schedules again — proving the flag is not
+              ;; stuck-set after a flush. (Inside the redef, so this counts here.)
+              (registrar/register! :event :burst/e0
+                {:rf.provenance/ns "burst.feature" :handler-fn ::e0-again})
+              (is (= 2 @scheduled)
+                  "a post-drain reg-* re-arms a new tick (flag cleared, re-armable)"))))
         (finally
+          ;; Forget the live frame before draining (see register!-during-flush's
+          ;; finally): a pending reproject of :burst/main must not re-assemble its
+          ;; image after the burst descriptors are unregistered.
+          (lf/clear-live-frames!)
+          (lf/flush-pending-reprojection!)
           (doseq [n (range 5)]
             (registrar/unregister! :event (keyword "burst" (str "e" n))))
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ---- the HANG GUARD: a burst with NO live frame schedules ZERO flushes -----
+;;
+;; rf2-h4q6cy fix: the auto-reprojection hook fires on EVERY register! (the
+;; EP-0023 collapse made make-frame's backing reg-frame a register! too, so even
+;; frame creation funnels through it). Marking dirty + scheduling a next-tick
+;; flush on each — when there is NOTHING reprojectable (no PUBLIC-id live frame
+;; exists) — floods the microtask queue with one no-op deferred flush per
+;; registration. The bundle issues thousands of reg-* with no live image frame
+;; (app boot, every handler-only test); the flood interleaved with cljs.test's
+;; async scheduling never settled (the observed CI node-test / browser-test /
+;; elision hang). The fix short-circuits the hook to a NO-OP when no live frame
+;; is reprojectable, so a registration burst with no live frame schedules ZERO
+;; flushes — the bounded-flush guarantee.
+
+(deftest reg-star-burst-with-no-live-frame-schedules-nothing
+  (testing "a BURST of reg-* with NO live image frame schedules ZERO deferred
+            flushes (rf2-h4q6cy hang guard): with nothing reprojectable the hook
+            short-circuits, so a hot-reloaded namespace re-evaluating N
+            registrations costs no next-tick scheduling at all — bounding the
+            flush work that previously hung CI's node-test/browser jobs."
+    (let [snapshot  @source-store/kind->id->ns->descriptor
+          scheduled (atom 0)]
+      (try
+        ;; No live frame: clear the registry and drain any residual pending flush a
+        ;; prior case left, so the flag starts clean and live-frame-ids is empty.
+        (lf/clear-live-frames!)
+        (lf/flush-pending-reprojection!)
+        (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
+          ;; A 50-reg-* burst with no reprojectable frame — the worst-case flood
+          ;; the hang guard suppresses. EVERY one fires the hook.
+          (doseq [n (range 50)]
+            (registrar/register! :event (keyword "noframe" (str "e" n))
+              {:rf.provenance/ns "noframe.feature" :handler-fn (keyword "impl" (str n))}))
+          (testing "no live frame ⇒ the hook short-circuits ⇒ ZERO flushes scheduled"
+            (is (= 0 @scheduled)
+                "no PUBLIC-id live frame is reprojectable, so nothing is marked or scheduled"))
+          (testing "the dirty flag was never set (nothing pending to drain)"
+            (is (empty? (lf/flush-pending-reprojection!))
+                "flush is a no-op — the burst marked nothing dirty")))
+        (finally
+          (doseq [n (range 50)]
+            (registrar/unregister! :event (keyword "noframe" (str "e" n))))
           (lf/flush-pending-reprojection!)
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ---- the RE-ENTRANCY guard: a register! during a flush does not re-arm ------
+;;
+;; reproject-live-frames! re-assembles + swaps generations only — it must never
+;; reg-*. But the EP-0023 collapse made make-frame's backing reg-frame a
+;; register!, so a flush that (defensively) provoked any register! must NOT
+;; schedule its own successor. flush-pending-reprojection! binds `reprojecting?`
+;; around the reproject; mark-dirty-and-schedule! is a no-op while it is set.
+
+(deftest register!-during-flush-does-not-re-arm
+  (testing "a reg-* fired WHILE a reprojection flush runs does NOT schedule a
+            successor flush (rf2-h4q6cy re-entrancy guard): the reprojecting?
+            guard makes the hook a no-op for the duration of the flush, bounding
+            the work to ONE reprojection per pending mark even if reprojection
+            provokes a registration."
+    (let [snapshot  @source-store/kind->id->ns->descriptor
+          scheduled (atom 0)]
+      (try
+        ;; A live frame so a flush actually runs reproject-live-frames! (and so
+        ;; mark-dirty-and-schedule! passes the no-live-frame short-circuit). Record
+        ;; the descriptor FIRST so the image's :include-ns selector matches a loaded
+        ;; registration (a zero-match is fail-loud at image construction); construct
+        ;; the image AFTER.
+        (source-store/record-descriptor!
+          :event :reentry/inc
+          {:rf.provenance/ns "reentry.feature" :kind :event :id :reentry/inc
+           :handler-fn ::v1})
+        (let [img (image/image {:id :reentry/img :include-ns ["reentry.feature"]})]
+          (lf/make-frame {:id :reentry/main :images [img]})
+          (lf/flush-pending-reprojection!)
+          (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)
+                        lf/reproject-live-frames!
+                        (fn []
+                          ;; Mid-flush register! — the guard must make this a no-op.
+                          (registrar/register! :event :reentry/mid
+                            {:rf.provenance/ns "reentry.feature" :handler-fn ::mid})
+                          {})]
+            ;; A real reg-* (with the live frame present) marks dirty + schedules
+            ;; ONE flush (count → 1). Run that captured flush; its with-redef'd
+            ;; reproject fires a mid-flush register! — the re-entrancy guard must
+            ;; make that hook a no-op, so the count stays 1 (no successor).
+            (registrar/register! :event :reentry/inc
+              {:rf.provenance/ns "reentry.feature" :handler-fn ::v2})
+            (testing "the live-frame reg-* armed exactly one flush"
+              (is (= 1 @scheduled)))
+            (lf/flush-pending-reprojection!)
+            (testing "the mid-flush register! scheduled NO successor flush"
+              (is (= 1 @scheduled)
+                  "reprojecting? guard makes the hook a no-op during the flush")))
+          (testing "after the flush the guard is cleared — a fresh reg-* re-arms"
+            (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
+              (registrar/register! :event :reentry/inc
+                {:rf.provenance/ns "reentry.feature" :handler-fn ::v3})
+              (is (= 2 @scheduled)
+                  "outside the flush, a reg-* with a live frame re-arms normally"))))
+        (finally
+          ;; Clear the live frame BEFORE draining: the body left a flush pending,
+          ;; and a reproject of the still-live :reentry/main would re-assemble its
+          ;; :include-ns ["reentry.feature"] image AFTER we forget the descriptors
+          ;; below — a zero-match. Forgetting the frame first makes the drain a
+          ;; no-op (nothing reprojectable), so cleanup order does not matter.
+          (lf/clear-live-frames!)
+          (lf/flush-pending-reprojection!)
+          (registrar/unregister! :event :reentry/inc)
+          (registrar/unregister! :event :reentry/mid)
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
