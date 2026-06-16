@@ -10,11 +10,15 @@ browser testbeds. Three namespaces:
   host harness the Story showcase testbeds share.
 - `re-frame.testbed.open-in-editor-server` — a JVM-only (`.clj`)
   shadow-cljs `:dev-http` handler that answers the
-  `GET|POST /__rf-open-in-editor` endpoint, resolving a
+  `POST /__rf-open-in-editor` endpoint, resolving a
   classpath-relative source `:file` against the dev JVM's source-paths at
   runtime and launching the editor via the `launch-editor` npm package
-  (the re-frame2 equivalent of Vite's `/__open-in-editor`). It runs on the
-  shadow-cljs SERVER JVM and is never part of any browser/CLJS build.
+  (the re-frame2 equivalent of Vite's `/__open-in-editor`). Because it
+  launches the editor on a local file, it is POST-only and loopback-guarded
+  (the request must be addressed to a loopback `Host` and, when present,
+  carry a loopback `Origin`; CORS reflects that origin, never `*`) — the
+  drive-by class the historic Vite / react-dev-utils CVEs hit. It runs on
+  the shadow-cljs SERVER JVM and is never part of any browser/CLJS build.
 
 ## What it is
 

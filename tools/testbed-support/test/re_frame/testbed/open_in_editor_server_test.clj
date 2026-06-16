@@ -104,3 +104,167 @@
     (is (nil? (oies/resolve-file nil)))
     (is (nil? (oies/resolve-file "")))
     (is (nil? (oies/resolve-file "   ")))))
+
+;; ---- security: the loopback / origin / method guard ----------------------
+;;
+;; The endpoint launches the editor on a local file path, so it must NOT be
+;; drivable by a drive-by GET or a cross-origin POST from a remote page. The
+;; guard pins it to a POST addressed to a loopback Host with (when present)
+;; a loopback Origin. These tests redirect `launch!` to a recording stub so
+;; no real editor is spawned, and assert: the one valid local POST reaches
+;; the launch path and answers 200, while every unauthenticated / wrong-
+;; method / cross-origin / non-loopback variant is rejected (403/405) BEFORE
+;; `launch!` is ever called.
+
+(defn ^:private req
+  "Build a minimal Ring request map for the endpoint. An explicit nil `host`
+  / `origin` omits that header (an explicit nil is respected over the :or
+  default, which only fills an ABSENT key)."
+  [{:keys [method host origin file]
+    :or   {method :post host "localhost:8031"}}]
+  {:uri            oies/endpoint-path
+   :request-method method
+   :query-string   (when file (str "file=" file "&line=10"))
+   :headers        (cond-> {}
+                     host   (assoc "host" host)
+                     origin (assoc "origin" origin))})
+
+(defmacro ^:private with-launch-spy
+  "Run `body` with `launch!` redirected to a stub that records each call in
+  `calls` (an atom holding a vector) and returns `{:ok true}`."
+  [calls & body]
+  `(with-redefs [oies/launch! (fn [& args#]
+                                (swap! ~calls conj (vec args#))
+                                {:ok true})]
+     ~@body))
+
+(deftest guard-allows-valid-local-post
+  (testing "a POST addressed to a loopback Host with a loopback Origin
+            (a cross-PORT dev request: Story shell on :8042 → app on :8031)
+            reaches the launch path and answers 200"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :post
+                           :host   "localhost:8031"
+                           :origin "http://localhost:8042"
+                           :file   "fake_ns/core.cljs"}))]
+          (is (= 200 (:status resp)) "valid local POST is accepted")
+          (is (= 1 (count @calls)) "launch! was invoked exactly once")
+          (is (= "http://localhost:8042"
+                 (get-in resp [:headers "access-control-allow-origin"]))
+              "CORS reflects the validated loopback origin, not `*`")))))
+  (testing "a same-origin POST that omits Origin entirely still passes on the
+            loopback Host check alone"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :post
+                           :host   "127.0.0.1:8031"
+                           :origin nil
+                           :file   "fake_ns/core.cljs"}))]
+          (is (= 200 (:status resp)))
+          (is (= 1 (count @calls))))))))
+
+(deftest guard-rejects-cross-origin-post
+  (testing "a POST whose Origin is a REMOTE page is rejected 403 and never
+            reaches launch! — the drive-by vector the guard closes"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :post
+                           :host   "localhost:8031"
+                           :origin "https://evil.example"
+                           :file   "/etc/passwd"}))]
+          (is (= 403 (:status resp)) "cross-origin POST is forbidden")
+          (is (zero? (count @calls)) "launch! was NEVER called")
+          (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))
+              "no wildcard CORS — the remote origin is not reflected"))))))
+
+(deftest guard-rejects-non-loopback-host
+  (testing "a POST addressed to a non-loopback Host (a public binding /
+            DNS-rebinding attempt) is rejected 403 before launch!"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :post
+                           :host   "app.evil.example"
+                           :origin nil
+                           :file   "/etc/passwd"}))]
+          (is (= 403 (:status resp)))
+          (is (zero? (count @calls)))))))
+  (testing "a missing Host header is also rejected"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :post :host nil :origin nil
+                           :file "/etc/passwd"}))]
+          (is (= 403 (:status resp)))
+          (is (zero? (count @calls))))))))
+
+(deftest guard-rejects-non-post-drive-by
+  (testing "a simple GET drive-by (the `<img>`/`<form>`/`no-cors` class) is
+            rejected 405 even from a loopback Host — it never launches"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :get
+                           :host   "localhost:8031"
+                           :origin nil
+                           :file   "/etc/passwd"}))]
+          (is (= 405 (:status resp)) "GET is method-not-allowed")
+          (is (zero? (count @calls)) "launch! was NEVER called"))))))
+
+(deftest guard-options-preflight-reflects-loopback-origin
+  (testing "an OPTIONS preflight from a loopback origin reflects that origin
+            and offers POST only (no GET) — never launches"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :options
+                           :host   "localhost:8031"
+                           :origin "http://localhost:8042"}))]
+          (is (= 204 (:status resp)))
+          (is (= "http://localhost:8042"
+                 (get-in resp [:headers "access-control-allow-origin"])))
+          (is (= "POST, OPTIONS"
+                 (get-in resp [:headers "access-control-allow-methods"]))
+              "GET is no longer an allowed method")
+          (is (zero? (count @calls))))))))
+
+(deftest guard-non-endpoint-path-falls-through
+  (testing "a request for any other path still falls through (nil) untouched"
+    (is (nil? (oies/handle {:uri "/something/else"
+                            :request-method :post
+                            :headers {"host" "localhost:8031"}})))))
+
+;; ---- header / origin parsing helpers -------------------------------------
+
+(deftest loopback-host?-classifies-correctly
+  (testing "loopback hosts (with/without port, IPv4, IPv6, case)"
+    (is (#'oies/loopback-host? "localhost"))
+    (is (#'oies/loopback-host? "localhost:8031"))
+    (is (#'oies/loopback-host? "LocalHost:8031"))
+    (is (#'oies/loopback-host? "127.0.0.1"))
+    (is (#'oies/loopback-host? "127.0.0.1:8042"))
+    (is (#'oies/loopback-host? "127.5.6.7"))
+    (is (#'oies/loopback-host? "::1"))
+    (is (#'oies/loopback-host? "[::1]:8080")))
+  (testing "non-loopback hosts are rejected"
+    (is (not (#'oies/loopback-host? "evil.example")))
+    (is (not (#'oies/loopback-host? "app.evil.example:8031")))
+    (is (not (#'oies/loopback-host? "10.0.0.5")))
+    (is (not (#'oies/loopback-host? "0.0.0.0")))
+    ;; not in 127.0.0.0/8 despite the `127` prefix textually
+    (is (not (#'oies/loopback-host? "127malicious.example")))
+    (is (not (#'oies/loopback-host? nil)))
+    (is (not (#'oies/loopback-host? "")))))
+
+(deftest origin-host-extracts-and-rejects-opaque
+  (testing "the host is extracted from a serialized origin"
+    (is (= "localhost" (#'oies/origin-host "http://localhost:8042")))
+    (is (= "127.0.0.1" (#'oies/origin-host "http://127.0.0.1:8031"))))
+  (testing "the opaque `null` origin and blank/nil yield nil (never loopback)"
+    (is (nil? (#'oies/origin-host "null")))
+    (is (nil? (#'oies/origin-host nil)))
+    (is (nil? (#'oies/origin-host "")))))
