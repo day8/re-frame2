@@ -714,7 +714,7 @@ Run a mutation with the `:rf.mutation/execute` event and observe it through the 
 
 [:rf.mutation/clear {:instance :form/save-1}]   ;; the causal instance reset
 
-[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled?}
+[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled? :optimistic?}
 [:rf.mutation/status   {:instance :form/save-1}]
 [:rf.mutation/pending? {:instance :form/save-1}]
 [:rf.mutation/result   {:instance :form/save-1}]
@@ -941,6 +941,8 @@ When an optimistic write's reply settles (**phase 4**), the runtime **determinis
 `:on-conflict` is a registration-level option — `:invalidate` (default, recommended — the read path is the recovery authority on a contested rollback, re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore) | `:force` (the single-writer escape). An out-of-enum value is a loud `reg-mutation` error.
 
 **Epoch-restore dangle (Q3).** A `:pending` optimistic write **dangles** to a terminal `:error` on epoch restore (the [§Restore and replay](#restore-and-replay) `:dangling-on-restore` path) — the entry shows the optimistic value with no in-flight write to confirm it, an accepted-error-shaped terminal that triggers the **same conflict-aware rollback**. The rollback runs **inside the restore reconciler's single pure pass**, *not* as a second post-restore dispatched event (which could race a fresh load the restored timeline issues): an unmoved revision restores the recorded `:before` verbatim; a conflict marks the entry **durably stale in place** (`:invalidated-at` stamped from the restore's causal time — the read path refetches on the next live-owner ensure, no dispatch, no race), unless `:on-conflict :force` restores the inverse anyway.
+
+**The `:optimistic?` derived flag (Rider 1).** The instance-keyed [`:rf.mutation/state`](#mutations-first-public-beta-gate) sub gains a derived **`:optimistic?`** boolean — true while a live optimistic apply is showing (between phase 1.5 and settle), false otherwise — so a view can render "pending, but showing my optimistic value." It is **derived, never stored**: `:optimistic?` is true iff the instance is non-terminally `:pending` **and** its `:patch-summary` carries a `:snapshot-id` (an optimistic apply landed and has not yet committed / rolled back). A purely-pessimistic write is `:optimistic? false` throughout (no snapshot id); a committed or rolled-back write is `:optimistic? false` once it settles (no longer `:pending`). The optimistic apply is **not a reply** — it dispatches no [`:reply-to`](#mutation-completion-continuations--call-site-reply-to) continuation; the continuation fires exactly once, after settle, for the accepted terminal reply only.
 
 ##### Optimistic writes are fail-closed and scope-bounded
 
