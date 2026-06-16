@@ -220,16 +220,20 @@
   "Metadata for the `:rf.nav/push-url` fx registration. Spec 012
   §Multi-frame routing (rf2-w50qm).
 
-  EP-0015 (rf2-1wmni6 / rf2-pbbo68 — the history half of the scroll/history
-  fx pair): the arg is a full app URL string whose query/fragment are
-  carrier-shaped (`?token=…`, `#access_token=…`). The core fx trace records
-  `:rf.fx/args` verbatim onto `:rf.fx/handled`, so the URL would reach the
-  trace bus / Xray / MCP / epoch egress raw. The whole-value `:sensitive`
-  mark `[[]]` redacts the URL arg to `:rf/redacted` on the EGRESS copy — the
-  handler still pushes the real URL in-process (the projection touches only
-  the trace tags, never the handler input)."
+  EP-0015 note (rf2-1wmni6 / rf2-pbbo68): the arg is a full app URL string.
+  We deliberately DO NOT mark it `:sensitive` — unlike the scroll fx (whose
+  `:from`/`:to` descriptors are purely DIAGNOSTIC carriers the handler
+  ignores), the pushed URL IS the navigation's behavioural identity: the
+  Spec 012 `:effects-routed` conformance contract (and the epoch `:effects`
+  projection, both derived from `:rf.fx/handled`'s `:rf.fx/args`) assert that
+  `:rf.nav/push-url` routes the ACTUAL same-origin URL — which the
+  open-redirect gate (`url/safe-in-app-url?`) has already cleared. A blanket
+  redaction of every pushed URL would over-reach (a bare `/cart` path is not
+  a carrier) AND break that behavioural surface. The carrier-bearing URL
+  classes EP-0015 actually targets — the route-MISS / malformed / blocked
+  URLs — are scrubbed at their diagnostic emit sites via
+  `re-frame.routing.egress/redact-url-carriers` (rf2-n1f4rh / rf2-jfaucw)."
   {:platforms #{:client}
-   :sensitive [[]]
    :doc       "Push the URL to the browser history (HTML5 pushState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
@@ -259,13 +263,13 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   "Metadata for the `:rf.nav/replace-url` fx registration. Spec 012
   §Multi-frame routing (rf2-w50qm).
 
-  EP-0015 (rf2-1wmni6 / rf2-pbbo68): same carrier-shaped URL arg as
-  `:rf.nav/push-url` — the blocked-popstate restore URL flows through this
-  fx, so it can carry the rejecting route's query/fragment carriers. The
-  whole-value `:sensitive` mark `[[]]` redacts it on the trace EGRESS copy
-  while the handler still replaces the real URL in-process."
+  EP-0015 note (rf2-1wmni6 / rf2-pbbo68): same behavioural-identity URL arg
+  as `:rf.nav/push-url` — deliberately NOT marked `:sensitive` for the same
+  reason (the `:effects-routed` contract asserts the real routed URL, the
+  open-redirect gate already cleared it, and a blanket redaction over-reaches
+  bare paths). Carrier-bearing route-miss / blocked URLs are scrubbed at
+  their diagnostic emit sites (`egress/redact-url-carriers`)."
   {:platforms #{:client}
-   :sensitive [[]]
    :doc       "Replace the URL in the browser history (HTML5 replaceState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
