@@ -113,8 +113,9 @@
 ;; `:refetch-decision`, `:revalidate-scan` (focus/reconnect scan summary),
 ;; `:owner-released`, `:removed`, `:succeeded` / `:failed` /
 ;; `:refresh-failed`, `:stale-suppressed`, `:stale-scheduled` /
-;; `:stale-fired` / `:gc-scheduled` / `:gc-fired` / `:gc-skipped`
-;; (`timers.cljc` + `events.cljc`), `:work-abort-requested`, `:route-plan`
+;; `:stale-fired` / `:gc-scheduled` / `:gc-fired` / `:gc-skipped` /
+;; `:poll-scheduled` / `:poll-fired` (`timers.cljc` + `events.cljc`;
+;; poll = EP-0020), `:work-abort-requested`, `:route-plan`
 ;; (`route.cljc` — route-entry planning), `:hydrated` / `:hydrate-refetch`
 ;; / `:hydrate-clock-skew` and `:restored` / `:restore-clock-skew`
 ;; (`ssr.cljc` — SSR hydration + epoch/SSR restore reconcile). The
@@ -178,6 +179,8 @@
    :rf.resource/gc-scheduled         {:class :gc           :label "gc scheduled"}
    :rf.resource/gc-fired             {:class :gc           :label "gc fired"}
    :rf.resource/gc-skipped           {:class :gc           :label "gc skipped"}
+   :rf.resource/poll-scheduled       {:class :gc           :label "poll scheduled"}
+   :rf.resource/poll-fired           {:class :gc           :label "poll fired"}
    :rf.resource/removed              {:class :lifecycle    :label "removed"}
    :rf.resource/stale-suppressed     {:class :suppression  :label "stale suppressed"}
    :rf.resource/hydrated             {:class :hydration    :label "hydrated"}

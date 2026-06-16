@@ -485,6 +485,16 @@
   causes)."
   :reconnect)
 
+(def poll-cause
+  "The revalidation cause recorded on an interval-poll-triggered refetch
+  (`:poll`, EP-0020). A CAUSE, never an owner — it explains why the work
+  happened without changing liveness / GC / polling (Spec 016 §Active owners
+  and causes). A poll therefore creates no liveness and extends no GC; the
+  entry stops polling the instant its last real owner releases. User code
+  MUST NOT dispatch the poll-fired event directly; the host `:poll` timer
+  does."
+  :poll)
+
 (defn- entry-revalidation-in-flight?
   "True iff `entry` already has a LIVE refetch in flight — its
   `:current-work` points at a work-ledger record whose status is
@@ -608,6 +618,110 @@
   it directly. Per Spec 016 §Stale and GC scheduling."
   [cofx [_event-id]]
   (revalidate-handler cofx :rf.resource/network-reconnected reconnect-cause))
+
+;; ---- active-owner polling (EP-0020, rf2-byl7bk.2) -------------------------
+;;
+;; A `:poll` timer (armed from the resource's `:poll-interval-ms` while the
+;; entry is actively owned) fires `:rf.resource.internal/poll-fired`. The
+;; timer is ADVISORY — identical discipline to `:stale` / `:gc`: the handler
+;; RE-CHECKS the live durable entry before doing anything. The tick is the
+;; timer-driven counterpart of the focus/reconnect scan, reusing the same
+;; landed substrate:
+;;
+;;   - ACTIVE OWNER gate — a poll never pins an owner-free entry; the instant
+;;     the last owner releases, polling STOPS (no re-arm). (Owners are
+;;     liveness leases; a poll is a freshness mechanism, never a liveness one
+;;     — Spec 016 §Active owners and causes / §Polling.)
+;;   - DEFAULT-PAUSE-WHEN-HIDDEN — the firing thunk stamps host `:hidden?`
+;;     onto the payload (read at the host boundary, never an ambient cascade
+;;     read); a hidden tab PAUSES the tick (no refetch) but RE-ARMS the next
+;;     poll so it resumes on tab return (which also fires the focus scan).
+;;   - IN-FLIGHT COALESCING — the exact `entry-revalidation-in-flight?` gate
+;;     the focus/reconnect scan uses: a tick that finds a live in-flight
+;;     refetch SKIPS the refetch (no second generation, no overlap on a slow
+;;     endpoint) but RE-ARMS. The interval effectively backs off to the
+;;     response time.
+;;   - UNCONDITIONAL TICK (Q3 ruling (a)) — when it does refetch, it does so
+;;     by the INTERVAL, NOT gated on `:stale?`; the consumer who declared a
+;;     poll interval asked for "re-read every N ms". `:stale-after-ms` stays
+;;     the orthogonal focus/route knob.
+;;   - CAUSE, NEVER OWNER — the refetch dispatches `:rf.resource/refetch` with
+;;     cause `:poll`; generation + stale-reply suppression + dedupe all apply
+;;     unchanged (a late poll reply over a superseded entry is suppressed by
+;;     the single stale-suppression boundary).
+
+(defn poll-fired-handler
+  "`:rf.resource.internal/poll-fired` — an active-owner poll timer fired
+  (EP-0020, Spec 016 §Polling). The timer is ADVISORY: this handler
+  RE-CHECKS the live durable entry before refetching, and RE-ARMS the next
+  poll while polling should continue (cancel-then-arm via the
+  `:rf.resource/schedule-timers` fx). Dispatched by the host `:poll` timer
+  (`re-frame.resources.timers`); user code MUST NOT dispatch it directly.
+
+  The re-check + decision (against the LIVE durable facts):
+    - entry GONE (removed / GC'd / cleared) — STOP, no re-arm (`:no-entry`);
+    - entry has NO active owner (last owner released) — STOP polling, no
+      re-arm (`:no-owner`); a poll never pins an owner-free entry;
+    - document HIDDEN (`:hidden?` stamped by the firing thunk) — PAUSE the
+      tick (no refetch) but RE-ARM so polling resumes on tab return
+      (`:paused-hidden`); default-pause-when-hidden (Q2 ruling, the SWR / RTK
+      / TanStack `refetchIntervalInBackground:false` default);
+    - a LIVE in-flight refetch is already running (`entry-revalidation-in-flight?`)
+      — SKIP the refetch (coalesce, no double-fetch) but RE-ARM
+      (`:coalesced`); a slow endpoint never stacks overlapping requests;
+    - otherwise — UNCONDITIONALLY dispatch a background `:rf.resource/refetch`
+      with cause `:poll` (the interval IS the cadence, NOT `:stale?`-gated)
+      AND RE-ARM the next poll (`:polled`).
+
+  A failed poll tick is an ordinary background-refresh failure (the entry
+  stays `:loaded`, keeps prior `:data`, records `:refresh-error`) — and the
+  NEXT poll still fires (the re-arm is unconditional on a started/coalesced/
+  paused tick), so a transient endpoint failure never permanently stops a
+  monitor (Spec 016 §Polling — background-refresh failure)."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {resource-key :resource/key :keys [hidden?]}]]
+  (let [runtime-db (or rt {})
+        entry      (get-in runtime-db (state/entry-path resource-key))
+        owned?     (seq (:active-owners entry))
+        in-flight? (and entry (entry-revalidation-in-flight? runtime-db entry))
+        ;; the resource's declared interval — the re-arm delay (cancel-then-arm)
+        interval   (positive-or-nil
+                     (:poll-interval-ms (registry/resource-meta (:resource/id entry))))
+        decision   (cond
+                     (nil? entry)     :no-entry
+                     (not owned?)     :no-owner
+                     hidden?          :paused-hidden
+                     in-flight?       :coalesced
+                     :else            :polled)
+        ;; STOP (drop the poll) on a gone / owner-free entry; otherwise RE-ARM
+        ;; the next interval (paused-hidden / coalesced / polled all keep the
+        ;; cadence alive). The re-arm fx is poll-only (nil stale / GC delays
+        ;; leave those kinds as-is in schedule-timers-handler).
+        re-arm?    (and interval (contains? #{:paused-hidden :coalesced :polled} decision))
+        refetch?   (= :polled decision)]
+    (trace/emit! :rf.event :rf.resource/poll-fired
+                 {:rf.frame/id frame-id :resource/key resource-key
+                  :decision decision :rearmed? (boolean re-arm?)})
+    (cond-> {:rf.db/runtime runtime-db}
+      (or refetch? re-arm?)
+      (assoc :fx
+        (cond-> []
+          ;; unconditional active-owner refetch (cause :poll, never an owner)
+          refetch?
+          (conj [:dispatch [:rf.resource/refetch
+                            {:resource (second resource-key)
+                             :scope    (first resource-key)
+                             :params   (nth resource-key 2)
+                             :cause    poll-cause}]])
+          ;; re-arm the next poll (cancel-then-arm; poll kind only)
+          re-arm?
+          (conj [:rf.resource/schedule-timers
+                 {:frame-id       frame-id
+                  :resource/key   resource-key
+                  :stale-delay-ms nil
+                  :gc-delay-ms    nil
+                  :poll-delay-ms  interval
+                  :server?        (server-frame? frame-id)}]))))))
 
 ;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
@@ -922,16 +1036,32 @@
                              orphaned? (conj [wid (:transport rec'')]))})
                 acc)))
           {:rdb rdb1 :aborts []}
-          (or owned #{}))]
+          (or owned #{}))
+        ;; EP-0020 §Polling: any entry whose `:active-owners` went EMPTY by
+        ;; this release stops polling (a poll never pins an owner-free entry).
+        ;; Collect the now-owner-free entries' scoped keys for the poll-only
+        ;; cancel fx (the stale / GC timers stay armed — an owner-free entry
+        ;; still GCs). The poll-fired re-check is the belt-and-braces; this
+        ;; makes the stop deterministic + prompt.
+        now-owner-free
+        (into []
+              (keep (fn [k-id]
+                      (let [e (get-in rdb2 (state/entry-path-by-id k-id))]
+                        (when (and e (empty? (:active-owners e)))
+                          (:resource/key e)))))
+              (or owned #{}))]
     (trace/emit! :rf.event :rf.resource/owner-released
                  {:rf.frame/id frame-id :owner owner :released (vec (or owned #{}))
                   :aborted (mapv first aborts)})
     {:rf.db/runtime rdb2
      ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the registered
      ;; token); a bare work-id would miss the orphaned in-flight request.
-     :fx (into [] (keep (fn [[wid transport]]
-                          (work-ledger/abort-fx transport frame-id wid)))
-               aborts)}))
+     :fx (cond-> (into [] (keep (fn [[wid transport]]
+                                  (work-ledger/abort-fx transport frame-id wid)))
+                       aborts)
+           (seq now-owner-free)
+           (conj [:rf.resource/cancel-poll-timers
+                  {:frame-id frame-id :resource/keys now-owner-free}]))}))
 
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
@@ -1392,6 +1522,16 @@
             entry'    (state/entry-succeeded
                         entry {:data data :loaded-at loaded-at
                                :stale-at stale-at :tags tags})
+            ;; EP-0020 §Polling: arm the active-owner POLL timer from the
+            ;; resource's `:poll-interval-ms` — but ONLY while the freshly-
+            ;; loaded entry has at least one active owner (a poll never pins an
+            ;; owner-free entry alive; an owner-free entry is GC fodder, not a
+            ;; poll target). On fire the `:poll` re-check unconditionally
+            ;; refetches (the interval IS the cadence) and re-arms the next
+            ;; tick. A resource declaring no `:poll-interval-ms` (or one whose
+            ;; entry is owner-free at settle) arms no poll timer.
+            poll-delay-ms (when (seq (:active-owners entry'))
+                            (positive-or-nil (:poll-interval-ms spec)))
             ;; on a successful load the tag index for this key is REPLACED
             ;; with the new tags (old tags removed); recompute is the simple,
             ;; correct way to keep both indexes consistent. The work row
@@ -1419,22 +1559,23 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
-        ;; arm the advisory stale / GC timers (host-side side table) for this
-        ;; freshly-loaded entry — the WRITE rides an fx exactly as the
+        ;; arm the advisory stale / GC / poll timers (host-side side table) for
+        ;; this freshly-loaded entry — the WRITE rides an fx exactly as the
         ;; generation high-water bump + work-handle side-table writes do.
         ;; Cancel-then-arm so a re-load reschedules a single live timer per
         ;; [key kind]. Skipped under SSR by the fx's `:platforms #{:client}`
         ;; gate (the re-check handler re-derives freshness from the durable
         ;; :stale-at, so a never-fired server timer is harmless). Only emitted
-        ;; when the resource declares at least one policy. Per Spec 016 §Stale
-        ;; and GC scheduling.
+        ;; when the resource declares at least one policy (stale / GC / poll).
+        ;; Per Spec 016 §Stale and GC scheduling / §Polling.
         (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms)
+          (or stale-delay-ms gc-delay-ms poll-delay-ms)
           (assoc :fx [[:rf.resource/schedule-timers
                        {:frame-id       frame-id
                         :resource/key   resource-key
                         :stale-delay-ms stale-delay-ms
                         :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  poll-delay-ms
                         :server?        (server-frame? frame-id)}]]))))))
 
 (defn- entry-abort-settled

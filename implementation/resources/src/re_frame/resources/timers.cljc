@@ -1,9 +1,14 @@
 (ns re-frame.resources.timers
-  "The resource STALE / GC timer side-table substrate (rf2-nbjewi, EP-0003
-  slice 6). Per Spec 016 §Stale and GC scheduling.
+  "The resource STALE / GC / POLL timer side-table substrate (rf2-nbjewi,
+  EP-0003 slice 6; the `:poll` kind via rf2-byl7bk.2 / EP-0020). Per Spec 016
+  §Stale and GC scheduling / §Polling.
 
   `:stale-after-ms` and `:gc-after-ms` are v1 features, so their scheduling
-  is v1. The scheduling discipline (Spec 016 §Stale and GC scheduling, MUST):
+  is v1. EP-0020 adds a third member of the freshness-timer family — the
+  `:poll` kind, armed from a resource's `:poll-interval-ms` policy — that
+  rides the SAME substrate (cancel-then-arm reschedule, `:server?` no-op,
+  the advisory re-check-on-fire discipline). The scheduling discipline (Spec
+  016 §Stale and GC scheduling / §Polling, MUST):
 
   - **freshness is computed from DURABLE timestamps** (`:loaded-at` /
     `:stale-at`), NOT from trusting a timer fired exactly on time — a timer
@@ -65,6 +70,9 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
+;; Forward declaration: the poll thunk reads host document visibility (CLJS).
+#?(:cljs (declare document-hidden?))
+
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- timer kinds ----------------------------------------------------------
@@ -83,6 +91,19 @@
   016 §Stale and GC scheduling."
   :gc)
 
+(def poll-kind
+  "The `:poll` timer kind (EP-0020) — arms `:poll-interval-ms` after each
+  load settle while the entry is actively owned; on fire it nudges a
+  re-checking `:rf.resource.internal/poll-fired` event whose handler
+  unconditionally refetches the entry (cause `:poll`, never an owner) when it
+  still has an active owner and is not paused, coalescing with any live
+  in-flight work, then re-arms the next interval. Per Spec 016 §Polling. The
+  interval IS the cadence — a poll tick does NOT first check `:stale?`
+  (EP-0020 Q3 ruling (a): the consumer who declared a poll interval asked for
+  \"re-read every N ms\"; `:stale-after-ms` stays the orthogonal focus/route
+  knob)."
+  :poll)
+
 ;; ---- reserved internal re-check event ids ---------------------------------
 
 (def stale-fired-event
@@ -97,6 +118,13 @@
   dispatch it. Per Spec 016 §Stale and GC scheduling."
   :rf.resource.internal/gc-fired)
 
+(def poll-fired-event
+  "The internal re-check event a fired POLL timer dispatches (EP-0020). The
+  handler re-checks the live durable entry (still present? still actively
+  owned? not paused?) before refetching (the timer is advisory). User code
+  MUST NOT dispatch it. Per Spec 016 §Polling."
+  :rf.resource.internal/poll-fired)
+
 ;; ---- host-side timer side table (Spec 016 §Stale and GC scheduling) -------
 ;;
 ;; Module-level transient host cache keyed by `[frame-id resource-key kind]`
@@ -105,15 +133,16 @@
 ;; host-side generation allocator. Cleared per-frame on frame destroy.
 
 (defonce
-  ^{:doc "Host-side side table of NON-serializable stale / GC timer handles,
-   keyed by `[frame-id resource-key kind]` (`kind` ∈ `#{:stale :gc}`) → an
-   opaque host handle from `re-frame.interop/schedule-after!`. Transient host
-   state (NOT runtime-db), so an epoch restore cannot rewind / recycle it,
-   and it never rides the SSR / hydration / epoch wire — freshness is
-   re-derived from the durable entry timestamps, and a timer is only an
-   advisory nudge whose handler re-checks the live facts. Cleared per-frame
-   on frame destroy (`release-frame!`). Per Spec 016 §Stale and GC
-   scheduling / [Runtime-Subsystems] clause 5."}
+  ^{:doc "Host-side side table of NON-serializable stale / GC / poll timer
+   handles, keyed by `[frame-id resource-key kind]` (`kind` ∈
+   `#{:stale :gc :poll}`) → an opaque host handle from
+   `re-frame.interop/schedule-after!`. Transient host state (NOT runtime-db),
+   so an epoch restore cannot rewind / recycle it, and it never rides the SSR
+   / hydration / epoch wire — freshness is re-derived from the durable entry
+   timestamps, and a timer is only an advisory nudge whose handler re-checks
+   the live facts. Cleared per-frame on frame destroy (`release-frame!`). Per
+   Spec 016 §Stale and GC scheduling / §Polling / [Runtime-Subsystems] clause
+   5."}
   timer-table
   (atom {}))
 
@@ -141,13 +170,38 @@
   nil)
 
 (defn cancel-for-key!
-  "Cancel BOTH the stale + GC timers for a resource `[frame-id resource-key]`
-  (used on entry removal — remove / clear-scope / GC). Idempotent. Returns
-  nil."
+  "Cancel ALL THREE the stale + GC + poll timers for a resource
+  `[frame-id resource-key]` (used on entry removal — remove / clear-scope /
+  GC / last-owner release). Idempotent. Returns nil. EP-0020: the `:poll`
+  kind joins the cancel so a removed / owner-free entry never keeps polling."
   [frame-id resource-key]
   (cancel! frame-id resource-key stale-kind)
   (cancel! frame-id resource-key gc-kind)
+  (cancel! frame-id resource-key poll-kind)
   nil)
+
+;; ---- host document visibility (EP-0020 §Polling — default-pause-hidden) ---
+;;
+;; A poll defaults to pausing while the tab is hidden (TanStack's
+;; `refetchIntervalInBackground: false` / SWR's `refreshWhenHidden` default).
+;; Visibility is a genuinely host-transient signal — read ONLY at the host
+;; boundary (the timer thunk), the SAME place the focus listener reads
+;; `document.visibilityState` (`revalidate-listeners`), and STAMPED onto the
+;; dispatched re-check event so the durable `poll-fired-handler` decision is a
+;; pure function of its (recordable) payload rather than an ambient host read
+;; (the EP-0010 World-Input discipline: capture the host signal at the causal
+;; boundary, carry it in the event). On the JVM there is no DOM — never hidden.
+
+#?(:cljs
+   (defn document-hidden?
+     "True when the host `document` exists AND its `visibilityState` is NOT
+     `\"visible\"` (the tab is backgrounded / minimised). nil DOM (node / SSR)
+     reads as NOT hidden (no pause). CLJS-only host read."
+     []
+     (boolean
+       (when (exists? js/document)
+         (let [vs (.-visibilityState js/document)]
+           (and (some? vs) (not= "visible" vs)))))))
 
 (defn- dispatch-recheck!
   "Schedule the re-checking internal event for a fired timer of `kind`. The
@@ -156,11 +210,22 @@
   `:source :after-timer` so Xray's timeline + the Epoch panel label the
   timer-fired cascade, and `:frame frame-id` so it lands in the right frame.
   The event handler does the DURABLE re-check — the timer never writes
-  itself. No-op when no dispatcher is bound (a stripped runtime)."
+  itself. No-op when no dispatcher is bound (a stripped runtime).
+
+  EP-0020: a `:poll`-kind fire reads host `document` visibility HERE (the host
+  boundary) and stamps `:hidden?` onto the payload so the durable
+  `poll-fired-handler` makes its default-pause-when-hidden decision from its
+  recordable event payload, never an ambient host read at the cascade site."
   [frame-id resource-key kind]
   (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-    (let [event-id (if (= kind stale-kind) stale-fired-event gc-fired-event)]
-      (dispatch! [event-id {:resource/key resource-key}]
+    (let [event-id (condp = kind
+                     stale-kind stale-fired-event
+                     gc-kind    gc-fired-event
+                     poll-kind  poll-fired-event)
+          payload  (cond-> {:resource/key resource-key}
+                     (= kind poll-kind)
+                     (assoc :hidden? #?(:cljs (document-hidden?) :clj false)))]
+      (dispatch! [event-id payload]
                  {:frame frame-id :source :after-timer}))))
 
 (defn schedule!
@@ -184,14 +249,16 @@
       handle)))
 
 (defn release-frame!
-  "Cancel + drop EVERY stale / GC timer for a destroyed `frame-id` from the
-  side table. Invoked from the single `:resources/on-frame-destroyed!`
-  teardown hook (composed in the façade with the work-ledger host-handle +
-  generation host-cache release — one hook, no second teardown path). The
-  durable entries ride the frame value and are released atomically when the
-  frame is dropped; this touches ONLY the host timer side table. Idempotent.
-  Per Spec 016 §Stale and GC scheduling (frame destroy cancels all resource
-  timers) / [Runtime-Subsystems] clause 5. Returns nil."
+  "Cancel + drop EVERY stale / GC / poll timer for a destroyed `frame-id`
+  from the side table (it iterates by frame-id, so every kind — incl. the
+  EP-0020 `:poll` kind — is released). Invoked from the single
+  `:resources/on-frame-destroyed!` teardown hook (composed in the façade with
+  the work-ledger host-handle + generation host-cache release — one hook, no
+  second teardown path). The durable entries ride the frame value and are
+  released atomically when the frame is dropped; this touches ONLY the host
+  timer side table. Idempotent. Per Spec 016 §Stale and GC scheduling /
+  §Polling (frame destroy cancels all resource timers) / [Runtime-Subsystems]
+  clause 5. Returns nil."
   [frame-id]
   (doseq [[[fid rkey kind] handle] @timer-table]
     (when (= fid frame-id)
@@ -230,32 +297,38 @@
   because a JVM CLIENT-mode runtime (the resources unit tests) must still arm
   timers, and the host-wide platform default is `:server`. fx handlers are
   binary `(fn [ctx args] …)` (Spec 002)."
-  {:doc "Arm the host-side stale / GC timers for a settled resource entry,
-keyed by `[frame-id resource-key kind]`. Args:
-`{:frame-id … :resource/key … :stale-delay-ms … :gc-delay-ms … :server? …}`.
+  {:doc "Arm the host-side stale / GC / poll timers for a settled resource
+entry, keyed by `[frame-id resource-key kind]`. Args:
+`{:frame-id … :resource/key … :stale-delay-ms … :gc-delay-ms …
+:poll-delay-ms … :server? …}`.
 Emitted by the success reply handler once an entry settles `:loaded` (the
-delays are derived from the durable `:loaded-at` + the resource's
-`:stale-after-ms` / `:gc-after-ms`; `:server?` is read from the cascade
-frame's platform). Cancel-then-arm — a re-load reschedules. No-op under
-`:server? true` (SSR uses the blocking-drain wait point + lazy client
-revalidation, never wall-clock background timers). The fired timer dispatches
-a re-checking internal event; the handler re-checks the durable entry before
-writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling."})
+stale / GC delays are derived from the durable `:loaded-at` + the resource's
+`:stale-after-ms` / `:gc-after-ms`; the poll delay is the resource's
+`:poll-interval-ms` and is supplied ONLY when the settled entry is actively
+owned, EP-0020; `:server?` is read from the cascade frame's platform).
+Cancel-then-arm — a re-load reschedules. No-op under `:server? true` (SSR
+uses the blocking-drain wait point + lazy client revalidation, never
+wall-clock background timers). The fired timer dispatches a re-checking
+internal event; the handler re-checks the durable entry before writing (the
+timer is advisory). Per Spec 016 §Stale and GC scheduling / §Polling."})
 
 (defn schedule-timers-handler
-  "`:rf.resource/schedule-timers` fx handler. Arms the host-side stale + GC
-  timers for `[frame-id resource-key]` from the supplied durable delays. A
-  non-positive / nil delay leaves that kind disarmed (a resource declaring no
-  `:stale-after-ms` / `:gc-after-ms` arms only the other / neither). No-op
-  under SSR (`:server? true`) — a server render never arms a wall-clock
-  background timer. Emits a `:rf.resource/gc-scheduled` / `:rf.resource/stale-
-  scheduled` trace (gc-class — the Xray lifecycle timeline pairs them with
-  `:rf.resource/gc-fired` / `gc-skipped` / `stale-fired`) when a timer arms.
-  Per Spec 016 §Stale and GC scheduling."
-  [_ctx {:keys [frame-id stale-delay-ms gc-delay-ms server?] resource-key :resource/key}]
+  "`:rf.resource/schedule-timers` fx handler. Arms the host-side stale + GC +
+  poll timers for `[frame-id resource-key]` from the supplied durable delays.
+  A non-positive / nil delay leaves that kind disarmed (a resource declaring
+  no `:stale-after-ms` / `:gc-after-ms` / `:poll-interval-ms` arms only the
+  others / none). No-op under SSR (`:server? true`) — a server render never
+  arms a wall-clock background timer. Emits a `:rf.resource/gc-scheduled` /
+  `:rf.resource/stale-scheduled` / `:rf.resource/poll-scheduled` trace
+  (gc-class — the Xray lifecycle timeline pairs them with
+  `:rf.resource/gc-fired` / `gc-skipped` / `stale-fired` / `poll-fired`) when
+  a timer arms. Per Spec 016 §Stale and GC scheduling / §Polling."
+  [_ctx {:keys [frame-id stale-delay-ms gc-delay-ms poll-delay-ms server?]
+         resource-key :resource/key}]
   (when-not server?
     (let [stale-h (schedule! frame-id resource-key stale-kind stale-delay-ms)
-          gc-h    (schedule! frame-id resource-key gc-kind gc-delay-ms)]
+          gc-h    (schedule! frame-id resource-key gc-kind gc-delay-ms)
+          poll-h  (schedule! frame-id resource-key poll-kind poll-delay-ms)]
       (when gc-h
         (trace/emit! :rf.event :rf.resource/gc-scheduled
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -263,7 +336,11 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling."})
       (when stale-h
         (trace/emit! :rf.event :rf.resource/stale-scheduled
                      {:rf.frame/id frame-id :resource/key resource-key
-                      :delay-ms stale-delay-ms}))))
+                      :delay-ms stale-delay-ms}))
+      (when poll-h
+        (trace/emit! :rf.event :rf.resource/poll-scheduled
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :delay-ms poll-delay-ms}))))
   nil)
 
 ;; ---- the cancel fx (entry removed — remove / clear-scope / GC) ------------
@@ -283,12 +360,46 @@ no-ops harmlessly; cancellation must never be platform-gated). Per Spec 016
 §Stale and GC scheduling."})
 
 (defn cancel-timers-handler
-  "`:rf.resource/cancel-timers` fx handler. Cancels BOTH timers for every
-  supplied `[frame-id resource-key]`. Args: `{:frame-id … :resource/keys
-  […]}`."
+  "`:rf.resource/cancel-timers` fx handler. Cancels ALL (stale + GC + poll)
+  timers for every supplied `[frame-id resource-key]` (entry removed — its
+  durable facts are gone). Args: `{:frame-id … :resource/keys […]}`."
   [_ctx {:keys [frame-id] resource-keys :resource/keys}]
   (doseq [rkey resource-keys]
     (cancel-for-key! frame-id rkey))
+  nil)
+
+;; ---- the poll-only cancel fx (last owner released — EP-0020 §Polling) -----
+;;
+;; Owner release leaves the entry ALIVE (it loses a lease but keeps its data +
+;; stale/GC policy), so a blanket `cancel-timers` would wrongly drop the GC
+;; reaper. The `:poll` kind alone is cancelled when an entry becomes
+;; owner-free: a poll never pins an owner-free entry, so polling STOPS the
+;; instant the last owner releases (the same release path that drops the
+;; lease). The poll-fired re-check is the belt-and-braces (a poll timer that
+;; fires for a now-owner-free entry refetches nothing and does not re-arm);
+;; this proactive cancel makes the stop deterministic + prompt.
+
+(def cancel-poll-timers-meta
+  "Metadata for the `:rf.resource/cancel-poll-timers` fx registration.
+  Cancels ONLY the host-side `:poll` timer for one or more entries that
+  became owner-free (leaving any stale / GC timer intact — an owner-free
+  entry still wants GC)."
+  {:doc "Cancel the host-side `:poll` timer (ONLY) for entries that became
+owner-free, keyed by `[frame-id resource-key]`. Args:
+`{:frame-id … :resource/keys [<scoped-key> …]}`. Emitted by
+`:rf.resource/release-owner` for each entry whose `:active-owners` went empty
+(EP-0020 — polling stops the instant the last owner releases; a poll never
+pins an owner-free entry). Runs on every platform (no-ops harmlessly when no
+poll timer is armed). Per Spec 016 §Polling."})
+
+(defn cancel-poll-timers-handler
+  "`:rf.resource/cancel-poll-timers` fx handler. Cancels ONLY the `:poll`
+  timer for every supplied `[frame-id resource-key]` (the stale / GC timers
+  are left armed — an owner-free entry still GCs). Args:
+  `{:frame-id … :resource/keys […]}`."
+  [_ctx {:keys [frame-id] resource-keys :resource/keys}]
+  (doseq [rkey resource-keys]
+    (cancel! frame-id rkey poll-kind))
   nil)
 
 ;; ---- frame teardown (Spec 016 [Runtime-Subsystems] clause 5) --------------

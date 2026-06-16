@@ -1,21 +1,26 @@
 # EP-0020: Active-Owner Polling For Resource Revalidation
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> **DESIGN-FIRST PROPOSAL — not yet ruled, not implemented.** This EP proposes
-> adding *interval revalidation* (polling) to Spec 016 Resources. It is written
-> against the **landed** Spec 016 surface (the read-resource MVP, mutations, and
-> focus/reconnect active-stale revalidation are all on main) and proposes a
-> small additive primitive that reuses the existing stale/GC timer side-table
-> substrate and the focus/reconnect scan-and-refetch discipline. **No spec or
-> resources-source edit is made by this PR.** The §Specification section is a
-> *sketch* of the proposed `spec/016-Resources.md` amendment for Mike to rule on
-> before any implementation. Normative home after acceptance:
-> [`spec/016-Resources.md`](../../spec/016-Resources.md), §Stale and GC
-> scheduling (a new §Polling sibling section), with `reg-resource` spec-key
-> additions and a `:rf.resource/*` trace addition. Tracking bead: `rf2-byl7bk.2`
-> (the [resource-management parity tranche epic](../../README.md) `rf2-byl7bk`).
+> **ACCEPTED AND LANDED (rf2-byl7bk.2).** This EP added *interval revalidation*
+> (polling) to Spec 016 Resources, on the recommended cut: resource-level
+> `:poll-interval-ms`, an unconditional active-owner tick (Open Question 3 →
+> (a)), default-pause-when-hidden with `:poll-when-hidden?` reserved (OQ 2), the
+> `:poll` cause (OQ 8) and `:poll-interval-ms` spelling (OQ 7); data-derived
+> intervals (OQ 4), poll-failure back-off (OQ 5), and the per-use route/ensure
+> override (OQ 6) are reserved to future consumer-driven work; the adapter
+> `use-resource-lease` ergonomics (OQ 1) is a separate adapter bead. The
+> normative contract lives in [`spec/016-Resources.md` §Polling](../../spec/016-Resources.md#polling)
+> (a sibling of §Stale and GC scheduling), with the `:poll-interval-ms`
+> spec-key, the `:poll` cause, and the `:rf.resource/poll-scheduled` /
+> `:rf.resource/poll-fired` trace ops. The reference implementation reuses the
+> landed advisory-timer side-table (`re-frame.resources.timers`, the new `:poll`
+> kind) and the focus/reconnect scan-and-refetch core
+> (`re-frame.resources.events`, the `entry-revalidation-in-flight?` coalescing
+> gate). The §Specification section below is the design-time sketch; the spec is
+> the authority. Tracking bead: `rf2-byl7bk.2` (the resource-management parity
+> tranche epic `rf2-byl7bk`).
 
 ## Abstract
 

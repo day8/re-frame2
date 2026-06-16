@@ -111,7 +111,12 @@
     (is (= :hydration (h/op-class :rf.resource/restored)))
     (is (= :hydration (h/op-class :rf.resource/restore-clock-skew)))
     (is (= "revalidate scan" (h/op-label :rf.resource/revalidate-scan)))
-    (is (= "restored"        (h/op-label :rf.resource/restored))))
+    (is (= "restored"        (h/op-label :rf.resource/restored)))
+    ;; EP-0020 polling ops (gc-class — the freshness-timer family)
+    (is (= :gc (h/op-class :rf.resource/poll-scheduled)))
+    (is (= :gc (h/op-class :rf.resource/poll-fired)))
+    (is (= "poll scheduled" (h/op-label :rf.resource/poll-scheduled)))
+    (is (= "poll fired"     (h/op-label :rf.resource/poll-fired))))
   (testing "the closed enum matches the runtime-emitted set EXACTLY — no
             extra (e.g. the never-emitted `:rf.resource/ensure` event-id or
             the folded `work-suppressed`) and none missing (rf2-uqwbhr)"
@@ -141,6 +146,8 @@
                        :rf.resource/gc-scheduled
                        :rf.resource/gc-fired
                        :rf.resource/gc-skipped
+                       :rf.resource/poll-scheduled
+                       :rf.resource/poll-fired
                        :rf.resource/removed
                        :rf.resource/stale-suppressed
                        :rf.resource/hydrated
