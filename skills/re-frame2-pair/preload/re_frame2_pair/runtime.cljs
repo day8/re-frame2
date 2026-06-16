@@ -618,6 +618,43 @@
     v
     (rf/elide-wire-value v {:frame frame-id})))
 
+(defn- maybe-redact-derived
+  "Value-redact a DERIVED `tree` (rendered DOM text / an attribute map / a
+  focus descriptor) for off-box egress (rf2-i783h0, the rf2-p9scds DOM /
+  readback finding).
+
+  The path-based `elide-wire-value` walker redacts by DECLARED app-db path —
+  but rendered DOM text / attribute values sit at a NON-app-db position the
+  path walker can never reach, so a secret copied from a declared-sensitive
+  app-db slot into the DOM would ride off-box RAW. `re-frame.core/redact-
+  derived-values` is the value-based DUAL: it collects the live values at the
+  frame's declared-`:sensitive?` paths from `source-db` (with the non-unique-
+  secret guard, classified against the elided wire bytes) and substitutes any
+  matching leaf in `tree` with `:rf/redacted`. This is the SAME engine
+  Story-MCP routes its rendered hiccup / `:effective-args` through.
+
+  Gate posture mirrors `maybe-elide-sample` / the MCP read surfaces:
+
+  - Gate OFF (`:allow-raw-state? false`, the published-build default the MCP
+    server signals via `configure-raw-state!` when its boot gate is OFF): the
+    tree is value-redacted against the frame's secrets. A secret rendered
+    into the DOM lands as `:rf/redacted` before crossing the off-box wire.
+  - Gate ON (`--allow-sensitive-reads`): the operator's deliberate trusted-
+    local raw read — pass the tree through verbatim (the `local-raw`
+    boundary, the value-dual of the size walker's opt-out).
+
+  `source-db` is the frame's live app-db (`rf/app-db-value frame-id`) — the
+  source of the secret set. The `wire-opts` floor passed to the framework
+  helper is the off-box-tool default (`{}` → sensitive redacts, large elides),
+  byte-identical to what the path-based `:app-db` egress ships under, so the
+  non-unique-secret guard reasons about the same wire bytes. A nil `tree` /
+  nil `source-db` / no declared-sensitive values short-circuits to `tree`
+  unchanged (handled inside the framework helper)."
+  [tree frame-id]
+  (if (:allow-raw-state? @raw-state-config)
+    tree
+    (rf/redact-derived-values tree (rf/app-db-value frame-id) frame-id {})))
+
 (declare attach-cascade db-diff-summary machine-transitions-summary cascade-summary)
 
 (defn app-db-reset!
@@ -3311,6 +3348,22 @@
                     supplied ONLY those are read (the caller is in
                     control). When omitted the curated structural set
                     rides PLUS a `data-*` / `aria-*` prefix sweep.
+     :frame         optional operating-frame override — names the frame
+                    whose declared-`:sensitive?` app-db values the rendered
+                    text / attrs are value-redacted against (see below).
+
+   PRIVACY (rf2-p9scds). Rendered DOM text / attribute values can carry a
+   secret copied out of a declared-sensitive app-db slot — a NON-app-db
+   position the path-based `elide-wire-value` walker can never reach. Under
+   the off-box egress posture (raw-state gate OFF — the published-build
+   default) the matched nodes are value-redacted via `maybe-redact-derived`
+   (`re-frame.core/redact-derived-values`) against the operating frame's
+   secrets, so a rendered secret lands as `:rf/redacted` before crossing
+   the off-box wire. Gate ON (`--allow-sensitive-reads`) passes the nodes
+   through verbatim (the operator's deliberate trusted-local raw read). When
+   the gate is OFF and the frame is AMBIGUOUS (multi-app, none pinned) the
+   op FAILS CLOSED with `:reason :ambiguous-frame` rather than ship raw DOM
+   or synthesise `:rf/default`.
 
    Returns (success):
      {:ok? true :selector <sel> [:sub-selector <sub>] :count <total>
@@ -3319,13 +3372,14 @@
    Failure (each :ok? false, never a silent empty):
      :rf.error/read-dom-no-document   — no DOM (server-side / headless)
      :rf.error/read-dom-bad-selector  — malformed CSS selector
+     :ambiguous-frame                 — gate OFF + no resolvable frame
 
    Read-only by construction: only `querySelectorAll` / `textContent` /
    attribute strings are read — never a write, a dispatch, or a node
    mutation."
   ([] (dom-read {}))
   ([opts]
-   (let [{:keys [selector sub-selector limit max-text attrs]} opts
+   (let [{:keys [selector sub-selector limit max-text attrs frame]} opts
          limit    (if (and (number? limit) (pos? limit)) (long limit) 50)
          max-text (if (and (number? max-text) (pos? max-text)) (long max-text) 2000)
          ;; nil attrs ⇒ curated structural set + data-*/aria- sweep; an
@@ -3334,10 +3388,23 @@
          ;; (no internal-annotation drop — that's a view-plane concern).
          attr-opts (if attrs
                      {:names attrs :prefix-sweep? false}
-                     {:names nil   :prefix-sweep? true})]
+                     {:names nil   :prefix-sweep? true})
+         ;; rf2-p9scds — resolve the frame whose declared-sensitive app-db
+         ;; values the rendered nodes are value-redacted against. Only
+         ;; load-bearing under the off-box gate (gate ON passes raw, frame
+         ;; irrelevant).
+         gate-on?  (:allow-raw-state? @raw-state-config)
+         frame-id  (current-frame frame)]
      (cond
        (not (exists? js/document))
        {:ok? false :reason :rf.error/read-dom-no-document}
+
+       ;; Fail CLOSED: off-box posture needs a frame to source the secret
+       ;; set for value-redaction; an ambiguous frame can't pick one, so
+       ;; refuse rather than ship raw DOM (acceptance: never synthesise
+       ;; :rf/default).
+       (and (not gate-on?) (nil? frame-id))
+       (ambiguous-frame-error :read-dom {:selector selector})
 
        :else
        (try
@@ -3346,12 +3413,16 @@
                         (mapcat (fn [n] (array-seq (.querySelectorAll n sub-selector))) nodes)
                         nodes)
                total  (count scoped)
-               want   (take limit scoped)]
+               want   (take limit scoped)
+               ;; Value-redact rendered text + attrs against the frame's
+               ;; secrets (off-box default); gate ON passes verbatim.
+               proj   (-> (mapv #(node->content % max-text attr-opts) want)
+                          (maybe-redact-derived frame-id))]
            (cond-> {:ok?        true
                     :selector   selector
                     :count      total
                     :truncated? (> total (count want))
-                    :nodes      (mapv #(node->content % max-text attr-opts) want)}
+                    :nodes      proj}
              (some? sub-selector) (assoc :sub-selector sub-selector)))
          (catch :default e
            {:ok?      false
@@ -3444,27 +3515,44 @@
                 producing view root.
      :max-text  per-node textContent char cap (default 2000). Over-cap
                 text is replaced with a `:rf.size/large-elided` marker
-                BEFORE the elision walker runs.
+                BEFORE the redaction pass runs.
      :frame     operating-frame override for the `:subs-read` slice +
-                the elision registry.
+                the value-redaction source-db.
+
+   PRIVACY (rf2-p9scds). The rendered `:content` (text AND attrs) can carry
+   a secret copied out of a declared-sensitive app-db slot — a NON-app-db
+   position the path-based `elide-wire-value` walker can never reach (so a
+   bare `(elide-wire-value text {:frame …})` over the anonymous string was
+   a no-op for this leak class, and attrs were never touched at all). Under
+   the off-box egress posture (raw-state gate OFF — the published-build
+   default) the whole `:content` is value-redacted via `maybe-redact-derived`
+   (`re-frame.core/redact-derived-values`) against the frame's secrets, so a
+   rendered secret lands as `:rf/redacted`. The hard per-node `max-text` cap
+   still trims the common large case first. Gate ON (`--allow-sensitive-
+   reads`) passes the content through verbatim (trusted-local raw). When the
+   gate is OFF and the frame is AMBIGUOUS (multi-app, none pinned) the op
+   FAILS CLOSED with `:reason :ambiguous-frame` rather than ship raw content
+   or synthesise `:rf/default`.
 
    Returns:
      {:ok?     true
       :via     :view-id | :point | :selector
       :entity  {:view-id <id> :source-coord {...} :render-key <int>
                 :subs-read [<query-v> ...]}
-      :content {:tag \"div\" :text <string|large-elided-marker>
+      :content {:tag \"div\" :text <string|large-elided-marker|redacted>
                 :attrs {<name> <value> ...}}}
 
    Failure modes (each :ok? false, never a silent empty):
      :no-document            — no DOM (server-side / headless eval target)
      :no-target-arg          — none of :view-id / :point / :selector given
      :no-element             — the entry point matched nothing
+     :ambiguous-frame        — gate OFF + no resolvable frame
      :rf.error/ui-read-bad-selector — a malformed CSS selector"
   ([] (ui-read {}))
   ([opts]
    (let [{:keys [view-id point selector max-text frame]} opts
          max-text (if (and (number? max-text) (pos? max-text)) (long max-text) 2000)
+         gate-on? (:allow-raw-state? @raw-state-config)
          frame-id (current-frame frame)]
      (cond
        (not (exists? js/document))
@@ -3473,6 +3561,13 @@
        (not (or (some? view-id) (some? point) (some? selector)))
        {:ok?  false :reason :no-target-arg
         :hint "pass exactly one of :view-id, :point {:x N :y N}, or :selector"}
+
+       ;; Fail CLOSED: off-box posture needs a frame to source the secret
+       ;; set for value-redaction; an ambiguous frame can't pick one, so
+       ;; refuse rather than ship raw content (acceptance: never synthesise
+       ;; :rf/default).
+       (and (not gate-on?) (nil? frame-id))
+       (ambiguous-frame-error :read-ui)
 
        :else
        (try
@@ -3500,21 +3595,26 @@
                    ;; data-*/aria- sweep, and DROPS the framework-internal
                    ;; annotations (already surfaced under :entity). The
                    ;; hard text cap (`max-text`) runs HERE, inside the
-                   ;; shared `cap-text`, BEFORE the elision walker — keeps
+                   ;; shared `cap-text`, BEFORE the redaction pass — keeps
                    ;; a 5 MB <pre> from ever reaching the wire.
                    base      (node->content hit-el max-text
                                             {:names nil :prefix-sweep? true
                                              :drop-internal? true})
-                   ;; Elide like snapshot / get-path — declared-large /
-                   ;; sensitive content collapses, never raw user DOM text
-                   ;; unconditionally (Tool-Pair §Direct-read privacy). The
-                   ;; view plane layers this ON TOP of the shared core; the
-                   ;; raw DOM plane (`dom-read`) does not elide.
-                   text      (rf/elide-wire-value (:text base) {:frame frame-id})]
+                   ;; rf2-p9scds — value-redact the WHOLE rendered content
+                   ;; (text AND attrs) against the frame's declared-sensitive
+                   ;; app-db secrets. The old code ran the path-based
+                   ;; `elide-wire-value` over just the anonymous `:text`
+                   ;; string — but that walker redacts by app-db PATH, and
+                   ;; rendered text has none, so it never caught a secret
+                   ;; copied INTO the DOM, and attrs were untouched entirely.
+                   ;; `redact-derived-values` is the value-based dual: it
+                   ;; substitutes any leaf `=` to a frame secret. Off-box
+                   ;; default redacts; gate ON passes verbatim (trusted-local).
+                   content   (maybe-redact-derived base frame-id)]
                {:ok?     true
                 :via     via
                 :entity  (view-entity view-root frame-id)
-                :content (assoc base :text text)})))
+                :content content})))
          (catch :default e
            {:ok?     false
             :reason  :rf.error/ui-read-bad-selector
@@ -3640,9 +3740,17 @@
    redacted before it crosses the MCP boundary, under the default
    `--allow-sensitive-reads OFF` gate. `elide-opts` carries the caller's
    per-call posture (gate-ON `:include-sensitive` opt-in); `nil` ⇒
-   fail-closed defaults. The `:dom` / `:focus` arms are DOM-text /
-   focus-descriptor reads (no app-db material), so they pass through
-   un-elided."
+   fail-closed defaults.
+
+   rf2-p9scds — the `:dom` / `:focus` arms are DERIVED reads: a node's
+   textContent / attribute / focus descriptor can carry a secret copied out
+   of a declared-sensitive app-db slot, a NON-app-db position the path-based
+   elider can't reach. They are now value-redacted via `maybe-redact-derived`
+   (`re-frame.core/redact-derived-values`) against the frame's secrets under
+   the off-box gate — the value-based dual of the `:app-db` / `:sub` elision.
+   `start-recording!` / `watch-until` refuse a `:dom` / `:focus` signal under
+   the off-box gate when no frame resolves (the secret source can't be
+   picked), so `frame-id` is non-nil here whenever redaction is required."
   ([signal frame-id] (sample-one-signal signal frame-id nil))
   ([signal frame-id elide-opts]
   (try
@@ -3658,21 +3766,23 @@
 
       (contains? signal :dom)
       (when-let [el (.querySelector js/document (:dom signal))]
-        (if-let [a (:attr signal)]
-          (.getAttribute el (name a))
-          (let [t (.-textContent el)]
-            (when (string? t) t))))
+        (-> (if-let [a (:attr signal)]
+              (.getAttribute el (name a))
+              (let [t (.-textContent el)]
+                (when (string? t) t)))
+            (maybe-redact-derived frame-id)))
 
       (contains? signal :focus)
       (when-let [el (and (exists? js/document) (.-activeElement js/document))]
         ;; A stable, EDN-able descriptor — comparing whole DOM nodes by
         ;; `=` is meaningless, so we project to the identity fields that
         ;; actually change as focus moves.
-        {:tag   (some-> (.-tagName el) str/lower-case)
-         :id    (not-empty (.-id el))
-         :class (not-empty (.-className el))
-         :name  (not-empty (.getAttribute el "name"))
-         :rf2-src (some-> (.getAttribute el "data-rf2-source-coord"))})
+        (-> {:tag   (some-> (.-tagName el) str/lower-case)
+             :id    (not-empty (.-id el))
+             :class (not-empty (.-className el))
+             :name  (not-empty (.getAttribute el "name"))
+             :rf2-src (some-> (.getAttribute el "data-rf2-source-coord"))}
+            (maybe-redact-derived frame-id)))
 
       :else
       {:rf.recording/error "unrecognised signal shape — expected one of :app-db :sub :dom :focus"})
@@ -3693,15 +3803,31 @@
    egress posture for `:app-db` / `:sub` value sampling (gate-ON
    `:include-sensitive` opt-in). `watch-until` threads it from the MCP
    gate + per-call args; absent ⇒ fail-closed defaults via
-   `sample-one-signal`."
+   `sample-one-signal`.
+
+   rf2-p9scds — FAIL CLOSED: under the off-box gate a signal that needs
+   frame policy (`:app-db` / `:sub` always; `:dom` / `:focus` because their
+   derived values are value-redacted against the frame's secrets) cannot be
+   sampled when `frame-id` is nil (ambiguous frame). Rather than sample
+   against a nil frame — which would ship raw derived DOM / focus text — the
+   one-shot returns an `:ambiguous-frame` refusal so `watch-until` surfaces
+   a clear error instead of silently leaking. Under the trusted-local gate
+   raw is the operator's choice, so a nil frame still samples (verbatim)."
   ([signals] (sample-signals signals (current-frame) nil))
   ([signals frame-id] (sample-signals signals frame-id nil))
   ([signals frame-id elide-opts]
-   {:ok?    true
-    :t      (js/Date.now)
-    :sample (into {}
-                  (map-indexed (fn [i s] [i (sample-one-signal s frame-id elide-opts)]))
-                  (vec signals))}))
+   (let [gate-on?     (:allow-raw-state? @raw-state-config)
+         needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)
+                                 (and (not gate-on?)
+                                      (or (contains? % :dom) (contains? % :focus))))
+                            (vec signals))]
+     (if (and needs-frame? (nil? frame-id))
+       (ambiguous-frame-error :watch-until)
+       {:ok?    true
+        :t      (js/Date.now)
+        :sample (into {}
+                      (map-indexed (fn [i s] [i (sample-one-signal s frame-id elide-opts)]))
+                      (vec signals))}))))
 
 (defn- recording-sampler-tick!
   "Run one sampler tick for recording `rid`: read every signal, append a
@@ -3817,13 +3943,24 @@
                   default (redact under `--allow-sensitive-reads OFF`).
 
    Refuses with `{:ok? false :reason :no-signals}` when `signals` is
-   empty, and `{:ok? false :reason :ambiguous-frame}` when an :app-db /
-   :sub signal is present but no frame can be resolved (multi-frame
-   session, no selection) — read ops must not silently fall back to
-   :rf/default."
+   empty, and `{:ok? false :reason :ambiguous-frame}` when a signal needs
+   frame policy but no frame can be resolved (multi-frame session, no
+   selection) — read ops must not silently fall back to :rf/default.
+   `:app-db` / `:sub` always need a frame (they read it); `:dom` / `:focus`
+   need one under the off-box gate (rf2-p9scds — their derived values are
+   value-redacted against the frame's secrets, so the secret source must be
+   pickable). Under the trusted-local gate (`--allow-sensitive-reads`) a
+   `:dom` / `:focus`-only recording needs no frame (it ships raw)."
   [{:keys [signals stop frame max-entries elide-opts]}]
   (let [signals  (vec signals)
-        needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)) signals)
+        gate-on? (:allow-raw-state? @raw-state-config)
+        needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)
+                                ;; rf2-p9scds — :dom / :focus are value-
+                                ;; redacted under the off-box gate, so they
+                                ;; need a frame to source the secret set.
+                                (and (not gate-on?)
+                                     (or (contains? % :dom) (contains? % :focus))))
+                           signals)
         frame-id (current-frame frame)]
     (cond
       (empty? signals)

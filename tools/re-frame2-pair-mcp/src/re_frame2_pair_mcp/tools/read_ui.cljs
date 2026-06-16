@@ -69,15 +69,20 @@
   works on ANY re-frame2 app with NO app-specific test ids — it never
   guesses a selector and never re-implements view discovery.
 
-  ## Privacy — elide like snapshot / get-path
+  ## Privacy — value-redact derived content (rf2-p9scds)
 
-  The runtime routes the rendered text through
-  `re-frame.core/elide-wire-value` with off-box defaults (the SAME walker
-  `snapshot` / `get-path` use, per Tool-Pair §Direct-read privacy posture)
-  so a declared-large blob collapses to `:rf.size/large-elided` rather
-  than shipping raw user DOM text unconditionally. A hard per-node
-  `max-text` cap trims the common case before the walker even runs. The
-  wire-boundary cap step (`tools.cljs` §`:apply-cap`) remains the backstop.
+  The runtime value-redacts the WHOLE rendered `:content` (text AND attrs)
+  through `re-frame.core/redact-derived-values` against the frame's declared-
+  `:sensitive?` app-db values, under the off-box egress posture (the
+  published-build default). Rendered DOM text / attrs sit at a non-app-db
+  position the path-based `elide-wire-value` walker can never reach — a bare
+  `(elide-wire-value text {:frame …})` over the anonymous string was a no-op
+  for a secret copied INTO the DOM, and attrs were never touched. The value-
+  based dual catches both. A hard per-node `max-text` cap trims the common
+  large case first; raw content is the trusted-local read (launched with
+  `--allow-sensitive-reads`); an unresolvable frame fails closed with
+  `:ambiguous-frame`. The wire-boundary cap step (`tools.cljs` §`:apply-cap`)
+  remains the backstop.
 
   ## Read-only by construction
 

@@ -49,7 +49,7 @@
   (let [form (#'read-dom/read-dom-form "#app .counter" nil
                                        read-dom/default-limit
                                        read-dom/default-max-text
-                                       nil)]
+                                       nil nil)]
     (testing "the runtime dom-read call + selector + knobs are present"
       (is (str/includes? form "re-frame2-pair.runtime/dom-read")
           "calls the shared runtime dom-read fn")
@@ -63,7 +63,7 @@
   ;; mutation host-form. (The runtime fn it calls is itself read-only by
   ;; construction; this guards the tool-composed form against a future
   ;; edit slipping a mutation into the opts.)
-  (let [form (#'read-dom/read-dom-form "div" ".x" 10 100 ["id" "class"])]
+  (let [form (#'read-dom/read-dom-form "div" ".x" 10 100 ["id" "class"] nil)]
     (doseq [mutator [".setAttribute" ".removeAttribute" ".dispatchEvent"
                      "set! (.-" ".innerHTML" ".click" ".remove("]]
       (is (not (str/includes? form mutator))
@@ -195,9 +195,9 @@
           [;; read-dom variants (raw DOM plane).
            ["read-dom default"        (#'read-dom/read-dom-form "#app .counter" nil
                                                                 read-dom/default-limit
-                                                                read-dom/default-max-text nil)]
-           ["read-dom explicit-attrs" (#'read-dom/read-dom-form "div" nil 10 100 ["id" "class"])]
-           ["read-dom sub-selector"   (#'read-dom/read-dom-form "div" ".title" 10 100 nil)]
+                                                                read-dom/default-max-text nil nil)]
+           ["read-dom explicit-attrs" (#'read-dom/read-dom-form "div" nil 10 100 ["id" "class"] nil)]
+           ["read-dom sub-selector"   (#'read-dom/read-dom-form "div" ".title" 10 100 nil nil)]
            ;; read-ui variants (re-frame2 view plane) — the SAME guard now
            ;; covers them, since read-ui rides the same eval-form plumbing.
            ["read-ui view-id"         (#'read-ui/read-ui-form :my.app/counter nil nil 2000 nil)]
@@ -242,8 +242,8 @@
                "(the bare `sel` symbol is flagged).")))))
 
 (deftest form-embeds-sub-selector-when-supplied
-  (let [with-sub (#'read-dom/read-dom-form "div" ".title" 10 100 nil)
-        no-sub   (#'read-dom/read-dom-form "div" nil 10 100 nil)]
+  (let [with-sub (#'read-dom/read-dom-form "div" ".title" 10 100 nil nil)
+        no-sub   (#'read-dom/read-dom-form "div" nil 10 100 nil nil)]
     (is (str/includes? with-sub ".title") "sub-selector embedded")
     (is (str/includes? with-sub ":sub-selector") "sub-selector opt slot present")
     (is (not (str/includes? no-sub ":sub-selector"))
@@ -254,8 +254,8 @@
   ;; runtime fn then rides the curated default set + a data-*/aria- sweep.
   ;; With an explicit attr list the names ride and the runtime reads only
   ;; those (no sweep).
-  (let [default-attrs  (#'read-dom/read-dom-form "div" nil 10 100 nil)
-        explicit-attrs (#'read-dom/read-dom-form "div" nil 10 100 ["id"])]
+  (let [default-attrs  (#'read-dom/read-dom-form "div" nil 10 100 nil nil)
+        explicit-attrs (#'read-dom/read-dom-form "div" nil 10 100 ["id"] nil)]
     (is (not (str/includes? default-attrs ":attrs"))
         "no :attrs opt when omitted ⇒ runtime rides the default set + sweep")
     (is (str/includes? explicit-attrs ":attrs") "explicit :attrs opt rides")
