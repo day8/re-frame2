@@ -1552,3 +1552,159 @@
         "tag filter matches exactly the one invalidation touching the tag")
     (is (= 2 (:count (runtime/list-resource-invalidations)))
         "both invalidations surface with no filter")))
+
+;; ---------------------------------------------------------------------------
+;; (16) EP-0015 frame-owned egress — the resolved frame, NOT the eval-time
+;;      ambient scope, owns the projection (rf2-5b2ct2).
+;; ---------------------------------------------------------------------------
+;;
+;; The bug: the runtime resolved a frame for the READ (which app-db / ring /
+;; runtime-db to read) but dropped it before PROJECTION — `egress-value`
+;; called `elide-wire-value` without `:frame`, so the walker fell back to
+;; `frame/resolve-current-frame` (the eval-time ambient scope). EP-0015
+;; requires the projection to use the SAME frame the read resolved.
+;;
+;; These tests reproduce the leak: a NON-default `:host` frame declares a
+;; sensitive app-db path, while the test fixture's ambient scope is
+;; `:rf/default` (which has NO such declaration). Under the bug, a
+;; `(get-app-db {:frame :host})` read pulls `:host`'s value but projects it
+;; under the ambient `:rf/default` policy — so the secret leaks. Under the
+;; fix the resolved `:host` frame is threaded and the declaration redacts.
+
+(def ^:private host-frame :host/main)
+
+(defn- seed-host-frame-with-sensitive! []
+  ;; Register a non-default frame, install a sensitive declaration on IT
+  ;; (NOT :rf/default), and seed the secret into ITS app-db. The ambient
+  ;; fixture scope stays :rf/default (no declaration there).
+  (rf/reg-frame host-frame {:doc "non-default host frame for frame-owned egress"})
+  (frame-class/install! host-frame
+    (frame-class/validate+extract host-frame
+      {:sensitive {:app-db [[:auth :password]]}}))
+  (rf/reg-event :host/seed-auth
+    (fn [{:keys [db]} _] {:db {:auth {:username "ada" :password "shh"}}}))
+  (rf/dispatch-sync [:host/seed-auth] {:frame host-frame}))
+
+(deftest get-app-db-projects-under-resolved-frame-not-ambient
+  (testing "rf2-5b2ct2 — `get-app-db {:frame :host}` projects the value
+            under the RESOLVED :host frame's classification, not the
+            eval-time ambient scope (:rf/default, which carries NO
+            sensitive declaration). Under the bug the secret leaked."
+    (seed-host-frame-with-sensitive!)
+    ;; The :rf/default frame deliberately carries NO sensitive declaration.
+    ;; Were the projection to use the ambient :rf/default scope, the secret
+    ;; would cross the boundary verbatim.
+    (let [result (runtime/get-app-db {:frame host-frame})]
+      (is (true? (:ok? result)))
+      (is (= host-frame (:frame result)) "the read resolved the :host frame")
+      (is (= :rf/redacted (get-in result [:value :auth :password]))
+          "the :host frame's sensitive declaration redacts the secret — the resolved frame owns the projection")
+      (is (= "ada" (get-in result [:value :auth :username]))
+          "non-sensitive sibling survives"))))
+
+(deftest get-app-db-projects-under-resolved-frame-with-nil-ambient
+  (testing "rf2-5b2ct2 — even with NO ambient frame (nil
+            *current-frame*), `get-app-db {:frame :host}` redacts via the
+            resolved :host frame. Proves the projection does not depend on
+            an ambient scope at all."
+    (seed-host-frame-with-sensitive!)
+    (binding [frame/*current-frame* nil]
+      (let [result (runtime/get-app-db {:frame host-frame})]
+        (is (true? (:ok? result)))
+        (is (= :rf/redacted (get-in result [:value :auth :password]))
+            "the :host declaration redacts even with a nil ambient frame")))))
+
+(deftest get-app-db-path-scoped-projects-under-resolved-frame
+  (testing "rf2-5b2ct2 — a PATH-scoped `get-app-db` over the :host frame
+            redacts the scoped leaf under the resolved frame (the :path AND
+            :frame both thread to the walker)"
+    (seed-host-frame-with-sensitive!)
+    (let [result (runtime/get-app-db {:frame host-frame :path [:auth :password]})]
+      (is (true? (:ok? result)))
+      (is (= :rf/redacted (:value result))
+          "the path-scoped leaf redacts under the resolved :host frame"))))
+
+(deftest get-app-db-diff-projects-slices-under-resolved-frame
+  (testing "rf2-5b2ct2 — `get-app-db-diff` projects each changed-path slice
+            under the RESOLVED :host frame, not the ambient scope — the
+            sensitive slice redacts"
+    (seed-host-frame-with-sensitive!)
+    ;; Mutate the sensitive slot so it appears in the diff.
+    (rf/reg-event :host/rotate-pw
+      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] "newpw")}))
+    (rf/dispatch-sync [:host/rotate-pw] {:frame host-frame})
+    (let [epochs   (:epochs (runtime/get-epoch-history {:frame host-frame}))
+          ;; the most-recent epoch is the rotate mutation
+          epoch-id (-> epochs last :epoch-id)
+          result   (runtime/get-app-db-diff {:frame host-frame :epoch-id epoch-id})
+          changed  (get-in result [:diff :changed])
+          pw-row   (some #(when (= [:auth :password] (:path %)) %) changed)]
+      (is (true? (:ok? result)))
+      (is (some? pw-row) "the sensitive path appears in the changed slices")
+      (is (= :rf/redacted (:before pw-row))
+          "the :before slice redacts under the resolved :host frame")
+      (is (= :rf/redacted (:after pw-row))
+          "the :after slice redacts under the resolved :host frame"))))
+
+(deftest get-app-db-opts-back-in-under-resolved-frame
+  (testing "rf2-5b2ct2 — :include-sensitive? true still opts back in under
+            the resolved frame (the override flows alongside :frame)"
+    (seed-host-frame-with-sensitive!)
+    (let [result (runtime/get-app-db {:frame host-frame :include-sensitive? true})]
+      (is (= "shh" (get-in result [:value :auth :password]))
+          ":include-sensitive? true reveals the raw value under the resolved frame"))))
+
+(deftest egress-value-threads-explicit-frame
+  (testing "rf2-5b2ct2 — `egress-value` with an explicit :frame projects
+            against THAT frame's classification even when the ambient scope
+            is a different frame with no declaration"
+    (seed-host-frame-with-sensitive!)
+    ;; Ambient is :rf/default (no declaration); explicit :frame :host owns it.
+    (let [out (runtime/egress-value {:auth {:username "ada" :password "shh"}}
+                                    {:frame host-frame})]
+      (is (= :rf/redacted (get-in out [:auth :password]))
+          "the explicit :frame's declaration redacts the secret")
+      (is (= "ada" (get-in out [:auth :username]))
+          "non-sensitive sibling survives"))))
+
+(deftest trace-event-frame-resolves-event-own-frame
+  (testing "rf2-5b2ct2 — `egress-trace-event` resolves a trace event's OWN
+            frame (from [:tags :frame] / top-level :frame) and threads it to
+            the egress walker, so per-event projection uses the emitting
+            frame's classification — NOT one ambient/resolved frame. A
+            sensitive path declared on :host redacts a :host event's value
+            (carried where the walker matches), while the ambient :rf/default
+            frame (no such declaration) would have leaked it under the bug."
+    ;; Declare the sensitive path on :host where a trace event carries its
+    ;; value-bearing slots — under [:tags ...]. The :rf/default ambient frame
+    ;; (the fixture's scope) carries NO such declaration, so under the bug the
+    ;; value would project under :rf/default and leak.
+    (rf/reg-frame host-frame {:doc "host frame for trace-event-frame egress"})
+    (frame-class/install! host-frame
+      (frame-class/validate+extract host-frame
+        {:sensitive {:app-db [[:tags :secret]]}}))
+    (let [ev {:op-type   :sub
+              :operation :rf.sub/run
+              :tags      {:frame  host-frame
+                          :secret "shh"
+                          :public "ada"}}]
+      ;; The helper resolves the event's own frame (off [:tags :frame]) and
+      ;; threads it to the walker; assert it directly so the test does not
+      ;; depend on the live ring shape.
+      (is (= :rf/redacted
+             (get-in (#'runtime/egress-trace-event ev :rf/default {}) [:tags :secret]))
+          "the :host event's sensitive [:tags :secret] redacts under :host's policy")
+      (is (= "ada"
+             (get-in (#'runtime/egress-trace-event ev :rf/default {}) [:tags :public]))
+          "the non-sensitive sibling survives")
+      ;; A frameless event (no [:tags :frame] / :frame), no fallback frame,
+      ;; AND no ambient scope ⇒ no frame is resolvable anywhere ⇒ fail closed
+      ;; (whole-value redacted). This is the get-issues merged-ring case where
+      ;; each event must carry its own frame; one that carries none, with the
+      ;; eval seam having no ambient frame, cannot borrow another frame's marks.
+      (binding [frame/*current-frame* nil]
+        (is (= :rf/redacted
+               (#'runtime/egress-trace-event {:op-type :sub :operation :rf.sub/run
+                                              :tags {:secret "shh"}}
+                                             nil {}))
+            "a truly frameless event (no event frame, no fallback, no ambient) fails closed")))))
