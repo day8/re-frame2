@@ -189,16 +189,14 @@
     :success   #(http-reply/success-reply http-ctx {:title "Welcome"})
     :error     #(http-reply/failure-reply http-ctx a-failure)
     :cancel    #(http-reply/aborted-reply http-ctx an-abort)
-    ;; HTTP supersession is the stale path (a same-:request-id supersede)
-    ;; lowered through the shared substrate `suppress`; pin the canonical
-    ;; stale shape via the substrate directly with the HTTP work-id.
-    :stale     #(:reply (reply/suppress nil
-                                        {:work/id (http-reply/work-id http-ctx)}
-                                        {:work/id [:rf.work/http :article/by-id 2]}
-                                        {:work/id      (http-reply/work-id http-ctx)
-                                         :work/kind    :http
-                                         :rf.frame/id  :app/main
-                                         :stale/reason :rf.http/superseded}))}
+    ;; HTTP supersession is the stale path (a same-:request-id supersede).
+    ;; Pin the canonical stale shape via the REAL production helper
+    ;; `re-frame.http-reply/suppress` (NOT the substrate directly with a
+    ;; synthetic extra) so this row would go red if the HTTP helper drifts in
+    ;; its :stale/reason, carried/current facts, frame threading, or work-id
+    ;; shape (rf2-fkdyhl). `current-work-id` is the superseding attempt's
+    ;; work-id (issuance 2), =-distinct from the carried one (issuance 1).
+    :stale     #(:reply (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))}
 
    {:family    :resource
     :work-head :rf.work/resource
@@ -431,16 +429,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- http-stale-out []
-  ;; HTTP supersession lowered through the shared substrate `suppress`, with a
-  ;; carried-vs-current HTTP work-id gate (the same shape the :http row's
-  ;; :stale builder uses — Managed-Effects §Stale suppression).
-  (reply/suppress nil
-                  {:work/id (http-reply/work-id http-ctx)}
-                  {:work/id [:rf.work/http :article/by-id 2]}
-                  {:work/id      (http-reply/work-id http-ctx)
-                   :work/kind    :http
-                   :rf.frame/id  :app/main
-                   :stale/reason :rf.http/superseded}))
+  ;; HTTP supersession lowered through the REAL production helper
+  ;; `re-frame.http-reply/suppress` (rf2-fkdyhl — NOT the substrate directly
+  ;; with a synthetic extra), with a carried-vs-current HTTP work-id gate
+  ;; (the same call the :http row's :stale builder uses — Managed-Effects
+  ;; §Stale suppression). This makes the cross-family correlation gate fail
+  ;; closed on a real HTTP-helper drift (a dropped :rf.reply/carried /
+  ;; :rf.reply/current trace fact).
+  (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))
 
 (defn- mutation-stale-out []
   (rreply/stale-reply
