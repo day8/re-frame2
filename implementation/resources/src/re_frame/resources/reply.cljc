@@ -68,7 +68,32 @@
   threads it in); this namespace never reads a clock. Trace summaries route
   every wire-bearing slot through the shared `re-frame.reply/trace-summary`
   (which calls `re-frame.elision/elide-wire-value`) — never a family-private
-  elider (Managed-Effects §Tracing)."
+  elider (Managed-Effects §Tracing).
+
+  ## Why there is no `target-obsolete?` gate here (rf2-wwfn7q)
+
+  HTTP carries an `actor-destroy-target-obsolete?` predicate
+  (`re-frame.http-reply`) that lowers a destroyed-actor reply to `:stale`/
+  `:suppressed` (rather than `:cancelled`) when the reply TARGET names the
+  destroyed actor. Resources and mutations have NO counterpart, **by
+  design** — obsolete-target suppression is HTTP-specific. HTTP is the only
+  EP-0011 surface that RE-DISPATCHES a reply at a caller-supplied event
+  target (its `:on-failure` / origin-event head), so TARGET-identity
+  obsolescence is only definable there.
+
+  Resource / mutation reply targets are framework-INTERNAL
+  (`:rf.resource.internal/*` / `:rf.mutation.internal/*`), never a caller-
+  supplied app event, so obsolescence is gated on WORK-ID + GENERATION
+  ENTRY-LIVENESS, not target-identity. `live-entry-for-reply`
+  (`re-frame.resources.events`) verifies the live entry's `:current-work` ==
+  the reply's `:work/id` AND its `:generation` == the reply's `:generation`;
+  it returns nil for a cross-frame / stale / superseded / vanished reply,
+  which is then suppressed through `stale-reply` (a destroyed / aborted
+  attempt whose entry is still live lowers to `:cancelled` via
+  `failure-reply`, and its public error target does NOT run). All surfaces
+  still route through the shared `re-frame.reply/suppress` and spell
+  `:cancelled` identically — uniform where it matters; the obsolescence
+  DETERMINATION is correctly surface-specific."
   (:require [re-frame.reply :as reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
