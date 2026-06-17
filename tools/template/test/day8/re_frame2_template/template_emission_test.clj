@@ -212,15 +212,29 @@
   ;; java.util.regex.Pattern per call (×N framework files × N
   ;; references × 3 substrates = thousands of compiles per suite run).
   ;; The `^{...}` metadata-map alternative tolerates ONE level of brace
-  ;; nesting (`\{(?:[^{}]|\{[^{}]*\})*\}`) so a `def` whose docstring embeds
-  ;; a literal map — e.g. `frame-provider`'s `Usage: [rf/frame-provider
+  ;; nesting (`\{(?:[^{}]++|\{[^{}]*+\})*+\}`) so a `def` whose docstring
+  ;; embeds a literal map — e.g. `frame-provider`'s `Usage: [rf/frame-provider
   ;; {:frame :todo} …]` — is still detected. The earlier `\{[^}]*\}` stopped
   ;; at the FIRST inner `}`, so such a def's symbol was missed and any
   ;; template reference to it tripped the audit (rf2-9o48ih: the EP-0002
   ;; carried-frame scaffold references `rf/frame-provider`, the first
   ;; template surface whose framework def carries an embedded-brace
   ;; docstring).
-  (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{(?:[^{}]|\\{[^{}]*\\})*\\})\\s+)*"
+  ;;
+  ;; POSSESSIVE quantifiers (rf2-uzne0p). The nested `(?:…|…)*` shape is a
+  ;; classic catastrophic-backtracking hazard: on a large source file
+  ;; (`re-frame.core/core.cljc`, ~3.1K lines) the greedy form recurses deep
+  ;; enough to throw `StackOverflowError` once any audited emitted file
+  ;; references a `re-frame.core` symbol whose scan pushes the call stack a
+  ;; little further (the strict-mint-policy scaffold added a `rf/reg-frame`
+  ;; reference to events_test.cljs, tipping it over). Making the inner
+  ;; alternation (`[^{}]++` / `[^{}]*+`) and the outer meta-clause repetition
+  ;; (`*+`) POSSESSIVE means the engine never backtracks into already-matched
+  ;; metadata — the match is linear and stack-flat, with identical match
+  ;; semantics (the language matched is unchanged; only the backtracking is
+  ;; removed). `def`/`defn` names are `\s+`-terminated, so a possessive
+  ;; meta-clause never over-consumes the symbol it must capture.
+  (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{(?:[^{}]++|\\{[^{}]*+\\})*+\\})\\s+)*+"
         sym-char    "[a-zA-Z*+!?<>=$%_\\-][\\w*+!?<>=$%\\-]*"]
     (re-pattern
       (str "\\(def(?:n-?|macro|multi|once|protocol|record|type)?\\s+"
@@ -306,6 +320,61 @@
                 (str "qualified symbol " sym " in events_test.cljs ("
                      substrate ") uses alias " alias-sym
                      " but no matching :as is declared in the ns form"))))))))
+
+;; --- Strict EP-0017 cofx mint policy guard (rf2-uzne0p) --------------------
+;;
+;; EP-0017's strict-test posture: a generated app that later adds a
+;; generator-backed recordable coeffect must not be able to write a green
+;; test that forgot to supply the fact (the default live policy would
+;; silently mint a fresh per-run value — the opposite of
+;; supply-data-don't-stub). The emitted `events_test.cljs` fixture therefore
+;; establishes a STRICT mint policy by default — via `{:preset :test}` (which
+;; sets `:rf.cofx/mint-policy :strict`) or an explicit
+;; `:rf.cofx/mint-policy :strict`. This guard reads the emitted file and
+;; fails if the strict posture is dropped, or if the supply-data /
+;; explicit-live testing idiom is no longer documented for the user. It also
+;; locks out the retired EP-0017/EP-0018 vocabulary (`:rf.world/inputs`,
+;; grouped/nested cofx, `inject-cofx`).
+
+(defn- assert-events-test-strict-mint-policy!
+  [substrate ^java.io.File root]
+  (let [test-file (io/file root "test/acme/my_app/events_test.cljs")]
+    (is (.isFile test-file)
+        (str "events_test.cljs emitted for " substrate))
+    (when (.isFile test-file)
+      (let [text (slurp test-file)]
+        ;; (1) The fixture establishes a strict mint policy by default —
+        ;; either the `:test` preset (which expands to
+        ;; `:rf.cofx/mint-policy :strict`) or an explicit strict policy.
+        (is (or (re-find #":preset\s+:test" text)
+                (re-find #":rf\.cofx/mint-policy\s+:strict" text))
+            (str "events_test.cljs (" substrate ") must run under a STRICT "
+                 "EP-0017 cofx mint policy by default — register the test "
+                 "frame with `{:preset :test}` or set "
+                 "`:rf.cofx/mint-policy :strict`. Without it a generated app "
+                 "that adds a generator-backed recordable coeffect can ship a "
+                 "green test that forgot to supply the fact (the live policy "
+                 "silently mints a fresh per-run value — the opposite of "
+                 "EP-0017's supply-data-don't-stub posture)."))
+        ;; (2) The supply-data idiom is documented for recordable coeffects:
+        ;; supply facts FLAT under `:rf.cofx`.
+        (is (re-find #":rf\.cofx\b" text)
+            (str "events_test.cljs (" substrate ") must document the EP-0017 "
+                 "supply-data idiom — supply required recordable facts FLAT "
+                 "under `:rf.cofx` in the dispatch opts."))
+        ;; (3) The intentional-nondeterminism escape hatch is documented.
+        (is (re-find #":rf\.cofx/mint-policy\s+:explicit-live" text)
+            (str "events_test.cljs (" substrate ") must document the "
+                 "`:rf.cofx/mint-policy :explicit-live` opt-out — the per-call "
+                 "escape a test uses when it INTENTIONALLY accepts "
+                 "nondeterministic generation."))
+        ;; (4) No legacy EP-0017/EP-0018 vocabulary leaks into the scaffold.
+        (doseq [[re what]
+                [[#":rf\.world/inputs" ":rf.world/inputs (retired — declare :rf.cofx/requires)"]
+                 [#"inject-cofx"        "inject-cofx (removed — declare :rf.cofx/requires)"]]]
+          (is (not (re-find re text))
+              (str "events_test.cljs (" substrate ") must not use legacy "
+                   "EP-0017/EP-0018 vocabulary: " what ".")))))))
 
 ;; --- Generic ns-surface drift check (events / subs / views / events_test)
 ;; ----------------------------------------------------------------------------
@@ -747,6 +816,7 @@
     (try
       (let [proj (run-template! tmp "acme/my-app" substrate)]
         (assert-events-test-shape! substrate proj)
+        (assert-events-test-strict-mint-policy! substrate proj)
         (assert-scratch-with-frame-shape! substrate proj)
         (assert-scratch-frame-context! substrate proj)
         (assert-xray-host-contract! substrate proj)
