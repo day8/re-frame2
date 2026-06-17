@@ -132,6 +132,50 @@
     (is (true?  (image/ns-matches? "*" "core")))
     (is (false? (image/ns-matches? "*" "core.sub")))))
 
+(deftest intra-segment-glob-matches-within-one-segment
+  (testing "a trailing-suffix intra-segment `*` matches within the last segment"
+    (is (true?  (image/ns-matches? "*-cljs-test" "mount-cljs-test")))
+    (is (true?  (image/ns-matches? "*-cljs-test" "core-cljs-test")))
+    ;; `*` is ZERO-OR-MORE chars, so the bare suffix matches too
+    (is (true?  (image/ns-matches? "*-cljs-test" "-cljs-test")))
+    (is (false? (image/ns-matches? "*-cljs-test" "mount")))
+    (is (false? (image/ns-matches? "*-cljs-test" "mount-cljs-tests"))))
+  (testing "prefix and middle intra-segment `*`"
+    (is (true?  (image/ns-matches? "foo*" "foobar")))
+    (is (true?  (image/ns-matches? "foo*" "foo")))      ; zero-or-more
+    (is (false? (image/ns-matches? "foo*" "xfoo")))
+    (is (true?  (image/ns-matches? "a*b" "aXXXb")))
+    (is (true?  (image/ns-matches? "a*b" "ab")))
+    (is (false? (image/ns-matches? "a*b" "aXXX"))))
+  (testing "the intra-segment `*` NEVER crosses a `.` boundary (that is `**`)"
+    ;; A trailing intra-glob segment matches ONE segment only — it does not
+    ;; absorb a deeper segment.
+    (is (false? (image/ns-matches? "docs.*-test" "docs.foo.bar-test")))
+    (is (true?  (image/ns-matches? "docs.*-test" "docs.foo-test"))))
+  (testing "intra-segment glob combines with `**` to drop test namespaces at
+            any depth (the EP-0023 §Xray Beside The Target exclusion case)"
+    ;; `**` absorbs zero-or-more segments, then the trailing `*-cljs-test`
+    ;; intra-glob matches the leaf — so depth-1 AND deep test nss both match,
+    ;; while production nss (no `-cljs-test` suffix) do not.
+    (is (true?  (image/ns-matches? "day8.re-frame2-xray.**.*-cljs-test"
+                                   "day8.re-frame2-xray.mount-cljs-test")))
+    (is (true?  (image/ns-matches? "day8.re-frame2-xray.**.*-cljs-test"
+                                   "day8.re-frame2-xray.panels.app-db-diff-cljs-test")))
+    (is (false? (image/ns-matches? "day8.re-frame2-xray.**.*-cljs-test"
+                                   "day8.re-frame2-xray.mount")))
+    (is (false? (image/ns-matches? "day8.re-frame2-xray.**.*-cljs-test"
+                                   "day8.re-frame2-xray.panels.app-db-diff"))))
+  (testing "literal regex metacharacters in a segment are matched literally,
+            not as regex ops (portable escaping across JVM/JS engines)"
+    ;; A `+` in the namespace must be a literal `+`, never one-or-more.
+    (is (true?  (image/ns-matches? "a+*" "a+xyz")))
+    (is (false? (image/ns-matches? "a+*" "aaa")))
+    ;; A literal `.` inside the PATTERN string is a segment separator, so a
+    ;; pattern segment can never itself contain a `.`; but a `(` / `[` etc. must
+    ;; stay literal within the segment.
+    (is (true?  (image/ns-matches? "a(b)*" "a(b)c")))
+    (is (false? (image/ns-matches? "a(b)*" "ab")))))
+
 ;; ============================================================================
 ;; image — the constructor + normalized value
 ;; ============================================================================
@@ -143,8 +187,15 @@
                           :rf.image/requires [:rf.capability/http]})]
       (is (= :docs.counter/v2 (:rf.image/id v)))
       (is (= ["docs.counter.v2"] (:rf.image/include-ns v)))
+      (is (= [] (:rf.image/exclude-ns v)) "exclude-ns defaults to an empty vector")
       (is (= #{:rf.capability/http} (:rf.image/requires v)))
       (is (= [] (:rf.image/inline v)))))
+  (testing ":exclude-ns becomes a vector of glob strings alongside :include-ns"
+    (let [v (image/image {:id :tool/img
+                          :include-ns ["day8.re-frame2-xray.**"]
+                          :exclude-ns ["day8.re-frame2-xray.**-cljs-test"]})]
+      (is (= ["day8.re-frame2-xray.**"] (:rf.image/include-ns v)))
+      (is (= ["day8.re-frame2-xray.**-cljs-test"] (:rf.image/exclude-ns v)))))
   (testing "anonymous image (no :id) omits :rf.image/id — valid for local use"
     (let [v (image/image {:include-ns ["docs.counter.**"]})]
       (is (not (contains? v :rf.image/id)))
@@ -172,6 +223,10 @@
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
                           (image/image {:include-ns ['docs.counter]}))))
+  (testing "non-string :exclude-ns pattern throws (same glob-string validation)"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:exclude-ns ['docs.counter]}))))
   (testing "the ex-data carries :rf.error/id for machine branching"
     (is (= :rf.error/invalid-image
            (try (image/image {:bogus 1})
@@ -564,3 +619,107 @@
   (testing "an image with no globs and no inline selects an empty set"
     (let [img (image/image {:id :empty})]
       (is (= [] (image/select-descriptors img synthetic-store))))))
+
+;; ============================================================================
+;; :exclude-ns — the subtractive narrowing knob (EP-0023 §Namespace-Selected
+;; Images). Drops glob-selected descriptors whose provenance ns matches an
+;; exclude glob; never zero-match fail-loud; never touches inline descriptors.
+;; ============================================================================
+
+(def ^:private xray-style-store
+  "A store modelling the EP-0023 §Xray Beside The Target singleton-seating case:
+  PRODUCTION namespaces alongside their `*-cljs-test` siblings that co-register
+  the same `(kind, id)` — the collision a `:exclude-ns` of the test nss avoids."
+  [(desc "day8.re-frame2-xray.open-in-editor"          :fx    :rf.editor/open)
+   (desc "day8.re-frame2-xray.mount"                   :event :rf.xray/open)
+   (desc "day8.re-frame2-xray.panels.app-db-diff"      :sub   :rf.xray/diff)
+   ;; the colliding test siblings (same ids, `*-cljs-test` provenance)
+   (desc "day8.re-frame2-xray.open-in-editor-cljs-test" :fx    :rf.editor/open)
+   (desc "day8.re-frame2-xray.mount-cljs-test"          :event :rf.xray/open)
+   (desc "day8.re-frame2-xray.panels.app-db-diff-cljs-test" :sub :rf.xray/diff)
+   ;; a test-helpers support ns (clean whole-segment boundary)
+   (desc "day8.re-frame2-xray.test-helpers.host-fixtures.counter" :event :counter/inc)])
+
+(deftest exclude-ns-subtracts-from-the-glob-selection
+  (testing "an :exclude-ns glob drops the matched descriptors from the
+            :include-ns selection — the test siblings are gone"
+    (let [img (image/image {:id :rf.xray/image
+                            :include-ns ["day8.re-frame2-xray.**"]
+                            :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+                                         "day8.re-frame2-xray.test-helpers.**"]})
+          sel (image/select-descriptors img xray-style-store)
+          prov (set (map :rf.provenance/ns sel))]
+      ;; only the 3 PRODUCTION descriptors survive
+      (is (= 3 (count sel)))
+      (is (= #{"day8.re-frame2-xray.open-in-editor"
+               "day8.re-frame2-xray.mount"
+               "day8.re-frame2-xray.panels.app-db-diff"} prov))
+      ;; no `*-cljs-test` provenance survives — no dup-id collision downstream
+      (is (not-any? #(re-find #"-cljs-test$" %) prov))
+      (is (not-any? #(re-find #"test-helpers" %) prov)))))
+
+(deftest exclude-ns-makes-the-selection-id-disjoint
+  (testing "without :exclude-ns the same `**` glob selects BOTH a prod and a
+            test descriptor for the same [kind id] (the collision); WITH it the
+            selection is id-disjoint"
+    (let [include-only (image/image {:id :rf.xray/image
+                                     :include-ns ["day8.re-frame2-xray.**"]})
+          sel-all      (image/select-descriptors include-only xray-style-store)
+          editor-all   (filter #(= :rf.editor/open (:id %)) sel-all)
+          narrowed     (image/image {:id :rf.xray/image
+                                     :include-ns ["day8.re-frame2-xray.**"]
+                                     :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+                                                  "day8.re-frame2-xray.test-helpers.**"]})
+          sel-narrow   (image/select-descriptors narrowed xray-style-store)
+          editor-narrow (filter #(= :rf.editor/open (:id %)) sel-narrow)]
+      ;; the bare `**` glob selects TWO :rf.editor/open descriptors (prod + test)
+      ;; — that is the duplicate-id that fails assembly.
+      (is (= 2 (count editor-all)) "the bare glob sweeps in the colliding pair")
+      ;; the exclude narrows it to exactly the production one.
+      (is (= 1 (count editor-narrow)))
+      (is (= "day8.re-frame2-xray.open-in-editor"
+             (:rf.provenance/ns (first editor-narrow)))))))
+
+(deftest exclude-ns-is-not-zero-match-fail-loud
+  (testing "an :exclude-ns pattern that matches nothing in this build is a
+            no-op, NOT a fail-loud error (unlike :include-ns)"
+    (let [img (image/image {:id :i
+                            :include-ns ["docs.shared.**"]
+                            :exclude-ns ["does.not.exist.**" "*-cljs-test"]})
+          sel (image/select-descriptors img synthetic-store)]
+      ;; the include selection is untouched; the no-match excludes are no-ops.
+      (is (= #{"docs.shared.widgets" "docs.shared.widgets.button"}
+             (set (map :rf.provenance/ns sel)))))))
+
+(deftest exclude-ns-never-drops-inline-descriptors
+  (testing "inline descriptors are selected by image membership, never by
+            provenance ns — an :exclude-ns glob does NOT remove them even if it
+            would match their (synthetic) coordinate"
+    (let [img (image/image {:id :combo
+                            :include-ns ["day8.re-frame2-xray.**"]
+                            :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+                                         "day8.re-frame2-xray.test-helpers.**"
+                                         ;; even a `**` that would match everything
+                                         "**"]
+                            :registrations {:reg-event [[:inline/evt {} (fn [_ _] {})]]}})
+          sel (image/select-descriptors img xray-style-store)]
+      ;; the bare `**` exclude drops every glob-selected registered descriptor,
+      ;; but the inline descriptor survives (image-membership selection).
+      (is (= 1 (count sel)))
+      (is (= :inline/evt (:id (first sel))))
+      (is (= :combo (:rf.provenance/image (first sel)))))))
+
+(deftest exclude-by-ns-helper-is-order-preserving-and-empty-safe
+  (testing "exclude-by-ns preserves input order and returns unchanged on no
+            patterns"
+    ;; Bare provenance-only descriptors so map equality is value-based (no fn
+    ;; closures); `exclude-by-ns` reads only :rf.provenance/ns.
+    (let [d   (fn [ns id] {:rf.provenance/ns ns :kind :event :id id})
+          sel [(d "a.b" :x) (d "a.c" :y) (d "a.d" :z)]]
+      (is (= sel (image/exclude-by-ns [] sel))
+          "no patterns → identity (as a vector)")
+      (is (= [(d "a.b" :x) (d "a.d" :z)]
+             (image/exclude-by-ns ["a.c"] sel))
+          "the matched-provenance descriptor is dropped; order preserved")
+      (is (= [] (image/exclude-by-ns ["a.**"] sel))
+          "a `**` exclude drops everything matched"))))

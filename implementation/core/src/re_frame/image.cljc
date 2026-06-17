@@ -90,15 +90,21 @@
 ;;
 ;;   namespace        = dot-separated Clojure namespace string
 ;;   pattern          = segment-pattern ( "." segment-pattern )*
-;;   segment-pattern  = literal segment | "*" | "**"
+;;   segment-pattern  = literal segment | intra-glob segment | "*" | "**"
 ;;   "*"              = exactly one dot-free namespace segment
 ;;   "**"             = zero or more namespace segments
+;;   intra-glob       = a segment carrying one or more `*`, each matching ZERO
+;;                      OR MORE characters WITHIN that one segment (never across
+;;                      a `.`) — e.g. "*-cljs-test" matches "mount-cljs-test"
 ;;   match            = case-sensitive, whole-namespace match
 ;;
-;; There is no substring matching and no regex mode in v1. A pattern either
-;; matches the WHOLE `:rf.provenance/ns` string under the segment rules or it
-;; does not. Matching is a backtracking segment walk (the only backtracking
-;; source is `**`, which may absorb zero or more segments).
+;; A pattern either matches the WHOLE `:rf.provenance/ns` string under the
+;; segment rules or it does not. The intra-segment `*` is the narrow exception
+;; to "no substring matching": it is bounded to ONE segment (the `.` separators
+;; still delimit segments; only `**` crosses them) and lowers to an anchored
+;; textual match — there is no regex mode exposed to callers. Matching is a
+;; backtracking segment walk (the only multi-segment backtracking source is
+;; `**`, which may absorb zero or more segments).
 
 (defn- split-segments
   "Split a dot-separated namespace string into its segment vector. An empty
@@ -127,13 +133,54 @@
                         (if (= "**" (first run)) ["**"] run))))
         segs))
 
+(defn- segment-matches?
+  "Match a SINGLE pattern segment against a single ns segment under the
+  intra-segment glob rule (EP-0023 §Namespace-glob language). Pure.
+
+  A pattern segment that is the whole-segment wildcard `\"*\"` or the
+  multi-segment wildcard `\"**\"` is handled by `match-segments?` and never
+  reaches here. Every other pattern segment is matched CHARACTER-WISE:
+
+    * a segment with NO `*` is an exact literal — `(= p seg)`;
+    * a segment containing one or more `*` is an intra-segment glob where each
+      `*` matches ZERO OR MORE characters WITHIN the segment (case-sensitive).
+      `\"*-cljs-test\"` matches `\"mount-cljs-test\"` and `\"core-cljs-test\"`
+      but NOT `\"mount\"`; `\"foo*\"` matches `\"foobar\"`; `\"a*b\"` matches
+      `\"aXXXb\"`. The `*` is intra-segment ONLY — it never crosses a `.`
+      boundary (that is `**`'s job).
+
+  The exact-literal fast path (no `*`) keeps the common case a single string
+  compare; the glob path compiles the segment to an anchored regex with each
+  `*` lowered to `.*` and every other character regex-escaped, so the match is
+  purely textual (no namespace-segment semantics leak in) and portable across
+  the JVM and JS regex engines."
+  [p seg]
+  (if (str/index-of p "*")
+    (let [;; Lower the intra-segment glob to an anchored regex: split on `*`,
+          ;; escape each literal run's regex metacharacters CHARACTER-WISE (a
+          ;; portable escape that works on both the JVM and JS engines — JS has
+          ;; no `\Q…\E` quoting), and join the runs with `.*` (the lowered `*`).
+          parts   (str/split p #"\*" -1)
+          escaped (map (fn [run]
+                         ;; Function replacement (not a `$0` template) so the
+                         ;; escaping is unambiguous on both the JVM and JS
+                         ;; `clojure.string/replace` semantics.
+                         (str/replace run #"[.*+?^${}()|\[\]\\]" (fn [m] (str "\\" m))))
+                       parts)
+          re      (re-pattern (str "^" (str/join ".*" escaped) "$"))]
+      (boolean (re-find re seg)))
+    (= p seg)))
+
 (defn- match-segments?
   "Case-sensitive backtracking match of a `pattern` segment vector against a
   `ns` segment vector under the EP-0023 grammar:
 
-    literal  — matches exactly that one segment (string =)
-    \"*\"      — matches exactly ONE segment (any)
-    \"**\"     — matches ZERO OR MORE segments (greedy with backtrack)
+    literal      — matches exactly that one segment (string =)
+    intra-glob   — a segment containing `*` matches that segment character-wise,
+                   each `*` absorbing zero or more chars WITHIN the segment
+                   (`\"*-cljs-test\"` matches `\"mount-cljs-test\"`)
+    \"*\"          — matches exactly ONE segment (any)
+    \"**\"         — matches ZERO OR MORE segments (greedy with backtrack)
 
   Pure. Returns true iff the whole pattern matches the whole ns segments.
 
@@ -174,20 +221,27 @@
         (= "*" p)
         (match-segments? (rest pattern) (rest ns-segs))
 
-        ;; literal — must equal the ns segment (case-sensitive).
+        ;; literal or intra-segment glob — match this one segment character-wise
+        ;; (exact when `p` has no `*`; intra-segment glob when it does), then
+        ;; advance both. `segment-matches?` is intra-segment ONLY — a `*` here
+        ;; never crosses a `.` boundary.
         :else
-        (and (= p (first ns-segs))
+        (and (segment-matches? p (first ns-segs))
              (match-segments? (rest pattern) (rest ns-segs)))))))
 
 (defn ns-matches?
-  "True iff the namespace string `ns-str` matches the `:include-ns` glob
-  `pattern` under the EP-0023 grammar (case-sensitive whole-namespace match;
-  `*` = one segment, `**` = zero or more). Both args are strings. Pure.
+  "True iff the namespace string `ns-str` matches the `:include-ns` / `:exclude-ns`
+  glob `pattern` under the EP-0023 grammar (case-sensitive whole-namespace match;
+  `*` = one segment, `**` = zero or more, an intra-segment `*` = zero-or-more
+  chars within one segment). Both args are strings. Pure.
 
   This is the single matching primitive: exact inclusion is a pattern with no
   wildcard (`\"docs.quickstart.counter.v2\"`), prefix inclusion is a normal
   glob (`\"docs.shared.widgets.*\"`), recursive inclusion uses `**`
-  (`\"docs.shared.**\"`)."
+  (`\"docs.shared.**\"`), and an intra-segment suffix/prefix glob narrows within
+  a segment (`\"day8.re-frame2-xray.**\"` with an `:exclude-ns` of
+  `\"day8.re-frame2-xray.**.*-cljs-test\"` drops the tool's own test
+  namespaces)."
   [pattern ns-str]
   (boolean
     (and (string? pattern)
@@ -346,7 +400,7 @@
   AGAINST the actual selected collisions (does this key really collide? does the
   coordinate name exactly one selected descriptor?) stays the assembly slice's
   fail-loud job."
-  #{:id :include-ns :registrations :rf.image/requires :replace :replace-standard})
+  #{:id :include-ns :exclude-ns :registrations :rf.image/requires :replace :replace-standard})
 
 (def ^:private valid-kinds
   "The closed registry-kind set a `:replace` / `:replace-standard` key may name,
@@ -439,6 +493,22 @@
     :include-ns    a vector of namespace-glob strings (EP-0023 grammar). Each
                    pattern selects registered descriptors by their
                    `:rf.provenance/ns`. Optional (defaults to `[]`).
+    :exclude-ns    a vector of namespace-glob strings (same EP-0023 grammar)
+                   that SUBTRACT from the `:include-ns` selection — a registered
+                   descriptor selected by `:include-ns` is dropped if its
+                   `:rf.provenance/ns` ALSO matches any `:exclude-ns` pattern.
+                   The narrowing knob for a recursive `**` glob that sweeps in
+                   sibling namespaces a frame must not load (e.g. a tool's own
+                   `*-test` namespaces co-registering its ids in a test build —
+                   the EP-0023 §Xray Beside The Target singleton-seating case).
+                   Optional (defaults to `[]`). Unlike `:include-ns`, an
+                   exclude pattern that matches ZERO loaded descriptors is NOT
+                   fail-loud — exclusion is a defensive guard, so a pattern
+                   guarding against a namespace that simply is not loaded in
+                   this build is a no-op, not an error. Applies ONLY to
+                   glob-selected registered descriptors, never to the image's
+                   own inline `:registrations` (those are selected because the
+                   image value was supplied, not by provenance namespace).
     :registrations inline registrar-keyed sections (`{:reg-event [[id meta
                    body] …] :reg-sub [[id meta body] …] …}`). Lowered to inline
                    descriptors. Optional.
@@ -456,6 +526,7 @@
 
     {:rf.image/id         <id>          ;; present only when :id supplied
      :rf.image/include-ns [<glob> …]
+     :rf.image/exclude-ns [<glob> …]    ;; the subtractive globs ([] when none)
      :rf.image/inline     [<inline-descriptor> …]
      :rf.image/requires   #{<:rf.capability/* …>}
      :replace             {[kind id] winner …}   ;; present only when supplied
@@ -482,22 +553,27 @@
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: unknown image key " k
-             " — use :id, :include-ns, :registrations, :rf.image/requires, "
-             ":replace, or :replace-standard.")
+             " — use :id, :include-ns, :exclude-ns, :registrations, "
+             ":rf.image/requires, :replace, or :replace-standard.")
         {:recovery :remove-or-correct-the-key
          :extra    {:image (:id spec) :unknown-key k}})))
   (let [id         (:id spec)
-        include-ns (vec (get spec :include-ns []))]
-    (doseq [p include-ns]
-      (when-not (string? p)
-        (error/throw-error!
-          :rf.error/invalid-image
-          'rf/image
-          (str "rf/image: :include-ns patterns must be namespace-glob STRINGS — got "
-               (pr-str p) ". Use \"docs.counter.v2\", \"docs.shared.widgets.*\", "
-               "or \"docs.shared.**\".")
-          {:recovery :use-namespace-glob-strings
-           :extra    {:image id :bad-pattern p}})))
+        include-ns (vec (get spec :include-ns []))
+        exclude-ns (vec (get spec :exclude-ns []))
+        check-glob-strings!
+        (fn [slot patterns]
+          (doseq [p patterns]
+            (when-not (string? p)
+              (error/throw-error!
+                :rf.error/invalid-image
+                'rf/image
+                (str "rf/image: " slot " patterns must be namespace-glob STRINGS — got "
+                     (pr-str p) ". Use \"docs.counter.v2\", \"docs.shared.widgets.*\", "
+                     "or \"docs.shared.**\".")
+                {:recovery :use-namespace-glob-strings
+                 :extra    {:image id :bad-pattern p}}))))]
+    (check-glob-strings! :include-ns include-ns)
+    (check-glob-strings! :exclude-ns exclude-ns)
     (doseq [k [:replace :replace-standard]]
       (when-let [m (get spec k)]
         (when-not (map? m)
@@ -512,6 +588,7 @@
         ;; key and the winner source coordinate, fail-loud before assembly.
         (validate-replacement-map! id k m)))
     (cond-> {:rf.image/include-ns include-ns
+             :rf.image/exclude-ns exclude-ns
              :rf.image/inline     (registrations->inline-descriptors
                                     id (get spec :registrations {}))
              :rf.image/requires   (set (get spec :rf.image/requires #{}))}
@@ -589,6 +666,33 @@
                       (some #(ns-matches? % pns) patterns))))
           descriptors)))
 
+(defn exclude-by-ns
+  "SUBTRACT from a glob-selected `descriptors` vector every descriptor whose
+  `:rf.provenance/ns` matches AT LEAST ONE of the `:exclude-ns` `patterns`
+  (same EP-0023 glob grammar as `:include-ns`). Pure.
+
+  This is the narrowing knob for a recursive `**` `:include-ns` glob that sweeps
+  in sibling namespaces a frame must not load — e.g. a tool's own `*-test`
+  namespaces co-registering its ids in a test build (the EP-0023 §Xray Beside
+  The Target singleton-seating case). The whole-namespace match is by
+  `:rf.provenance/ns`, never by the registration-id keyword namespace, exactly
+  as inclusion is.
+
+  Unlike `select-by-include-ns`, exclusion is NOT zero-match fail-loud: an
+  exclude pattern is a DEFENSIVE guard, so a pattern that matches nothing in
+  this build (the guarded-against namespace simply is not loaded) is a no-op,
+  not an error. An empty `patterns` returns `descriptors` unchanged. Preserves
+  input order; descriptors with no `:rf.provenance/ns` are never matched by a
+  glob, so they are never excluded."
+  [patterns descriptors]
+  (if (seq patterns)
+    (into []
+          (remove (fn [d]
+                    (when-let [pns (descriptor-provenance-ns d)]
+                      (some #(ns-matches? % pns) patterns))))
+          descriptors)
+    (vec descriptors)))
+
 (defn select-descriptors
   "The PURE image selector (EP-0023 §Namespace-Selected Images, §Image
   Fragments). Given an `image` value and a collection of registered
@@ -599,12 +703,18 @@
     * registered descriptors whose `:rf.provenance/ns` matches one of the
       image's `:include-ns` globs (selected BY provenance namespace, never by
       the registration-id's namespace; each `:include-ns` pattern must match at
-      least one descriptor or selection fails loud); PLUS
+      least one descriptor or selection fails loud) AND whose `:rf.provenance/ns`
+      matches NONE of the image's `:exclude-ns` globs (the subtractive narrowing
+      knob — applied to the glob-selected set, NOT to the inline descriptors);
+      PLUS
     * the image's inline descriptors (from `:registrations`), selected
-      unconditionally because the image value was supplied.
+      unconditionally because the image value was supplied (never subject to
+      `:exclude-ns` — they are selected by image-membership, not by provenance
+      namespace).
 
-  Returns a vector: the glob-selected registered descriptors (in input order,
-  each at most once) followed by the inline descriptors. Collision validation
+  Returns a vector: the glob-selected-then-excluded registered descriptors (in
+  input order, each at most once) followed by the inline descriptors. Collision
+  validation
   across the selected set, framework-standard registrations, and sealing into a
   `[kind id]` generation are the ASSEMBLY slice's job, not this selector's.
 
@@ -614,8 +724,14 @@
   [image descriptors]
   (let [image-id   (:rf.image/id image)
         patterns   (:rf.image/include-ns image)
+        excludes   (:rf.image/exclude-ns image)
         inline     (:rf.image/inline image)
         selected   (if (seq patterns)
                      (select-by-include-ns image-id patterns descriptors)
-                     [])]
-    (into (vec selected) inline)))
+                     [])
+        ;; Subtract any `:exclude-ns`-matched descriptors from the glob-selected
+        ;; set BEFORE folding in the inline descriptors (exclusion narrows the
+        ;; provenance-glob selection only; inline descriptors are selected by
+        ;; image membership, not by provenance namespace).
+        narrowed   (exclude-by-ns excludes selected)]
+    (into (vec narrowed) inline)))
