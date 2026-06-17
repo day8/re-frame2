@@ -11,10 +11,18 @@
   - `#/`        → the live app (the testbed's own root view).
   - `#/stories` → the Story shell mounted via `re-frame.story/mount-shell!`.
 
+  The live-app root view is not a bare React tree: it is a FRAME-SCOPED
+  SUBTREE — a frame, supplied by the consuming testbed via `frame-provider`,
+  resolving its handlers against a loaded IMAGE (EP-0023 §Views). This host
+  sits strictly ABOVE that frame/image boundary: it treats the root view as
+  an opaque frame subtree and never creates a frame or loads an image (the
+  consuming testbed does, via `reg-frame` / `with-frame` / `rf/init!`).
+
   The plumbing that switches between them — a private `app-root` atom,
   `ensure-app-root!` / `tear-down-app-root!` / `mount-app!` /
   `mount-stories!`, and the `hashchange` listener — is pure React-DOM-root
-  juggling, identical across every testbed but for the live-app root view.
+  juggling, identical across every testbed but for the live-app root view
+  (the frame subtree above).
   Five copies (`counter_with_stories`, `login_form`, the `login` and
   `nine_states` examples, plus the template scaffolding) invited drift:
   they already diverged in their `run` boot specifics (CI hooks, elision
@@ -180,6 +188,11 @@
 (defn mount-with-hash-routing!
   "Wire the live-app ↔ Story-shell hash router for `root-view` (a 0-arg
   Reagent component — pass the live-app root view, e.g. `counter-app`).
+  `root-view` is the testbed's FRAME-SCOPED subtree: a frame the consuming
+  testbed has wired (typically via `frame-provider`) that resolves its
+  handlers against a loaded IMAGE (EP-0023 §Views). This host renders it as
+  an opaque component and stays above the frame/image boundary — it neither
+  creates the frame nor loads the image.
 
   Installs the `hashchange` listener and renders the surface the current
   URL hash selects: `#/stories…` mounts the Story shell, anything else
