@@ -276,13 +276,43 @@
                                    (remove (fn [[cid _]]
                                              (contains? completed-ids cid))))]
             (doseq [[cid spawned-id] survivors]
-              (trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
-                           {:actor-id parent-id
-                            :invoke-id invoke-id
-                            :child-id   cid
-                            :spawned-id spawned-id
-                            :join-event join-event-kw
-                            :frame      frame-id}))
+              ;; rf2-sfunt8 — a join-survivor cancellation closes the
+              ;; survivor's actor work attempt the reply-envelope way: a
+              ;; `:status :cancelled` reply (cancellation as DATA, Managed-
+              ;; Effects §Cancellation). The reply-envelope facts (`:work/id`
+              ;; keyed on the survivor's spawned instance, `:rf.reply/status
+              ;; :cancelled`, `:cancel/reason :on-join-resolution`) ride
+              ;; ADDITIVELY so the survivor cancellation joins the same
+              ;; uniform work/reply row the spawn started — the spawn-all
+              ;; analogue of the single-actor destroy cancellation. The
+              ;; survivor's own `:rf.machine/destroy` fx ALSO closes it
+              ;; through the `:rf.machine/destroyed` cancelled reply; this
+              ;; trace carries the join-resolution attribution.
+              (let [survivor-summary
+                    (m-reply/trace-reply
+                      (m-reply/cancelled-actor-reply
+                        {:actor-id          spawned-id
+                         :parent-id         parent-id
+                         :work-bearing-path invoke-id
+                         :frame             frame-id
+                         :reason            :on-join-resolution})
+                      {:frame frame-id})]
+                (trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
+                             {:actor-id parent-id
+                              :invoke-id invoke-id
+                              :child-id   cid
+                              :spawned-id spawned-id
+                              :join-event join-event-kw
+                              :frame      frame-id
+                              ;; reply-envelope vocabulary (Managed-Effects §9)
+                              :work/id              (:work/id survivor-summary)
+                              :work/kind            (:work/kind survivor-summary)
+                              :rf.reply/status      (:status survivor-summary)
+                              :rf.reply/work-id     (:work/id survivor-summary)
+                              :rf.reply/work-status (:work/status survivor-summary)
+                              :rf.reply/cancelled?  (:cancelled? survivor-summary)
+                              :rf.reply/cancel-reason (:cancel/reason survivor-summary)
+                              :rf.reply/correlation (:correlation survivor-summary)})))
             (mapv (fn [[_ spawned-id]]
                     [:rf.machine/destroy spawned-id])
                   survivors)))
