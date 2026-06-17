@@ -124,6 +124,22 @@
     (let [[a b] (=parity [:div "1 < 2 && 3 > 0"])]
       (is (= a b)))))
 
+(deftest parity-escaped-text-quotes-apostrophe
+  (testing "rf2-4dlxga: text content escapes the full 5-char set
+            (& < > \" '). The serializer must be byte-equal to
+            re-frame.ssr.html-helpers/escape-html — which emits the
+            DECIMAL apostrophe entity &#39; (React 19 emits the
+            equivalent hex &#x27;, so the apostrophe byte is pinned
+            against the in-repo helper, not the React reference)."
+    ;; & < > and " agree byte-for-byte with react-dom/server, so a
+    ;; =parity assertion catches the previous missing-quote-escape bug.
+    (let [[a b] (=parity [:div "a < b > c & d \"e\""])]
+      (is (= a b)))
+    ;; Apostrophe diverges from React's hex form, so pin the full
+    ;; 5-char output against the in-repo escape-html target directly.
+    (is (= "<div>say &quot;hi&quot; &amp; &#39;bye&#39;</div>"
+           (via-rewrite [:div "say \"hi\" & 'bye'"])))))
+
 ;; ---------------------------------------------------------------------------
 ;; Attributes
 ;; ---------------------------------------------------------------------------
@@ -310,6 +326,24 @@
       (is (= a b)))
     (is (= "<div style=\"width:10em;color:red\"></div>"
            (via-rewrite [:div {:style {:width "10em" :color "red"}}])))))
+
+(deftest parity-style-webkit-box-flex-group
+  (testing "rf2-4dlxga: `WebkitBoxFlexGroup` gets px (NOT unitless) —
+            React 19.2.0's unitlessNumber Set spells the entry with a
+            capital K (`WebKitBoxFlexGroup`), but the camelCase prop
+            token is lowercase-k `WebkitBoxFlexGroup`, so React's own
+            lookup misses and it emits px. Byte-parity requires the
+            serializer to mirror the typo and emit px too."
+    (let [[a b] (=parity [:div {:style {:WebkitBoxFlexGroup 2}}])]
+      (is (= a b)))
+    (is (= "<div style=\"-webkit-box-flex-group:2px\"></div>"
+           (via-rewrite [:div {:style {:WebkitBoxFlexGroup 2}}])))
+    ;; Sibling vendor entries whose camelCase token DOES match the Set
+    ;; stay unitless (regression guard that the typo is scoped to one key).
+    (let [[a b] (=parity [:div {:style {:WebkitBoxFlex 3}}])]
+      (is (= a b)))
+    (is (= "<div style=\"-webkit-box-flex:3\"></div>"
+           (via-rewrite [:div {:style {:WebkitBoxFlex 3}}])))))
 
 (deftest style-custom-property-verbatim
   (testing "CSS custom property (--foo) passes through verbatim, no px"

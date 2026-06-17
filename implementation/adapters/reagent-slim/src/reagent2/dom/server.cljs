@@ -85,19 +85,23 @@
 ;; ---------------------------------------------------------------------------
 ;; HTML escaping
 ;;
-;; Lifted from re-frame.ssr/escape-html (ssr.cljc:51-57). The text-content
-;; path doesn't escape `'` or `"`; the attribute path does. React's
+;; Lifted from re-frame.ssr.html-helpers/escape-html. The text-content
+;; path escapes the full 5-char set (`& < > " '`); the attribute path
+;; escapes only `&` and `"` (double-quoted values). React's
 ;; renderToStaticMarkup uses the same split. Per §8.2.
 ;; ---------------------------------------------------------------------------
 
 (defn- escape-text
-  "Escape text content per HTML5: `&`, `<`, `>`. Quotes are not
-  escaped in text-content positions. Matches react-dom/server."
+  "Full text-node HTML escape: `&`, `<`, `>`, `\"`, `'`. Byte-equal to
+  re-frame.ssr.html-helpers/escape-html and React 19's
+  escapeTextForBrowser (the 5-char text-content set)."
   [s]
   (-> (str s)
       (str/replace "&" "&amp;")
       (str/replace "<" "&lt;")
-      (str/replace ">" "&gt;")))
+      (str/replace ">" "&gt;")
+      (str/replace "\"" "&quot;")
+      (str/replace "'" "&#39;")))
 
 (defn- escape-attr
   "Escape attribute content per HTML5 with double-quoted values:
@@ -439,6 +443,15 @@
     "msZoom" "msFlexGrow" "msFlexNegative" "msFlexOrder" "msFlexPositive"
     "msFlexShrink" "msGridColumn" "msGridColumnSpan" "msGridRow"
     "msGridRowSpan" "WebkitAnimationIterationCount" "WebkitBoxFlex"
+    ;; NOTE: `WebKitBoxFlexGroup` keeps React 19.2.0's capital-K typo
+    ;; VERBATIM (rf2-4dlxga). React's `unitlessNumber` Set really does
+    ;; spell it with a capital K, while the camelCase prop token this
+    ;; serializer (and React itself) computes is `WebkitBoxFlexGroup`
+    ;; (lowercase k). So the lookup MISSES in React too — React emits
+    ;; `-webkit-box-flex-group:2px`, and mirroring the typo is what
+    ;; preserves byte-parity. Lowercasing the k here would make us emit
+    ;; the unitless `:2`, diverging from React. Confirmed empirically
+    ;; against react-dom/server 19.2.0; see parity-style-webkit-box-flex-group.
     "WebKitBoxFlexGroup" "WebkitBoxOrdinalGroup" "WebkitColumnCount"
     "WebkitColumns" "WebkitFlex" "WebkitFlexGrow" "WebkitFlexPositive"
     "WebkitFlexShrink" "WebkitLineClamp"})

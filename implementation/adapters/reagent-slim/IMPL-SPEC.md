@@ -823,10 +823,12 @@ Per Stage 1 DECISION-6 + Stage 2 §2.5 + S3-005: pure-CLJS recursive walker; ~15
   (-> s
       (str/replace "&"  "&amp;")
       (str/replace "<"  "&lt;")
-      (str/replace ">"  "&gt;")))
+      (str/replace ">"  "&gt;")
+      (str/replace "\"" "&quot;")
+      (str/replace "'"  "&#39;")))
 ```
 
-Lift the existing implementation from `re-frame.ssr/escape-html` (`ssr.cljc:50-57`) — the SSR seam already has battle-tested escaping. Reuse, don't re-implement. (This is the same shape `react-dom/server` uses; parity test in §12 confirms.)
+Lift the existing implementation from `re-frame.ssr.html-helpers/escape-html` — the SSR seam already has battle-tested escaping. Reuse, don't re-implement. Text content escapes the full 5-char set (`& < > " '`), byte-equal to `escape-html`; the apostrophe entity is the **decimal** `&#39;` (React 19's `escapeTextForBrowser` emits the equivalent **hex** `&#x27;`, so the apostrophe byte is pinned against the in-repo helper, not the React reference — see `parity-escaped-text-quotes-apostrophe` in §12). The `& < > "` bytes match `react-dom/server` exactly.
 
 ### §8.3 Attribute serialisation
 
@@ -856,7 +858,7 @@ The same narrowed `convert-prop-value` rules apply (per S3-005): the static-mark
 
 **Inline-style value serialisation (`emit-style-attr` / `style-string`)** must match `react-dom/server.renderToStaticMarkup`'s `pushStyleAttribute` (rf2-9nyg6):
 
-- A *numeric* value gets a `px` suffix unless the value is `0` or the property is in React's `unitlessNumber` set (`flex`, `flex-grow`, `z-index`, `opacity`, `line-height`, `font-weight`, `order`, the vendor-prefixed entries, …). `{:width 10}` → `width:10px`; `{:flex-grow 1}` → `flex-grow:1`. The `unitless-style-props` set in `reagent2.dom.server` mirrors React 19.2.0's set verbatim — keyed on the *camelCase* property name (the same form the React-element path hands React via `cached-prop-name`), so the hiccup key is camelCased before the lookup, then converted to the kebab CSS name with React's own rule (`([A-Z]) → -$1`, lower-case, `^ms- → -ms-`).
+- A *numeric* value gets a `px` suffix unless the value is `0` or the property is in React's `unitlessNumber` set (`flex`, `flex-grow`, `z-index`, `opacity`, `line-height`, `font-weight`, `order`, the vendor-prefixed entries, …). `{:width 10}` → `width:10px`; `{:flex-grow 1}` → `flex-grow:1`. The `unitless-style-props` set in `reagent2.dom.server` mirrors React 19.2.0's set verbatim — keyed on the *camelCase* property name (the same form the React-element path hands React via `cached-prop-name`), so the hiccup key is camelCased before the lookup, then converted to the kebab CSS name with React's own rule (`([A-Z]) → -$1`, lower-case, `^ms- → -ms-`). "Verbatim" includes React's own capital-K typo `WebKitBoxFlexGroup`: the camelCase token both React and this serializer compute is the lowercase-k `WebkitBoxFlexGroup`, so the lookup misses in **both** and `{:WebkitBoxFlexGroup 2}` renders `-webkit-box-flex-group:2px` (not the unitless `:2`). Mirroring the typo is what preserves byte-parity — "correcting" the k would diverge from React (pinned by `parity-style-webkit-box-flex-group`).
 - An entry whose value is `nil`, a boolean, or `""` is **omitted entirely** (no empty `prop:` declaration).
 - CSS custom properties (`--foo`) are emitted name-and-value verbatim with no `px` logic. The React-element path agrees: `dash-to-prop-name` short-circuits `--`-prefixed names so a style key like `:--gap` is preserved (not camelCased to `Gap`), matching React's style handling and this serializer (rf2-ygknv finding 2 — previously the live path camelCased `--gap` → `Gap`, silently dropping the variable and breaking SSR/client parity).
 
