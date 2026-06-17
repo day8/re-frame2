@@ -91,6 +91,28 @@
     (is (str/includes? ai/system-prompt ":regions"))))
 
 ;; ---------------------------------------------------------------------------
+;; EP-0011 — error-final completion status (rf2-g89c97)
+;;
+;; Spec 005 §:final? lets a terminal carry `:error? true` — an error final
+;; lowers to the uniform reply envelope as `:status :error` and routes the
+;; spawning parent's `:spawn` `:on-error` (vs a plain final's `:status :ok` /
+;; `:on-done`). The system prompt must teach `:error? true` for terminal
+;; FAILURE outcomes so a generated child machine doesn't silently encode a
+;; failure as a success completion.
+
+(deftest system-prompt-teaches-error-final
+  (testing "system-prompt teaches :error? true for terminal failure /
+            error outcomes, distinct from plain :final? success terminals"
+    (is (str/includes? ai/system-prompt ":error?")
+        "the prompt names the :error? terminal marker")
+    ;; The canonical example must encode a failure terminal as an error
+    ;; final — `{:final? true :error? true}` — not a plain success final.
+    (is (re-find #":error\?\s+true" ai/system-prompt)
+        "the prompt shows :error? true on a terminal")
+    (is (str/includes? ai/system-prompt ":on-error")
+        "the prompt ties the error terminal to the parent's :on-error routing")))
+
+;; ---------------------------------------------------------------------------
 ;; generate-machine — happy paths
 
 (deftest generate-with-fenced-clojure-response-returns-spec

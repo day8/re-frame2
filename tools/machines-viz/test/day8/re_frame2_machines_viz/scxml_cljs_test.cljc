@@ -486,6 +486,57 @@
       (is (not (str/includes? out "done.state"))))))
 
 ;; ---------------------------------------------------------------------------
+;; Error-final terminal KIND — EP-0011 reply-envelope completion status.
+;;
+;; Spec 005 §:final? lets a `:final?` leaf carry `:error? true` — an ERROR
+;; terminal. This is not decorative: a child finishing via an `:error?` final
+;; lowers to the uniform reply envelope as `:status :error` (vs a plain
+;; `:final?` child's `:status :ok`) and routes the spawning parent's `:spawn`
+;; `:on-error` instead of `:on-done`. The completion KIND the framework acts
+;; on must therefore survive the text round-trip — collapsing it silently
+;; turns an error completion into a success one.
+;;
+;; W3C SCXML's `<final>` has no first-class error-terminal concept, so — like
+;; the action-name carrier (`data_rf_action`) — the bit rides a re-frame2-
+;; specific `data_rf_error_final="true"` custom attribute, which ordinary
+;; SCXML consumers ignore.
+
+(def success-and-error-finals-machine
+  "Two terminals of distinct KIND: a plain success final + an `:error?`
+  error final. Mirrors the chart-projection fixture so the two surfaces
+  cover the same terminal-kind distinction."
+  {:initial :running
+   :states  {:running {:on {:ok :ok :boom :boom}}
+             :ok      {:final? true}
+             :boom    {:final? true :error? true}}})
+
+(deftest emit-error-final-carries-error-attribute
+  (testing "an :error? final emits the re-frame2 carrier
+            data_rf_error_final=\"true\" on its <final>; a success final
+            does NOT (the bit is the EP-0011 completion status, not decor)"
+    (let [out (scxml/spec->scxml success-and-error-finals-machine)]
+      (is (str/includes? out "<final id=\"boom\" data_rf_error_final=\"true\"")
+          "the error final carries the error-terminal carrier attribute")
+      (is (str/includes? out "<final id=\"ok\"")
+          "the success final still renders as a plain <final>")
+      (is (not (str/includes? out "<final id=\"ok\" data_rf_error_final"))
+          "the success final carries NO error-terminal attribute"))))
+
+(deftest round-trip-error-final-preserves-status
+  (testing "an :error? final round-trips its :error? bit (the parent's
+            :on-error vs :on-done routing must not silently collapse to
+            success); a plain :final? stays plain"
+    (let [spec success-and-error-finals-machine
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the error-final spec round-trips exactly")
+      (is (true? (get-in back [:states :boom :error?]))
+          "the error terminal reconstructs as :error? true")
+      (is (true? (get-in back [:states :boom :final?]))
+          "the error terminal is still :final?")
+      (is (nil? (get-in back [:states :ok :error?]))
+          "the success terminal carries no :error? bit"))))
+
+;; ---------------------------------------------------------------------------
 ;; Parallel-ROOT :on / :after ancestor fallback (rf2-656ivk / rf2-m3otj2)
 ;;
 ;; A `:type :parallel` ROOT may declare its OWN `:on` (the ancestor fallback,

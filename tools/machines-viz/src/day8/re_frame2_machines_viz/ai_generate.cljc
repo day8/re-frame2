@@ -94,8 +94,9 @@
   Public Var so callers can audit the wording, compose multi-turn
   chats around it, or fork it. Changes to this string are part of
   the public contract — bumping the prompt's behaviour expectations
-  (\"always include `:final?` states for terminal outcomes\") is a
-  semver-relevant change."
+  (\"always include `:final?` states for terminal outcomes\";
+  \"mark FAILURE terminals `:error? true`\") is a semver-relevant
+  change."
   (str/join "\n"
     ["You are an assistant that generates re-frame2 state-machine specs."
      ""
@@ -105,7 +106,7 @@
      "   :states  {:idle    {:on {:start :loading}}"
      "             :loading {:on {:ok :success :err :failed}}"
      "             :success {:final? true}"
-     "             :failed  {:final? true}}}"
+     "             :failed  {:final? true :error? true}}}"
      ""
      "Conventions:"
      ""
@@ -119,7 +120,18 @@
      "  :initial (for compound states), and :states (a child map)."
      "- A transition value may be a target keyword (:loading) or a"
      "  map with :target + optional :guard (:auth-ok?) and :action."
-     "- :final? true marks a terminal state."
+     "- :final? true marks a terminal state — the machine has finished."
+     "- :error? true (only on a :final? terminal) marks a FAILURE"
+     "  terminal. A non-error :final? terminal completes :status :ok"
+     "  and routes a spawning parent's :on-done; an :error? terminal"
+     "  completes :status :error and routes the parent's :on-error"
+     "  instead. So if an outcome means the machine FAILED (a load"
+     "  error, an auth rejection, a payment decline), give that"
+     "  terminal {:final? true :error? true}; a successful outcome"
+     "  stays {:final? true}. Do NOT mark an ordinary in-flow error UI"
+     "  state that the user can retry from (it keeps running, so it is"
+     "  not :final? at all) — :error? is only for a terminal that ends"
+     "  the machine in failure."
      "- For compound states, nest :states and provide a child"
      "  :initial."
      "- For parallel regions, use {:type :parallel :regions {...}}"
