@@ -55,7 +55,8 @@
   helper. A frame object / generation / image is presented as the inert data
   it already is — `make-frame` returns an inert map and `assemble` seals an
   inert generation (EP-0023 §Image — \"an image is data, not registration\")."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ===========================================================================
 ;; Generation projection — an image as its `[kind id]` descriptor set
@@ -256,8 +257,8 @@
   generation): `N descriptors · K kinds`. Pure `data -> string`;
   JVM-testable."
   [{:keys [descriptor-count kinds] :as _image}]
-  (str descriptor-count " descriptor" (when (not= 1 descriptor-count) "s")
-       " · " (count kinds) " kind" (when (not= 1 (count kinds)) "s")))
+  (str descriptor-count " " (common/pluralize descriptor-count "descriptor")
+       " · " (count kinds) " " (common/pluralize (count kinds) "kind")))
 
 (def no-images-caption
   "The calm empty-state caption the image/frame sections render when NO live

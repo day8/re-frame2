@@ -537,10 +537,13 @@
 
 (def missing-sentinel
   "Marker for a `:before` / `:after` slot that does not exist in its
-  side of the diff. Public so the `children-of-pair` / `diff-pair-count`
-  walkers can thread it without colliding with a real `nil` slot. The
-  CLASSIFIER side of the diff (which op to attach to each leaf) lives
-  in `day8.re-frame2-xray.diff.engine` per rf2-n2jig."
+  side of the diff. The `children-of-pair` / `diff-pair-count` walkers
+  thread this same `::missing` keyword (they live in THIS ns, so they
+  don't need it to be public). It stays public only so the
+  edn-inspector tests can assert the walker triples against the exact
+  sentinel value — distinct from `engine/missing-sentinel`
+  (`:day8.re-frame2-xray.diff.engine/missing`), which is the CLASSIFIER
+  side's marker per rf2-n2jig. Never collides with a real `nil` slot."
   ::missing)
 
 ;; ---- per-op token tables ------------------------------------------------

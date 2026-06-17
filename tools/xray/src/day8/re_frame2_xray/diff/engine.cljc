@@ -393,6 +393,42 @@
 ;;
 ;; This is a per-vector linear walk, O(N + edits-per-vector). Pure.
 
+(defn- replay-vector-deletes
+  "Replay Editscript's `:-` edits against a live `survivors` list of
+  ORIGINAL before-indices and return `{:removed :survivors}`.
+
+  Editscript applies `:-` edits SEQUENTIALLY against a progressively-
+  shrinking sequence: each `:-` at edit-index `i` removes the element
+  CURRENTLY occupying index `i`, AFTER all prior `:-` at this parent have
+  already been applied. A contiguous tail deletion therefore repeats the
+  SAME edit-index (`[1 2 3] → [1]` ⇒ `[[1] :-] [[1] :-]`), and a scattered
+  deletion uses post-shift indices (`[:a :b :c :d] → [:a :c]` ⇒ `[[1] :-]
+  [[2] :-]`). These are NOT stable before-indices.
+
+  `survivors` starts as `(range before-len)`. For each delete edit-index
+  `i` in Editscript order we record `survivors[i]` into `:removed` (in
+  removal order) then splice it out, so what remains in `:survivors` are
+  the before-indices of all surviving elements in after-order. An out-of-
+  range edit-index (should not happen for well-formed Editscript output)
+  is skipped rather than crashing the projection. Pure.
+
+  Used by both `shift-suffixes-for-vector` (`:survivors`) and
+  `resolve-vector-removals` (`:removed`)."
+  [before-len delete-idxs]
+  (loop [survivors  (vec (range before-len))
+         [i & more] delete-idxs
+         removed    []]
+    (if (nil? i)
+      {:removed removed :survivors survivors}
+      (if (and (>= i 0) (< i (count survivors)))
+        (recur (into (subvec survivors 0 i)
+                     (subvec survivors (inc i)))
+               more
+               (conj removed (nth survivors i)))
+        ;; Defensive: a malformed out-of-range edit-index is skipped
+        ;; rather than crashing the projection.
+        (recur survivors more removed)))))
+
 (defn- shift-suffixes-for-vector
   "Given an after-vector's length + the per-position edits Editscript
   emitted at this vector's path, return a map
@@ -443,17 +479,7 @@
         ;; Step 1+2 — replay the `:-` deletes against the survivor list of
         ;; original before-indices, removing the post-shift slot each time.
         survivors-after-deletes
-        (loop [survivors  (vec (range before-len))
-               [i & more] delete-edit-idxs]
-          (if (nil? i)
-            survivors
-            (recur (if (and (>= i 0) (< i (count survivors)))
-                     (into (subvec survivors 0 i)
-                           (subvec survivors (inc i)))
-                     ;; Defensive: a malformed out-of-range edit-index is
-                     ;; skipped rather than crashing the projection.
-                     survivors)
-                   more)))
+        (:survivors (replay-vector-deletes before-len delete-edit-idxs))
         ;; Step 3 — splice insert-markers (nil) at each `:+` after-index so
         ;; the slot vector aligns position-for-position with the after-vector.
         slots
@@ -854,21 +880,7 @@
   `{:before-index :before-value}` in before-index order. Pure."
   [edits bvec]
   (let [edit-idxs (mapv (fn [e] (peek (first e))) edits)
-        recovered (loop [survivors (vec (range (count bvec)))
-                         [i & more] edit-idxs
-                         acc        []]
-                    (if (nil? i)
-                      acc
-                      (if (and (>= i 0) (< i (count survivors)))
-                        (let [orig (nth survivors i)]
-                          (recur (into (subvec survivors 0 i)
-                                       (subvec survivors (inc i)))
-                                 more
-                                 (conj acc orig)))
-                        ;; Defensive: an out-of-range edit-index (should not
-                        ;; happen for well-formed Editscript output) is
-                        ;; skipped rather than crashing the projection.
-                        (recur survivors more acc))))]
+        recovered (:removed (replay-vector-deletes (count bvec) edit-idxs))]
     (->> recovered
          sort
          (mapv (fn [orig] {:before-index orig

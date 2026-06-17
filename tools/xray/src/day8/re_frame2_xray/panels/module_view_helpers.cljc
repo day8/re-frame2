@@ -62,7 +62,8 @@
   pure data → data projection (realm address-space assembly, the
   module-row shape, the single/multi-realm classification) lives here so
   it runs under the JVM unit-test target (`clojure -M:test`)."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ---- realm / frame address space (EP-0013 disposition 3) ----------------
 
@@ -320,4 +321,4 @@
   "A one-line plain-language summary for a realm row — `<realm-id> · N
   frame(s)`. Pure data → string; JVM-testable."
   [{:keys [realm frame-count] :as _realm-row}]
-  (str realm " · " frame-count " frame" (when (not= 1 frame-count) "s")))
+  (str realm " · " frame-count " " (common/pluralize frame-count "frame")))

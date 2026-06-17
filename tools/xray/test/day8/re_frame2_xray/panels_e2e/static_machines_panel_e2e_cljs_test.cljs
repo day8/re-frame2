@@ -196,7 +196,7 @@
           (is (fn? (th/extract-handler jump-chip :on-click))
               "jump chip carries no :on-click handler — the JUMP is wired but never fires")
           ;; Drive the production handler synchronously. The chip's own
-          ;; on-click calls `dispatch-jump!` (async); the test variant
+          ;; on-click calls `dispatch-jump-via` (async); the test variant
           ;; `dispatch-jump-sync!` is the same dispatcher with
           ;; `dispatch-sync` semantics — the canonical seam panel_cljs_test
           ;; uses to assert post-dispatch state without an event-queue flush.

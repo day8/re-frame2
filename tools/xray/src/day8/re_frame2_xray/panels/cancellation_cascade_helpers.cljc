@@ -79,7 +79,8 @@
     - Cross-frame causality — single-cascade-anchor scope only.
     - Multi-anchor merging — each call returns ONE cascade. The subs
       pick which anchor to focus (focused-machine or focused-event)."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.common-helpers :as common]))
 
 ;; ---- canonical operation sets -------------------------------------------
 
@@ -510,17 +511,14 @@
       "No cancellation cascade in the trace window."
 
       (= :no-aborts (:empty-kind cascade))
-      (str teardowns " child destroyed"
-           (when (not= 1 teardowns) "s")
+      (str teardowns " " (common/pluralize teardowns "child destroyed")
            " · 0 effects aborted")
 
       :else
       (str/join " · "
-                (cond-> [(str teardowns " child"
-                              (when (not= 1 teardowns) "ren")
+                (cond-> [(str teardowns " " (common/pluralize teardowns "child" "ren")
                               " destroyed")
-                         (str aborts " effect"
-                              (when (not= 1 aborts) "s")
+                         (str aborts " " (common/pluralize aborts "effect")
                               " aborted")]
                   elapsed-s (conj (str elapsed-s " elapsed")))))))
 

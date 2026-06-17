@@ -88,6 +88,21 @@
 
 ;; ---- formatting ---------------------------------------------------------
 
+(defn pluralize
+  "Return `noun` with its plural suffix appended iff `n` is not exactly 1.
+
+  The canonical English-count pluralizer shared across every panel
+  helper that renders a `<count> <noun>` summary — `1 descriptor` vs
+  `2 descriptors`, `1 row` vs `0 rows`. Returns the NOUN only (no count),
+  so callers compose it as `(str n \" \" (pluralize n \"descriptor\"))`.
+
+  The 2-arg form appends `\"s\"`. The 3-arg form takes an explicit
+  `plural-suffix` for irregular nouns (e.g. `(pluralize n \"child\"
+  \"ren\")` → `child` / `children`). Pure; JVM-runnable."
+  ([n noun] (pluralize n noun "s"))
+  ([n noun plural-suffix]
+   (str noun (when (not= 1 n) plural-suffix))))
+
 (defn format-time-hms
   "Render `t` (ms-since-epoch) as `HH:MM:SS.mmm`. Pure-ish — uses the
   platform Date constructor. Canonical shared formatter — the trace,

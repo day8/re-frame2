@@ -124,6 +124,7 @@
             [day8.re-frame2-xray.filters.pills :as filter-pills]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
@@ -935,8 +936,7 @@
   (when (pos? redacted-count)
     [:span {:data-testid "rf-xray-redacted-indicator"
             :title       (str "Spec 009 §Privacy: " redacted-count
-                              " sensitive trace event"
-                              (when (not= 1 redacted-count) "s")
+                              " " (common/pluralize redacted-count "sensitive trace event")
                               " suppressed by default. Set "
                               ":rf.xray/egress-profile :rf.egress/local-raw "
                               "via (xray-config/configure! ...) to "
@@ -1752,7 +1752,7 @@
                    :color       (:text-primary tokens)}}
      [:span {:data-testid "rf-xray-filters-hidden-count"
              :style {:font-weight 500 :color (:warning tokens) :white-space "nowrap"}}
-      (str hidden " event" (when (not= 1 hidden) "s") " filtered out")]]))
+      (str hidden " " (common/pluralize hidden "event") " filtered out")]]))
 
 (rf/reg-view events-ribbon
   "L1.5 **events ribbon** (bar-2) — reconciled to the Figma-Make surface

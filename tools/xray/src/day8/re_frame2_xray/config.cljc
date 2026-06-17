@@ -1043,9 +1043,10 @@
     in the xray epoch buffer.
   - `:cascades-retained` (default 50) — count of cascades retained
     in each frame's trace ring. Mirrors
-    `re-frame.trace.tooling/default-cascades-retained` and writes
-    through to `(rf/configure! :trace-buffer {:cascades-retained N})`
-    when the Settings UX wires the runtime knob (per rf2-43koh).
+    `re-frame.trace.tooling/default-cascades-retained`. Stored +
+    persisted only; no settings effect currently writes it through to
+    the runtime ring (there is no `apply-cascades-retained!` — unlike
+    `:epoch-history`, which `apply-epoch-history!` resizes live).
     Renamed from `:trace-buffer/keep` per the rf2-3g9nw D1=a ruling:
     the unit changed from events (1000) to cascades (50) when
     Xray's separate ring was retired in favour of the framework's
