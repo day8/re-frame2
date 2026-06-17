@@ -20,7 +20,9 @@
       │  Dispatch — <variant-id>                              │
       ├──────────────────────────────────────────────────────┤
       │  event-id   [:counter/inc                       ▾]   │
+      │  requires cofx: :rf/time-ms                          │
       │  payload    [{}                                  ]   │
+      │  cofx       [{:rf/time-ms 1781078400123}         ]   │
       │  [Dispatch] [Dispatch-sync] [Reset]                  │
       ├──────────────────────────────────────────────────────┤
       │  History — click to replay                            │
@@ -32,18 +34,33 @@
   - The event-id input autocompletes against the framework registrar's
     `:event` kind (see `re-frame.story.ui.dispatch-console-events/
     registered-events`).
+  - **`:rf.cofx/requires` hint (EP-0017)** — when the selected event
+    declares required coeffects via `:rf.cofx/requires`, the console
+    surfaces those ids in a hint row so the user knows which recordable
+    facts to supply. Read off the live registrar metadata via
+    `dispatch-console-events/cofx-requires-for`.
   - The payload editor accepts EDN by default; bracketed JSON is
     accepted too via `parse-payload` (heuristic: starts with `{` or
     `[` AND has no clojure-shaped tokens).
+  - **The `cofx` editor (EP-0017)** accepts a flat `:rf.cofx` EDN map of
+    supplied recordable facts (e.g. `{:rf/time-ms 1781078400123}`), parsed
+    via `parse-cofx`. It is threaded into the dispatch opts under
+    `:rf.cofx` so a handler declaring a PROVIDED recordable fact is
+    satisfied; omitting it for such a handler fails visibly with
+    `:rf.error/missing-required-cofx`.
   - `[Dispatch]` enqueues asynchronously via `rf/dispatch*` with
-    `{:frame variant-id}`; `[Dispatch-sync]` runs synchronously via
-    `rf/dispatch-sync*` so the user sees app-db updates IMMEDIATELY in
-    other inspector panels.
+    `{:frame variant-id}` (+ any `:rf.cofx`); `[Dispatch-sync]` runs
+    synchronously via `rf/dispatch-sync*` so the user sees app-db updates
+    IMMEDIATELY in other inspector panels.
   - `[Reset]` clears the inputs but does NOT clear history.
   - **History** is per-variant + persisted to localStorage under
-    `story.dispatch-history/<variant-id>` (capped at 20 entries).
-    Clicking a row replays the exact event + payload through the same
-    dispatch path the row recorded.
+    `story.dispatch-history/<variant-id>` (capped at 20 entries). A row
+    records the event + payload + any supplied `:rf.cofx`. Clicking a row
+    replays the exact event + payload + recorded cofx through the same
+    dispatch path the row recorded — under the STRICT mint policy
+    (`:rf.cofx/mint-policy :strict`), so a recorded recordable fact missing
+    from the token fails loudly rather than silently re-minting a divergent
+    value.
 
   ## Per-story toggle
 
@@ -129,6 +146,46 @@
       (catch #?(:clj Throwable :cljs :default) e
         [:error #?(:clj (.getMessage ^Throwable e) :cljs (str e))]))))
 
+;; ---- pure: cofx parsing (EP-0017) ----------------------------------------
+
+(defn parse-cofx
+  "Parse a `cofx` input string into the flat `:rf.cofx` dispatch-opts map
+  (EP-0017). Empty / whitespace strings return `[:ok nil]` (no cofx opt).
+  Otherwise reads the string as EDN and requires a MAP — the flat
+  `:rf.cofx` shape (one recordable fact per owner-qualified key, e.g.
+  `{:rf/time-ms 1781078400123}`). Returns `[:ok value]` on success,
+  `[:error message]` on a parse failure or a non-map value. Pure data →
+  data; JVM and CLJS branches.
+
+  This is the supply path for provided recordable facts: a handler that
+  declares `:rf.cofx/requires [[... :rf/time-ms]]` (or any provided fact)
+  needs the value presented under `:rf.cofx`, and this turns the user's
+  EDN into that map. The router preserves the supplied map verbatim
+  (filling only `:rf/time-ms` when absent).
+
+  Examples:
+
+      (parse-cofx \"\")                       → [:ok nil]
+      (parse-cofx \"{:rf/time-ms 1700000}\")  → [:ok {:rf/time-ms 1700000}]
+      (parse-cofx \"[:not :a :map]\")         → [:error \"...\"]"
+  [s]
+  (cond
+    (nil? s)
+    [:ok nil]
+
+    (and (string? s) (str/blank? s))
+    [:ok nil]
+
+    :else
+    (try
+      (let [v (edn/read-string s)]
+        (if (map? v)
+          [:ok v]
+          [:error (str "cofx must be an EDN map of recordable coeffects, "
+                       "e.g. {:rf/time-ms 1781078400123}")]))
+      (catch #?(:clj Throwable :cljs :default) e
+        [:error #?(:clj (.getMessage ^Throwable e) :cljs (str e))]))))
+
 (defn build-event-vector
   "Build a re-frame event vector from an `event-id` keyword and a
   parsed `payload` value. Pure data → data; JVM and CLJS.
@@ -174,12 +231,39 @@
   (clamp-history (vec (cons entry (vec history)))))
 
 (defn build-history-entry
-  "Build the shape we persist into localStorage. Pure data → data."
-  [event-id payload kind ms]
-  {:event-id event-id
-   :payload  payload
-   :kind     kind                ;; :dispatch | :dispatch-sync
-   :time     ms})
+  "Build the shape we persist into localStorage. Pure data → data.
+
+  `cofx` (EP-0017) is the flat `:rf.cofx` map supplied at dispatch time
+  (or nil). It is recorded alongside the event so a history REPLAY can
+  re-present the EXACT recordable facts — a faithful re-run rather than a
+  fresh mint. Stored only when non-nil so legacy / cofx-free rows stay
+  byte-identical to the pre-EP-0017 shape."
+  ([event-id payload kind ms]
+   (build-history-entry event-id payload kind ms nil))
+  ([event-id payload kind ms cofx]
+   (cond-> {:event-id event-id
+            :payload  payload
+            :kind     kind                ;; :dispatch | :dispatch-sync
+            :time     ms}
+     (seq cofx) (assoc :cofx cofx))))
+
+(defn build-dispatch-opts
+  "Build the dispatch-opts map threaded into `rf/dispatch*` /
+  `rf/dispatch-sync*` for `variant-id`. Pure data → data; JVM-testable.
+
+  Always carries `:frame` (the variant's frame, per Spec 002 §Routing).
+  When `cofx` (the flat `:rf.cofx` map, EP-0017) is non-empty it rides
+  under `:rf.cofx` so a provided recordable fact reaches the handler.
+  When `strict?` is true (history REPLAY of a recorded row) it adds
+  `:rf.cofx/mint-policy :strict`, so a declared recordable fact MISSING
+  from the recorded token fails LOUDLY (`:rf.error/missing-required-cofx`)
+  instead of silently re-minting a divergent value — the replay asserts a
+  faithful re-run. Live dispatch from the inputs is the default `:live`
+  path (no mint-policy key)."
+  [variant-id cofx strict?]
+  (cond-> {:frame variant-id}
+    (seq cofx) (assoc :rf.cofx cofx)
+    strict?    (assoc :rf.cofx/mint-policy :strict)))
 
 (defn format-history-entry
   "Render a history entry as a short single-line string for the row
@@ -242,6 +326,16 @@
          filtered   (filter match? event-ids)
          sorted     (sort-by pr-str filtered)]
      (vec (take limit sorted)))))
+
+(defn selected-event-id
+  "Read the `event-id-input` string as a keyword, or nil if it is blank /
+  not a keyword. Pure data → data; the panel uses it to look up the
+  selected event's `:rf.cofx/requires`."
+  [event-id-input]
+  (let [t (some-> event-id-input str/trim)]
+    (when-not (str/blank? (or t ""))
+      (let [v (try (edn/read-string t) (catch #?(:clj Throwable :cljs :default) _ nil))]
+        (when (keyword? v) v)))))
 
 ;; ---- localStorage I/O (CLJS-only) ----------------------------------------
 
@@ -361,6 +455,7 @@
      [variant-id]
      (swap! input-state assoc variant-id {:event-id-input ""
                                           :payload-input  ""
+                                          :cofx-input     ""
                                           :error          nil
                                           :autocomplete-open? false})
      nil))
@@ -380,33 +475,46 @@
 
      The dispatched event reaches the variant's frame via the
      `{:frame variant-id}` opts on `rf/dispatch*` /
-     `rf/dispatch-sync*` (per Spec 002 §Routing)."
-     [variant-id event-vec kind]
-     (let [event-id (first event-vec)
-           payload  (when (> (count event-vec) 1)
-                      (second event-vec))]
-       (try
-         (case kind
-           :dispatch      (rf/dispatch*      event-vec {:frame variant-id})
-           :dispatch-sync (rf/dispatch-sync* event-vec {:frame variant-id}))
-         (append-history!
-           variant-id
-           (build-history-entry event-id payload kind (now-ms)))
-         nil
-         (catch :default e
-           (set-error! variant-id (str "dispatch failed: " (.-message e)))
-           nil)))))
+     `rf/dispatch-sync*` (per Spec 002 §Routing).
+
+     `cofx` (EP-0017, optional) is the flat `:rf.cofx` map of supplied
+     recordable facts threaded into the dispatch opts so a provided-fact
+     handler is satisfied. `strict?` (optional, history-replay path) adds
+     `:rf.cofx/mint-policy :strict` so a recorded token's missing fact
+     fails loudly rather than re-minting. The recorded `cofx` rides into
+     history so a later replay re-presents the EXACT facts."
+     ([variant-id event-vec kind]
+      (dispatch-event! variant-id event-vec kind nil false))
+     ([variant-id event-vec kind cofx strict?]
+      (let [event-id (first event-vec)
+            payload  (when (> (count event-vec) 1)
+                       (second event-vec))
+            opts     (build-dispatch-opts variant-id cofx strict?)]
+        (try
+          (case kind
+            :dispatch      (rf/dispatch*      event-vec opts)
+            :dispatch-sync (rf/dispatch-sync* event-vec opts))
+          (append-history!
+            variant-id
+            (build-history-entry event-id payload kind (now-ms) cofx))
+          nil
+          (catch :default e
+            (set-error! variant-id (str "dispatch failed: " (.-message e)))
+            nil))))))
 
 #?(:cljs
    (defn dispatch-from-inputs!
-     "Read the current input state for `variant-id`, parse the payload,
-     build the event vector, and dispatch via `dispatch-event!`. On
-     parse error, sets `:error` and returns nil without dispatching.
+     "Read the current input state for `variant-id`, parse the payload +
+     the cofx, build the event vector, and dispatch via `dispatch-event!`.
+     On a parse error, sets `:error` and returns nil without dispatching.
 
-     `kind` is `:dispatch` or `:dispatch-sync`."
+     `kind` is `:dispatch` or `:dispatch-sync`. The `cofx` input (EP-0017)
+     supplies the flat `:rf.cofx` map of provided recordable facts; a live
+     dispatch from the inputs runs the default `:live` mint policy."
      [variant-id kind]
-     (let [eid-raw  (str/trim (get-input variant-id :event-id-input))
-           pl-raw   (get-input variant-id :payload-input)]
+     (let [eid-raw   (str/trim (get-input variant-id :event-id-input))
+           pl-raw    (get-input variant-id :payload-input)
+           cofx-raw  (get-input variant-id :cofx-input)]
        (cond
          (str/blank? eid-raw)
          (do (set-error! variant-id "event-id is required") nil)
@@ -416,27 +524,45 @@
              nil)
 
          :else
-         (let [event-id   (edn/read-string eid-raw)
-               [tag pval] (parse-payload pl-raw)]
-           (case tag
-             :ok    (do (clear-error! variant-id)
-                        (dispatch-event!
-                          variant-id
-                          (build-event-vector event-id pval)
-                          kind))
-             :error (do (set-error! variant-id (str "payload parse error: " pval))
-                        nil)))))))
+         (let [event-id      (edn/read-string eid-raw)
+               [ptag pval]   (parse-payload pl-raw)
+               [ctag cofx]   (parse-cofx cofx-raw)]
+           (cond
+             (= :error ptag)
+             (do (set-error! variant-id (str "payload parse error: " pval)) nil)
+
+             (= :error ctag)
+             (do (set-error! variant-id (str "cofx parse error: " cofx)) nil)
+
+             :else
+             (do (clear-error! variant-id)
+                 (dispatch-event!
+                   variant-id
+                   (build-event-vector event-id pval)
+                   kind
+                   cofx
+                   false))))))))
 
 #?(:cljs
    (defn replay-history-entry!
      "Re-dispatch a history entry against the variant's frame. Uses the
      original `:kind` (`:dispatch` or `:dispatch-sync`). Adds a fresh
-     history entry stamped with `now-ms`."
-     [variant-id {:keys [event-id payload kind]}]
+     history entry stamped with `now-ms`.
+
+     EP-0017 — a recorded `:cofx` (flat `:rf.cofx` map) is re-presented
+     UNDER the STRICT mint policy: a declared recordable fact missing from
+     the recorded token fails loudly (`:rf.error/missing-required-cofx`)
+     rather than silently re-minting a divergent value, so the replay is a
+     faithful re-run of the recorded causal token. A cofx-free row still
+     replays strict (an empty record still halts on any declared
+     recordable fact) — strictness is a property of the replay gesture."
+     [variant-id {:keys [event-id payload kind cofx]}]
      (dispatch-event!
        variant-id
        (build-event-vector event-id payload)
-       (or kind :dispatch))))
+       (or kind :dispatch)
+       cofx
+       true)))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -504,6 +630,15 @@
                        :margin "4px 0"
                        :border-radius "3px"
                        :font-size (:micro typography/type-scale)}
+      :cofx-requires  {:color (:text-tertiary colors/tokens)
+                       :background (:bg-2 colors/tokens)
+                       :border "1px dotted #4a4a4a"
+                       :padding "3px 6px"
+                       :margin "4px 0"
+                       :border-radius "3px"
+                       :font-size (:micro typography/type-scale)}
+      :cofx-requires-id {:color (:warning colors/tokens)
+                         :margin-right "6px"}
       :ac-host        {:position "relative"}
       :ac-list        {:position "absolute"
                        :top "100%"
@@ -591,6 +726,29 @@
               (pr-str id)])]]))))
 
 #?(:cljs
+   (defn- cofx-requires-row
+     "Surface the `:rf.cofx/requires` declaration (EP-0017) of the
+     currently-selected event so the user knows WHICH recordable facts
+     to supply under the `cofx` input. Reads the selected event-id from
+     the input, resolves its requirement off the live registrar, and
+     renders a dotted hint row listing the required cofx ids. Renders
+     nothing when no event is selected or the event declares none."
+     [variant-id]
+     (let [eid      (selected-event-id (get-input variant-id :event-id-input))
+           requires (when eid
+                      (events/cofx-requires-for (events/registered-event-meta) eid))]
+       (when (seq requires)
+         [:div {:style     (:cofx-requires styles)
+                :data-test "story-dispatch-console-cofx-requires"}
+          "requires cofx: "
+          (for [id requires]
+            ^{:key id}
+            [:span {:style       (:cofx-requires-id styles)
+                    :data-test   "story-dispatch-console-cofx-requires-id"
+                    :data-cofx-id (pr-str id)}
+             (pr-str id)])]))))
+
+#?(:cljs
    (defn- history-row
      [variant-id idx entry]
      [:div {:style    (:history-row styles)
@@ -629,8 +787,12 @@
           [:div {:style {:position "relative"}}
            [input-row variant-id "event-id" :event-id-input ":your/event"]
            [autocomplete-row variant-id]]
+          ;; EP-0017: surface the selected event's declared cofx requirements
+          [cofx-requires-row variant-id]
           ;; payload input
           [input-row variant-id "payload" :payload-input "{} or [] or :keyword"]
+          ;; EP-0017: supply flat :rf.cofx recordable facts (provided facts)
+          [input-row variant-id "cofx" :cofx-input "{:rf/time-ms 1781078400123}"]
           (when error
             [:div {:style     (:error styles)
                    :data-test "story-dispatch-console-error"}

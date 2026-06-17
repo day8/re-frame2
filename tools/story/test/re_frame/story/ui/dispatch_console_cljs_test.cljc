@@ -193,6 +193,96 @@
     (is (= #{}
            (dce/registered-event-ids {})))))
 
+;; ---- pure: cofx-requires-for (EP-0017) -----------------------------------
+
+(deftest cofx-requires-for-reads-declaration
+  (testing "1-arity reads :rf.cofx/requires off a single event's meta"
+    (is (= [:rf/time-ms]
+           (dce/cofx-requires-for {:rf.cofx/requires [:rf/time-ms]})))
+    ;; parameterized [id arg] entries surface their id
+    (is (= [:rf/time-ms :ui/local-theme]
+           (dce/cofx-requires-for {:rf.cofx/requires [:rf/time-ms [:ui/local-theme "theme"]]})))
+    (is (= [] (dce/cofx-requires-for {})))
+    (is (= [] (dce/cofx-requires-for {:rf.cofx/requires nil})))
+    (is (= [] (dce/cofx-requires-for nil)))))
+
+(deftest cofx-requires-for-via-snapshot
+  (testing "2-arity looks the event up in a {id meta} snapshot"
+    (let [snap {:ev/needs   {:rf.cofx/requires [:rf/time-ms]}
+                :ev/plain   {}}]
+      (is (= [:rf/time-ms] (dce/cofx-requires-for snap :ev/needs)))
+      (is (= []            (dce/cofx-requires-for snap :ev/plain)))
+      (is (= []            (dce/cofx-requires-for snap :ev/unknown)))
+      (is (= []            (dce/cofx-requires-for nil :ev/needs))))))
+
+;; ---- pure: parse-cofx (EP-0017) ------------------------------------------
+
+(deftest parse-cofx-empty
+  (testing "blank / nil cofx parse to nil (no :rf.cofx opt)"
+    (is (= [:ok nil] (dc/parse-cofx nil)))
+    (is (= [:ok nil] (dc/parse-cofx "")))
+    (is (= [:ok nil] (dc/parse-cofx "   ")))))
+
+(deftest parse-cofx-map
+  (testing "a well-shaped EDN map parses to itself"
+    (is (= [:ok {:rf/time-ms 1781078400123}]
+           (dc/parse-cofx "{:rf/time-ms 1781078400123}")))
+    (is (= [:ok {:rf/time-ms 1700000000000 :counter/delta 4}]
+           (dc/parse-cofx "{:rf/time-ms 1700000000000 :counter/delta 4}")))))
+
+(deftest parse-cofx-non-map-errors
+  (testing "a vector / scalar is the wrong shape — [:error ...]"
+    (is (= :error (first (dc/parse-cofx "[:not :a :map]"))))
+    (is (= :error (first (dc/parse-cofx "42"))))))
+
+(deftest parse-cofx-unreadable-errors
+  (testing "unreadable EDN returns [:error <msg>]"
+    (is (= :error (first (dc/parse-cofx "{:rf/time-ms 1"))))))
+
+;; ---- pure: build-dispatch-opts (EP-0017) ---------------------------------
+
+(deftest build-dispatch-opts-frame-only
+  (testing "no cofx + not strict ⇒ just the frame opt"
+    (is (= {:frame :v} (dc/build-dispatch-opts :v nil false)))
+    (is (= {:frame :v} (dc/build-dispatch-opts :v {} false)))))
+
+(deftest build-dispatch-opts-threads-cofx
+  (testing "a non-empty cofx rides under :rf.cofx"
+    (is (= {:frame :v :rf.cofx {:rf/time-ms 1700000000000}}
+           (dc/build-dispatch-opts :v {:rf/time-ms 1700000000000} false)))))
+
+(deftest build-dispatch-opts-strict-replay
+  (testing "strict? adds :rf.cofx/mint-policy :strict (replay path)"
+    (is (= {:frame :v :rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict}
+           (dc/build-dispatch-opts :v {:rf/time-ms 1} true)))
+    ;; strict even with no cofx token
+    (is (= {:frame :v :rf.cofx/mint-policy :strict}
+           (dc/build-dispatch-opts :v nil true)))))
+
+;; ---- pure: build-history-entry carries cofx ------------------------------
+
+(deftest build-history-entry-records-cofx
+  (testing "a supplied cofx is recorded; absent cofx keeps the legacy shape"
+    (is (= {:event-id :e :payload nil :kind :dispatch :time 7
+            :cofx {:rf/time-ms 1700000000000}}
+           (dc/build-history-entry :e nil :dispatch 7 {:rf/time-ms 1700000000000})))
+    ;; nil / empty cofx ⇒ no :cofx key (byte-identical to pre-EP-0017 rows)
+    (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
+           (dc/build-history-entry :e nil :dispatch 7 nil)))
+    (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
+           (dc/build-history-entry :e nil :dispatch 7)))))
+
+;; ---- pure: selected-event-id ---------------------------------------------
+
+(deftest selected-event-id-resolution
+  (testing "reads a keyword input, nil otherwise"
+    (is (= :counter/inc (dc/selected-event-id ":counter/inc")))
+    (is (= :counter/inc (dc/selected-event-id "  :counter/inc  ")))
+    (is (nil? (dc/selected-event-id "")))
+    (is (nil? (dc/selected-event-id "   ")))
+    (is (nil? (dc/selected-event-id "not-a-keyword")))
+    (is (nil? (dc/selected-event-id nil)))))
+
 ;; ===========================================================================
 ;; CLJS-only side-effect coverage
 ;; ===========================================================================
@@ -325,3 +415,114 @@
        (let [ids (dce/registered-event-ids)]
          (is (contains? ids :ac.test/one))
          (is (contains? ids :ac.test/two))))))
+
+;; ===========================================================================
+;; EP-0017 — a handler requiring a PROVIDED recordable cofx (rf2-wpy6eu).
+;; The console must: (1) show the requirement, (2) dispatch can supply it,
+;; (3) omission fails visibly, (4) history replay reuses the recorded value
+;; under the strict mint policy.
+;; ===========================================================================
+
+#?(:cljs
+   (deftest cljs-console-surfaces-cofx-requires
+     (testing "registered-event-meta + cofx-requires-for expose an event's
+               declared :rf.cofx/requires off the live registrar"
+       (let [vid :story.cofx.show/v]
+         (rf/reg-frame vid {})
+         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+         (rf/reg-event :cofx.console/needs
+                          {:rf.cofx/requires [:cofx.console/boundary]}
+                          (fn [{:keys [db]} _] {:db db}))
+         (let [meta (dce/registered-event-meta)]
+           (is (contains? meta :cofx.console/needs)
+               "the event's metadata is reachable, not just its id")
+           (is (= [:cofx.console/boundary]
+                  (dce/cofx-requires-for meta :cofx.console/needs))
+               "the console can resolve the requirement for the selected event"))))))
+
+#?(:cljs
+   (deftest cljs-dispatch-supplies-provided-cofx
+     (testing "a provided recordable fact supplied under :rf.cofx satisfies
+               the handler; the recorded fact reaches app-db + history"
+       (let [vid :story.cofx.supply/v]
+         (rf/reg-frame vid {})
+         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+         (rf/reg-event :cofx.console/needs
+                          {:rf.cofx/requires [:cofx.console/boundary]}
+                          (fn [{:keys [db] :as cofx} _]
+                            ;; read the declared fact flat from the coeffects map
+                            {:db (assoc db :seen (:cofx.console/boundary cofx))}))
+         (rf/reg-sub :cofx.console/seen (fn [db _] (get db :seen)))
+         ;; supply via the inputs (live path)
+         (swap! dc/input-state assoc vid
+                {:event-id-input ":cofx.console/needs"
+                 :payload-input  ""
+                 :cofx-input     "{:cofx.console/boundary 99}"})
+         (dc/dispatch-from-inputs! vid :dispatch-sync)
+         (is (nil? (get-in @dc/input-state [vid :error]))
+             "supplying the provided fact clears the error path")
+         (is (= 99 (rf/subscribe-once vid [:cofx.console/seen]))
+             "the supplied recordable fact reached the handler")
+         (let [h (first (dc/current-history vid))]
+           (is (= {:cofx.console/boundary 99} (:cofx h))
+               "the supplied cofx is recorded in history for faithful replay"))))))
+
+#?(:cljs
+   (deftest cljs-omitting-provided-cofx-fails-visibly
+     (testing "omitting a required provided recordable fact fails visibly —
+               the dispatch throws :rf.error/missing-required-cofx, caught
+               and surfaced as the panel :error"
+       (let [vid :story.cofx.omit/v
+             fired? (atom false)]
+         (rf/reg-frame vid {})
+         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+         (rf/reg-event :cofx.console/needs
+                          {:rf.cofx/requires [:cofx.console/boundary]}
+                          (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
+         ;; supply NO cofx for the provided fact
+         (swap! dc/input-state assoc vid
+                {:event-id-input ":cofx.console/needs"
+                 :payload-input  ""
+                 :cofx-input     ""})
+         (dc/dispatch-from-inputs! vid :dispatch-sync)
+         (is (false? @fired?)
+             "the handler never ran — missing-required halts the cascade")
+         (is (some? (get-in @dc/input-state [vid :error]))
+             "the failure is surfaced visibly as the panel error")
+         (is (= 0 (count (dc/current-history vid)))
+             "a failed dispatch records no history entry")))))
+
+#?(:cljs
+   (deftest cljs-replay-reuses-recorded-cofx-strict
+     (testing "history replay re-presents the recorded :rf.cofx under the
+               strict mint policy — the recorded provided fact is reused, and
+               a row whose recorded token omits a required fact fails loudly"
+       (let [vid :story.cofx.replay/v]
+         (rf/reg-frame vid {})
+         (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
+         (rf/reg-event :cofx.console/needs
+                          {:rf.cofx/requires [:cofx.console/boundary]}
+                          (fn [{:keys [db] :as cofx} _]
+                            {:db (assoc db :seen (:cofx.console/boundary cofx))}))
+         (rf/reg-sub :cofx.console/seen (fn [db _] (get db :seen)))
+         ;; original dispatch supplies the fact, recording it in history
+         (dc/dispatch-event! vid [:cofx.console/needs] :dispatch-sync
+                             {:cofx.console/boundary 7} false)
+         (is (= 7 (rf/subscribe-once vid [:cofx.console/seen])))
+         ;; replay the recorded row — the strict policy re-presents the
+         ;; recorded value (no re-mint); the handler reads the SAME fact
+         (let [row (first (dc/current-history vid))]
+           (is (= {:cofx.console/boundary 7} (:cofx row))
+               "the recorded row carries the supplied cofx")
+           (dc/replay-history-entry! vid row))
+         (is (= 7 (rf/subscribe-once vid [:cofx.console/seen]))
+             "replay reused the recorded recordable fact under strict policy")
+         (is (= 2 (count (dc/current-history vid)))
+             "replay recorded a fresh history entry")
+         ;; ADVERSARIAL: a recorded row whose token OMITS the required fact
+         ;; must fail loudly under strict replay rather than silently re-minting
+         (let [bad-row {:event-id :cofx.console/needs :payload nil
+                        :kind :dispatch-sync :time 1 :cofx nil}]
+           (dc/replay-history-entry! vid bad-row)
+           (is (some? (get-in @dc/input-state [vid :error]))
+               "strict replay of an incomplete recorded token fails visibly"))))))
