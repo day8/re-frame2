@@ -1070,7 +1070,9 @@ default `5000` — render-settle deadline), `frame` (string, e.g.
 `":foo"`), `fx-overrides` (object, e.g. `{:http :stub-http}`),
 `cofx` (string — EDN map of scripted recordable coeffects, e.g.
 `"{:rf/time-ms 1781078400123}"`; rf2-q6s1nb / EP-0010 + EP-0017 — see
-*Reproducible dispatch* below), `include-sensitive` (bool, default `false` — ship the
+*Reproducible dispatch* below), `replay` (bool, default `false` —
+re-drive the recorded event under `:rf.cofx/mint-policy :strict`; see
+*Strict replay* below), `include-sensitive` (bool, default `false` — ship the
 raw `:epoch` / `:event-vector` verbatim; honoured ONLY under
 `--allow-sensitive-reads`, rf2-8fin7.3), `build` (string).
 
@@ -1174,6 +1176,43 @@ never reaches the runtime's deeper `:rf/dispatch-opts` validation. Omit
 the arg for the ordinary live path (the runtime stamps `:rf/time-ms`).
 `cofx` composes with every mode (`sync` / `trace` / `settle` /
 `await-render` / `queued`) and with `frame` / `fx-overrides`.
+
+### Strict replay — `replay` (rf2-v52xsr / EP-0017 §6 / Tool-Pair §Replay)
+
+`cofx` ALONE is the **live** scripted-coeffect path: the dispatch runs
+under the router's `:live` default
+([002 §Mint policies](../../../spec/002-Frames.md#mint-policies)), so a
+declared recordable fact that is **absent** from the supplied token is
+freshly **minted** (a generator runs / a host read fires). That is the
+right behaviour for *constructing* a deterministic fixture — pin the time,
+let the rest be generated — but it is the **wrong** behaviour for
+*replaying* one. A replay re-drives a recorded event through the app's own
+handlers to reproduce the recorded run; if a fact the original run consumed
+is missing from the record, a `:live` replay mints a *different* value and
+the replay silently diverges — the exact failure the recording discipline
+exists to kill.
+
+`replay true` is the named strict-replay affordance. It threads
+`:rf.cofx/mint-policy :strict` into the dispatch opts ALONGSIDE the recorded
+`:rf.cofx`, so:
+
+- a recorded fact **present** on the token is re-presented verbatim
+  (supplied values win — replay re-presents, exactly as EP-0010 requires);
+- a declared recordable fact **absent** from the record is
+  `:rf.error/missing-required-cofx` — the strict policy runs **no generator
+  and performs no host read**, so an incomplete record fails **loudly**
+  rather than minting a divergent value.
+
+Per [Tool-Pair §Replay](../../../spec/Tool-Pair.md#replay-mint-policy) a
+pair tool that re-dispatches a recorded event ALWAYS pairs the recorded
+cofx with strict; the strictness is a property of the **replay gesture**,
+not of any frame preset. The per-call `:rf.cofx/mint-policy :strict` is the
+most-specific binding point and WINS over a frame whose config would
+otherwise be `:live`, so replay can target a production `:live` frame and
+still be strict. `replay` is strict even with **no** `cofx` token (an empty
+record still halts on any declared recordable fact). Omit `replay` (with or
+without `cofx`) for the ordinary live path; set it to **assert** a fixture
+reproduces.
 
 ### Render-settle — `:await-render` (rf2-gfu33)
 
