@@ -29,11 +29,49 @@
 ;; ---- platform transport: CLJS Fetch ---------------------------------------
 
 #?(:cljs
-   (defn- fetch-headers->map [^js fetch-headers]
+   (defn- fetch-headers->map
+     "Flatten a Fetch `Headers` object into a plain Clojure map, matching
+     the JVM transport's `jvm-headers->map` response-headers SHAPE
+     contract (rf2-0xvm1 / Spec 014 §Request envelope: `string → string`,
+     or `string → vector of strings` for a multi-valued header).
+
+     rf2-wmdmou — cross-host `Set-Cookie` parity. `Headers.forEach`
+     iterates ONE pair per (case-folded) name with multi-valued headers
+     COMMA-FOLDED into a single string — and for `Set-Cookie` specifically
+     the Fetch spec keeps it OUT of the combined view (`forEach` yields
+     only the LAST `Set-Cookie` line; the earlier lines are dropped). That
+     diverged from the JVM, where `jvm-headers->map` rides every wire line
+     of a multi-valued header as a vector element — so a two-cookie
+     response decoded to a 2-element `[\"session=…\" \"csrf=…\"]` vector on
+     the JVM but a single (last-cookie-only) string on CLJS, silently
+     LOSING the first `Set-Cookie` and comma-folding any other repeated
+     header. Comma-folding `Set-Cookie` is itself an RFC 6265 §3 violation
+     (cookie attribute values legally embed commas — `Expires=Wed, 21 Oct
+     …`), the exact hazard rf2-0xvm1 fixed on the JVM.
+
+     The Fetch API exposes `Headers.getSetCookie()` precisely to recover
+     the unfolded `Set-Cookie` lines (browser + Node 18.7+ / undici). We
+     use it to restore the per-line vector shape so a multi-valued
+     `Set-Cookie` decodes IDENTICALLY on both hosts; a single `Set-Cookie`
+     stays a plain string (matching the JVM's single-valued fast path).
+     Other repeated headers remain comma-folded by `forEach` — Fetch
+     offers no unfold for them and that residual is a documented Fetch
+     limitation, not a data-loss bug (only `Set-Cookie` both loses lines
+     AND is RFC-illegal to fold)."
+     [^js fetch-headers]
      (let [out #js {}]
        (.forEach fetch-headers
                  (fn [v k] (aset out k v)))
-       (js->clj out))))
+       (let [m (js->clj out)
+             ;; rf2-wmdmou — recover the unfolded `Set-Cookie` lines so the
+             ;; shape matches the JVM (single → string, multi → vector of
+             ;; the verbatim wire lines, every line preserved).
+             set-cookies (when (fn? (.-getSetCookie fetch-headers))
+                           (vec (.getSetCookie fetch-headers)))]
+         (case (count set-cookies)
+           0 m
+           1 (assoc m "set-cookie" (first set-cookies))
+           (assoc m "set-cookie" set-cookies))))))
 
 #?(:cljs
    (defn cljs-fetch
