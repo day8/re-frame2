@@ -27,13 +27,28 @@
 
 ;; ----- helpers ------------------------------------------------------------
 
+(defn- src-root
+  "Resolve `tools/story/src/` on disk, cwd-independently. The per-tool
+  `:test` alias runs from `tools/story` (a cwd-relative `(io/file \"src\")`
+  works), but the tools-root aggregate (`tools/deps.edn :test`, rf2-f2tkbt)
+  runs from `tools/`, where a bare `src` would miss. `src` is a classpath
+  `:paths` root, so a known story source (`re_frame/story.cljc`) is a
+  classpath resource on the JVM regardless of cwd; its `src`-relative parent
+  chain is the src-root. Falls back to the cwd-relative path if the resource
+  is absent (e.g. a jar). Mirrors the xray guard tests' `src-root`."
+  []
+  (let [marker (io/resource "re_frame/story.cljc")]
+    (if (and marker (= "file" (.getProtocol marker)))
+      ;; .../src/re_frame/story.cljc → up to .../src
+      (-> (io/file (.toURI marker)) .getParentFile .getParentFile)
+      (io/file "src"))))
+
 (defn- src-files
   "Walk tools/story/src/ and return every .cljc / .cljs / .clj file as
-  a `java.io.File`. The classpath element `src` resolves to the same
-  directory whether tests run via `clojure -M:test` from `tools/story`
-  or via the top-level shadow build."
+  a `java.io.File`, resolving the src root via `src-root` so the walk is
+  cwd-independent (per-tool `clojure -M:test` AND the tools-root aggregate)."
   []
-  (let [root (io/file "src")]
+  (let [root (src-root)]
     (when (.isDirectory root)
       (->> (file-seq root)
            (filter #(.isFile ^java.io.File %))
@@ -89,7 +104,7 @@
 
   (testing "the substrate enum still advertises :reagent + :uix + :helix
 (consumer-app registration surface — keyword refs only, not requires)"
-    (let [enum-file (io/file "src/re_frame/story/schemas.cljc")
+    (let [enum-file (io/file (src-root) "re_frame" "story" "schemas.cljc")
           body      (slurp enum-file)]
       (is (str/includes? body ":reagent"))
       (is (str/includes? body ":uix"))

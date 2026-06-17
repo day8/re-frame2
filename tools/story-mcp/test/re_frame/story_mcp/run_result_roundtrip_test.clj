@@ -44,6 +44,20 @@
   (config/set-allow-sensitive-reads! false)
   (schemas/clear-schemas-by-frame!)
   (recorder/clear!)
+  ;; Disable epoch-ring recording for the duration of each story-mcp test
+  ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so a
+  ;; standalone `cd tools/story-mcp && clojure -M:test` never loads
+  ;; `re-frame.epoch` and `run-variant`'s `:narrative` projection reads an
+  ;; empty tape. Under the tools-root aggregate (`cd tools && clojure
+  ;; -M:test`) a STORY test namespace REQUIRES `re-frame.epoch`, installing
+  ;; the capture hooks process-wide — so story-mcp's `run-variant` then
+  ;; projects a full per-event narrative (each beat carries full :db /
+  ;; trace-events), ballooning the wire payload past the MCP token cap (the
+  ;; whole run-result is replaced by a `:rf.mcp/overflow` marker, failing the
+  ;; shape assertions). `(rf/configure! :epoch-history {:depth 0})` reproduces
+  ;; the artefact's own epoch-free posture: it is a core-facade knob that
+  ;; no-ops when epoch is absent and disables ring recording when present.
+  (rf/configure! :epoch-history {:depth 0})
   (story/reg-story :story.cart
     {:doc "A cart." :component :app.ui/cart :tags #{:dev :test} :args {}})
   ;; A variant carrying a REAL failing assertion (a path-equals against a
@@ -53,7 +67,12 @@
     {:doc "A failing cart variant."
      :tags #{:dev :test}
      :assertions [[:rf.assert/path-equals [:cart/total] 99]]})
-  (t))
+  (try
+    (t)
+    (finally
+      ;; Restore the shipped epoch-ring default so a story namespace running
+      ;; after this one in the aggregate sees the normal depth-50 posture.
+      (rf/configure! :epoch-history {:depth 50}))))
 
 (use-fixtures :each reset-story)
 
