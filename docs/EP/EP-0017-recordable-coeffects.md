@@ -526,16 +526,35 @@ When the runtime processes an event:
 5. Run the interceptor chain and handler.
 
 **Delivery is flat and declared-only.** A leaf on the token but undeclared by
-this handler is **not staged** (no silent green-in-test/nil-in-prod
+this handler is **not staged as a flat key** (no silent green-in-test/nil-in-prod
 coupling; `handler-meta` becomes the complete consumption record; and the
 supplied-vs-injected collision class of earlier designs becomes
-unexpressible). There is no nested map in the coeffects map — no `:cofx` key,
-no `:rf.world/inputs` successor, no duplicate of `:rf/time-ms`. The envelope
-carries the canonical complete record; the coeffects map carries the declared
-spread; one home per layer. Generic code that wants the whole record
-(transition helpers, interceptors, the framework-internal `context -> context`
-primitive) reads the envelope's map
-through the context — exactly how `:event` is reachable at both layers.
+unexpressible). There is no nested map in the *flat declared spread* — no
+`:cofx` key, no `:rf.world/inputs` successor, no duplicate of `:rf/time-ms`. The
+envelope's `:rf.cofx` map carries the canonical complete record; the declared
+leaves carry the flat spread; one home per layer. The `:rf.cofx` record itself
+is **always** staged into the coeffects as a framework context key — "declared-only"
+governs the flat spread, **not** the staged record, which is reachable **exactly
+how `:event` is reachable** (and is a framework context key, *not* a registered
+coeffect supplier — the `:cofx/envelope-preserved` conformance fixture pins this).
+Generic code that wants the whole record (transition helpers, interceptors, the
+framework-internal `context -> context` primitive) reads the envelope's map
+through the context.
+
+> **Reaching into the record is discouraged for app code.** Ordinary application
+> handlers SHOULD consume facts through their flat declared leaves
+> (`(:rf/time-ms coeffects)`), not by reaching into the whole record
+> (`(:rf/time-ms (:rf.cofx coeffects))`). The reach is *allowed* — `:rf.cofx` is
+> a plain framework context key, and the values it carries are **replay-safe by
+> construction** (replay re-presents the same token with the same values, so
+> folding one into durable state is deterministic). But it is **discouraged for
+> app code** because it **bypasses declaration hygiene**: a fact consumed off the
+> record never appears in the handler's `:rf.cofx/requires`, so `handler-meta`
+> and tooling cannot see the dependency. This is **developer discipline, not a
+> runtime-enforced invariant** — the framework leaves the safer recorded-token
+> read open and lints only the genuinely dangerous *ambient* host read (§1, the
+> durable-write rule). Reading the whole record is for generic / framework code
+> that legitimately needs the complete causal record.
 
 **Coeffects are context assembly, not chain members.** Operationally,
 satisfaction behaves like an implicit interceptor at the head of the chain;
