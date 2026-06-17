@@ -1680,8 +1680,10 @@
         ":sensitive? is not :large? — the flags are independent")))
 
 (deftest large-marker-fields
-  (testing "rf2-vmhu4i — the elided value-bearing slot carries a well-formed
-            :rf.size/large-elided marker with :reason :schema provenance"
+  (testing "rf2-vmhu4i / rf2-9wvwpa — the elided value-bearing slot carries a
+            well-formed :rf.size/large-elided marker conformant to the
+            post-EP-0015 §8 [:frame :marks] :reason enum (NOT the retired
+            :reason :schema), with the REQUIRED :hint slot present"
     (let [blob   (apply str (repeat 200 "X"))
           traces (atom [])]
       (rf/register-listener! ::lgm (fn [ev] (swap! traces conj ev)))
@@ -1694,7 +1696,9 @@
             marker (-> v :tags :value :rf.size/large-elided)]
         (is (some? v) "a validation-failure trace fired")
         (is (map? marker) ":value carries a :rf.size/large-elided marker")
-        (is (= :schema (:reason marker)) ":reason :schema (schema-nominated elision)")
+        (is (= :frame (:reason marker))
+            ":reason :frame — conforms to the post-EP-0015 [:frame :marks] enum")
+        (is (contains? marker :hint) ":hint slot present (REQUIRED by the contract)")
         (is (integer? (:bytes marker)) ":bytes is a byte count")
         (is (= [:rf.elision/at []] (:handle marker)) ":handle is the fetch handle")
         (is (true? (-> v :tags :large?)) ":tags :large? stamped")

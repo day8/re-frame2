@@ -105,7 +105,8 @@
   `:event` (duplicate of `:received`) and `:malli-error` (duplicate of
   `:explain`) tags have been dropped — consumers reach for `:received`
   / `:value` / `:explain`."
-  (:require [re-frame.error :as error]
+  (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -154,42 +155,38 @@
 ;; schema declares any `:large?` slot and NO `:sensitive?` slot governs the
 ;; redaction — a sensitive failure already scrubs to `:rf/redacted`, and a
 ;; sensitive marker would itself leak the secret's `:path` / `:bytes` size
-;; signature. Mirrors `re-frame.marks/large-marker`'s shape (kept local so the
-;; schemas artefact carries no dependency on the core `marks` ns + its elision
-;; / substrate-adapter graph).
-
-(defn- ->bytes
-  "Byte-count of a value's printed representation. The `:bytes` slot of the
-  `:rf.size/large-elided` marker (mirrors `re-frame.marks/->bytes`)."
-  [v]
-  #?(:clj  (count (.getBytes ^String (pr-str v) "UTF-8"))
-     :cljs (count (pr-str v))))
-
-(defn- value-type
-  [v]
-  (cond
-    (map? v)    :map
-    (vector? v) :vector
-    (set? v)    :set
-    (string? v) :string
-    :else       :scalar))
+;; signature. The marker is built by the canonical `re-frame.elision/->marker`
+;; (core, NOT the `marks` ns) so the shape physically cannot drift from the
+;; `:rf/elision-marker` contract again (rf2-9wvwpa). `re-frame.elision` lives in
+;; core — the artefact the schemas surface already depends on (cf.
+;; `re-frame.frame` above) — and carries no concrete substrate-adapter
+;; dependency (it `:require`s only the `re-frame.substrate.adapter` *contract*
+;; ns, a sibling of `re-frame.frame`).
 
 (defn- large-marker
   "Build the `:rf.size/large-elided` marker for the whole failing value `v`.
-  Per Spec-Schemas §`:rf/elision-marker` / Spec 009 §Wire marker. `:reason
-  :schema` records that the elision was nominated by a `:large?` schema slot
-  (distinct from the `:marks` / `:frame` provenance the app-db egress path
-  carries). `:path []` — the marker substitutes the WHOLE value-bearing slot,
-  matching the whole-payload nature of these slots (a single marker, not a
-  path-walk; the value-bearing slots carry the whole checked value, not a
-  leaf)."
+  Conforms to Spec-Schemas §`:rf/elision-marker` / Spec 009 §Wire marker by
+  delegating to the canonical `re-frame.elision/->marker` — the marker shape
+  (`:path`, `:bytes`, `:type`, `:reason`, `:hint`, `:handle`) is therefore
+  identical to every other framework emission and cannot drift (rf2-9wvwpa).
+
+  `:reason :frame` — post-EP-0015 §8 the egress `:reason` enum is
+  `[:frame :marks]` (Spec-Schemas §`:rf/elision-marker`); `:frame` is the
+  declarative/registration-time default in `->marker`. No imperative mark
+  created this elision, and the validation-failure provenance is already on
+  the enclosing trace envelope (`:operation
+  :rf.error/schema-validation-failure` + `:where` + `:tags :large? true`), so
+  the marker carries no `:reason :schema` carve-out.
+
+  `:hint nil` — the slot is REQUIRED by the contract (Spec 009 §Wire marker
+  permits a nil value); the whole-value substitution has no human-facing
+  re-fetch hint distinct from the trace envelope.
+
+  `:path []` — the marker substitutes the WHOLE value-bearing slot, matching
+  the whole-payload nature of these slots (a single marker, not a path-walk;
+  the value-bearing slots carry the whole checked value, not a leaf)."
   [v]
-  {:rf.size/large-elided
-   {:path   []
-    :bytes  (->bytes v)
-    :type   (value-type v)
-    :reason :schema
-    :handle [:rf.elision/at []]}})
+  (elision/->marker v [] {:reason :frame :hint nil}))
 
 (defn- elide-large-slots
   "Substitute the `:rf.size/large-elided` marker (for `v`, the whole checked
