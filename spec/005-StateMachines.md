@@ -3099,15 +3099,17 @@ A history state is a **pseudo-state**: a node declared under a compound state's 
 ```clojure
 {:player
  {:initial :stopped
-  :states {:stopped {:on {:play [:player :hist]}}      ;; transition targets the pseudo-state to restore
-           :hist    {:type :history
-                     :deep? true                        ;; omit => SHALLOW history
-                     :default-target :playing}          ;; omit => falls back to :player's :initial
-           :playing {:initial :at-start
-                     :states {:at-start {:on {:seek :mid-track}}
-                              :mid-track {}}}
-           :paused  {:on {:resume [:player :playing]}}}}}
+  :states {:stopped {:on {:play [:player :playing :hist]}}  ;; transition targets the pseudo-state to restore
+           :playing {:initial :at-start                      ;; the history-OWNING compound — :stop exits it
+                     :on      {:stop [:player :stopped]}
+                     :states {:hist      {:type :history
+                                          :deep? true             ;; omit => SHALLOW history
+                                          :default-target :at-start} ;; omit => falls back to :playing's :initial
+                              :at-start  {:on {:seek :mid-track}}
+                              :mid-track {}}}}}}
 ```
+
+The history pseudo-state lives **under the compound it remembers** (`:playing`), so that a transition leaving that compound (here `:stop`, exiting `:playing` for its sibling `:stopped`) genuinely puts `:playing` in the exit set and records its last-active leaf — see [§Recording — on compound-state exit](#recording--on-compound-state-exit). Re-entering via `[:player :playing :hist]` restores it.
 
 The pseudo-state node carries exactly three keys, all owned by the history grammar:
 
@@ -3121,10 +3123,12 @@ A transition resolves to the pseudo-state by naming it the way any other state i
 
 ### Recording — on compound-state exit
 
-Every time the exit cascade (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)) leaves a compound state that owns a history pseudo-state, the runtime **records that compound's last-active configuration** — the active substate path *beneath* the compound at the moment of exit — into the reserved snapshot slot `:rf/history` (per [§The `:rf/history` snapshot slot](#the-rfhistory-snapshot-slot) below). The recording is keyed by the compound's **declaration path** (the absolute prefix-path of the compound state-node in the transition table), so a machine with several history-bearing compounds records each independently.
+Whenever the exit cascade (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)) **exits** a compound state that owns a history pseudo-state — i.e. that compound is in the transition's **exit set** — the runtime **records that compound's last-active configuration** — the active substate path *beneath* the compound at the moment of exit — into the reserved snapshot slot `:rf/history` (per [§The `:rf/history` snapshot slot](#the-rfhistory-snapshot-slot) below). The recording is keyed by the compound's **declaration path** (the absolute prefix-path of the compound state-node in the transition table), so a machine with several history-bearing compounds records each independently.
 
-- A **deep**-history compound records the **full leaf path** beneath itself (e.g. `[:playing :mid-track]` relative to `:player`'s subtree, stored as the absolute path).
-- A **shallow**-history compound records only its **direct child** (e.g. `:playing`); on restore the runtime cascades from that child through its own `:initial` chain.
+The trigger is the compound's own **exit**, not merely the teardown of its current child subtree. A compound records iff it lies **strictly below** the transition's LCA (its declaration path is longer than the LCA path) — that is, iff it is genuinely left. A transition that merely moves between two **children** of compound `C` keeps `C` as the LCA, so `C` **survives** and records **nothing**: there is no last-active configuration to remember because the compound was never left. This is the [XState v5](https://stately.ai/docs/history-states) / [W3C SCXML](https://www.w3.org/TR/scxml/#history) gold-standard semantic — a `<history>` value is written only for states in the exit set (SCXML Appendix D writes `historyValue` while iterating `statesToExit`); history means *"where this compound was when we left it"*, so the compound must actually be left.
+
+- A **deep**-history compound records the **full leaf path** the machine occupied beneath itself (e.g. the absolute path `[:player :playing :mid-track]` for `:playing`'s history).
+- A **shallow**-history compound records only its **direct child** (e.g. `:at-start`); on restore the runtime cascades from that child through its own `:initial` chain.
 
 Recording happens **as part of the exit cascade's commit**, on the same drain that exits the compound — there is no separate write phase. Because `:rf/history` lives inside the snapshot (a revertible value), the recording rides every persistence and time-axis path that the snapshot itself rides (per [§Composition with persistence, SSR, and time-travel](#composition-with-persistence-ssr-and-time-travel)).
 
@@ -3146,7 +3150,7 @@ In every case the **resolved** leaf path — not the pseudo-state — is what th
 
 History restoration is **not a new cascade mechanism** — it is a target-resolution step that feeds the existing entry-cascade machinery. Once the pseudo-state resolves to a concrete leaf path, the standard geometry applies unchanged:
 
-- **LCA + cascade ordering.** The transition's LCA is computed (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)) between the source path and the **resolved** target leaf — exactly as if the author had written the resolved path as a literal `:target`. The exit cascade fires deepest-first from the source leaf back to the LCA; the transition `:action` runs at the LCA boundary; the entry cascade fires shallowest-first from below the LCA down to the resolved leaf, continuing through any `:initial` chain (shallow case). The recording write for the *source* compound (if it owns history and is being exited) happens as part of that same exit cascade.
+- **LCA + cascade ordering.** The transition's LCA is computed (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)) between the source path and the **resolved** target leaf — exactly as if the author had written the resolved path as a literal `:target`. The exit cascade fires deepest-first from the source leaf back to the LCA; the transition `:action` runs at the LCA boundary; the entry cascade fires shallowest-first from below the LCA down to the resolved leaf, continuing through any `:initial` chain (shallow case). A history-owning compound on the source path records **only if it is in the exit set** — i.e. it lies strictly below the LCA and is therefore left by this transition. The LCA compound itself **survives** and records nothing, even though its current child subtree is torn down (per [§Recording — on compound-state exit](#recording--on-compound-state-exit) — the exit-set rule). Consequently a restore-to-history transition, which *enters* (rather than exits) the history-owning compound, records nothing for that compound — re-entry leaves the recorded slot untouched.
 - **Deep nesting.** A deep-history compound nested several levels down records and restores its full subtree path relative to itself; an outer compound's own history (if any) records independently, keyed by its own declaration path. The two never interfere — each compound's recording is a separate entry in the `:rf/history` map.
 - **Final states.** Entering a `:final?` leaf inside a history-bearing compound records normally on the way in only if a later exit occurs; in practice a singleton reaching `:final?` auto-destroys (per [§Final states](#final-states-final--on-done--output-key)) and the snapshot is dissoc'd, so its `:rf/history` goes with it. Restoring a recorded path whose leaf was `:final?` is a no-op edge the runtime handles via the dangling-path fallback (a `:final?` leaf the definition still declares restores like any other leaf; one the definition removed falls back to `:default-target` / `:initial`).
 - **`:always` / `:after`.** The resolved leaf's `:always` entries are checked after the restoring entry cascade settles (microstep loop, per [§Eventless `:always` transitions](#eventless-always-transitions)); its `:after` timers are scheduled at entry (per [§Delayed `:after` transitions](#delayed-after-transitions)) — identical to entering that leaf by any other path.
@@ -3160,10 +3164,10 @@ Under a `:type :parallel` machine each region runs an independent state-tree (pe
 The recorded history lives in a reserved snapshot-root slot, a sibling of `:rf/spawn-counter` and `:rf/machine-type` (per [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys)):
 
 ```clojure
-{:state :stopped
+{:state [:player :stopped]
  :data  {…}
- :rf/history {[:player]        [:playing :mid-track]    ;; deep — full leaf path beneath :player
-              [:player :inner] :paused}}                ;; shallow — recorded direct child
+ :rf/history {[:player :playing] [:player :playing :mid-track]  ;; deep — absolute leaf path; key = the exited compound
+              [:player :other]   :paused}}                      ;; shallow — recorded direct child
 ```
 
 `:rf/history` is a **map** keyed by **compound declaration path** (a vector of keywords) to that compound's **recorded configuration**. It is NOT a single config — a machine may own several history-bearing compounds, each recorded independently; and under `:type :parallel` the keys are region-qualified (head segment is the region name), so per-region recordings never collide. The recorded value is:

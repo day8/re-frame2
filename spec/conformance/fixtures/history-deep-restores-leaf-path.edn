@@ -2,15 +2,21 @@
 ;;
 ;; First-class DEEP history (rf2-mle6e). A `{:type :history :deep? true}`
 ;; pseudo-state under a compound's `:states` records that compound's FULL
-;; active leaf path on exit (into the revertible `:rf/history` snapshot slot,
-;; keyed by the compound's declaration path) and restores the EXACT recorded
-;; leaf on re-entry — NOT the compound's `:initial`.
+;; active leaf path on the compound's EXIT (into the revertible `:rf/history`
+;; snapshot slot, keyed by the compound's declaration path) and restores the
+;; EXACT recorded leaf on re-entry — NOT the compound's `:initial`.
+;;
+;; Per the XState v5 / W3C SCXML exit-set rule (rf2-9eidiv) only a compound
+;; that is GENUINELY EXITED records history. Here the deep-history owner is
+;; `:playing`: `:stop` exits the whole `:playing` subtree to its sibling
+;; `:stopped`, recording `:playing`'s last-active leaf under [:player :playing];
+;; `:play` re-enters via [:player :playing :hist].
 ;;
 ;; Mode B (`:machine-transition`) record→restore, expressed as two independent
-;; calls: call (1) EXITS the compound from a deep leaf and asserts the recorded
-;; `:rf/history` slot; call (2) RE-ENTERS via the history pseudo-state (its
-;; input snapshot = call (1)'s expected output) and asserts the full recorded
-;; leaf is restored.
+;; calls: call (1) EXITS the `:playing` compound from a deep leaf and asserts
+;; the recorded `:rf/history` slot; call (2) RE-ENTERS via the history
+;; pseudo-state (its input snapshot = call (1)'s expected output) and asserts
+;; the full recorded leaf is restored.
 ;;
 ;; Per [005 §History states](../../005-StateMachines.md#history-states-type-history--shallow--deep--default-target)
 ;; §Recording / §Restoration.
@@ -18,52 +24,53 @@
 {:fixture/id           :machine/history-deep-restores-leaf-path
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/hierarchical :fsm/history}
- :fixture/doc          "Deep history records the full active leaf path on the compound's exit (into :rf/history keyed by the compound's declaration path) and restores that EXACT leaf on re-entry, not the compound's :initial."
+ :fixture/doc          "Deep history records the full active leaf path on the OWNING compound's exit (into :rf/history keyed by the compound's declaration path) and restores that EXACT leaf on re-entry, not the compound's :initial."
 
  :fixture/registry {}
  :fixture/handlers  {}
 
  :fixture/calls
- [;; (1) RECORD: exit :player from the deep leaf [:player :playing :mid-track]
-  ;; via :stop. The deep history records the full leaf path under [:player].
+ [;; (1) RECORD: exit the :playing compound from the deep leaf
+  ;; [:player :playing :mid-track] via :stop. :playing is genuinely exited,
+  ;; so its deep history records the full leaf path under [:player :playing].
   {:call         :machine-transition
    :definition
    {:initial :player
     :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :deep? true :default-target :playing}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
                          :playing {:initial :at-start
                                    :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                   :states  {:hist      {:type :history :deep? true :default-target :at-start}
+                                             :at-start  {:on {:seek :mid-track}}
                                              :mid-track {:on {:stop [:player :stopped]}}}}}}}}
    :snapshot     {:state [:player :playing :mid-track] :data {}}
    :event        [:stop]
    :expect-next-snapshot {:state    [:player :stopped]
                           :data     {}
-                          :rf/history {[:player] [:player :playing :mid-track]}}
+                          :rf/history {[:player :playing] [:player :playing :mid-track]}}
    :expect-effects       []}
 
-  ;; (2) RESTORE: re-enter via the history pseudo-state ([:player :hist]). The
-  ;; recorded deep leaf is restored exactly. The restore ALSO records the
-  ;; outgoing config [:player :stopped] (the exit cascade overwrites the slot),
-  ;; so the post snapshot's :rf/history shows the now-overwritten value.
+  ;; (2) RESTORE: re-enter via the history pseudo-state ([:player :playing
+  ;; :hist]). The recorded deep leaf is restored exactly. The restore does NOT
+  ;; exit :playing (it ENTERS it), so it records nothing — the :rf/history slot
+  ;; keeps its recorded value.
   {:call         :machine-transition
    :definition
    {:initial :player
     :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :deep? true :default-target :playing}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
                          :playing {:initial :at-start
                                    :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                   :states  {:hist      {:type :history :deep? true :default-target :at-start}
+                                             :at-start  {:on {:seek :mid-track}}
                                              :mid-track {:on {:stop [:player :stopped]}}}}}}}}
    :snapshot     {:state    [:player :stopped]
                   :data     {}
-                  :rf/history {[:player] [:player :playing :mid-track]}}
+                  :rf/history {[:player :playing] [:player :playing :mid-track]}}
    :event        [:play]
    :expect-next-snapshot {:state    [:player :playing :mid-track]
                           :data     {}
-                          :rf/history {[:player] [:player :stopped]}}
+                          :rf/history {[:player :playing] [:player :playing :mid-track]}}
    :expect-effects       []}]}

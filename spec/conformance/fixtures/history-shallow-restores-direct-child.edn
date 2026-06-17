@@ -5,8 +5,15 @@
 ;; on exit; on re-entry the runtime restores that child then CASCADES through
 ;; the child's OWN `:initial` chain — so a deep leaf at exit restores only to
 ;; the child's `:initial`, NOT the exact exit leaf. This is the depth contrast
-;; with `history-deep-restores-leaf-path` (identical shape, identical exit leaf,
-;; different restore).
+;; with `history-deep-restores-leaf-path` (identical exit leaf, different
+;; restore).
+;;
+;; Per the XState v5 / W3C SCXML exit-set rule (rf2-9eidiv) only a GENUINELY
+;; EXITED compound records, and a SHALLOW recording of the direct child
+;; `:playing` requires the OWNING compound `:player` to be exited. This uses
+;; the SCXML test388 external-sibling shape: `:eject` exits the whole `:player`
+;; subtree to its top-level sibling `:tray`, recording `:player`'s direct child
+;; (:playing); `:insert` re-enters via [:player :hist].
 ;;
 ;; Per [005 §History states](../../005-StateMachines.md#history-states-type-history--shallow--deep--default-target):
 ;; "missing `:deep?` reads as `:deep? false`" (shallow is the default).
@@ -14,52 +21,53 @@
 {:fixture/id           :machine/history-shallow-restores-direct-child
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/hierarchical :fsm/history}
- :fixture/doc          "Shallow history records only the compound's direct child on exit; on re-entry it restores that child and descends the child's own :initial chain (NOT the exact deep exit leaf). A missing :deep? reads as shallow."
+ :fixture/doc          "Shallow history records only the compound's direct child on the owner's exit; on re-entry it restores that child and descends the child's own :initial chain (NOT the exact deep exit leaf). A missing :deep? reads as shallow."
 
  :fixture/registry {}
  :fixture/handlers  {}
 
  :fixture/calls
- [;; (1) RECORD: exit :player from the deep leaf [:player :playing :mid-track].
-  ;; Shallow history records ONLY the direct child keyword (:playing).
+ [;; (1) RECORD: exit :player from the deep leaf [:player :playing :mid-track]
+  ;; via :eject (to the :tray sibling). :player is genuinely exited, so its
+  ;; shallow history records ONLY the direct child keyword (:playing).
   {:call         :machine-transition
    :definition
    {:initial :player
-    :states  {:player
-              {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :default-target :playing}
-                         :playing {:initial :at-start
-                                   :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
-                                             :mid-track {:on {:stop [:player :stopped]}}}}}}}}
+    :states  {:player {:initial :stopped
+                       :on      {:eject :tray}
+                       :states  {:hist    {:type :history :default-target :playing}
+                                 :stopped {}
+                                 :playing {:initial :at-start
+                                           :states  {:at-start  {:on {:seek :mid-track}}
+                                                     :mid-track {}}}}}
+              :tray   {:on {:insert [:player :hist]}}}}
    :snapshot     {:state [:player :playing :mid-track] :data {}}
-   :event        [:stop]
-   :expect-next-snapshot {:state    [:player :stopped]
+   :event        [:eject]
+   :expect-next-snapshot {:state    :tray
                           :data     {}
                           :rf/history {[:player] :playing}}
    :expect-effects       []}
 
-  ;; (2) RESTORE: re-enter via [:player :hist]. The recorded direct child
-  ;; (:playing) is restored, then its :initial chain (:at-start) is descended —
-  ;; landing at [:player :playing :at-start], NOT the recorded-from :mid-track.
-  ;; The exit cascade overwrites the slot with the outgoing config (:stopped).
+  ;; (2) RESTORE: re-enter via [:player :hist] from :tray. The recorded direct
+  ;; child (:playing) is restored, then its :initial chain (:at-start) is
+  ;; descended — landing at [:player :playing :at-start], NOT the recorded-from
+  ;; :mid-track. The restore ENTERS :player, recording nothing.
   {:call         :machine-transition
    :definition
    {:initial :player
-    :states  {:player
-              {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :default-target :playing}
-                         :playing {:initial :at-start
-                                   :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
-                                             :mid-track {:on {:stop [:player :stopped]}}}}}}}}
-   :snapshot     {:state    [:player :stopped]
+    :states  {:player {:initial :stopped
+                       :on      {:eject :tray}
+                       :states  {:hist    {:type :history :default-target :playing}
+                                 :stopped {}
+                                 :playing {:initial :at-start
+                                           :states  {:at-start  {:on {:seek :mid-track}}
+                                                     :mid-track {}}}}}
+              :tray   {:on {:insert [:player :hist]}}}}
+   :snapshot     {:state    :tray
                   :data     {}
                   :rf/history {[:player] :playing}}
-   :event        [:play]
+   :event        [:insert]
    :expect-next-snapshot {:state    [:player :playing :at-start]
                           :data     {}
-                          :rf/history {[:player] :stopped}}
+                          :rf/history {[:player] :playing}}
    :expect-effects       []}]}

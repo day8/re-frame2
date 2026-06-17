@@ -56,37 +56,45 @@
     (is (result/ok? r) (str "transition ok for event " (pr-str event)))
     (result/snap r)))
 
-;; A media-player compound with a DEEP history pseudo-state. `:play` from
-;; `:stopped` targets the history node, which restores the recorded leaf
-;; beneath `:player` (or `:default-target` on first entry).
+;; A media-player chart whose `:playing` COMPOUND owns a DEEP history
+;; pseudo-state. Per the XState v5 / SCXML exit-set rule (rf2-9eidiv), only
+;; a compound that is GENUINELY EXITED records history — so the history
+;; owner must be a compound the transition leaves. Here `:stop` exits the
+;; whole `:playing` subtree to its sibling `:stopped`, recording `:playing`'s
+;; last-active leaf; `:play` re-enters via `[:player :playing :hist]`, which
+;; restores the recorded leaf (or `:default-target` on first entry).
 (def deep-player
   {:initial :player
    :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history
-                                   :deep? true
-                                   :default-target :playing}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
                          :playing {:initial :at-start
                                    :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                   :states  {:hist      {:type :history
+                                                         :deep? true
+                                                         :default-target :at-start}
+                                             :at-start  {:on {:seek :mid-track}}
                                              :mid-track {:on {:stop [:player :stopped]}}}}
                          :paused  {:on {:resume [:player :playing]}}}}}})
 
-;; Same shape but SHALLOW (no `:deep?`). On restore the recorded DIRECT CHILD
-;; is descended through its own `:initial` chain — so a deep-leaf at exit
-;; restores only to the child's `:initial`, not the exact leaf.
+;; SHALLOW history that records `:player`'s DIRECT CHILD (`:playing`). Under
+;; the exit-set rule a SHALLOW recording of a direct child requires the
+;; OWNING compound (`:player`) to be genuinely exited — so this mirrors the
+;; SCXML test388 `:s0 -> :away` external-sibling shape: `:eject` leaves the
+;; whole `:player` subtree to its top-level sibling `:tray`, recording
+;; `:player`'s direct child; `:insert` re-enters via `[:player :hist]`, which
+;; restores the recorded child then descends ITS `:initial` chain (so a deep
+;; leaf at exit restores only to the child's `:initial`, not the exact leaf).
 (def shallow-player
   {:initial :player
-   :states  {:player
-              {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history
-                                   :default-target :playing}
-                         :playing {:initial :at-start
-                                   :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
-                                             :mid-track {:on {:stop [:player :stopped]}}}}}}}})
+   :states  {:player {:initial :stopped
+                      :on      {:eject :tray}
+                      :states  {:hist    {:type :history :default-target :playing}
+                                :stopped {}
+                                :playing {:initial :at-start
+                                          :states  {:at-start  {:on {:seek :mid-track}}
+                                                    :mid-track {}}}}}
+             :tray   {:on {:insert [:player :hist]}}}})
 
 (defn- seed
   "A fresh pure-call snapshot positioned at `state`."
@@ -94,25 +102,29 @@
   {:state state :data {} :rf/spawn-counter {}})
 
 (deftest deep-history-records-and-restores-leaf
-  (testing "DEEP history records the full leaf path on exit and restores it on re-entry"
-    ;; Position deep into the subtree, then leave via :stop (absolute target,
-    ;; so the post-state is the vector [:player :stopped]).
+  (testing "DEEP history records the full leaf path on the OWNING compound's exit and restores it on re-entry"
+    ;; Position deep into :playing, then exit the whole :playing subtree via
+    ;; :stop (absolute target [:player :stopped]) — :playing is genuinely
+    ;; exited, so its deep history records the full leaf path.
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])]
       (is (= [:player :stopped] (:state after-stop)) "exited to :stopped")
-      (is (= [:player :playing :mid-track] (get-in after-stop [:rf/history [:player]]))
-          "deep history recorded the full absolute leaf path under :player")
-      ;; Re-enter via the history pseudo-state.
+      (is (= [:player :playing :mid-track] (get-in after-stop [:rf/history [:player :playing]]))
+          "deep history recorded the full absolute leaf path under :playing (the exited owner)")
+      ;; Re-enter via the history pseudo-state under :playing.
       (let [restored (step deep-player after-stop [:play])]
         (is (= [:player :playing :mid-track] (:state restored))
             "deep history restored the exact recorded leaf, not :initial")))))
 
 (deftest shallow-history-records-child-and-cascades-initial
   (testing "SHALLOW history records the direct child + cascades its :initial on restore"
-    (let [after-stop (step shallow-player (seed [:player :playing :mid-track]) [:stop])]
-      (is (= [:player :stopped] (:state after-stop)) "exited to :stopped")
-      (is (= :playing (get-in after-stop [:rf/history [:player]]))
+    ;; :eject exits the whole :player subtree to its sibling :tray — :player
+    ;; is genuinely exited (the SCXML test388 external-sibling shape), so its
+    ;; shallow history records the direct child (:playing).
+    (let [after-eject (step shallow-player (seed [:player :playing :mid-track]) [:eject])]
+      (is (= :tray (:state after-eject)) "ejected to the :tray sibling")
+      (is (= :playing (get-in after-eject [:rf/history [:player]]))
           "shallow history recorded the direct child keyword (:playing)")
-      (let [restored (step shallow-player after-stop [:play])]
+      (let [restored (step shallow-player after-eject [:insert])]
         ;; Shallow descends :playing's :initial (:at-start), NOT the exact
         ;; exit leaf (:mid-track).
         (is (= [:player :playing :at-start] (:state restored))
@@ -120,25 +132,29 @@
 
 (deftest default-target-on-first-entry
   (testing "first entry (nothing recorded) resolves the pseudo-state's :default-target"
-    ;; No prior exit ⇒ no recording ⇒ :default-target :playing → :at-start.
-    ;; (The restore transition ALSO records :stopped on its way out — leaving
-    ;; :stopped tears down :player's current child subtree — but the RESTORE
-    ;; reads the pre-transition (empty) history, so it falls to default.)
+    ;; No prior exit ⇒ no recording ⇒ :default-target :at-start. The restore
+    ;; transition (:stopped → :playing) does NOT exit :playing, so it records
+    ;; nothing; the RESTORE reads the (empty) history and falls to default.
     (let [restored (step deep-player (seed [:player :stopped]) [:play])]
       (is (= [:player :playing :at-start] (:state restored))
-          ":default-target :playing descended to its :initial leaf"))))
+          ":default-target :at-start resolved on first entry"))))
 
 (deftest default-target-absent-falls-back-to-initial
   (testing "when :default-target is absent the fallback is the compound's :initial"
+    ;; :playing owns deep history with NO :default-target; first entry falls
+    ;; back to :playing's own :initial (:at-start).
     (let [m {:initial :player
              :states  {:player
                         {:initial :stopped
-                         :states  {:stopped {:on {:play [:player :hist]}}
-                                   :hist    {:type :history :deep? true}
-                                   :playing {:on {:stop :stopped}}}}}}
+                         :states  {:stopped {:on {:play [:player :playing :hist]}}
+                                   :playing {:initial :at-start
+                                             :on      {:stop [:player :stopped]}
+                                             :states  {:hist      {:type :history :deep? true}
+                                                       :at-start  {}
+                                                       :mid-track {}}}}}}}
           restored (step m (seed [:player :stopped]) [:play])]
-      (is (= [:player :stopped] (:state restored))
-          "no :default-target ⇒ compound's :initial (:stopped) cascade"))))
+      (is (= [:player :playing :at-start] (:state restored))
+          "no :default-target ⇒ :playing's :initial (:at-start) cascade"))))
 
 (deftest dangling-recorded-path-falls-back
   (testing "a recorded leaf the (hot-reloaded) definition removed falls back to default (rf2-wgfv0)"
@@ -147,7 +163,7 @@
     ;; removed it. Restore must discard it and fall back, never entering the
     ;; dead path. Benign — no :rf.error/*.
     (let [snap     (assoc (seed [:player :stopped])
-                          :rf/history {[:player] [:player :playing :gone]})
+                          :rf/history {[:player :playing] [:player :playing :gone]})
           r        (machines/machine-transition deep-player snap [:play])]
       (is (result/ok? r) "dangling path is benign — no failure")
       (let [restored (result/snap r)]
@@ -164,25 +180,29 @@
         (is (= [:player :playing :mid-track] (:state restored))
             "history restore works off a round-tripped snapshot")))))
 
-;; A parallel machine with a history-bearing compound in EACH region.
+;; A parallel machine with a history-bearing compound (`:on`) in EACH region.
+;; Under the exit-set rule the history owner must be a compound the move
+;; genuinely exits — so `:on` (not `:group`) owns the deep history: `:off-*`
+;; exits the whole `:on` subtree to its sibling `:off`, recording `:on`'s
+;; last-active leaf; `:on-*` re-enters via `[:group :on :hist]`.
 (def parallel-history
   {:type    :parallel
    :regions {:left  {:initial :group
                      :states  {:group {:initial :off
-                                       :states  {:off {:on {:on-l [:group :hist]}}
-                                                 :hist {:type :history :deep? true}
-                                                 :on   {:initial :dim
-                                                        :on      {:off-l [:group :off]}
-                                                        :states  {:dim    {:on {:bright-l :bright}}
-                                                                  :bright {:on {:off-l [:group :off]}}}}}}}}
+                                       :states  {:off {:on {:on-l [:group :on :hist]}}
+                                                 :on  {:initial :dim
+                                                       :on      {:off-l [:group :off]}
+                                                       :states  {:hist   {:type :history :deep? true}
+                                                                 :dim    {:on {:bright-l :bright}}
+                                                                 :bright {:on {:off-l [:group :off]}}}}}}}}
              :right {:initial :group
                      :states  {:group {:initial :off
-                                       :states  {:off {:on {:on-r [:group :hist]}}
-                                                 :hist {:type :history :deep? true}
-                                                 :on   {:initial :dim
-                                                        :on      {:off-r [:group :off]}
-                                                        :states  {:dim    {:on {:bright-r :bright}}
-                                                                  :bright {:on {:off-r [:group :off]}}}}}}}}}})
+                                       :states  {:off {:on {:on-r [:group :on :hist]}}
+                                                 :on  {:initial :dim
+                                                       :on      {:off-r [:group :off]}
+                                                       :states  {:hist   {:type :history :deep? true}
+                                                                 :dim    {:on {:bright-r :bright}}
+                                                                 :bright {:on {:off-r [:group :off]}}}}}}}}}})
 
 (deftest per-region-history-is-region-qualified
   (testing "parallel history records region-qualified keys; restoring one region leaves siblings"
@@ -190,13 +210,13 @@
                          :right [:group :on :dim]}
                  :data  {}
                  :rf/spawn-counter {}}
-          ;; Turn both regions off — each records its own region-qualified
-          ;; history.
+          ;; Turn both regions off — each region's :on compound is exited, so
+          ;; each records its own region-qualified history.
           off-l (step parallel-history snap0 [:off-l])
           off   (step parallel-history off-l [:off-r])]
-      (is (= [:group :on :bright] (get-in off [:rf/history [:left :group]]))
+      (is (= [:group :on :bright] (get-in off [:rf/history [:left :group :on]]))
           ":left region recorded under its region-qualified key")
-      (is (= [:group :on :dim] (get-in off [:rf/history [:right :group]]))
+      (is (= [:group :on :dim] (get-in off [:rf/history [:right :group :on]]))
           ":right region recorded under its region-qualified key (no collision)")
       (is (= {:left [:group :off] :right [:group :off]} (:state off))
           "both regions off")
@@ -216,13 +236,13 @@
 
 (deftest recorded-trace-shape-deep
   (testing ":rf.machine.history/recorded carries the spec/009 deep tag bag"
-    ;; First-ever recording for [:player] — :prev-config ABSENT.
+    ;; First-ever recording for [:player :playing] — :prev-config ABSENT.
     (step deep-player (seed [:player :playing :mid-track]) [:stop])
     (let [evs (history-events :rf.machine.history/recorded)]
       (is (= 1 (count evs)) "exactly one recorded event")
       (let [tags (:tags (first evs))]
         (is (= :rf.machine (:op-type (first evs))) "machine-activity op-type")
-        (is (= [:player] (:compound-path tags)) ":compound-path = decl path")
+        (is (= [:player :playing] (:compound-path tags)) ":compound-path = exited owner's decl path")
         (is (= :deep (:kind tags)) ":kind :deep (not :deep?)")
         (is (= [:player :playing :mid-track] (:recorded-config tags))
             ":recorded-config = full leaf (renamed from :config)")
@@ -239,7 +259,7 @@
     ;; it), then exit again from a DIFFERENT leaf. The new :recorded event
     ;; reports :prev-config = the seeded value it overwrote.
     (let [snap0 (assoc (seed [:player :playing :mid-track])
-                       :rf/history {[:player] [:player :playing :at-start]})]
+                       :rf/history {[:player :playing] [:player :playing :at-start]})]
       (reset-capture!)
       (step deep-player snap0 [:stop])
       (let [tags (:tags (first (history-events :rf.machine.history/recorded)))]
@@ -260,7 +280,7 @@
             tags (:tags ev)]
         (is (= 1 (count evs)) "exactly one restored event")
         (is (= :rf.machine (:op-type ev)) "machine-activity op-type")
-        (is (= [:player] (:compound-path tags)) ":compound-path region-qualified decl path")
+        (is (= [:player :playing] (:compound-path tags)) ":compound-path = the restored owner's decl path")
         (is (= :deep (:kind tags)) ":kind :deep")
         ;; `:source` is hoisted to the envelope top level on the success path
         ;; (build-event strips it from :tags) — the spec's documented hoist.
@@ -296,9 +316,12 @@
     (let [m {:initial :player
              :states  {:player
                         {:initial :stopped
-                         :states  {:stopped {:on {:play [:player :hist]}}
-                                   :hist    {:type :history :deep? true}
-                                   :playing {:on {:stop :stopped}}}}}}]
+                         :states  {:stopped {:on {:play [:player :playing :hist]}}
+                                   :playing {:initial :at-start
+                                             :on      {:stop [:player :stopped]}
+                                             :states  {:hist      {:type :history :deep? true}
+                                                       :at-start  {}
+                                                       :mid-track {}}}}}}}]
       (step m (seed [:player :stopped]) [:play])
       (let [ev   (first (history-events :rf.machine.history/restored))
             tags (:tags ev)]
@@ -309,9 +332,9 @@
 
 (deftest restored-trace-shape-shallow-kind
   (testing "shallow history restore stamps :kind :shallow"
-    (let [after-stop (step shallow-player (seed [:player :playing :mid-track]) [:stop])]
+    (let [after-eject (step shallow-player (seed [:player :playing :mid-track]) [:eject])]
       (reset-capture!)
-      (step shallow-player after-stop [:play])
+      (step shallow-player after-eject [:insert])
       (let [ev   (first (history-events :rf.machine.history/restored))
             tags (:tags ev)]
         (is (= :shallow (:kind tags)) ":kind :shallow (no :deep?)")
@@ -350,3 +373,36 @@
           "no :source on entry steps of a non-history transition")
       (is (empty? (history-events :rf.machine.history/restored))
           "no restored event for a non-history transition"))))
+
+;; ---- exit-set boundary regression (rf2-9eidiv) ---------------------------
+;;
+;; The XState v5 / SCXML exit-set rule: a history-owning compound records
+;; ONLY when it is itself EXITED. A pure WITHIN-compound sibling move — where
+;; the history owner SURVIVES as the LCCA — records NOTHING. This was the OLD
+;; `<=` trigger (active-child-subtree teardown); the strict `<` gate retires
+;; it. This regression locks the boundary so it never silently slips back.
+
+;; `:player` itself owns deep history; `:swap` moves between its two children
+;; (:playing ↔ :stopped). `:player` is the LCA of that move — it SURVIVES (is
+;; never exited) — so under the exit-set rule it records nothing.
+(def surviving-owner
+  {:initial :player
+   :states  {:player {:initial :stopped
+                      :states  {:hist    {:type :history :deep? true :default-target :stopped}
+                                :stopped {:on {:swap [:player :playing]}}
+                                :playing {:initial :at-start
+                                          :on      {:swap [:player :stopped]}
+                                          :states  {:at-start  {:on {:seek :mid-track}}
+                                                    :mid-track {}}}}}}})
+
+(deftest within-compound-sibling-move-records-nothing
+  (testing "a within-compound sibling move (surviving LCCA — the old <= trigger) records NOTHING"
+    ;; :swap from [:player :playing :mid-track] → [:player :stopped] keeps
+    ;; :player as the surviving LCA. Under strict < (exit-set rule), :player
+    ;; is NOT exited, so nothing is recorded.
+    (let [after (step surviving-owner (seed [:player :playing :mid-track]) [:swap])]
+      (is (= [:player :stopped] (:state after)) "moved between :player's children")
+      (is (nil? (:rf/history after))
+          "the surviving-LCCA owner recorded NOTHING — :rf/history slot left untouched")
+      (is (empty? (history-events :rf.machine.history/recorded))
+          "no :rf.machine.history/recorded event for a pure within-compound sibling move"))))
