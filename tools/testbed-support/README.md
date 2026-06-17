@@ -64,7 +64,14 @@ node, one React root at a time — `#/` the live app, `#/stories` the Story
 shell. The plumbing that switches between them (a `defonce` React-root
 handle, the tear-down-one-before-mounting-the-other dance, and the
 `hashchange` listener) is pure React-DOM-root juggling — identical across
-every testbed but for the live-app root view. It was copy-pasted across
+every testbed but for the live-app root view. That root view is not a bare
+React tree: it is a **frame-scoped subtree** — a frame, supplied by the
+consuming testbed via `frame-provider`, resolving its handlers against a
+loaded image (EP-0023 §Views). This harness sits strictly ABOVE that
+frame/image boundary — it owns the React-root + hashchange mechanics and
+treats the testbed's root view as an opaque frame subtree; it neither
+creates frames nor loads images (that is the consuming testbed's job, via
+`reg-frame` / `with-frame` / `rf/init!`). It was copy-pasted across
 six hosts (`counter_with_stories`, `login_form`, the `login` and
 `nine_states` examples, the Xray `panel_gallery` testbed, plus the template
 scaffolding), already drifting in the per-testbed boot specifics they each add.
