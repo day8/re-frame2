@@ -82,11 +82,10 @@
 ;; Posture (rf2-l5r974 ruling, option (a) end-state — reverses the earlier
 ;; rf2-1gm0o "public-by-design fixture primitive" framing). Exposing the atoms
 ;; as Vars was an encapsulation leak that is worse than aesthetic:
-;;   1. `schemas-by-frame` is the authoritative store, so the rep cannot
-;;      evolve without breaking ad-hoc consumers — a future companion
-;;      side-table (or a change to the map shape itself) would have to be
-;;      cleared through `clear-schemas-by-frame!`, but raw
-;;      `(reset! schemas-by-frame {})` sites would silently skip it.
+;;   1. `schemas-by-frame` is the authoritative store; consumers must go
+;;      through the encapsulated snapshot / restore / clear API so the
+;;      representation can evolve (a map-shape change, or a future
+;;      companion side-table) without breaking ad-hoc raw-atom consumers.
 ;;   2. The public `printer-fn` atom bypassed the never-nil invariant
 ;;      `run-printer` relies on with NO read guard — `(reset! printer-fn nil)`
 ;;      NPEs the digest path; the setters exist precisely to coerce
@@ -103,8 +102,8 @@
 ;; may still reach `storage/schemas-by-frame` / `validator/validator-fn` via
 ;; those home namespaces directly — that is legitimate internal testing, not
 ;; public-facade use. Everything outside the schemas artefact uses the
-;; encapsulated API. A guard test (`re-frame.schemas-atom-privacy-test`) pins
-;; that the four atoms are not publicly resolvable from `re-frame.schemas`.
+;; encapsulated API; a re-export of any of the four atoms is a public-facade
+;; change a reviewer catches at diff-time.
 
 ;; Validator / explainer / printer (rf2-froe + rf2-wla45). Each fn has
 ;; its own single-purpose setter (returning the single fn it installs);
