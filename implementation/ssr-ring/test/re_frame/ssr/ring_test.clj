@@ -2359,7 +2359,7 @@
 ;; carry .getMessage (JDBC URLs, file paths, SQL fragments).
 ;; ===========================================================================
 
-(deftest default-on-error-fallback-shape-pinned
+(deftest default-on-error-shape-pinned
   (testing "rf2-zev2h — default-on-error returns the fixed-shape 500
             response with the literal `\"Internal error\"` body. The
             throwable's .getMessage MUST NOT appear anywhere in the
@@ -2386,122 +2386,6 @@
       (is (not (str/includes? (str (:headers response)) secret-msg))
           "rf2-kzvwq §P2.1: headers do NOT carry the throwable's
            .getMessage text either"))))
-
-;; ===========================================================================
-;; rf2-c1tac — make-default-on-error templates the body without leaking
-;; ===========================================================================
-;;
-;; Per rf2-c1tac the locked `default-on-error` body ("Internal error",
-;; plaintext) is the safe default. Apps that want a branded plaintext-
-;; or-HTML default error page without writing a full `:on-error` fn pass
-;; a `:on-error-fallback {:body … :content-type …}` opt — the resulting
-;; fn is built by `make-default-on-error`, ignores the throwable, and
-;; preserves the rf2-kzvwq no-leak contract.
-
-(deftest make-default-on-error-templates-body-and-content-type
-  (testing "rf2-c1tac — make-default-on-error returns a fn that responds
-            with the configured body + content-type + locked 500 status.
-            The fn ignores the throwable, so .getMessage cannot leak
-            (rf2-kzvwq §P2.1 contract preserved)."
-    (let [secret-msg "boom-jdbc-secret:postgres://internal-db.svc:5432/auth"
-          t          (ex-info secret-msg {})
-          req        {:uri "/anything" :request-method :get}
-          custom-body "<!DOCTYPE html><html><body><h1>Service unavailable</h1></body></html>"
-          on-err     (ssr-ring/make-default-on-error
-                       {:body custom-body
-                        :content-type "text/html; charset=utf-8"})
-          response   (on-err req t)]
-      (is (= 500 (:status response))
-          "status pinned to 500 — the templating surface does NOT let
-           callers change the locked status")
-      (is (= {"Content-Type" "text/html; charset=utf-8"}
-             (:headers response))
-          "configured :content-type rides through verbatim")
-      (is (= custom-body (:body response))
-          "configured :body rides through verbatim — caller-supplied
-           HTML can replace the plaintext default")
-      (is (not (str/includes? (:body response) secret-msg))
-          "rf2-kzvwq §P2.1: configured body does NOT carry the
-           throwable's .getMessage — make-default-on-error never
-           touches the throwable, only the caller's static template"))))
-
-(deftest make-default-on-error-zero-args-matches-default-on-error
-  (testing "rf2-c1tac — `(make-default-on-error)` with no opts produces
-            the SAME shape as the host-locked `default-on-error`. The
-            locked default stays constant; the templating surface
-            extends it without breaking the no-args baseline."
-    (let [req       {:uri "/x" :request-method :get}
-          t         (ex-info "boom" {})
-          via-ctor  ((ssr-ring/make-default-on-error) req t)
-          via-host  (ssr-ring/default-on-error req t)]
-      (is (= via-ctor via-host)
-          "`(make-default-on-error)` returns a fn equivalent to the host
-           `default-on-error` — same status, same headers, same body"))))
-
-(deftest ssr-handler-on-error-fallback-opt-templates-default-body
-  (testing "rf2-c1tac — ssr-handler resolves `:on-error-fallback` into
-            a templated default-on-error fn when the caller didn't
-            supply `:on-error`. The handler's transport-failure path
-            then emits the templated body (not the locked
-            \"Internal error\" string).
-
-            Drive the transport-failure path with a non-vector
-            `:on-create` — `resolve-on-create!` throws inside
-            `setup-request-frame!`'s try/catch, which surfaces the
-            short-circuit on-error response. This path is the
-            framework's last-resort net for setup-frame failures
-            the projector can't see."
-    (let [custom-body "<!DOCTYPE html><html><body>Service offline</body></html>"
-          handler     (ssr-ring/ssr-handler
-                        ;; A list :on-create (neither a vector nor a
-                        ;; 1-arity fn) passes the truthy presence check
-                        ;; at handler construction (`validate-required-opts!`)
-                        ;; but fails the shape check inside
-                        ;; `resolve-on-create!`, which runs inside the
-                        ;; per-request setup try/catch — exactly the
-                        ;; on-error path.
-                        {:on-create '(:rf/server-init)
-                         :root-view [:div]
-                         :payload [:x]
-                         :on-error-fallback {:body custom-body
-                                             :content-type "text/html; charset=utf-8"}})
-          response    (handler {:uri "/x" :request-method :get})]
-      (is (= 500 (:status response))
-          "status still pinned to 500 — the templating surface does not
-           let callers change the locked status")
-      (is (= custom-body (:body response))
-          ":on-error-fallback :body templated into the transport-failure
-           response, replacing the locked \"Internal error\" default")
-      (is (= "text/html; charset=utf-8"
-             (get (:headers response) "Content-Type"))
-          ":on-error-fallback :content-type templated into the response
-           headers"))))
-
-(deftest ssr-handler-explicit-on-error-overrides-on-error-fallback
-  (testing "rf2-c1tac — when BOTH `:on-error` and `:on-error-fallback`
-            are supplied, the explicit `:on-error` fn wins. The
-            templating shortcut is for callers who do NOT want to write
-            a Ring fn; an explicit-fn caller has already opted into the
-            full surface. Same non-vector-:on-create trigger as the
-            previous test."
-    (let [explicit-body "EXPLICIT"
-          template-body "TEMPLATED"
-          handler       (ssr-ring/ssr-handler
-                          {:on-create '(:rf/server-init)
-                           :root-view [:div]
-                           :payload [:x]
-                           :on-error (fn [_req _t]
-                                       {:status 503
-                                        :headers {"Content-Type" "text/plain"}
-                                        :body    explicit-body})
-                           :on-error-fallback {:body template-body
-                                               :content-type "text/html"}})
-          response      (handler {:uri "/x" :request-method :get})]
-      (is (= 503 (:status response))
-          "explicit :on-error fn drove status (503), not the
-           templated default's locked 500 — :on-error wins")
-      (is (= explicit-body (:body response))
-          "explicit :on-error fn body wins over :on-error-fallback :body"))))
 
 ;; ===========================================================================
 ;; rf2-ljjh0 — a throwing caller :on-error must be CONTAINED, not escape

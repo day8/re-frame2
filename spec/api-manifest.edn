@@ -384,7 +384,6 @@
   {:namespace "re-frame.ssr.ring", :var "default-streaming-prefix", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "default-streaming-suffix", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "handler-defaults", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ssr.ring", :var "make-default-on-error", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-middleware", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "stream-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}

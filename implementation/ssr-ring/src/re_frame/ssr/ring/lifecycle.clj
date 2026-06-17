@@ -16,14 +16,13 @@
     - `validate-construction-opts!` — the fail-closed-at-boot triple
                                       (required opts + payload policy +
                                       trusted-shell shape)
-    - `resolve-on-error`            — the rf2-c1tac `:on-error` /
-                                      `:on-error-fallback` / locked-default
+    - `resolve-on-error`            — the `:on-error` / locked-default
                                       precedence
 
   Both lived twice (once in the `ring` façade, once inlined in
   `streaming`) before — colocating them here, alongside the
-  `validate-required-opts!` / `make-default-on-error` / `default-on-error`
-  pieces they already compose, keeps the boot contract single-sourced.
+  `validate-required-opts!` / `default-on-error` pieces they already
+  compose, keeps the boot contract single-sourced.
   Same sibling-placement rationale as `validate-required-opts!`:
   `streaming` and the `ring` façade both already require `lifecycle`,
   so hosting the shared checks here avoids any circular-require between
@@ -72,55 +71,15 @@
   nil)
 
 (def ^:const default-on-error-body
-  "The literal body emitted by `default-on-error` when no template is
-  supplied. Pinned to the rf2-kzvwq topology-leak-safe shape: generic
-  plaintext, no throwable detail, no internal class names. The
-  templating surface (`make-default-on-error`) accepts a caller-
-  supplied body that overrides this; the locked default itself stays
-  constant."
+  "The literal body emitted by `default-on-error`. Pinned to the
+  rf2-kzvwq topology-leak-safe shape: generic plaintext, no throwable
+  detail, no internal class names."
   "Internal error")
 
 (def ^:const default-on-error-content-type
-  "The Content-Type emitted by `default-on-error` when no template
-  is supplied — plaintext UTF-8, matching the locked default body
-  shape (rf2-kzvwq §P2.1)."
+  "The Content-Type emitted by `default-on-error` — plaintext UTF-8,
+  matching the locked default body shape (rf2-kzvwq §P2.1)."
   "text/plain; charset=utf-8")
-
-(defn make-default-on-error
-  "Construct a `(fn [request throwable] ring-response)` fallback shaped
-  like `default-on-error` but with a caller-templated body. Returns the
-  fixed 500 status and the configured Content-Type + body unchanged on
-  every call. Per rf2-c1tac — callers that want a branded plaintext-
-  or-HTML error page can supply `:body` (and optionally
-  `:content-type`) at handler-construction time without writing a full
-  `:on-error` fn AND without inheriting the `.getMessage` topology-
-  leak risk: the constructor never touches the throwable.
-
-  Opts:
-
-    :body          — (string) the literal response body. Defaults to
-                     `default-on-error-body` (\"Internal error\").
-                     Caller-supplied strings are emitted VERBATIM; the
-                     caller is responsible for trusting the source (a
-                     CMS-driven body is the caller's XSS exposure to
-                     accept, same trust boundary as the four trusted
-                     shell-hook opts).
-    :content-type  — (string) the Content-Type header. Defaults to
-                     `default-on-error-content-type` (\"text/plain;
-                     charset=utf-8\"). Pass \"text/html; charset=utf-8\"
-                     when the supplied `:body` is HTML.
-
-  rf2-kzvwq §P2.1 contract preserved: the returned fn ignores the
-  throwable. The `.getMessage` topology-leak surface stays closed
-  regardless of the supplied template."
-  ([] (make-default-on-error nil))
-  ([{:keys [body content-type]}]
-   (let [body*         (or body default-on-error-body)
-         content-type* (or content-type default-on-error-content-type)
-         response      {:status  500
-                        :headers {"Content-Type" content-type*}
-                        :body    body*}]
-     (fn default-on-error-fn [_request _t] response))))
 
 (def default-on-error
   "Minimal 500 response used when a handler caller doesn't supply
@@ -136,12 +95,15 @@
   has no business reaching the wire: JDBC URLs (host, port, database
   name), file paths under deploy roots, partial SQL fragments, server-
   internal class names. We emit a fixed generic body matching the
-  projector's `fallback-public-error` shape. Apps that want dev-mode
-  detail override via `:on-error`; apps that want a branded HTML body
-  without the .getMessage exposure pass `:on-error-fallback {:body
-  \"…\" :content-type \"text/html; …\"}` (rf2-c1tac — the templating
-  surface that builds this exact shape via `make-default-on-error`)."
-  (make-default-on-error))
+  projector's `fallback-public-error` shape. The fn ignores the
+  throwable so the topology-leak surface stays closed. Apps that want a
+  branded transport-failure body — plaintext or HTML — supply an
+  explicit leak-safe `:on-error` Ring fn that returns a fixed response
+  and ignores the throwable."
+  (let [response {:status  500
+                  :headers {"Content-Type" default-on-error-content-type}
+                  :body    default-on-error-body}]
+    (fn default-on-error-fn [_request _t] response)))
 
 (defn safe-on-error
   "Invoke the resolved `:on-error` Ring-fn under containment and return
@@ -163,12 +125,11 @@
   handler, exactly as it is not bypassable by a bug in the caller's
   `:error-view`.
 
-  `on-error` is the ALREADY-RESOLVED fn (rf2-c1tac precedence applied by
-  `resolve-on-error` at construction time): the caller's `:on-error`,
-  the `:on-error-fallback`-templated default, or `default-on-error`.
-  When `on-error` IS `default-on-error` (or the templated default) it
-  cannot throw — the guard is then a free no-op — so this is cheap on
-  the common path."
+  `on-error` is the ALREADY-RESOLVED fn (precedence applied by
+  `resolve-on-error` at construction time): the caller's `:on-error` or
+  `default-on-error`. When `on-error` IS `default-on-error` it cannot
+  throw — the guard is then a free no-op — so this is cheap on the
+  common path."
   [on-error request t]
   (try
     (on-error request t)
@@ -507,22 +468,15 @@
 
 (defn resolve-on-error
   "Resolve the effective `:on-error` Ring-fn from `raw-opts`. Shared by
-  `ssr-handler` AND `stream-handler` so the rf2-c1tac precedence lives
-  in one place. Precedence:
+  `ssr-handler` AND `stream-handler` so the precedence lives in one
+  place. Precedence:
 
-    1. caller-supplied `:on-error`      — full Ring-fn override; used verbatim.
-    2. caller-supplied `:on-error-fallback` — `{:body … :content-type …}`
-       template; built into a default-shaped fn via
-       `make-default-on-error`. The fn ignores the throwable (rf2-kzvwq
-       no-leak contract preserved).
-    3. neither                          — host-locked `default-on-error`
-       (\"Internal error\" plaintext).
+    1. caller-supplied `:on-error` — full Ring-fn override; used verbatim.
+    2. absent                      — host-locked `default-on-error`
+                                     (\"Internal error\" plaintext).
 
-  Per rf2-c1tac — splits the templatable-default case from the full-
-  override case so callers can swap the body string without writing a
-  Ring fn AND without inheriting the `.getMessage` topology-leak risk."
-  [{:keys [on-error on-error-fallback]}]
-  (cond
-    on-error          on-error
-    on-error-fallback (make-default-on-error on-error-fallback)
-    :else             default-on-error))
+  A caller wanting a branded transport-failure body writes an explicit
+  leak-safe `:on-error` Ring fn that returns a fixed response and
+  ignores the throwable — the `default-on-error` shape, caller-owned."
+  [{:keys [on-error]}]
+  (or on-error default-on-error))
