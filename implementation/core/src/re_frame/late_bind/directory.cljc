@@ -865,9 +865,6 @@
     :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
 
    ;; ---- re-frame.views (CLJS, rf2-4edk warn-once chain) ---------------------
-   {:key         :views/clear-plain-fn-warned-pairs!
-    :producer-ns 're-frame.views.warn-once
-    :description "Clear the warned-plain-fn-frame-pairs cache (warn-once-clear chain / test isolation; rf2-z79p8). The warning this cache once gated is retired per EP-0002 (rf2-7yqn39) — the cache is retained only as a governed member of the :adapter/clear-warn-once-caches! chain."}
    {:key         :views/reading-render-key
     :producer-ns 're-frame.views
     :design-bead "rf2-vh1k3"
@@ -889,7 +886,7 @@
                    re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-4edk"
-    :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Per rf2-z79p8 every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots + warned-plain-fn-frame-pairs (the rf2-z79p8 4th straggler), re-frame.views's rf2-9hoos seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by helix/uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim, rf2-qy6cl). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future 5th cache cannot silently escape the fixture."}
+    :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Per rf2-z79p8 every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots, re-frame.views's rf2-9hoos seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by helix/uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim, rf2-qy6cl). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture. (A 5th member, warned-plain-fn-frame-pairs, was removed in rf2-k4xous once its warning was retired per EP-0002.)"}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim

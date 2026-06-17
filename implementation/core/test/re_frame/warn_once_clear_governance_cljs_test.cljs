@@ -1,6 +1,6 @@
 (ns re-frame.warn-once-clear-governance-cljs-test
   "Governance gate for the adapter/views warn-once `defonce` cache class
-  (rf2-z79p8) — the class that has now bitten FOUR times:
+  (rf2-z79p8) — the class that bit FOUR times before the chokepoint landed:
 
     * rf2-4edk  — `warned-non-dom-roots` (the source-coord / non-DOM-root
                   cache) was left out of the fixture-reset chain.
@@ -8,7 +8,9 @@
     * rf2-qy6cl — the slim hiccup interpreter's `warned-keyword-prop`.
     * rf2-z79p8 — `warned-plain-fn-frame-pairs` (the Spec 004 plain-fn-
                   under-non-default-frame suppression set) — the 4th
-                  straggler, chained by THIS change.
+                  straggler. That cache has since been REMOVED (rf2-k4xous):
+                  its warning is retired per EP-0002, and the three live
+                  probe-carrying caches below still exercise the same gate.
 
   Each recurrence was the SAME defect: a process-wide `defonce` warn-once
   cache whose clear-fn was published standalone but NEVER chained into the
@@ -52,7 +54,6 @@
             ;; registry at ns-load:
             ;;   re-frame.views          → seen-render-keys
             ;;   re-frame.views.warn-once → warned-non-dom-roots
-            ;;                              + warned-plain-fn-frame-pairs
             ;;   re-frame.adapter.uix     → the React-hook spine's per-
             ;;                              adapter source-coord cache
             ;;                              (make-react-adapter enrols it)
@@ -67,20 +68,18 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private expected-labels
-  "Every warn-once cache of the rf2-4edk/9hoos/qy6cl/z79p8 class that MUST
-  be enrolled in the registry (and therefore chained). A 5th cache that
+  "Every warn-once cache of the rf2-4edk/9hoos/qy6cl class that MUST be
+  enrolled in the registry (and therefore chained). A new cache that
   forgets to enrol trips the source-enumeration JVM assertion; one that
   enrols under a new label lands here once Mike/the reviewer adds it."
   #{:views/warned-non-dom-roots
-    :views/warned-plain-fn-frame-pairs
     :views/seen-render-keys
     :adapter/warned-non-dom-roots          ;; the React-hook spine's per-adapter cache
     :reagent-slim/warned-keyword-prop})
 
 (deftest registry-enrols-every-named-cache-of-the-class
   (testing "the warn-once-clear governance registry enrols every named
-            cache of the rf2-z79p8 class (incl. the 4th straggler
-            :views/warned-plain-fn-frame-pairs)"
+            cache of the rf2-z79p8 class"
     (let [enrolled (set (map :label @late-bind/warn-once-clear-registry))
           missing  (set/difference expected-labels enrolled)]
       (is (empty? missing)
@@ -134,45 +133,15 @@
                  "will not re-arm it between tests."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Re-arm of warned-plain-fn-frame-pairs — the 4th straggler (rf2-z79p8)
+;; A representative live cache the contrast assertions can drive
 ;; ---------------------------------------------------------------------------
 
-(defn- plain-fn-entry []
-  (some (fn [e] (when (= :views/warned-plain-fn-frame-pairs (:label e)) e))
-        @late-bind/warn-once-clear-registry))
-
-(deftest plain-fn-cache-re-arms-via-the-chain
-  (testing "the warned-plain-fn-frame-pairs cache (Spec 004 plain-fn-under-
-            non-default-frame suppression set) re-arms when the chained
-            :adapter/clear-warn-once-caches! hook fires — the rf2-z79p8 fix.
-            Before this change the cache was NOT chained, so the standard
-            fixture left a sibling test's pair in the set and a later same-
-            pair warning was silently swallowed. This drives the REAL cache
-            through the REAL chain via its registry probes (the production
-            seam), mirroring the chained-clear re-arm in
-            template_keyword_prop_warn_once_clear_cljs_test (rf2-qy6cl) and
-            assert-chained-clear-warn-once-empties-cache (rf2-e54wc)."
-    (let [{:keys [arm armed?]} (plain-fn-entry)
-          chain (late-bind/get-fn :adapter/clear-warn-once-caches!)]
-      (is (and (fn? arm) (fn? armed?))
-          "the plain-fn cache is enrolled with arm/armed? probes")
-      ;; Phase 1 — a pair is recorded (the production code does this the
-      ;; first time a plain fn warns; once recorded the SAME pair is
-      ;; suppressed). Simulate via the production arm seam.
-      (arm)
-      (is (true? (boolean (armed?)))
-          "phase 1: the pair is in the suppression set (a same-pair warning would now be swallowed)")
-      ;; The chained fixture-reset hook fires (what make-reset-runtime-
-      ;; fixture does between every test).
-      (chain)
-      ;; Phase 2 — the cache is empty again: the same pair would warn
-      ;; AFRESH, no longer swallowed. This is the re-arm the 4th straggler
-      ;; was missing before rf2-z79p8.
-      (is (false? (boolean (armed?)))
-          (str "phase 2: AFTER the chained :adapter/clear-warn-once-caches! "
-               "hook fires, the warned-plain-fn-frame-pairs cache MUST be "
-               "empty so the same pair warns again (it was silently "
-               "swallowed before rf2-z79p8 chained this cache)")))))
+(defn- a-probed-live-entry
+  "Any registry entry that carries :arm / :armed? probes — a real,
+  properly-enrolled cache the empirical arm/fire/assert-empty logic can
+  drive. Used as the positive contrast in the negative-proof test below."
+  []
+  (first (probed-entries)))
 
 ;; ---------------------------------------------------------------------------
 ;; Negative proof — the gate has teeth (a registered-but-unchained cache
@@ -211,7 +180,7 @@
           ;; And confirm that, by contrast, a properly-enrolled cache IS
           ;; cleared by the same chain fire (so the gate distinguishes the
           ;; two — it isn't vacuously green).
-          (let [{real-arm :arm real-armed? :armed?} (plain-fn-entry)]
+          (let [{real-arm :arm real-armed? :armed?} (a-probed-live-entry)]
             (real-arm)
             ;; fire again so both synthetic and the real cache see the chain
             (chain)

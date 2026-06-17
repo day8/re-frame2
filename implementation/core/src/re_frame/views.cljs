@@ -184,7 +184,6 @@
 (def format-source-coord source-coord/format-source-coord)
 
 (def clear-warned-non-dom-roots! warn-once/clear-warned-non-dom-roots!)
-(def clear-plain-fn-warned-pairs! warn-once/clear-plain-fn-warned-pairs!)
 
 ;; The React-context object is consumed by `reg-view*` below (the
 ;; `:contextType` static-field) and by the warn-once helpers in

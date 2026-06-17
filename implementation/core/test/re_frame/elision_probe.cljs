@@ -340,14 +340,12 @@
   (let [_m (views/first-render?! [:probe/unmounted 1])]
     nil)
   (views/clear-seen-render-keys!)
-  ;; The plain-fn-under-non-default-frame WARNING is retired (EP-0002;
-  ;; superseded by the always-on :rf.error/no-frame-context — rf2-7yqn39
-  ;; deleted the dead emit). The `warned-plain-fn-frame-pairs` suppression
-  ;; cache and its `clear-plain-fn-warned-pairs!` clear-fn are retained only
-  ;; as a governed member of the warn-once-clear chain (rf2-z79p8). Touch the
-  ;; clear-fn so the warn-once ns body stays in the reachability graph for
-  ;; the elision check.
-  (views/clear-plain-fn-warned-pairs!))
+  ;; Touch the surviving warn-once clear-fn so the warn-once ns body stays
+  ;; in the reachability graph for the elision check. (The retired
+  ;; `warned-plain-fn-frame-pairs` cache + `clear-plain-fn-warned-pairs!`
+  ;; were removed in rf2-k4xous — their warning is retired per EP-0002,
+  ;; superseded by the always-on :rf.error/no-frame-context.)
+  (views/clear-warned-non-dom-roots!))
 
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------
 

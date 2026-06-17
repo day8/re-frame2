@@ -27,7 +27,6 @@
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.late-bind]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
@@ -557,9 +556,12 @@
       (rf/reg-event :seed-reg-view (fn [{:keys [db]} _] {:db {:k 11}}))
       (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
       (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
-      (when-let [clear! (re-frame.late-bind/get-fn
-                          :views/clear-plain-fn-warned-pairs!)]
-        (clear!))
+      ;; (The plain-fn-under-non-default-frame warning + its
+      ;; :views/clear-plain-fn-warned-pairs! suppression-cache reset were
+      ;; retired per EP-0002 / removed in rf2-k4xous; the warning is
+      ;; superseded by the always-on :rf.error/no-frame-context. This
+      ;; negative case now simply confirms a reg-view'd component renders
+      ;; cleanly under a non-default frame with no such warning emitted.)
       (rf/reg-view* :rf.cross-spec-10/registered-view
                     (fn registered-impl []
                       (let [_ @(rf/subscribe [:reg-view-test/k])]
