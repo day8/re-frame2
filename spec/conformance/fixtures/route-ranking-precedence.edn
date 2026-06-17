@@ -25,7 +25,11 @@
    :route/files.named     {:path "/files/:name" :params [:map [:name :string]]}
    :route/files.splat     {:path "/files/*rest" :params [:map [:rest :string]]}
 
-   ;; Rule 4 — rest params beat catch-all
+   ;; Rule 2 — the bare catch-all is demoted below every concrete route.
+   ;; The catch-all also matches the root URL "/", and the home route has
+   ;; total-length 0 vs the catch-all's 1, so the catch-all discriminator
+   ;; MUST precede total-length or `/*` shadows `/` for "/" (rf2-1ugs5u).
+   :route/home            {:path "/"}
    :route/catch-all       {:path "/*"}
    :route/files.rest      {:path "/files/*rest" :params [:map [:rest :string]]}
 
@@ -50,9 +54,16 @@
   {:call :match-url :url "/files/x.txt"
    :expect {:route-id :route/files.named :params {:name "x.txt"} :query {} :fragment nil :validation-failed? false}}
 
-  ;; Rule 4: /files/a/b/c — :route/files.rest wins over :route/catch-all
+  ;; Rule 2: /files/a/b/c — :route/files.rest (named splat) wins over the
+  ;; bare catch-all :route/catch-all
   {:call :match-url :url "/files/a/b/c"
    :expect {:route-id :route/files.rest :params {:rest "a/b/c"} :query {} :fragment nil :validation-failed? false}}
+
+  ;; Rule 2 (root vs catch-all, rf2-1ugs5u): "/" — :route/home wins over
+  ;; :route/catch-all even though `/*` is the longer pattern. The catch-all
+  ;; demotion is consulted before total-length, so the shorter root wins.
+  {:call :match-url :url "/"
+   :expect {:route-id :route/home :params {} :query {} :fragment nil :validation-failed? false}}
 
   ;; Rule 5: /about — :route/about (exact) wins over :route/optional-about
   {:call :match-url :url "/about"

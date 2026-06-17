@@ -1927,37 +1927,41 @@
 
 ;; ---- rf2-yjali: named splat out-ranks the bare catch-all ----------------
 ;;
-;; Spec 012 §Route ranking algorithm rule 4: "Rest params beat
-;; catch-all/not-found." The catch-all is EXACTLY the bare `/*` pattern
-;; (`is-catch-all? (= pattern "/*")` in the spec pseudocode). A NAMED
-;; splat (`/*rest`) is a rest param, so it must out-rank `/*`. Before the
-;; fix `parse-pattern`'s classifier flagged ANY single-splat-only pattern
-;; as catch-all, so `/*rest` tied with `/*` at rank element 4 instead of
-;; beating it.
+;; Spec 012 §Route ranking algorithm rule 2: "The bare catch-all `/*` is
+;; demoted below every other matching route." The catch-all is EXACTLY
+;; the bare `/*` pattern (`is-catch-all? (= pattern "/*")` in the spec
+;; pseudocode). A NAMED splat (`/*rest`) is a rest param, so it must
+;; out-rank `/*`. Before the rf2-yjali fix `parse-pattern`'s classifier
+;; flagged ANY single-splat-only pattern as catch-all, so `/*rest` tied
+;; with `/*` at the catch-all rank element instead of beating it.
+;; (rf2-1ugs5u lifted that catch-all element from index 3 to index 1 —
+;; ahead of total-length — so the bare `/*` loses to the root `/` too.)
 
 (deftest parse-pattern-named-splat-outranks-bare-catch-all
   (testing "rf2-yjali — only the bare `/*` is catch-all; a named splat
-            `/*rest` ranks above it at rank element 4 (Spec 012 rule 4)"
+            `/*rest` ranks above it at the catch-all rank element
+            (Spec 012 rule 2)"
     (let [catch-all (:rank (routing.match/parse-pattern "/*"))
           rest-splat (:rank (routing.match/parse-pattern "/*rest"))]
-      ;; Rank element 3 (0-indexed) is the rule-4 catch-all discriminator:
+      ;; Rank element 1 (0-indexed) is the catch-all discriminator
+      ;; (Spec 012 rule 2, lifted ahead of total-length by rf2-1ugs5u):
       ;; 0 = catch-all (less specific), 1 = not catch-all (more specific).
-      (is (= 0 (nth catch-all 3))
-          "bare `/*` is classified as the catch-all (rank elem 4 = 0)")
-      (is (= 1 (nth rest-splat 3))
-          "named `/*rest` is NOT the catch-all (rank elem 4 = 1)")
+      (is (= 0 (nth catch-all 1))
+          "bare `/*` is classified as the catch-all (rank elem 1 = 0)")
+      (is (= 1 (nth rest-splat 1))
+          "named `/*rest` is NOT the catch-all (rank elem 1 = 1)")
       ;; The two patterns are identical on every other rank element
       ;; (statics, length, splat, optional) — the catch-all discriminator
       ;; is the ONLY difference, and it must make `/*rest` win.
-      (is (= (assoc catch-all 3 :x) (assoc rest-splat 3 :x))
-          "the two ranks differ ONLY at the rule-4 catch-all element")
+      (is (= (assoc catch-all 1 :x) (assoc rest-splat 1 :x))
+          "the two ranks differ ONLY at the catch-all element")
       (is (pos? (compare rest-splat catch-all))
-          "lexicographic compare: `/*rest` out-ranks `/*` (rule 4)"))))
+          "lexicographic compare: `/*rest` out-ranks `/*` (rule 2)"))))
 
 (deftest match-url-named-splat-wins-over-bare-catch-all
   (testing "rf2-yjali — when both `/*rest` and `/*` are registered, a
             multi-segment URL resolves to the named-splat route, not the
-            catch-all (Spec 012 §Route ranking rule 4)"
+            catch-all (Spec 012 §Route ranking rule 2)"
     (rf/reg-route :route/catch-all {:path "/*"})
     (rf/reg-route :route/rest      {:path "/*rest"})
     (let [m (routing/match-url "/some/deep/path")]
@@ -1965,6 +1969,69 @@
           "named-splat route wins the rule-4 tiebreak against bare catch-all")
       (is (= {:rest "some/deep/path"} (:params m))
           "the named splat captures the whole tail under :rest"))))
+
+;; ---- rf2-1ugs5u: root `/` wins over the bare catch-all `/*` for URL "/" --
+;;
+;; Spec 012 §Route ranking algorithm rule 2: the bare catch-all `/*` is
+;; demoted below every other matching route. The bug: `/*` ALSO matches
+;; the root URL "/" (the unnamed splat captures the literal "/"), and a
+;; home route `{:path "/"}` parses to total-length 0 while `/*` is
+;; length 1. With total-length (rule 3) compared BEFORE the catch-all
+;; demotion, `/*` out-lengthed the root and won for "/" — shadowing the
+;; home route registration-order-independently. The fix lifts the
+;; catch-all discriminator (rank elem 1) ahead of total-length (rank
+;; elem 2) so the root (and every concrete route) wins over `/*`.
+
+(deftest parse-pattern-root-outranks-bare-catch-all-rf2-1ugs5u
+  (testing "rf2-1ugs5u — the root `/` out-ranks the bare catch-all `/*`
+            even though `/*` is the longer pattern; the catch-all
+            discriminator (rank elem 1) is consulted before total-length
+            (rank elem 2)"
+    (let [root      (:rank (routing.match/parse-pattern "/"))
+          catch-all (:rank (routing.match/parse-pattern "/*"))]
+      ;; rank elem 1 (0-indexed) is the catch-all discriminator:
+      ;; root = 1 (not catch-all), `/*` = 0 (is catch-all).
+      (is (= 1 (nth root 1))
+          "root `/` is NOT the catch-all (rank elem 1 = 1)")
+      (is (= 0 (nth catch-all 1))
+          "bare `/*` IS the catch-all (rank elem 1 = 0)")
+      ;; `/*` is the LONGER pattern (total-length 1 vs the root's 0) yet
+      ;; STILL loses — proving the catch-all demotion precedes length.
+      (is (= 0 (nth root 2))
+          "root `/` has total-length 0 (parse loop never runs for `/`)")
+      (is (= 1 (nth catch-all 2))
+          "bare `/*` has total-length 1 (the lone splat segment)")
+      (is (pos? (compare root catch-all))
+          "lexicographic compare: root `/` out-ranks the catch-all `/*`
+           DESPITE being shorter — the catch-all demotion wins first"))))
+
+(deftest match-url-root-wins-over-catch-all-rf2-1ugs5u
+  (testing "rf2-1ugs5u — match-url \"/\" returns the ROOT route, not the
+            catch-all, when both `/` and `/*` are registered
+            (registration-order-independent)"
+    ;; catch-all registered FIRST so the bug (if present) can't hide
+    ;; behind registration order — the rank cascade, not order, must win.
+    (rf/reg-route :route/catch-all {:path "/*"})
+    (rf/reg-route :route/home      {:path "/"})
+    (let [m (routing/match-url "/")]
+      (is (= :route/home (:route-id m))
+          "the root route wins match-url \"/\" over the catch-all")
+      (is (= {} (:params m))
+          "the root match carries an empty params map (no splat capture)")))
+
+  (testing "rf2-1ugs5u — the result is order-independent: home registered
+            first ALSO resolves \"/\" to the home route"
+    (rf/reg-route :route/home      {:path "/"})
+    (rf/reg-route :route/catch-all {:path "/*"})
+    (is (= :route/home (:route-id (routing/match-url "/")))
+        "home wins regardless of registration order"))
+
+  (testing "rf2-1ugs5u — the catch-all still wins a NON-root URL that the
+            home route cannot match (the demotion only loses the root)"
+    (rf/reg-route :route/home      {:path "/"})
+    (rf/reg-route :route/catch-all {:path "/*"})
+    (is (= :route/catch-all (:route-id (routing/match-url "/anything/deep")))
+        "catch-all still catches URLs no concrete route matches")))
 
 (deftest match-against-root-pattern-matches-root-path
   (testing "rf2-aleg9 — the special `/` pattern matches the root URL

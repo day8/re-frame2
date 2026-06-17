@@ -288,7 +288,7 @@
            counts      {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
       (if-not (< i n)
         (let [{:keys [static total splat optional named]} counts
-              ;; Spec 012 §Route ranking algorithm rule 4: the catch-all
+              ;; Spec 012 §Route ranking algorithm rule 2: the catch-all
               ;; is EXACTLY the bare `/*` pattern — a single unnamed splat
               ;; with no other segments. A NAMED splat (`/*rest`) is a rest
               ;; param and out-ranks the catch-all, so it MUST NOT be
@@ -307,10 +307,22 @@
            ;; `:close-end` to skip past it when eliding.
            :groups  inner
            :pattern pattern
+           ;; Spec 012 §Route ranking algorithm. The catch-all
+           ;; discriminator (rule 2) is lifted AHEAD of total-length
+           ;; (rule 3): the bare `/*` also matches the root URL `/` (the
+           ;; splat captures the literal "/"), and a home route
+           ;; `{:path "/"}` parses to total-length 0 while `/*` is
+           ;; length 1 — so if total-length compared first, `/*` would
+           ;; out-length the root and shadow it (rf2-1ugs5u). Putting the
+           ;; catch-all bit before length demotes `/*` below `/` (and
+           ;; every other concrete route). For any two NON-catch-all
+           ;; patterns the catch-all bit ties (both 1), so the comparison
+           ;; falls through to total-length exactly as before — only
+           ;; rankings involving the bare `/*` change.
            :rank    [static
+                     (if catch-all? 0 1)
                      total
                      (- splat)
-                     (if catch-all? 0 1)
                      (- optional)]})
         (let [ch (.charAt ^String pattern i)]
           (cond

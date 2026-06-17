@@ -33,9 +33,11 @@
 
 (defn- rank-cell
   "Render a single rank tuple as compact mono text. The 6-tuple is
-  `[static total -splat catch-all? -optional -reg-index]` per
-  `parse-pattern`; surface it verbatim — the lens is about exposing
-  the cascade, not interpreting it."
+  `[static catch-all? total -splat -optional -reg-index]` per
+  `parse-pattern` (the catch-all discriminator precedes total-length
+  so the bare `/*` is demoted below all concrete routes — rf2-1ugs5u);
+  surface it verbatim — the lens is about exposing the cascade, not
+  interpreting it."
   [rank]
   [:span {:style {:font-family mono-stack
                   :font-size   "11px"
