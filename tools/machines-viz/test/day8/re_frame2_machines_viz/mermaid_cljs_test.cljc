@@ -764,3 +764,38 @@
     (is (not= (m/emit reenter-self-machine {:fenced? false :header-comment? false})
               (m/emit internal-self-machine {:fenced? false :header-comment? false}))
         "external vs internal must produce DISTINCT Mermaid")))
+
+;; ---- consumer-attachment :rf.cofx/requires — intentional omission ------
+;;
+;; rf2-skhlw2.1 — Mermaid INTENTIONALLY omits EP-0017 consumer-attachment
+;; `:rf.cofx/requires` (the chart is the "which transitions consume which
+;; facts" surface). Lock the omission so the lossy posture stays documented +
+;; deliberate, and guard against any `:rf.world/inputs` / `inject-cofx`
+;; vocabulary slipping in (the bead's negative regression).
+
+(def cofx-bearing-machine
+  {:initial :idle
+   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
+                              :fn (fn [_] true)}}
+   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
+                             :fn (fn [_] nil)}}
+   :states  {:idle {:on {:go {:target :busy
+                              :guard  :within-window?
+                              :action :schedule-retry}}}
+             :busy {}}})
+
+(deftest mermaid-omits-cofx-requires-vocabulary
+  (testing "rf2-skhlw2.1 — Mermaid surfaces guard/action NAMES but omits the
+            consumer-attachment requires diet (documented lossy omission)"
+    (let [out (m/emit cofx-bearing-machine {:fenced? false :header-comment? false})]
+      ;; the guard NAME still renders on the transition label (existing
+      ;; contract — Mermaid edge labels carry `event [guard]`).
+      (is (str/includes? out "within-window?"))
+      ;; the requires diet + its cofx ids are NOT emitted
+      (is (not (str/includes? out "rf.cofx")))
+      (is (not (str/includes? out "requires")))
+      (is (not (str/includes? out "rf/time-ms")))
+      (is (not (str/includes? out "retry-jitter-ms")))
+      ;; the bead's negative regression: NO retired/foreign cofx vocabulary
+      (is (not (str/includes? out "rf.world/inputs")))
+      (is (not (str/includes? out "inject-cofx"))))))

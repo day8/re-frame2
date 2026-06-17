@@ -1487,6 +1487,18 @@
                                           ;; the state declares none.
                                           :entry          (:entry n)
                                           :exit           (:exit n)
+                                          ;; rf2-skhlw2.1 — the entry / exit
+                                          ;; lifecycle action's declared
+                                          ;; `:rf.cofx/requires` (EP-0017 consumer
+                                          ;; attachment), as compact display
+                                          ;; strings the action row paints as a
+                                          ;; `needs …` chip. nil when the action
+                                          ;; declares no facts. IDS only. camelCase
+                                          ;; so the JS-interop `(.-entryRequires d)`
+                                          ;; resolves after xyflow `clj->js`-es the
+                                          ;; `:data` map (a kebab key would not).
+                                          :entryRequires  (:entry-requires n)
+                                          :exitRequires   (:exit-requires n)
                                           ;; rf2-m285a — a `:type :history`
                                           ;; pseudo-state's variant. The
                                           ;; `history-marker` renderer reads
@@ -1755,6 +1767,19 @@
                                        :afterMs     (:after edge)
                                        :guard       (layout/name-of (:guard edge))
                                        :action      (layout/name-of (:action edge))
+                                       ;; rf2-skhlw2.1 — the guard / action
+                                       ;; consumer's declared `:rf.cofx/requires`
+                                       ;; (EP-0017 consumer attachment), as
+                                       ;; compact display strings the event-node
+                                       ;; paints as a `needs …` chip. nil when the
+                                       ;; named guard / action declares no facts
+                                       ;; (so an undeclared callback is visually
+                                       ;; unchanged). IDS only — never the `:fn`.
+                                       ;; camelCase so the JS-interop
+                                       ;; `(.-guardRequires d)` resolves after
+                                       ;; xyflow `clj->js`-es the `:data` map.
+                                       :guardRequires  (:guard-requires edge)
+                                       :actionRequires (:action-requires edge)
                                        ;; rf2-uw3vmi — 1-based priority index
                                        ;; WHEN this event-node is one branch of
                                        ;; a genuine guarded multi-branch fork

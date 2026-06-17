@@ -132,7 +132,10 @@
 
 (defn finalize-machine
   "Per Spec 005 §Final states (rf2-gn80): orchestrate the `:on-done` +
-  auto-destroy cascade. Returns `{:db new-db :fx fx}` — the handler's
+  auto-destroy cascade. Returns `{:rf.db/runtime new-runtime-db :fx fx}` —
+  the snapshot teardown is a durable runtime-db write (EP-0001 rf2-vzld77),
+  returned under the framework-authority `:rf.db/runtime` partition, NOT
+  `:db` (see the return at `finalize-machine!`'s tail). It is the handler's
   return value when the post-transition snapshot has finished (its active
   leaf is `:final?`, or — for a parallel machine — every region's active
   leaf is `:final?`). Finality is RECOMPUTED by the caller

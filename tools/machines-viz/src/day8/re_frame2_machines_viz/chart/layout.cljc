@@ -145,6 +145,144 @@
     (fn? v)      (or (some-> v meta :name str) "fn")
     :else        (str v)))
 
+;; ---- consumer-attachment requirements (rf2-skhlw2.1) --------------------
+;;
+;; EP-0017 / Spec 005 §Consumer attachment: a fact-consuming machine
+;; guard / action declares `:rf.cofx/requires` on its NAMED `:guards` /
+;; `:actions` entry MAP (the `{:rf.cofx/requires [...] :fn (fn ...)}` form).
+;; The runtime derives a per-(state × event-type) ensure-set from those
+;; declarations and ensures the facts onto the in-flight `:rf.cofx` record
+;; BEFORE transition selection runs. The chart resolves a guard / action /
+;; entry / exit REF against the machine's named-entry registry and surfaces
+;; the declared requirement IDS — so a reader sees which transitions /
+;; lifecycle actions consume replay-critical host facts. We carry the IDS
+;; only — never the executable `:fn` or any `:source-*` snippet.
+
+(defn- node-at-in-states
+  "Descend `states` (a `:states` map) along `path` (a vec of state-ids),
+  returning the raw state-node map or nil. Each step reads the child off
+  the current node's `:states`."
+  [states path]
+  (loop [node  {:states states}
+         p     (seq path)]
+    (cond
+      (nil? p)   (when (not= node {:states states}) node)
+      (nil? node) nil
+      :else      (recur (get-in node [:states (first p)]) (next p)))))
+
+(defn raw-node-at
+  "Return the RAW (pre-projection) state-node map for `path` within machine
+  `definition`, or nil. For a flat / compound machine the path resolves
+  within `(:states definition)`. For a parallel machine a node `:path` is
+  IN-REGION (region-relative — the region-id is NOT part of the path, per
+  `project-parallel`'s in-region `:path` preservation), so we try every
+  region's `:states` body and return the first hit. A synthetic node (the
+  machine-root / region-container — empty or single-id path with no raw
+  match) resolves to nil. Used to recover a node's ORIGINAL `:entry` /
+  `:exit` keyword refs (the projection rewrote them to `name-of` strings)."
+  [definition path]
+  (when (seq path)
+    (or (node-at-in-states (:states definition) path)
+        (some (fn [[_region region-def]]
+                (node-at-in-states (:states region-def) path))
+              (:regions definition)))))
+
+(defn requirement-label
+  "Render one `:rf.cofx/requires` entry (Spec 002 §`parse-requires` grammar:
+  a bare coeffect id, or an `[id arg]` pair) to a compact display string.
+  A bare keyword id reads as `ns/name` (via `name-of`); an `[id arg]` pair
+  reads as `ns/name(<arg>)` so a parameterized request stays legible. Any
+  other shape (a malformed declaration the engine would reject at
+  registration) falls through to `pr-str` — the viz never throws on a
+  badly-shaped spec it is only DISPLAYING."
+  [entry]
+  (cond
+    (keyword? entry) (name-of entry)
+    (and (vector? entry) (= 2 (count entry)) (keyword? (first entry)))
+    (str (name-of (first entry)) "(" (pr-str (second entry)) ")")
+    :else (pr-str entry)))
+
+(defn requires-for-ref
+  "Resolve a guard / action `ref` against the machine's named-entry
+  `registry` (`(:guards machine)` or `(:actions machine)`) and return the
+  vector of compact `:rf.cofx/requires` display strings declared on its
+  entry map, or nil when there are none.
+
+  `:rf.cofx/requires` rides ONLY a NAMED entry MAP (the
+  `{:rf.cofx/requires [...] :fn (fn ...)}` form) — an inline / bare-fn
+  guard-action cannot declare it (the engine rejects that at registration),
+  so only a KEYWORD `ref` can carry requirements. We extract the declared
+  IDS and render them; the `:fn` / `:source-*` slots are never read. nil
+  when `ref` is not a keyword, the registry has no such entry, the entry is
+  a bare fn / keyword indirection, or it declares no (or empty) requires."
+  [registry ref]
+  (when (keyword? ref)
+    (let [entry (get registry ref)]
+      (when (map? entry)
+        (let [reqs (:rf.cofx/requires entry)]
+          (when (seq reqs)
+            (mapv requirement-label reqs)))))))
+
+(defn- attach-edge-requires
+  "Decorate one parsed edge with `:guard-requires` / `:action-requires`
+  (the compact `:rf.cofx/requires` display vectors resolved from the
+  machine's `:guards` / `:actions` registries). A `cond->` assoc — an
+  undeclared guard / action leaves the edge untouched (so the renderer's
+  resting treatment is unchanged for the common no-facts case)."
+  [guards actions edge]
+  (cond-> edge
+    (requires-for-ref guards (:guard edge))
+    (assoc :guard-requires (requires-for-ref guards (:guard edge)))
+    (requires-for-ref actions (:action edge))
+    (assoc :action-requires (requires-for-ref actions (:action edge)))))
+
+(defn- attach-node-requires
+  "Decorate one parsed node with `:entry-requires` / `:exit-requires` (the
+  compact `:rf.cofx/requires` display vectors resolved from the machine's
+  `:actions` registry for the node's `:entry` / `:exit` lifecycle-action
+  refs). An `:entry` / `:exit` value is the ORIGINAL ref off the raw node;
+  the parsed node only carries the `name-of` STRING, so resolution reads
+  the keyword ref out of `raw-node`. Undeclared lifecycle actions leave the
+  node untouched."
+  [actions raw-node node]
+  (cond-> node
+    (requires-for-ref actions (:entry raw-node))
+    (assoc :entry-requires (requires-for-ref actions (:entry raw-node)))
+    (requires-for-ref actions (:exit raw-node))
+    (assoc :exit-requires (requires-for-ref actions (:exit raw-node)))))
+
+(defn attach-cofx-requires
+  "Post-pass over a projected `{:nodes :edges …}` graph: resolve every
+  edge's guard / action ref and every node's entry / exit ref against the
+  machine `definition`'s named-entry registries (`:guards` / `:actions`)
+  and surface their declared `:rf.cofx/requires` as compact display
+  vectors (rf2-skhlw2.1). Pure: a machine declaring no requires anywhere
+  returns the graph UNCHANGED (every `cond->` assoc is skipped).
+
+  Resolution is machine-scoped: `:guards` / `:actions` live at the
+  top-level definition and a region resolves a ref against them (XState v5
+  / Spec 005 §Registration — the machine is the event handler), so the ONE
+  top-level registry pair covers flat, compound, AND parallel machines.
+
+  Nodes need the ORIGINAL `:entry` / `:exit` keyword ref, which `collect-
+  nodes` already rewrote to a `name-of` STRING; we re-resolve it against
+  the raw definition by node `:path` via `raw-node-at`."
+  [definition graph]
+  (let [guards  (:guards definition)
+        actions (:actions definition)]
+    (if (and (empty? guards) (empty? actions))
+      graph
+      (-> graph
+          (update :edges
+                  (fn [edges]
+                    (mapv #(attach-edge-requires guards actions %) edges)))
+          (update :nodes
+                  (fn [nodes]
+                    (mapv (fn [n]
+                            (attach-node-requires
+                              actions (raw-node-at definition (:path n)) n))
+                          nodes)))))))
+
 (defn- resolve-target-path
   "Resolve a transition target relative to source-path.
 
@@ -1249,16 +1387,22 @@
   the frame around its children. An empty graph (nil definition) is left
   unwrapped."
   [definition]
-  (-> (cond
-        (nil? definition)
-        {:nodes [] :edges [] :initial-path nil}
+  (let [graph (cond
+                (nil? definition)
+                {:nodes [] :edges [] :initial-path nil}
 
-        (= :parallel (:type definition))
-        (project-parallel definition)
+                (= :parallel (:type definition))
+                (project-parallel definition)
 
-        :else
-        (project-flat definition))
-      wrap-in-root-container))
+                :else
+                (project-flat definition))]
+    ;; rf2-skhlw2.1 — surface each guard / action / entry / exit ref's
+    ;; declared `:rf.cofx/requires` (EP-0017 consumer attachment) onto the
+    ;; edges + nodes BEFORE the synthetic root-container wraps the graph (so
+    ;; the wrapper's `:path []` node is never resolved). A no-op for a
+    ;; machine that declares no requires.
+    (-> (attach-cofx-requires definition graph)
+        wrap-in-root-container)))
 
 (defn highlight-id
   "Resolve a single-active snapshot `:state` value to the node-id used

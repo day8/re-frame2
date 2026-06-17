@@ -3663,3 +3663,59 @@
                             "elk.layered.crossingMinimization.semiInteractive"))
             (str "non-fork fixture " m
                  " root-container child omits semiInteractive"))))))
+
+;; ---- consumer-attachment requirements on :data (rf2-skhlw2.1) ----------
+;;
+;; EP-0017 / Spec 005 §Consumer attachment — the projection carries a named
+;; guard / action / entry / exit consumer's declared `:rf.cofx/requires` onto
+;; the event-node + state-node `:data` (camelCase so the JS-interop renderer
+;; reads it after xyflow `clj->js`-es the map). IDS only — never the `:fn`.
+
+(def cofx-projection-machine
+  {:initial :idle
+   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
+                              :fn (fn [_] true)}}
+   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
+                             :fn (fn [_] nil)}
+             :stamp-started  {:rf.cofx/requires [:rf/time-ms]
+                             :fn (fn [_] nil)}
+             :stamp-ended    {:rf.cofx/requires [:rf/uuid]
+                             :fn (fn [_] nil)}}
+   :states  {:idle {:entry :stamp-started
+                    :exit  :stamp-ended
+                    :on    {:go {:target :busy
+                                 :guard  :within-window?
+                                 :action :schedule-retry}}}
+             :busy {}}})
+
+(deftest event-node-data-carries-guard-action-requires
+  (testing "rf2-skhlw2.1 — the :go event-node's :data carries
+            :guardRequires / :actionRequires (the named callbacks' IDS)"
+    (let [parsed (layout/project-definition cofx-projection-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          ;; the single :go transition's event-node (eventId is the raw kw).
+          ev     (first (filter #(and (= "rf2-event" (:type %))
+                                      (= :go (:eventId (:data %))))
+                                (:nodes graph)))]
+      (is (some? ev) "the :go transition projects an event-node")
+      (is (= ["rf/time-ms"] (:guardRequires (:data ev))))
+      (is (= ["payment/retry-jitter-ms"] (:actionRequires (:data ev)))))))
+
+(deftest state-node-data-carries-entry-exit-requires
+  (testing "rf2-skhlw2.1 — the :idle state-node's :data carries
+            :entryRequires / :exitRequires (the lifecycle actions' IDS)"
+    (let [parsed (layout/project-definition cofx-projection-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          idle   (node-by-id graph (layout/node-id [:idle]))]
+      (is (= ["rf/time-ms"] (:entryRequires (:data idle))))
+      (is (= ["rf/uuid"]    (:exitRequires (:data idle)))))))
+
+(deftest fact-free-machine-omits-requires-data
+  (testing "rf2-skhlw2.1 — a machine declaring no :rf.cofx/requires carries
+            nil :guardRequires / :entryRequires (visually unchanged)"
+    (let [parsed (layout/project-definition idle-loading)
+          graph  (projection/xyflow-graph parsed {} {})
+          ev     (first (filter #(= "rf2-event" (:type %)) (:nodes graph)))]
+      (is (some? ev))
+      (is (nil? (:guardRequires (:data ev))))
+      (is (nil? (:actionRequires (:data ev)))))))

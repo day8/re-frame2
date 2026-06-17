@@ -350,6 +350,45 @@
         (is (keyword? a)  "it became an opaque label keyword")))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-skhlw2.1 — consumer-attachment `:rf.cofx/requires` (EP-0017) is SAFE
+;; topology metadata (a vector of coeffect-id keywords), so a share URL must
+;; PRESERVE it: `sanitise-definition` drops the entry's `:fn` / `:source-*`
+;; but keeps the requires vector. The decoded definition re-derives the
+;; chart's `needs <id>` chips on the receiving side.
+
+(def cofx-requires-definition
+  "A named guard / action / entry / exit each declaring `:rf.cofx/requires`
+  alongside a live `:fn` (the macro-stamped entry-map shape)."
+  {:initial :idle
+   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
+                              :fn (fn [_] true)}}
+   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
+                             :fn (fn [_] nil)}
+             :stamp-started  {:rf.cofx/requires [:rf/time-ms]
+                             :fn (fn [_] nil)}}
+   :states  {:idle {:entry :stamp-started
+                    :on    {:go {:target :busy
+                                 :guard  :within-window?
+                                 :action :schedule-retry}}}
+             :busy {}}})
+
+(deftest cofx-requires-survive-share-round-trip
+  (testing "rf2-skhlw2.1 — a share URL PRESERVES safe :rf.cofx/requires
+            metadata while still dropping the executable :fn"
+    (let [cs   (assoc chart-state :definition cofx-requires-definition)
+          url  (share/encode-share-url cs)
+          dfn  (:definition
+                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      ;; the requires vectors survive intact (safe topology metadata)
+      (is (= [:rf/time-ms] (get-in dfn [:guards :within-window? :rf.cofx/requires])))
+      (is (= [:payment/retry-jitter-ms]
+             (get-in dfn [:actions :schedule-retry :rf.cofx/requires])))
+      (is (= [:rf/time-ms] (get-in dfn [:actions :stamp-started :rf.cofx/requires])))
+      ;; but the executable :fn is still stripped (privacy / Transit contract)
+      (is (nil? (get-in dfn [:guards :within-window? :fn])))
+      (is (nil? (get-in dfn [:actions :schedule-retry :fn]))))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-07gg7h — `:fn` as a TOPOLOGY key (state id / event id / region id) is
 ;; valid and MUST survive sanitisation. The pre-fix sanitiser dropped EVERY
 ;; map entry whose key was `:fn`, silently removing such a state / transition /

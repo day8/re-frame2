@@ -398,8 +398,41 @@ on-chart sim — nil for `:after` / `:always` / wildcard), `:fromPath`
 guard-blocked no-op marker; drives the PINK border + emphasised pink
 `IF <guard>` chip), `:internal`, `:reenter` (rf2-9dj21r —
 the external-restart axis; drives the `↻` reenter chip), `:machineLevel`,
-`:onClick` (the host-supplied callback), `:afterMs`, `:chart`
+`:guardRequires` / `:actionRequires` (rf2-skhlw2.1 — the named guard /
+action consumer's declared **`:rf.cofx/requires`** as a vector of compact
+id strings; EP-0017 consumer attachment — the replay-critical host facts
+the callback reads before it runs; nil when the named callback declares no
+facts, so an ordinary fact-free transition is visually unchanged; **ids
+only — never the executable `:fn` nor any `:source-*` snippet**; drives the
+quiet `needs <id>` chip + the `data-guard-requires` / `data-action-requires`
+DOM pins), `:onClick` (the host-supplied callback), `:afterMs`, `:chart`
 (resolved visual-constants).
+
+**State-node consumer attachment (rf2-skhlw2.1).** A state node's `:data`
+carries `:entryRequires` / `:exitRequires` — the `:entry` / `:exit`
+lifecycle action's declared `:rf.cofx/requires` (same compact-id-string
+vector, same ids-only contract), driving a quiet italic `needs <id>` line
+under the entry / exit action row + the `data-entry-requires` /
+`data-exit-requires` DOM pins. nil when the lifecycle action declares no
+facts. Resolution is machine-scoped: `chart.layout/attach-cofx-requires`
+resolves each guard / action / entry / exit ref against the machine
+definition's top-level `:guards` / `:actions` named-entry registries
+(XState v5 / Spec 005 §Registration — the machine is the event handler), so
+the one registry pair covers flat, compound, AND parallel machines.
+
+**Share / export handling (rf2-skhlw2.1).** A **share URL preserves** the
+safe `:rf.cofx/requires` metadata: `share/sanitise-definition` drops the
+entry's `:fn` / `:source-*` but keeps the requires vector (a plain vector of
+coeffect-id keywords), so the decoded definition re-derives the chart's
+`needs <id>` chips on the receiving side. **AI-generate is lossless by
+construction** (it returns a full machine spec; nothing strips a
+`:rf.cofx/requires` slot a generated `:guards` / `:actions` entry carries).
+**Mermaid + SCXML INTENTIONALLY omit** the requires diet (documented +
+test-locked lossy omission): Mermaid state-diagram syntax has no slot for
+per-callback coeffect metadata, and W3C SCXML has no native attribute for it
+(a re-frame2 import re-attaches it from its own registry) — both carry only
+guard / action NAMES, and the interactive MachineChart is the EP-0017 "which
+transitions consume which facts" surface.
 
 The inbound + outbound edges carry the structural / styling state
 that used to live on the single state→state edge: `:active`,

@@ -1323,3 +1323,40 @@
                   internal-self-machine
                   reenter-ancestor-machine]]
       (assert-targets-declared (scxml/spec->scxml spec)))))
+
+;; ---- consumer-attachment :rf.cofx/requires — intentional omission ------
+;;
+;; rf2-skhlw2.1 — SCXML INTENTIONALLY omits EP-0017 consumer-attachment
+;; `:rf.cofx/requires` (W3C SCXML has no attribute for it; a re-frame2 import
+;; re-attaches it from its own registry, and the chart is the "which
+;; transitions consume which facts" surface). Lock the omission + the bead's
+;; negative regression (no `:rf.world/inputs` / `inject-cofx` vocabulary).
+
+(def scxml-cofx-bearing-machine
+  {:initial :idle
+   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
+                              :fn (fn [_] true)}}
+   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
+                             :fn (fn [_] nil)}}
+   :states  {:idle {:on {:go {:target :busy
+                              :guard  :within-window?
+                              :action :schedule-retry}}}
+             :busy {}}})
+
+(deftest scxml-omits-cofx-requires-vocabulary
+  (testing "rf2-skhlw2.1 — SCXML surfaces the guard `cond=` NAME + the action
+            comment NAME but omits the consumer-attachment requires diet"
+    (let [out (scxml/spec->scxml scxml-cofx-bearing-machine)]
+      ;; the guard `cond=` + the action comment still render (XML-mangled
+      ;; names — SCXML escapes `-` / `?` to `_2d` / `_3f`); a transition
+      ;; carries both so the topology survives.
+      (is (str/includes? out "cond="))
+      (is (str/includes? out "action:"))
+      ;; the requires diet + its cofx ids are NOT emitted
+      (is (not (str/includes? out "rf.cofx")))
+      (is (not (str/includes? out "requires")))
+      (is (not (str/includes? out "time-ms")))
+      (is (not (str/includes? out "retry-jitter-ms")))
+      ;; the bead's negative regression: NO retired/foreign cofx vocabulary
+      (is (not (str/includes? out "rf.world/inputs")))
+      (is (not (str/includes? out "inject-cofx"))))))

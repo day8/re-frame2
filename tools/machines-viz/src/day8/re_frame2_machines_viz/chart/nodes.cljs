@@ -221,18 +221,28 @@
   action chip carrying a bolt glyph + the action name. The chip stays
   SUBORDINATE to the state title (quieter colour + smaller type). Reads
   geometry/typography off the resolved density `vc` map and colour off
-  the active-theme `ct`."
-  [{:keys [kind name-str vc ct]}]
+  the active-theme `ct`.
+
+  rf2-skhlw2.1 — when the named lifecycle action declares
+  `:rf.cofx/requires` (EP-0017 consumer attachment), append a quiet
+  `needs <id>` annotation + a `data-{entry,exit}-requires` DOM pin so a
+  reader sees the replay-critical host facts the action consumes. `requires`
+  is the CLJS vec of compact id strings, or nil — an action with no diet
+  renders exactly as before."
+  [{:keys [kind name-str requires vc ct]}]
   (let [{:keys [action-pill-height action-pill-pad-x action-pill-px
                 action-pill-radius action-caption-px action-caption-gap]} vc
         caption (case kind :entry "Entry actions" :exit "Exit actions")]
-    [:div {:data-testid (case kind
-                          :entry "rf-mv-chart-state-entry"
-                          :exit  "rf-mv-chart-state-exit")
-           (case kind :entry :data-entry :exit :data-exit) name-str
-           :style {:display        "flex"
-                   :flex-direction "column"
-                   :gap            (str action-caption-gap "px")}}
+    [:div (cond-> {:data-testid (case kind
+                                  :entry "rf-mv-chart-state-entry"
+                                  :exit  "rf-mv-chart-state-exit")
+                   (case kind :entry :data-entry :exit :data-exit) name-str
+                   :style {:display        "flex"
+                           :flex-direction "column"
+                           :gap            (str action-caption-gap "px")}}
+            (seq requires)
+            (assoc (case kind :entry :data-entry-requires :exit :data-exit-requires)
+                   (str/join " " requires)))
      ;; rf2-vcnvj — quiet TITLE-CASE caption ("Entry actions" / "Exit
      ;; actions"), NOT uppercase. The uppercase transform competed with
      ;; the state title for attention against the structure-first grammar;
@@ -266,7 +276,23 @@
                      :white-space   "nowrap"}}
       ;; subordinate bolt/action glyph (text convention — no icon dep)
       [:span {:style {:opacity 0.7}} "⚡"]
-      name-str]]))
+      name-str]
+     ;; rf2-skhlw2.1 — the consumer-attachment requirement annotation: a
+     ;; quiet italic `needs <id>` line surfacing the lifecycle action's
+     ;; declared `:rf.cofx/requires` (EP-0017). The QUIETEST tier (tertiary
+     ;; colour, caption type, italic), subordinate to the action chip;
+     ;; rendered ONLY when the action declared a non-empty diet.
+     (when (seq requires)
+       [:span {:data-testid (case kind
+                              :entry "rf-mv-chart-state-entry-requires"
+                              :exit  "rf-mv-chart-state-exit-requires")
+               :style {:font-family chart-label-stack
+                       :font-size   (str action-caption-px "px")
+                       :font-weight 400
+                       :font-style  "italic"
+                       :color       (:text-tertiary ct)
+                       :line-height "1"}}
+        (str "needs " (str/join ", " requires))])]))
 
 ;; ---- state node ---------------------------------------------------------
 
@@ -322,6 +348,11 @@
         tags-attr      (tag-title-attr tags)
         entry          (.-entry d)
         exit           (.-exit d)
+        ;; rf2-skhlw2.1 — the entry / exit lifecycle action's declared
+        ;; `:rf.cofx/requires` (EP-0017 consumer attachment), a JS array of
+        ;; compact id strings (nil when the action declares no facts).
+        entry-reqs     (some-> (.-entryRequires d) js->clj)
+        exit-reqs      (some-> (.-exitRequires d) js->clj)
         on-click       (.-onClick d)
         emphasised?    (or active? from-highlight? to-highlight?)
         active-affordance? (or active? to-highlight?)
@@ -432,9 +463,9 @@
                   sort
                   (map (fn [t] (tag-pill t ct vc))))])
           (when entry
-            (action-row {:kind :entry :name-str entry :vc vc :ct ct}))
+            (action-row {:kind :entry :name-str entry :requires entry-reqs :vc vc :ct ct}))
           (when exit
-            (action-row {:kind :exit :name-str exit :vc vc :ct ct}))])
+            (action-row {:kind :exit :name-str exit :requires exit-reqs :vc vc :ct ct}))])
        ;; xyflow attachment points (invisible — edges connect here)
        (four-cardinal-handles)])))
 

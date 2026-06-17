@@ -1269,3 +1269,102 @@
           "exactly one is the plain :on edge")
       (is (= 2 (count (set ids)))
           "the :on and :after edges to the same target mint DISTINCT ids"))))
+
+;; ---- consumer-attachment requirements (rf2-skhlw2.1) -------------------
+;;
+;; EP-0017 / Spec 005 §Consumer attachment: a fact-consuming named guard /
+;; action declares `:rf.cofx/requires` on its `:guards` / `:actions` entry
+;; MAP. `attach-cofx-requires` resolves the transition / lifecycle ref
+;; against that registry and surfaces the declared IDS (never the `:fn`).
+
+(def cofx-machine
+  "A machine whose named guard, transition action, entry action, and exit
+  action each declare `:rf.cofx/requires`, plus a bare-fn guard / undeclared
+  action that declare nothing (so the no-facts case stays visually
+  unchanged). Mirrors Spec 005 §Consumer attachment's worked example."
+  {:initial :idle
+   :guards  {:within-window? {:rf.cofx/requires [:rf/time-ms]
+                              :fn (fn [_] true)}
+             :always-ok?     (fn [_] true)}            ;; bare fn → no diet
+   :actions {:schedule-retry {:rf.cofx/requires [:payment/retry-jitter-ms]
+                             :fn (fn [_] nil)}
+             :stamp-started  {:rf.cofx/requires [:rf/time-ms]
+                             :fn (fn [_] nil)}
+             :stamp-ended    {:rf.cofx/requires [[:ui/local-theme "theme"]]
+                             :fn (fn [_] nil)}
+             :log-it         (fn [_] nil)}             ;; bare fn → no diet
+   :states  {:idle    {:entry :stamp-started
+                       :exit  :stamp-ended
+                       :on    {:go {:target :busy
+                                    :guard  :within-window?
+                                    :action :schedule-retry}
+                               :noop {:target :busy
+                                      :guard  :always-ok?
+                                      :action :log-it}}}
+             :busy    {}}})
+
+(defn- edge-with-event [edges ev]
+  (first (filter #(= ev (:event %)) edges)))
+
+(deftest cofx-requires-on-guard-and-action-edges
+  (testing "rf2-skhlw2.1 — a named guard / action declaring :rf.cofx/requires
+            surfaces its declared IDS (compact strings) on the edge"
+    (let [{:keys [edges]} (layout/project-definition cofx-machine)
+          go-edge   (edge-with-event edges :go)
+          noop-edge (edge-with-event edges :noop)]
+      (is (= ["rf/time-ms"] (:guard-requires go-edge))
+          "the guard's :rf.cofx/requires id surfaces")
+      (is (= ["payment/retry-jitter-ms"] (:action-requires go-edge))
+          "the action's :rf.cofx/requires id surfaces")
+      ;; the undeclared (bare-fn) guard/action edge carries NOTHING — the
+      ;; no-facts case is visually unchanged.
+      (is (nil? (:guard-requires noop-edge))
+          "a bare-fn guard declares no requires → no key")
+      (is (nil? (:action-requires noop-edge))
+          "a bare-fn action declares no requires → no key"))))
+
+(deftest cofx-requires-on-entry-and-exit-nodes
+  (testing "rf2-skhlw2.1 — a named entry / exit action declaring
+            :rf.cofx/requires surfaces its IDS on the state node"
+    (let [{:keys [nodes]} (layout/project-definition cofx-machine)
+          idle (first (filter #(= [:idle] (:path %)) nodes))]
+      (is (= ["rf/time-ms"] (:entry-requires idle))
+          "the entry action's :rf.cofx/requires id surfaces on the node")
+      (is (= ["ui/local-theme(\"theme\")"] (:exit-requires idle))
+          "the exit action's parameterized [id arg] requirement reads as id(arg)"))))
+
+(deftest cofx-requires-noop-for-fact-free-machine
+  (testing "rf2-skhlw2.1 — a machine declaring no :rf.cofx/requires anywhere
+            projects UNCHANGED (no requires keys appear)"
+    (let [{:keys [edges nodes]} (layout/project-definition idle-loading-success)]
+      (is (not-any? :guard-requires edges))
+      (is (not-any? :action-requires edges))
+      (is (not-any? :entry-requires nodes))
+      (is (not-any? :exit-requires nodes)))))
+
+(deftest cofx-requires-never-serialises-fn-or-source
+  (testing "rf2-skhlw2.1 — the surfaced requirements carry IDS only — never
+            the executable :fn nor any :source-* snippet"
+    (let [{:keys [edges nodes]} (layout/project-definition cofx-machine)
+          all (concat (mapcat (juxt :guard-requires :action-requires) edges)
+                      (mapcat (juxt :entry-requires :exit-requires) nodes))]
+      (is (every? (fn [reqs] (every? string? (or reqs []))) all)
+          "every surfaced requirement is a plain display string")
+      (is (not-any? (fn [reqs] (some #(re-find #"fn|source" (str %)) (or reqs [])))
+                    all)
+          "no :fn / :source vocabulary leaks into the surfaced requirements"))))
+
+(deftest cofx-requires-machine-scoped-across-parallel-regions
+  (testing "rf2-skhlw2.1 — a region guard/action resolves its requires
+            against the MACHINE-LEVEL :guards/:actions (XState v5 scoping)"
+    (let [m {:type    :parallel
+             :guards  {:ready? {:rf.cofx/requires [:rf/time-ms]
+                               :fn (fn [_] true)}}
+             :regions {:a {:initial :one
+                          :states {:one {:on {:go {:target :two :guard :ready?}}}
+                                   :two {}}}
+                       :b {:initial :x :states {:x {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          go-edge (edge-with-event edges :go)]
+      (is (= ["rf/time-ms"] (:guard-requires go-edge))
+          "a region guard resolves its requires against the machine registry"))))

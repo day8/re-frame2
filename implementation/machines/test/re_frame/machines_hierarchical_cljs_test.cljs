@@ -30,7 +30,8 @@
 (def ^:private snapshot mtest/snapshot)
 
 (defn- seed-snapshot!
-  "Force the snapshot for `machine-id` to a known value via an event-db.
+  "Force the snapshot for `machine-id` to a known value via a `reg-event`
+  seed handler (returning `{:rf.db/runtime …}`).
   Used to *reposition* a machine to a non-initial state mid-test (e.g. to
   exercise a different leaf without rebuilding the whole machine)."
   [machine-id snap]

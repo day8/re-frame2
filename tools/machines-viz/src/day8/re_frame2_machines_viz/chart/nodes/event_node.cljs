@@ -37,7 +37,8 @@
   `visual-constants` map threaded through `:data {:chart ...}` —
   same pattern the state-node + edge components use. No hex literals
   appear in this ns; all colour goes through `theme/tokens`."
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [four-cardinal-handles chart-constants palette-of]]
             [day8.re-frame2-machines-viz.theme.tokens
@@ -99,6 +100,39 @@
                       :line-height      "1"}}
        order])))
 
+(defn requires-chip
+  "rf2-skhlw2.1 — a compact `needs <id>, <id>` chip surfacing a guard /
+  action consumer's declared `:rf.cofx/requires` (EP-0017 consumer
+  attachment): the replay-critical host facts the named callback reads
+  before it runs. The QUIETEST tier (tertiary colour, smallest type) — a
+  subordinate annotation on the event chip, never competing with the event
+  name. Carries a `data-*` pin (`data-guard-requires` / `data-action-requires`)
+  so tests + hosts read the requirements off the DOM. Returns nil for an
+  empty / nil requires vec so an undeclared callback paints nothing.
+
+  `kind` is `:guard` / `:action` (drives the `data-testid` + pin attr);
+  `reqs` the CLJS vec of compact id strings; `id` the host node id; `ct`
+  the resolved theme tokens; `px` the density font-size."
+  [kind reqs id ct px]
+  (when (seq reqs)
+    (let [label (str "needs " (str/join ", " reqs))
+          pin   (case kind :guard :data-guard-requires
+                           :action :data-action-requires)]
+      [:span {:data-testid (str "rf-mv-chart-event-" (name kind) "-requires-" id)
+              pin (str/join " " reqs)
+              :title (str (name kind) " consumes recordable coeffects: " label)
+              :style {:display       "inline-flex"
+                      :align-items   "center"
+                      :align-self    "flex-start"
+                      :margin-top    "2px"
+                      :font-size     (str (max 8 (- px 2)) "px")
+                      :font-weight   400
+                      :font-style    "italic"
+                      :color         (:text-tertiary ct)
+                      :line-height   "1"
+                      :white-space   "nowrap"}}
+       label])))
+
 (defn event-node
   "Reagent component for an event-node. The xyflow chart projector
   emits ONE event-node per spec transition (event-as-node paradigm,
@@ -151,6 +185,13 @@
         after-ms    (.-afterMs d)
         guard       (.-guard d)
         action      (.-action d)
+        ;; rf2-skhlw2.1 — the guard / action consumer's declared
+        ;; `:rf.cofx/requires` (EP-0017 consumer attachment), a JS array of
+        ;; compact id strings (nil when the named callback declares no facts).
+        ;; `js->clj` back to a CLJS vec for rendering; nil stays nil so an
+        ;; undeclared callback is visually unchanged.
+        guard-reqs  (some-> (.-guardRequires d) js->clj)
+        action-reqs (some-> (.-actionRequires d) js->clj)
         focused?    (boolean (.-focused d))
         fired?      (boolean (.-fired d))
         ;; rf2-fzrzlw — this transition's guard rejected the event this
@@ -223,6 +264,11 @@
              :data-after-ms (when after-ms (str after-ms))
              :data-guard (when guard (str guard))
              :data-action (when action (str action))
+             ;; rf2-skhlw2.1 — DOM pins for the guard / action consumer's
+             ;; declared `:rf.cofx/requires` (space-joined id strings) so
+             ;; tests + hosts read the replay-critical facts off the node.
+             :data-guard-requires (when (seq guard-reqs) (str/join " " guard-reqs))
+             :data-action-requires (when (seq action-reqs) (str/join " " action-reqs))
              :data-from-path (when from-path (pr-str from-path))
              :data-to-path (when to-path (pr-str to-path))
              :role (when clickable? "button")
@@ -341,6 +387,13 @@
                          :white-space   "nowrap"}}
           [:span {:style {:opacity 0.7}} "⚡"]
           action])
+       ;; rf2-skhlw2.1 — the guard / action consumer-attachment requirement
+       ;; rows: a quiet `needs <id>` annotation surfacing the replay-critical
+       ;; host facts the named guard / action declares via `:rf.cofx/requires`
+       ;; (EP-0017). Each renders ONLY when its callback declared a non-empty
+       ;; diet, so an ordinary fact-free transition is visually unchanged.
+       (requires-chip :guard guard-reqs (.-id props) ct event-chip-action-px)
+       (requires-chip :action action-reqs (.-id props) ct event-chip-action-px)
        ;; xyflow attachment points. Handles on every side so elkjs can
        ;; pick the cleanest anchor based on the routed direction.
        (four-cardinal-handles)])))

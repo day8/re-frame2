@@ -236,9 +236,10 @@
 ;; ---- live instance view (singleton) --------------------------------------
 
 (defn- seed-snapshot!
-  "Install a snapshot for `machine-id` directly into runtime-db via an
-  event-db, repositioning the machine to a known live state (the
-  hierarchical-test pattern). EP-0001: snapshots are durable runtime-db state."
+  "Install a snapshot for `machine-id` directly into runtime-db via a
+  `reg-event` seed handler (returning `{:rf.db/runtime …}`), repositioning
+  the machine to a known live state (the hierarchical-test pattern).
+  EP-0001: snapshots are durable runtime-db state."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (name machine-id)))]
     (rf/reg-event seed-id
