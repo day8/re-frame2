@@ -2,7 +2,7 @@
   "Trace tooling sibling of `re-frame.trace` — carries the public
   dev-tooling surface (`register-listener!` / `unregister-listener!` /
   `clear-listeners!` / `trace-buffer` / `clear-trace-buffer!` /
-  `configure-trace-buffer!` / `configure`) and the per-frame
+  `configure-trace-buffer!`) and the per-frame
   cascade-keyed trace rings + listener state.
 
   ## Per-frame trace rings (rf2-g1b2m / rf2-8uwce)
@@ -689,15 +689,6 @@
               rings
               rings))))
   nil)
-
-(defn configure
-  "Generic config dispatch. Recognises :trace-buffer; future config knobs
-  add cases here. Per Spec 009 §Per-frame trace rings
-  (`(rf/configure! :trace-buffer {:cascades-retained N})`)."
-  [k opts]
-  (case k
-    :trace-buffer (configure-trace-buffer! opts)
-    nil))
 
 ;; ---- delivery hook ------------------------------------------------------
 ;;

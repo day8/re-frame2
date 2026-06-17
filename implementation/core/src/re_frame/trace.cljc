@@ -13,7 +13,7 @@
   hot fast path — `emit!` / `emit-error!` / `*handler-scope*` and the
   bracket macros. The public-tooling surface (`register-listener!` /
   `unregister-listener!` / `clear-listeners!` / `trace-buffer` /
-  `clear-trace-buffer!` / `configure-trace-buffer!` / `configure`) and
+  `clear-trace-buffer!` / `configure-trace-buffer!`) and
   the buffer + listener state live in the sibling
   `re-frame.trace.tooling`, which is loaded only when a test fixture,
   tool, or dev preload requires it.
@@ -487,4 +487,3 @@
 (def trace-buffer           trace-tooling/trace-buffer)
 (def clear-trace-buffer!    trace-tooling/clear-trace-buffer!)
 (def configure-trace-buffer! trace-tooling/configure-trace-buffer!)
-(def configure              trace-tooling/configure)

@@ -138,12 +138,6 @@
   (reset! sinks {})
   nil)
 
-(defn registered-sink-ids
-  "Return the set of currently-registered sink ids. Introspection surface
-  (Xray's observability panel) — pure (modulo the registry read)."
-  []
-  (set (keys @sinks)))
-
 ;; ---- routing --------------------------------------------------------------
 ;;
 ;; The default egress profile when a sink entry omits `:rf.egress/profile`.

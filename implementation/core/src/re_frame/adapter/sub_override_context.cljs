@@ -62,21 +62,6 @@
 (when interop/debug-enabled?
   (set! (.-displayName ^js override-context) "rf2-sub-overrides"))
 
-(defn provider-element
-  "Build a React element for the override-context Provider with
-  `overrides` (a `{query-vector value}` map, or nil) as its value and
-  `children` as its child elements. Substrate-agnostic — the Reagent
-  adapter wraps it via `:>` interop, UIx/Helix via `$`.
-
-  Returns a raw React element so callers don't pay for an extra
-  `reagent.core/as-element` walk (mirrors
-  `re-frame.adapter.context/provider-element`)."
-  [overrides & children]
-  (apply React/createElement
-         (.-Provider override-context)
-         #js {:value overrides}
-         children))
-
 (defn current-overrides
   "Read the closest enclosing Provider's override map off the shared
   context object's `_currentValue` (the substrate-portable path that

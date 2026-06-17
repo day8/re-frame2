@@ -160,11 +160,11 @@
    {:key         :marks/add-marks
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
-    :description "Additively merge path-marks into a frame's app-db (Spec 015 §App-db marks)."}
+    :description "Additively merge path-marks into a frame's app-db (Spec 015 §App-db marks). Hook retained for the directory contract; the `add-marks` façade export was removed (frame-marks are author-declared at reg-* time, not imperatively mutated), so the underlying `re-frame.marks/add-marks` survives only as an internal / test / generated-code surface, reached by direct require — not through this late-bind hook."}
    {:key         :marks/set-marks
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
-    :description "Replace the frame's app-db mark-set wholesale (Spec 015 §App-db marks)."}
+    :description "Replace the frame's app-db mark-set wholesale (Spec 015 §App-db marks). Like `:marks/add-marks`, the `set-marks` façade export was removed; the underlying `re-frame.marks/set-marks` survives as an internal / test / generated-code surface reached by direct require, not through this hook."}
    {:key         :marks/register-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
@@ -172,11 +172,11 @@
    {:key         :marks/union-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"
-    :description "UNION a mark declaration into the existing per-(kind, id) marks entry (additive merge, vs register-marks!'s full replace) — the marks-table analogue of add-marks merging into the app-db elision registry. Consumed by re-frame.machines' reg-machine :data-schema redaction bridge (EP-0005): the schema's per-slot :sensitive? / :large? paths (snapshot-rooted under [:data …]) union into the machine's :event-keyed marks so a sensitive :data slot is redacted in snapshot egress (project-machine-tags) like an app-db slot, AND a machine that also carries a manual register-marks! keeps both sets (Spec 015 §union-by-source)."}
+    :description "UNION a mark declaration into the existing per-(kind, id) marks entry (additive merge, vs register-marks!'s full replace) — the marks-table analogue of add-marks merging into the app-db elision registry. The schema's per-slot :sensitive? / :large? paths (snapshot-rooted under [:data …]) union into the machine's :event-keyed marks so a sensitive :data slot is redacted in snapshot egress (project-machine-tags) like an app-db slot, AND a machine that also carries a manual register-marks! keeps both sets (Spec 015 §union-by-source). Hook retained for the directory contract; re-frame.machines' reg-machine :data-schema bridge (EP-0005) now reaches this fn by a direct `re-frame.marks` require, not through this late-bind hook."}
    {:key         :marks/marks-for
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"
-    :description "Read the registered mark declaration for a (kind, id), or nil. For an :event-kind machine id, unions the author-sourced marks with the schema-sourced marks at read time (rf2-qpibk0). Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005)."}
+    :description "Read the registered mark declaration for a (kind, id), or nil. For an :event-kind machine id, unions the author-sourced marks with the schema-sourced marks at read time (rf2-qpibk0). Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress, EP-0005) now calls `re-frame.marks/marks-for` by direct require, not through this late-bind hook."}
    {:key         :marks/declare-machine-schema-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-qpibk0"
@@ -1001,11 +1001,11 @@
    {:key         :trace.tooling/register-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"
-    :description "Register a trace listener. Late-bound so `re-frame.frame/fire-on-destroy-event!` can install a one-shot listener around the `:on-destroy` dispatch (to re-emit `:rf.error/handler-exception` as `:rf.error/on-destroy-handler-exception`) without forcing the tooling sibling into production CLJS bundles."}
+    :description "Register a dev-trace listener. Hook retained for the directory contract (the family is published as one rf2-r1ciy seam), but the live consumers — tests, tools, and SSR's listener registration — call `re-frame.trace.tooling/register-listener!` directly. The former `:on-destroy`-throw capture that drove this hook from `re-frame.frame/fire-on-destroy-event!` migrated to the production-survivable always-on axis (`:error-emit/register-error-listener!`) under EP-0008 / rf2-87f7fb."}
    {:key         :trace.tooling/unregister-listener!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-r1ciy"
-    :description "Drop a trace listener. Sibling of `:trace.tooling/register-listener!` — same rf2-r1ciy seam."}
+    :description "Drop a dev-trace listener. Sibling of `:trace.tooling/register-listener!` — same rf2-r1ciy seam; same direct-call consumers (tests / tools / SSR)."}
 
    ;; ---- re-frame.trace.tooling — per-frame trace rings (rf2-g1b2m / rf2-8uwce) ----
    ;;
@@ -1073,10 +1073,13 @@
    ;;
    ;; The three hooks let `re-frame.epoch/settle!` reach the aggregator
    ;; (`:trace.cascade/capture-for-epoch!`) without requiring the
-   ;; cascade ns, and let Xray's Reactive panel publish / withdraw its
-   ;; focus predicate (`set-focus-predicate!` / `clear-focus-predicate!`)
-   ;; through the same registry the rest of the substrate uses. The
-   ;; cascade ns is JVM-autoloaded from `re-frame.core` only; CLJS
+   ;; cascade ns; the focus-predicate pair (`set-focus-predicate!` /
+   ;; `clear-focus-predicate!`) publishes the install / withdraw surface
+   ;; through the same registry the rest of the substrate uses. (No Xray
+   ;; consumer ships against the focus-predicate hooks today — the only
+   ;; in-tree caller is the core `trace_cascade_captured_test`, which
+   ;; drives the aggregator directly via `re-frame.trace.cascade/<name>`.)
+   ;; The cascade ns is JVM-autoloaded from `re-frame.core` only; CLJS
    ;; production builds DCE the ns so the hooks are simply unbound on
    ;; the prod side.
    {:key         :trace.cascade/capture-for-epoch!
@@ -1086,11 +1089,11 @@
    {:key         :trace.cascade/set-focus-predicate!
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"
-    :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Xray's Reactive panel calls this at mount."}
+    :description "Install the predicate the aggregator consults at end-of-epoch (`(fn [frame-id epoch-id event-id] truthy?)`). Hook published for a focus-publishing consumer to drive at mount; no Xray consumer ships against it today — the only in-tree caller is the core `trace_cascade_captured_test`, which calls `re-frame.trace.cascade/set-focus-predicate!` directly."}
    {:key         :trace.cascade/clear-focus-predicate!
     :producer-ns 're-frame.trace.cascade
     :design-bead "rf2-931pm"
-    :description "Restore the no-op default focus predicate (no epoch focused). Xray's Reactive panel calls this on unmount."}
+    :description "Restore the no-op default focus predicate (no epoch focused). Withdraw counterpart of `:trace.cascade/set-focus-predicate!`; same no-Xray-consumer status — only the core `trace_cascade_captured_test` calls `re-frame.trace.cascade/clear-focus-predicate!` directly."}
 
    ;; NOTE (rf2-7pgiz): `:subs/resolve-sub-override` — the SUBSTITUTIVE
    ;; dev-only sub-override seam consulted by `re-frame.subs/subscribe`

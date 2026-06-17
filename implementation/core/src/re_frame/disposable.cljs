@@ -29,8 +29,7 @@
   follows CLJS convention for internal protocol methods: the protocol
   is a structural extension point, callers reach it through
   `re-frame.interop`'s thin wrappers (which in turn route through the
-  late-bind `:adapter/*` hook table). Users do not call these directly."
-  (:refer-clojure :exclude []))
+  late-bind `:adapter/*` hook table). Users do not call these directly.")
 
 (defprotocol IDisposable
   "Cross-substrate disposal protocol owned by re-frame. The

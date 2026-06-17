@@ -654,10 +654,6 @@
   [v]
   (and (map? v) (contains? v :rf.size/large-elided)))
 
-(defn handle?
-  [v]
-  (and (vector? v) (= :rf.elision/at (first v))))
-
 ;; ---------------------------------------------------------------------------
 ;; Derived-tree VALUE-based redaction (EP-0015 issue 2, rf2-i783h0).
 ;;
