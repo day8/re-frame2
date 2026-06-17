@@ -23,14 +23,27 @@
             [re-frame.image :as image]
             [re-frame.live-frame :as live-frame]
             [re-frame.image-assembly :as image-assembly]
+            [re-frame.trace :as trace]
             [day8.re-frame2-xray.panels.image-view-reads :as reads]))
 
 ;; Each case starts from a clean live-frame registry so an `:id` from one case
 ;; never collides with the next (EP-0023 §Id Spaces — a frame id is unique in
-;; the process-local registry).
+;; the process-local registry). The frame-no-emit gate (rf2-2qaqh) lives in a
+;; persistent `re-frame.trace` set that `clear-live-frames!` does NOT touch, so
+;; the seating cases also clear the shell ids they exercise so each starts
+;; un-gated.
+(def ^:private seat-test-frame-ids
+  [:rf.xray/seat-a :rf.xray/seat-b :rf.xray/seat-c])
+
 (use-fixtures :each
-  {:before #(live-frame/clear-live-frames!)
-   :after  #(live-frame/clear-live-frames!)})
+  {:before (fn []
+             (live-frame/clear-live-frames!)
+             (doseq [fid seat-test-frame-ids]
+               (trace/set-frame-no-emit! fid false)))
+   :after  (fn []
+             (live-frame/clear-live-frames!)
+             (doseq [fid seat-test-frame-ids]
+               (trace/set-frame-no-emit! fid false)))})
 
 ;; A target image + a target frame, built against an EXPLICIT descriptor pool
 ;; (so the test does not depend on the live source store carrying any host
@@ -201,3 +214,52 @@
           "resolves to the target image's descriptor, not Xray's"))
     (testing "a nil generation is fail-soft → nil (no throw)"
       (is (nil? (reads/resolve-descriptor nil :event :counter/inc))))))
+
+;; ---- TRUE runtime self-seating (EP-0023 §Xray Beside The Target) ----------
+;;
+;; rf2-32siq3.36 — the dogfood's runtime arm: Xray SEATS a running frame in its
+;; OWN image-loaded frame (built from `(xray-image)`), so its registrations are
+;; resolved through that frame's OWN sealed generation in genuine registration
+;; isolation — not the shared default registrar. These cases exercise the seating
+;; against an EXPLICIT pool (deterministic, no dependence on the live store) and
+;; assert the trace-emission gate + idempotency the production singleton relies on.
+
+(deftest seat-xray-frame-seats-in-its-own-image
+  (testing "seat-xray-frame! seats a LIVE frame whose resolved generation carries
+            Xray's OWN registrations (the frame runs Xray's image, not the shared
+            registrar) — the true runtime dogfood"
+    (let [obj (reads/seat-xray-frame! :rf.xray/seat-a xray-pool)
+          kids (reads/application-resolver-keyset (:rf.frame/generation obj))]
+      (is (some? obj) "a fresh seat returns the live frame object")
+      (is (= :rf.xray/seat-a (:rf.frame/id obj)) "registered under the shell id")
+      (is (true? (reads/xray-frame-seated? :rf.xray/seat-a))
+          "the frame is now live in the EP-0023 registry")
+      (is (contains? kids [:event :rf.xray/refresh])
+          "the seated frame resolves Xray's OWN [kind id] through its image")
+      (is (every? (fn [[_ id]] (= "rf.xray" (namespace id))) kids)
+          "the seated frame resolves ONLY Xray's app-owned ids — registration
+           isolation from any inspected target"))))
+
+(deftest seat-xray-frame-sets-the-trace-no-emit-gate
+  (testing "seat-xray-frame! marks the shell frame trace-disabled (rf2-2qaqh) so
+            Xray's own reactivity does not flood the ring it inspects — preserved
+            across the make-frame seating that cannot carry the record-config flag"
+    (is (false? (trace/frame-trace-disabled? :rf.xray/seat-b))
+        "not gated before seating")
+    (reads/seat-xray-frame! :rf.xray/seat-b xray-pool)
+    (is (true? (trace/frame-trace-disabled? :rf.xray/seat-b))
+        "seating sets the frame-no-emit gate")))
+
+(deftest seat-xray-frame-is-idempotent
+  (testing "a re-seat (re-open / hot-reload / repeated testbed mount) finds the
+            frame already live and SKIPS the fail-loud duplicate-:id make-frame,
+            re-asserting only the trace gate — no throw"
+    (let [first-obj (reads/seat-xray-frame! :rf.xray/seat-c xray-pool)]
+      (is (some? first-obj) "first seat creates the frame")
+      ;; A second call must NOT throw :rf.error/live-frame-id-conflict.
+      (let [second-obj (reads/seat-xray-frame! :rf.xray/seat-c xray-pool)]
+        (is (nil? second-obj) "re-seat is a skip (returns nil), not a re-create")
+        (is (true? (reads/xray-frame-seated? :rf.xray/seat-c))
+            "the frame stays live")
+        (is (true? (trace/frame-trace-disabled? :rf.xray/seat-c))
+            "the trace gate is re-asserted on the re-seat")))))

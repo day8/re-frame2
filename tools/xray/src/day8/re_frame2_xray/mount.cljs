@@ -368,6 +368,12 @@
   calls are surgical no-ops on the frame side and (per each hook's own
   idempotency contract) no-ops on the hook side.
 
+  EP-0023 §Xray Beside The Target (rf2-32siq3.36): the true image-loaded
+  seating (`rf/make-frame {:images [(xray-image)]}`) ships as the proven,
+  tested `image-view-reads/seat-xray-frame!` callable, but is NOT yet flipped
+  onto this default singleton path — see the body for the test-namespace-
+  collision blocker that gates the flip.
+
   ## `frame-id` arg (rf2-lnluk)
 
   Defaults to `shell/default-frame-id` (`:rf/xray`) — the production
@@ -451,6 +457,19 @@
    ;; the frame-scoped sibling of the handler-scoped `:rf.trace/no-
    ;; emit?`; the framework's `reg-frame` honours it on every (re-)
    ;; registration so the gate survives hot-reload.
+   ;;
+   ;; EP-0023 §Xray Beside The Target (rf2-32siq3.36) — true image-loaded
+   ;; SEATING of this singleton via `image-reads/seat-xray-frame!` (the
+   ;; `rf/make-frame {:images [(xray-image)]}` path) is SHIPPED + proven as a
+   ;; callable, tested seating-core, but is NOT yet flipped onto this default
+   ;; production-singleton path. The `day8.re-frame2-xray.**` image glob sweeps
+   ;; in Xray's OWN `*-cljs-test` namespaces in any dev/test build that loads
+   ;; them, colliding on shared `:rf.xray/*` ids (e.g. `[:fx :rf.editor/open]`
+   ;; co-registered by `open-in-editor` + `open-in-editor-cljs-test`) → a
+   ;; fail-loud `:rf.error/image-duplicate-id` at assembly. Flipping the
+   ;; singleton needs a test-ns-excluding image selector (a follow-on); until
+   ;; then the singleton keeps the legacy realm seating below, while
+   ;; `seat-xray-frame!` is the proven runtime self-seating callable.
    (rf/reg-frame frame-id {:rf.trace/frame-no-emit? true})
    (doseq [{:keys [handler]} @first-mount-hooks]
      (handler frame-id))))
