@@ -121,12 +121,16 @@ The canonical facade. Every user-callable surface lives here.
 | `recorder-state` | `(recorder-state)` → map | Read-only view of recorder state. |
 | `gen-play-snippet` | `(gen-play-snippet events opts)` → string | Render captured events as a `(reg-variant ...)` EDN snippet. |
 
-### Privacy primitives
+### Privacy — frame-owned classification
 
-| Symbol | Signature | Intuition |
+Durable app-db classification is declared at frame creation, not via a post-creation mutation surface (EP-0015). A variant declares its sensitive / large paths on its body:
+
+| Variant slot | Shape | Intuition |
 | --- | --- | --- |
-| `add-marks` | `(add-marks variant-id marks-map)` | Merge marks additively. Re-export of `re-frame.core/add-marks`. |
-| `set-marks` | `(set-marks variant-id marks-map)` | Replace marks wholesale. Re-export of `re-frame.core/set-marks`. |
+| `:sensitive` | `{:app-db [[path...] ...]}` | Frame-owned sensitive app-db paths — redact to `:rf/redacted` at every Story observation surface. Same owner model as `reg-frame`. |
+| `:large` | `{:app-db [[path...] ...]}` | Frame-owned large app-db paths — elide to `:rf/large {…}`. |
+
+> Story does **not** publish `add-marks` / `set-marks` — EP-0015 superseded that public post-creation path-mark mutation surface.
 
 ### Substrate registration
 

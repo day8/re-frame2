@@ -924,7 +924,25 @@
     ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]
-    [:background            {:optional true} BackgroundSlot]]
+    [:background            {:optional true} BackgroundSlot]
+    ;; rf2-bsk1d9 — EP-0015 frame-owned durable classification. A variant
+    ;; declares which of ITS app-db paths are sensitive / large at frame
+    ;; creation, the SAME owner model the framework's `reg-frame` uses
+    ;; (`{:app-db [[:auth :token]] :http {...}}`). The runtime threads these
+    ;; straight onto the variant's `reg-frame` config (`frames/variant-
+    ;; frame-config`), so the framework's `re-frame.frame-classification`
+    ;; validates + installs them atomically as part of frame creation —
+    ;; BEFORE `:on-create`. This is the EP-0015-compliant replacement for
+    ;; the removed public post-creation `story/add-marks` / `set-marks`
+    ;; mutation surface (spec/015 §Frame-owned durable classification).
+    ;;
+    ;; Loose `:map` here on purpose: the framework's frame-classification
+    ;; layer owns the rigorous shape validation (malformed paths, unknown
+    ;; keys, non-string HTTP carriers all FAIL LOUDLY at `reg-frame` time —
+    ;; spec/015 §Frame-owned durable classification, fail-fast). Story does
+    ;; not fork that validation — one source of truth.
+    [:sensitive             {:optional true} [:map-of :keyword :any]]
+    [:large                 {:optional true} [:map-of :keyword :any]]]
    ;; rf2-5x1wt.11 — setup-surface mutual-exclusion. `:setup` is the
    ;; public spelling, `:events` the transitional one; an author picks
    ;; ONE during migration. Mixing both is a schema-level error so the
