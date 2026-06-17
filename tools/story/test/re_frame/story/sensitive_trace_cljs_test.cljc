@@ -166,10 +166,24 @@
 
 (deftest configure!-rejects-unknown-egress-profile
   (testing "an unknown profile keyword raises :rf.error/unknown-egress-profile (closed enum)"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #"unknown-egress-profile"
-          (story/configure! {:rf.story/egress-profile :rf.egress/not-a-profile})))
+    (let [e (try
+              (story/configure! {:rf.story/egress-profile :rf.egress/not-a-profile})
+              nil
+              (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+      (is (some? e) "expected ex-info to be thrown")
+      ;; Canonical thrown-error shape: a human sentence carrying the offending
+      ;; profile + the trailing `[:rf.error/<id>]` token — NOT the bare keyword
+      ;; string.
+      (let [msg #?(:clj (.getMessage ^Exception e) :cljs (ex-message e))]
+        (is (re-find #":rf.egress/not-a-profile" msg)
+            "the message names the unknown profile the author passed")
+        (is (re-find #"known profiles are" msg)
+            "the message enumerates the known profiles")
+        (is (re-find #"\[:rf.error/unknown-egress-profile\]" msg)
+            "the message ends with the machine-readable error token"))
+      (let [data (ex-data e)]
+        (is (= :rf.error/unknown-egress-profile (:rf.error/id data)))
+        (is (= 'rf.story/configure! (:where data)))))
     (is (= :rf.egress/local-redacted (config/get-egress-profile))
         "the rejected call left the profile at the redacting default")))
 

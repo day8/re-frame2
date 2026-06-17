@@ -892,12 +892,24 @@
     ;; coercing to the default. `nil` resets to the redacting default.
     (when (and (some? egress-profile)
                (not (config/known-egress-profile? egress-profile)))
-      (throw (ex-info ":rf.error/unknown-egress-profile"
-                      {:rf.error/id :rf.error/unknown-egress-profile
-                       :where       'rf.story/configure!
-                       :recovery    :use-a-known-profile
-                       :profile     egress-profile
-                       :valid       config/egress-profiles})))
+      ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
+      ;; a human sentence + the trailing `[:rf.error/<id>]` token as the
+      ;; ex-message, with `:rf.error/id` the sole machine discriminator.
+      ;; The central `re-frame.error` builder is NOT used here — `tools/`
+      ;; is bundle-isolated and MUST NOT `:require re-frame.*`, so the shape
+      ;; is hand-rolled inline (mirroring reagent-slim's same constraint).
+      (let [msg (str "configure! got an unknown :rf.story/egress-profile: "
+                     (pr-str egress-profile)
+                     " — known profiles are " (pr-str config/egress-profiles) ". "
+                     "Use one of the known profiles, or `nil` to reset to the "
+                     "redacting default. [:rf.error/unknown-egress-profile]")]
+        (throw (ex-info msg
+                        {:rf.error/id :rf.error/unknown-egress-profile
+                         :where       'rf.story/configure!
+                         :recovery    :use-a-known-profile
+                         :reason      msg
+                         :profile     egress-profile
+                         :valid       config/egress-profiles}))))
     (config/set-egress-profile! egress-profile))
   nil)
 
