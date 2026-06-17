@@ -24,9 +24,6 @@
                                           `http-transport` so the
                                           reachability graph includes
                                           the gated body)
-  - `:rf.warning/decode-defaulted`        (Spec 014 §`:auto` decode —
-                                          ditto reachability via
-                                          `http-decode` require)
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build. Running

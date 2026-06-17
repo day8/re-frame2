@@ -273,7 +273,7 @@
 (defn prepare-emit-tags
   "Compose `redact-request-tags` + `stamp-sensitive` for a request-side
   trace event (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`,
-  `:rf.warning/decode-defaulted`, `:rf.warning/cljs-only-key-ignored-on-jvm`).
+  `:rf.warning/cljs-only-key-ignored-on-jvm`).
   Returns a tags map ready for `trace/emit!`.
 
   Two distinct decisions per rf2-2p8wr:

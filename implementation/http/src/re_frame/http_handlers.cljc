@@ -235,7 +235,6 @@
         max-keys     (:rf.http/max-decoded-keys args-map)]
     {:request           request
      :decode            decode
-     :decode-supplied?  (some? decode)
      :accept            accept
      :retry             retry
      :timeout-ms        timeout-ms

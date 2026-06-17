@@ -35,7 +35,6 @@
   `:rf.http/decode-failure :schema-validation-failure? true`."
   (:require [clojure.string  :as str]
             [re-frame.error   :as error]
-            [re-frame.http-privacy :as privacy]
             [re-frame.interop :as interop]
             [re-frame.trace   :as trace]
             [re-frame.util-json :as util-json]))
@@ -208,34 +207,6 @@
   ;; visible without flooding the trace surface.
   (atom false))
 
-(defonce ^:private decode-defaulted-warned-handlers
-  ;; rf2-xuvj7 — one-shot-PER-HANDLER latch for the `:auto`-fallback
-  ;; warning. Mirrors `malli-absent-warned?` (rf2-ee38b.7) but keys on
-  ;; the originating handler id rather than a single runtime-wide boolean:
-  ;; a happy-path handler that omits `:decode` issues the same defaulted
-  ;; request on EVERY invocation, so a per-request `:rf.warning/decode-
-  ;; defaulted` trace floods the surface with steady-state noise (the
-  ;; finding behind this bead). Latching per-handler keeps the choice
-  ;; visible the FIRST time each call site defaults while staying silent
-  ;; thereafter. A set rather than a boolean so distinct handlers each get
-  ;; their one warning. Falls back to the runtime-wide latch when no
-  ;; handler id is available (synthetic / test-path callers).
-  (atom #{}))
-
-(defn- decode-defaulted-first-for-handler?
-  "Atomic one-shot check for `handler-id`: returns true for exactly the
-  FIRST caller to register a given id, false for every caller thereafter.
-  `swap-vals!` performs the `conj` atomically and hands back `[old new]`;
-  only the caller whose `old` lacked the id (the one that actually added
-  it) returns true, so the warning fires once even under concurrent
-  in-flight replies. When `handler-id` is nil (no origin event in scope)
-  we degrade to the shared `:rf/anonymous` slot so the warning still
-  fires once overall."
-  [handler-id]
-  (let [k             (or handler-id :rf/anonymous)
-        [old _new]    (swap-vals! decode-defaulted-warned-handlers conj k)]
-    (not (contains? old k))))
-
 (defn- warn-malli-absent! [schema]
   ;; Visible-degradation trace per Spec 014 §JSON decoder hardening
   ;; ("no silent fallback"). When a real schema rides `:decode` but
@@ -295,8 +266,7 @@
   (`:cause :too-many-keys`) is a security-relevant signal and must
   surface as `:rf.http/decode-failure`, not be masked behind a malli
   rejection."
-  [{:keys [body-text body-binary headers decode decode-supplied? request-id url
-           sensitive? max-decoded-keys handler-id frame]}]
+  [{:keys [body-text body-binary headers decode max-decoded-keys]}]
   (let [content-type     (content-type-of headers)
         requested-decode (cond
                            (nil? decode)        :auto
@@ -306,33 +276,6 @@
                            (= :auto requested-decode) (sniff-decoder content-type)
                            :else                      requested-decode)
         parse-opts       (when max-decoded-keys {:max-decoded-keys max-decoded-keys})]
-    ;; Per Spec 014 §`:auto`: emit `:rf.warning/decode-defaulted` when
-    ;; the user did NOT supply `:decode` and we fell back to auto-
-    ;; sniffing. Per rf2-2p8wr the URL passes through
-    ;; `privacy/prepare-emit-tags`, which redacts denylisted query-
-    ;; string param values and stamps `:sensitive?` when applicable.
-    ;;
-    ;; rf2-xuvj7 — the warning is LATCHED one-shot-per-handler (mirroring
-    ;; the malli-absent latch). A happy-path handler that omits `:decode`
-    ;; re-issues the same defaulted request on every invocation; a per-
-    ;; request trace would flood the surface with steady-state noise. The
-    ;; per-handler latch keeps the choice visible the first time each call
-    ;; site defaults, then stays quiet. The CAS sits INSIDE the
-    ;; `debug-enabled?` gate so production bundles DCE the whole branch
-    ;; (and never mutate the latch).
-    (when (and (not decode-supplied?)
-               (= :auto requested-decode)
-               interop/debug-enabled?
-               (decode-defaulted-first-for-handler? handler-id))
-      (trace/emit! :warning :rf.warning/decode-defaulted
-                   (privacy/prepare-emit-tags
-                     {:request-id       request-id
-                      :handler-id       handler-id
-                      :url              url
-                      :content-type     content-type
-                      :resolved-decoder (if (keyword? resolved) resolved :auto)}
-                     (true? sensitive?)
-                     {:frame frame})))
     (cond
       (fn? requested-decode)
       (requested-decode body-text headers)

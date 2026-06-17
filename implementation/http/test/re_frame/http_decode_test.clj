@@ -6,10 +6,9 @@
   Per Spec 014 §Decoding / §`:auto`, schema-driven decode is the
   canonical form. Before this file the entire Malli decode + coerce +
   validate path (`malli-decode`, the schema branch of
-  `decode-response-body`) had ZERO test coverage, the keyword-cap was
+  `decode-response-body`) had ZERO test coverage, and the keyword-cap was
   never threaded through the decoder end-to-end as a thrown
-  `:too-many-keys`, and the `:rf.warning/decode-defaulted` dev emission
-  (Spec 014 §`:auto`) was never asserted to actually fire.
+  `:too-many-keys`.
 
   These fns are pure / host-agnostic, so they belong on the fast JVM
   `clojure -M:test` layer. Malli is on the http test classpath via the
@@ -117,8 +116,7 @@
            (decode/decode-response-body
              {:body-text "{\"title\":\"hello\",\"id\":42,\"status\":\"active\"}"
               :headers   {"content-type" "application/json"}
-              :decode    [:map [:title :string] [:id :int] [:status :keyword]]
-              :decode-supplied? true}))
+              :decode    [:map [:title :string] [:id :int] [:status :keyword]]}))
         "string :status \"active\" is coerced to keyword :active by the schema decode")))
 
 (deftest decode-response-body-schema-validation-failure-throws-canonical
@@ -133,8 +131,7 @@
                    (decode/decode-response-body
                      {:body-text "{\"id\":\"not-an-int\"}"
                       :headers   {"content-type" "application/json"}
-                      :decode    [:map [:id :int]]
-                      :decode-supplied? true})))]
+                      :decode    [:map [:id :int]]})))]
       (is (= :rf.error/http-schema-validation-failed
              (:rf.error/id (ex-data ex)))))))
 
@@ -162,7 +159,6 @@
                      {:body-text "{\"a\":1,\"b\":2,\"c\":3}"
                       :headers   {"content-type" "application/json"}
                       :decode    [:map-of :keyword :int]
-                      :decode-supplied? true
                       :max-decoded-keys 2})))
           d  (ex-data ex)]
       (is (= :rf.error/malformed-json (:rf.error/id d))
@@ -184,7 +180,6 @@
             {:body-text "{\"a\":1,\"b\":2,\"c\":3}"
              :headers   {"content-type" "application/json"}
              :decode    :json
-             :decode-supplied? true
              :max-decoded-keys 2})))))
 
 ;; ---- rf2-houkno: +json vendor media types (RFC 6839 suffix) ---------------
@@ -210,8 +205,7 @@
              (decode/decode-response-body
                {:body-text "{\"title\":\"hello\",\"id\":42}"
                 :headers   {"content-type" ct}
-                :decode    [:map [:title :string] [:id :int]]
-                :decode-supplied? true}))
+                :decode    [:map [:title :string] [:id :int]]}))
           (str "vendor +json media type should decode as JSON: " ct)))))
 
 (deftest schema-decode-still-rejects-genuine-non-json-content-type
@@ -226,8 +220,7 @@
             (decode/decode-response-body
               {:body-text "{\"title\":\"hello\"}"
                :headers   {"content-type" ct}
-               :decode    [:map [:title :string]]
-               :decode-supplied? true}))
+               :decode    [:map [:title :string]]}))
           (str "genuine non-JSON media type must still reject: " ct)))))
 
 (deftest auto-sniff-resolves-plus-json-to-json
@@ -241,11 +234,7 @@
              (decode/decode-response-body
                {:body-text        "{\"ok\":true}"
                 :headers          {"content-type" ct}
-                :decode           :auto
-                :decode-supplied? false
-                :request-id       :req-pj
-                :handler-id       :handler/pj
-                :url              "https://example.test/pj"}))
+                :decode           :auto}))
           (str "vendor +json media type should auto-sniff to :json: " ct)))))
 
 (deftest json-media-type-predicate-edge-cases
@@ -266,12 +255,7 @@
       (is (false? (json-media-type? "application/jsonrequest")))
       (is (nil?   (json-media-type? nil))))))
 
-;; ---- G4: :rf.warning/decode-defaulted dev emission ------------------------
-;;
-;; Spec 014 §`:auto`. The warning fires when the user did NOT supply
-;; `:decode` and the decoder fell back to auto-sniffing. The audit (G4)
-;; flags that only the prod-elision *absence* test referenced it; no
-;; dev-mode test asserted it actually fires with its tags.
+;; ---- trace-capture helper -------------------------------------------------
 
 (defn- with-trace-capture [body-fn]
   (let [captured (atom [])
@@ -282,157 +266,6 @@
       (finally
         (trace/unregister-listener! cb-id)))))
 
-;; rf2-xuvj7 — the decode-defaulted warning is latched one-shot-per-handler.
-;; Reach the private set-atom via #' so tests can clear it between bodies
-;; (the latch is a `defonce` that otherwise persists across deftests in the
-;; same JVM and would silence the second test to assert it). Mirrors the
-;; `with-malli-absent` latch-reset discipline below.
-(def ^:private decode-defaulted-warned-handlers @#'decode/decode-defaulted-warned-handlers)
-
-(defn- clear-decode-defaulted-latch! []
-  (reset! decode-defaulted-warned-handlers #{}))
-
-(deftest decode-defaulted-warning-fires-when-decode-omitted
-  (testing "rf2-ohwgm — when :decode is omitted (`:decode-supplied? false`)
-            and the decoder falls back to :auto, `decode-response-body`
-            emits `:rf.warning/decode-defaulted` carrying the resolved
-            decoder + content-type tags (Spec 014 §`:auto`)"
-    (clear-decode-defaulted-latch!)
-    (with-trace-capture
-      (fn [captured]
-        (let [v (decode/decode-response-body
-                  {:body-text        "{\"ok\":true}"
-                   :headers          {"content-type" "application/json"}
-                   :decode           nil
-                   :decode-supplied? false
-                   :request-id       :req-1
-                   :handler-id       :handler/x
-                   :url              "https://example.test/x"})
-              warns (filter #(= :rf.warning/decode-defaulted (:operation %))
-                            @captured)]
-          (is (= {:ok true} v)
-              "the auto-sniffed :json path still decodes the body")
-          (is (seq warns)
-              (str "expected a :rf.warning/decode-defaulted trace; captured: "
-                   (pr-str (mapv :operation @captured))))
-          (let [w (first warns)]
-            (is (= :warning (:op-type w)))
-            (let [tags (:tags w)]
-              (is (= :json (:resolved-decoder tags))
-                  "the resolved decoder (sniffed from the JSON content-type) rides the tags")
-              (is (= "application/json" (:content-type tags))
-                  "the response content-type rides the tags")
-              (is (= :req-1 (:request-id tags))
-                  "the request-id rides the tags for correlation")
-              (is (= :handler/x (:handler-id tags))
-                  "rf2-xuvj7 — the originating handler-id rides the tags (latch key)")
-              (is (= "https://example.test/x" (:url tags))
-                  "the (privacy-prepared) url rides the tags"))))))))
-
-(deftest decode-defaulted-warning-not-fired-when-decode-supplied
-  (testing "rf2-ohwgm — when the user explicitly supplies :decode the
-            warning is suppressed (the default-to-auto signal only fires
-            on omission)"
-    (clear-decode-defaulted-latch!)
-    (with-trace-capture
-      (fn [captured]
-        (decode/decode-response-body
-          {:body-text        "{\"ok\":true}"
-           :headers          {"content-type" "application/json"}
-           :decode           :json
-           :decode-supplied? true
-           :request-id       :req-2
-           :handler-id       :handler/y
-           :url              "https://example.test/y"})
-        (is (empty? (filter #(= :rf.warning/decode-defaulted (:operation %))
-                            @captured))
-            "an explicit :decode must NOT emit decode-defaulted")))))
-
-(deftest decode-defaulted-warning-resolved-decoder-text-for-text-ct
-  (testing "rf2-ohwgm — the :resolved-decoder tag reflects the sniffed
-            decoder, e.g. :text for a text/* content-type"
-    (clear-decode-defaulted-latch!)
-    (with-trace-capture
-      (fn [captured]
-        (decode/decode-response-body
-          {:body-text        "plain words"
-           :headers          {"content-type" "text/plain"}
-           :decode           :auto
-           :decode-supplied? false
-           :request-id       :req-3
-           :handler-id       :handler/z
-           :url              "https://example.test/z"})
-        (let [w (first (filter #(= :rf.warning/decode-defaulted (:operation %))
-                               @captured))]
-          (is (= :text (get-in w [:tags :resolved-decoder]))
-              "text/* content-type sniffs to :text"))))))
-
-;; ---- decode-defaulted one-shot-per-handler latch (rf2-xuvj7) ---------------
-;;
-;; The `:rf.warning/decode-defaulted` warning previously fired on EVERY
-;; happy-path request that omitted `:decode` — a steady-state handler that
-;; defaults flooded the trace surface once per response. rf2-xuvj7 demotes it
-;; to a one-shot-PER-HANDLER latch (mirroring the malli-absent latch): the
-;; first defaulted request from a given originating handler warns; subsequent
-;; requests from that handler stay quiet; a different handler warns afresh.
-
-(deftest decode-defaulted-warning-is-one-shot-per-handler
-  (testing "rf2-xuvj7 — N happy-path requests through ONE handler emit at
-            most one decode-defaulted warning (the per-handler latch
-            collapses the steady-state repeats), while a SECOND distinct
-            handler still gets its own one warning"
-    (clear-decode-defaulted-latch!)
-    (with-trace-capture
-      (fn [captured]
-        ;; Five defaulted decodes from the SAME handler id.
-        (dotimes [_ 5]
-          (decode/decode-response-body
-            {:body-text        "{\"ok\":true}"
-             :headers          {"content-type" "application/json"}
-             :decode           nil
-             :decode-supplied? false
-             :request-id       :req-loop
-             :handler-id       :handler/loader
-             :url              "https://example.test/loop"}))
-        ;; A different handler defaults once.
-        (decode/decode-response-body
-          {:body-text        "{\"ok\":true}"
-           :headers          {"content-type" "application/json"}
-           :decode           nil
-           :decode-supplied? false
-           :request-id       :req-other
-           :handler-id       :handler/other
-           :url              "https://example.test/other"})
-        (let [warns (filter #(= :rf.warning/decode-defaulted (:operation %))
-                            @captured)
-              by-handler (frequencies (map #(get-in % [:tags :handler-id]) warns))]
-          (is (= 2 (count warns))
-              (str "exactly two warnings expected — one per distinct handler; saw "
-                   (count warns)))
-          (is (= 1 (get by-handler :handler/loader))
-              "the looping handler warns exactly once despite five defaulted requests")
-          (is (= 1 (get by-handler :handler/other))
-              "the second distinct handler gets its own single warning"))))))
-
-(deftest decode-defaulted-warning-degrades-to-shared-slot-when-no-handler
-  (testing "rf2-xuvj7 — when no :handler-id is in scope (synthetic / test-path
-            callers) the latch degrades to a shared slot so the warning still
-            fires at most once overall rather than per-request"
-    (clear-decode-defaulted-latch!)
-    (with-trace-capture
-      (fn [captured]
-        (dotimes [_ 3]
-          (decode/decode-response-body
-            {:body-text        "{\"ok\":true}"
-             :headers          {"content-type" "application/json"}
-             :decode           nil
-             :decode-supplied? false
-             :request-id       :req-anon
-             :url              "https://example.test/anon"}))
-        (is (= 1 (count (filter #(= :rf.warning/decode-defaulted (:operation %))
-                                @captured)))
-            "no-handler-id callers share one latch slot — one warning total")))))
-
 ;; ---- Malli-absent degradation warning (rf2-ee38b.7 / rf2-ynjts.9) ---------
 ;;
 ;; Coverage gap (rf2-ynjts.9 testing-review): the "no silent fallback"
@@ -442,8 +275,8 @@
 ;; value flows to `:accept` UNCHECKED. Per rf2-ee38b.7 this must NOT be a
 ;; silent no-op: a one-shot `:rf.warning/http-malli-absent` trace fires so
 ;; the degraded path is observable. Every other decode path was tested
-;; (coerce success, validation-failure throw, too-many-keys re-raise,
-;; decode-defaulted), but the Malli-ABSENT branch + its one-shot latch had
+;; (coerce success, validation-failure throw, too-many-keys re-raise),
+;; but the Malli-ABSENT branch + its one-shot latch had
 ;; zero assertion — a regression that re-silenced it (or fired it per
 ;; response, flooding the trace surface) would slip through.
 ;;
