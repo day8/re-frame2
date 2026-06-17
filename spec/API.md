@@ -312,7 +312,7 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | `:rf.nav/push-url` | URL string | `:client` |
 | `:rf.nav/replace-url` | URL string | `:client` |
 | `:rf.nav/scroll` | scroll-spec map | `:client` |
-| `:rf.route/with-nav-token` | `{:do <fx-entry> :nav-token <token>}` | universal |
+| `:rf.route/with-nav-token` | `{:rf/reply-to <reply-target> :nav-token <token>}` | universal |
 
 Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md)):
 

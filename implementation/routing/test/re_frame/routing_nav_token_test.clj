@@ -155,26 +155,27 @@
                     @traces)
           "no stale work-id is mis-attributed to the live route B (:route/profile)"))))
 
-(deftest with-nav-token-fx-suppresses-stale-do-and-commits-fresh
-  (testing ":rf.route/with-nav-token fx: stale `:do` is suppressed; fresh `:do` runs"
+(deftest with-nav-token-fx-suppresses-stale-reply-to-and-commits-fresh
+  (testing ":rf.route/with-nav-token fx: stale `:rf/reply-to` is suppressed; fresh `:rf/reply-to` runs"
     ;; Per Spec 012 §Navigation tokens §Threading: a user event handler
     ;; emits an `:fx` entry of the form
     ;;
-    ;;   [:rf.route/with-nav-token {:do        [:dispatch [<ev> args...]]
-    ;;                              :nav-token <captured-token>}]
+    ;;   [:rf.route/with-nav-token {:rf/reply-to [<ev> args...]
+    ;;                              :nav-token   <captured-token>}]
     ;;
     ;; …and the runtime threads the carried token against the current
     ;; route slice's `:nav-token` (read from
-    ;; `[:rf.runtime/routing :current :nav-token]`). Match → the inner
-    ;; fx runs (canonically a
-    ;; `:dispatch` to the success continuation). Mismatch → the inner fx
-    ;; is suppressed and `:rf.route.nav-token/stale-suppressed` emits.
+    ;; `[:rf.runtime/routing :current :nav-token]`). Match → the
+    ;; continuation completes (the `:status :ok` reply map is appended to
+    ;; the `:rf/reply-to` target and dispatched). Mismatch → the
+    ;; continuation is suppressed and `:rf.route.nav-token/stale-suppressed`
+    ;; emits.
     ;;
     ;; This test pins both branches via the production fx (no use of
     ;; the test-only `:rf.test/simulate-http-resolution` event). The
     ;; `:article/loaded` continuation is the user-facing handler the
-    ;; wrapped dispatch would commit through; we observe it via the
-    ;; resulting app-db slice.
+    ;; completed reply commits through; we observe it via the
+    ;; resulting app-db slice (it ignores the trailing reply map arg).
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
     (rf/reg-event :article/loaded
@@ -182,17 +183,17 @@
                        {:db (assoc db :article {:id id :payload payload})}))
     ;; Bridge event: a real :on-success handler. Carries the token it
     ;; captured at request time and re-emits an `:rf.route/with-nav-token`
-    ;; fx entry. The runtime then either dispatches `[:article/loaded ...]`
+    ;; fx entry. The runtime then either completes `[:article/loaded ...]`
     ;; (match) or suppresses (mismatch).
     (rf/reg-event :article/loaded-via-nav-token
                      (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token carried-token
+                              {:rf/reply-to [:article/loaded id payload]
+                               :nav-token   carried-token
                                ;; rf2-azcmd3 — thread the CAPTURED route id so
                                ;; a cross-route stale completion attributes its
                                ;; work-id to the route-loader attempt.
-                               :route-id  carried-route-id}]]}))
+                               :route-id    carried-route-id}]]}))
 
     (let [traces (atom [])]
       (rf/register-listener! ::with-nav-token-fx
@@ -231,7 +232,7 @@
 
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/app-db-value :rf/default)))
-          "fresh :do ran end-to-end; stale :do was suppressed before commit")
+          "fresh :rf/reply-to ran end-to-end; stale :rf/reply-to was suppressed before commit")
 
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
@@ -239,14 +240,14 @@
                        (= "nav-2" (-> ev :tags :current-token))
                        (= :article/loaded (-> ev :tags :rf.trace/event-id))))
                 @traces)
-          "stale :do produced :rf.route.nav-token/stale-suppressed with the inner dispatch's event-id")
+          "stale :rf/reply-to produced :rf.route.nav-token/stale-suppressed with the target's event-id")
 
       ;; rf2-zqefg3.5 — the production fx path joins the suppression
       ;; trace to the route work-id. rf2-azcmd3 — `route-id` is now the
       ;; CAPTURED id (`:route/article`, carried with the nav-token at request
       ;; time), NOT the live slice id at stale-arrival; `nav-token` is the
-      ;; carried (stale) token "nav-1"; `loader-id` is the suppressed inner
-      ;; dispatch's event-id.
+      ;; carried (stale) token "nav-1"; `loader-id` is the suppressed
+      ;; `:rf/reply-to` target's event-id.
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]
@@ -294,7 +295,7 @@
                                 (= :rf.route.nav-token/stale-suppressed
                                    (:operation ev)))
                               @traces)))
-          "exactly one stale-suppressed trace fired — the fresh :do did NOT trip the validation"))))
+          "exactly one stale-suppressed trace fired — the fresh :rf/reply-to did NOT trip the validation"))))
 
 ;; ---- rf2-ux8sgg — stale route reply preserves the completion time ---------
 ;;
@@ -324,7 +325,7 @@
     (rf/reg-event :article/loaded-via-nav-token
                      (fn [_ctx [_ {:keys [carried-token carried-route-id completed-at id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do           [:dispatch [:article/loaded id payload]]
+                              {:rf/reply-to  [:article/loaded id payload]
                                :nav-token    carried-token
                                :route-id     carried-route-id
                                :completed-at completed-at}]]}))
@@ -370,9 +371,9 @@
     (rf/reg-event :article/loaded-via-nav-token
                      (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token carried-token
-                               :route-id  carried-route-id}]]}))
+                              {:rf/reply-to [:article/loaded id payload]
+                               :nav-token   carried-token
+                               :route-id    carried-route-id}]]}))
 
     (let [traces (atom [])]
       (rf/register-listener! ::no-completed-at (fn [ev] (swap! traces conj ev)))
@@ -487,8 +488,8 @@
     (rf/reg-event :article/completed
                      (fn [_ctx [_ {:keys [captured-token id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token captured-token}]]}))
+                              {:rf/reply-to [:article/loaded id payload]
+                               :nav-token   captured-token}]]}))
 
     (let [traces   (atom [])
           captured (atom {})]
@@ -567,9 +568,9 @@
     (rf/reg-event :article/completed
                      (fn [_ctx [_ {:keys [captured-token captured-route-id id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token captured-token
-                               :route-id  captured-route-id}]]}))
+                              {:rf/reply-to [:article/loaded id payload]
+                               :nav-token   captured-token
+                               :route-id    captured-route-id}]]}))
 
     (let [traces   (atom [])
           captured (atom {})]
@@ -611,17 +612,17 @@
               "rf2-ph1grf — the route-id component is non-nil (the documented path
                cannot emit a nil-route route work-id)"))))))
 
-;; ---- rf2-2avo53 — lower with-nav-token continuations through :rf/reply-to ----
+;; ---- rf2-2avo53 / rf2-068eo5 — with-nav-token continuations lower through :rf/reply-to ----
 ;;
 ;; EP-0011 / Managed-Effects property 9: nav-token threading is public sugar
-;; that MUST lower internally to the uniform :rf/reply-to target + reply
-;; completion shape. Before the fix the production :rf.route/with-nav-token
-;; handler ran an ad-hoc :do fx entry directly on the live branch (never
-;; touching the reply envelope) and passed NO target into route-reply/suppress
-;; on the stale branch — so production routing never normalized/completed a
-;; reply target with re-frame.reply/complete and could not honor the authorized
-;; :dispatch-stale? target path outside the pure unit helper. These tests drive
-;; the new canonical :rf/reply-to surface through the production fx.
+;; that lowers internally to the uniform :rf/reply-to target + reply
+;; completion shape. :rf/reply-to is the single, required continuation surface
+;; (rf2-068eo5 retired the older ad-hoc :do fx-entry sugar): on the live branch
+;; the production :rf.route/with-nav-token handler normalizes + completes the
+;; reply target through the shared re-frame.reply/complete, and on the stale
+;; branch it threads the target into route-reply/suppress so the authorized
+;; :dispatch-stale? target path is honored at the production routing surface.
+;; These tests drive the canonical :rf/reply-to surface through the production fx.
 
 (deftest with-nav-token-fx-reply-to-completes-live-through-shared-substrate
   (testing "rf2-2avo53 — a LIVE :rf.route/with-nav-token completion named by the

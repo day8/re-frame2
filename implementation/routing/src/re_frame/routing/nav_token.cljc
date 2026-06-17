@@ -7,8 +7,9 @@
       `:rf.route/nav-token` key in an `:on-match` handler's coeffects map
       (EP-0017 §5), so the handler can capture it and thread it into an async
       continuation;
-    - `:rf.route/with-nav-token` fx — wraps an async-completion fx
-      entry (`:do`) with a stale-result check: match → run; mismatch →
+    - `:rf.route/with-nav-token` fx — names an async-completion continuation
+      via the canonical `:rf/reply-to` reply target and guards it with a
+      stale-result check: match → complete the reply; mismatch →
       suppress and emit `:rf.route.nav-token/stale-suppressed`.
 
   ## Lowered onto the uniform reply envelope (EP-0011, rf2-zqefg3.5)
@@ -125,21 +126,6 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   (let [rdb (frame/frame-runtime-db-value frame/*current-frame*)]
     (get-in rdb [:rf.runtime/routing :current :route-id])))
 
-(defn- inner-fx-event-id
-  "Best-effort extraction of an `event-id` from an `:do` fx entry. For
-  the canonical `[:dispatch [<event-id> args...]]` shape the event-id is
-  the head of the inner event vector; for any other fx entry we fall
-  back to the outer fx-id (e.g. `:rf.http/managed`) so the `:event-id`
-  tag still identifies what was suppressed."
-  [do-entry]
-  (when (vector? do-entry)
-    (let [[fx-id inner-event-vec] do-entry]
-      (if (and (= :dispatch fx-id)
-               (vector? inner-event-vec)
-               (seq inner-event-vec))
-        (first inner-event-vec)
-        fx-id))))
-
 (defn emit-stale-suppressed!
   "Emit the `:rf.route.nav-token/stale-suppressed` trace for a superseded
   route-loader completion. The facts ride on top of the shared
@@ -151,7 +137,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   assertion covers both paths.
 
   `event-id` is the suppressed continuation's event-id (per
-  `inner-fx-event-id`); `frame-id` (when non-nil) frame-attributes the
+  `target-event-id`); `frame-id` (when non-nil) frame-attributes the
   suppression so it lands in the emitting frame's epoch / Xray
   (rf2-7d30s). The work-id is built from the route context
   (`{:route-id … :nav-token <carried> :loader-id …}`) — `route-reply/
@@ -284,23 +270,17 @@ lowered onto the uniform reply envelope (EP-0011). Threads the carried
 Match → complete the continuation; mismatch → suppress and emit
 `:rf.route.nav-token/stale-suppressed`.
 
-The continuation is named EITHER by the CANONICAL `:rf/reply-to` reply target
-(an event-vector prefix or descriptor — the EP-0011 lowering: on match the
-route loader's `:status :ok` reply map is appended to the target via the shared
+The continuation is named by the canonical `:rf/reply-to` reply target (an
+event-vector prefix or descriptor — the EP-0011 lowering: on match the route
+loader's `:status :ok` reply map is appended to the target via the shared
 `re-frame.reply/complete`, and on a framework/tool-authorised `:dispatch-stale?`
-target the stale reply is delivered the same way) OR the legacy `:do` fx-entry
-sugar (run directly on match, suppressed on mismatch — no reply map). Supply
-exactly one; `:rf/reply-to` is the canonical surface and `:do` is preserved
-compatibility sugar."
+target the stale reply is delivered the same way). `:rf/reply-to` is the single,
+required continuation surface."
    :schema [:map
-            ;; rf2-2avo53 — the CANONICAL `:rf/reply-to` reply target (the
-            ;; single EP-0011 property-9 target key). OPTIONAL only because the
-            ;; legacy `:do` sugar is still accepted; supply exactly one.
-            [:rf/reply-to {:optional true} :any]
-            ;; Legacy compatibility sugar: a wrapped fx entry run directly on
-            ;; match (no reply map). Retained so existing `{:do … :nav-token …}`
-            ;; call sites keep working; `:rf/reply-to` is preferred.
-            [:do        {:optional true} [:vector :any]]
+            ;; rf2-2avo53 — the CANONICAL `:rf/reply-to` reply target: the
+            ;; single, required EP-0011 property-9 target key. The route
+            ;; loader's reply lowers through it on every match.
+            [:rf/reply-to :any]
             [:nav-token :any]
             ;; rf2-azcmd3 — OPTIONAL captured route id. When the loader
             ;; captured the route id at scheduling time and threads it here,
@@ -309,8 +289,7 @@ compatibility sugar."
             [:route-id {:optional true} :any]
             ;; rf2-2avo53 — OPTIONAL live reply `:value` (the loader's decoded
             ;; result). Rides the `:status :ok` reply map the matched
-            ;; `:rf/reply-to` target is completed with. Ignored by the `:do`
-            ;; sugar (which carries no reply map).
+            ;; `:rf/reply-to` target is completed with.
             [:value {:optional true} :any]
             ;; rf2-ux8sgg — OPTIONAL reply completion time. The documented
             ;; lane for the recordable `:rf/time-ms` completion fact on the
@@ -327,9 +306,8 @@ compatibility sugar."
   "Best-effort extraction of the loader/event-id from a `:rf/reply-to` reply
   target (rf2-2avo53) — the head of the target's event-vector prefix (short
   form `[:event-id …]` or descriptor `{:event [:event-id …]}`). nil for a
-  malformed/absent target. Mirrors `inner-fx-event-id`'s role for the `:do`
-  sugar so the suppressed attempt's `:event-id` / `:loader-id` tags identify
-  the continuation uniformly across both surfaces."
+  malformed/absent target, so the suppressed attempt's `:event-id` /
+  `:loader-id` tags identify the continuation."
   [target]
   (let [event (cond
                 (vector? target) target
@@ -348,33 +326,25 @@ compatibility sugar."
   (via `re-frame.routing.reply/suppress?`).
 
   rf2-2avo53 — the continuation lowers onto the uniform reply envelope. The
-  wrapper names the continuation by EITHER:
+  wrapper names the continuation by the canonical `:rf/reply-to` reply target:
 
-   - `:rf/reply-to` (CANONICAL) — on match the route loader's `:status :ok`
-     reply map is built and APPENDED to the target via the shared
-     `re-frame.reply/complete` (the production lowering: the route surface
-     normalizes + completes a reply target through the shared substrate,
-     exercising the EP-0011 mapping/completion law at the actual navigation
-     wrapper), then dispatched. On mismatch the target is threaded into
-     `re-frame.reply/suppress`, so a framework/tool-authorised
-     `:dispatch-stale? true` target receives the stale reply (and an app
-     target asking for it without authority FAILS LOUD); the default app
-     path suppresses (no dispatch).
+   - on match the route loader's `:status :ok` reply map is built and APPENDED
+     to the target via the shared `re-frame.reply/complete` (the production
+     lowering: the route surface normalizes + completes a reply target through
+     the shared substrate, exercising the EP-0011 mapping/completion law at the
+     actual navigation wrapper), then dispatched.
 
-   - `:do` (LEGACY compatibility sugar) — a wrapped fx entry run directly on
-     match (no reply map), suppressed on mismatch. Preserved so existing
-     `{:do … :nav-token …}` call sites keep working.
+   - on mismatch the target is threaded into `re-frame.reply/suppress`, so a
+     framework/tool-authorised `:dispatch-stale? true` target receives the
+     stale reply (and an app target asking for it without authority FAILS
+     LOUD); the default app path suppresses (no dispatch).
 
-  Match runs the chosen continuation; mismatch emits
+  Match completes the continuation; mismatch emits
   `:rf.route.nav-token/stale-suppressed` joined to the route work-id."
   [{:keys [frame] :as _ctx} args]
-  ;; Destructure `:do` via `get` rather than `:keys` so the binding name
-  ;; doesn't shadow `clojure.core/do` inside the body. Per Spec 012
-  ;; §Threading the `:do` slot is the wrapped fx entry to perform.
-  (let [do-entry        (get args :do)
-        ;; rf2-2avo53 — the canonical `:rf/reply-to` reply target (the EP-0011
-        ;; lowering surface). When present it supersedes the `:do` sugar.
-        reply-target    (get args :rf/reply-to)
+  ;; rf2-2avo53 — the canonical `:rf/reply-to` reply target (the EP-0011
+  ;; lowering surface): the single, required continuation surface.
+  (let [reply-target    (get args :rf/reply-to)
         nav-token       (get args :nav-token)
         ;; rf2-azcmd3 — the CAPTURED route id (optional). Captured at
         ;; scheduling time alongside the nav-token and threaded into the
@@ -385,7 +355,7 @@ compatibility sugar."
         carried-route-id (get args :route-id)
         ;; rf2-2avo53 — the OPTIONAL live reply `:value` (the loader's decoded
         ;; result), appended via the `:status :ok` reply map on the matched
-        ;; `:rf/reply-to` target. Ignored by the `:do` sugar.
+        ;; `:rf/reply-to` target.
         value           (get args :value)
         ;; rf2-ux8sgg — the OPTIONAL reply completion time. Sourced by the
         ;; route completion handler from its declared
@@ -404,11 +374,9 @@ compatibility sugar."
         rdb             (frame/frame-runtime-db-value frame-id)
         slice           (get-in rdb [:rf.runtime/routing :current])
         current         (:nav-token slice)
-        ;; The continuation's loader/event-id, derived from whichever surface
-        ;; named it. Shared by the live-dispatch and the suppression trace.
-        loader-id       (if (some? reply-target)
-                          (target-event-id reply-target)
-                          (inner-fx-event-id do-entry))
+        ;; The continuation's loader/event-id, derived from the `:rf/reply-to`
+        ;; target. Shared by the live-dispatch and the suppression trace.
+        loader-id       (target-event-id reply-target)
         active-platform (or (get-in frame-record [:config :platform])
                             (interop/active-platform))
         ;; The identity-fact context the reply substrate keys on (rf2-2avo53 /
@@ -430,15 +398,12 @@ compatibility sugar."
                           (fx/handle-one-fx frame-id fx-entry active-platform {} nil))]
     (if-not (route-reply/suppress? nav-token current)
       ;; Gate matches (token current) — complete the continuation.
-      (if (some? reply-target)
-        ;; rf2-2avo53 — CANONICAL `:rf/reply-to`: build the `:status :ok` reply
-        ;; map and APPEND it to the target through the shared
-        ;; `re-frame.reply/complete`, then dispatch the completed event. The
-        ;; route surface normalizes + completes the reply target through the
-        ;; shared substrate at the actual navigation wrapper.
-        (dispatch! [:dispatch (route-reply/complete-live reply-ctx reply-target value)])
-        ;; LEGACY `:do` sugar — run the wrapped fx entry directly (no reply map).
-        (dispatch! do-entry))
+      ;; rf2-2avo53 — CANONICAL `:rf/reply-to`: build the `:status :ok` reply
+      ;; map and APPEND it to the target through the shared
+      ;; `re-frame.reply/complete`, then dispatch the completed event. The
+      ;; route surface normalizes + completes the reply target through the
+      ;; shared substrate at the actual navigation wrapper.
+      (dispatch! [:dispatch (route-reply/complete-live reply-ctx reply-target value)])
 
       ;; Stale — suppress through the shared reply-envelope correctness
       ;; boundary. rf2-7d30s — `frame-id` frame-attributes the suppression so

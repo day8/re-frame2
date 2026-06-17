@@ -718,11 +718,11 @@ When a route is loading and the user navigates away before the load completes, t
            :route-id    route-id}]]}            ;; the route id captured in step 2 (completes the work-id)
    ```
 
-   The legacy `:do` fx-entry sugar (`{:do [:dispatch [:cart/items-loaded items]] :nav-token nav-token}`) remains accepted for existing call sites — it runs the wrapped fx directly on match with no reply map. `:rf/reply-to` is the canonical surface; supply exactly one.
+   `:rf/reply-to` is the single, required continuation surface on `:rf.route/with-nav-token` — every match lowers through the uniform reply envelope.
 
 4. **Validation.** On receipt, the carried token is checked against the *current* `:rf/route` slice's `:nav-token`. Path (b) — `:rf.route/with-nav-token` — performs this check for you; path (a) hands the captured token to the receiving handler, which compares it against its own freshly-declared `:rf.route/nav-token` coeffect and short-circuits on mismatch:
-   - **Match.** The token is current; the result is committed normally.
-   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :rf.trace/event-id <id>}`) and the wrapped `:do` (path b) or the receiving handler's commit (path a) does NOT run — no `:db` write, no `:fx`, no transition.
+   - **Match.** The token is current; the result is committed normally (the `:rf/reply-to` target is completed with the `:status :ok` reply map).
+   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :rf.trace/event-id <id>}`) and the `:rf/reply-to` target (path b) or the receiving handler's commit (path a) does NOT run — no `:db` write, no `:fx`, no transition.
 
 The two halves are shared infrastructure: the `:rf.route/nav-token` cofx (and its companion `:rf.route/route-id` cofx) supplies the capture-side facts to any handler that declares `{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`, and `:rf.route/with-nav-token` performs the receipt-side check for any continuation routed through it. A handler can use both (declare to capture, wrap to validate) or compare the declared `:rf.route/nav-token` coeffect directly.
 

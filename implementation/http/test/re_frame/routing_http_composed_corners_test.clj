@@ -101,12 +101,12 @@
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
     ;; The :on-success bridge: captures the nav-token at request time
-    ;; and wraps the inner :dispatch in :rf.route/with-nav-token.
+    ;; and names the continuation via :rf/reply-to on :rf.route/with-nav-token.
     (rf/reg-event :article/loaded-bridge
                      (fn [_ [_ {:keys [carried-token id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token carried-token}]]}))
+                              {:rf/reply-to [:article/loaded id payload]
+                               :nav-token   carried-token}]]}))
 
     (let [[recorded unreg] (record! ::stale-1)]
       (try
@@ -358,8 +358,8 @@
     (rf/reg-event :article/loaded-bridge
                      (fn [_ [_ {:keys [carried-token id payload]}]]
                        {:fx [[:rf.route/with-nav-token
-                              {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token carried-token}]]}))
+                              {:rf/reply-to [:article/loaded id payload]
+                               :nav-token   carried-token}]]}))
 
     (let [[recorded unreg] (record! ::stale-cycle)
           pushed           (atom [])]
