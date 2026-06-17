@@ -1560,7 +1560,12 @@ The cursor's payload (base64-encoded EDN; subject to change behind the
 opaque boundary) carries the last-emitted epoch-id plus sticky window
 fields (`:ms`, `:until-ms`, `:frame`) so subsequent pages see the same
 window the first call did — fresh epochs landing during pagination
-don't sneak in mid-iteration.
+don't sneak in mid-iteration. `watch-epochs` additionally stickies its
+`:pred` filter in the cursor (rf2-mb17rj): a continuation that passes
+back only `:cursor` keeps filtering by the first call's predicate.
+Without this the second page would silently degrade to match-all and
+return every epoch after the watermark unfiltered, with an envelope
+indistinguishable from a correctly-filtered page.
 
 ### Cursor staleness
 
@@ -1682,8 +1687,10 @@ loop should call us repeatedly with the same `since-id`.
 
 **Args**: `since-id` (string, optional — omit to start fresh; supplanted
 by `cursor` when both are supplied), `pred` (object, optional predicate
-filter, keys from: `:event-id`, `:event-id-prefix`, `:effects`,
-`:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`,
+filter — sticky across cursor pagination, encoded in the cursor on the
+first call (rf2-mb17rj), so a continuation passing back only `:cursor`
+keeps the same filter; keys from: `:event-id`, `:event-id-prefix`,
+`:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`,
 `:timing-ms`), `frame` (string — frame-id, colon-tolerant:
 `"rf/default"` and `":rf/default"` resolve identically, rf2-lbm21),
 `limit` (int, default 50 — see §Cursor pagination above), `cursor`

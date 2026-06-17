@@ -70,7 +70,7 @@
         mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
-        pred-map  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
+        pred-arg  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
         cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]
     (if (= cursor-in ::cursor/malformed)
       (js/Promise.resolve
@@ -80,12 +80,23 @@
             ;; so the agent's continuation flow stays consistent.
             effective-after (or (:after-id cursor-in) since-id)
             sticky-frame    (or (:frame cursor-in) frame)
+            ;; rf2-mb17rj — sticky `:pred`, mirroring the
+            ;; `:frame`/`:after-id` pattern above and trace-window's
+            ;; sticky `:ms`/`:until-ms`. The cursor encodes the
+            ;; first-call predicate; a continuation that passes back
+            ;; ONLY `:cursor` (the documented opaque-cursor flow)
+            ;; restores it here. Without this, page 2+ fell back to
+            ;; `(or pred-map {})` = `{}` = MATCH-ALL — every epoch
+            ;; after the watermark returned unfiltered, with an
+            ;; envelope identical to a correctly-filtered page so the
+            ;; agent couldn't detect the drop.
+            sticky-pred     (or (:pred cursor-in) pred-arg)
             epochs-since-call (if sticky-frame
                                 (ef/rt-call 'epochs-since effective-after sticky-frame)
                                 (ef/rt-call 'epochs-since effective-after))
             matches-form (str "(filterv #"
                               (ef/emit (ef/rt-call 'epoch-matches?
-                                                   (or pred-map {})
+                                                   (or sticky-pred {})
                                                    (ef/rt-raw "%")))
                               " (:epochs r))")
             history-call (if sticky-frame
@@ -145,7 +156,13 @@
                                          :after-id next-id
                                          :ms       nil
                                          :until-ms nil
-                                         :frame    sticky-frame}))
+                                         :frame    sticky-frame
+                                         ;; rf2-mb17rj — carry the sticky
+                                         ;; predicate so page 2+ keeps
+                                         ;; filtering. nil when no pred was
+                                         ;; supplied (round-trips losslessly
+                                         ;; through the base64-of-EDN codec).
+                                         :pred     sticky-pred}))
                       remaining     (or (:remaining v) 0)
                       history-count (or (:history-count v) 0)
                       since-count   (or (:since-count v) 0)
