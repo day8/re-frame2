@@ -927,6 +927,15 @@
               {:guard-suppressed? true
                :actor-id          actor-id
                :state             (last prefix)
+               ;; rf2-ze13fg — carry the declaring path so `after-fired-reply`
+               ;; (via `timer-work-id`) yields the canonical
+               ;; `[:rf.work/timer [<actor> <decl-path>] epoch]` work-id. The
+               ;; live (`resolve-hit`) and stale branches both set `:decl-path`;
+               ;; without it here the guard-suppressed `:rf.machine.timer/fired`
+               ;; `:fired? false` reply degrades to `[:rf.work/timer <actor>
+               ;; epoch]` and fails to correlate with the scheduled/cancelled/
+               ;; stale rows for the SAME timer (spec/005:3568/3585).
+               :decl-path         prefix
                :delay             delay-key
                :epoch             carried-epoch})))]
     (cond
@@ -2120,6 +2129,14 @@
               {:guard-suppressed? true
                :actor-id          actor-id
                :state             :rf/parallel-root
+               ;; rf2-ze13fg — the parallel-ROOT timer's declaring path is the
+               ;; empty path `[]` (the root `:after` lives on the machine map,
+               ;; decl-path `[]`). Carry it so `after-fired-reply` builds the
+               ;; canonical work-id `[:rf.work/timer [<actor>] epoch]` and the
+               ;; guard-suppressed root reply correlates with its scheduled/
+               ;; cancelled/stale counterparts (the stale branch below already
+               ;; sets `:decl-path []`). Per spec/005:3568/3585.
+               :decl-path         []
                :delay             delay-key
                :epoch             carried-epoch}))
 
