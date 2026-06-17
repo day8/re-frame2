@@ -221,7 +221,7 @@ Pass a Malli schema as `:decode`:
 
 The fx:
 1. Reads the response body as text.
-2. **JSON-parses the body.** The schema path is **JSON-only**: the runtime wires Malli's `json-transformer` for the decode step, so a schema rides a JSON body by construction. A response that *declares* a non-JSON Content-Type (e.g. `application/edn`, `text/plain`) under a schema `:decode` is a contract mismatch and classifies as `:rf.http/decode-failure` with a `:rf.error/http-schema-non-json-content-type` discriminator — the diagnostic names the MIME mismatch rather than masking it as a schema-validation failure. A **missing/absent** Content-Type is JSON-eligible (many JSON APIs omit the header); only a *present non-JSON* MIME is rejected. (Non-JSON wire formats under a schema are out of v1 scope — decode the body yourself with a `:decode` fn and validate downstream if you need EDN/other MIMEs.)
+2. **JSON-parses the body.** The schema path is **JSON-only**: the runtime wires Malli's `json-transformer` for the decode step, so a schema rides a JSON body by construction. JSON eligibility follows the [RFC 6839](https://www.rfc-editor.org/rfc/rfc6839) / IANA structured-syntax-suffix rule — a Content-Type whose subtype is `json` **or** carries the `+json` suffix is JSON (so mainstream vendor types `application/vnd.api+json` (JSON:API), `application/ld+json` (JSON-LD), `application/vnd.github+json` are accepted, parameters such as `;charset=utf-8` stripped). A response that *declares* a non-JSON Content-Type (e.g. `application/edn`, `text/plain`) under a schema `:decode` is a contract mismatch and classifies as `:rf.http/decode-failure` with a `:rf.error/http-schema-non-json-content-type` discriminator — the diagnostic names the MIME mismatch rather than masking it as a schema-validation failure. A **missing/absent** Content-Type is JSON-eligible (many JSON APIs omit the header); only a *present non-JSON* MIME is rejected. (Non-JSON wire formats under a schema are out of v1 scope — decode the body yourself with a `:decode` fn and validate downstream if you need EDN/other MIMEs.)
 3. Validates / coerces with Malli's `decode` against the schema (using the `json-transformer`).
 4. Hands the decoded value to `:accept`.
 
@@ -252,7 +252,7 @@ Full control. Throwing inside this fn (on a 2xx response — it doesn't run on n
 ### `:auto` (default)
 
 Sniff the response Content-Type header:
-- `application/json*` → `:json`.
+- subtype `json` or a `+json` structured-syntax suffix ([RFC 6839](https://www.rfc-editor.org/rfc/rfc6839)) → `:json` (e.g. `application/json`, `application/vnd.api+json`, `application/ld+json`, parameters stripped).
 - `text/*` → `:text`.
 - otherwise → `:blob`.
 
