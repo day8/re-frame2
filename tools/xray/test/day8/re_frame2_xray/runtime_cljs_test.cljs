@@ -1476,6 +1476,51 @@
           (is (not (preview-has? scope ":rf.size/large-elided"))
               ":include-large? true ⇒ the large leaf is no longer elided"))))))
 
+;; rf2-byl7bk.3.5 — get-resource-history MUST carry the EP-0021 infinite-feed
+;; page evidence (the `:page` detail) so MCP/AI callers can explain page
+;; accumulation, not just see that "load more" happened. The cursor-bearing
+;; facts (`:page-param` / `:next-page-param`) are egress-projected; the metadata
+;; (`:page-index` / `:page-count` / `:terminal?` / `:reason`) rides raw.
+(deftest get-resource-history-carries-ep0021-page-detail
+  (testing "rf2-byl7bk.3.5 — the four infinite ops surface their page facts"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (let [rkey [{:region "ap-southeast"} :feed/articles {:tag "clj"}]]
+      (emit-resource-trace-into-ring! :rf.resource/load-more
+                                      {:resource/key rkey :generation 4
+                                       :page-param "cursor-1"
+                                       :page-index 1 :page-count 1})
+      (emit-resource-trace-into-ring! :rf.resource/page-appended
+                                      {:resource/key rkey :generation 4
+                                       :page-index 1 :page-count 2
+                                       :next-page-param "cursor-2"
+                                       :terminal? false})
+      (emit-resource-trace-into-ring! :rf.resource/load-more-skipped
+                                      {:resource/key rkey
+                                       :reason :no-next-page :page-count 2})
+      (emit-resource-trace-into-ring! :rf.resource/page-failed
+                                      {:resource/key rkey :generation 4
+                                       :page-error {:kind :rf.http/server-error
+                                                    :status 500}})
+      (let [result (runtime/get-resource-history {:resource-id :feed/articles})
+            by-op  (fn [op] (first (filter #(= op (:operation %))
+                                           (:history result))))]
+        (is (true? (:ok? result)))
+        (testing "load-more carries the resolved cursor (egress-summarized) + index/count"
+          (let [page (:page (by-op :rf.resource/load-more))]
+            (is (preview-has? (:page-param page) "cursor-1")
+                "a non-sensitive cursor rides through verbatim in the summary")
+            (is (= 1 (:page-index page)))
+            (is (= 1 (:page-count page)))))
+        (testing "page-appended carries the derived next cursor + terminal flag"
+          (let [page (:page (by-op :rf.resource/page-appended))]
+            (is (preview-has? (:next-page-param page) "cursor-2"))
+            (is (= 2 (:page-count page)))
+            (is (false? (:terminal? page)))))
+        (testing "load-more-skipped carries the skip reason (raw metadata)"
+          (is (= :no-next-page (:reason (:page (by-op :rf.resource/load-more-skipped))))))
+        (testing "page-failed carries the page-error envelope (summarized)"
+          (is (some? (:page-error (:page (by-op :rf.resource/page-failed))))))))))
+
 (deftest list-resource-invalidations-redacts-value-bearing-fields-by-default
   (testing "rf2-e0mq7a — :scope (PII), :cause (may carry data), and each
             :matched key's scope are routed through egress-value BEFORE

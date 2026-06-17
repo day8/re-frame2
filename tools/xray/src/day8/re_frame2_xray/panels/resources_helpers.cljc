@@ -631,6 +631,14 @@
        ;; failure that KEPT the feed). `:page-count` is the page-vector length;
        ;; `:terminal?` is the derived `:has-next-page?` complement. The cursor is
        ;; egress-projected (a cursor can carry record ids — Spec 016 §Tooling).
+       ;; `:page-params` is the ORDERED per-page cursor chain — the durable
+       ;; record of how the accumulation advanced (page 0's nil seed, then each
+       ;; resolved next-page param). It is explicitly NOT part of the feed cache
+       ;; key, so it is the only tool-facing record of the page-by-page fetch
+       ;; sequence (Spec 016 §Tooling — "per-page params … since cursors can
+       ;; carry ids"; EP-0021). Each element is a cursor value the SAME shape as
+       ;; `:cursor`, so each is egress-projected `:params`-slot identically (the
+       ;; rf2-3tysyj cursor-egress treatment) — never the raw cursor.
        ;; `:fetching-next?` (a load-more vs a whole-feed refresh) is NOT a pure
        ;; function of the entry — it joins the in-flight work record's
        ;; `:page-index` (see `work-row` `:page-index`); the panel reads it off
@@ -640,6 +648,8 @@
                 {:infinite?      true
                  :page-count     (count (:data entry))
                  :cursor         (summarize (eg next-param :params))
+                 :page-params    (mapv #(summarize (eg % :params))
+                                       (:page-params entry))
                  :terminal?      (nil? next-param)
                  :has-next-page? (some? next-param)
                  :page-error     (when (:page-error entry)
@@ -952,6 +962,55 @@
 
 (defn- trace-tags [ev] (or (:tags ev) {}))
 
+(def ^:private infinite-trace-ops
+  "The four EP-0021 infinite-feed trace ops whose tags carry op-specific page
+  evidence beyond the generic lifecycle fields (Spec 016 §Trace surfacing,
+  Xray spec 024 §The `:rf.resource/*` trace family). The generic
+  `lifecycle-timeline` projection drops the per-op facts; these ops get an
+  extra `:page` detail map."
+  #{:rf.resource/load-more
+    :rf.resource/page-appended
+    :rf.resource/page-failed
+    :rf.resource/load-more-skipped})
+
+(defn- page-detail
+  "Project the EP-0021 infinite-feed page evidence carried in a load-more
+  family trace event's `tags` into a compact `:page` detail map (Spec 016
+  §Trace surfacing; Xray spec 024 rows for `:rf.resource/load-more` /
+  `page-appended` / `page-failed` / `load-more-skipped`). Returns nil for a
+  non-infinite op so the row carries no empty `:page` slot.
+
+  Per op (only the keys the runtime actually stamps):
+    - `:load-more`         → `:page-param` `:page-index` `:page-count`
+    - `:page-appended`     → `:page-index` `:page-count` `:next-page-param`
+                             `:terminal?`
+    - `:load-more-skipped` → `:reason` (+ `:page-count` on the terminal arm)
+    - `:page-failed`       → `:page-error` (the THIRD error channel)
+
+  EGRESS (rf2-3tysyj / 3.4): the CURSOR-bearing facts (`:page-param` on
+  load-more, `:next-page-param` on page-appended) and the `:page-error`
+  envelope (an error value that may carry mutation data) are value-bearing —
+  each routes through `eg` (the off-box `egress-value` walker on the off-box
+  path; `identity` in-panel) BEFORE `summarize`, IDENTICALLY to the way
+  `instance-row`'s `:cursor` and the generic `:cause` are projected. The
+  METADATA (`:page-index` / `:page-count` / `:terminal?` / `:reason`) is not
+  PII and rides raw. Only assoc's a key when the tag is present, so a
+  partially-stamped row (e.g. a `load-more-skipped` no-feed arm) carries only
+  the facts it has. Pure when `eg` is pure."
+  [op tags eg]
+  (when (infinite-trace-ops op)
+    (cond-> {}
+      (contains? tags :page-param)
+      (assoc :page-param (summarize (eg (:page-param tags))))
+      (contains? tags :next-page-param)
+      (assoc :next-page-param (summarize (eg (:next-page-param tags))))
+      (contains? tags :page-index)   (assoc :page-index (:page-index tags))
+      (contains? tags :page-count)   (assoc :page-count (:page-count tags))
+      (contains? tags :terminal?)    (assoc :terminal? (:terminal? tags))
+      (contains? tags :reason)       (assoc :reason (:reason tags))
+      (contains? tags :page-error)
+      (assoc :page-error (summarize (eg (:page-error tags)))))))
+
 (defn lifecycle-timeline
   "Project the resource trace rows in a trace buffer into a lifecycle
   TIMELINE — an ordered, render-safe row per `:rf.resource/*` event
@@ -967,7 +1026,15 @@
        :work-id     <id>
        :owner       <owner>
        :cause       <summary>        ; cause may carry data — summarized
-       :status      {:before … :after …}}
+       :status      {:before … :after …}
+       :page        {…}}             ; EP-0021 — only on the four infinite ops
+
+  The four EP-0021 infinite-feed ops (`:load-more` / `:page-appended` /
+  `:page-failed` / `:load-more-skipped`) additionally carry a `:page`
+  detail map with the op-specific page evidence (`:page-param` /
+  `:next-page-param` cursor — egress-projected; `:page-index` /
+  `:page-count` / `:terminal?` / `:reason` raw; `:page-error` summarized).
+  See `page-detail`. A non-infinite op carries no `:page` slot.
 
   Pure over the trace vector; preserves buffer order (oldest-first). The
   panel renders this as the per-resource lifecycle strip; filtering by
@@ -995,20 +1062,27 @@
                   (let [op   (trace-op ev)
                         tags (trace-tags ev)
                         rkey (:resource/key tags)]
-                    {:id           (:id ev)
-                     :operation    op
-                     :label        (op-label op)
-                     :class        (op-class op)
-                     :resource-id  (or (:resource-id tags)
-                                       (when (vector? rkey) (second rkey)))
-                     :resource/key (when rkey (scoped-key-summary rkey eg))
-                     :generation   (:generation tags)
-                     :work-id      (:work/id tags)
-                     :owner        (:owner tags)
-                     :cause        (when (contains? tags :cause)
-                                     (summarize (eg (:cause tags))))
-                     :status       {:before (:status-before tags)
-                                    :after  (or (:status-after tags) (:status tags))}})))))))
+                    (cond->
+                      {:id           (:id ev)
+                       :operation    op
+                       :label        (op-label op)
+                       :class        (op-class op)
+                       :resource-id  (or (:resource-id tags)
+                                         (when (vector? rkey) (second rkey)))
+                       :resource/key (when rkey (scoped-key-summary rkey eg))
+                       :generation   (:generation tags)
+                       :work-id      (:work/id tags)
+                       :owner        (:owner tags)
+                       :cause        (when (contains? tags :cause)
+                                       (summarize (eg (:cause tags))))
+                       :status       {:before (:status-before tags)
+                                      :after  (or (:status-after tags) (:status tags))}}
+                      ;; EP-0021 — the four infinite-feed ops carry op-specific
+                      ;; page evidence (cursor / page index / count / terminal /
+                      ;; skip reason / page-error) the generic fields drop. A
+                      ;; non-infinite op gets no `:page` slot (rf2-byl7bk.3.5).
+                      (page-detail op tags eg)
+                      (assoc :page (page-detail op tags eg))))))))))
 
 (defn invalidation-graph
   "Project the `:rf.resource/invalidated` trace rows into the

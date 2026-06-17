@@ -289,6 +289,25 @@
           [:<>
            [:span {:style {:color (:text-tertiary tokens)}} "cursor"]
            (summary-chip (:cursor row) (str testid "-cursor"))])
+        ;; EP-0021 — the per-page cursor chain (egress-projected). The durable
+        ;; record of how the accumulation advanced, NOT part of the cache key
+        ;; (rf2-byl7bk.3.4). Rendered as an ordered, indexed run of summary
+        ;; chips so the page-by-page fetch sequence is inspectable.
+        (when (seq (:page-params row))
+          [:span {:data-testid (str testid "-page-params")
+                  :style {:display "flex" :gap "4px" :align-items "baseline"
+                          :flex-wrap "wrap"}}
+           [:span {:style {:color (:text-tertiary tokens)}} "page-params"]
+           (into [:<>]
+                 (map-indexed
+                   (fn [i p]
+                     ^{:key i}
+                     [:span {:style {:display "flex" :gap "2px"
+                                     :align-items "baseline"}}
+                      [:span {:style {:color (:text-tertiary tokens)}}
+                       (str "p" i)]
+                      (summary-chip p (str testid "-page-param-" i))])
+                   (:page-params row)))])
         (when (:page-error row)
           [:span {:data-testid (str testid "-page-error")
                   :style {:color (:error tokens)}}
@@ -574,7 +593,38 @@
     (:label row)]
    [:span {:style {:color mode-accent}} (str (:resource-id row))]
    (when (:generation row)
-     [:span {:style {:color (:text-tertiary tokens)}} "gen " (:generation row)])])
+     [:span {:style {:color (:text-tertiary tokens)}} "gen " (:generation row)])
+   ;; EP-0021 — the infinite-feed page evidence carried by the four load-more
+   ;; family ops (page param / index / count / next cursor / terminal / skip
+   ;; reason / page-error). Without this the timeline shows "load more"
+   ;; happened but loses which cursor, which page index, terminal-vs-in-flight,
+   ;; and the resulting next cursor (rf2-byl7bk.3.5). Cursor-bearing facts are
+   ;; egress-projected summaries; metadata rides raw.
+   (when-let [{:keys [page-param next-page-param page-index page-count
+                      terminal? reason page-error]} (:page row)]
+     (let [testid (str "rf-xray-resources-timeline-row-" (:id row) "-page")]
+       [:span {:data-testid testid
+               :style {:display "flex" :gap "6px" :align-items "baseline"
+                       :flex-wrap "wrap" :color (:text-tertiary tokens)}}
+        (when page-param
+          [:span {:style {:display "flex" :gap "2px" :align-items "baseline"}}
+           "param" (summary-chip page-param (str testid "-param"))])
+        (when (some? page-index)
+          [:span {:data-testid (str testid "-index")} "idx " page-index])
+        (when (some? page-count)
+          [:span {:data-testid (str testid "-count")} "pages " page-count])
+        (when next-page-param
+          [:span {:style {:display "flex" :gap "2px" :align-items "baseline"}}
+           "next" (summary-chip next-page-param (str testid "-next"))])
+        (when (some? terminal?)
+          [:span {:data-testid (str testid "-terminal")}
+           (if terminal? "terminal" "more")])
+        (when reason
+          [:span {:data-testid (str testid "-reason")} "reason " (str reason)])
+        (when page-error
+          [:span {:data-testid (str testid "-error")
+                  :style {:color (:error tokens)}}
+           "page-error " (:preview page-error)])]))])
 
 (defn- timeline-section [rows]
   (section
