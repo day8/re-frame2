@@ -510,18 +510,34 @@
     (when phase
       (let [tags    (trace-tags ev)
             work-id (work-id-of tags)
-            status  (when (= phase :completed)
-                      ;; rf2-waawic — read the closed reply status from EITHER
-                      ;; the bare `:status` OR the additive production
-                      ;; `:rf.reply/status` key (machine / resource / mutation
-                      ;; completion rows stamp the latter ALONGSIDE a bespoke
-                      ;; `:status`). Some resource completion rows stamp the
-                      ;; LEDGER status (`:completed`/`:failed`) under bare
-                      ;; `:status`; the closed reply status is what the
-                      ;; cross-surface badge keys on, so only surface a real
-                      ;; reply status, preferring the unambiguous
-                      ;; `:rf.reply/status` when present.
+            status  (cond
+                      (= phase :completed)
+                      ;; read the closed reply status from EITHER the bare
+                      ;; `:status` OR the additive production `:rf.reply/status`
+                      ;; key (machine / resource / mutation completion rows stamp
+                      ;; the latter ALONGSIDE a bespoke `:status`). Some resource
+                      ;; completion rows stamp the LEDGER status
+                      ;; (`:completed`/`:failed`) under bare `:status`; the
+                      ;; closed reply status is what the cross-surface badge keys
+                      ;; on, so only surface a real reply status, preferring the
+                      ;; unambiguous `:rf.reply/status` when present.
                       (let [s (or (:rf.reply/status tags) (:status tags))]
+                        (when (reply-status? s) s))
+
+                      (= phase :stale-suppressed)
+                      ;; EP-0011 treats `:stale` as one of the five closed reply
+                      ;; statuses (Managed-Effects §Status taxonomy). A failed
+                      ;; stale-suppression gate makes the reply outcome
+                      ;; `:status :stale`, stamped on the production row as
+                      ;; `:rf.reply/status`. Read ONLY the unambiguous
+                      ;; `:rf.reply/status` here — NOT the bare `:status`, which
+                      ;; on a suppression row may carry the LEDGER status
+                      ;; (`:completed`/`:failed`/`:suppressed`), not a reply
+                      ;; status — so the row carries the canonical `:stale`
+                      ;; status + the cross-surface `:suppression` badge that
+                      ;; `status->class` keys on, the SAME contract a completed
+                      ;; row renders.
+                      (let [s (:rf.reply/status tags)]
                         (when (reply-status? s) s)))]
         (cond-> {:id           (:id ev)
                  :operation    op
@@ -691,8 +707,17 @@
   The host handles (AbortControllers / promises / timer handles) live in a
   side table and are STRUCTURALLY absent from the serializable record
   (Managed-Effects §The reply map — the data-only invariant). Pure."
-  [[work-id record]]
-  (let [status (:status record)]
+  [[map-key record]]
+  (let [status (:status record)
+        ;; The production `:rf.runtime/work-ledger` map is keyed on the opaque
+        ;; CEDN-1 byte `work-id-id` STRING (resources/work-ledger §record-path);
+        ;; the kind-preserving work-id VECTOR is carried on the record as
+        ;; `:work/id`. Read the canonical vector from there — fall back to the
+        ;; map key only for a legacy/nonconforming record that lacks the stamp —
+        ;; so the displayed `:work-id`, the `:work-kind` inference, AND the
+        ;; live-work trace join all key on the kind-preserving identity, NOT the
+        ;; byte string. Mirror of resources-helpers/work-row.
+        work-id (or (:work/id record) map-key)]
     {:work-id      work-id
      :work-kind    (or (:work/kind record) (:kind record) (infer-work-kind work-id))
      :status       status

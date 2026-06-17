@@ -413,6 +413,120 @@
       (is (some? (:current row)) "current gate summarized + present"))))
 
 ;; ---------------------------------------------------------------------------
+;; (6b) stale-suppressed rows preserve the canonical EP-0011 :stale STATUS.
+;;
+;; EP-0011 treats `:stale` as one of the five closed reply statuses; a failed
+;; stale-suppression gate makes the reply outcome `:status :stale`, stamped on
+;; the production row as `:rf.reply/status`. A stale-suppressed row must
+;; therefore project `:status :stale` + `:status-class :suppression` — the
+;; SAME cross-surface badge contract a completed row renders — read off the
+;; UNAMBIGUOUS `:rf.reply/status`, NOT the bare `:status` (which on a
+;; suppression row may carry a LEDGER status like :completed/:failed).
+;; ---------------------------------------------------------------------------
+
+(deftest stale-suppression-preserves-status
+  (testing "a PRODUCTION-shaped resource stale-suppressed row carrying
+            :rf.reply/status :stale projects :status :stale +
+            :status-class :suppression"
+    (let [work-id [:rf.work/resource [:s :article/by-id {:id 1}] 1]
+          row (re/work-event-row
+                {:id 50 :operation :rf.resource/stale-suppressed
+                 :time 300
+                 :tags {:rf.frame/id  :rf/default
+                        :resource/key [:s :article/by-id {:id 1}]
+                        :work/id      work-id
+                        :generation   1
+                        :outcome      {:reason :stale-reply}
+                        :rf.reply/status       :stale
+                        :rf.reply/work-status  :suppressed
+                        :rf.reply/stale-reason :rf.resource/superseded
+                        :rf.reply/carried {:work/id work-id :generation 1}
+                        :rf.reply/current {:generation 2}}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :stale (:status row)) "canonical EP-0011 reply status preserved")
+      (is (= :suppression (:status-class row)) "cross-surface suppression badge")
+      (is (true? (:stale? row)))))
+  (testing "a PRODUCTION-shaped MUTATION stale-suppressed row (resource head,
+            :work/kind :mutation) preserves :status :stale + :suppression"
+    (let [work-id [:rf.work/resource [:s :update-article {:id 1}] 2]
+          row (re/work-event-row
+                {:id 51 :operation :rf.resource/stale-suppressed
+                 :time 310
+                 :tags {:work/id      work-id
+                        :work/kind    :mutation
+                        :rf.reply/status       :stale
+                        :rf.reply/work-status  :suppressed
+                        :rf.reply/stale-reason :rf.resource/superseded}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :mutation (:work-kind row)))
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))))
+  (testing "a PRODUCTION-shaped ROUTE stale-suppressed row preserves the status"
+    (let [work-id [:rf.work/route :nav 3]
+          row (re/work-event-row
+                {:id 52 :operation :rf.route/stale-suppressed
+                 :time 320
+                 :tags {:work/id      work-id
+                        :work/kind    :route
+                        :rf.reply/status       :stale
+                        :rf.reply/work-status  :suppressed
+                        :rf.reply/stale-reason :rf.route/nav-superseded}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :route (:work-kind row)))
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))))
+  (testing "a PRODUCTION-shaped HTTP supersession stale row preserves the status"
+    (let [row (re/work-event-row
+                {:id 53 :operation :rf.http/stale-suppressed
+                 :time 330 :tags {:work/id [:rf.work/http :search 1 1] :work/kind :http
+                                  :rf.reply/status      :stale
+                                  :rf.reply/work-status :suppressed
+                                  :rf.reply/stale-reason :rf.http/request-id-superseded
+                                  :rf.reply/carried {:work/id [:rf.work/http :search 1 1]}
+                                  :rf.reply/current {:work/id [:rf.work/http :search 2 1]}}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :http (:work-kind row)))
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))))
+  (testing "a PRODUCTION-shaped MACHINE :after-timer stale row preserves the status"
+    (let [row (re/work-event-row
+                {:id 54 :operation :rf.machine.timer/stale-after
+                 :time 340 :tags {:work/id [:rf.work/timer [:auth :loading] 3]
+                                  :work/kind :timer
+                                  :rf.reply/status       :stale
+                                  :rf.reply/work-status  :suppressed
+                                  :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :timer (:work-kind row)))
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))))
+  (testing "the bare LEDGER :status on a suppression row is NOT misread as a
+            reply status — only the unambiguous :rf.reply/status surfaces. A
+            row stamping bare :status :completed but NO :rf.reply/status gets
+            no reply status (the row is a suppression, not an :ok completion)"
+    (let [row (re/work-event-row
+                {:id 55 :operation :rf.resource/stale-suppressed
+                 :time 350 :tags {:work/id [:rf.work/resource :k 1]
+                                  :work/kind :resource
+                                  ;; bare ledger status, NOT a reply status fact
+                                  :status :completed}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (nil? (:status row)) "bare ledger :status :completed not misread")
+      (is (nil? (:status-class row)))
+      (is (true? (:stale? row)) "still a stale-suppressed row")))
+  (testing "completed rows are unchanged — the four non-stale closed statuses
+            still project from a :completed row"
+    (doseq [[s expected-class] {:ok :success :partial :partial
+                                :error :failure :cancelled :cancellation}]
+      (let [row (re/work-event-row
+                  {:id 56 :operation :rf.http/work-completed
+                   :time 360 :tags {:work/id [:rf.work/http :req 1]
+                                    :rf.reply/status s}})]
+        (is (= :completed (:phase row)))
+        (is (= s (:status row)) (str "completed status " s " unchanged"))
+        (is (= expected-class (:status-class row)))))))
+
+;; ---------------------------------------------------------------------------
 ;; (7) stale-races — keyed on :work/id; cross-surface tally; attempt arcs.
 ;; ---------------------------------------------------------------------------
 
@@ -504,6 +618,48 @@
   (testing "the single-arity form returns live rows without the trace join"
     (let [live (re/live-work ledger)]
       (is (every? #(not (contains? % :latest-phase)) live))))
+  (testing "PRODUCTION byte/string-keyed ledger — the :rf.runtime/work-ledger
+            map is keyed on the opaque CEDN-1 byte `work-id-id` STRING, while
+            the kind-preserving work-id VECTOR rides on the record as :work/id.
+            ledger-row / live-work must read the CANONICAL vector from the
+            record (not the byte key) so the row joins to a trace row keyed by
+            the vector and inference works when :work/kind is present."
+    (let [work-id    [:rf.work/resource [:s :article/by-id {:id 1}] 2]
+          byte-key   "£opaque-byte-work-id-id"
+          ;; the PRODUCTION ledger shape: byte string key → record with :work/id
+          prod-ledger {byte-key
+                       {:work/id work-id :work/kind :resource :work/frame :f
+                        :resource/key [:s :article/by-id {:id 1}] :generation 2
+                        :status :running :owners #{} :causes [] :cancellable? true
+                        :transport :rf.http/managed}}
+          ;; the trace row is keyed by the kind-preserving VECTOR work id
+          trace      [{:id 1 :operation :rf.resource/work-abort-requested :time 100
+                       :tags {:work/id work-id :reason :superseded}}]
+          row        (re/ledger-row (first prod-ledger))]
+      ;; ledger-row reads the canonical vector, NOT the opaque byte key
+      (is (= work-id (:work-id row)) "canonical :work/id vector, not the byte key")
+      (is (= :resource (:work-kind row)))
+      (is (true? (:live? row)))
+      ;; live-work joins the byte-keyed ledger row to the vector-keyed trace row
+      (let [live  (re/live-work prod-ledger trace)
+            joined (first live)]
+        (is (= 1 (count live)))
+        (is (= work-id (:work-id joined)))
+        (is (= :cancel-requested (:latest-phase joined))
+            "joined to the vector-keyed trace row")
+        (is (= :rf.resource/work-abort-requested (:latest-op joined))))))
+  (testing "kind inference works off the canonical vector when :work/kind is
+            absent on a byte-keyed production record"
+    (let [work-id  [:rf.work/http :req 7]
+          byte-key "opaque"
+          row      (re/ledger-row [byte-key {:work/id work-id :status :running}])]
+      (is (= work-id (:work-id row)) "canonical vector, not the byte key")
+      (is (= :http (:work-kind row)) "kind inferred from the vector head, not the byte key")))
+  (testing "a LEGACY/nonconforming record lacking :work/id falls back to the
+            map key (existing vector-keyed behavior unchanged)"
+    (let [row (re/ledger-row [[:rf.work/resource :k 2] {:status :running}])]
+      (is (= [:rf.work/resource :k 2] (:work-id row)))
+      (is (= :resource (:work-kind row)))))
   (testing "latest-phase-by-work-id keeps the MOST-RECENT phase per work id"
     (let [trace [{:id 1 :operation :rf.resource/work-started :time 100
                   :tags {:work/id [:rf.work/resource :k 2]}}
