@@ -1381,6 +1381,22 @@
    :asset-path "."
    :modules    {:main {:init-fn resources.core/run}}}
 
+  ;; EP-0021 — infinite-resource (load-more / infinite-scroll feed) worked
+  ;; example (rf2-dly400). A single growing feed as a first-class `:infinite`
+  ;; resource: route entry ensures PAGE 0, the view reads the merged list +
+  ;; page metadata via the passive `[:rf.resource/infinite-state …]` sub, and
+  ;; accumulation is driven by the causal `:rf.resource/load-more` event — no
+  ;; app-db list slice, no cursor threading. `resources/src` is already on
+  ;; :source-paths above, so the infinite runtime + sub family resolve without
+  ;; per-build deps. The infinite-resource runtime has landed (EP-0021 waves
+  ;; 1-4). Complements `:examples/resources` (single-page lifecycle) and the
+  ;; numbered-pagination route in `:examples/realworld-resources`.
+  :examples/infinite-feed
+  {:target     :browser
+   :output-dir "out/examples/infinite-feed"
+   :asset-path "."
+   :modules    {:main {:init-fn infinite-feed.core/run}}}
+
   ;; Spec 016 §SSR — resource SSR preload + hydration worked example
   ;; (rf2-jxmb4p). The page's server-state is a RESOURCE preloaded under an
   ;; [:ssr …] owner and serialized into the hydration payload's runtime-db
