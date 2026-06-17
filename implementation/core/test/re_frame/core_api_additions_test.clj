@@ -207,6 +207,20 @@
             ":rf.error/id is the canonical discriminator")
         (is (re-find #"binding must be \[sym expr\]"
                      (:reason (ex-data e)))
+            ":reason carries the structured explanation"))
+      ;; Non-vector binding (e.g. a bare symbol) — same collapsed
+      ;; non-`[sym expr]` throw (rf2-a29uqh: one throw for the whole class).
+      (let [e (try (expand 'not-a-vector '((do nil))) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? e) "a non-vector binding must throw")
+        (is (= :rf.error/with-new-frame-bad-binding (:rf.error/id (ex-data e)))
+            ":rf.error/id is the canonical discriminator (shared with the wrong-arity case)")
+        (is (= :fix-registration (:recovery (ex-data e)))
+            ":recovery is :fix-registration")
+        (is (= 'not-a-vector (:got (ex-data e)))
+            ":extra {:got bindings} carries the offending value")
+        (is (re-find #"binding must be \[sym expr\]"
+                     (:reason (ex-data e)))
             ":reason carries the structured explanation")))))
 
 ;; ===========================================================================

@@ -274,25 +274,19 @@
          {:recovery :use-with-frame
           :extra    {:got bindings}})
 
-       ;; Vector but wrong arity — almost certainly a typo of the
-       ;; binding form (e.g. `[]` or `[f x y]`). Reject at compile time —
-       ;; per Spec 002 §with-frame.
-       (vector? bindings)
-       (error/throw-error!
-         :rf.error/with-new-frame-bad-binding
-         'rf/with-new-frame
-         (str "with-new-frame's binding must be [sym expr]. "
-              "Got " (count bindings) " element"
-              (when-not (= 1 (count bindings)) "s") ".")
-         {:recovery :fix-registration
-          :extra    {:got   bindings
-                     :count (count bindings)}})
-
+       ;; Anything else that isn't a 2-element `[sym expr]` vector — a
+       ;; wrong-arity vector (e.g. `[]` or `[f x y]`, almost certainly a
+       ;; typo of the binding form) OR a non-vector value. One throw for
+       ;; the whole non-`[sym expr]` class — `:rf.error/id` is the sole
+       ;; machine discriminator and `:extra {:got bindings}` already
+       ;; carries the offending value. Reject at compile time per Spec 002
+       ;; §with-frame.
        :else
        (error/throw-error!
          :rf.error/with-new-frame-bad-binding
          'rf/with-new-frame
-         "with-new-frame's binding must be a 2-element vector [sym expr]."
+         (str "with-new-frame's binding must be [sym expr]; got "
+              (pr-str bindings) ".")
          {:recovery :fix-registration
           :extra    {:got bindings}}))))
 
