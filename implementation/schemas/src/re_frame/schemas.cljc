@@ -191,9 +191,18 @@
 ;; validate-event! / validate-cofx! / validate-fx! / validate-sub! /
 ;; validate-app-schema!. The earlier validate-app-db! /
 ;; validate-sub-return! names were renamed for symmetry.
+;;
+;; `validate-cofx!` is DEMOTED (EP-0017): it is NOT the live runtime cofx
+;; schema-validation path. EP-0017 retired the ctx-mutating `inject-cofx`
+;; injection-time validation; the live cofx schema contract is
+;; `re-frame.cofx/validate-recordable-value!` (a production hard error →
+;; `:rf.error/cofx-value-invalid`), not the dev-only
+;; `:rf.error/schema-validation-failure :where :cofx` this fn emits. No runtime
+;; caller reaches `:schemas/validate-cofx!`; it survives for the elision probe
+;; / direct-call shape tests pending the Spec 010 step-2 normative rewrite.
 (def validate-app-schema! validate/validate-app-schema!)
 (def validate-event!      validate/validate-event!)
-(def validate-cofx!       validate/validate-cofx!)
+(def validate-cofx!       validate/validate-cofx!)   ;; DEMOTED — see note above
 (def validate-fx!         validate/validate-fx!)
 (def validate-sub!        validate/validate-sub!)
 
@@ -226,6 +235,10 @@
 ;; publication block (flows / machines / routing / http / ssr).
 
 ;; Validation hot-path hooks (consumed by router / cofx / subs / epoch).
+;; NB `:schemas/validate-cofx!` is DEMOTED (EP-0017) — no runtime consumer
+;; reaches it (the live cofx schema path is `re-frame.cofx/validate-recordable-
+;; value!` → `:rf.error/cofx-value-invalid`); the publication survives for the
+;; elision probe / direct-call shape tests pending the Spec 010 step-2 rewrite.
 (late-bind/set-fn! :schemas/validate-app-schema! validate-app-schema!)
 (late-bind/set-fn! :schemas/validate-event!      validate-event!)
 (late-bind/set-fn! :schemas/validate-sub!        validate-sub!)

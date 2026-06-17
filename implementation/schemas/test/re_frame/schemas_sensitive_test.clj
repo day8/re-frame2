@@ -933,60 +933,68 @@
 ;; above.) These tests assert the conforming sensitive sibling is ABSENT
 ;; from every egressed slot.
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
-#_(deftest cofx-validation-conforming-sensitive-sibling-redacted-whole-value
-  (testing "rf2-3qam7b — a cofx schema with a CONFORMING sensitive sibling
-            (:token) AND a non-sensitive failing sibling (:count): every
-            value-bearing slot on this surface carries the WHOLE cofx value
-            (the conforming :token included), so the redaction scopes to the
-            ROOT check and the WHOLE value redacts. The conforming sensitive
-            sibling must be ABSENT from every egressed slot"
+;; EP-0017 (replaces the disabled rf2-oa2dun inject-cofx tests): the LIVE cofx
+;; `:schema` path is the recordable-value check
+;; (`re-frame.cofx/validate-recordable-value!` → `:rf.error/cofx-value-invalid`).
+;; It routes its off-box `:value` slot through the SAME shared
+;; `redact-validation-tags` seam (rf2-hdi6wr), so a `:sensitive?`-bearing
+;; recordable cofx schema redacts identically. The recordable path carries the
+;; WHOLE recordable value in `:value` (it is not narrowed), so a sensitive slot
+;; ANYWHERE in the schema redacts the whole value. (It does not carry a
+;; `:received` slot — only `:value`.)
+(deftest recordable-cofx-conforming-sensitive-sibling-redacted-whole-value
+  (testing "rf2-3qam7b (EP-0017 recordable path) — a recordable-cofx schema
+            with a CONFORMING sensitive sibling (:token) AND a non-sensitive
+            failing sibling (:count): the whole recordable value rides :value,
+            so a sensitive sibling redacts the WHOLE value. The conforming
+            sensitive sibling must be ABSENT from every egressed slot."
     (rf/reg-cofx :auth/ctx
-      {:schema [:map
+      {:recordable? true :provided? true
+       :schema [:map
                 [:token {:sensitive? true} :string]
-                [:count :int]]}
-      ;; :token "SECRET-COFX-tok" CONFORMS (sensitive sibling); :count fails
-      ;; (string, not int) — the failing slot is the NON-sensitive sibling.
-      (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx]
-                          {:token "SECRET-COFX-tok" :count "not-an-int"})))
+                [:count :int]]})
     (rf/reg-event :auth/use-ctx
-      {:interceptors [(rf/inject-cofx :auth/ctx)]}
+      {:rf.cofx/requires [:auth/ctx]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::ctx (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:auth/use-ctx])
+      ;; :token "SECRET-COFX-tok" CONFORMS (sensitive sibling); :count fails
+      ;; (string, not int) — the failing slot is the NON-sensitive sibling.
+      (try
+        (rf/dispatch-sync [:auth/use-ctx]
+                          {:rf.cofx {:auth/ctx {:token "SECRET-COFX-tok"
+                                                :count "not-an-int"}}})
+        (catch clojure.lang.ExceptionInfo _))
       (rf/unregister-listener! ::ctx)
-      (let [v (first (filter #(and (= :rf.error/schema-validation-failure (:operation %))
-                                   (= :cofx (-> % :tags :where)))
+      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
-        (is (some? v) "a cofx validation failure was traced")
+        (is (some? v) "a recordable-cofx validation failure was traced")
         (is (true? (:sensitive? v))
             ":sensitive? stamped — a whole-payload slot carries the conforming sensitive sibling")
         (is (= :rf/redacted (-> v :tags :value)) ":value (whole cofx) redacted")
-        (is (= :rf/redacted (-> v :tags :received)) ":received (whole cofx) redacted")
         (is (not (str/includes? (pr-str (:tags v)) "SECRET-COFX-tok"))
             "the conforming sensitive sibling :token is ABSENT from every egressed slot")))))
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
-#_(deftest cofx-validation-sensitive-slot-failure-still-redacts
-  (testing "rf2-k0ew8n — the path-targeted check still REDACTS when the
-            FAILING slot itself is sensitive (no privacy regression)"
+(deftest recordable-cofx-sensitive-slot-failure-still-redacts
+  (testing "rf2-k0ew8n (EP-0017 recordable path) — redaction still fires when
+            the FAILING slot itself is sensitive (no privacy regression)"
     (rf/reg-cofx :auth/ctx2
-      {:schema [:map
+      {:recordable? true :provided? true
+       :schema [:map
                 [:token {:sensitive? true} :string]
-                [:count :int]]}
-      ;; :token fails (int, not string) — the FAILING slot IS sensitive.
-      (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx2]
-                          {:token 1234 :count 3})))
+                [:count :int]]})
     (rf/reg-event :auth/use-ctx2
-      {:interceptors [(rf/inject-cofx :auth/ctx2)]}
+      {:rf.cofx/requires [:auth/ctx2]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::ctx2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:auth/use-ctx2])
+      ;; :token fails (int, not string) — the FAILING slot IS sensitive.
+      (try
+        (rf/dispatch-sync [:auth/use-ctx2]
+                          {:rf.cofx {:auth/ctx2 {:token 1234 :count 3}}})
+        (catch clojure.lang.ExceptionInfo _))
       (rf/unregister-listener! ::ctx2)
-      (let [v (first (filter #(and (= :rf.error/schema-validation-failure (:operation %))
-                                   (= :cofx (-> % :tags :where)))
+      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v))
         (is (true? (:sensitive? v))
@@ -1216,54 +1224,63 @@
       (is (= tags out) "tags ride back unchanged — nothing sensitive to redact")
       (is (not (contains? out :sensitive?))))))
 
-;; ---- redaction at cofx validation site -----------------------------------
+;; ---- redaction at the recordable-cofx validation site --------------------
+;;
+;; EP-0017 replaced the injection-time cofx-validation site with the
+;; recordable-value path (`re-frame.cofx/validate-recordable-value!` →
+;; `:rf.error/cofx-value-invalid`). It routes its off-box `:value` slot through
+;; the SAME `redact-validation-tags` seam, so the schema-walker still drives
+;; redaction exclusively. The two tests below replace the disabled rf2-oa2dun
+;; `inject-cofx` tests for this surface.
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
-#_(deftest cofx-validation-ignores-meta-sensitive
-  (testing "The handler-meta `:sensitive?` annotation has been removed.
-            Cofx-meta `:sensitive?` no longer triggers cofx-validation
-            redaction — the schema-walker now drives the decision
-            exclusively. With a plain `:string` spec (no per-slot
-            sensitive prop) the failure rides verbatim."
+(deftest recordable-cofx-ignores-meta-sensitive
+  (testing "The registration-meta `:sensitive?` annotation has been removed.
+            A bare `:sensitive?` on the cofx registration meta no longer
+            triggers redaction — the schema-walker drives the decision
+            exclusively. With a plain `:string` schema (no per-slot sensitive
+            prop) the recordable-value failure rides verbatim."
     (rf/reg-cofx :auth/credentials
-      {:doc "Inject the user's auth token"
+      {:doc "A recordable auth-token coeffect"
+       :recordable? true :provided? true
        :sensitive? true   ;; ignored — annotation removed
-       :schema :string}
-      (fn [ctx] (assoc-in ctx [:coeffects :auth/credentials] 42)))
+       :schema :string})
     (rf/reg-event :auth/use-creds
-      {:interceptors [(rf/inject-cofx :auth/credentials)]}
+      {:rf.cofx/requires [:auth/credentials]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::cf (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:auth/use-creds])
+      (try
+        (rf/dispatch-sync [:auth/use-creds]
+                          {:rf.cofx {:auth/credentials 42}})  ;; int, fails :string
+        (catch clojure.lang.ExceptionInfo _))
       (rf/unregister-listener! ::cf)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v))
         (is (not (true? (:sensitive? v)))
-            "no top-level :sensitive? stamp — schema has no per-slot :sensitive? prop")
+            "no :sensitive? stamp — schema has no per-slot :sensitive? prop")
         (is (= 42 (-> v :tags :value)))
-        (is (= 42 (-> v :tags :received)))
-        (is (= :cofx (-> v :tags :where))
-            "structural :where slot survives")
         (is (= :auth/credentials (-> v :tags :rf.cofx/id))
             "structural :rf.cofx/id survives")))))
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
-#_(deftest cofx-validation-redacts-when-schema-container-sensitive
-  (testing "A container-level :sensitive? on the cofx :schema also triggers
-            redaction even when the cofx-meta doesn't carry the flag"
+(deftest recordable-cofx-redacts-when-schema-container-sensitive
+  (testing "A container-level :sensitive? on the recordable-cofx :schema also
+            triggers redaction even when the registration meta doesn't carry
+            the flag"
     (rf/reg-cofx :secret-blob
-      {:schema [:string {:sensitive? true}]}
-      (fn [ctx] (assoc-in ctx [:coeffects :secret-blob] 99))) ; int, fails :string
+      {:recordable? true :provided? true
+       :schema [:string {:sensitive? true}]})
     (rf/reg-event :use-secret
-      {:interceptors [(rf/inject-cofx :secret-blob)]}
+      {:rf.cofx/requires [:secret-blob]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::cb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:use-secret])
+      (try
+        (rf/dispatch-sync [:use-secret]
+                          {:rf.cofx {:secret-blob 99}})  ;; int, fails :string
+        (catch clojure.lang.ExceptionInfo _))
       (rf/unregister-listener! ::cb)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v))
         (is (true? (:sensitive? v))
