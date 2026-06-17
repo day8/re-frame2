@@ -527,6 +527,10 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-hls77w"
     :description "Resolver helper: resolve a named scope resolver against a SUPPLIED db value, returning the canonical scope or nil — a plain function over the resolver registry, NOT an effect (no app-state / dispatch side effects). Not a pure data helper, though: like every resolution site it emits :rf.resource/scope-resolved dev-time trace evidence. Canonical use is the logout/account-switch idiom (resolve the concrete old scope from the handler's coeffect db, then pass it to :rf.resource/clear-scope concretely). Per Spec 016 §clear-scope resolves the concrete scope from the coeffect db (EP-0016 issue 7)."}
+   {:key         :resources/project-scope-resolved-egress
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-84l82t"
+    :description "OFF-BOX trace egress projector for a :rf.resource/scope-resolved row's resolver-owned values (EP-0015). The row carries the resolver's resolved :input-values (raw app-db reads) + the derived :scope (the identity tuple embedding them) — owner-local values the generic value-path trace egress walk cannot classify once copied into trace tags. Given the row's :tags, FAILS CLOSED: redacts :input-values + :scope to :rf/redacted + stamps :sensitive? for any db-reading resolver not explicitly declassified (:output-sensitivity :rf.egress/public), preserving the structural :resource-id / declared :inputs names / :kind / :resolved-nil?. Consulted by the epoch tool-pair's off-box :trace-events projection (omit-off-box-resource-scope-values, gated on the off-box :include-sensitive? default; the trusted-local opt-in lifts it). No-op / nil when no resources artefact is loaded (an app with no resources emits no scope-resolved rows). The on-box listener keeps the raw dev evidence; the leak is at off-box / epoch / MCP egress. Per Spec 015 §10 / Derivations §Tool redaction."}
    {:key         :resources/reset-resources!
     :producer-ns 're-frame.resources.test-support
     :design-bead "rf2-p10npe"
