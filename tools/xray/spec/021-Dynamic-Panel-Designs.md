@@ -2540,8 +2540,8 @@ the verb so the affordance is read inline with the cascade rhythm
   <coord>}]` on the `:rf/xray` frame envelope. Click handler calls
   `.stopPropagation` so the verb-link doesn't trigger the row's own
   expand-toggle. URI resolution + `Location.assign` happens
-  downstream in the `:rf.editor/open` reg-fx via the rf2-cm93v
-  launcher allowlist.
+  downstream in the `:rf.editor/open` reg-fx via the rf2-vwcsq
+  scheme denylist (rf2-ox357n).
 - **Test surface.** `data-testid` is
   `rf-xray-epoch-handler-verb-link` (clickable variant) or
   `rf-xray-epoch-handler-verb-plain` (fallback). The `aria-label` +
@@ -3615,7 +3615,7 @@ step with N rows" to "N steps, one per injected cofx" (see §9.1.3
 - **Header** — `:COEFFECT` badge + cofx-id button to the right of
   the badge. The button is clickable when
   `(rf/handler-meta :cofx <id>)` returns a coordinate (click-to-source
-  jumps through the shared `:rf.xray/open-in-editor` allowlist —
+  jumps through the shared `:rf.xray/open-in-editor` scheme denylist —
   see §9.1.11); otherwise the id renders as a plain coloured span.
   An external-link glyph trails the id when source-jump is wired.
 - **Body** — `+ [:cofx-id] <value>` diff-style line, left-aligned
@@ -3660,7 +3660,7 @@ The accompanying view-layer chrome:
 - **Header** — `:FLOW` badge + flow-id button to the right of
   the badge. The button is clickable when
   `(rf/handler-meta :flow <id>)` returns a coordinate (click-to-source
-  jumps through the shared `:rf.xray/open-in-editor` allowlist —
+  jumps through the shared `:rf.xray/open-in-editor` scheme denylist —
   see §9.1.11); otherwise the id renders as a plain coloured span.
   An external-link glyph trails the id when source-jump is wired.
 - **Body — the flow's OWN `:db` diff (rf2-4wywy / rf2-48oc4)** — a
@@ -3724,8 +3724,8 @@ The accompanying view-layer chrome:
 ### §9.1.11 Cross-panel navigation
 
 Every click-to-source affordance in the cascade flows through the
-shared `:rf.xray/open-in-editor` event (rf2-cm93v allowlist) — the
-same surface every other L4 panel uses for source jumps. The Epoch
+shared `:rf.xray/open-in-editor` event (rf2-vwcsq scheme denylist) —
+the same surface every other L4 panel uses for source jumps. The Epoch
 panel emits no panel-internal navigation; spine focus drives every
 data axis.
 

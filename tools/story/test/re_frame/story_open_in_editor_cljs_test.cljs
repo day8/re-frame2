@@ -11,8 +11,10 @@
   - The chip carries the `data-test` hook for the e2e suite.
   - `open-chip-for-variant` reads `:source` off the variant body.
   - rf2-r2un8 — `:rf.story/open-in-editor` reg-event + `:rf.editor/open`
-    reg-fx produce a resolved URI through the same allowlist seam the
-    chip uses (Xray-parity port)."
+    reg-fx produce a resolved URI through the same denylist seam the
+    chip uses (Xray-parity port).
+  - rf2-ox357n — the positive allowlist was removed; only the
+    `javascript:` / `data:` / `vbscript:` denylist gates the chip now."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -108,7 +110,7 @@
 ;;
 ;; The element-inspector uses this helper to resolve a source-coord →
 ;; URI through Story config and hand it to `open!`. One launcher across
-;; the chip + the inspector — same allowlist gate, same navigator seam.
+;; the chip + the inspector — same denylist gate, same navigator seam.
 
 (deftest open-source-coord!-fires-navigator-with-resolved-uri
   (testing "open-source-coord! resolves through Story config + the
@@ -155,6 +157,28 @@
         (finally
           (open-in-editor/set-navigator! prev))))))
 
+(deftest open!-denylist-gates-pre-resolved-uri
+  (testing "rf2-ox357n — `open!` re-applies the scheme denylist at the
+            pre-resolved {:uri ...} handoff (the :rf.editor/open reg-fx
+            path that bypasses editor-uri's build-time gating). Forbidden
+            schemes never reach the navigator; non-dangerous schemes
+            (incl. unknown custom) navigate."
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        (fn []
+          ;; forbidden script schemes are refused at the click-time seam,
+          ;; case-insensitively + leading-whitespace tolerant
+          (open-in-editor/open! "javascript:alert(1)")
+          (open-in-editor/open! "JavaScript:alert(1)")
+          (open-in-editor/open! " data:text/html,xxx")
+          (open-in-editor/open! "vbscript:msgbox(1)")
+          (is (= [] @calls)
+              "no forbidden-scheme URI reaches the navigator")
+          ;; an unknown, non-dangerous scheme passes through (no allowlist)
+          (open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
+          (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
+              "an unknown custom non-dangerous scheme navigates"))))))
+
 (deftest open-chip-title-attribute-shape
   (testing "the chip's :title attr surfaces file:line for hover"
     (let [hiccup (open-in-editor/open-chip
@@ -163,53 +187,57 @@
       (is (= "Open in editor — src/app.cljs:99"
              (:title props))))))
 
-;; ---- rf2-cm93v / rf2-p887o — Story-side allowlist behaviour -----------
+;; ---- rf2-vwcsq / rf2-ox357n — Story-side scheme-denylist behaviour ----
 ;;
-;; The matrix tests for `allowed-uri?` itself live in the shared editor-uri
-;; test ns. These cases cover the Story chip's wiring: the chip hides when
-;; a `{:custom ...}` template resolves to a disallowed scheme, and renders
-;; normally for safe ones — parity with Xray's surface (rf2-p887o).
+;; The matrix tests for `forbidden-scheme?` itself live in the shared
+;; editor-uri test ns. These cases cover the Story chip's wiring: the chip
+;; hides ONLY when a `{:custom ...}` template resolves to one of the three
+;; forbidden script schemes (javascript:/data:/vbscript:); everything else
+;; — including http:/https: and unknown custom schemes — renders a chip
+;; (rf2-ox357n removed the positive allowlist; the spec mandates a
+;; rejection list, not an allowlist). Parity with Xray's surface.
 
-(deftest open-chip-hides-when-custom-template-resolves-to-unsafe-scheme
-  (testing "open-chip returns nil when the resolved URI's scheme is not
-            in `editor-uri/allowed-editor-uri-schemes`. Defense-in-depth
-            alongside the editor-uri-side javascript:/data:/vbscript:
-            reject from rf2-vwcsq — closes the http:/https:/etc. surface
-            an upstream {:custom ...} template could otherwise resolve
-            to."
-    ;; editor-uri/editor-uri already gates javascript:/data:/vbscript:
-    ;; — for these the chip is nil regardless of the allowlist. Verify
-    ;; those cases still hide.
+(deftest open-chip-hides-when-custom-template-resolves-to-forbidden-scheme
+  (testing "open-chip returns nil ONLY for the three forbidden script
+            schemes (rf2-vwcsq). editor-uri/editor-uri gates these at
+            build time → the chip is nil."
     (config/set-editor! {:custom "javascript:alert(1)"})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
     (config/set-editor! {:custom "data:text/html,xxx"})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
-    ;; http: is NOT in editor-uri's reject list — the allowlist is
-    ;; the seam that catches it. Without rf2-p887o this used to render
-    ;; a clickable chip that would navigate the tab.
-    (config/set-editor! {:custom "http://evil.example/{path}"})
-    (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
-
-    ;; Same for https:
-    (config/set-editor! {:custom "https://evil.example/{path}"})
+    (config/set-editor! {:custom "vbscript:msgbox(1)"})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))))
 
-(deftest open-chip-renders-when-custom-template-resolves-to-safe-scheme
-  (testing "open-chip renders normally when the resolved URI's scheme
-            is in `editor-uri/allowed-editor-uri-schemes`"
+(deftest open-chip-renders-for-non-forbidden-custom-scheme
+  (testing "rf2-ox357n — open-chip renders for ANY non-forbidden scheme:
+            catalogued long-tail, http:/https: (no longer gated), AND
+            unknown custom schemes the old allowlist would have hidden"
     (config/set-editor! {:custom "subl://open?path={path}&line={line}"})
     (let [hiccup (open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
       (is (vector? hiccup))
       (is (= "subl://open?path=src/x.cljs&line=5" (:href (second hiccup)))))
 
     (config/set-editor! {:custom "emacsclient://{path}"})
-    (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))))
+    (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
-(deftest open-chip-for-variant-hides-on-unsafe-scheme
-  (testing "open-chip-for-variant inherits the allowlist gate"
-    (config/set-editor! {:custom "http://evil.example/{path}"})
+    ;; http:/https: now PASS — rf2-ox357n removed the allowlist that
+    ;; rejected them. The residual risk (an http template navigates the
+    ;; tab on a trusted localhost dev surface) is the documented footgun
+    ;; the spec accepts; script schemes stay blocked.
+    (config/set-editor! {:custom "http://localhost:3000/{path}"})
+    (is (= "http://localhost:3000/src/x.cljs"
+           (:href (second (open-in-editor/open-chip {:file "src/x.cljs"})))))
+
+    ;; An unknown editor scheme renders — no silent dead button.
+    (config/set-editor! {:custom "lapce://open?file={path}&line={line}"})
+    (is (= "lapce://open?file=src/x.cljs&line=8"
+           (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 8})))))))
+
+(deftest open-chip-for-variant-hides-on-forbidden-scheme
+  (testing "open-chip-for-variant inherits the denylist gate"
+    (config/set-editor! {:custom "javascript:alert(1)"})
     (is (nil? (open-in-editor/open-chip-for-variant
                 {:source {:file "src/x.cljs" :line 1}})))))
 
@@ -390,15 +418,14 @@
       (is @prevented?
           "the click handler must call e.preventDefault()"))))
 
-(deftest click-handler-hides-chip-for-disallowed-scheme
-  (testing "rf2-muvs8 / rf2-cm93v — the chip's render-time gate hides
-            the chip entirely for URIs whose scheme is outside
-            `editor-uri/allowed-editor-uri-schemes`, so the click
-            never wires up at all. Pins that the user can never click
-            an unsafe URI to navigation."
-    (config/set-editor! {:custom "http://evil.example/{path}"})
+(deftest click-handler-hides-chip-for-forbidden-scheme
+  (testing "rf2-muvs8 / rf2-vwcsq — the chip's render-time gate hides
+            the chip entirely for the forbidden script schemes, so the
+            click never wires up at all. Pins that the user can never
+            click a javascript:/data:/vbscript: URI to navigation."
+    (config/set-editor! {:custom "javascript:alert(1)"})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"}))
-        "render-time gate hides chip for disallowed scheme")))
+        "render-time gate hides chip for forbidden scheme")))
 
 ;; ---- Windows-path URI shape regression (rf2-muvs8) ----------------------
 ;;
@@ -484,21 +511,28 @@
     (is (nil? (open-in-editor/resolve-uri {:line 1})))
     (is (nil? (open-in-editor/resolve-uri {:file ""})))))
 
-(deftest resolve-uri-nil-for-disallowed-custom-scheme
-  (testing "resolve-uri returns nil when a {:custom ...} template
-            resolves to a scheme outside `allowed-editor-uri-schemes`
-            — defense-in-depth alongside the chip's render-time gate"
-    (config/set-editor! {:custom "http://evil.example/{path}"})
-    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))
+(deftest resolve-uri-nil-for-forbidden-custom-scheme
+  (testing "resolve-uri returns nil ONLY when a {:custom ...} template
+            resolves to a forbidden script scheme (rf2-vwcsq). Per
+            rf2-ox357n http:/https:/unknown schemes now resolve through."
     (config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))))
+    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    (config/set-editor! {:custom "data:text/html,xxx"})
+    (is (nil? (open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    ;; http: + unknown schemes now resolve (no positive allowlist).
+    (config/set-editor! {:custom "http://localhost:3000/{path}"})
+    (is (= "http://localhost:3000/src/x.cljs"
+           (open-in-editor/resolve-uri {:file "src/x.cljs"})))
+    (config/set-editor! {:custom "lapce://open?file={path}"})
+    (is (= "lapce://open?file=src/x.cljs"
+           (open-in-editor/resolve-uri {:file "src/x.cljs"})))))
 
 ;; ---- :rf.story/open-in-editor + :rf.editor/open (rf2-r2un8) ------------
 ;;
 ;; The dispatch-based path Story exposes alongside the imperative chip.
 ;; Hosts that don't render the chip directly (agents replaying via MCP,
 ;; custom panels) can dispatch `[:rf.story/open-in-editor coord]` and
-;; let the registered fx fire the URI through the same allowlist gate.
+;; let the registered fx fire the URI through the same denylist gate.
 ;; Mirrors Xray's `:rf.xray/open-in-editor` + `:rf.editor/open`
 ;; pairing (port per rf2-r2un8). Tests stub the `:rf.editor/open` reg-fx
 ;; with a capture, mirroring the Xray test pattern — no `window.location`
@@ -589,12 +623,12 @@
     (is (= "cursor://file/src/x.cljs:10:1"
            (:uri (first @captured-editor-fx))))))
 
-(deftest open-in-editor-event-rejects-disallowed-scheme
-  (testing "rf2-r2un8 / rf2-cm93v — a custom template that resolves
-            outside the allowlist produces a fx with nil :uri (which
+(deftest open-in-editor-event-rejects-forbidden-scheme
+  (testing "rf2-r2un8 / rf2-vwcsq — a custom template that resolves to a
+            forbidden script scheme produces a fx with nil :uri (which
             `open!` is a no-op for); the handler doesn't short-circuit"
     (install-with-capture!)
-    (config/set-editor! {:custom "http://evil.example/{path}"})
+    (config/set-editor! {:custom "javascript:alert(1)"})
     (with-frame :rf/default
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 1}]))

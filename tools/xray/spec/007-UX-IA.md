@@ -1497,11 +1497,15 @@ picker** is the per-machine override.
   host's atom and does NOT reach other browsers / tabs / users.
   Clearing the override falls back to the host's `configure!` value.
 - **Security boundary:** the `{:custom …}` template still passes
-  through the rf2-cm93v / rf2-p887o positive scheme allowlist at
-  click time. A template that resolves to a disallowed scheme
-  (`http:` / `https:` / `javascript:` / `data:` / `vbscript:`)
-  silently no-ops at the chip — the picker is NOT a route around the
-  allowlist.
+  through the rf2-vwcsq scheme-rejection **denylist** at build time and
+  again at the click-time `open!` seam (rf2-ox357n removed the prior
+  positive allowlist — the framework spec mandates a rejection list, not
+  an allowlist). A template that resolves to a forbidden script scheme
+  (`javascript:` / `data:` / `vbscript:`) silently no-ops at the chip —
+  the picker is NOT a route around the denylist. Other schemes,
+  including `http:` / `https:` and unknown future-editor schemes, pass
+  through (the residual `http:`-navigates-a-tab footgun is the accident
+  the spec accepts; only the three script schemes are XSS vectors).
 
 ### Unconfigured-host DX hint (rf2-4s08ov)
 

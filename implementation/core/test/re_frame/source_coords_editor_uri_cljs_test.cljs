@@ -55,35 +55,36 @@
   (testing "ordinary custom editor templates still resolve on CLJS"
     (is (some? (eu/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      coord)))
     (is (some? (eu/editor-uri {:custom "subl://open?path={path}&line={line}"} coord)))
-    (is (some? (eu/editor-uri {:custom "emacsclient://open?file={path}"}      coord)))))
+    (is (some? (eu/editor-uri {:custom "emacsclient://open?file={path}"}      coord))))
+  (testing "rf2-ox357n: an UNKNOWN, non-dangerous custom scheme passes
+            through on CLJS — no positive allowlist, no silent dead button"
+    (is (= "lapce://open?file=src/app/views.cljs&line=42"
+           (eu/editor-uri {:custom "lapce://open?file={path}&line={line}"} coord)))
+    (is (some? (eu/editor-uri {:custom "future-editor-9://{path}:{line}"} coord)))))
 
-;; ---- positive scheme allowlist (rf2-cm93v / rf2-p887o) -------------------
+;; ---- public forbidden-scheme? predicate (rf2-ox357n) ---------------------
 
-(deftest allowed-uri-on-cljs
-  (testing "the positive allowlist round-trips identically on CLJS"
-    ;; built-in schemes pass
-    (is (eu/allowed-uri? "vscode://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "cursor://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "windsurf://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "zed://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "idea://open?file=src/x.cljs&line=1&column=1"))
-    ;; other catalogued schemes
-    (is (eu/allowed-uri? "subl://open?path=src/x.cljs"))
-    (is (eu/allowed-uri? "emacsclient://src/x.cljs"))
-    (is (eu/allowed-uri? "file:///abs/path/src/x.cljs"))
-    ;; rejected schemes
-    (is (not (eu/allowed-uri? "javascript:alert(1)")))
-    (is (not (eu/allowed-uri? "data:text/html,xxx")))
-    (is (not (eu/allowed-uri? "vbscript:msgbox(1)")))
-    (is (not (eu/allowed-uri? "http://evil.example/x")))
-    (is (not (eu/allowed-uri? "https://evil.example/x")))
-    ;; non-strings / shape edge cases
-    (is (not (eu/allowed-uri? nil)))
-    (is (not (eu/allowed-uri? "")))
-    (is (not (eu/allowed-uri? "no-scheme-here")))
-    ;; leading whitespace is tolerated
-    (is (not (eu/allowed-uri? " javascript:alert(1)")))
-    (is (eu/allowed-uri? " vscode://file/src/x.cljs:1:1"))))
+(deftest forbidden-scheme-on-cljs
+  (testing "rf2-ox357n: the public denylist predicate round-trips on CLJS"
+    ;; the three known-bad schemes are forbidden, case-insensitively +
+    ;; leading-whitespace tolerant
+    (is (eu/forbidden-scheme? "javascript:alert(1)"))
+    (is (eu/forbidden-scheme? "JavaScript:alert(1)"))
+    (is (eu/forbidden-scheme? "data:text/html,xxx"))
+    (is (eu/forbidden-scheme? "DATA:text/html,xxx"))
+    (is (eu/forbidden-scheme? "vbscript:msgbox(1)"))
+    (is (eu/forbidden-scheme? " javascript:alert(1)"))
+    ;; everything else passes — built-in, catalogued, http(s), unknown
+    (is (not (eu/forbidden-scheme? "vscode://file/src/x.cljs:1:1")))
+    (is (not (eu/forbidden-scheme? "subl://open?path=src/x.cljs")))
+    (is (not (eu/forbidden-scheme? "file:///abs/path/src/x.cljs")))
+    (is (not (eu/forbidden-scheme? "http://localhost:3000/x")))
+    (is (not (eu/forbidden-scheme? "https://localhost:3000/x")))
+    (is (not (eu/forbidden-scheme? "lapce://open?file=src/x.cljs&line=1")))
+    ;; shape edge cases
+    (is (not (eu/forbidden-scheme? nil)))
+    (is (not (eu/forbidden-scheme? "")))
+    (is (not (eu/forbidden-scheme? "no-scheme-here")))))
 
 ;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
 
