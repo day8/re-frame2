@@ -420,16 +420,24 @@
   (spec/021 §1 — \"schema violations, including consumed expected
   violations\"). Pure data → data.
 
-  A violation is `:consumed?` true iff its `:selector` appears among the
-  selectors a declared `:rf.assert/schema-error` expectation exactly
-  consumed. That set is the run-result's `:consumed-selectors` slot (the
-  agreement-floor set `re-frame.story.result/run-result` surfaces) — the
-  single source of truth, READ here rather than re-derived. A legacy /
-  partial result that predates the slot is tolerated via a fallback that
-  recovers the set from the run's `:rf.assert/schema-error` assertion
-  records (a `:pass` schema-error record consumed the violation whose
-  selector matches its `:actual`, per
-  `re-frame.story.result/schema-error-record`).
+  A violation is `:consumed?` true iff a declared `:rf.assert/schema-error`
+  expectation exactly consumed THAT violation. Consumption is an EXACT
+  MULTISET pairing (spec/017 §Schema rule step 4): N expectations of a
+  selector consume exactly N of that selector's violations, so when M<N
+  expectations match a selector with N violations, only M of the N read
+  `:consumed?` (the remaining N−M are the agreement-floor failure cause).
+  Marking by mere selector-SET membership would falsely mark ALL N consumed
+  and so DISAGREE with the floor (rf2-5mrnwx) — the multiset count comes
+  from the run's `:rf.assert/schema-error :pass` records, one per
+  matched expectation, each carrying the consumed violation's selector as
+  `:actual` (`re-frame.story.result/schema-error-record`).
+
+  The caller-supplied `:consumed-selectors` escape hatch (selectors
+  pre-excused outside the matcher, with NO `:pass` record) still excuses
+  EVERY same-selector violation — set-keyed, matching the floor's treatment
+  of that input. A legacy / partial result that predates the
+  `:consumed-selectors` slot falls back to the same `:pass`-record
+  derivation (multiset).
 
       [{:selector   <selector>
         :where      <surface>
@@ -443,26 +451,46 @@
   the tape carried no schema violations. Pure data → data; JVM-testable."
   [result]
   (let [violations (or (:schema-violations result) [])
-        ;; Read the canonical consumed-selector set the run-result surfaces
-        ;; (single source of truth). Only when the key is ABSENT — a legacy /
-        ;; partial result that predates the slot — fall back to re-deriving it
-        ;; from the `:rf.assert/schema-error :pass` records' `:actual`.
-        consumed   (if (contains? result :consumed-selectors)
-                     (or (:consumed-selectors result) #{})
-                     (into #{}
-                           (comp (filter #(= :rf.assert/schema-error (:assertion %)))
-                                 (filter #(= :pass (or (:status %)
-                                                       (when (:passed? %) :pass))))
-                                 (keep :actual))
-                           (or (:assertions result) [])))]
-    (mapv (fn [{:keys [selector where failing-id reason epoch-id]}]
-            {:selector   selector
-             :where      where
-             :failing-id failing-id
-             :consumed?  (contains? consumed selector)
-             :reason     reason
-             :epoch-id   epoch-id})
-          violations)))
+        ;; The multiset of selectors expectations EXACTLY consumed — one
+        ;; `:rf.assert/schema-error :pass` record per matched expectation,
+        ;; `:actual` = the consumed violation's selector
+        ;; (`result/schema-error-record`). `frequencies` gives the per-selector
+        ;; consumed COUNT so M<N consumption marks exactly M of N same-selector
+        ;; violations (the agreement-floor multiset, not a set).
+        consumed-freqs (frequencies
+                         (into []
+                               (comp (filter #(= :rf.assert/schema-error (:assertion %)))
+                                     (filter #(= :pass (or (:status %)
+                                                           (when (:passed? %) :pass))))
+                                     (keep :actual))
+                               (or (:assertions result) [])))
+        ;; The caller-supplied escape-hatch selectors: in `:consumed-selectors`
+        ;; but with NO matching `:pass` record (pre-excused outside the
+        ;; matcher). These excuse EVERY same-selector violation (set-keyed,
+        ;; mirroring the floor). When the slot is absent (legacy result) there
+        ;; is no escape hatch — the `:pass`-record multiset is authoritative.
+        escape-hatch   (into #{}
+                             (remove consumed-freqs)
+                             (when (contains? result :consumed-selectors)
+                               (or (:consumed-selectors result) #{})))
+        ;; Sequential multiset consumption: walk violations in tape order,
+        ;; decrementing each selector's remaining consumed budget so exactly
+        ;; the first N occurrences of a selector read `:consumed?`.
+        step       (fn [{:keys [budget acc]} {:keys [selector] :as v}]
+                     (let [remaining (get budget selector 0)
+                           consumed? (or (pos? remaining)
+                                         (contains? escape-hatch selector))]
+                       {:budget (if (pos? remaining)
+                                  (update budget selector dec)
+                                  budget)
+                        :acc    (conj acc
+                                      {:selector   selector
+                                       :where      (:where v)
+                                       :failing-id (:failing-id v)
+                                       :consumed?  consumed?
+                                       :reason     (:reason v)
+                                       :epoch-id   (:epoch-id v)})}))]
+    (:acc (reduce step {:budget consumed-freqs :acc []} violations))))
 
 (defn cannot-run-rows
   "Project the run-result's `:cannot-run` slot (the per-requirement refusal

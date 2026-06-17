@@ -1033,50 +1033,52 @@
       (is (true?  (:consumed? (first rows)))  "exactly-consumed expected violation")
       (is (false? (:consumed? (second rows))) "unconsumed → agreement-floor failure")
       (is (= "invalid role" (:reason (second rows))))))
-  (testing "rf2-uyebc — schema-rows READS the result's `:consumed-selectors`
-            slot (single source of truth) rather than re-deriving it"
+  (testing "rf2-5mrnwx — schema-rows uses the EXACT MULTISET consumption from
+            the `:pass` schema-error records, so a partially-consumed selector
+            marks exactly M of N (not all) and AGREES with the agreement floor"
+    ;; TWO same-selector violations, ONE matching expectation → exactly one
+    ;; consumed, one unconsumed. A set-keyed mark would falsely show BOTH
+    ;; consumed and disagree with the (now multiset) floor.
+    (let [result {:schema-violations
+                  [{:selector [:event :x] :where :event :failing-id :x :epoch-id 1}
+                   {:selector [:event :x] :where :event :failing-id :x :epoch-id 2}]
+                  :consumed-selectors #{[:event :x]}
+                  :assertions
+                  [{:assertion :rf.assert/schema-error :status :pass
+                    :actual [:event :x]}]}
+          rows   (test-mode/schema-rows result)]
+      (is (= 2 (count rows)))
+      (is (true?  (:consumed? (first rows)))
+          "first of the two same-selector violations is the consumed one")
+      (is (false? (:consumed? (second rows)))
+          "second same-selector violation left UNCONSUMED → floor failure cause")))
+  (testing "rf2-uyebc — a consumed-selector with NO matching `:pass` record is
+            a caller-supplied escape hatch and excuses every same-selector
+            violation (set-keyed, mirroring the floor)"
     (let [result {:schema-violations
                   [{:selector [:event :auth/login] :where :event
                     :failing-id :auth/login :epoch-id 3}
                    {:selector [:app-db [:user] [:role]] :where :app-db
                     :failing-id nil :epoch-id 4 :reason "invalid role"}]
+                  ;; escape-hatch excuses the first selector (no :pass record)
                   :consumed-selectors #{[:event :auth/login]}
                   :assertions []}
           rows   (test-mode/schema-rows result)]
-      (is (true?  (:consumed? (first rows)))  "selector in :consumed-selectors")
+      (is (true?  (:consumed? (first rows)))  "escape-hatch selector excused")
       (is (false? (:consumed? (second rows)))
-          "selector absent from :consumed-selectors")))
-  (testing "rf2-uyebc — when `:consumed-selectors` and the `:actual` of a
-            `:pass` schema-error record DIVERGE, schema-rows trusts the
-            canonical slot (proving it no longer re-derives from `:actual`)"
-    (let [result {:schema-violations
-                  [{:selector [:event :auth/login] :where :event}
-                   {:selector [:app-db [:user] [:role]] :where :app-db}]
-                  ;; canonical set consumes the SECOND selector …
-                  :consumed-selectors #{[:app-db [:user] [:role]]}
-                  ;; … but a stale `:pass` record's `:actual` names the FIRST.
-                  ;; If schema-rows re-derived from `:actual` the first row
-                  ;; would read :consumed?; reading the slot, the SECOND does.
-                  :assertions
-                  [{:assertion :rf.assert/schema-error :status :pass
-                    :actual [:event :auth/login]}]}
-          rows   (test-mode/schema-rows result)]
-      (is (false? (:consumed? (first rows)))
-          "first selector NOT in :consumed-selectors despite matching :actual")
-      (is (true?  (:consumed? (second rows)))
-          "second selector IS in :consumed-selectors — slot is authoritative")))
-  (testing "rf2-uyebc — empty `:consumed-selectors` present ⇒ nothing consumed
-            (the slot is honoured even when empty; no fallback re-derivation)"
+          "selector absent from :consumed-selectors → unconsumed")))
+  (testing "rf2-uyebc — empty `:consumed-selectors`: a `:pass` record still
+            carries the multiset consumption (one matched expectation = one
+            consumed violation), so the matched violation reads consumed"
     (let [result {:schema-violations
                   [{:selector [:event :auth/login] :where :event}]
                   :consumed-selectors #{}
-                  ;; a :pass record exists, but the empty slot wins
                   :assertions
                   [{:assertion :rf.assert/schema-error :status :pass
                     :actual [:event :auth/login]}]}
           rows   (test-mode/schema-rows result)]
-      (is (false? (:consumed? (first rows)))
-          "empty :consumed-selectors ⇒ no re-derivation, nothing consumed")))
+      (is (true? (:consumed? (first rows)))
+          "the `:pass` record's consumed violation reads consumed (multiset source)")))
   (testing "no violations → empty"
     (is (= [] (test-mode/schema-rows {})))))
 

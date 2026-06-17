@@ -1545,13 +1545,22 @@ an opt-in (rf2-5x1wt.21). It rests on three pieces, all pure data → data:
 - **`run-result` wires the verdict.** A declared expectation that matched a
   violation mints a `:pass` record; an **unmatched** expectation mints a
   `:fail` record — a *missing* expected violation fails the run. The
-  exactly-consumed selectors are passed to the agreement floor
-  (`evidence/tape-shows-failure?`'s `consumed-selectors`), so an
-  exactly-expected violation does **not** trip the floor, while any
-  **unconsumed** violation keeps its selector OUT of that set and the floor
-  fails the run on it. A *different* violation than expected therefore fails
-  twice over (a `:fail` record for the missing expected violation AND the
-  floor on the emitted-but-unexpected one).
+  matcher's **multiset `:unconsumed` vector** — the violations left after the
+  exact pairing, NOT a set-subtraction over the consumed selectors — is the
+  agreement floor's schema signal (`evidence/evidence-shows-failure?`'s
+  `:unconsumed` arity). This is load-bearing: a set of consumed *selectors*
+  collapses duplicates, so when M&lt;N expectations match a selector with N
+  violations the set would falsely excuse **all** N and report `:pass` (the
+  rf2-5mrnwx false-green). Threading the matcher's already-correct multiset
+  `:unconsumed` keeps the (N−M) genuinely-unconsumed violations as a floor
+  signal, so an exactly-expected violation does **not** trip the floor while a
+  partially- or un-consumed one does. A *different* violation than expected
+  therefore fails twice over (a `:fail` record for the missing expected
+  violation AND the floor on the emitted-but-unexpected one). The public
+  `story/tape-shows-failure?` keeps its set-keyed `consumed-selectors`
+  convenience arity (the caller-supplied escape hatch, correct when at most
+  one violation exists per selector); `run-result` also subtracts that
+  caller-supplied set from the multiset `:unconsumed` before the floor.
 
 **Rollback does not hide a violation.** The floor reads the retained epoch
 *tape*, not the final app-db. A handler whose schema validation failed but
