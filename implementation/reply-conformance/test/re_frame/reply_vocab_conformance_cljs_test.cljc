@@ -242,9 +242,12 @@
     :work-head :rf.work/machine
     :success   #(m-reply/success-reply machine-ctx {:user-id "u-42"})
     :error     #(m-reply/error-reply machine-ctx {:reason :bad-creds})
-    ;; A machine spawn has no cancellation reply (the parent/child either
-    ;; finishes or is superseded → stale); cancellation is N/A.
-    :cancel    nil
+    ;; rf2-sfunt8 — a destroyed (cancelled) spawned actor closes its work
+    ;; attempt the reply-envelope way: a :status :cancelled reply
+    ;; (cancellation as DATA, Managed-Effects §Cancellation). Same canonical
+    ;; cancel shape every family produces.
+    :cancel    #(m-reply/cancelled-actor-reply
+                  (assoc machine-ctx :reason :explicit))
     :stale     machine-stale-reply}
 
    ;; The machine :after timer is a specialized timer instance. rf2-niarhz —
@@ -255,7 +258,17 @@
     :work-head :rf.work/timer
     :success   after-fired-reply
     :error     nil
-    :cancel    nil
+    ;; rf2-sfunt8 — a cancelled :after timer (state exit / destroy / etc.)
+    ;; closes its work attempt as :status :cancelled DATA, same canonical
+    ;; cancel shape as every other family.
+    :cancel    #(m-reply/cancelled-timer-reply
+                  {:actor-id  :a/multi
+                   :state     :loading
+                   :delay     30000
+                   :decl-path [:loading]
+                   :epoch     1
+                   :frame     :app/main
+                   :reason    :on-exit})
     :stale     after-stale-reply}
 
    ;; The route loader's success / error flow THROUGH the HTTP transport
