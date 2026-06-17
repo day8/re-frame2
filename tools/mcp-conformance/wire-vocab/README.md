@@ -92,6 +92,53 @@ This test is the conformance gate. It asserts:
   (`ResultEnvelope`, `CascadeBundle`) stays co-located with its tests.
 - `indicator_field_test.clj`, `slot_name_test.clj`, `verb_vocab_test.clj`
   — independent cross-MCP vocabulary surfaces (pre-existing).
+- `reply_envelope_test.clj` — the EP-0011 reply-envelope TRACE-egress
+  vocabulary gate (rf2-mrfvg2). See §EP-0011 coverage boundary below.
+
+## EP-0011 reply-envelope coverage boundary (rf2-mrfvg2)
+
+`reply_envelope_test.clj` pins the additive `:rf.reply/*` trace vocabulary
+an MCP consumer reads off a `trace-window` / cascade-bundle `:trace-events`
+reply-envelope row — the EP-0011 uniform reply envelope is named among
+Tool-Pair's record-shaped off-box egress
+([`spec/Tool-Pair.md`](../../re-frame2-pair-mcp/spec) §`project-egress`),
+and Managed-Effects property 9 requires managed-async families to emit trace
+rows FROM reply-envelope facts. Before this gate, `tools/mcp-conformance`
+validated only the MCP wrapper / cascade envelope + a counter dispatch — no
+managed-async reply-envelope trace CONTENT.
+
+It pins, in the same schema + fixture + source-pin + near-miss shape as the
+wrapper markers above:
+
+- a canonical Malli schema (`ReplyEnvelopeTraceRow`) for the MCP-visible
+  reply-envelope trace row: the additive `:rf.reply/status` /
+  `:rf.reply/work-id` / `:rf.reply/work-status` keys, the canonical bare
+  `:work/id` join key (which MUST equal `:rf.reply/work-id`), and the
+  carried/current stale-suppression correlation gate;
+- fixtures matching the REAL production emissions (HTTP
+  `:rf.http/stale-suppressed`, resource `:rf.resource/stale-suppressed`,
+  machine), so a tag-map drift trips the gate;
+- a SOURCE-text pin that the additive `:rf.reply/*` keys appear as DATA in
+  the production emit sites (HTTP transport, resources events, machine
+  transition, routing nav-token) — so a substrate / family rename trips the
+  gate even though the literals live in `implementation/`, not in
+  re-frame2-pair-mcp;
+- a near-miss anti-pin so a snake_case / pluralised / predicate spelling
+  fails;
+- schema fail-closed checks for a scalar (non-tuple) work-id, an
+  off-vocabulary status / work-status, and a dropped required reply key.
+
+**What it does NOT cover (complementarity, not duplication):** it does not
+re-validate the whole managed-effect suite. Family-internal correctness +
+the runtime trace emission live in the per-family `*-reply-lowering-*` suites
+and the resources / machines runtime tests; the cross-family reply
+VOCABULARY consistency lives in `implementation/reply-conformance`; the
+EP-0015 reply egress projection lives there too; Xray's consumer-side reply
+panel is `tools/xray`. This gate is narrowly the MCP-egress-visible contract
+that those `:rf.reply/*` keys reach a `trace-window` / `subscribe` consumer
+un-renamed. The live `subscribe` end-to-end path
+(`test/live-re-frame2-pair-subscribe.cjs`) is the runtime counterpart; this
+JVM gate is the cheap, hermetic vocabulary pin.
 
 ## Adding a new cross-MCP marker — which files to touch
 
