@@ -677,13 +677,15 @@ The namespace-glob language is intentionally small:
 ```text
 namespace        = dot-separated Clojure namespace string
 pattern          = segment-pattern ( "." segment-pattern )*
-segment-pattern  = literal segment | "*" | "**"
+segment-pattern  = literal segment | intra-glob segment | "*" | "**"
 "*"              = exactly one dot-free namespace segment
 "**"             = zero or more namespace segments
+intra-glob       = a segment carrying one or more `*`, each matching
+                   zero or more characters WITHIN that one segment
 match            = case-sensitive, whole-namespace match
 ```
 
-There is no substring matching and no regex mode in v1. A pattern either matches the whole `:rf.provenance/ns` string under the segment rules or it does not match.
+A pattern either matches the whole `:rf.provenance/ns` string under the segment rules or it does not match. The only substring matching is the intra-segment `*`: it is bounded to ONE segment (the `.` separators still delimit segments; only `**` crosses them), so `"*-cljs-test"` matches the leaf segment of `"app.feature.mount-cljs-test"` but never spans a `.`. There is no regex mode exposed to callers.
 
 Exact inclusion is just a pattern with no wildcard:
 
@@ -706,6 +708,18 @@ If recursive matching is needed, reserve `**` for that:
 ```
 
 That matches `docs.shared`, `docs.shared.widgets`, and `docs.shared.widgets.forms.input`.
+
+A recursive `**` glob sometimes sweeps in sibling namespaces a frame must not load — most often a feature's own `*-test` namespaces, which in a dev/test build co-register the same ids the production sources do (an image that selects both fails assembly with a duplicate-id collision). The subtractive `:exclude-ns` selector narrows the `:include-ns` selection by provenance namespace:
+
+```clojure
+(rf/image
+  {:id         :rf.xray/image
+   :include-ns ["day8.re-frame2-xray.**"]
+   :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+                "day8.re-frame2-xray.test-helpers.**"]})
+```
+
+A descriptor selected by `:include-ns` is dropped if its `:rf.provenance/ns` also matches an `:exclude-ns` glob (same grammar, including the intra-segment `*`). `:exclude-ns` applies ONLY to the glob-selected registered descriptors, never to an image's inline `:registrations` (those are selected by image membership, not by provenance). Unlike `:include-ns`, an `:exclude-ns` pattern that matches nothing is NOT fail-loud — exclusion is a defensive guard, so a pattern guarding against a namespace that simply is not loaded in this build is a no-op. Production builds that never load the excluded namespaces get a no-op exclude; dev/test builds get the collision-free narrowing.
 
 Image assembly then:
 

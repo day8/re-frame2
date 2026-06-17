@@ -68,9 +68,42 @@
       (is (= :rf.xray/image (:rf.image/id img)))
       (is (= ["day8.re-frame2-xray.**"] (:rf.image/include-ns img))
           "Xray selects ONLY its own source namespaces")
+      ;; rf2-rjml45 — the include glob is NARROWED by `:exclude-ns` so Xray's
+      ;; OWN `*-cljs-test` + `test-helpers.**` namespaces (which co-register the
+      ;; same `:rf.xray/*` ids in a dev/test build) are subtracted, keeping the
+      ;; production image registration-disjoint from Xray's own test
+      ;; registrations so the singleton seats without an assembly dup-id.
+      (is (= ["day8.re-frame2-xray.**.*-cljs-test"
+              "day8.re-frame2-xray.test-helpers.**"]
+             (:rf.image/exclude-ns img))
+          "Xray excludes its own test + test-support namespaces")
       ;; PURE — an image is data, not registration: constructing it twice
       ;; yields equal values and touches no registry.
       (is (= img (reads/xray-image)) "rf/image is pure — equal values"))))
+
+(deftest xray-image-excludes-its-own-test-registrations
+  (testing "rf2-rjml45 — against a pool carrying a production `:rf.xray/*` id AND
+            its `*-cljs-test` sibling co-registering the SAME id, `xray-image`
+            selects ONLY the production descriptor — the exclude prevents the
+            assembly dup-id that blocked flipping the production singleton"
+    (let [pool [{:kind :fx :id :rf.editor/open
+                 :rf.provenance/ns "day8.re-frame2-xray.open-in-editor" :impl :prod}
+                {:kind :fx :id :rf.editor/open
+                 :rf.provenance/ns "day8.re-frame2-xray.open-in-editor-cljs-test" :impl :test}
+                {:kind :event :id :counter/inc
+                 :rf.provenance/ns "day8.re-frame2-xray.test-helpers.host-fixtures.counter"
+                 :impl :fixture}]
+          sel  (image/select-descriptors (reads/xray-image) pool)]
+      ;; only the production :rf.editor/open survives; the test sibling +
+      ;; test-helpers fixture are excluded.
+      (is (= 1 (count sel)) "exactly one descriptor selected")
+      (is (= :rf.editor/open (:id (first sel))))
+      (is (= "day8.re-frame2-xray.open-in-editor" (:rf.provenance/ns (first sel)))
+          "the PRODUCTION descriptor, not the `*-cljs-test` sibling")
+      ;; and assembly seals it WITHOUT a dup-id throw (the blocker is gone).
+      (let [gen (image-assembly/assemble [(reads/xray-image)] pool)]
+        (is (contains? (reads/application-resolver-keyset gen) [:fx :rf.editor/open])
+            "the production :rf.editor/open is in the sealed generation")))))
 
 ;; A descriptor authored under XRAY's OWN source namespace (the shape the live
 ;; source store stamps for every :rf.xray/* registration). Used to give Xray's
