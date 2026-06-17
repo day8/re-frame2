@@ -379,6 +379,59 @@
     (is (not (url/sensitive-query-param? :keyword)))
     (is (not (url/sensitive-query-param? 42)))))
 
+;; rf2-4wqxq8 — frame-local query-param policy MAP {:include :except}: a frame
+;; can SUBTRACT a built-in default (relaxing its OWN dev-trace friction over a
+;; harmless routing/pagination key) while still extending with :include. The
+;; effective policy is (defaults − except) ∪ include; :include wins over :except.
+
+(deftest query-param-policy-except-subtracts-a-default
+  (testing "rf2-4wqxq8 — :except removes a built-in default for this frame"
+    (let [policy {:except #{"token"}}]
+      ;; the excepted default is no longer sensitive
+      (is (not (url/sensitive-query-param? "token" policy)))
+      (is (not (url/sensitive-query-param? "TOKEN" policy)))
+      ;; other defaults still apply
+      (is (url/sensitive-query-param? "api_key" policy))
+      (is (url/sensitive-query-param? "signature" policy))
+      ;; without the policy the default still redacts (subtraction is frame-local)
+      (is (url/sensitive-query-param? "token")))))
+
+(deftest query-param-policy-include-and-except-compose
+  (testing "rf2-4wqxq8 — :include extends defaults; :except subtracts; both compose"
+    (let [policy {:include #{"shop_token"} :except #{"token"}}]
+      (is (url/sensitive-query-param? "shop_token" policy)) ; included extension
+      (is (not (url/sensitive-query-param? "token" policy))) ; excepted default
+      (is (url/sensitive-query-param? "api_key" policy))     ; untouched default
+      (is (not (url/sensitive-query-param? "page" policy)))))) ; never sensitive
+
+(deftest query-param-policy-include-wins-over-except
+  (testing "rf2-4wqxq8 — a name in BOTH :include and :except stays sensitive"
+    (let [policy {:include #{"token"} :except #{"token"}}]
+      (is (url/sensitive-query-param? "token" policy)
+          "declaring a name sensitive is never undone by also excepting it"))))
+
+(deftest query-param-policy-empty-map-is-defaults-only
+  (testing "rf2-4wqxq8 — an empty policy map behaves like defaults-only"
+    (is (url/sensitive-query-param? "api_key" {}))
+    (is (not (url/sensitive-query-param? "page" {})))))
+
+(deftest redact-url-policy-except-leaves-default-param-visible
+  (testing "rf2-4wqxq8 — end-to-end: :except keeps a default param's value
+            visible in the frame's own dev trace"
+    (let [policy {:except #{"token"}}
+          [url any?] (url/redact-url-query-string
+                       "https://api.example.com/list?token=abc&api_key=SECRET&page=2"
+                       false policy)]
+      ;; token is excepted → visible; api_key still a default → redacted
+      (is (= "https://api.example.com/list?token=abc&api_key=:rf/redacted&page=2" url))
+      (is (true? any?)))
+    (testing "a sensitive? request still redacts EVERY param regardless of :except"
+      (let [policy {:except #{"token"}}
+            [url _] (url/redact-url-query-string
+                      "https://api.example.com/list?token=abc&page=2"
+                      true policy)]
+        (is (= "https://api.example.com/list?token=:rf/redacted&page=:rf/redacted" url))))))
+
 ;; ---- 9. redact-url-query-string (rf2-2p8wr) -------------------------------
 
 (deftest redact-url-denylist-replaces-sensitive-values
@@ -700,3 +753,38 @@
       (let [tags {:url "https://api.example.com/x?shop_token=abc&page=2"}
             out  (privacy/prepare-emit-tags tags false)]
         (is (= "https://api.example.com/x?shop_token=abc&page=2" (:url out)))))))
+
+;; rf2-4wqxq8 — frame-local :query-params {:include :except} policy map.
+
+(deftest frame-http-carriers-resolves-policy-map
+  (testing "rf2-4wqxq8 — the :query-params {:include :except} map form lowers
+            to a {:include #{..} :except #{..}} policy (sub-sets lower-cased)"
+    (rf/reg-frame :app/qp-policy
+      {:sensitive {:http {:query-params {:include ["Shop_Token"]
+                                         :except  ["Token" "Sig"]}}}})
+    (let [carriers (privacy/frame-http-carriers :app/qp-policy)
+          qp       (:query-params carriers)]
+      (is (= #{"shop_token"} (:include qp)))
+      (is (= #{"token" "sig"} (:except qp))))
+    (testing "the legacy vector form still resolves to a plain set"
+      (rf/reg-frame :app/qp-legacy
+        {:sensitive {:http {:query-params ["shop_token"]}}})
+      (is (= #{"shop_token"} (:query-params (privacy/frame-http-carriers :app/qp-legacy)))))
+    (testing "a policy map of all-empty vectors resolves :query-params to nil"
+      (rf/reg-frame :app/qp-empty
+        {:sensitive {:http {:query-params {:include [] :except []}}}})
+      (is (nil? (:query-params (privacy/frame-http-carriers :app/qp-empty)))))))
+
+(deftest prepare-emit-tags-honours-frame-query-param-except
+  (testing "rf2-4wqxq8 — a frame-local :except keeps a built-in default param
+            VISIBLE in the frame's own dev trace (subtraction is frame-local)"
+    (rf/reg-frame :app/qp-except
+      {:sensitive {:http {:query-params {:except ["token"]}}}})
+    (let [tags {:url "https://api.example.com/x?token=abc&api_key=SECRET&page=2"}
+          out  (privacy/prepare-emit-tags tags false {:frame :app/qp-except})]
+      (is (= "https://api.example.com/x?token=abc&api_key=:rf/redacted&page=2" (:url out))
+          "excepted default visible; non-excepted default still redacted"))
+    (testing "without the frame the default param redacts as usual"
+      (let [tags {:url "https://api.example.com/x?token=abc&page=2"}
+            out  (privacy/prepare-emit-tags tags false)]
+        (is (= "https://api.example.com/x?token=:rf/redacted&page=2" (:url out)))))))

@@ -1225,7 +1225,7 @@ The privacy surface has four declaration surfaces, none of them a process-global
 |---|---|---|
 | Built-in header denylist | A closed, **immutable** set of always-sensitive header names ([§1](#1-header-denylist-always-on)). No frame can remove one. | framework default (`re-frame.http-privacy-headers`) |
 | Built-in query-param denylist | A closed, **immutable** set of always-sensitive query-param names ([§2](#2-query-param-denylist-always-on)). | framework default (`re-frame.http-url`) |
-| Frame-local carriers | App-specific sensitive header / query-param names, declared on the **frame** via `:sensitive {:http {:headers [..] :query-params [..]}}` ([§Frame-local carriers](#frame-local-carriers-ep-0015-3)). The frame extension set **unions** onto the built-in defaults for the emitting frame. | `reg-frame` metadata (`re-frame.frame-classification`) |
+| Frame-local carriers | App-specific sensitive header / query-param names, declared on the **frame** via `:sensitive {:http {:headers [..] :query-params [..]}}` ([§Frame-local carriers](#frame-local-carriers-ep-0015-3)). The frame extension set **unions** onto the built-in defaults for the emitting frame. `:query-params` also accepts a `{:include [..] :except [..]}` policy map whose `:except` set **subtracts** a built-in default for that frame's own dev trace (rf2-4wqxq8); `:headers` has no `:except` form. | `reg-frame` metadata (`re-frame.frame-classification`) |
 | Per-request `:sensitive?` | The coarse per-call / per-request flag ([§3](#3-per-request--per-call-sensitive)) that redacts a single request's body / params / all URL params wholesale. | the `:rf.http/managed` args map |
 
 Response **bodies** are classified separately, per-slot, via the request's `:decode` schema ([§Response-body classification](#response-body-classification-ep-0015-5)).
@@ -1290,6 +1290,16 @@ The built-in denylist is **immutable** — no frame can remove a name. Apps exte
 ```
 
 The frame extension set is lower-cased and **unions** onto the immutable built-in defaults for traces emitted from that frame; matching is case-insensitive.
+
+**Frame-local subtraction — `{:include :except}` (rf2-4wqxq8).** `:query-params` additionally accepts a policy map so a frame can stop redacting a *harmless* routing/pagination name (e.g. a `token` that is a CSRF/page token, not an auth secret) in its **own** dev trace, where the broad bare-name default produces friction:
+
+```clojure
+(rf/reg-frame :app/main
+  {:sensitive {:http {:query-params {:include ["shop_token"]   ; extend defaults
+                                     :except  ["token"]}}}})    ; subtract a default
+```
+
+The effective policy is **`(defaults − except) ∪ include`** — `:include` extends the built-in defaults (identical to the bare vector form), `:except` removes the named defaults for that frame. A name in **both** `:include` and `:except` stays sensitive (`:include` wins — declaring a name sensitive is never undone by also excepting it). The subtraction is **frame-local and dev-trace-only**: all redaction is debug-gated trace surface and elides entirely in production, so `:except` only relaxes dev-trace friction — it never affects a production bundle. The header denylist (§1) has **no** `:except` form (a default-off header would be a real leak), and the query defaults stay **on-by-default**, subtractable only per explicitly-named param. Malformed shapes (unknown key inside the policy map, non-string name, non-vector sub-value) **fail loudly at frame registration**.
 
 Matching is **percent-decoding-aware**: a query-param name is compared against the denylist in both its raw spelling **and** its percent-decoded form, so an encoded denylisted name (`?api%5Fkey=…` for `api_key`, `?%61ccess_token=…` for `access_token`, an app-declared `?shop%5Ftoken=…`) is redacted just like its plain spelling. The decode is comparison-only — the rebuilt URL preserves the original raw name verbatim and replaces only the value. A malformed percent-escape decodes to nothing and falls back to the raw-name match; redaction is total and never throws.
 

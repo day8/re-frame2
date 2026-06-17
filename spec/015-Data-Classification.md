@@ -140,7 +140,7 @@ Semantics:
 - Frame classification is installed **atomically as part of frame creation**, before `:on-create` runs.
 - Re-registering a frame **replaces** frame-owned classification using ordinary frame-metadata replacement semantics (no additive merge — the declaration *is* the frame's policy).
 - `:sensitive :app-db` and `:large :app-db` entries are `:rf/path` values ([EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md)).
-- `:sensitive :http :headers` and `:sensitive :http :query-params` are **frame-local extensions** to the immutable built-in framework defaults; built-in HTTP carrier names remain immutable framework defaults that no frame can remove.
+- `:sensitive :http :headers` and `:sensitive :http :query-params` are **frame-local extensions** to the immutable built-in framework defaults; built-in HTTP carrier names remain immutable framework defaults that no frame can remove. `:query-params` additionally accepts a `{:include [..] :except [..]}` policy map (rf2-4wqxq8) whose `:except` set **subtracts** built-in defaults for that frame's own (dev-only, debug-gated) trace — effective policy `(defaults − except) ∪ include`, `:include` winning a tie; `:headers` has no `:except` form (a default-off header would be a real leak). See [014-HTTPRequests §Frame-local carriers](014-HTTPRequests.md#frame-local-carriers-ep-0015-3).
 - **Sensitive wins over large.** A path that is both sensitive and large redacts as sensitive and does **not** emit a large marker that could leak path, size, digest, or fetch-handle information.
 - Malformed paths, unknown classification keys, and non-string HTTP carrier names **fail loudly at frame registration** (fail-fast, not silent-ignore).
 

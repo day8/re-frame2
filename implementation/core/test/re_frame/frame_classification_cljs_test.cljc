@@ -219,6 +219,47 @@
       (is (= [:sensitive :http :query-params] (:bad-key data)))
       (is (= 42 (:bad-carrier data))))))
 
+;; rf2-4wqxq8 — :query-params accepts a {:include [..] :except [..]} policy map
+;; (an additive frame-local subtraction path) in addition to the legacy vector.
+
+(deftest query-params-policy-map-accepted-and-validated
+  (testing "rf2-4wqxq8 — a well-formed {:include :except} :query-params map is accepted"
+    (rf/reg-frame :app/qp-policy-ok
+      {:sensitive {:http {:query-params {:include ["shop_token"]
+                                         :except  ["token"]}}}})
+    (is (= {:include ["shop_token"] :except ["token"]}
+           (get-in (rf/frame-meta :app/qp-policy-ok)
+                   [:sensitive :http :query-params]))
+        "the policy map rides the frame config verbatim"))
+  (testing "an unknown key inside the :query-params policy map fails loudly"
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/qp-policy-badkey
+                    {:sensitive {:http {:query-params {:include ["x"] :bogus ["y"]}}}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= [:sensitive :http :query-params :bogus] (:bad-key data)))))
+  (testing "a non-string name inside :include / :except fails loudly with a precise bad-key"
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/qp-policy-badinc
+                    {:sensitive {:http {:query-params {:include [42]}}}}))]
+      (is (= [:sensitive :http :query-params :include] (:bad-key data)))
+      (is (= 42 (:bad-carrier data))))
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/qp-policy-badexc
+                    {:sensitive {:http {:query-params {:except [:kw]}}}}))]
+      (is (= [:sensitive :http :query-params :except] (:bad-key data)))
+      (is (= :kw (:bad-carrier data)))))
+  (testing "a non-vector :include sub-value fails loudly"
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/qp-policy-nonvec
+                    {:sensitive {:http {:query-params {:include "not-a-vector"}}}}))]
+      (is (= [:sensitive :http :query-params :include] (:bad-key data)))))
+  (testing "the header denylist stays vector-only (no policy-map form)"
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/hdr-policy-rejected
+                    {:sensitive {:http {:headers {:include ["X-Foo"]}}}}))]
+      (is (= [:sensitive :http :headers] (:bad-key data))
+          "a {:include ...} map is not a valid :headers value (immutable denylist)"))))
+
 (deftest fail-loud-on-bad-observability-entry
   (testing "an :observability entry without a :sink keyword fails loudly"
     (let [data (bad-classification-ex
