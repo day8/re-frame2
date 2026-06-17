@@ -295,6 +295,134 @@
                               @traces)))
           "exactly one stale-suppressed trace fired — the fresh :do did NOT trip the validation"))))
 
+;; ---- rf2-ux8sgg — stale route reply preserves the completion time ---------
+;;
+;; EP-0017 makes reply completions causal tokens: the completion time is the
+;; recordable `:rf/time-ms` fact on the flat reply `:rf.cofx`, and route-loader
+;; stale replies are part of the uniform managed-async reply envelope. Before
+;; the fix the production `:rf.route/with-nav-token` path and the test fixture
+;; both dropped the completion time on the stale path — `route-reply/suppress`
+;; accepted `:completed-at` but no caller threaded one. These regressions prove
+;; a stale route-loader completion that supplies the reply token time produces a
+;; stale reply / trace carrying that `:completed-at`, so route completion time
+;; tracks the HTTP / resource / mutation families that already carry it.
+
+(deftest with-nav-token-fx-stale-preserves-completed-at
+  (testing "rf2-ux8sgg — a stale `:rf.route/with-nav-token` completion that
+            threads `:completed-at` (the reply token's :rf/time-ms fact)
+            produces a stale-suppressed trace carrying that completion time"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
+    ;; The async completion handler sources the completion time from its
+    ;; declared `:rf.cofx/requires [:rf/time-ms]` reply fact (modelled here as
+    ;; a payload value) and threads it through the production fx — NOT an
+    ;; ambient clock read.
+    (rf/reg-event :article/loaded-via-nav-token
+                     (fn [_ctx [_ {:keys [carried-token carried-route-id completed-at id payload]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:do           [:dispatch [:article/loaded id payload]]
+                               :nav-token    carried-token
+                               :route-id     carried-route-id
+                               :completed-at completed-at}]]}))
+
+    (let [traces        (atom [])
+          completion-ts 1717000123456]
+      (rf/register-listener! ::completed-at-fx (fn [ev] (swap! traces conj ev)))
+
+      ;; 1. Land on A (nav-1), then supersede with B (nav-2).
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+
+      ;; 2. A's stale completion arrives carrying nav-1 AND its reply token's
+      ;; completion time. Current is nav-2 → suppressed; the trace must carry
+      ;; the completion time.
+      (rf/dispatch-sync [:article/loaded-via-nav-token
+                         {:carried-token    "nav-1"
+                          :carried-route-id :route/article
+                          :completed-at     completion-ts
+                          :id               "A"
+                          :payload          "A-payload"}])
+
+      (rf/unregister-listener! ::completed-at-fx)
+
+      (let [stale (some (fn [ev]
+                          (when (= :rf.route.nav-token/stale-suppressed
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+        (is (some? stale) "a production stale-suppressed trace fired")
+        (is (= completion-ts (-> stale :tags :completed-at))
+            "the stale trace carries the threaded reply completion time (pre-fix: dropped)")))))
+
+(deftest with-nav-token-fx-stale-omits-completed-at-when-absent
+  (testing "rf2-ux8sgg — when no completion time is threaded, the stale trace
+            omits `:completed-at` (a loader that sourced none) — the slot is
+            optional, never a nil placeholder"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
+    (rf/reg-event :article/loaded-via-nav-token
+                     (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:do        [:dispatch [:article/loaded id payload]]
+                               :nav-token carried-token
+                               :route-id  carried-route-id}]]}))
+
+    (let [traces (atom [])]
+      (rf/register-listener! ::no-completed-at (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      (rf/dispatch-sync [:article/loaded-via-nav-token
+                         {:carried-token    "nav-1"
+                          :carried-route-id :route/article
+                          :id               "A"
+                          :payload          "A-payload"}])
+      (rf/unregister-listener! ::no-completed-at)
+      (let [stale (some (fn [ev]
+                          (when (= :rf.route.nav-token/stale-suppressed
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+        (is (some? stale) "a stale-suppressed trace fired")
+        (is (not (contains? (:tags stale) :completed-at))
+            "no :completed-at tag when none was sourced (slot is optional)")))))
+
+(deftest simulate-http-resolution-stale-preserves-completed-at
+  (testing "rf2-ux8sgg — the test fixture `:rf.test/simulate-http-resolution`
+            mirrors the production lane: a stale completion carrying
+            `:carried-completed-at` produces a stale trace with that time"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
+
+    (let [traces        (atom [])
+          completion-ts 1717009999999]
+      (rf/register-listener! ::fixture-completed-at (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      ;; A's stale resolution carries nav-1 + its captured completion time.
+      (rf/dispatch-sync [:rf.test/simulate-http-resolution
+                         {:on-success-event     [:article/loaded "A" "A-payload"]
+                          :carried-nav-token    "nav-1"
+                          :carried-route-id     :route/article
+                          :carried-completed-at completion-ts}])
+      (rf/unregister-listener! ::fixture-completed-at)
+      (let [stale (some (fn [ev]
+                          (when (= :rf.route.nav-token/stale-suppressed
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+        (is (some? stale) "the fixture stale-suppressed trace fired")
+        (is (= completion-ts (-> stale :tags :completed-at))
+            "the fixture stale trace carries the captured reply completion time")))))
+
 ;; ---- Spec 012 §Navigation tokens step 2 — the `:rf.route/nav-token` cofx ----------
 ;;
 ;; rf2-8fnwq: the spec promised an `:on-match`-reachable `:rf.route/nav-token`

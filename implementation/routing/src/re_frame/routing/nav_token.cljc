@@ -122,8 +122,19 @@ superseding navigation suppresses the stale result. Per Spec 012
   not only the route-specific `:carried-token` / `:current-token` tokens.
   The facts are read off the `route-reply/suppress` `:reply` (the
   `:status :stale` / `:work/status :suppressed` / `:stale/reason` the
-  shared substrate produced)."
-  [{:keys [carried-token current-token event-id frame-id route-id loader-id]}]
+  shared substrate produced).
+
+  rf2-ux8sgg — `:completed-at` is the recordable `:rf/time-ms` completion
+  fact on the reply token (EP-0017): reply completions are causal tokens,
+  so a superseded route loader's stale reply/trace MUST carry the actual
+  replayed completion time, not drop it. The caller sources it from the
+  declared `:rf.cofx/requires [:rf/time-ms]` reply fact (NOT an ambient
+  clock read) and threads it here; it rides verbatim through
+  `route-reply/suppress` onto the stale reply and is stamped on the trace
+  when present, so route completion time tracks the HTTP / resource /
+  mutation families that already carry `:completed-at`. Absent ⇒ omitted
+  (a route loader that did not source a completion time)."
+  [{:keys [carried-token current-token event-id frame-id route-id loader-id completed-at]}]
   (let [{:keys [reply trace]} (route-reply/suppress
                           {;; rf2-azcmd3 — `route-id` is the route id CAPTURED
                            ;; at scheduling time (carried with the nav-token),
@@ -141,7 +152,12 @@ superseding navigation suppresses the stale result. Per Spec 012
                            :route-id  route-id
                            :nav-token carried-token
                            :loader-id loader-id
-                           :frame     frame-id}
+                           :frame     frame-id
+                           ;; rf2-ux8sgg — the recordable reply completion
+                           ;; time. `route-reply/suppress` only carries it onto
+                           ;; the reply when non-nil, so a route loader without
+                           ;; a sourced completion time is unaffected.
+                           :completed-at completed-at}
                           current-token)]
     (trace/emit-error! :rf.route.nav-token/stale-suppressed
                        (cond-> {:carried-token     carried-token
@@ -174,7 +190,17 @@ superseding navigation suppresses the stale result. Per Spec 012
                                 :rf.reply/work-status (:work/status reply)
                                 :rf.reply/stale-reason (:stale/reason reply)
                                 :recovery          :replaced-with-default}
-                         frame-id (assoc :frame frame-id)))))
+                         frame-id (assoc :frame frame-id)
+                         ;; rf2-ux8sgg — the recordable reply completion
+                         ;; time rides on the stale trace when the loader
+                         ;; sourced it (read off the suppressed `:reply`,
+                         ;; where `route-reply/suppress` placed it). The
+                         ;; uniform reply-envelope view ties the stale route
+                         ;; reply to the actual replayed completion token —
+                         ;; the same `:completed-at` the HTTP / resource /
+                         ;; mutation families carry. Absent ⇒ omitted.
+                         (some? (:completed-at reply))
+                         (assoc :completed-at (:completed-at reply))))))
 
 (def with-nav-token-meta
   "Metadata for the `:rf.route/with-nav-token` fx registration: the
@@ -195,7 +221,17 @@ superseding navigation suppresses the stale result. Per Spec 012
             ;; captured the route id at scheduling time and threads it here,
             ;; a cross-route stale completion attributes its work-id to the
             ;; route-loader ATTEMPT rather than the route live at arrival.
-            [:route-id {:optional true} :any]]})
+            [:route-id {:optional true} :any]
+            ;; rf2-ux8sgg — OPTIONAL reply completion time. The documented
+            ;; lane for the recordable `:rf/time-ms` completion fact on the
+            ;; reply token (EP-0017). When the route completion handler
+            ;; sources it from its declared `:rf.cofx/requires [:rf/time-ms]`
+            ;; and threads it here, a superseded route loader's stale reply /
+            ;; trace carries the actual replayed completion time, tying the
+            ;; route stale reply to the completion token like every other
+            ;; managed-async family. Sourced from the reply fact, NOT an
+            ;; ambient clock read.
+            [:completed-at {:optional true} :any]]})
 
 (defn with-nav-token-handler
   "`:rf.route/with-nav-token` fx handler. Registered by the façade so a
@@ -221,6 +257,12 @@ superseding navigation suppresses the stale result. Per Spec 012
         ;; when the stale completion arrives. Absent ⇒ nil (preferred over a
         ;; false live-route attribution).
         carried-route-id (get args :route-id)
+        ;; rf2-ux8sgg — the OPTIONAL reply completion time. Sourced by the
+        ;; route completion handler from its declared
+        ;; `:rf.cofx/requires [:rf/time-ms]` reply fact and threaded here, so
+        ;; a stale (superseded) route loader's reply / trace carries the
+        ;; actual replayed completion token time rather than dropping it.
+        completed-at    (get args :completed-at)
         ;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame as `:frame`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
@@ -264,4 +306,7 @@ superseding navigation suppresses the stale result. Per Spec 012
          ;; A cross-route stale completion would otherwise attribute the
          ;; stale loader to the CURRENT route id.
          :route-id      carried-route-id
-         :loader-id     (inner-fx-event-id do-entry)}))))
+         :loader-id     (inner-fx-event-id do-entry)
+         ;; rf2-ux8sgg — carry the reply completion time through the stale
+         ;; path so the suppressed reply / trace preserves it.
+         :completed-at  completed-at}))))

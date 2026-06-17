@@ -3177,10 +3177,13 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
   [:map
    [:do        [:vector :any]]                                            ;; an fx entry to perform — typically [:dispatch [<event-id> args ...]]
    [:nav-token :any]                                                      ;; the token captured at scheduling time (gensym or counter)
-   [:route-id {:optional true} :any]])                                    ;; OPTIONAL captured route id: when present, a cross-route stale completion attributes its work-id to the route-loader attempt, not the route live at arrival
+   [:route-id {:optional true} :any]                                      ;; OPTIONAL captured route id: when present, a cross-route stale completion attributes its work-id to the route-loader attempt, not the route live at arrival
+   [:completed-at {:optional true} :any]])                                ;; OPTIONAL reply completion time — the recordable :rf/time-ms fact on the reply token; when a stale completion supplies it, the suppressed reply/trace carries it so route completion time tracks the other managed-async families
 ```
 
 Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the `:rf.route/nav-token` cofx (a subsystem-registered coeffect a handler declares via `:rf.cofx/requires [:rf.route/nav-token]` per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) checks the carried token against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token`. Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace.
+
+Per EP-0017 a reply completion is a causal token: the completion time is the recordable `:rf/time-ms` fact on the flat reply `:rf.cofx`. A route completion handler should source `:completed-at` from its declared `:rf.cofx/requires [:rf/time-ms]` reply fact (NOT an ambient clock read) and thread it through this fx, so a superseded (stale) route-loader completion's reply/trace carries the actual replayed completion time rather than dropping it. The slot is optional — a loader that sourced no completion time omits it (never a `nil` placeholder), and the stale reply/trace omits `:completed-at` in turn. This keeps route stale completions tied to their completion token alongside the HTTP / resource / mutation families, which carry the same `:completed-at`.
 
 ### `:rf/hydration-payload`
 
