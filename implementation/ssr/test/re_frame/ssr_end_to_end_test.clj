@@ -539,35 +539,32 @@
       (is (str/includes? (str (:reason data)) ":location")
           "the :reason text names :location so the programmer rewrites the spelling"))))
 
-(deftest ssr-redirect-rejects-structurally-malformed-location
-  (testing "rf2-kjf3m.4 — :rf.server/redirect with a structurally-malformed
-            :location (not a valid RFC 3986 URI reference) fails fast with
-            :rf.error/redirect-invalid-location. Per Spec 011 §CRLF
-            fail-fast: the Location: value gets the CRLF check PLUS a
-            structural URL-shape check. The structural-malformity classes
-            (unencoded space, stray delimiter chars, malformed %-escape)
-            surface the same error keyword as the CRLF case."
-    (doseq [[label loc] [["unencoded space"        "https://example.com/a b"]
-                         ["stray caret"            "https://example.com/^"]
-                         ["unbalanced brace"       "/path/{id"]
-                         ["malformed percent-esc"  "/path%zz"]
-                         ["bare control via %1"    "/path%1"]]]
-      (rf/reg-event :redirect/malformed
+(deftest ssr-redirect-trusted-path-has-no-url-shape-gate
+  (testing "rf2-ziv4gd — the caller-trusted :rf.server/redirect path applies
+            NO structural URL-shape check: a `:location` carrying a raw
+            space or other RFC 3986 shape quirk every browser accepts in a
+            `Location` header PASSES through unchanged (the structural gate
+            was removed — only the CR/LF/NUL header-splitting gate remains).
+            These shapes previously threw :rf.error/redirect-invalid-location;
+            they must now flow through."
+    (doseq [loc ["https://example.com/search?q=a b"   ;; raw unencoded space
+                 "https://example.com/^"               ;; stray caret
+                 "/path/{id"                            ;; unbalanced brace
+                 "/path%zz"                             ;; malformed %-escape
+                 "/path%1"]]                            ;; truncated %-escape
+      (rf/reg-event :redirect/shape-quirk
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
-      (let [f      (frame/make-frame {:platform :server})
-            traces (capture-fx-traces!
-                     (fn [] (rf/dispatch-sync [:redirect/malformed] {:frame f})))]
-        (expect-fx-error-keyword!
-          traces :rf.error/redirect-invalid-location
-          (str "structurally-malformed redirect :location (" label ")")))))
+      (let [f    (frame/make-frame {:platform :server :on-create [:redirect/shape-quirk]})
+            resp (get-response f)]
+        (is (= loc (-> resp :redirect :location))
+            (str "raw URL-shape quirk passes through the caller-trusted "
+                 "redirect path (no URL-shape gate): " (pr-str loc))))))
 
-  (testing "rf2-kjf3m.4 — regression guard: the structural check stays a
-            SHAPE gate, NOT an origin gate. The caller-trusted redirect
-            still accepts arbitrary well-formed targets — absolute http(s)
-            URLs to any origin, protocol-relative, relative refs, and the
-            structurally-valid edge cases (query / fragment / port / encoded
-            space) all flow through without error."
+  (testing "rf2-ziv4gd — regression guard: the caller-trusted redirect still
+            accepts arbitrary well-formed targets — absolute http(s) URLs to
+            any origin, protocol-relative, relative refs, query / fragment /
+            port / encoded-space edge cases — all flow through without error."
     (doseq [loc ["https://example.com/path?q=1&r=2#frag"
                  "https://other.example.org:8443/deep/path"
                  "//cdn.example.com/asset"
@@ -581,7 +578,43 @@
       (let [f    (frame/make-frame {:platform :server :on-create [:redirect/well-formed]})
             resp (get-response f)]
         (is (= loc (-> resp :redirect :location))
-            (str "well-formed redirect :location survives the structural gate: " loc))))))
+            (str "well-formed redirect :location flows through: " loc))))))
+
+(deftest ssr-redirect-crlf-nul-gate-survives-on-both-fx
+  (testing "rf2-ziv4gd — the CR/LF/NUL header-splitting gate is KEPT (the
+            real invariant). Each injection char in a :location still throws
+            :rf.error/redirect-invalid-location on the caller-trusted
+            :rf.server/redirect path."
+    (doseq [[label loc] [["CR"  "https://example.com/a\rb"]
+                         ["LF"  "https://example.com/a\nb"]
+                         ["CRLF header-split" "https://example.com\r\nSet-Cookie: stolen=1"]
+                         ["NUL" "https://example.com/a\u0000b"]]]
+      (rf/reg-event :redirect/crlf-nul
+        (fn [_ _]
+          {:fx [[:rf.server/redirect {:location loc}]]}))
+      (let [f      (frame/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:redirect/crlf-nul] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/redirect-invalid-location
+          (str ":rf.server/redirect still rejects " label " in :location")))))
+
+  (testing "rf2-ziv4gd — the SHARED CR/LF/NUL gate also runs (throwing the
+            same :rf.error/redirect-invalid-location) on the caller-untrusted
+            :rf.server/safe-redirect path — both fx keep the header-splitting
+            invariant."
+    (doseq [[label loc] [["CR"  "https://example.com/a\rb"]
+                         ["LF"  "https://example.com/a\nb"]
+                         ["NUL" "https://example.com/a\u0000b"]]]
+      (rf/reg-event :safe-redirect/crlf-nul
+        (fn [_ _]
+          {:fx [[:rf.server/safe-redirect {:location loc}]]}))
+      (let [f      (frame/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:safe-redirect/crlf-nul] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/redirect-invalid-location
+          (str ":rf.server/safe-redirect still rejects " label " in :location"))))))
 
 (deftest ssr-header-clean-values-still-accepted
   (testing "rf2-hbty2 — regression guard: legitimate header values still flow
