@@ -253,6 +253,24 @@
               nil
               steps))))
 
+(defn- normalize-event-handler
+  "Collapse the DSL `[body-shape handler]` pair `conformance/realise-event-
+  handler` returns into the single EP-0018 `reg-event` shape — a
+  `(cofx-in → effects-map-or-nil)` fn.
+
+  `body-shape` is a DSL-INTERNAL interpreter distinction, NOT a public
+  `:event/kind` (EP-0018 removed the public event sub-kind model: a registered
+  event is just kind `:event`). An `:event-db` body is `(fn [db event] new-db)`;
+  it is lifted to `(fn [cofx event] {:db (handler db event)})` — read db from
+  the coeffects, lower the returned db into a `{:db …}` effect (same observable
+  behaviour). An `:event-fx` body is already the single form and passes
+  through. Registering through this normaliser keeps the registration site free
+  of any kind branch."
+  [[body-shape handler]]
+  (case body-shape
+    :db (fn [{:keys [db]} event] {:db (handler db event)})
+    :fx handler))
+
 (defn- realise-handlers
   "Register every handler the fixture declares (events / subs / cofx /
   fx) and wire app-schemas. Mirrors core's realise-handlers for the
@@ -301,29 +319,33 @@
     ;; metadata key (the ctx→ctx `inject-cofx` interceptor wiring is retired).
     ;; The runtime delivers each declared recordable value flat under its
     ;; cofx-id and validates it against `:schema`.
+    ;; EP-0018 Slice Z: there is ONE public event registration form —
+    ;; `reg-event`, a `(cofx-in → effects-map-or-nil)` handler. There is no
+    ;; public event sub-kind axis. `conformance/realise-event-handler` returns a
+    ;; `[body-shape handler]` pair where `body-shape` is a DSL-INTERNAL
+    ;; interpreter distinction (does the body read cofx / emit fx → event-fx
+    ;; body-shape, else event-db body-shape) — NOT a public `:event/kind`.
+    ;; `normalize-event-handler` collapses both DSL body-shapes to the single
+    ;; effects-map handler so the registration site below never branches on a
+    ;; kind: an event-db body `(fn [db event] new-db)` is lifted to
+    ;; `(fn [cofx event] {:db …})` (read db from the coeffects, lower the
+    ;; returned db into a `{:db …}` effect — same observable behaviour); an
+    ;; event-fx body is already the single form and passes through.
     (doseq [[id steps] (:event hmap)]
-      (let [[kind handler] (conformance/realise-event-handler steps)
-            meta           (get event-meta id {})
-            ks             (collect-cofx-keys steps)
-            cofx-ids       (vec (mapcat (fn [k]
-                                          (or (get cofx-by-key k)
-                                              (when (contains? cofx-registry k) [k])))
-                                        ks))
-            meta'          (cond-> meta
-                             (seq cofx-ids)
-                             (assoc :rf.cofx/requires cofx-ids))]
-        (case kind
-          ;; EP-0018 Slice Z: one public `reg-event` (cofx-in, effects-map-out).
-          ;; A :db-kind fixture handler is `(fn [db event] new-db)`; adapt it to
-          ;; the single form by reading db from the coeffects and lowering the
-          ;; returned db into a `{:db …}` effect — same observable behaviour.
-          :db (let [h (fn [{:keys [db]} ev] {:db (handler db ev)})]
-                (if (seq meta')
-                  (rf/reg-event id meta' h)
-                  (rf/reg-event id h)))
-          :fx (if (seq meta')
-                (rf/reg-event id meta' handler)
-                (rf/reg-event id handler)))))
+      (let [handler  (normalize-event-handler
+                       (conformance/realise-event-handler steps))
+            meta     (get event-meta id {})
+            ks       (collect-cofx-keys steps)
+            cofx-ids (vec (mapcat (fn [k]
+                                    (or (get cofx-by-key k)
+                                        (when (contains? cofx-registry k) [k])))
+                                  ks))
+            meta'    (cond-> meta
+                       (seq cofx-ids)
+                       (assoc :rf.cofx/requires cofx-ids))]
+        (if (seq meta')
+          (rf/reg-event id meta' handler)
+          (rf/reg-event id handler))))
     ;; ---- subs ----------------------------------------------------------
     ;; Per Spec 010 §step 6 (rf2-wcam): sub meta carries :schema; the
     ;; runtime calls `:schemas/validate-sub!` after each compute.
