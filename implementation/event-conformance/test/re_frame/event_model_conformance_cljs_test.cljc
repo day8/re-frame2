@@ -28,13 +28,27 @@
       `:no-doc`-meta probe FAILS if `reg-event-ctx` ever loses its
       `^:no-doc`, and `reg-event` FAILS if it ever GAINS one);
     - a removed-name error that THROWS but no longer fans out on the
-      always-on error channel (production observability lock).
+      always-on error channel (the advanced/corpus integration listener —
+      NOT the normal off-box sink path; see the EP-0015 lock §9 below).
+
+  The always-on `register-error-listener!` / `register-event-listener!`
+  registries this tier asserts against are the LOW-LEVEL advanced /
+  corpus-wide integration APIs (production-survivable `:rf.error/*`
+  fan-out). Per EP-0015 / Spec 015 §Frame-owned observability sink policy
+  they are NOT the normal production off-box (Datadog / Sentry) story —
+  the normal story is a frame `:observability` sink fed an already-
+  PROJECTED record by the runtime (centralized `project-egress` runs
+  before any sink sees a record). Section (9) below locks the EP-0015
+  event-registration intersection: registration-owned `:sensitive` /
+  `:large` event-arg classification, and a frame-owned off-box sink that
+  receives a projected handled-event (raw `:event` args omitted) / error
+  record (a classified secret in the event payload redacted).
 
   The contract spans the events runtime, the public facade, the
-  always-on error-emit channel, and the realm registrar — wider than any
-  single artefact's test tree — so it lives in its own cross-artefact
-  `event-conformance/` surface (the precedent is `reply-conformance/` +
-  `derivation-conformance/`).
+  always-on error-emit channel, the frame-owned observability sink
+  routing, and the realm registrar — wider than any single artefact's
+  test tree — so it lives in its own cross-artefact `event-conformance/`
+  surface (the precedent is `reply-conformance/` + `derivation-conformance/`).
 
   `.cljc`, dual-runtime: the shadow-cljs `:node-test` build
   (`npm run test:cljs`, ns matches `cljs-test$`) AND the JVM
@@ -54,7 +68,9 @@
             [re-frame.core :as rf]
             [re-frame.cofx :as cofx]
             [re-frame.error-emit :as error-emit]
+            [re-frame.event-emit :as event-emit]
             [re-frame.late-bind :as late-bind]
+            [re-frame.observability :as observability]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -73,13 +89,21 @@
   (swap! realm/realms select-keys [realm/default-realm-id])
   (swap! realm/realms update realm/default-realm-id dissoc :app :capabilities))
 
+(defn- clear-observation-state! []
+  ;; Clear the always-on listener registries (advanced/corpus APIs) AND the
+  ;; frame-owned observability sink registry (the normal EP-0015 off-box path,
+  ;; §9) so neither a listener nor a sink leaks between cases.
+  (error-emit/clear-error-listeners!)
+  (event-emit/clear-event-listeners!)
+  (observability/clear-observability-sinks!))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [test-fn]
-    (error-emit/clear-error-listeners!)
+    (clear-observation-state!)
     (drop-non-default-realms!)
     (test-fn)
-    (error-emit/clear-error-listeners!)
+    (clear-observation-state!)
     (drop-non-default-realms!)))
 
 ;; ---------------------------------------------------------------------------
@@ -1225,10 +1249,12 @@
 
 (deftest retired-name-error-fans-out-on-the-always-on-channel-before-throwing
   (testing "EP-0018 §2 + spec/009: the removal error is PRODUCTION-SURVIVABLE —
-            it fans out on the always-on error-emit channel (the off-box
-            observability stream that survives `goog.DEBUG=false`) BEFORE the
-            throw escapes. A removal that threw but went silent on the channel
-            would turn this RED"
+            it fans out on the always-on error-emit channel (the LOW-LEVEL
+            advanced/corpus error listener that survives `goog.DEBUG=false` —
+            NOT the normal EP-0015 off-box sink path, which is a frame
+            `:observability` sink fed an already-projected record; see §7)
+            BEFORE the throw escapes. A removal that threw but went silent on
+            the channel would turn this RED"
     (let [seen (atom [])]
       (rf/register-error-listener! :evt-conf/removal-recorder
         (fn [r] (swap! seen conj (:error r))))
@@ -1378,3 +1404,151 @@
       ;; … and is INVISIBLE to the process-global / default-realm registrar.
       (is (nil? (registrar/lookup :event :evt-conf/realm-scoped))
           "the default-realm registrar did NOT receive the realm-scoped reg-event"))))
+
+;; ===========================================================================
+;; (9) EP-0015 event-registration intersection — the frame-owned OFF-BOX
+;;     observability path is the normal production story (NOT the always-on
+;;     low-level listener), and event-arg classification is REGISTRATION-owned.
+;;
+;;     This tier's other sections assert the always-on `register-error-
+;;     listener!` / `register-event-listener!` fan-out (the advanced/corpus
+;;     integration APIs). EP-0015 / Spec 015 §Frame-owned observability sink
+;;     policy moved the NORMAL production off-box story to a frame
+;;     `:observability` sink fed an already-PROJECTED record (centralized
+;;     `project-egress` runs before any sink sees a record). Without these
+;;     locks this conformance tier could stay green while the event surface
+;;     drifts back toward the pre-EP-0015 model — treating the corpus-wide
+;;     listener as the public off-box contract, or letting raw event payloads
+;;     reach an off-box sink. Core's `re-frame.observability-routing-cljs-test`
+;;     owns the full routing e2e; these are the EVENT-REGISTRATION-side locks
+;;     that belong on the umbrella event-model surface (the one-form
+;;     `reg-event` path proving its registration-owned classification survives,
+;;     and the off-box sink omitting/redacting raw event args).
+;; ===========================================================================
+
+(defn- redacted? [v] (= :rf/redacted v))
+
+(deftest ep0015-off-box-handled-event-sink-receives-projected-record-event-args-omitted
+  (testing "EP-0015 §9 / Spec 015: the NORMAL production off-box observation
+            path is a FRAME-OWNED `:observability` sink — a real `reg-event`
+            dispatch routes ONE already-PROJECTED `:rf.observe/handled-event`
+            to the sink under `:rf.egress/off-box-observability`, and the raw
+            `:event` args slot is OMITTED entirely (EP-0015 issue 4). The sink
+            does NO redaction — it consumes a projected record. A regression
+            that shipped the raw event payload to an off-box sink, or that
+            routed nothing (treating the always-on listener as the only path),
+            turns this RED"
+    (let [seen (atom [])]
+      ;; The app registers the concrete sink fn against the id the frame
+      ;; policy names — the sink records, it does not redact.
+      (rf/register-observability-sink! :evt-conf.sinks/datadog
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-frame :evt-conf/obs-main
+        {:observability
+         {:handled-events [{:sink :evt-conf.sinks/datadog
+                            :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/reg-event :evt-conf/obs-login
+        {:frame :evt-conf/obs-main}
+        (fn [{:keys [db]} _] {:db db}))
+      ;; The dispatched args carry a would-be secret; the off-box default must
+      ;; not ship the `:event` args slot AT ALL.
+      (rf/dispatch-sync [:evt-conf/obs-login {:password "hunter2"}]
+                        {:frame :evt-conf/obs-main})
+      (is (= 1 (count @seen)) "the frame-declared off-box sink fired exactly once")
+      (let [r (first @seen)]
+        (is (= :rf.observe/handled-event (:kind r))
+            "the sink received a canonical :rf.observe/handled-event record")
+        (is (= :evt-conf/obs-main (:frame r)))
+        (is (= :evt-conf/obs-login (:event-id r)))
+        (is (= :ok (:status r)))
+        (is (not (contains? r :event))
+            "off-box-observability default OMITS the :event args slot entirely —
+             the sink never sees the raw event payload (EP-0015 issue 4)")))))
+
+(deftest ep0015-off-box-error-sink-redacts-frame-classified-secret-in-event
+  (testing "EP-0015 §9 / Spec 015: a handler EXCEPTION routes ONE projected
+            `:rf.observe/error` record to the frame's declared `:errors` sink,
+            with a FRAME-classified app-db path inside the error's `:event` tree
+            slot redacted — the sink consumes an already-projected record, never
+            a raw one. A regression that leaked the classified secret into the
+            off-box error record turns this RED"
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :evt-conf.sinks/sentry
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-frame :evt-conf/obs-err
+        {:observability
+         {:errors [{:sink :evt-conf.sinks/sentry
+                    :rf.egress/profile :rf.egress/off-box-observability}]}
+         ;; The frame classifies [:auth :token]; the projector applies that
+         ;; path to the event's arg map inside the error record.
+         :sensitive {:app-db [[:auth :token]]}})
+      (rf/reg-event :evt-conf/obs-throw
+        {:frame :evt-conf/obs-err}
+        (fn [_ _] (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/dispatch-sync [:evt-conf/obs-throw {:auth {:token "super-secret"}}]
+                        {:frame :evt-conf/obs-err})
+      (is (= 1 (count @seen)) "the frame-declared off-box error sink fired exactly once")
+      (let [r (first @seen)]
+        (is (= :rf.observe/error (:kind r)))
+        (is (= :evt-conf/obs-err (:frame r)))
+        (is (= :evt-conf/obs-throw (:event-id r)))
+        (is (redacted? (get-in (:event r) [1 :auth :token]))
+            "the frame-classified secret inside the error's :event is redacted —
+             the sink received an already-projected record")))))
+
+(deftest ep0015-event-arg-classification-is-registration-owned-not-frame-app-db
+  (testing "EP-0015 §Registration-owned transient classification (the
+            EVENT-side of the contract this umbrella tier intersects): event
+            args are REGISTRATION-owned transient payloads. A `reg-event`
+            registered with `:sensitive [[:password]]` AND a frame that
+            declares NO matching `:sensitive {:app-db …}` must STILL redact the
+            declared event arg on the off-box error sink — proving the one-form
+            registration path carries the `:sensitive` classification metadata
+            through to projection. A non-declared sibling arg rides through. A
+            regression that dropped registration-owned event-arg classification
+            (so only frame app-db policy applied) would LEAK the raw secret
+            off-box — turning this RED"
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :evt-conf.sinks/sentry-reg
+        (fn [record] (swap! seen conj record)))
+      ;; The frame declares the error sink but NO :sensitive classification —
+      ;; the redaction MUST come from the EVENT registration, not the frame.
+      (rf/reg-frame :evt-conf/obs-reg
+        {:observability
+         {:errors [{:sink :evt-conf.sinks/sentry-reg
+                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; The one-form `reg-event` OWNS the sensitivity of its own event arg:
+      ;; [:password] in the arg-map (registration marks are rooted at the arg-map).
+      (rf/reg-event :evt-conf/obs-reg-login
+        {:frame     :evt-conf/obs-reg
+         :sensitive [[:password]]}
+        (fn [_ _] (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/dispatch-sync [:evt-conf/obs-reg-login {:password "hunter2" :user "ann"}]
+                        {:frame :evt-conf/obs-reg})
+      (is (= 1 (count @seen)) "the frame-declared off-box error sink fired exactly once")
+      (let [r (first @seen)]
+        (is (= :rf.observe/error (:kind r)))
+        (is (= :evt-conf/obs-reg-login (:event-id r)))
+        (is (redacted? (get-in (:event r) [1 :password]))
+            "the handler-declared-sensitive :password arg is redacted via the
+             one-form reg-event registration marks, with NO frame :sensitive {:app-db …}")
+        (is (= "ann" (get-in (:event r) [1 :user]))
+            "a non-declared sibling arg rides through (only the declared path redacts)")))))
+
+(deftest ep0015-frame-with-no-observability-policy-routes-nothing-fail-closed
+  (testing "EP-0015 §9: routing is FAIL-CLOSED and frame-scoped — a frame with
+            NO `:observability` policy routes NOTHING to a registered sink, even
+            on a real `reg-event` dispatch (the runtime never synthesises
+            `:rf/default`, never borrows another frame's sink policy). This locks
+            that the frame-owned sink path — not a corpus-wide always-on
+            listener — gates production off-box egress. A regression that fired
+            the sink absent a frame `:observability` policy turns this RED"
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :evt-conf.sinks/unused
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-frame :evt-conf/obs-none {})
+      (rf/reg-event :evt-conf/obs-noop {:frame :evt-conf/obs-none} (fn [{:keys [db]} _] {:db db}))
+      (rf/dispatch-sync [:evt-conf/obs-noop] {:frame :evt-conf/obs-none})
+      (is (empty? @seen)
+          "no :observability policy ⇒ no off-box routing, regardless of a
+           registered sink (fail-closed, frame-scoped)"))))
