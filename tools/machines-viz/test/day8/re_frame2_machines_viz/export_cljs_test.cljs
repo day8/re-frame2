@@ -51,6 +51,8 @@
       (is (str/includes? url "#machine="))
       (is (= :auth/login-flow (:machine-id cs)))
       (is (= definition (:definition cs)))
+      (is (not (contains? cs :frame-id))
+          "no :frame-id is fabricated off the seam (v2 / EP-0023 — frame-id is optional)")
       (is (= {:state :loading} (:snapshot cs))
           "active-state name rides as the snapshot; no :data"))))
 

@@ -233,8 +233,9 @@ does not know about Xray's chrome or Story's variant runtime —
 the chart is presentation-only, so it only knows the
 `:machine-id`, `:definition`, and `:current-state` the host pulled
 and passed in, plus the two callbacks the host wired. It takes no
-`:frame-id` (that survives only as share-envelope payload
-provenance, [`API.md`](./API.md) §ShareEnvelope).
+`:frame-id` (that survives only as **optional** share-envelope payload
+provenance — an EP-0023 frame-target id, [`API.md`](./API.md)
+§ShareEnvelope).
 
 ## Surface set
 

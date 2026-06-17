@@ -584,10 +584,12 @@
 (defn- element->chart-state
   "Project the DOM seam into the `ChartState` shape `share/encode-share-url`
   accepts. The `:frame-id` is not on the seam (the chart is
-  presentation-only and doesn't know its frame); when absent we pass
-  `:frame-id` as the machine-id so the encoder's schema is satisfied.
-  Hosts that know the frame should call `share/encode-share-url` directly
-  with the full ChartState.
+  presentation-only and doesn't know its frame). `:frame-id` is OPTIONAL
+  (v2 / EP-0023) — a topology/snapshot is shareable without naming a live
+  frame — so when no `:frame-id` is supplied we OMIT it rather than
+  fabricating a provenance id from the machine-id. A host that knows the
+  frame-target id can pass it (or call `share/encode-share-url` directly
+  with the full ChartState).
 
   `:current-state` off the seam is the chart's whole `:state` value — a
   flat keyword, a compound vector-path, or a parallel region-map (the
@@ -598,9 +600,11 @@
   [chart-element {:keys [frame-id]}]
   (let [{:keys [machine-id definition current-state]} (chart-state-of chart-element)]
     (cond-> {:machine-id machine-id
-             :frame-id   (or frame-id machine-id)
              :definition definition}
-      current-state (assoc :snapshot {:state current-state}))))
+      ;; :frame-id is OPTIONAL — include it only when the host supplied a
+      ;; frame-target id; do not fabricate one from the machine-id.
+      (some? frame-id)  (assoc :frame-id frame-id)
+      current-state     (assoc :snapshot {:state current-state}))))
 
 (defn share-url
   "Derive a share-URL from the rendered `chart-element`. Reads the
@@ -609,8 +613,9 @@
 
   `opts` is passed to `share/encode-share-url` (`{:host ...}`), and may
   also carry `:frame-id` (the chart element doesn't know its frame; a
-  host that does can supply it for payload provenance). Returns the URL
-  string."
+  host that does can supply a frame-target id for payload provenance).
+  `:frame-id` is OPTIONAL (v2 / EP-0023) — omit it to share a topology
+  that does not name a live frame. Returns the URL string."
   ([chart-element] (share-url chart-element nil))
   ([chart-element opts]
    (let [chart-state (element->chart-state chart-element opts)]
