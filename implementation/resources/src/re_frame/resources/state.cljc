@@ -357,6 +357,32 @@
   [x]
   (identity/canonical x))
 
+(defn- throw-non-edn!
+  "Throw the public `:rf.error/resource-non-edn-params` cache-key-boundary
+  error for `value` (a params or scope map that is not a portable CEDN-1
+  identity). The single home for the error shape, shared by `reject-non-edn!`
+  (validate-only) and `canonicalize-or-rethrow` (validate+canonicalize in one
+  walk) so the two surfaces can never drift. Never returns normally."
+  [value where kind resource-id]
+  (error/throw-error!
+    :rf.error/resource-non-edn-params
+    where
+    (str "resource " resource-id " " (name kind)
+         " is not a portable CEDN-1 EDN identity — "
+         "host / opaque values (functions, promises, "
+         "dates, DOM nodes, AbortControllers, JS "
+         "objects) and non-portable numbers (floats, "
+         "ratios, decimals, NaN/infinities, integers "
+         "outside the safe range) are rejected at the "
+         "cache-key boundary. Put every value that "
+         "affects remote identity in params as plain "
+         "portable EDN. Per Spec 016 §Resource "
+         "identity / Conventions §Canonical EDN identity.")
+    {:recovery :fix-params
+     :extra    {:resource-id resource-id
+                :kind        kind
+                :value       (pr-str value)}}))
+
 (defn reject-non-edn!
   "Throw `:rf.error/resource-non-edn-params` when `value` (a params or
   scope map) is not a portable CEDN-1 identity — a host / opaque value (fn,
@@ -369,29 +395,39 @@
 
   Preserves the public resource error category (`:rf.error/resource-non-edn-
   params`) while delegating the domain decision to the shared CEDN-1 rule
-  (`serializable-edn?` → `identity/canonical-bytes`); the underlying
-  `:rf.error/non-edn-identity` cause rides `:rf.error/cause` for diagnosis."
+  (`serializable-edn?` → `identity/canonical-bytes`).
+
+  Validate-ONLY: a caller that then needs the canonical value should call
+  `canonicalize-or-rethrow` instead, which validates AND canonicalizes in a
+  single CEDN-1 walk rather than rejecting (one walk) then canonicalizing
+  (a second walk) — `reject-non-edn!` is for the boundaries that validate but
+  carry the RAW value forward (e.g. a mutation arm that re-keys later)."
   [value where kind resource-id]
   (when-not (serializable-edn? value)
-    (error/throw-error!
-      :rf.error/resource-non-edn-params
-      where
-      (str "resource " resource-id " " (name kind)
-           " is not a portable CEDN-1 EDN identity — "
-           "host / opaque values (functions, promises, "
-           "dates, DOM nodes, AbortControllers, JS "
-           "objects) and non-portable numbers (floats, "
-           "ratios, decimals, NaN/infinities, integers "
-           "outside the safe range) are rejected at the "
-           "cache-key boundary. Put every value that "
-           "affects remote identity in params as plain "
-           "portable EDN. Per Spec 016 §Resource "
-           "identity / Conventions §Canonical EDN identity.")
-      {:recovery :fix-params
-       :extra    {:resource-id resource-id
-                  :kind        kind
-                  :value       (pr-str value)}}))
+    (throw-non-edn! value where kind resource-id))
   value)
+
+(defn canonicalize-or-rethrow
+  "Validate + canonicalize `value` in ONE CEDN-1 walk (rf2-rplgkw): return its
+  canonical EDN identity (`canonicalize`), re-throwing the public
+  `:rf.error/resource-non-edn-params` cache-key-boundary category when the
+  shared CEDN-1 rule fails it closed (`:rf.error/non-edn-identity`).
+
+  This collapses the historical `(reject-non-edn! …)` + `(canonicalize …)`
+  pair — which walked the value TWICE (once to validate via `serializable-
+  edn?` → `canonical-bytes`, once to canonicalize via `canonical`) — into a
+  single `canonical` walk, since `canonical` fails closed on EXACTLY the same
+  CEDN-1 domain `reject-non-edn!` rejects (state.cljc). Behaviour-preserving:
+  the public error category, the `where` / `kind` / `:resource-id` slots, and
+  the canonical result are identical to the two-step form. `where` / `kind`
+  (`:params` | `:scope`) name the offending boundary."
+  [value where kind resource-id]
+  (try
+    (canonicalize value)
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+      (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data e)))
+        (throw-non-edn! value where kind resource-id)
+        (throw e)))))
 
 ;; ---- concrete-scope validation (Spec 016 §Scope resolution) ---------------
 ;;
@@ -528,21 +564,48 @@
   [scope where resource-id]
   (reject-reserved-scope-typo! scope where resource-id)
   (reject-wrapped-reserved-scope! scope where resource-id)
-  (reject-non-edn! scope where :scope resource-id)
-  (canonicalize scope))
+  ;; rf2-rplgkw: validate + canonicalize the concrete scope in ONE CEDN-1
+  ;; walk rather than rejecting (one walk) then canonicalizing (a second).
+  ;; `canonical` fails closed on exactly the host / non-portable-number
+  ;; domain `reject-non-edn!` rejects, so the public error category holds.
+  (canonicalize-or-rethrow scope where :scope resource-id))
 
 ;; ---- scoped resource key (Spec 016 §Resource identity) --------------------
+
+(defn scoped-resource-key*
+  "TRUSTED scoped-key constructor (rf2-rplgkw): assemble the scoped resource
+  key vector `[scope resource-id params]` from scope + params that are
+  ALREADY canonical — it does NOT re-canonicalize. Use this on the resolution
+  hot paths (sub / event / route) where the scope arrived through
+  `canonicalize-scope` and the params through `validate+canonicalize-params`,
+  both of which already return the canonical value; canonicalizing again here
+  re-proves an established invariant (`canonical` is idempotent) for pure
+  overhead, and a resource sub re-runs this on every frame-state change before
+  output memoization. Per Spec 016 §Canonicalization rule: canonicalization
+  happens ONCE at the scope/params resolution boundary.
+
+  CONTRACT: callers MUST pass already-canonical scope + params. Direct
+  internal / test callers handed RAW values should use the defensive
+  `scoped-resource-key` (below), which canonicalizes."
+  [scope resource-id params]
+  [scope resource-id params])
 
 (defn scoped-resource-key
   "Build the canonical scoped resource key
   `[canonical-scope resource-id canonical-params]` — the cache key, the
   request-correlation token payload, and the unit Xray / SSR enumerate.
 
-  Both the scope and the params are canonicalized under the SAME rule
-  (`canonicalize`), so key order in either map never affects identity, and
-  the scope is part of the key (the same params in different scopes can't
-  supersede each other). Per Spec 016 §Resource identity. Assumes scope +
-  params are already validated serializable EDN (`reject-non-edn!`).
+  DEFENSIVE: canonicalizes both scope and params under the SAME rule
+  (`canonicalize`) before assembling the key, so key order in either map never
+  affects identity, and the scope is part of the key (the same params in
+  different scopes can't supersede each other). Per Spec 016 §Resource
+  identity. Use this for direct internal / test callers handed RAW (not yet
+  canonical) scope / params, and for the mutation map-form-target boundary
+  (which validates serializability separately, then canonicalizes here). The
+  resolution hot paths (sub / event / route) instead use the trusted
+  `scoped-resource-key*` — their scope / params are ALREADY canonical
+  (`canonicalize-scope` + `validate+canonicalize-params`), so re-canonicalizing
+  here is pure overhead on a per-reaction path (rf2-rplgkw).
 
   The returned vector is the kind-PRESERVING canonical identity (a list value
   stays a list, distinct from a vector — rf2-wgutc2). It is NO LONGER used
@@ -556,7 +619,7 @@
   rf2-wgutc2 introduced is preserved end-to-end, and the `=`-collapse is closed
   at the map-keying layer where it actually occurred."
   [scope resource-id params]
-  [(canonicalize scope) resource-id (canonicalize params)])
+  (scoped-resource-key* (canonicalize scope) resource-id (canonicalize params)))
 
 (defn prior-loaded-sibling-key
   "Find the prior loaded SIBLING key to project under `:keep-previous?`

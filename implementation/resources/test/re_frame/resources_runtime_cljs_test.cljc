@@ -131,6 +131,54 @@
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (state/reject-non-edn! {:f (fn [])} 'test :params :r/x)))))
 
+;; rf2-rplgkw — the redundant scope/params re-canonicalization on the resource
+;; sub re-key hot path is collapsed: a trusted `scoped-resource-key*` for
+;; already-canonical inputs (the sub / event / route resolution paths feed it
+;; values that already passed canonicalize-scope + validate+canonicalize-params)
+;; and a single-walk `canonicalize-or-rethrow` folding the reject-non-edn! +
+;; canonicalize pair inside canonicalize-scope. Behaviour MUST be preserved.
+(deftest trusted-scoped-key-matches-defensive-on-canonical-input
+  (testing "scoped-resource-key* (no re-canonicalize) yields the SAME key as
+            the defensive scoped-resource-key when handed ALREADY-canonical
+            scope + params — the dedup is behaviour-preserving"
+    (let [cscope  (state/canonicalize {:tenant "acme" :user "u-42"})
+          cparams (state/canonicalize {:slug "x" :rev 1})
+          trusted (state/scoped-resource-key* cscope :article/by-slug cparams)
+          defens  (state/scoped-resource-key cscope :article/by-slug cparams)]
+      (is (= defens trusted) "same key vector")
+      (is (= (state/key-id defens) (state/key-id trusted)) "same byte key-id")))
+  (testing "the defensive constructor still canonicalizes RAW (key-order-
+            varying) input to the same identity scoped-resource-key* produces
+            from the canonical value — so RAW direct/test/mutation callers keep
+            working"
+    (let [raw-a (state/scoped-resource-key {:user "u-42" :tenant "acme"}
+                                           :article/by-slug {:rev 1 :slug "x"})
+          raw-b (state/scoped-resource-key {:tenant "acme" :user "u-42"}
+                                           :article/by-slug {:slug "x" :rev 1})]
+      (is (= raw-a raw-b) "key-order spellings collapse via the defensive path")
+      (is (= raw-a (state/scoped-resource-key*
+                     (state/canonicalize {:tenant "acme" :user "u-42"})
+                     :article/by-slug
+                     (state/canonicalize {:rev 1 :slug "x"})))
+          "the trusted path on the canonical value matches the defensive path"))))
+
+(deftest canonicalize-or-rethrow-folds-validate-and-canonicalize
+  (testing "on conforming input it returns the SAME value as canonicalize"
+    (is (= (state/canonicalize {:b 2 :a 1})
+           (state/canonicalize-or-rethrow {:a 1 :b 2} 'test :scope :r/x))
+        "canonical result is identical to the two-step (reject + canonicalize)")
+    (is (= :rf.scope/global
+           (state/canonicalize-or-rethrow :rf.scope/global 'test :scope :r/x))
+        "the bare global scope keyword canonicalizes to itself"))
+  (testing "a host / opaque value re-throws the SAME public
+            :rf.error/resource-non-edn-params category reject-non-edn! threw"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
+          (state/canonicalize-or-rethrow {:f (fn [])} 'test :scope :r/x)))
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
+          (state/canonicalize-or-rethrow {:ratio 1.5} 'test :params :r/x)))))
+
 ;; rf2-wgutc2 (EP-0012 correctness review item 1): resource params + scopes
 ;; use the SHARED CEDN-1 identity rule (`re-frame.identity/canonical`), not a
 ;; resource-local dialect. This closes three divergences the prior

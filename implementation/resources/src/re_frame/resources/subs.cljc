@@ -111,7 +111,10 @@
         ;; schema unchanged).
         cparams (registry/validate+canonicalize-params
                   resource spec (state/params-present? payload) 'rf.resource/subscribe)]
-    (state/scoped-resource-key scope resource cparams)))
+    ;; rf2-rplgkw: scope + cparams are ALREADY canonical (resolve-scope-for-sub
+    ;; → canonicalize-scope; validate+canonicalize-params), so use the trusted
+    ;; constructor — a resource sub re-runs this on every frame-state change.
+    (state/scoped-resource-key* scope resource cparams)))
 
 ;; ---- dev-mode scope-mismatch warning (Spec 016 §Subscription-side scope
 ;; ---- resolution — likely-mismatch dev warning) ----------------------------

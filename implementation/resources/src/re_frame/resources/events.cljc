@@ -167,7 +167,9 @@
         ;; explicit `{:params nil}` reaches the schema unchanged.
         cparams    (registry/validate+canonicalize-params
                      resource spec (state/params-present? payload) where)
-        scoped-key (state/scoped-resource-key scope resource cparams)
+        ;; rf2-rplgkw: scope (resolve-scope-for-event → canonicalize-scope) +
+        ;; cparams (validate+canonicalize-params) are ALREADY canonical.
+        scoped-key (state/scoped-resource-key* scope resource cparams)
         entry      (or (get-in runtime-db (state/entry-path scoped-key))
                        (state/empty-entry resource scoped-key))
         prior-work (:current-work entry)
@@ -1222,7 +1224,9 @@
         ;; explicit-nil-params ensure produced.
         cparams    (registry/validate+canonicalize-params
                      resource spec (state/params-present? payload) 'rf.resource/remove)
-        scoped-key (state/scoped-resource-key scope resource cparams)
+        ;; rf2-rplgkw: scope (resolve-scope-for-event → canonicalize-scope) +
+        ;; cparams (validate+canonicalize-params) are ALREADY canonical.
+        scoped-key (state/scoped-resource-key* scope resource cparams)
         entry      (get-in runtime-db (state/entry-path scoped-key))
         wid        (:current-work entry)
         transport  (when wid (:transport (work-ledger/get-record runtime-db wid)))
