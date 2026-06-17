@@ -272,7 +272,7 @@ day one.
   `:work/kind :mutation`, and their internal replies verify frame, work id, and
   generation before settling. This EP MUST land with or after the EP-0003
   work-ledger slice and MUST NOT introduce a parallel correlation store.
-- **[EP-0016](EP-0016-resource-mutation-completion.md) (proposal).** EP-0016's
+- **[EP-0016](EP-0016-resource-mutation-completion.md) (final).** EP-0016's
   call-site mutation `:reply-to` is the concrete resources/mutations slice of
   this envelope: its reply map is designed to *be* (or trivially lower to) this
   EP's reply shape, delivered to an event target after stale suppression. The
@@ -280,7 +280,7 @@ day one.
   whichever graduates first, the other cites its shape rather than forking.
   This EP remains the cross-family envelope proposal (HTTP, timers, routing,
   machines); EP-0016 covers only the mutation instance.
-- **[EP-0010](EP-0010-causal-world-inputs.md) (proposal).** Replies are causal
+- **[EP-0010](EP-0010-causal-world-inputs.md) (final).** Replies are causal
   tokens under EP-0010; completion facts that affect durable state ride the
   reply map. This EP uses EP-0010's suffixless durable timestamp vocabulary:
   `:started-at`, `:completed-at`, and `:deadline-at`.
@@ -299,10 +299,10 @@ day one.
 - **[EP-0006](EP-0006-runtime-subsystem-contract.md) (final).** The
   multi-writer authority question for `:rf.runtime/work-ledger` (see Open
   Issues) is the runtime-subsystem contract's to settle.
-- **[EP-0007](EP-0007-one-name-per-fact.md) (proposal).** The one-attempt-one-
+- **[EP-0007](EP-0007-one-name-per-fact.md) (active).** The one-attempt-one-
   `:work/id` rule, and the rejection of `:stale-key`-style synonyms, descend
   directly from the one-name-per-fact rulebook.
-- **[EP-0014](EP-0014-derivation-and-process-algebra.md) (proposal).** Any
+- **[EP-0014](EP-0014-derivation-and-process-algebra.md) (final).** Any
   process-shaped surface that performs managed async work completes through
   this envelope; the two proposals share the work-ledger generalization
   rather than each defining its own completion shape.
@@ -1541,8 +1541,8 @@ Conformance should include fixtures or tests for:
 ## Guide Impact
 
 On graduation, the implementation bead must update the guide's async/no-await
-material (the current chapter 10 box) so managed effects are taught as causal
-reply events. The guide update should show `:rf/reply-to`, the uniform reply
+material (`concepts/http.md` and `explanation/continuations-are-data.md`) so
+managed effects are taught as causal reply events. The guide update should show `:rf/reply-to`, the uniform reply
 map, the full status set including `:partial`, stale suppression, cancellation,
 and EP-0010 completion timestamps. HTTP and mutation compatibility examples may
 keep `:on-success` / `:on-failure`, but they must be presented as lowering
