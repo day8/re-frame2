@@ -224,7 +224,7 @@ If validation fails:
 
 ### Cancellation
 
-Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (with `:cancelled? true` and `:cancel/reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery.
+Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (with `:cancelled? true` and `:cancel/reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery. The *obsolete-target* check itself is surface-specific by design: HTTP needs an explicit target-identity gate (`actor-destroy-target-obsolete?`) because it alone re-dispatches a reply at a caller-supplied event target; resources/mutations gate obsolescence on work-id/generation entry-liveness, and machines split late-obsolete arrivals into separate semantic `:stale` paths — so none of the sibling surfaces needs HTTP's predicate.
 
 ### Causal completion metadata
 

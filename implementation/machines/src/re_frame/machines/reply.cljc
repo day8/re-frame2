@@ -56,7 +56,33 @@
   threaded in); this ns never reads a clock. Trace summaries route every
   wire-bearing slot through the shared `re-frame.reply/trace-summary`
   (which calls `re-frame.elision/elide-wire-value`) — never a
-  family-private elider (Managed-Effects §Tracing)."
+  family-private elider (Managed-Effects §Tracing).
+
+  ## Why there is no `target-obsolete?` gate here (rf2-wwfn7q)
+
+  HTTP carries an `actor-destroy-target-obsolete?` predicate
+  (`re-frame.http-reply`) that lowers a destroyed-actor reply to `:stale`/
+  `:suppressed` (rather than `:cancelled`) when the reply TARGET names the
+  destroyed actor. Machines have NO counterpart, **by design** — obsolete-
+  target suppression is HTTP-specific. HTTP is the only EP-0011 surface that
+  RE-DISPATCHES a reply at a caller-supplied event target (its `:on-failure`
+  / origin-event head, which can name the actor or an ordinary app event), so
+  TARGET-identity obsolescence is only definable there.
+
+  A machine cancel is not a re-dispatch at a caller-supplied target: it is a
+  TERMINAL completion/correlation row (`cancelled-actor-reply` — no `:value`,
+  no dispatch, no caller target) that closes the work-ledger row as
+  `:cancelled`. Machines already model obsolescence, but split by SEMANTICS,
+  not target-identity: the LATE-OBSOLETE-arrival `:stale` cases are
+  `stale-spawn-reply` (child finishes after the parent is gone),
+  `stale-join-child-reply` (join child reports after the join resolved), and
+  `after-stale-reply` (an `:after` timer fires after an epoch/path mismatch);
+  PROACTIVE teardown is recorded as the `:cancelled` `cancelled-actor-reply`.
+  Forcing HTTP's `target == actor` gate onto `cancelled-actor-reply` would
+  blur those two genuinely distinct facts. All surfaces still route through
+  the shared `re-frame.reply/suppress` and spell `:cancelled` identically —
+  uniform where it matters; the obsolescence DETERMINATION is correctly
+  surface-specific."
   (:require [re-frame.reply :as reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
