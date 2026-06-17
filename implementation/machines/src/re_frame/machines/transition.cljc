@@ -3488,8 +3488,20 @@
   admission (`re-frame.epoch.capture/capture-event!` silently drops
   events whose tags lack `:frame`). The caller threads `frame-id`
   resolved from `(:rf/frame machine)` so timer-firing observability
-  reaches the cascade's `:trace-events` slot."
-  [frame-id match]
+  reaches the cascade's `:trace-events` slot.
+
+  rf2-hawtjr — the caller also threads `completed-at`, the CAUSAL
+  completion timestamp of the timer-firing dispatch (the router-stamped
+  `:rf/time-ms` off `(get-in machine [:rf/cofx :rf/time-ms])` — the SAME
+  fresh fire-time token the firing `:after` guard / action read, NOT an
+  ambient `(.now)`). It rides onto every timer reply / trace so a fired or
+  stale `:after` completion carries completion time the same way the
+  spawned-machine `:rf.machine/done` reply does (Managed-Effects §Causal
+  completion metadata). nil when the firing dispatch supplied no cofx
+  (a pure-fn / hand-dispatched test path) — then omitted, not nil-filled.
+  The 2-arity is retained for callers with no causal token in scope."
+  ([frame-id match] (emit-pick-traces! frame-id match nil))
+  ([frame-id match completed-at]
   (when match
     (when (:stale? match)
       ;; Per EP-0011 §Timer Reply / Managed-Effects §Stale suppression:
@@ -3511,9 +3523,11 @@
                            :decl-path       (:decl-path match)
                            :scheduled-epoch (:scheduled-epoch match)
                            :current-epoch   (:current-epoch match)
-                           :frame           frame-id})
+                           :frame           frame-id
+                           :completed-at    completed-at})
             summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/stale-after
+                     (cond->
                      {;; rf2-yyvtk5 / rf2-ws5thu — the timer's owning actor
                       ;; INSTANCE (spec/009 §`:rf.machine.timer/*`);
                       ;; `:machine-id` is reserved for the registered TYPE.
@@ -3535,7 +3549,16 @@
                       :rf.reply/work-id     (:work/id summary)
                       :rf.reply/work-status (:work/status summary)
                       :rf.reply/stale-reason (:stale/reason summary)
-                      :rf.reply/correlation (:correlation summary)})))
+                      :rf.reply/correlation (:correlation summary)}
+                       ;; rf2-hawtjr — the CAUSAL completion timestamp of the
+                       ;; firing dispatch (router-stamped `:rf/time-ms`), under
+                       ;; both the canonical `:completed-at` and the reply-
+                       ;; envelope `:rf.reply/completed-at` (mirroring the
+                       ;; spawned-machine `:rf.machine/done` trace). Omitted when
+                       ;; the firing dispatch carried no causal token.
+                       (some? (:completed-at summary))
+                       (assoc :completed-at          (:completed-at summary)
+                              :rf.reply/completed-at (:completed-at summary))))))
     ;; rf2-niarhz — a FIRED (live) `:after` timer is a CLOSED `:after`
     ;; completion (`:status :ok` / `:work/status :completed`). Build the
     ;; canonical fired reply and stamp the reply-envelope facts (`:work/id`,
@@ -3551,9 +3574,11 @@
                            :decl-path         (:decl-path match)
                            :epoch             (:epoch match)
                            :frame             frame-id
-                           :guard-suppressed? true})
+                           :guard-suppressed? true
+                           :completed-at      completed-at})
             summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/fired
+                     (cond->
                      {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
                       :actor-id (:actor-id match)
                       :state  (:state match)
@@ -3567,7 +3592,11 @@
                       :rf.reply/status      (:status summary)
                       :rf.reply/work-id     (:work/id summary)
                       :rf.reply/work-status (:work/status summary)
-                      :rf.reply/correlation (:correlation summary)})))
+                      :rf.reply/correlation (:correlation summary)}
+                       ;; rf2-hawtjr — causal completion time (see stale branch).
+                       (some? (:completed-at summary))
+                       (assoc :completed-at          (:completed-at summary)
+                              :rf.reply/completed-at (:completed-at summary))))))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
@@ -3578,14 +3607,16 @@
       (let [fired-state (or (last (:decl-path match))
                             (when (empty? (:decl-path match)) :rf/parallel-root))
             fired-reply (m-reply/after-fired-reply
-                          {:actor-id   (:actor-id match)
-                           :state      fired-state
-                           :delay      (:delay match)
-                           :decl-path  (:decl-path match)
-                           :epoch      (:epoch match)
-                           :frame      frame-id})
+                          {:actor-id     (:actor-id match)
+                           :state        fired-state
+                           :delay        (:delay match)
+                           :decl-path    (:decl-path match)
+                           :epoch        (:epoch match)
+                           :frame        frame-id
+                           :completed-at completed-at})
             summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/fired
+                     (cond->
                      {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
                       :actor-id (:actor-id match)
                       :state  fired-state
@@ -3599,7 +3630,11 @@
                       :rf.reply/status      (:status summary)
                       :rf.reply/work-id     (:work/id summary)
                       :rf.reply/work-status (:work/status summary)
-                      :rf.reply/correlation (:correlation summary)})))))
+                      :rf.reply/correlation (:correlation summary)}
+                       ;; rf2-hawtjr — causal completion time (see stale branch).
+                       (some? (:completed-at summary))
+                       (assoc :completed-at          (:completed-at summary)
+                              :rf.reply/completed-at (:completed-at summary)))))))))
 
 (defn ensure-raised-cofx
   "Per EP-0017 / rf2-xsdn5h — re-run the consumer-attachment ensure step for a
@@ -4023,8 +4058,16 @@
                                        (not (:guard-suppressed? match))))
         ;; Trace timer firing / staleness / guard-suppression BEFORE
         ;; running the transition, so listeners see events in the order
-        ;; they occurred.
-        _ (emit-pick-traces! (:rf/frame machine) match)
+        ;; they occurred. rf2-hawtjr — thread the CAUSAL completion
+        ;; timestamp (the router-stamped `:rf/time-ms` off the firing
+        ;; dispatch's `:rf.cofx`, the SAME fresh fire-time token the
+        ;; timer-fired guard / action read) so a fired or stale `:after`
+        ;; completion carries `:completed-at` the way the spawned-machine
+        ;; `:rf.machine/done` reply does (Managed-Effects §Causal
+        ;; completion metadata). nil for a pure-fn / hand-dispatched path
+        ;; with no token — then omitted, not nil-filled.
+        _ (emit-pick-traces! (:rf/frame machine) match
+                             (get-in machine [:rf/cofx :rf/time-ms]))
         result-after-event
         (cond
           (and match (:stale? match))
