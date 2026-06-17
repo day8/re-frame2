@@ -585,3 +585,30 @@
      ;; `cancel-after-timer-entry!` cannot trip a concurrent-
      ;; modification surprise on the JVM target.
      (cancel-after-timer-entry! frame-id k :on-frame-destroy))))
+
+(defn cancel-frame-timers-on-restore!
+  "Cancel every in-flight `:after` timer the given `frame-id` currently holds,
+  emitting one `:rf.machine.timer/cancelled` trace per entry with
+  `:reason :on-restore` (rf2-u5kmf8).
+
+  Epoch restore installs the captured durable frame-state (the machine
+  snapshots in runtime-db) WHOLESALE, so timer LIVENESS reverts atomically —
+  a pre-restore timer that fires later carries a stale per-path epoch and is
+  silently dropped via `:rf.machine.timer/stale-after` (Spec 005 §Hierarchy
+  interaction). But the host-clock HANDLE itself is NOT frame-state: it stays
+  attached to the pre-restore timeline and would still fire (and dispatch a
+  doomed-stale synthetic event) unless released. This is the restore
+  counterpart of the `:on-frame-destroy` cleanup `cancel-all-timers!` does on
+  teardown — it releases the orphaned host handles eagerly so the restored
+  frame carries no leaked wall-clock timers from the unwound epochs
+  (Managed-Effects §restore: \"epoch restore MUST NOT revive host work\").
+
+  Published as the `:machines/on-frame-restored!` late-bind hook, consulted by
+  the epoch restore boundary (`perform-restore!`) AFTER a successful install.
+  No-op when the frame holds no in-flight timers. `vec`-snapshots the iteration
+  so the swap inside `cancel-after-timer-entry!` cannot trip a concurrent-
+  modification surprise on the JVM target."
+  [frame-id]
+  (doseq [[k _entry] (vec (get @after-timers frame-id))]
+    (cancel-after-timer-entry! frame-id k :on-restore))
+  nil)

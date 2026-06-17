@@ -273,6 +273,12 @@
 
 (late-bind/set-fn! :http/abort-in-flight!                 registry/abort-in-flight!)
 (late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
+;; rf2-u5kmf8 — epoch-restore host-transient quiesce. The epoch restore boundary
+;; fires this AFTER a successful install to abort every non-resource managed HTTP
+;; request the restored frame had in flight, suppressing the app reply + emitting
+;; the EP-0011 stale-suppression facts (Managed-Effects §restore: "epoch restore
+;; MUST NOT revive host work"). Late-bound so epoch never statically requires http.
+(late-bind/set-fn! :http/abort-in-flight-for-frame!       registry/abort-in-flight-for-frame!)
 (late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
 (late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
 (late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)

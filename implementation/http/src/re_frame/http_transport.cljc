@@ -45,6 +45,26 @@
 (declare finalise-failure!)
 (declare schedule-backoff-handle!)
 
+(def ^:private reply-suppressing-abort-reasons
+  "Abort reasons whose `:rf.http/aborted` failure is NOT dispatched to the app
+  `:on-failure` reply target — the cancellation replaces the original outcome,
+  so delivering the old reply would race / corrupt the post-cancel state.
+
+  `:request-id-superseded` (rf2-lxd3) — a fresh request with the same
+  `:request-id` replaced this one. `:epoch-restored` (rf2-u5kmf8) — epoch
+  restore unwound the timeline this request belonged to; per EP-0011 /
+  Managed-Effects §restore (\"epoch restore MUST NOT revive host work\") a
+  pre-restore completion MUST NOT deliver to its original `:rf/reply-to` target.
+  Both still emit their trace facts (the suppressed-attempt's stale envelope);
+  only the app dispatch is suppressed."
+  #{:request-id-superseded :epoch-restored})
+
+(defn reply-suppressing-abort-reason?
+  "True when an `:rf.http/aborted` failure carrying `reason` must NOT dispatch
+  its `:on-failure` reply (`reply-suppressing-abort-reasons`)."
+  [reason]
+  (contains? reply-suppressing-abort-reasons reason))
+
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
   chain (REVERSE registration order) BEFORE handing off to the
@@ -430,10 +450,12 @@
                          {:frame (:frame ctx)})]
         (trace/emit-error! :rf.http/aborted redacted)))
     (cond
-      ;; Per rf2-lxd3 — supersede semantics suppress the reply (the new
-      ;; request replaces the old; the superseded attempt's canonical stale
-      ;; trace is emitted by `emit-superseded-stale-trace!` at supersede time).
-      (= :request-id-superseded reason)
+      ;; Per rf2-lxd3 (supersede) / rf2-u5kmf8 (epoch-restore) — these reasons
+      ;; suppress the reply (the cancellation replaces the original outcome; the
+      ;; superseded attempt's canonical stale trace is emitted by
+      ;; `emit-superseded-stale-trace!` at supersede time, the restore-suppressed
+      ;; attempt's by `http-registry/abort-in-flight-for-frame!`).
+      (reply-suppressing-abort-reason? reason)
       nil
 
       ;; Per rf2-yrrpe2 — an actor-destroy abort whose reply target is
@@ -558,9 +580,9 @@
                            (contains? failure :body-text))
                        (assoc :rf.http/off-box-body :omit))]
       (trace/emit-error! (:kind failure) redacted)))
-  (let [superseded? (and (= :rf.http/aborted (:kind failure))
-                         (= :request-id-superseded (:reason failure)))]
-    (when-not superseded?
+  (let [suppress? (and (= :rf.http/aborted (:kind failure))
+                       (reply-suppressing-abort-reason? (:reason failure)))]
+    (when-not suppress?
       (dispatch-failure! ctx failure))))
 
 (defn- finalise-success! [ctx accepted]

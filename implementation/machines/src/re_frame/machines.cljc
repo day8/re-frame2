@@ -438,6 +438,18 @@
 ;; Late-bound so core never statically requires the machines artefact.
 (late-bind/set-fn! :machines/on-frame-destroyed!
                    (fn [frame-id] (timer/cancel-all-timers! frame-id)))
+;; rf2-u5kmf8 — epoch-restore host-transient quiesce. The epoch restore
+;; boundary (`perform-restore!`) installs the captured durable frame-state
+;; WHOLESALE, but the in-flight `:after` host-clock timers the unwound epochs
+;; armed are NOT frame-state — the pure per-path epoch invariant stale-drops a
+;; fired timer, but its wall-clock handle would still fire unless released. This
+;; hook releases the restored frame's orphaned timer handles eagerly (one
+;; `:rf.machine.timer/cancelled :reason :on-restore` per entry), so a restore
+;; carries no leaked timers from the discarded epochs (Managed-Effects §restore:
+;; "epoch restore MUST NOT revive host work"). Late-bound so core / epoch never
+;; statically require the machines artefact.
+(late-bind/set-fn! :machines/on-frame-restored!
+                   (fn [frame-id] (timer/cancel-frame-timers-on-restore! frame-id)))
 ;; Per rf2-vsigt — frame-destroy machine-cascade hook. `frame/destroy-frame!`
 ;; calls this hook BEFORE the sub-cache / adapter teardown so each active
 ;; machine's `:exit` cascade runs against a live container in reverse-

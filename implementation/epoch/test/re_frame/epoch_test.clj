@@ -94,7 +94,11 @@
             ;; `rf/reg-machine` in their bodies; without this require they
             ;; throw `:rf.error/machines-artefact-missing`. Side-effect
             ;; require — the namespace alias is unused.
-            [re-frame.machines]))
+            [re-frame.machines]
+            ;; rf2-u5kmf8 — read the machine `:after` host-clock timer table
+            ;; directly to prove an end-to-end restore releases the restored
+            ;; frame's armed timer handles (the orphaned async host work).
+            [re-frame.machines.timer :as machine-timer]))
 
 ;; ---- fixtures --------------------------------------------------------------
 ;;
@@ -1053,6 +1057,140 @@
               ":restore-time-ms is NOT the live ambient install clock"))
         (finally
           (late-bind/set-fn! hook-key original))))))
+
+;; ---- restore-time host-transient quiesce (rf2-u5kmf8) ----------------------
+;;
+;; EP-0011 / Managed-Effects §SSR, preload, hydration, and restore: "Hydration
+;; and epoch restore MUST NOT revive host work." A restore installs the captured
+;; durable frame-state WHOLESALE but the async HOST WORK spawned by the epochs
+;; being unwound (machine `:after` host-clock timers, non-resource managed-HTTP
+;; AbortControllers / in-flight handles) is NOT frame-state — it stays attached
+;; to the pre-restore timeline. Restore must QUIESCE it for the restored frame:
+;; cancel/clear the orphaned host handles so a late pre-restore completion is
+;; stale-suppressed and never delivers to its original `:rf/reply-to` target.
+;;
+;; The `:resources/reconcile-on-restore` hook (rf2-7r5mc2) covers the Resources
+;; subsystem; the OTHER managed async subsystems need their own restore-time
+;; cleanup. perform-restore! fires a generic host-transient quiesce hook chain
+;; (`:machines/on-frame-restored!`, `:http/abort-in-flight-for-frame!`) AFTER a
+;; successful install — the restore counterpart to destroy-frame!'s
+;; `:machines/on-frame-destroyed!` / `:http/abort-on-actor-destroy` chain. The
+;; epoch artefact has no static dep on the optional machines / http artefacts,
+;; so these tests stub the hooks and assert the WIRING (consulted with the
+;; restored frame-id, ONLY on a successful install). The cancel/abort + stale-
+;; suppression LOGIC is pinned in each subsystem's own artefact test.
+
+(deftest perform-restore!-quiesces-orphaned-async-host-work
+  (testing "rf2-u5kmf8 — a successful restore fires the host-transient quiesce
+            hook chain for the managed async subsystems (machines :after timers,
+            non-resource managed HTTP) addressed to the restored frame, so the
+            async host work the unwound epochs spawned is cancelled/cleared."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :step (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (rf/reg-event :step2 (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
+    (let [machines-key :machines/on-frame-restored!
+          http-key     :http/abort-in-flight-for-frame!
+          orig-mach    (late-bind/get-fn machines-key)
+          orig-http    (late-bind/get-fn http-key)
+          seen         (atom [])]
+      (try
+        (late-bind/set-fn! machines-key (fn [frame-id] (swap! seen conj [:machines frame-id])))
+        (late-bind/set-fn! http-key     (fn [frame-id] (swap! seen conj [:http frame-id])))
+        (rf/dispatch-sync [:step] {:frame :test/main})
+        (let [target (:epoch-id (last (rf/epoch-history :test/main)))]
+          (rf/dispatch-sync [:step2] {:frame :test/main})
+          (is (true? (rf/restore-epoch! :test/main target))
+              "restore to the earlier epoch succeeded")
+          (is (some #{[:machines :test/main]} @seen)
+              ":machines/on-frame-restored! fired for the restored frame")
+          (is (some #{[:http :test/main]} @seen)
+              ":http/abort-in-flight-for-frame! fired for the restored frame"))
+        (finally
+          (late-bind/set-fn! machines-key orig-mach)
+          (late-bind/set-fn! http-key orig-http))))))
+
+(deftest perform-restore!-quiesce-noop-without-hooks
+  (testing "rf2-u5kmf8 — absent the machines / http artefacts (hooks nil) the
+            restore install is a clean pass-through (apps with no async host work
+            pay nothing)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :step (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (rf/reg-event :step2 (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
+    (let [machines-key :machines/on-frame-restored!
+          http-key     :http/abort-in-flight-for-frame!
+          orig-mach    (late-bind/get-fn machines-key)
+          orig-http    (late-bind/get-fn http-key)]
+      (try
+        (late-bind/set-fn! machines-key nil)
+        (late-bind/set-fn! http-key nil)
+        (rf/dispatch-sync [:step] {:frame :test/main})
+        (let [target (:epoch-id (last (rf/epoch-history :test/main)))]
+          (rf/dispatch-sync [:step2] {:frame :test/main})
+          (is (true? (rf/restore-epoch! :test/main target))
+              "restore succeeds with no quiesce hooks registered"))
+        (finally
+          (late-bind/set-fn! machines-key orig-mach)
+          (late-bind/set-fn! http-key orig-http))))))
+
+(deftest perform-restore!-does-not-quiesce-on-failed-install
+  (testing "rf2-u5kmf8 — a destroyed-frame install (perform-restore! returns
+            false, writes nothing) does NOT fire the quiesce hooks: cancelling a
+            live frame's host work for a restore that never landed would be a
+            false cancellation. The quiesce runs only on the success branch,
+            mirroring commit-resources-restore-traces!."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :step (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (let [machines-key :machines/on-frame-restored!
+          orig-mach    (late-bind/get-fn machines-key)
+          fired?       (atom false)]
+      (try
+        (late-bind/set-fn! machines-key (fn [_frame-id] (reset! fired? true)))
+        (rf/dispatch-sync [:step] {:frame :test/main})
+        (let [target-record (last (rf/epoch-history :test/main))
+              ;; drive perform-restore! directly against a frame whose container
+              ;; is gone (the validate-then-destroy / destroyed-frame branch):
+              ;; live-container-or-fail returns :fail and perform-restore! bails
+              ;; with false BEFORE the success telemetry / quiesce chain.
+              _ (rf/destroy-frame! :test/main)
+              result (tool-pair/perform-restore! :test/main target-record)]
+          (is (false? result) "perform-restore! returns false for the destroyed frame")
+          (is (false? @fired?)
+              "the quiesce chain did NOT fire for a restore that wrote nothing"))
+        (finally
+          (late-bind/set-fn! machines-key orig-mach))))))
+
+(deftest restore-releases-armed-machine-after-timer-end-to-end
+  (testing "rf2-u5kmf8 — ADVERSARIAL end-to-end through the REAL machines
+            artefact (no stubbed hook): a machine `:after` host-clock timer
+            armed before a restore is released by the restore boundary, so the
+            restored frame carries no orphaned wall-clock handle from the
+            unwound epoch."
+    (rf/reg-frame :test/main {})
+    ;; A machine whose :loading state arms a long-delay :after (the host clock
+    ;; will not fire it during the test; it lingers in the timer table). The
+    ;; :idle epoch is the restore target — restoring to it rewinds the snapshot
+    ;; out of :loading, so the in-flight :after timer is orphaned.
+    (rf/reg-machine :rest/m
+      {:initial :idle
+       :data    {}
+       :states
+       {:idle    {:on {:fetch :loading}}
+        :loading {:after {3600000 :timeout}
+                  :on    {:loaded :ready}}
+        :timeout {}
+        :ready   {}}})
+    ;; epoch 1: machine boots into :idle (its initial-entry cascade).
+    (rf/dispatch-sync [:rest/m [:rf.machine/start]] {:frame :test/main})
+    (let [idle-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
+      ;; epoch 2: :fetch → :loading arms the :after host-clock timer.
+      (rf/dispatch-sync [:rest/m [:fetch]] {:frame :test/main})
+      (is (seq (get @machine-timer/after-timers :test/main))
+          "precondition: the :loading state armed an :after host-clock timer")
+      ;; Restore to the :idle epoch — the snapshot rewinds out of :loading.
+      (is (true? (rf/restore-epoch! :test/main idle-epoch))
+          "restore to the pre-:loading epoch succeeded")
+      (is (empty? (get @machine-timer/after-timers :test/main))
+          "the orphaned :after host-clock handle was RELEASED by the restore — no leaked wall-clock timer from the unwound epoch"))))
 
 ;; ---- restore failure modes -------------------------------------------------
 

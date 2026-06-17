@@ -1298,7 +1298,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
                     :on-destroy             ;; machine destroyed
                     :on-resolution          ;; sub-vec delay re-resolved
                     :on-supersede           ;; re-armed on a still-live slot
-                    :on-frame-destroy]]     ;; frame teardown
+                    :on-frame-destroy       ;; frame teardown
+                    :on-restore]]           ;; epoch restore unwound the bearing epoch (rf2-u5kmf8)
    [:frame         :keyword]
    [:delay-source  {:optional true} :any]
    [:rf.sub/id     {:optional true} :any]   ;; present when :delay-source = :sub
