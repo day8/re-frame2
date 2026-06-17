@@ -167,17 +167,24 @@ boundaries it owns.
 
 The posture is normative across Story's surfaces:
 
-1. **Authoring — variant authors may declare path-marks per frame.**
-   Each variant *is* a frame (per [§Relationship-with-frames](../../../spec/007-Stories.md))
-   and a variant's body MAY include `(re-frame.core/add-marks
-   <variant-id> {path mark, ...})` or `(re-frame.core/set-marks
-   <variant-id> {path mark, ...})` to declare per-frame `app-db` marks
-   (per [spec/015 §2. App-db marks (per frame)](../../../spec/015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks)).
-   The `:loaders` / `:events` / `:play-script` registrations on a variant
-   continue to accept `:sensitive` / `:large` on their registration
-   maps via the standard registration grammar
-   (per [spec/001 §Registration grammar](../../../spec/001-Registration.md)).
-   No Story-specific declaration grammar — Story uses the framework's.
+1. **Authoring — frame-owned classification at frame creation.**
+   Each variant *is* a frame (per [§Relationship-with-frames](../../../spec/007-Stories.md)),
+   so durable app-db classification is **frame-owned** (EP-0015): a variant
+   declares its sensitive / large app-db paths via the `:sensitive` /
+   `:large` slots on its body — the SAME owner model `reg-frame` uses
+   (`:sensitive {:app-db [[:auth :token]]}`, per
+   [spec/015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md#frame-owned-durable-classification)).
+   The runtime threads them onto the variant's `reg-frame` config, so the
+   framework installs the classification atomically as part of frame
+   creation — there is **no public post-creation `add-marks` / `set-marks`
+   mutation surface** (EP-0015 superseded it; the underlying fns are
+   framework-internal / test helpers only). The `:loaders` / `:events` /
+   `:play-script` registrations on a variant continue to accept
+   `:sensitive` / `:large` on their registration maps via the standard
+   registration grammar for transient payloads (per
+   [spec/001 §Registration grammar](../../../spec/001-Registration.md)).
+   No Story-specific declaration grammar — Story uses the framework's
+   frame-owned model.
 2. **Display contract — canvas and Xray-RHS render sentinels.** The
    canvas itself never observes raw `app-db` (the variant view does);
    but the diagnostic surfaces Story embeds — the docs / test mode

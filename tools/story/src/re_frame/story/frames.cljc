@@ -527,16 +527,27 @@
   Per spec/002 §reg-frame the framework recognises:
     :preset :story
     :fx-overrides {...}
+    :sensitive / :large  (EP-0015 frame-owned classification)
     plus arbitrary user-stamped keys.
 
   Per `002-Runtime.md` §Per-variant frame allocation we stamp `:rf/story?` and `:rf/variant` so tools
-  can recognise variant frames from their `frame-meta`."
-  [variant-id fx-overrides]
+  can recognise variant frames from their `frame-meta`.
+
+  rf2-bsk1d9 — a variant's EP-0015 frame-owned `:sensitive` / `:large`
+  declarations (the owner model that REPLACES the removed public
+  `add-marks` / `set-marks` surface) are threaded straight onto the
+  `reg-frame` config so the framework's `re-frame.frame-classification`
+  validates + installs them atomically as part of frame creation, BEFORE
+  `:on-create`. Story does not fork the classification validation; a
+  malformed declaration FAILS LOUDLY at `reg-frame` time."
+  [variant-id fx-overrides {:keys [sensitive large]}]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")
            :preset     :story
            :rf/story?  true
            :rf/variant variant-id}
-    (seq fx-overrides) (assoc :fx-overrides fx-overrides)))
+    (seq fx-overrides) (assoc :fx-overrides fx-overrides)
+    (some? sensitive)  (assoc :sensitive sensitive)
+    (some? large)      (assoc :large large)))
 
 (defn allocate!
   "Create the variant's frame, register fx-override stubs, run
@@ -570,12 +581,15 @@
     (install-canonical-frame-events!)
     (let [fx-stack       (decorators/fx-overrides-map (:fx-override decorator-stack))
           fx-overrides   (register-fx-overrides! fx-stack)
-          config-map     (variant-frame-config variant-id fx-overrides)
           ;; Inline the variant-body lookup (`variant-body` is defined
           ;; lower in this ns) — go through the registrar directly so
           ;; the events-only classification (rf2-043cm) doesn't depend
           ;; on the file's declaration order.
           v-body         (registrar/handler-meta :variant variant-id)
+          ;; rf2-bsk1d9 — thread the variant's EP-0015 frame-owned
+          ;; `:sensitive` / `:large` classification onto the reg-frame config.
+          config-map     (variant-frame-config variant-id fx-overrides
+                                                (select-keys v-body [:sensitive :large]))
           events-only?   (loaders/events-only-variant? v-body decorator-stack)]
       ;; Allocate the frame.
       (rf/reg-frame variant-id config-map)

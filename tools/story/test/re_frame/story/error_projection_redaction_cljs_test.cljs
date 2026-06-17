@@ -54,17 +54,17 @@
 (use-fixtures :each {:before reset-all!})
 
 ;; ===========================================================================
-;; rf2-294yq5.5 — handler-exception ex-data redaction propagates
+;; rf2-294yq5.5 / rf2-bsk1d9 — handler-exception ex-data redaction propagates
 ;;
-;;   The marks live on the variant FRAME, so we run-variant once to
-;;   allocate the frame, mark the path sensitive, then run a phase-4 play
-;;   whose dispatched event throws an ex-info carrying the sensitive value
-;;   in ex-data — and read the freshly-recorded exception record.
+;;   The variant declares its sensitive ex-data path at registration via the
+;;   EP-0015 frame-owned `:sensitive` slot — installed as part of frame
+;;   creation, so a single `run-variant` captures the throw under the
+;;   classification. No public `add-marks` mutation.
 ;; ===========================================================================
 
 (deftest exception-ex-data-redacts-sensitive-slot
-  (testing "rf2-294yq5.5: a handler that throws ex-info with a value at a
-            path-marked-sensitive key records :rf/redacted in :error :data,
+  (testing "rf2-bsk1d9: a handler that throws ex-info with a value at a
+            frame-owned sensitive key records :rf/redacted in :error :data,
             NOT the raw secret; the :error :message survives verbatim"
     (rf/reg-event :auth/boom
       (fn [_ _]
@@ -73,37 +73,27 @@
                          :reason :bad-password}))))
     (story/reg-variant :story.err-redaction/probe
       {:events      []
+       :sensitive   {:app-db [[:token]]}
        :play-script [[:dispatch-sync [:auth/boom]]]})
     (async done
       (-> (story/run-variant :story.err-redaction/probe)
           (async-lib/then
-            (fn [_first-run]
-              ;; Mark the ex-data key sensitive on the variant frame, then
-              ;; re-run the play so the throw is captured under the marks.
-              (story/add-marks :story.err-redaction/probe
-                               {[:token] :sensitive})
-              (-> (story/execute-play! :story.err-redaction/probe)
-                  (async-lib/then
-                    (fn [_]
-                      (let [recs (story/read-assertions
-                                   :story.err-redaction/probe)
-                            ex   (last (filter #(= :rf.error/exception
-                                                   (:assertion %))
-                                               recs))
-                            data (get-in ex [:error :data])]
-                        (is (some? ex)
-                            "the throwing handler was captured as an
-                             :rf.error/exception record")
-                        (is (= :rf/redacted (:token data))
-                            "the sensitive ex-data slot is redacted, NOT the
-                             raw bearer token")
-                        (is (= :bad-password (:reason data))
-                            "a non-sensitive ex-data slot passes through")
-                        (is (= "Invalid credentials" (get-in ex [:error :message]))
-                            "the message string survives verbatim (NOT
-                             auto-walked)")
-                        (story/destroy-variant! :story.err-redaction/probe)
-                        (done)))))))))))
+            (fn [result]
+              (let [ex   (last (filter #(= :rf.error/exception (:assertion %))
+                                       (:assertions result)))
+                    data (get-in ex [:error :data])]
+                (is (some? ex)
+                    "the throwing handler was captured as an
+                     :rf.error/exception record")
+                (is (= :rf/redacted (:token data))
+                    "the sensitive ex-data slot is redacted, NOT the
+                     raw bearer token")
+                (is (= :bad-password (:reason data))
+                    "a non-sensitive ex-data slot passes through")
+                (is (= "Invalid credentials" (get-in ex [:error :message]))
+                    "the message string survives verbatim (NOT auto-walked)"))
+              (story/destroy-variant! :story.err-redaction/probe)
+              (done)))))))
 
 (deftest exception-ex-data-non-sensitive-passes-through
   (testing "rf2-294yq5.5: with NO marks, the captured ex-data passes through

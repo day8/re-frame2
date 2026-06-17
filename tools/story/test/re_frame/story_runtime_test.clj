@@ -1235,25 +1235,24 @@
 ;; ---- rf2-294yq5.5 — exception ex-data wire-elision -----------------------
 
 (deftest exception-ex-data-redacts-sensitive-slot-jvm
-  (testing "a handler throwing ex-info with a value at a path-marked-sensitive
+  (testing "a handler throwing ex-info with a value at a frame-owned sensitive
             key records :rf/redacted in :error :data, NOT the raw secret; the
-            :error :message survives verbatim (rf2-294yq5.5). JVM gate (the
-            CLJS twin lives in error_projection_redaction_cljs_test.cljs)"
+            :error :message survives verbatim (rf2-294yq5.5 / rf2-bsk1d9). JVM
+            gate (the CLJS twin lives in error_projection_redaction_cljs_test.cljs)"
     (rf/reg-event :auth/boom-jvm
       (fn [_ _]
         (throw (ex-info "Invalid credentials"
                         {:token  "BEARER-secret-12345"
                          :reason :bad-password}))))
+    ;; rf2-bsk1d9 — declare the sensitive ex-data path on the variant body
+    ;; (EP-0015 frame-owned classification, installed at frame creation); no
+    ;; public add-marks mutation, no run-once-then-mark-then-rerun dance.
     (story/reg-variant :story.err-redaction-jvm/v
       {:events      []
+       :sensitive   {:app-db [[:token]]}
        :play-script [[:dispatch-sync [:auth/boom-jvm]]]})
-    ;; Allocate the frame (first run records the error UNMARKED), then mark
-    ;; the ex-data key sensitive and re-run the play under the marks.
-    (async/deref-blocking (story/run-variant :story.err-redaction-jvm/v) 5000)
-    (story/add-marks :story.err-redaction-jvm/v {[:token] :sensitive})
-    (async/deref-blocking (story/execute-play! :story.err-redaction-jvm/v) 5000)
-    (let [recs (story/read-assertions :story.err-redaction-jvm/v)
-          ex   (last (filter #(= :rf.error/exception (:assertion %)) recs))
+    (let [r    (async/deref-blocking (story/run-variant :story.err-redaction-jvm/v) 5000)
+          ex   (last (filter #(= :rf.error/exception (:assertion %)) (:assertions r)))
           data (get-in ex [:error :data])]
       (is (some? ex) "the throwing handler was captured as an exception record")
       (is (= :rf/redacted (:token data))

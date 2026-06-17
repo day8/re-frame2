@@ -80,12 +80,11 @@
   the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
   (:require [re-frame.core              :as rf]
-            ;; EP-0015 (rf2-mngp4o): the `add-marks` / `set-marks` path-marks
-            ;; primitives are no longer published from `re-frame.core` (frame-
-            ;; owned classification + `project-egress` are the public boundary).
-            ;; They remain as internal helpers in their home ns; the Story-author
-            ;; re-export below (rf2-l6hzv) now sources them from there.
-            [re-frame.marks             :as marks]
+            ;; rf2-bsk1d9 (EP-0015): Story does NOT re-export `add-marks` /
+            ;; `set-marks`. Durable app-db classification is a frame-creation
+            ;; concern — a variant declares `:sensitive` / `:large` on its
+            ;; body and the runtime threads them onto its `reg-frame` config
+            ;; (`re-frame.story.frames`). The `re-frame.marks` require is gone.
             [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
@@ -663,63 +662,34 @@
   []
   (canonical/install!))
 
-;; ---- add-marks / set-marks re-export (rf2-l6hzv) ------------------------
+;; ---- frame-owned classification — NO add-marks / set-marks re-export -----
 ;;
-;; Story-author ergonomic aliases for the framework path-marks primitives.
-;; Per EP-0015 (rf2-mngp4o) these primitives are no longer published from
-;; `re-frame.core` — frame-owned `:sensitive` / `:large` classification +
-;; `project-egress` are the public boundary now — but they survive as
-;; internal helpers in their home ns (`re-frame.marks`). Story re-exports
-;; them from THERE so the `(story/add-marks <variant-id> {path mark, ...})`
-;; / `(story/set-marks ...)` author surface is preserved unchanged. No
-;; fork, no shim; the re-export is purely for discoverability so authors
-;; scanning `re-frame.story`'s public surface for privacy primitives find
-;; them without chasing cross-references into the framework internals.
+;; rf2-bsk1d9 (EP-0015 issue, spec/015 §Frame-owned durable classification):
+;; Story does NOT publish `add-marks` / `set-marks` as author-facing privacy
+;; primitives. EP-0015 moved durable app-db classification onto the frame
+;; owner and explicitly SUPERSEDED the public post-creation `add-marks` /
+;; `set-marks` mutation surface (spec/015 §Supersession note; framework
+;; spec/API.md — the underlying fns are internal / test helpers only). A
+;; Story re-export would re-open that exact escape hatch and guide authors
+;; back to the pre-EP-0015 imperative mark-mutation model.
 ;;
-;; Per Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export.
-
-(def ^{:doc "Additively merge per-frame path-marks into `app-db`, per
-  [framework spec/015 §App-db marks](../../../../spec/015-Data-Classification.md).
-  Variants typically scope the declaration to the variant's frame id —
-  per-variant frames each get their own marks declaration:
-
-      (story/reg-variant :story.auth/login-form
-        {:component login-form
-         :args {:user/email \"ada@example.com\"
-                :user/password \"•••••\"}})
-
-      (story/add-marks :story.auth/login-form
-        {[:user :password] :sensitive
-         [:auth :token]    :sensitive
-         [:docs :csv-upload] :large})
-
-  Re-export of the framework's internal `re-frame.marks/add-marks`
-  primitive per rf2-l6hzv — Story-author discoverability alias; same
-  primitive, same data model, same per-frame semantics. (EP-0015,
-  rf2-mngp4o: the framework no longer publishes this from `re-frame.core`;
-  authoring app-db classification is a frame-creation concern. Story keeps
-  the ergonomic alias by sourcing the internal helper directly.) See
-  [Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export](../spec/Conventions.md#privacy-primitives--add-marks--set-marks-re-export)
-  for the convention rationale.
-
-  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
-  does NOT install an interceptor, does NOT change any handler's view
-  of the data. Use `set-marks` for replace-semantics."}
-  add-marks marks/add-marks)
-
-(def ^{:doc "Replace the per-frame `app-db` mark-set, per
-  [framework spec/015 §App-db marks](../../../../spec/015-Data-Classification.md).
-  Paths supplied REPLACE the frame's prior marks set wholesale.
-
-      (story/set-marks :story.auth/login-form
-        {[:user :password] :sensitive
-         [:auth :token]    :sensitive})
-
-  Re-export of the framework's internal `re-frame.marks/set-marks`
-  primitive per rf2-l6hzv (EP-0015 rf2-mngp4o moved it off the public
-  `re-frame.core` façade). Returns `frame-id`. Pure declaration — does
-  NOT mutate `app-db`."}
-  set-marks marks/set-marks)
+;; The EP-0015-compliant Story surface is FRAME-CREATION classification: a
+;; variant declares its sensitive / large app-db paths at registration via
+;; the `:sensitive` / `:large` slots on the variant body — the SAME owner
+;; model `reg-frame` uses — and the runtime threads them onto the variant's
+;; `reg-frame` config (`re-frame.story.frames/variant-frame-config`), so the
+;; framework installs them atomically as part of frame creation:
+;;
+;;     (story/reg-variant :story.auth/login-form
+;;       {:component login-form
+;;        :args      {:user/email "ada@example.com"
+;;                    :user/password "•••••"}
+;;        :sensitive {:app-db [[:user :password] [:auth :token]]}
+;;        :large     {:app-db [[:docs :csv-upload]]}})
+;;
+;; This drives every local-redacted Story surface (assertion redaction, the
+;; trace buffer, the recorder, DOM capture) with NO public post-creation
+;; mark mutation. Per spec/015 §Frame-owned durable classification.
 
 ;; ---- reg-global-decorator (rf2-835ey — preview.ts parity, F-1) ----------
 ;;

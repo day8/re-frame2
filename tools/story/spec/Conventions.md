@@ -127,22 +127,22 @@ Per [016-Design-Tokens.md](016-Design-Tokens.md), chrome consumers consume **des
 
 The bans are in the linter / CI rules, not just doc'd — see [016-Design-Tokens.md](016-Design-Tokens.md) §Token contract. Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
 
-## Privacy primitives — `add-marks` / `set-marks` re-export
+## Privacy — frame-owned `:sensitive` / `:large` classification
 
-Per [framework spec/015](../../../spec/015-Data-Classification.md), `add-marks` and `set-marks` declare per-frame path-marks (`:sensitive`, `:large`) against `app-db`. Variant bodies use them to declare path-marks scoped to a single variant's frame:
+Per [framework spec/015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md#frame-owned-durable-classification), durable app-db classification is **owned by the frame** and declared at frame creation. Since a variant *is* a frame, a variant declares its sensitive / large app-db paths via the `:sensitive` / `:large` slots on its body — the SAME owner model `reg-frame` uses:
 
 ```clojure
 (story/reg-variant :story.auth/login-form
   {:component login-form
-   :args {:user/email "ada@example.com"
-          :user/password "•••••"}})
-
-(story/add-marks :story.auth/login-form
-  {[:user :password] :sensitive
-   [:auth :token]    :sensitive})
+   :args      {:user/email "ada@example.com"
+               :user/password "•••••"}
+   :sensitive {:app-db [[:user :password] [:auth :token]]}
+   :large     {:app-db [[:docs :csv-upload]]}})
 ```
 
-`story/add-marks` and `story/set-marks` are re-exports of `re-frame.core/add-marks` / `re-frame.core/set-marks` (no fork; same primitives, same data model, same per-frame semantics). `add-marks` merges additively; `set-marks` replaces the frame mark-set wholesale. The re-exports live on the Story facade purely for **discoverability** — authors scanning `re-frame.story`'s public surface for privacy primitives find them without chasing cross-references into `re-frame.core`. See [framework Conventions §Library-owned prefixes](../../../spec/Conventions.md#library-owned-prefixes) for the principle that canonical devtools re-export framework primitives where ergonomic.
+The runtime threads these onto the variant's `reg-frame` config (`re-frame.story.frames/variant-frame-config`), so the framework's `re-frame.frame-classification` validates and installs them atomically as part of frame creation — a malformed declaration FAILS LOUDLY at registration. This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation.
+
+**Story does NOT publish `add-marks` / `set-marks`** (rf2-bsk1d9). EP-0015 moved durable app-db classification onto the frame owner and explicitly superseded the public post-creation `add-marks` / `set-marks` mutation surface (the underlying fns are framework-internal / test helpers only — [framework spec/015 §Supersession note](../../../spec/015-Data-Classification.md#frame-owned-durable-classification)). A Story re-export would re-open that exact escape hatch and guide authors back to the pre-EP-0015 imperative mark-mutation model, so it is deliberately absent. Transient payloads (event args, fx/cofx values) are still classified via `:sensitive` / `:large` registration metadata on `reg-event` / `reg-fx` / `reg-cofx`, per the framework registration grammar.
 
 ## Cross-references
 

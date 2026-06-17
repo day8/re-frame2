@@ -19,7 +19,7 @@ Every row carries:
 - a **status** — `v1` (stable), `v1 (dev-only)` (elided in `:advanced` + `re-frame.story.config/enabled?=false`)
 - an **intuition** — the one-line answer to "what's this for and when do I reach for it?"
 
-Where a surface lives in more than one namespace (e.g. `add-marks` / `set-marks` are re-exported from `re-frame.story` for author-discoverability over the framework's `re-frame.core` definitions) the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations.
+Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is frame-owned — declared via the `:sensitive` / `:large` slots on a variant body, not a re-exported mutation surface (EP-0015; see [Registration §Privacy](registration.md#privacy--frame-owned-classification)).
 
 ## Where surfaces live
 
@@ -27,7 +27,7 @@ Story's user-facing surface splits across the facade plus a small set of sub-nam
 
 | Namespace | Use when |
 |---|---|
-| `re-frame.story` | The canonical require. Every registration macro + its `*`-fn partner, the run / reset / watch / destroy lifecycle, the registry query family, the assertion + recorder facades, the canonical vocabulary tables, `configure!`, the `*-id` Vars for built-in decorators, the shell-mount surface (CLJS-only), `variant-share-url`, and `add-marks` / `set-marks`. |
+| `re-frame.story` | The canonical require. Every registration macro + its `*`-fn partner, the run / reset / watch / destroy lifecycle, the registry query family, the assertion + recorder facades, the canonical vocabulary tables, `configure!`, the `*-id` Vars for built-in decorators, the shell-mount surface (CLJS-only), and `variant-share-url`. (Durable app-db classification is declared on variant bodies via `:sensitive` / `:large`, not a published mutation fn — EP-0015.) |
 | `re-frame.story.recorder.play-export` | The rich DOM-capture-aware recorder translator (`recording->play-script`, `render-play-script` — the fn names carry the recorder's transitional `play-script` spelling, lowered to `:script` on registration). Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection. |
 | `re-frame.story.ui.xray-embed` | The Xray-RHS embed component (`xray-embed-panel`), `mount-fn-for` dispatch, `popout-full-shell!`. Called by the shell or the embed component, rarely by app code. |
 | `re-frame.story.xray-preset` | The chrome / Xray bridge — `wire-cross-host!`, `xray-available?`, `propagate-project-root!`. |

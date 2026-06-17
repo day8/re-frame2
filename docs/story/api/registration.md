@@ -306,27 +306,22 @@ Worked example:
                 [story/layout-debug-pseudo-id #{:hover}]]})
 ```
 
-## Privacy primitives
+## Privacy — frame-owned classification
 
-Story authors declare per-frame path-marks against `app-db` using the framework's `add-marks` / `set-marks` primitives. Both are re-exported from `re-frame.core` for author-discoverability — same primitives, same data model, same per-frame semantics — so authors scanning `re-frame.story`'s public surface for privacy primitives find them without chasing cross-references.
+Durable app-db classification is **frame-owned** (EP-0015): since a variant *is* a frame, a variant declares its sensitive / large app-db paths at frame creation via the `:sensitive` / `:large` slots on its body — the same owner model `reg-frame` uses:
 
-### `add-marks`
+```clojure
+(story/reg-variant :story.auth/login-form
+  {:component login-form
+   :args      {:user/email "ada@example.com"
+               :user/password "•••••"}
+   :sensitive {:app-db [[:user :password] [:auth :token]]}
+   :large     {:app-db [[:docs :csv-upload]]}})
+```
 
-- **Signature**:
-  ```clojure
-  (add-marks variant-id marks-map) → nil
-  ```
-- **Description**: Merge marks additively into the variant frame's mark-set. Re-export of `re-frame.core/add-marks`.
+The runtime threads these onto the variant's `reg-frame` config, so the framework's classification layer validates and installs them atomically as part of frame creation — a malformed declaration fails loudly at registration. This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation. The `:sensitive` / `:large` value shape is the framework's: a map keyed by `:app-db` (a vector of `get-in`-shaped paths) and optionally `:http` (frame-local carrier-name extensions).
 
-### `set-marks`
-
-- **Signature**:
-  ```clojure
-  (set-marks variant-id marks-map) → nil
-  ```
-- **Description**: Replace the variant frame's mark-set wholesale. Re-export of `re-frame.core/set-marks`.
-
-A `marks-map` is `{path mark, ...}` where `path` is a `get-in`-shaped vector and `mark` is one of `:sensitive` / `:large`. Variant-body usage scopes marks to that variant's frame; the framework's `elide-wire-value` walker substitutes `:rf/redacted` / `:rf/large` at every wire-egress observation point.
+> **No `add-marks` / `set-marks`.** Story does not publish a post-creation path-mark mutation surface. EP-0015 moved durable app-db classification onto the frame owner and superseded the public `add-marks` / `set-marks` model (the underlying fns are framework-internal / test helpers only). Declare classification at frame creation instead. Transient payloads (event args, fx/cofx values) are classified via `:sensitive` / `:large` registration metadata on `reg-event` / `reg-fx` / `reg-cofx`.
 
 ## See also
 
@@ -336,4 +331,4 @@ A `marks-map` is `{path mark, ...}` where `path` is a `get-in`-shaped vector and
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
 - [Story tutorial — Workspaces, modes, and composition](../07-workspaces-modes-composition.md) — workspaces, modes, the args editor.
-- [Framework API — Schemas and data classification](../../api/08-schemas.md) — `add-marks` / `set-marks` framework definitions.
+- [Framework API — Schemas and data classification](../../api/08-schemas.md) — the framework's frame-owned `:sensitive` / `:large` classification model.
