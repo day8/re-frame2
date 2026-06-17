@@ -237,16 +237,6 @@
 ;; facts (it is the verification payload the internal reply handlers gate on),
 ;; then asserted DATA-ONLY via `re-frame.reply/durable-target`.
 
-(def resource-internal-succeeded
-  "The framework-internal resource success reply event id — the head of the
-  resource-read row's reified continuation (Spec 016 §Events; matches
-  `re-frame.resources.transport.http/succeeded-reply`, spelled here so the
-  ledger reconstructs its durable continuation without inverting the
-  transport dependency). The success leg is canonical: the failure leg
-  (`:rf.resource.internal/failed`) shares the SAME verification payload, so
-  one durable target represents the reified continuation."
-  :rf.resource.internal/succeeded)
-
 (defn durable-reply-to
   "Reconstruct the DURABLE, data-only reply target for a resource-read work
   `record` — the reified continuation Managed-Effects §Work-ledger
@@ -269,8 +259,16 @@
   is correlation metadata derivable from the resource key), so it is omitted
   from the durable continuation — one name per fact."
   [record]
+  ;; rf2-7wecib — the success reply event id is inlined here as the normative
+  ;; literal (Spec 016 §Events; the same id `transport.http/succeeded-reply`
+  ;; spells). The ledger spells it locally rather than depending on
+  ;; transport.http (a layering dodge, not a cycle) — and there is exactly ONE
+  ;; use, so a local `def` only added a level of indirection over the literal.
+  ;; The success leg is canonical: the failure leg
+  ;; (`:rf.resource.internal/failed`) shares the SAME verification payload, so
+  ;; one durable target represents the reified continuation.
   (reply/durable-target
-    {:event [resource-internal-succeeded
+    {:event [:rf.resource.internal/succeeded
              {:work/id      (:work/id record)
               :resource/key (:resource/key record)
               :generation   (:generation record)
