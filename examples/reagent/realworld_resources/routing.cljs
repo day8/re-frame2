@@ -62,7 +62,13 @@
     ;; into identity. Every server-visible list option participates in the
     ;; cache key (Spec 016 §Paginated and previous data).
     :params    (fn [route] {:tag  (tag-fn route)
-                            :page (get-in route [:query :page])})
+                            ;; Default to page 1 so the canonical no-`?page=`
+                            ;; URL owns the SAME `{:page 1}` key the views
+                            ;; subscribe through (`(or (:page q) 1)`); a raw
+                            ;; nil would mint a `{:page nil}` entry no view
+                            ;; reads, leaving first-page lists permanently
+                            ;; empty (rf2-01jbr9).
+                            :page (or (get-in route [:query :page]) 1)})
     :blocking? true
     :keep-previous? true}
    {:resource  :realworld/tags
@@ -78,7 +84,9 @@
    ;; into params here like every other paginated list.
    {:resource  :realworld/feed
     :scope     {:from-db :realworld/session}
-    :params    (fn [route] {:page (get-in route [:query :page])})
+    ;; Default to page 1 — the feed subscription reads `(or (:page q) 1)`
+    ;; too, so the route must own `{:page 1}` on the bare URL (rf2-01jbr9).
+    :params    (fn [route] {:page (or (get-in route [:query :page]) 1)})
     :blocking? false
     :keep-previous? true}])
 
@@ -168,8 +176,9 @@
      :params    (fn [route] {:username (get-in route [:params :username])})
      :blocking? true}
     {:resource  :realworld/author-articles
+     ;; Default to page 1 to match the view's `(or (:page q) 1)` key (rf2-01jbr9).
      :params    (fn [route] {:username (get-in route [:params :username])
-                             :page     (get-in route [:query :page])})
+                             :page     (or (get-in route [:query :page]) 1)})
      :blocking? false
      :keep-previous? true}]})
 
@@ -189,8 +198,9 @@
      :params    (fn [route] {:username (get-in route [:params :username])})
      :blocking? true}
     {:resource  :realworld/favorited-articles
+     ;; Default to page 1 to match the view's `(or (:page q) 1)` key (rf2-01jbr9).
      :params    (fn [route] {:username (get-in route [:params :username])
-                             :page     (get-in route [:query :page])})
+                             :page     (or (get-in route [:query :page]) 1)})
      :blocking? false
      :keep-previous? true}]})
 

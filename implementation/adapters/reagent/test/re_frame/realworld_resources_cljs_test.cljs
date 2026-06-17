@@ -361,7 +361,10 @@
       ;; ensure the session feed under the principal-switch lease the app uses
       (rf/dispatch-sync [:auth/ensure-session-feed] {:frame f})
       (reply-success! @last-managed-args {:articles [{:slug "x"}] :articlesCount 1} f)
-      (let [fk (feed-key "alice" nil)]
+      ;; :auth/ensure-session-feed defaults `:page` to 1 (rf2-01jbr9) so it hits
+      ;; the SAME canonical `{:page 1}` key the home route + feed subscription
+      ;; use on the no-`?page=` URL — assert against that key, not `{:page nil}`.
+      (let [fk (feed-key "alice" 1)]
         (is (some? (entry f fk)) "the session feed entry exists for alice")
         ;; also seed a PUBLIC global read so we can prove logout leaves it alone
         (rf/dispatch-sync [:rf.resource/ensure

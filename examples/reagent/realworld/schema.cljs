@@ -208,8 +208,11 @@
    [:submit-error [:maybe :string]]])
 
 (def EditorSlice
+  ;; NOTE: the state vocabulary (`:mode` = :create/:edit, lifecycle `:status`)
+  ;; lives in the :ui/article-editor machine snapshot (runtime-db), NOT this
+  ;; app-db slice — see `editor-slice` in article_editor.cljs (:54-67), whose
+  ;; map never carries `:mode`/`:status`. The slice carries only the data.
   [:map
-   [:mode [:enum :create :edit]]
    [:slug [:maybe :string]]
    [:draft [:map
             [:title :string]
@@ -222,7 +225,6 @@
                [:body :string]
                [:tagList :string]]]
    [:submitted [:maybe :any]]
-   [:status :keyword]
    [:errors :map]
    [:touched [:set :keyword]]
    [:submit-attempted? {:optional true} :boolean]
