@@ -137,39 +137,40 @@
   silently shipping an empty or wrong hydration slice instead of failing
   closed at boot. Validating each element to a keyword closes that gap.
 
-  rf2-d8vs9x — the OUTER-shape gap: the guard was `sequential?`, which also
-  admits lists (`'(:a :b)`) and seqs, contradicting the documented
-  `vector vs keyword` shape selector (Spec 011 §`:rf/app-db` projection —
-  \"a non-empty VECTOR of keywords\" / \"the allowlist-vs-whole-app-db choice
-  is the value's SHAPE (vector vs keyword)\"). A shape-selected fail-closed
-  security boundary wants ONE precise contract, not two accepted spellings:
-  the allowlist is a vector. A list / seq is no longer an accepted allowlist
-  spelling — it fails closed into the missing-policy bucket (asserted by the
-  list-rejection regression that replaced the prior vector-or-list test)."
+  Outer shape — a non-empty SEQUENTIAL of keywords: a vector (the
+  documented canonical spelling) OR a list / lazy-seq (`'(:a :b)`, or a
+  computed `(mapv ...)` / `(keep ...)` / `(filterv ...)` result). The real
+  policy selector is COLLECTION-vs-KEYWORD, not vector-vs-keyword — a
+  sequential of keywords can never be confused with the whole-app-db keyword
+  opt-in (`:rf.ssr.payload/whole-app-db`), so admitting any sequential
+  spelling does not weaken the shape-selected fail-closed boundary. A SET is
+  NOT sequential, so it still falls into the missing-policy bucket — the
+  allowlist is an ORDERED key selection. (An empty `[]` / `'()` still fails
+  closed via `(seq x)`; the `(every? keyword?)` element guard still catches a
+  `\"public/articles\"` string typo as a malformed allowlist.)"
   [x]
-  (and (vector? x)
+  (and (sequential? x)
        (seq x)
        (every? keyword? x)))
 
 (defn- malformed-allowlist?
   "A `:payload` that LOOKS like an allowlist attempt — a non-empty
-  **vector** — but carries a non-keyword element (a string typo, a stray
+  **sequential** — but carries a non-keyword element (a string typo, a stray
   `nil`, a nested coll, …). Distinguished from `valid-allowlist?` so the
   construction-time validator can surface a diagnostic
   `:rf.error/ssr-malformed-payload-allowlist` (which element is bad)
   rather than dumping the caller into the generic missing-policy bucket
   — the developer clearly INTENDED an allowlist; telling them which entry
   is wrong is the fail-loud, masterpiece outcome (rf2-hzttr finding 2).
-  An empty `[]` is NOT malformed — it is the documented `no-allowlist`
+  An empty `[]` / `'()` is NOT malformed — it is the documented `no-allowlist`
   shape that falls into the missing-policy bucket per Spec 011.
 
-  rf2-d8vs9x — gated on `vector?` (not `sequential?`) to match
-  `valid-allowlist?`'s tightened outer shape: a non-vector sequential
-  (a list / seq) is not an allowlist ATTEMPT under the vector-shaped
-  contract — it falls into the missing-policy bucket, not the
-  malformed-allowlist diagnostic."
+  Gated on `sequential?` to match `valid-allowlist?`'s outer shape: a
+  list / lazy-seq with a bad element is an allowlist ATTEMPT and earns the
+  same malformed diagnostic a vector does (so a `'(\"public/articles\")`
+  list typo fails loud, not silent)."
   [x]
-  (and (vector? x)
+  (and (sequential? x)
        (seq x)
        (not (every? keyword? x))))
 
@@ -185,9 +186,10 @@
   malformed. Called at handler-construction time by the Ring host adapter
   so misconfigured deployments fail at boot, not at first request.
 
-    - `:payload [<kws>]` (non-empty VECTOR of keywords) → OK (allowlist)
+    - `:payload [<kws>]` (non-empty SEQUENTIAL of keywords — a vector, the
+      canonical spelling, or a list / lazy-seq) → OK (allowlist)
     - `:payload :rf.ssr.payload/whole-app-db`   → OK (whole-app-db opt-in)
-    - `:payload [<… non-keyword element …>]` (non-empty VECTOR with a
+    - `:payload [<… non-keyword element …>]` (non-empty SEQUENTIAL with a
       string/nil/nested entry) → `:rf.error/ssr-malformed-payload-allowlist`
       (rf2-hzttr — a clear allowlist attempt with a bad element, surfaced
       distinctly with the offending entries so a `\"public/articles\"`
@@ -196,10 +198,10 @@
     - `:payload <other keyword>`  → `:rf.error/ssr-unknown-payload-policy`
       (a typo'd policy keyword, e.g. `:rf.ssr.payload/whole-db`, surfaced
       distinctly so it doesn't silently land in the missing bucket)
-    - `:payload` absent / empty `[]` / nil / a list-or-seq spelling /
-      any other non-vector non-keyword → `:rf.error/ssr-missing-payload-policy`
-      (fail-closed; rf2-d8vs9x — a list `'(:a :b)` is NOT an accepted
-      allowlist spelling, the allowlist shape is a vector)
+    - `:payload` absent / empty `[]` / `'()` / nil / a set / any other
+      non-sequential non-keyword → `:rf.error/ssr-missing-payload-policy`
+      (fail-closed; the selector is collection-vs-keyword, so a SET is
+      rejected — the allowlist is an ORDERED key selection)
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
@@ -269,8 +271,8 @@
 
   Per the contract:
 
-    - `:payload [<kws>]` (allowlist, non-empty VECTOR of keywords)
-      → `select-keys`.
+    - `:payload [<kws>]` (allowlist, non-empty SEQUENTIAL of keywords —
+      vector / list / lazy-seq) → `select-keys`.
     - `:payload :rf.ssr.payload/whole-app-db` → ships `app-db` verbatim.
     - Absence / malformed → throws (`:rf.error/ssr-missing-payload-policy`,
       `:rf.error/ssr-malformed-payload-allowlist`, or
