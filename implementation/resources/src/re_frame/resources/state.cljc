@@ -967,8 +967,8 @@
 ;;
 ;; `:data` / `:page-params` / `:next-page-param` are the durable facts; the
 ;; merged list, `:has-next-page?`, `:fetching-next?`, `:page-count`, etc. are
-;; DERIVED in the subs layer (wave 4), never stored. The load-more EVENT
-;; (wave 3) drives `entry-append-page` / `entry-page-failed` from the work
+;; DERIVED in the subs layer, never stored. The `:rf.resource/load-more` event
+;; drives `entry-append-page` / `entry-page-failed` from the work
 ;; ledger reply path; these are the pure transitions it calls.
 
 (defn infinite-entry?
@@ -990,7 +990,7 @@
 (defn page-param-for-spec
   "The page-0 param for an infinite resource `spec`: the resource's optional
   `:initial-page-param`, or the framework default (`nil`) when none is
-  declared. The single home so the load-more event (wave 3) and the first-load
+  declared. The single home so the load-more event and the first-load
   page-0 fetch agree. Per Spec 016 §Causal event — load-more."
   [spec]
   (get spec :initial-page-param initial-page-param))
@@ -1233,10 +1233,10 @@
   "PURE: resolve a feed's `:page->items` accessor (a keyword key or a
   `(fn [page] → seq-of-items)`) into a fn `(page → seq-of-items)`. A keyword is
   lifted to its `get` accessor. When `page->items` is nil, returns nil — the
-  caller (the merge site, wave 4) then applies the IDENTITY-flatten rule for a
+  caller (the merge site) then applies the IDENTITY-flatten rule for a
   vector page and raises `:rf.error/infinite-missing-page-accessor` for a
   non-vector page (R3, loud over guessing). The single home so the registry
-  shape-validation and the wave-4 merge agree on what shapes are accepted. Per
+  shape-validation and the subs merge agree on what shapes are accepted. Per
   Spec 016 §Subscription contract (R3)."
   [page->items]
   (cond
@@ -1256,7 +1256,7 @@
       flattens via the resource's REQUIRED `:page->items` accessor;
     - a non-vector page with NO `:page->items` accessor is a loud
       `:rf.error/infinite-missing-page-accessor` error — the runtime-detected
-      counterpart the wave-2 registry validation deferred to this merge site
+      counterpart the registry validation deferred to this merge site
       (the registry cannot inspect a page shape at registration time; only the
       merge sees a concrete page). The framework NEVER guesses `:items` /
       `:data`.
