@@ -132,6 +132,40 @@
     :restored :conflicted :refetched
     :restored-keys :conflicted-keys :refetched-keys :reconciliation-refetches})
 
+(def ^:private cursor-slot
+  "Tag slots that carry the load-more PAGINATION CURSOR as a FREE scalar tag
+  (not a scoped key): the `:rf.resource/load-more` row's `:page-param` (the
+  resolved next-page param) and the `:rf.resource/page-appended` row's
+  `:next-page-param` (the cursor the just-appended page derived for the page
+  AFTER it). The cursor is an OWNER-DEFINED value — it can carry a record id /
+  a tenant-scoped offset token / a timestamp (`:next-page-param` is the app's
+  own fn over the resource data), so it is owner-local identity-bearing the
+  same way a scoped key's scope / params are. The generic value-path egress
+  walk is structurally blind to it once copied into a free tag, and it is NOT a
+  scoped-key vector, so it escapes the scoped-key slots above (rf2-3tysyj). It
+  is tokenized iff the ROW's resource owner classifies non-`:serialize`
+  (sensitive / large / derived-sensitive / unregistered fail-closed) — the SAME
+  disposition that governs the row's `:resource/key` — so a plain feed's cursor
+  rides verbatim (no over-redaction)."
+  #{:page-param :next-page-param})
+
+(defn- row-owner-redacts?
+  "Whether the resource OWNER named by this trace row's `:resource/key`
+  classifies non-`:serialize` (sensitive / large / derived-sensitive against
+  `frame-id`, or UNREGISTERED → fail-closed) — i.e. whether the row's
+  owner-local identity-bearing FREE tags (the load-more cursor) must tokenize.
+  Reuses the SAME owner classification the scoped-key projection uses
+  (`disposition+project-key`), with the trace-egress fail-closed default for an
+  unregistered / unreadable owner (`project-trace-scoped-key`'s nil-spec arm).
+  Returns false when the row carries no usable `:resource/key` (no owner to read
+  — the cursor then rides verbatim; structural attribution is unaffected).
+  Pure."
+  [tags frame-id]
+  (let [sk (:resource/key tags)]
+    (when (and (vector? sk) (= 3 (count sk)))
+      (let [[_pk sens?] (project-trace-scoped-key sk frame-id)]
+        sens?))))
+
 (def ^:private disposition-rows-slot
   "Tag slots that carry a VECTOR of per-key DISPOSITION maps (each embedding a
   `:resource/key`): the `:rf.mutation/optimistic-rolled-back` row's
@@ -171,6 +205,13 @@
     [tags false]
     (let [sens?* (volatile! false)
           note!  (fn [s] (when s (vreset! sens?* true)))
+          ;; the load-more cursor (`:page-param` / `:next-page-param`) is a FREE
+          ;; tag, not a scoped key, so its classification rides the ROW's owner
+          ;; (named by `:resource/key`): tokenize the cursor iff that owner is
+          ;; non-`:serialize` (sensitive / large / derived / unregistered) —
+          ;; computed ONCE here so the per-slot walk just consults it
+          ;; (rf2-3tysyj). A plain feed's cursor rides verbatim.
+          cursor-redacts? (row-owner-redacts? tags frame-id)
           tags'
           (reduce-kv
             (fn [m k v]
@@ -194,6 +235,17 @@
                 (and (nested-map-slot k) (map? v))
                 (let [[mv s] (project-tags* v frame-id)]
                   (note! s) (assoc m k mv))
+
+                ;; cursor: a non-nil free cursor tag tokenizes (content-addressed)
+                ;; iff the row's owner redacts; idempotent (an opaque token stays
+                ;; sensitive + is not re-hashed — `redact-value` of an already
+                ;; redacted token would re-digest, so guard it).
+                (and (cursor-slot k) (some? v))
+                (if (redacted-token? v)
+                  (do (note! true) (assoc m k v))
+                  (if cursor-redacts?
+                    (do (note! true) (assoc m k (ssr/redact-value v)))
+                    (assoc m k v)))
 
                 :else (assoc m k v)))
             {}
@@ -222,6 +274,16 @@
   `:generation`, `:owner`, `:work/id`, `:delay-ms`, counts, …) ride verbatim —
   structural attribution is preserved. When ANY projected slot redacted a
   sensitive / unregistered key, the row is stamped `:sensitive? true`.
+
+  The load-more PAGINATION CURSOR — `:page-param` (on `:rf.resource/load-more`)
+  / `:next-page-param` (on `:rf.resource/page-appended`) — is a FREE owner-
+  defined tag (an app `:next-page-param` fn over the feed data, so it can carry
+  a record id / tenant offset / timestamp), not a scoped key, so it escapes the
+  scoped-key slots. It rides the ROW's owner classification (read from the
+  sibling `:resource/key`): tokenized to a content-addressed `{:rf/redacted
+  <digest>}` when that owner is non-`:serialize` (sensitive / large / derived /
+  unregistered fail-closed), riding verbatim for a plain feed (no
+  over-redaction) — rf2-3tysyj.
 
   Nested-map slots (`:patch-summary` / `:invalidation`) are projected
   RECURSIVELY through the same vocabulary so a row's nested scoped keys never

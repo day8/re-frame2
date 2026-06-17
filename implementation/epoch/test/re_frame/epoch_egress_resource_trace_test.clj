@@ -303,3 +303,90 @@
           "raw :removed vector rides with :include-sensitive?")
       (is (= k-disp (:resource/key (first (:dispositions (:tags roll)))))
           "raw rollback :dispositions key rides with :include-sensitive?"))))
+
+;; ---------------------------------------------------------------------------
+;; (7) the load-more PAGINATION CURSOR — a FREE tag, owner-classified (rf2-3tysyj)
+;; ---------------------------------------------------------------------------
+;;
+;; The cursor (`:page-param` on `:rf.resource/load-more`, `:next-page-param` on
+;; `:rf.resource/page-appended`) is an app `:next-page-param` fn over the feed
+;; data, so it can carry a record id. It is NOT a scoped key, so it escapes the
+;; scoped-key slots; it rides the ROW's owner classification (the sibling
+;; `:resource/key`). A sensitive owner's cursor MUST tokenize; a plain owner's
+;; rides verbatim (no over-redaction).
+
+(def ^:private cursor-secret "cursor-rec-topsecret-PII-42")
+
+(deftest off-box-redacts-load-more-cursor-sensitive-owner
+  (testing "rf2-3tysyj — a :rf.resource/load-more row's :page-param cursor
+            tokenizes off-box for a :sensitive? owner; the structural tags
+            survive; no raw record id egresses"
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/load-more
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 2 :work/id [:rf.work/resource 2]
+                                :page-param cursor-secret :page-index 1
+                                :page-count 1 :owner [:lease :l 1] :cause :load-more})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:page-param tags))
+          "the cursor is tokenized to an opaque {:rf/redacted <digest>}")
+      (is (not= cursor-secret (:page-param tags)) "the raw cursor does not ride")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural attribution tags ride verbatim"
+        (is (= 1 (:page-index tags)))
+        (is (= 1 (:page-count tags)))
+        (is (= [:lease :l 1] (:owner tags)))
+        (is (= :load-more (:cause tags))))
+      (testing "no raw cursor secret survives anywhere in the projected record"
+        (is (not (re-find #"cursor-rec-topsecret" (pr-str projected))))))))
+
+(deftest off-box-redacts-page-appended-next-cursor-sensitive-owner
+  (testing "rf2-3tysyj — a :rf.resource/page-appended row's :next-page-param
+            cursor tokenizes off-box for a :sensitive? owner"
+    (let [resource-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record       (record-with
+                         [(event :rf.resource/page-appended
+                                 {:rf.frame/id :test/rt :resource/key resource-key
+                                  :work/id [:rf.work/resource 2] :generation 2
+                                  :page-index 1 :page-count 2
+                                  :next-page-param cursor-secret :terminal? false})])
+          projected    (epoch/projected-record record)
+          tags         (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:next-page-param tags))
+          "the next-page cursor is tokenized")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural attribution tags ride verbatim"
+        (is (= 2 (:page-count tags)))
+        (is (false? (:terminal? tags))))
+      (is (not (re-find #"cursor-rec-topsecret" (pr-str projected)))
+          "no raw cursor secret survives"))))
+
+(deftest off-box-keeps-plain-feed-cursor-verbatim
+  (testing "rf2-3tysyj guard — a PLAIN (non-sensitive) feed's load-more cursor
+            rides VERBATIM off-box; the row is NOT stamped sensitive"
+    (let [scoped-key (sk :rf.scope/global :plain/article {:slug "feed"})
+          record     (record-with
+                       [(event :rf.resource/load-more
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :page-param "cursor-page-2" :page-index 1
+                                :page-count 1 :cause :load-more})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (= "cursor-page-2" (:page-param tags))
+          "the plain feed's cursor rides verbatim (no over-redaction)")
+      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
+
+(deftest trusted-local-include-sensitive-keeps-raw-cursor
+  (testing "rf2-3tysyj — the trusted-local :include-sensitive? opt-in keeps the
+            raw cursor (the local-raw boundary)"
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/load-more
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :page-param cursor-secret :page-index 1})])
+          projected  (epoch/projected-record record {:include-sensitive? true})
+          tags       (:tags (first (:trace-events projected)))]
+      (is (= cursor-secret (:page-param tags))
+          "raw cursor rides with :include-sensitive?"))))

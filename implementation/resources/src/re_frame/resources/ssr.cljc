@@ -201,16 +201,23 @@
            :cljs (let [hx (.toString (bit-and h 0xffffffff) 16)]
                    (str (subs "00000000" 0 (max 0 (- 8 (count hx)))) hx)))))))
 
-(defn- redact-key-component
-  "Project a scope or params `value` from a scoped key to its wire shape under
-  a metadata-only (`:redact` / `:omit`) classification: a `{:rf/redacted
+(defn redact-value
+  "Project an owner-local identity-bearing `value` to its wire shape under a
+  metadata-only (`:redact` / `:omit`) classification: a `{:rf/redacted
   <digest>}` token whose digest content-addresses the canonical value (Spec
-  016 clause 4 / rf2-otms75). Distinct values get distinct digests (so the
-  projected key stays unique — the index recompute never collapses two
-  entries), the raw scope / params never ride, and the token is opaque (the
-  client refetches route-driven, not from this digest). A nil / empty value
-  (the empty-scope / no-params case) projects to a stable `{:rf/redacted
-  nil}` — there is nothing sensitive to hide."
+  016 clause 4 / rf2-otms75). Distinct values get distinct digests (so a
+  projected key / cursor stays unique — the index recompute never collapses
+  two entries, and a tool's per-page joins survive), the raw value never
+  rides, and the token is opaque (the client refetches route-driven, not from
+  this digest). A nil / empty value (the empty-scope / no-params case)
+  projects to a stable `{:rf/redacted nil}` — there is nothing sensitive to
+  hide.
+
+  Used both for a scoped key's scope / params components (`project-scoped-key`)
+  and for the off-box trace-egress projection of the load-more cursor tag
+  (`:page-param` / `:next-page-param` — rf2-3tysyj), which can carry record
+  ids; the same content-addressed tokenizer keeps the two boundaries from
+  drifting."
   [value]
   (if (or (nil? value) (and (coll? value) (empty? value)))
     {:rf/redacted nil}
@@ -246,7 +253,7 @@
     (let [[scope resource-id params] scoped-key]
       [scope resource-id (classification/project-params params spec)])
     (let [[scope resource-id params] scoped-key]
-      [(redact-key-component scope) resource-id (redact-key-component params)])))
+      [(redact-value scope) resource-id (redact-value params)])))
 
 (defn disposition+project-key
   "Resolve a scoped key's resource OWNER spec, compute its frame-aware
