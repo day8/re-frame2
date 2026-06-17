@@ -534,9 +534,7 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
              :long-keyword-threshold 24}         ; chars; long-keyword elision threshold
  :theme     :dark                                ; :dark | :light
  :diff      {:highlight-fn-ref-changes? false}   ; opt-in fn-ref classification
- :buffer    {:retained-epochs                    200    ; epoch buffer depth
-             :cascades-retained                   50    ; per-frame trace-ring cascade count
-             :app-db/inspector-collapse-threshold 50}}  ; inspector auto-collapse branching
+ :buffer    {:cascades-retained 50}}                ; per-frame trace-ring cascade count
 ```
 
 The `:general` slot carries three knobs introduced by rf2-ttnst:
@@ -554,24 +552,27 @@ The `:general` slot carries three knobs introduced by rf2-ttnst:
   Default `24`, was previously a fixed constant; now user-tuneable
   per spec/007-UX-IA.md §Long-keyword treatment.
 
-The `:buffer` slot carries the buffer-depth tunables surfaced in the
+The `:buffer` slot carries the buffer-depth tunable surfaced in the
 Buffer tab:
 
-- `:retained-epochs` — count of epochs Xray retains in its causal
-  ring. Default `200`.
 - `:cascades-retained` — count of cascades retained in each frame's
   trace ring. Mirrors
-  `re-frame.trace.tooling/default-cascades-retained` (`50`). Stored +
-  persisted only; no settings effect writes it through to the runtime
-  ring (there is no `apply-cascades-retained!` counterpart to
-  `apply-epoch-history!`, which resizes the live epoch ring on change).
-  Renamed from `:trace-buffer/keep` (events) at rf2-43koh — the unit
-  changed from events to cascades when Xray's separate ring was
-  retired in favour of the framework's per-frame cascade-keyed rings
-  (per the rf2-3g9nw D1=a ruling). No back-compat alias — pre-alpha
-  posture.
-- `:app-db/inspector-collapse-threshold` — branch factor above which
-  the App-db inspector auto-collapses. Default `50`.
+  `re-frame.trace.tooling/default-cascades-retained` (`50`). Writes
+  through to the runtime ring via `(rf/configure! :trace-buffer
+  {:cascades-retained N})` — `settings/effects.cljs
+  §apply-cascades-retained!` resizes the live ring and `apply-all!`
+  replays the persisted value on boot (rf2-5u03ig). Renamed from
+  `:trace-buffer/keep` (events) at rf2-43koh — the unit changed from
+  events to cascades when Xray's separate ring was retired in favour
+  of the framework's per-frame cascade-keyed rings (per the rf2-3g9nw
+  D1=a ruling). No back-compat alias — pre-alpha posture.
+
+The earlier `:buffer/retained-epochs` input was removed (rf2-pu9sb —
+no runtime consumer; the per-frame epoch ring is sized by `:general
+:epoch-history`), and the inert
+`:buffer/app-db/inspector-collapse-threshold` input was removed
+(rf2-5u03ig — no runtime consumer; the App-db inspector already
+auto-collapses on depth/width).
 
 The Buffer tab also exposes a destructive "Clear buffer now" action
 that fires `trace-collector/retroactive-scrub!` after a confirmation

@@ -493,20 +493,23 @@ The Settings popup → Buffer tab exposes the framework's per-frame
 ring depth as a numeric input labelled
 "Cascades retained (:buffer/cascades-retained)" (default 50).
 Writes through to `(rf/configure! :trace-buffer
-{:cascades-retained N})` once the Settings UX wires the runtime knob.
+{:cascades-retained N})` via `settings/effects.cljs
+§apply-cascades-retained!` — the matching `:rf.xray/settings-update
+:buffer :cascades-retained` event applies it live, and `apply-all!`
+replays the persisted value on boot (rf2-5u03ig).
 
 Renamed from `:trace-buffer/keep` (events, default 1000) at
 rf2-43koh: the unit changed from events to cascades when Xray's
 separate ring was retired in favour of the framework's per-frame
 cascade-keyed rings. No back-compat alias — pre-alpha posture.
 
-Two sibling knobs in the same section:
-
-- `:retained-epochs` (default 200) — count of epochs to retain in
-  the Xray epoch buffer (`tools/xray/src/day8/re_frame2_xray/
-  epoch.cljs`).
-- `:app-db/inspector-collapse-threshold` (default 50) — branch
-  factor above which the App-DB inspector collapses by default.
+`:cascades-retained` is the sole Buffer-tab knob. The earlier
+`:buffer/retained-epochs` input was removed (rf2-pu9sb — no runtime
+consumer; the per-frame epoch ring is sized by `:general
+:epoch-history`), and the inert
+`:buffer/app-db/inspector-collapse-threshold` input was removed
+(rf2-5u03ig — no runtime consumer; the App-db inspector already
+auto-collapses on depth/width).
 
 The Buffer tab also carries a destructive **"Clear buffer now"**
 button (with a confirm modal) that fires

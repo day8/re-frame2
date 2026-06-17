@@ -1035,24 +1035,18 @@
 
   ## :buffer section (rf2-ttnst — Settings popup v1 expansion)
 
-  Buffer-depth tunables surfaced in the Buffer tab. All three are
-  numbers; runtime consumption lives in the framework's per-frame
-  rings + the diff / inspector helpers and may be plumbed incrementally.
+  Buffer-depth tunables surfaced in the Buffer tab.
 
-  - `:retained-epochs` (default 200) — count of epochs to retain
-    in the xray epoch buffer.
   - `:cascades-retained` (default 50) — count of cascades retained
     in each frame's trace ring. Mirrors
-    `re-frame.trace.tooling/default-cascades-retained`. Stored +
-    persisted only; no settings effect currently writes it through to
-    the runtime ring (there is no `apply-cascades-retained!` — unlike
-    `:epoch-history`, which `apply-epoch-history!` resizes live).
-    Renamed from `:trace-buffer/keep` per the rf2-3g9nw D1=a ruling:
-    the unit changed from events (1000) to cascades (50) when
-    Xray's separate ring was retired in favour of the framework's
+    `re-frame.trace.tooling/default-cascades-retained`. Writes through
+    to the runtime ring via `(rf/configure! :trace-buffer
+    {:cascades-retained N})` — `apply-cascades-retained!` resizes the
+    live ring and `apply-all!` replays the persisted value on boot
+    (rf2-5u03ig). Renamed from `:trace-buffer/keep` per the rf2-3g9nw
+    D1=a ruling: the unit changed from events (1000) to cascades (50)
+    when Xray's separate ring was retired in favour of the framework's
     per-frame cascade-keyed rings.
-  - `:app-db/inspector-collapse-threshold` (default 50) — branch
-    factor above which the App-db inspector collapses by default.
 
   ## `:event-list-col-widths` (rf2-6ni62 — resizable event-list columns)
 
@@ -1133,9 +1127,7 @@
                :editor-override         nil}
    :theme     :light                                 ; :light | :dark (rf2-3f2di — light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
-   :buffer    {:retained-epochs                    200
-               :cascades-retained                   50
-               :app-db/inspector-collapse-threshold 50}})
+   :buffer    {:cascades-retained 50}})
 
 (defn clamp-panel-width-px
   "Pure helper: clamp `px` to the resize handle's [min, viewport×0.9]

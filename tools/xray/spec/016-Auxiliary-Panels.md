@@ -816,14 +816,18 @@ What landed under rf2-ttnst (and the subsequent retirements) that the earlier as
   layout), not a sub-section of another tab.
 - **Keybindings** v1 ships READ-ONLY; the chord-rebind UI is the v1.1
   follow-on.
-- **Buffer** ships with the `:general :epoch-history` slider
-  (relocated from General per rf2-pu9sb; slot stays under `:general`,
-  only the popup home moved) / `:buffer/cascades-retained` /
-  `:app-db/inspector-collapse-threshold` + a "Clear buffer now"
-  button (confirm modal). The pre-pu9sb `:buffer/retained-epochs`
-  numeric input had no substrate consumer and was deleted in the
-  same cleanup — it was duplicate dead chrome for the wired
-  epoch-history slider.
+- **Buffer** ships with the `:buffer/cascades-retained` numeric input
+  (writes through to `(rf/configure! :trace-buffer
+  {:cascades-retained N})` per rf2-5u03ig) + a "Clear buffer now"
+  button (confirm modal). Two inputs that once sat here were removed:
+  the `:buffer/retained-epochs` input (rf2-pu9sb — no substrate
+  consumer; it was duplicate dead chrome for the epoch-history slider,
+  which lives in General) and the inert
+  `:buffer/app-db/inspector-collapse-threshold` input (rf2-5u03ig —
+  no runtime consumer; the App-db inspector already auto-collapses on
+  depth/width). The `:general :epoch-history` slider was briefly
+  relocated here per rf2-pu9sb but reverted back to General
+  2026-05-27.
 - **Popout** folds into General's Panel-position radio — no own tab.
 - **Actions** dropped — factory-reset stays code-only
   (`config/reset-settings!`); the "Clear buffer now" affordance under

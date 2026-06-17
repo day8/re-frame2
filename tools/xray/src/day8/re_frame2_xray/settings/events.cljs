@@ -148,6 +148,15 @@
         (and (= section :general) (= key :epoch-history))
         (effects/apply-epoch-history! value)
 
+        ;; rf2-5u03ig — Cascades-retained field. Writes through to the
+        ;; substrate's per-frame trace ring via
+        ;; `(rf/configure! :trace-buffer {:cascades-retained N})`. See
+        ;; `settings/effects.cljs §apply-cascades-retained!` for the
+        ;; late-bind contract; non-positive values are dropped at the
+        ;; effect boundary.
+        (and (= section :buffer) (= key :cascades-retained))
+        (effects/apply-cascades-retained! value)
+
         ;; Auto-open-on-error toggle — install the sub-watcher on
         ;; flip-on, detach on flip-off. The install is also attempted
         ;; from `mount/ensure-xray-frame!` so the persisted-true case

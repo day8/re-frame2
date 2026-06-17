@@ -211,13 +211,17 @@
   (alias for `:rf.xray/keybinding-enabled?`). Rebind UI is the v1.1
   follow-on.
 
-  Buffer (rf2-ttnst; rf2-pu9sb consolidation) surfaces the
-  cascades-retained + inspector-collapse-threshold knobs plus a
+  Buffer (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim)
+  surfaces the cascades-retained knob (writes through to
+  `(rf/configure! :trace-buffer {:cascades-retained N})`) plus a
   'Clear buffer now' button with a confirmation modal (destructive
-  action). The epoch-history slider is NOT here: rf2-pu9sb moved it
-  into Buffer, but Mike relocated it back to General on 2026-05-27
-  (it renders in `general-section`). The slot stays
-  `:general :epoch-history` throughout — only the visual home moved."
+  action). The inert `:app-db/inspector-collapse-threshold` input was
+  removed (rf2-5u03ig — no runtime consumer; the inspector already
+  auto-collapses on depth/width). The epoch-history slider is NOT
+  here: rf2-pu9sb moved it into Buffer, but Mike relocated it back to
+  General on 2026-05-27 (it renders in `general-section`). The slot
+  stays `:general :epoch-history` throughout — only the visual home
+  moved."
   [{:id :general     :label "General"     :mnemonic "g"}
    {:id :keybindings :label "Keybindings" :mnemonic "k"}
    {:id :buffer      :label "Buffer"      :mnemonic "b"}
@@ -881,20 +885,21 @@
 ;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
 ;;   `:general` for back-compat with the persisted settings shape;
 ;;   only the popup home moved here (rf2-pu9sb).
-;; * Cascades retained (slot `:buffer :cascades-retained`) — stored +
-;;   persisted only. No settings effect writes it through to the
-;;   framework's per-frame trace ring (there is no
-;;   `apply-cascades-retained!` counterpart to `apply-epoch-history!`).
-;; * App-db inspector collapse threshold (slot
-;;   `:buffer :app-db/inspector-collapse-threshold`) — stored for the
-;;   inspector layer.
+;; * Cascades retained (slot `:buffer :cascades-retained`, rf2-5u03ig)
+;;   — wired to the framework's per-frame trace ring via
+;;   `(rf/configure! :trace-buffer {:cascades-retained N})` (see
+;;   `settings/effects.cljs §apply-cascades-retained!`). The matching
+;;   `:rf.xray/settings-update :buffer :cascades-retained` event
+;;   applies it live; `apply-all!` replays the persisted value on boot.
 ;;
-;; Pre-pu9sb the section also carried a `:buffer :retained-epochs`
-;; numeric input that had no substrate consumer (dead chrome — a
-;; duplicate of the wired `:general :epoch-history` slider that
-;; lived on the General tab). pu9sb consolidated to one slider in
-;; Buffer (the spec-canonical category per spec/007 §Settings popup
-;; row 5) and removed the dead field.
+;; Two inputs that once sat in this section were removed: the
+;; `:buffer :retained-epochs` numeric input (rf2-pu9sb — no substrate
+;; consumer; it was a duplicate of the wired `:general :epoch-history`
+;; slider, which lives on the General tab) and the inert
+;; `:buffer :app-db/inspector-collapse-threshold` input (rf2-5u03ig —
+;; no runtime consumer; the App-db inspector already auto-collapses on
+;; depth/width via `:default-expanded-depth` / `:max-depth` /
+;; `:max-inline-width`).
 
 (defn- numeric-field
   "Hiccup for a numeric setting input + label + hint. Common shape
@@ -1003,8 +1008,6 @@
 
 (defn- buffer-section [dispatch]
   (let [cascades-retained @(rf/subscribe [:rf.xray/setting :buffer :cascades-retained])
-        collapse-thresh   @(rf/subscribe [:rf.xray/setting :buffer
-                                          :app-db/inspector-collapse-threshold])
         confirm-open?     @(rf/subscribe [:rf.xray/settings-clear-confirm-open?])]
     [:div {:data-testid "rf-xray-settings-section-buffer"
            :style {:position "relative"}}
@@ -1030,17 +1033,6 @@
                       [:rf.xray/settings-update
                        :buffer :cascades-retained %])
         :hint      "Number of cascades retained in each frame's trace ring."})
-
-     (numeric-field
-       {:testid    "rf-xray-settings-buffer-inspector-collapse"
-        :label     "App-db inspector collapse threshold"
-        :value     collapse-thresh
-        :default   50
-        :min       1
-        :on-commit #(dispatch
-                      [:rf.xray/settings-update
-                       :buffer :app-db/inspector-collapse-threshold %])
-        :hint      "Branch factor above which the App-db inspector collapses by default."})
 
      ;; Destructive action — opens confirm modal.
      [:div {:style {:margin-top "20px"}}

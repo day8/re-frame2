@@ -72,8 +72,9 @@ popup controls are:
 - **General** — panel position (right-rail inline / fullscreen overlay),
   auto-open-on-error, epoch-history depth (slider), the per-operator
   editor-override picker, and the show-`:ungrouped` toggle.
-- **Buffer** — cascades-retained + app-db inspector-collapse-threshold + a
-  destructive Clear-buffer button.
+- **Buffer** — cascades-retained (writes through to `(rf/configure!
+  :trace-buffer {:cascades-retained N})`) + a destructive Clear-buffer
+  button.
 - **Diff** — the hiccup-diff fn-ref-changes toggle.
 - **Keybindings** — a read-only chord catalogue + the master "Handle
   keys?" switch.
