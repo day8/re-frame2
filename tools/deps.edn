@@ -35,14 +35,35 @@
 ;;
 ;; ## Why machines-viz is NOT in the JVM aggregate :test (CLJS-only)
 ;;
-;; Like Xray, machines-viz is CLJS-only (the chart `:require`s
-;; `@xyflow/react` + `elkjs`, JVM-unloadable). Its tests run under the
-;; consolidated `implementation/shadow-cljs.edn` `:node-test` build
-;; (`*_cljs_test`) AND the `:browser-test` build (`*-dom-cljs-test` — the
-;; DOM/export suites), NOT on the JVM. So it sits in the coordinator
-;; `:deps` (classpath only; nothing requires it on the JVM) but its tests
-;; are intentionally absent from the JVM aggregate `:test` `:extra-paths`
-;; below — the same justified exclusion the Xray coverage-gap note records.
+;; machines-viz is CLJS-only (the chart `:require`s `@xyflow/react` +
+;; `elkjs`, JVM-unloadable). Its tests run under the consolidated
+;; `implementation/shadow-cljs.edn` `:node-test` build (`*_cljs_test`)
+;; AND the `:browser-test` build (`*-dom-cljs-test` — the DOM/export
+;; suites), NOT on the JVM. So it sits in the coordinator `:deps`
+;; (classpath only; nothing requires it on the JVM) but its tests are
+;; intentionally absent from the JVM aggregate `:test` `:extra-paths`
+;; below.
+;;
+;; ## Why Xray IS in the JVM aggregate :test (rf2-f2tkbt)
+;;
+;; Xray ships a DOM/Reagent shell that is CLJS-only, but a substantial
+;; portion of its test tree is `.clj`/`.cljc` pure-data coverage that
+;; loads and runs on the JVM — cognitect's test-runner only scans
+;; `.clj`/`.cljc` namespaces matching `.*-test$`, so the JS-only `.cljs`
+;; specs (the DOM + Reagent shells) are skipped on the JVM classpath and
+;; only the JVM-loadable namespaces run. `tools/xray clojure -M:test`
+;; (the per-tool alias) already runs that JVM slice — 1200+ tests — in
+;; CI (`.github/workflows/test.yml` jvm-tools-xray) and in
+;; `scripts/test-jvm-tools.sh`. The EP-0011 uniform reply-envelope
+;; tooling-projection coverage
+;; (`tools/xray/test/.../panels/reply_envelope_cljs_test.cljc` — a
+;; dual-target `.cljc`) lives there. Earlier this aggregate excluded
+;; Xray with a "CLJS-only" note, which left the root tools command
+;; surface inconsistent with CI: a developer following the root docs
+;; could believe `cd tools && clojure -M:test` exercised the EP-0011
+;; Xray coverage when it did not. The aggregate now includes
+;; `xray/test` (see `:extra-paths` + the `-d xray/test` flag below) so
+;; the documented "every JVM-runnable tool" claim holds.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every tool artefact onto a single
@@ -78,19 +99,23 @@
 
  :aliases
  {;; Aggregate JVM-side test run across every tool whose tests are
-  ;; runnable on the JVM (mcp-base, story, story-mcp, template). Useful
-  ;; for ad-hoc REPL work and as a single-command sanity check across
-  ;; the tool tier. Production CI runs each tool's :test alias
+  ;; runnable on the JVM (xray, mcp-base, story, story-mcp, template).
+  ;; Useful for ad-hoc REPL work and as a single-command sanity check
+  ;; across the tool tier. Production CI runs each tool's :test alias
   ;; separately (per-tool gates).
   ;;
-  ;; Note on coverage gaps:
-  ;;   - tools/xray/ — CLJS-side only (DOM + Reagent shell). Its tests
-  ;;     run under the implementation/shadow-cljs.edn :node-test build,
-  ;;     not on the JVM.
-  ;;   - tools/machines-viz/ — CLJS-only (rf2-z0cw6s). Same posture as
-  ;;     Xray: tests run under the implementation/shadow-cljs.edn
-  ;;     :node-test build (`*_cljs_test`) + :browser-test build
-  ;;     (`*-dom-cljs-test`, the DOM/export suites), not on the JVM.
+  ;; Note on coverage:
+  ;;   - tools/xray/ — has a JVM-runnable test slice (the `.clj`/`.cljc`
+  ;;     pure-data namespaces, incl. the EP-0011 reply-envelope
+  ;;     tooling-projection coverage), included below via `xray/test` /
+  ;;     `-d xray/test`. Its CLJS-only `.cljs` specs (DOM + Reagent
+  ;;     shell) are skipped on the JVM classpath and run under the
+  ;;     implementation/shadow-cljs.edn :node-test build instead. See the
+  ;;     "Why Xray IS in the JVM aggregate :test" block above.
+  ;;   - tools/machines-viz/ — CLJS-only (rf2-z0cw6s). Its tests run
+  ;;     under the implementation/shadow-cljs.edn :node-test build
+  ;;     (`*_cljs_test`) + :browser-test build (`*-dom-cljs-test`, the
+  ;;     DOM/export suites), not on the JVM.
   ;;   - tools/re-frame2-pair-mcp/ — CLJS Node-script. Its tests run under
   ;;     tools/re-frame2-pair-mcp/shadow-cljs.edn :server-test (mirrored in
   ;;     tools/shadow-cljs.edn).
@@ -112,7 +137,8 @@
                  ;; it in; the aggregate runner needs the same dep.
                  io.github.seancorfield/deps-new
                  {:git/tag "v0.12.1" :git/sha "883e82c"}}
-   :extra-paths ["mcp-base/test"
+   :extra-paths ["xray/test"
+                 "mcp-base/test"
                  "story/test"
                  "story-mcp/test"
                  "template/test"]
@@ -123,6 +149,7 @@
    ;; `:test` aliases keep their default invocation (a single
    ;; `test/` path relative to the tool's own deps.edn).
    :main-opts   ["-m" "re-frame.test-quiet.runner"
+                 "-d" "xray/test"
                  "-d" "mcp-base/test"
                  "-d" "story/test"
                  "-d" "story-mcp/test"
