@@ -131,8 +131,8 @@
 (defn maybe-block-navigation
   "Run the active route's `:can-leave` guard before allowing a transition
   to `requested-url`. Returns nil when the navigation should proceed (no
-  guard, guard allows, or `bypass-leave-guard?`); returns the cofx map
-  `{:db ... :fx ...}` that writes the routing pending-navigation slot
+  guard, guard allows, or `bypass-leave-guard?`); returns the effects map
+  `{:rf.db/runtime ... :fx ...}` that writes the routing pending-navigation slot
   (`[:rf.runtime/routing :pending-navigation]`) and dispatches
   `:rf.route/navigation-blocked` when the guard blocks.
 
@@ -296,7 +296,7 @@
       [:rf/url-requested {:url fallback-url :bypass-leave-guard? true}])))
 
 (defn url-requested-handler
-  "`:rf/url-requested` event-fx handler. Registered by the façade so a
+  "`:rf/url-requested` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar. rf2-vcop6y: declares only the
   RECORDABLE `:rf.route/pending-nav-allocation` cofx — its only allocation
   is a pending-nav id minted on a `:can-leave` block (it never mints a
@@ -358,7 +358,7 @@
               [:dispatch [:rf.route/transitioned app-url {:bypass-leave-guard? true}]]]})))
 
 (defn continue-handler
-  "`:rf.route/continue` event-fx handler. Registered by the façade so a
+  "`:rf.route/continue` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
   [{rdb :rf.db/runtime} [_ pn-id]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue
@@ -404,7 +404,7 @@
         {})))
 
 (defn cancel-handler
-  "`:rf.route/cancel` event-fx handler. Registered by the façade so a
+  "`:rf.route/cancel` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
   [{rdb :rf.db/runtime} [_ pn-id]]
   ;; EP-0001 (rf2-vzld77): the pending-nav slot is durable routing runtime-db

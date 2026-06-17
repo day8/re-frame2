@@ -57,7 +57,7 @@
 (defn- url-change-fx
   "Pure helper: given runtime-db + url + default scroll strategy (+ the
   `frame` to carry on the no-such-handler trace + the RECORDABLE
-  `nav-allocation`), return the cofx map `{:rf.db/runtime :fx}` for
+  `nav-allocation`), return the effects map `{:rf.db/runtime :fx}` for
   a URL-driven full slice rewrite. Performs the match-url lookup, publishes
   the nav-token from the recordable `nav-allocation` (rf2-vcop6y — recorded +
   replay-stable; the `:counter` high-water bump rides a
@@ -281,7 +281,7 @@
            :app-db       app-db})))))
 
 (defn transitioned-handler
-  "`:rf.route/transitioned` event-fx handler. Registered by the façade
+  "`:rf.route/transitioned` event handler. Registered by the façade
   so a `:reload` re-wires it on a fresh registrar. Per Spec 012 §URL
   changes are events / §Fragments. Forward nav (link click /
   programmatic push). After the leave-guard check, delegate to the
@@ -323,7 +323,7 @@
         (url-change-fx rdb url :top frame nav-allocation app-db))))
 
 (defn handle-url-change-handler
-  "`:rf.route/handle-url-change` event-fx handler. Registered by the
+  "`:rf.route/handle-url-change` event handler. Registered by the
   façade so a `:reload` re-wires it on a fresh registrar. Per Spec 012
   §URL changes are events — popstate, initial load, SSR. Delegates to
   the shared `url-change-fx`, which honours the fragment-only

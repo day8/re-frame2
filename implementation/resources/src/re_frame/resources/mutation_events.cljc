@@ -1036,7 +1036,7 @@
   entry's `:revision` bumped. Emits `:rf.mutation/optimistic-applied`. The SETTLE
   slice consumes that recorded inverse (commit / rollback / reconcile).
 
-  Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
+  Returns the effects map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}

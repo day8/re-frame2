@@ -205,7 +205,7 @@
   `emit-activation-traces!` so the lifecycle pair carries `:frame` too.
   Without it those frame-known traces miss epoch capture (which buffers
   only frame-tagged events) and bypass the frame-level trace-disable gate.
-  Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
+  Returns the effects map `{:rf.db/runtime :fx}`."
   [rdb {:keys [route-id params query fragment transition]} on-match-vec
    {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-allocation app-db frame]}]
   (let [;; rf2-vcop6y: the nav-token rides the RECORDABLE `:rf.route/nav-allocation`
@@ -318,7 +318,7 @@
 ;; continue`, etc.). Same audience-split principle as
 ;; `:rf.route.nav-token/*` (Spec 012 §Navigation tokens).
 (defn settle-transition-handler
-  "`:rf.route.internal/settle-transition` event-fx handler. Registered by
+  "`:rf.route.internal/settle-transition` event handler. Registered by
   the `re-frame.routing` façade so a `:reload` of the façade re-runs the
   registration.
 

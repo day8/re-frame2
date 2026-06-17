@@ -146,7 +146,7 @@
   dedupe still WINS when work is in flight; fresh-skip applies only to a
   SETTLED fresh `:loaded` entry.
 
-  Returns the event-fx map `{:rf.db/runtime :fx}`."
+  Returns the reg-event effects map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
@@ -567,7 +567,7 @@
   replies exactly as for any refetch). Fresh entries and owner-free entries
   are left untouched. Emits one `:rf.resource/refetch-decision` scan-summary
   trace (the broad-tab-return storm stays readable) plus the per-entry
-  refetch ride their ordinary refetch traces. Returns the event-fx map
+  refetch ride their ordinary refetch traces. Returns the effects map
   (`:fx` only — the scan itself makes NO durable write; the refetch
   dispatches do).
 

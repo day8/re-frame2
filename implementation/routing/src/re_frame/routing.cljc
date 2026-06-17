@@ -163,7 +163,7 @@
 
 ;; :rf.route.internal/settle-transition — Spec 012 §Per-route data
 ;; loading §2 FIFO settle. EP-0001 (rf2-vzld77): the route slice is durable
-;; runtime-db state, so this is a runtime-db event-fx handler.
+;; runtime-db state, so this is a runtime-db `reg-event` handler.
 (events/reg-event :rf.route.internal/settle-transition
                      framework-authority-meta
                      routing-events/settle-transition-handler)
@@ -280,8 +280,9 @@
 
 ;; :rf.route/nav-token cofx — Spec 012 §Navigation tokens — stale-result
 ;; suppression step 2. A value-returning AMBIENT supplier (EP-0017) for
-;; the current navigation epoch token; delivered under `:coeffects
-;; :rf.route/nav-token` to any `:on-match`-reached handler that declares
+;; the current navigation epoch token; delivered FLAT under the
+;; `:rf.route/nav-token` key in the coeffects map (EP-0017 §5) to any
+;; `:on-match`-reached handler that declares
 ;; `:rf.cofx/requires [:rf.route/nav-token]`, so the documented
 ;; `(fn [{:rf.route/keys [nav-token]} _] ...)` shape resolves the live
 ;; token (not nil). Owner-qualified to the routing subsystem root per
