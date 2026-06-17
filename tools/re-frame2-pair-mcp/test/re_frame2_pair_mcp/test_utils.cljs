@@ -35,12 +35,25 @@
   exactness against an MCP-shaped wire payload without growing the
   production surface. The agent host reconstructs locally via
   `de-dupe.core/expand`; the MCP server never calls the inverse, so the
-  helper lives here, signalling \"test-only\" by location."
+  helper lives here, signalling \"test-only\" by location.
+
+  ## Test-only base re-exports (rf2-ttspi7)
+
+  `token-estimate`, `overflow-hint-fallback`, and `truncate-preview`
+  used to be re-exported from the production `tools.cap` /
+  `tools.result-envelope` namespaces SOLELY so the test corpus could
+  reach them — production code calls `base-overflow` / `base-cap`
+  directly and never used the local aliases. Hosting them here (the
+  test-only home) keeps the production surface lean while still pinning
+  the cross-MCP token rule + overflow-fallback contract + preview cap in
+  one shared test-side place."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
             [de-dupe.core :as dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.freshness :as freshness]
+            [re-frame2-pair-mcp.tools.result-envelope :as renv]
+            [re-frame.mcp-base.overflow :as base-overflow]
             [re-frame.mcp-base.vocab :as base-vocab]))
 
 ;; ---------------------------------------------------------------------------
@@ -130,3 +143,36 @@
   (if (and (map? v) (contains? v base-vocab/dedup-table-key))
     (dedup/expand (get v base-vocab/dedup-table-key))
     v))
+
+;; ---------------------------------------------------------------------------
+;; Test-only base re-exports (rf2-ttspi7).
+;;
+;; Production code calls `base-overflow` / `base-cap` directly; these
+;; aliases existed only so the test corpus could reach the cross-MCP
+;; token rule, the overflow-fallback hint, and the preview cap. Hosting
+;; them here keeps the production namespaces lean.
+;; ---------------------------------------------------------------------------
+
+(defn token-estimate
+  "Delegates to `re-frame.mcp-base.overflow/token-estimate` — the
+  cross-MCP `(quot (count s) 4)` token approximation. Test-only home for
+  what `tools.cap` used to re-export (rf2-ttspi7)."
+  [s]
+  (base-overflow/token-estimate s))
+
+(def overflow-hint-fallback
+  "The cross-MCP overflow-marker fallback hint string, sourced from
+  `re-frame.mcp-base.overflow/overflow-hint-fallback`. Test-only home for
+  what `tools.cap` used to re-export (rf2-ttspi7)."
+  base-overflow/overflow-hint-fallback)
+
+(defn truncate-preview
+  "Truncate `text` to `result-envelope/preview-cap` chars with a
+  char-count suffix — the same shape the runtime wrap emits. Test-only
+  home for what `tools.result-envelope` used to re-export (rf2-ttspi7);
+  pins the preview contract against the single-sourced production cap."
+  [text]
+  (let [n (count text)]
+    (if (> n renv/preview-cap)
+      (str (subs text 0 renv/preview-cap) " …(" n " chars)")
+      text)))

@@ -37,7 +37,7 @@ that ride on those framework surfaces.
 
 ## Index
 
-Twelve namespaces under `re-frame.mcp-base.*`. Each ships its own
+Thirteen namespaces under `re-frame.mcp-base.*`. Each ships its own
 per-namespace contract doc; the table below indexes them:
 
 | ns | Surface | Per-namespace spec |
@@ -49,6 +49,7 @@ per-namespace contract doc; the table below indexes them:
 | `args` | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
 | `diff-encode` | Path-keyed structural diff for epoch `:db-after` slots projected into path-headed cluster sections (rf2-1wdzp / rf2-qeous) + encoder/decoder Malli gate. | [`diff-encode.md`](diff-encode.md) |
 | `section-grouping` | Patch-list → path-headed cluster sections (`group-patches-into-sections` / `sections->patches`, rf2-qeous); consumed by `diff-encode`. | [`section-grouping.md`](section-grouping.md) |
+| `dedup` | Structural-dedup encode step at the wire boundary (`empty-payload?` / `dedup-value`, over `day8/de-dupe`'s equality walk; rf2-ttspi7). Forward direction only — the test-only inverse stays consumer-side. | [`dedup.md`](dedup.md) |
 | `overflow` | Overflow-marker payload SHAPE builder (`overflow-payload`) + `token-estimate` + fallback hint (rf2-rvyzy). | [`overflow.md`](overflow.md) |
 | `cap` | Wire-boundary two-stage token-budget cap pipeline + `max-tokens` resolver + `ResultIO` protocol (rf2-eyelu / rf2-ih7g4). | [`cap.md`](cap.md) |
 | `cursor` | Shared cursor-pagination machinery — base64 codec, opaque encode/decode with `::malformed` recovery, `:limit` clamp, `cursor-stale-result` envelope (rf2-ee38b.19). | [`cursor.md`](cursor.md) |
@@ -57,8 +58,10 @@ per-namespace contract doc; the table below indexes them:
 
 All `.cljc`, so consumers compile them under their own platform —
 re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM
-classpath. The library's `deps.edn` carries only
-`org.clojure/clojure`; no consumer-side runtime deps.
+classpath. The library's `deps.edn` carries `org.clojure/clojure` plus
+the one framework-agnostic external dep `dedup` needs —
+`day8/de-dupe`, a pure persistent-data-structure walker (rf2-ttspi7);
+no consumer-side transport runtime deps.
 
 ## Handler-arity divergence
 
@@ -125,12 +128,15 @@ Two rules:
    surfaces. New primitives land in a consumer first; if a second
    consumer needs the same code, lift it then.
 
-2. **It must be pure CLJC with no consumer-side deps.** The base's
-   `deps.edn` carries only `org.clojure/clojure`. If your primitive
-   needs cheshire / re-frame.trace / shadow-cljs / js-interop, it
-   belongs in its consumer, not here. (story-mcp's `sensitive.cljc`
-   ns keeps a thin local alias over `re-frame.privacy/sensitive?`
-   for code-review locality — the predicate itself lives here.)
+2. **It must be framework-runtime-free, with no consumer-side
+   transport deps.** The base's `deps.edn` carries `org.clojure/clojure`
+   plus the framework-agnostic `day8/de-dupe` walker (rf2-ttspi7). If
+   your primitive needs cheshire / re-frame.trace / shadow-cljs /
+   js-interop, it belongs in its consumer, not here. (re-frame2-pair-mcp
+   keeps a thin local alias ns — `tools/sensitive.cljs` — that
+   delegates to `re-frame.mcp-base.sensitive` for code-review locality;
+   story-mcp requires `re-frame.mcp-base.sensitive` directly. The
+   predicate itself lives here.)
 
 **What this rules OUT** — concrete rejection cases so a contributor
 sees the trap before falling in:

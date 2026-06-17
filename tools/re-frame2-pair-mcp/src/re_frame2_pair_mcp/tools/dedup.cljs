@@ -53,20 +53,20 @@
 
   A payload with no repeated subtrees deduplicates to a one-entry cache
   (the wire shape is very slightly larger than the input). The encoder
-  skips wrapping in that case via an `empty-payload?` short-circuit."
-  (:require [de-dupe.core :as dedup]
-            [re-frame.mcp-base.args :as base-args]
-            [re-frame.mcp-base.diff-encode :as base-diff]
-            [re-frame.mcp-base.vocab :as base-vocab]))
+  skips wrapping in that case via an `empty-payload?` short-circuit.
+
+  ### Where the dedup encode step lives (rf2-ttspi7)
+
+  `empty-payload?` and `dedup-value` were byte-identical to story-mcp's,
+  so they are lifted to `re-frame.mcp-base.dedup` and delegated here.
+  The diff-encode delegations are unchanged."
+  (:require [re-frame.mcp-base.args :as base-args]
+            [re-frame.mcp-base.dedup :as base-dedup]
+            [re-frame.mcp-base.diff-encode :as base-diff]))
 
 ;; ---------------------------------------------------------------------------
 ;; Diff-encoded epoch slice.
 ;; ---------------------------------------------------------------------------
-
-(defn diff-encode-db-after
-  "Delegates to `re-frame.mcp-base.diff-encode/diff-encode-db-after`."
-  [epoch]
-  (base-diff/diff-encode-db-after epoch))
 
 (defn diff-encode-epochs
   "Delegates to `re-frame.mcp-base.diff-encode/diff-encode-epochs`."
@@ -84,25 +84,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn empty-payload?
-  "True for values where dedup yields no win — nil, empty collections,
-  scalars. Skipping the wrap avoids the trivial cache-of-one shape
-  bloating the wire for empty / single-record responses."
+  "Delegates to `re-frame.mcp-base.dedup/empty-payload?` (rf2-ttspi7)."
   [v]
-  (or (nil? v)
-      (and (coll? v) (empty? v))
-      (not (coll? v))))
+  (base-dedup/empty-payload? v))
 
 (defn dedup-value
-  "Apply structural dedup to `v` and wrap the result in the cross-MCP
-  marker (`base-vocab/dedup-table-key` — rf2-vw4sq). Returns `v`
-  unchanged when `enabled?` is false or when `v` is empty / scalar
-  (no dedup opportunity). Uses `de-dupe-eq` (equality-based) — see
-  the section header for the identity-vs-equality rationale."
+  "Delegates to `re-frame.mcp-base.dedup/dedup-value` (rf2-ttspi7). Uses
+  `de-dupe-eq` (equality-based) — see the section header for the
+  identity-vs-equality rationale."
   [v enabled?]
-  (if (or (not enabled?) (empty-payload? v))
-    v
-    (let [cache (dedup/de-dupe-eq v)]
-      {base-vocab/dedup-table-key cache})))
+  (base-dedup/dedup-value v enabled?))
 
 ;; `dedup-expand` (the inverse of `dedup-value`) has moved to
 ;; `re-frame2-pair-mcp.test-utils/dedup-expand` (rf2-ambfv). It's

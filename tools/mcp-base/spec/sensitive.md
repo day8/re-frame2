@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > The cross-MCP privacy filter. Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server, Story-MCP (xray-mcp was dropped in rf2-bu21t; xray now ships as a Clojars-only library, not an MCP server) — MUST default-drop trace events whose registration declared `:sensitive? true`. The runtime stamps the flag at the top level of every emitted trace event inside such a registration's handler scope; the forwarder's job is to gate egress on it before any data crosses the trust boundary.
 
-This doc is one of twelve per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
+This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
 ## Scope
 
@@ -80,7 +80,7 @@ The default-OFF posture aligns with the framework's privacy-by-default stance (p
 
 re-frame2-pair-mcp is a CLJS Node bundle (no `re-frame.trace` on its classpath); story-mcp is JVM-side and DOES have the framework primitive available. The predicate here matches the spirit of `re-frame.privacy/sensitive?` but adds the fail-closed posture (rf2-ih7g4): the runtime always stamps the literal boolean, but if a transport bug delivers any other truthy value, the filter drops the event AND logs so the contract drift surfaces in operator output rather than leaking the event.
 
-Consumers that want to bind to the framework primitive (story-mcp does, for code-review locality) alias the surface in their own ns and delegate through here.
+Consumers reach the predicate two ways: re-frame2-pair-mcp keeps a thin local alias ns (`tools/sensitive.cljs`) that delegates here, for code-review locality; story-mcp requires `re-frame.mcp-base.sensitive` directly (no local alias ns). Either way the fail-closed predicate itself lives here.
 
 ## Conformance posture
 

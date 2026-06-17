@@ -18,8 +18,8 @@
   Wire-byte / token-budget assertions appear at the end — the
   discovery-snapshot scenario MUST fit the 5,000-token cap."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.summary :as summary]))
 
@@ -271,7 +271,7 @@
         {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
                              with-app-db-summary {} :summary)
         wire (pr-str snapshot)
-        tokens (cap/token-estimate wire)]
+        tokens (tu/token-estimate wire)]
     (is (< tokens 5000)
         (str "Discovery snapshot under :summary mode MUST fit the 5k-token cap. "
              "Got " tokens " tokens, " (count wire) " chars."))))
@@ -285,7 +285,7 @@
         {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
                              with-app-db-full {} :full)
         wire (pr-str snapshot)
-        tokens (cap/token-estimate wire)]
+        tokens (tu/token-estimate wire)]
     (is (> tokens 50000)
         (str "Full-mode discovery snapshot ships the raw payload — "
              "should be many multiples of the cap. Got " tokens " tokens."))))
@@ -309,6 +309,6 @@
     (is (> ratio 50)
         (str "Lazy-summary MUST shrink the discovery snapshot by at "
              "least 50x. Got " (int ratio) "x (summary=" (count summary-wire)
-             " chars (~" (cap/token-estimate summary-wire) " tokens) "
+             " chars (~" (tu/token-estimate summary-wire) " tokens) "
              "vs full=" (count full-wire) " chars (~"
-             (cap/token-estimate full-wire) " tokens))."))))
+             (tu/token-estimate full-wire) " tokens))."))))

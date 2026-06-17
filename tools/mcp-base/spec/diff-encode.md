@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Each `:rf/epoch-record` carries `:db-before` and `:db-after` — near-identical full app-db snapshots. `pr-str` doesn't preserve structural sharing, so on the wire the pair is roughly 2× app-db per epoch; a 50-epoch default `:epochs` slice ⇒ up to 100× app-db. This ns replaces `:db-after` with a **path-headed cluster projection** (rf2-qeous) of a path-keyed structural diff against `:db-before` so the wire payload approaches the structural-sharing cost rather than the deep-copy cost. The patch list is grouped into path-breadcrumb sections via [`section-grouping.md`](section-grouping.md).
 
-This doc is one of twelve per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
+This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
 ## Scope
 
