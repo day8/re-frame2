@@ -79,14 +79,27 @@ as build coordinators across the tool tier, matching the pattern in
 `implementation/`. `tools/deps.edn` declares each tool as a `:local/root`
 dep and exposes a `:test` alias that aggregates every JVM-runnable
 tool's `test/` tree; running `clojure -M:test` from `tools/` exercises
-the aggregated suite. `tools/shadow-cljs.edn` mirrors the per-tool CLJS
+the aggregated suite. The aggregate spans `xray` (its JVM-loadable
+`.clj`/`.cljc` slice — including the EP-0011 uniform reply-envelope
+tooling-projection coverage at
+`xray/test/.../panels/reply_envelope_cljs_test.cljc`), `mcp-base`,
+`story`, `story-mcp`, and `template`. Xray's JS-only `.cljs` specs (the
+DOM + Reagent shell) are not on the JVM classpath and run under the
+consolidated `implementation/shadow-cljs.edn` `:node-test` build
+instead; only its JVM-loadable namespaces run here (mirroring the
+per-tool `cd tools/xray && clojure -M:test` gate that
+`.github/workflows/test.yml` and `scripts/test-jvm-tools.sh` already
+run — rf2-f2tkbt). `tools/shadow-cljs.edn` mirrors the per-tool CLJS
 builds (today: `re-frame2-pair-mcp/server` and `re-frame2-pair-mcp/server-test`) so
 `shadow-cljs compile <build>` works from `tools/` as well as from each
 tool's directory. Per-tool invocations remain valid — the coordinators
-compose the per-tool builds, they do not replace them. CLJS-only tools
-(`xray`) and JVM-only tools whose sources contain placeholder-bearing
-template files (`template`) are excluded from the shadow-cljs surface
-for technical reasons documented in the coordinator's comment block.
+compose the per-tool builds, they do not replace them. On the
+*shadow-cljs* surface (distinct from the JVM `:test` aggregate above),
+`xray` has no shadow build of its own (its CLJS tests run via
+`implementation/shadow-cljs.edn`) and `template`'s sources contain
+placeholder-bearing template files; both are therefore excluded from
+`tools/shadow-cljs.edn` for technical reasons documented in the
+coordinator's comment block.
 
 ## Shipped
 
