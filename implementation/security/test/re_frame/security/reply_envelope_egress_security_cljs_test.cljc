@@ -55,7 +55,6 @@
   Confirmed by temporary local revert + restore (see PR Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.walk :as walk]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
@@ -76,22 +75,12 @@
 (defn- contains-sentinel?
   "Deep-walk `x`; true when the sentinel string appears ANYWHERE — as a
   value, inside a collection, nested in a secondary slot, or inside a
-  stringified form. Mirrors the deep-scan helper the sibling security
-  namespaces (mcp-egress / error-slot / http-body egress) use: the contract
-  is \"the sentinel never survives,\" not merely \"the primary slot reads
-  clean.\""
+  stringified form. The contract is \"the sentinel never survives,\" not
+  merely \"the primary slot reads clean.\" Thin wrapper over the shared
+  `gen/contains-string?` (rf2-n5bkm7); the sentinel is matched as an EXACT
+  string leaf (`exact? true`)."
   [x]
-  (let [hit (volatile! false)]
-    (walk/postwalk
-      (fn [node]
-        (when (and (string? node) (= sentinel node))
-          (vreset! hit true))
-        node)
-      x)
-    (or @hit
-        (boolean (re-find (re-pattern sentinel) (pr-str x))))))
-
-(defn- redacted? [v] (= :rf/redacted v))
+  (gen/contains-string? x sentinel true))
 
 ;; ---------------------------------------------------------------------------
 ;; A frame classifying the reply-VALUE-relative paths the wire slots carry.
@@ -119,9 +108,6 @@
   (rf/reg-frame frame-id
     {:sensitive {:app-db [[:token] [:partner-key] [:detail :token]]}
      :large     {:app-db [[:doc]]}}))
-
-(defn- large-marker? [v]
-  (and (map? v) (contains? v :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
 ;; PROPERTY 1 — framed trace egress: every wire-bearing slot routes through
@@ -151,13 +137,13 @@
                  :rf.size/include-large?     false})]
       ;; Wire-bearing slots: the declared-sensitive token leaf redacts,
       ;; everywhere it surfaces (value / error / correlation / meta).
-      (is (redacted? (get-in out [:value :token])) ":value sensitive leaf redacted")
-      (is (large-marker? (get-in out [:value :doc])) ":value large leaf elided")
+      (is (gen/redacted? (get-in out [:value :token])) ":value sensitive leaf redacted")
+      (is (gen/large-marker? (get-in out [:value :doc])) ":value large leaf elided")
       (is (= 7 (get-in out [:value :public])) "unmarked sibling rides through")
-      (is (redacted? (get-in out [:error :detail :token])) ":error sensitive leaf redacted")
-      (is (redacted? (get-in out [:correlation :partner-key])) ":correlation sensitive leaf redacted")
+      (is (gen/redacted? (get-in out [:error :detail :token])) ":error sensitive leaf redacted")
+      (is (gen/redacted? (get-in out [:correlation :partner-key])) ":correlation sensitive leaf redacted")
       (is (= "t-1" (get-in out [:correlation :trace-id])) "non-sensitive correlation fact rides")
-      (is (redacted? (get-in out [:meta :token])) ":meta sensitive leaf redacted")
+      (is (gen/redacted? (get-in out [:meta :token])) ":meta sensitive leaf redacted")
       ;; No sentinel survives ANY wire slot.
       (is (not (contains-sentinel? (:value out))))
       (is (not (contains-sentinel? (:error out))))
@@ -206,9 +192,9 @@
                        :work/status :failed}
             out (reply/trace-summary reply-map nil)]
         ;; Every wire slot fails closed to the whole-value sentinel.
-        (is (redacted? (:error out)) ":error fails closed (whole slot redacted)")
-        (is (redacted? (:correlation out)) ":correlation fails closed")
-        (is (redacted? (:meta out)) ":meta fails closed")
+        (is (gen/redacted? (:error out)) ":error fails closed (whole slot redacted)")
+        (is (gen/redacted? (:correlation out)) ":correlation fails closed")
+        (is (gen/redacted? (:meta out)) ":meta fails closed")
         (is (not (contains-sentinel? out)) "no sentinel survives frameless egress")
         ;; Identity facts still ride (framework data is not walked).
         (is (= :error (:status out)))
@@ -380,12 +366,12 @@
           out (rf/project-egress value
                 {:frame :reply/proj
                  :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (:token out)) "off-box-tool redacts the sensitive reply leaf")
-      (is (large-marker? (:doc out)) "off-box-tool elides the large reply leaf")
+      (is (gen/redacted? (:token out)) "off-box-tool redacts the sensitive reply leaf")
+      (is (gen/large-marker? (:doc out)) "off-box-tool elides the large reply leaf")
       (is (= 7 (:public out)))
       (is (not (contains-sentinel? out))))
     ;; Frameless project-egress fails closed (no :rf/default synthesis).
     (binding [frame/*current-frame* nil]
       (let [out (rf/project-egress {:token sentinel}
                   {:rf.egress/profile :rf.egress/off-box-observability})]
-        (is (redacted? out) "frameless reply-value egress fails closed")))))
+        (is (gen/redacted? out) "frameless reply-value egress fails closed")))))

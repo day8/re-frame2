@@ -25,7 +25,8 @@
   space, swept reproducibly. For security boundaries that is the right
   shape - we want broad casing/shape coverage, and a hostile-input corpus
   (in each surface's test ns) pins the named regression cases exactly."
-  (:refer-clojure :exclude [rand-nth]))
+  (:refer-clojure :exclude [rand-nth])
+  (:require [clojure.walk :as walk]))
 
 ;; ---------------------------------------------------------------------------
 ;; Seeded PRNG - a 32-bit LCG (numerical-recipes constants). Deterministic
@@ -167,3 +168,52 @@
            (cond-> {:fail v :index i :seed seed}
              threw (assoc :threw threw))))
        nil))))
+
+;; ---------------------------------------------------------------------------
+;; Shared egress-scan helpers - lifted from the per-surface security test
+;; namespaces, which each hand-copied a structurally identical deep
+;; `contains-sentinel?` plus the `redacted?` / `large-marker?` one-liners
+;; (rf2-n5bkm7). Consolidating them here removes the maintenance-only risk of
+;; one copy gaining a leak-class fix the siblings silently miss.
+;;
+;; Each surface keeps its OWN per-file sentinel string local and calls
+;; `(contains-string? x sentinel exact?)`, passing `exact?` to preserve that
+;; surface's per-node matching: some surfaces match the sentinel as an EXACT
+;; string equality on each walked leaf (`exact? true`), others as a SUBSTRING
+;; (`exact? false`, the `re-find` form - catches a sentinel embedded inside a
+;; larger leaf). Either way the `pr-str` fallback always uses a SUBSTRING scan,
+;; so a sentinel surviving inside a non-string leaf (a keyword/symbol form
+;; built from it, or a stringified collection) is still caught.
+;; ---------------------------------------------------------------------------
+
+(defn contains-string?
+  "Deep-walk `x`; true when `needle` appears anywhere - as a value, inside a
+  collection, or inside a stringified form. When `exact?` is truthy, a walked
+  STRING leaf matches only on exact `=` equality with `needle`; otherwise a
+  leaf matches when `needle` is a SUBSTRING of it (`re-find`). The `pr-str`
+  fallback always uses a substring scan, so `needle` surviving inside a
+  non-string leaf (e.g. a keyword/symbol form built from it) is also caught."
+  [x needle exact?]
+  (let [hit (volatile! false)]
+    (walk/postwalk
+      (fn [node]
+        (when (and (string? node)
+                   (if exact?
+                     (= needle node)
+                     (re-find (re-pattern needle) node)))
+          (vreset! hit true))
+        node)
+      x)
+    (or @hit
+        (boolean (re-find (re-pattern needle) (pr-str x))))))
+
+(defn redacted?
+  "True when `v` is the redaction sentinel keyword `:rf/redacted`."
+  [v]
+  (= :rf/redacted v))
+
+(defn large-marker?
+  "True when `v` is a structural large-elision marker (a map carrying
+  `:rf.size/large-elided`)."
+  [v]
+  (and (map? v) (contains? v :rf.size/large-elided)))

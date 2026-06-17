@@ -47,7 +47,6 @@
   (see PR Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [clojure.walk :as walk]
             [re-frame.mcp-base.sensitive :as sens]
             [re-frame.security.gen :as gen]))
 
@@ -83,8 +82,8 @@
 (defn- contains-sentinel?
   "Deep-walk `x`; true when the sentinel string appears ANYWHERE — as a
   value, inside a collection, in a secondary slot (`:tags :received`), or
-  inside a stringified form. Mirrors the deep-scan helper the sibling
-  security namespaces (error-slot / http-body egress) use.
+  inside a stringified form. Thin wrapper over the shared
+  `gen/contains-string?` (rf2-n5bkm7).
 
   Why a deep scan and not just `:tags :value` + `sensitive-event?`
   (rf2-h2yvs finding 1): the gate-OFF contract is \"the sentinel never
@@ -93,17 +92,11 @@
   `:tags :received`; a survivor with its `:sensitive?` stamp stripped (so it
   no longer classifies sensitive) and the sentinel only in `:received` would
   slip past the narrow checks while this property stayed green. A deep scan
-  catches that secondary-slot leak class."
+  catches that secondary-slot leak class. The sentinel is matched as an EXACT
+  string leaf (`exact? true`); the shared `pr-str` fallback still substring-
+  scans the stringified form."
   [x]
-  (let [hit (volatile! false)]
-    (walk/postwalk
-      (fn [node]
-        (when (and (string? node) (= sentinel node))
-          (vreset! hit true))
-        node)
-      x)
-    (or @hit
-        (boolean (re-find (re-pattern sentinel) (pr-str x))))))
+  (gen/contains-string? x sentinel true))
 
 ;; ---------------------------------------------------------------------------
 ;; Event generators.

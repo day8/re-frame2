@@ -55,7 +55,6 @@
   local revert + restore (see PR Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.walk :as walk]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.marks :as marks]
@@ -78,19 +77,11 @@
 
 (defn- contains-sentinel?
   "Deep-walk `x`; true when the sentinel appears ANYWHERE (value, nested,
-  stringified). The contract is \"the sentinel never survives the boundary.\""
+  stringified). The contract is \"the sentinel never survives the boundary.\"
+  Thin wrapper over the shared `gen/contains-string?` (rf2-n5bkm7); the
+  sentinel is matched as an EXACT string leaf (`exact? true`)."
   [x]
-  (let [hit (volatile! false)]
-    (walk/postwalk
-      (fn [node]
-        (when (and (string? node) (= sentinel node)) (vreset! hit true))
-        node)
-      x)
-    (or @hit (boolean (re-find (re-pattern sentinel) (pr-str x))))))
-
-(defn- redacted? [v] (= :rf/redacted v))
-(defn- large-marker? [v]
-  (and (map? v) (contains? v :rf.size/large-elided)))
+  (gen/contains-string? x sentinel true))
 
 (def ^:private big-string (apply str (repeat 40000 \x)))
 
@@ -120,9 +111,9 @@
                      :rf.egress/local-redacted]]
       (let [out (rf/project-egress (app-db-value)
                   {:frame :pub/offbox :rf.egress/profile profile})]
-        (is (redacted? (get-in out [:auth :token]))
+        (is (gen/redacted? (get-in out [:auth :token]))
             (str profile ": frame-owned sensitive app-db leaf redacted"))
-        (is (large-marker? (get-in out [:docs :blob]))
+        (is (gen/large-marker? (get-in out [:docs :blob]))
             (str profile ": frame-owned large app-db leaf elided to a marker"))
         (is (= 3 (get-in out [:public :count]))
             (str profile ": unmarked sibling passes through"))
@@ -151,7 +142,7 @@
     (binding [frame/*current-frame* nil]
       (let [out (rf/project-egress (app-db-value)
                   {:rf.egress/profile :rf.egress/off-box-tool})]
-        (is (redacted? out) "frameless egress fails closed to :rf/redacted")
+        (is (gen/redacted? out) "frameless egress fails closed to :rf/redacted")
         (is (not (contains-sentinel? out))))
       ;; The deliberate opt-out: include-sensitive? true gets an identity walk
       ;; against the no-frame policy (the single control point).
@@ -169,7 +160,7 @@
       (let [out (rf/project-egress (app-db-value)
                   {:frame :pub/never-registered
                    :rf.egress/profile :rf.egress/off-box-tool})]
-        (is (redacted? out)
+        (is (gen/redacted? out)
             "an unknown / destroyed frame fails closed, identically to frameless")
         (is (not (contains-sentinel? out)))))))
 
@@ -185,7 +176,7 @@
     (rf/reg-frame :pub/large {:large {:app-db [[:upload]]}})
     (let [out (rf/project-egress {:upload big-string :public "ok"}
                 {:frame :pub/large :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (large-marker? (:upload out)) "the large leaf is a structural marker")
+      (is (gen/large-marker? (:upload out)) "the large leaf is a structural marker")
       (is (not= big-string (:upload out)) "the raw large value is NOT shipped")
       (is (= "ok" (:public out))))))
 
@@ -198,8 +189,8 @@
     (let [out (rf/project-egress {:secret big-string}
                 {:frame :pub/both
                  :rf.egress/profile :rf.egress/off-box-observability})]
-      (is (redacted? (:secret out)) "the both-marked path is :rf/redacted")
-      (is (not (large-marker? (:secret out)))
+      (is (gen/redacted? (:secret out)) "the both-marked path is :rf/redacted")
+      (is (not (gen/large-marker? (:secret out)))
           "NO large marker — no path/size/digest can leak for a sensitive path"))))
 
 ;; ---------------------------------------------------------------------------
@@ -227,7 +218,7 @@
                        (let [out (rf/project-egress value
                                    {:frame fid
                                     :rf.egress/profile :rf.egress/off-box-tool})]
-                         (and (redacted? (get-in out path))
+                         (and (gen/redacted? (get-in out path))
                               (not (contains-sentinel? out)))))))]
       (is (nil? result)
           (str "a declared-sensitive path leaked the sentinel: "
@@ -263,9 +254,9 @@
       (let [projected (rf/project-egress raw-app-db
                         {:frame :pub/snap
                          :rf.egress/profile :rf.egress/off-box-tool})]
-        (is (redacted? (get-in projected [:auth :token]))
+        (is (gen/redacted? (get-in projected [:auth :token]))
             "PUBLIC: project-egress of the snapshot :app-db redacts the sensitive leaf")
-        (is (large-marker? (get-in projected [:docs :blob]))
+        (is (gen/large-marker? (get-in projected [:docs :blob]))
             "PUBLIC: project-egress elides the large leaf")
         (is (not (contains-sentinel? projected))
             "PUBLIC: no sentinel crosses the projected boundary")))))

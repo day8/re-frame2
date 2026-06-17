@@ -34,7 +34,6 @@
   revert + restore (see PR Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.walk :as walk]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
@@ -80,19 +79,12 @@
 
 (defn- contains-sentinel?
   "Deep-walk `x`; true when the sentinel string appears anywhere (as a
-  value, inside a collection, or inside a stringified form)."
+  value - matched as a SUBSTRING - inside a collection, or inside a
+  stringified form, e.g. a keyword or symbol form built from it). Thin
+  wrapper over the shared `gen/contains-string?` (rf2-n5bkm7); the sentinel
+  is matched as a substring (`exact? false`)."
   [x]
-  (let [hit (volatile! false)]
-    (walk/postwalk
-      (fn [node]
-        (when (and (string? node) (re-find (re-pattern sentinel) node))
-          (vreset! hit true))
-        node)
-      x)
-    ;; Also catch the sentinel surviving inside a non-string leaf via pr-str
-    ;; (e.g. a keyword or symbol form built from it).
-    (or @hit
-        (re-find (re-pattern sentinel) (pr-str x)))))
+  (gen/contains-string? x sentinel false))
 
 ;; ---------------------------------------------------------------------------
 ;; Recursive generator - build [schema db] where a :sensitive? scalar slot
