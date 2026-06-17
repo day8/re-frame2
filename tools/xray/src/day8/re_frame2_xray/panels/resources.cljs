@@ -335,6 +335,125 @@
       (empty-caption "No in-flight or recent resource work in this frame."
                      "rf-xray-resources-work-empty"))))
 
+;; ---- §3b WHAT IS STILL RUNNING? (EP-0011 live-work) ---------------------
+;;
+;; The cross-family "what is the app waiting on, and why" view (Trace-Consumer
+;; §"What is still running?"): the live (non-terminal) work-ledger rows joined
+;; to their latest reply-envelope trace phase + emitting op, UNIFORM across
+;; HTTP / resources / mutations / routing / machines / timers. The projection
+;; (`reply/live-work`) is computed in the composite data sub; this view
+;; renders it. SILENT-BY-DEFAULT: renders nothing when there is no live work
+;; (the quiet baseline — a settled app shows no dashboard).
+
+(defn- live-work-row-view [row]
+  (let [testid (str "rf-xray-resources-live-work-row-" (hash (:work-id row)))]
+    [:div {:data-testid testid
+           :data-work-kind (str (some-> (:work-kind row) name))
+           :style {:display     "flex"
+                   :align-items "baseline"
+                   :gap         "10px"
+                   :flex-wrap   "wrap"
+                   :padding     "3px 0"
+                   :font-family mono-stack
+                   :font-size   "12px"}}
+     [:span {:data-testid (str testid "-kind")
+             :style {:color mode-accent :font-weight 600 :min-width "6rem"}}
+      (str (some-> (:work-kind row) name))]
+     [:span {:data-testid (str testid "-status")
+             :style {:color (:green tokens) :font-weight 600}}
+      (str (some-> (:status row) name))]
+     (when (:latest-phase row)
+       [:span {:data-testid (str testid "-phase")
+               :style {:color (:text-primary tokens)}}
+        "phase " (name (:latest-phase row))])
+     (when (:latest-op row)
+       [:span {:data-testid (str testid "-op")
+               :style {:color (:text-tertiary tokens)}}
+        (str (:latest-op row))])
+     (when (:attempt row)
+       [:span {:style {:color (:text-tertiary tokens)}} "attempt " (:attempt row)])
+     (when (seq (:owners row))
+       [:span {:style {:color (:text-tertiary tokens)}}
+        "owners " (count (:owners row))])
+     [:span {:data-testid (str testid "-id")
+             :style {:color (:text-tertiary tokens)}}
+      (str (:work-id row))]]))
+
+(defn- live-work-section [{:keys [live-work stale-tally]}]
+  ;; quiet when nothing is running AND nothing has been suppressed.
+  (when (or (seq live-work) (seq stale-tally))
+    (section
+      {:first? false :testid "rf-xray-resources-live-work"}
+      (section-caption "What is still running?" "rf-xray-resources-live-work-caption")
+      [:<>
+       (if (seq live-work)
+         (into [:div {:data-testid "rf-xray-resources-live-work-body"
+                      :style {:display "flex" :flex-direction "column" :gap "2px"}}]
+               (for [row live-work]
+                 ^{:key (str (:work-id row))} (live-work-row-view row)))
+         (empty-caption "No live managed-async work in this frame."
+                        "rf-xray-resources-live-work-empty"))
+       ;; the active-effects tally headline — live count per family.
+       (when (seq stale-tally)
+         (into [:div {:data-testid "rf-xray-resources-stale-tally"
+                      :style {:display "flex" :gap "10px" :flex-wrap "wrap"
+                              :margin-top "8px" :font-family mono-stack
+                              :font-size "11px" :color (:text-tertiary tokens)}}
+                [:span {:style {:font-weight 600}} "suppressed: "]]
+               (for [[kind n] (sort-by (comp str key) stale-tally)]
+                 ^{:key (str kind)}
+                 [:span {:data-testid (str "rf-xray-resources-stale-tally-"
+                                           (some-> kind name))
+                         :style {:color (:warning tokens)}}
+                  (str (some-> kind name) " " n)])))])))
+
+;; ---- §3c STALE RACES (EP-0011 stale-suppression / supersession) ---------
+;;
+;; The cross-family stale-races view (Trace-Consumer §stale-races / Resources
+;; panel §uniform reply-envelope reads): every work/reply attempt arc grouped
+;; by `:work/id`, showing the arcs that hit the stale-suppression correctness
+;; boundary (carried ≠ current — one attempt superseded another). The
+;; projection (`reply/races-by-work-id`) is computed in the composite data
+;; sub. SILENT-BY-DEFAULT: only the SUPPRESSED arcs render; renders nothing
+;; when no arc was suppressed.
+
+(defn- stale-race-row-view [arc]
+  (let [testid (str "rf-xray-resources-stale-race-row-" (hash (:work-id arc)))]
+    [:div {:data-testid testid
+           :data-work-kind (str (some-> (:work-kind arc) name))
+           :style {:display     "flex"
+                   :align-items "baseline"
+                   :gap         "10px"
+                   :flex-wrap   "wrap"
+                   :padding     "3px 0"
+                   :font-family mono-stack
+                   :font-size   "12px"}}
+     [:span {:data-testid (str testid "-kind")
+             :style {:color mode-accent :font-weight 600 :min-width "6rem"}}
+      (str (some-> (:work-kind arc) name))]
+     [:span {:data-testid (str testid "-terminal")
+             :style {:color (:warning tokens) :font-weight 600}}
+      (str (some-> (:terminal-status arc) name))]
+     [:span {:style {:color (:text-tertiary tokens)}}
+      "phases " (str/join " " (sort (map name (:phases arc))))]
+     [:span {:data-testid (str testid "-id")
+             :style {:color (:text-tertiary tokens)}}
+      (str (:work-id arc))]]))
+
+(defn- stale-races-section [stale-races]
+  (let [suppressed (->> (vals stale-races)
+                        (filter :suppressed?)
+                        (sort-by (comp str :work-id)))]
+    ;; quiet when no arc hit the stale-suppression boundary.
+    (when (seq suppressed)
+      (section
+        {:first? false :testid "rf-xray-resources-stale-races"}
+        (section-caption "Stale races" "rf-xray-resources-stale-races-caption")
+        (into [:div {:data-testid "rf-xray-resources-stale-races-body"
+                     :style {:display "flex" :flex-direction "column" :gap "2px"}}]
+              (for [arc suppressed]
+                ^{:key (str (:work-id arc))} (stale-race-row-view arc)))))))
+
 ;; ---- §4 ROUTE / RESOURCE GRAPH -----------------------------------------
 
 (defn- freshness-colour [freshness]
@@ -843,6 +962,7 @@
   instances, renders the silent-by-default caption."
   []
   (let [{:keys [silent? registry scope-resolvers instances work route-graph
+                live-work stale-races stale-tally
                 timeline invalidations scope-resolutions mutation-invalidations
                 continuations optimistic-mutations optimistic-force-clobbers
                 cache-growth audit]}
@@ -863,6 +983,12 @@
         (scope-resolvers-section scope-resolvers)
         (instances-section instances)
         (work-ledger-section work)
+        ;; EP-0011 uniform reply-envelope reads — "what is still running?"
+        ;; (live work + active-effects tally) and the cross-family stale-races
+        ;; view. Silent-by-default: each renders nothing when its data is
+        ;; empty (quiet baseline for a settled app).
+        (live-work-section {:live-work live-work :stale-tally stale-tally})
+        (stale-races-section stale-races)
         (route-graph-section route-graph)
         (timeline-section timeline)
         (invalidation-section invalidations)
