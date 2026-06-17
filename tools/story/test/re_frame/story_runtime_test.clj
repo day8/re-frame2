@@ -37,7 +37,12 @@
             [re-frame.story.frames    :as frames]
             [re-frame.story.identity  :as ident]
             [re-frame.story.loaders   :as loaders]
-            [re-frame.story.runtime   :as runtime]))
+            [re-frame.story.runtime   :as runtime]
+            ;; EP-0023 behaviour-variant image fixtures (rf2-fpr0b5): two
+            ;; namespaces register the SAME event id with DIFFERENT meanings;
+            ;; a variant's `:images` `:include-ns` selects one or the other.
+            [re-frame.story.test-helpers.image-behaviour-v1]
+            [re-frame.story.test-helpers.image-behaviour-v2]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -781,6 +786,70 @@
       (is (= :story.run/v        (-> r :snapshot :variant-id)))
       (is (string?               (-> r :snapshot :content-hash))))
     (story/destroy-variant! :story.run/v)))
+
+;; ===========================================================================
+;; EP-0023 BEHAVIOUR-VARIANT IMAGES (rf2-fpr0b5)
+;; ===========================================================================
+
+(deftest behaviour-variant-images-resolve-same-id-differently
+  (testing "EP-0023 §Stories — two variants declaring DIFFERENT `:images`
+            resolve the SAME event id `:img.counter/step` to DIFFERENT
+            behaviour. The image's `:include-ns` selects which namespace's
+            registration the variant frame resolves against; the runtime
+            attaches the resolved generation via `rf/make-frame` in
+            `allocate!`, and `process-event!`'s frame-resolution routes the
+            dispatch through it. This is 'behavior variant -> image' end-to-end."
+    ;; The fixture's `registrar/clear-all!` wipes the helper namespaces'
+    ;; top-level `reg-event`s from the source store, so re-run their loads
+    ;; before building the selecting images (a zero-match `:include-ns` fails
+    ;; loud by design).
+    (require 're-frame.story.test-helpers.image-behaviour-v1 :reload)
+    (require 're-frame.story.test-helpers.image-behaviour-v2 :reload)
+    ;; Variant A mounts under the v1 image (adds 1).
+    (story/reg-variant :story.img/v1
+      {:images [(rf/image {:id :img/behaviour-v1
+                           :include-ns ["re-frame.story.test-helpers.image-behaviour-v1"]})]
+       :events [[:img.counter/step]]})
+    ;; Variant B mounts under the v2 image (adds 100) — SAME event id.
+    (story/reg-variant :story.img/v2
+      {:images [(rf/image {:id :img/behaviour-v2
+                           :include-ns ["re-frame.story.test-helpers.image-behaviour-v2"]})]
+       :events [[:img.counter/step]]})
+    (let [ra (async/deref-blocking (story/run-variant :story.img/v1) 5000)
+          rb (async/deref-blocking (story/run-variant :story.img/v2) 5000)]
+      (is (= 1 (-> ra :app-db :n))
+          "variant under the v1 image ran the add-one handler")
+      (is (= :v1-add-one (-> ra :app-db :behaviour)))
+      (is (= 100 (-> rb :app-db :n))
+          "variant under the v2 image ran the add-hundred handler — SAME id,
+           DIFFERENT behaviour, resolved through the variant frame's own image")
+      (is (= :v2-add-hundred (-> rb :app-db :behaviour)))
+      ;; item 4 — the result reports WHICH behaviour set ran.
+      (is (= [:img/behaviour-v1] (:images ra))
+          "the result surfaces the resolved behaviour-variant image ids")
+      (is (= [:img/behaviour-v2] (:images rb))))
+    (story/destroy-variant! :story.img/v1)
+    (story/destroy-variant! :story.img/v2)))
+
+(deftest behaviour-variant-image-ids-on-frame-meta
+  (testing "EP-0023 — a behaviour variant's image ids land on frame-meta
+            (`frames/variant-image-ids`); a state variant (no `:images`)
+            reports none and resolves against the shared default registrar."
+    (require 're-frame.story.test-helpers.image-behaviour-v1 :reload)
+    (story/reg-variant :story.img/meta
+      {:images [(rf/image {:id :img/behaviour-v1
+                           :include-ns ["re-frame.story.test-helpers.image-behaviour-v1"]})]
+       :events [[:img.counter/step]]})
+    (story/reg-variant :story.img/state-only
+      {:events []})
+    (frames/allocate! :story.img/meta (story/resolve-decorators :story.img/meta))
+    (frames/allocate! :story.img/state-only (story/resolve-decorators :story.img/state-only))
+    (is (= [:img/behaviour-v1] (frames/variant-image-ids :story.img/meta))
+        "behaviour variant carries its image ids on frame-meta")
+    (is (nil? (frames/variant-image-ids :story.img/state-only))
+        "a state-only variant carries no :rf/images slot")
+    (frames/destroy! :story.img/meta)
+    (frames/destroy! :story.img/state-only)))
 
 (deftest run-variant-with-loaders-and-events
   (testing "run-variant drains loaders before events"

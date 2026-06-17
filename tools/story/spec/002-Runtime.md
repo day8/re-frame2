@@ -23,6 +23,39 @@ At variant-unmount the runtime calls `(rf/destroy-frame! variant-id)`.
 Hot-reload preserves the side-table; a re-registration of the same
 variant calls `reset-frame!` and re-runs the lifecycle.
 
+### Behaviour-variant images (EP-0023)
+
+When a variant declares `:images` (see
+[001-Authoring.md §`:images`](001-Authoring.md)), `frames/allocate!` ALSO
+registers a live frame **object** under the variant id carrying the resolved,
+sealed image generation, per
+[EP-0023 §Stories](../../../docs/EP/EP-0023-image-loaded-frames.md):
+
+1. `(rf/make-frame {:id variant-id :images [<image> …]})` — creates the
+   backing runnable record AND the live frame object whose
+   `:rf.frame/generation` is the assembled, sealed generation the images
+   resolve to. Runs FIRST so the framework's image validation fails loud at
+   frame creation.
+2. `(rf/reg-frame variant-id {…story config…})` — SURGICAL-UPDATES that
+   record's config with the Story preset / `:fx-overrides` / classification /
+   `:rf/images` (the image ids, for tooling read-back), preserving the
+   freshly-made app-db. The live frame object (in the separate live-frame
+   registry) is untouched.
+
+The framework's `call-with-frame-resolution` then routes every
+`{:frame variant-id}` dispatch — event-handler lookup, declared cofx, the
+whole fx walk — through the variant frame's OWN image generation rather than
+the shared default registrar (EP-0023 §Frame-derived live registration
+resolution). Two variants reusing the SAME global event/sub id under
+DIFFERENT images resolve it to their own image's descriptor — **behaviour
+variant -> image**, with NO global-registrar clobber between runs.
+
+A variant with no `:images` skips `make-frame` entirely and resolves against
+the shared default registrar exactly as before (absence-is-default). The
+resolved image ids are reported on the run-result `:images` slot and on the
+variant frame-meta `:rf/images` slot
+(`re-frame.story.frames/variant-image-ids`).
+
 ### Machine lifecycle on variant unmount
 
 When `destroy-variant!` fires, any
