@@ -139,19 +139,16 @@
             ;; (see elision_probe.cljs). EP-0023 collapse FINALE (rf2-32siq3.48):
             ;; the OBJECT-returning `live-frame/make-frame` IS now the backing of
             ;; the facade `rf/make-frame` (repointed off the EP-0013 RECORD
-            ;; constructor once every record caller was migrated; the
-            ;; `assert-no-dual-make-frame!` window guard is retired to a
-            ;; regression pin).
+            ;; constructor once every record caller was migrated).
             [re-frame.live-frame :as live-frame]
             ;; EP-0023 (rf2-32siq3.11): the EP-0013 -> EP-0023 migration shims +
             ;; diagnostics ns. Carries the surface dispositions as inspectable
-            ;; data plus the fail-loud migration diagnostics (cross-realm
-            ;; duplicate-frame-id, the make-frame dual-export transition guard).
-            ;; A leaf over `re-frame.error` / `re-frame.realm` /
-            ;; `re-frame.live-frame` (all already in the core spine); re-exported
-            ;; below as `rf/migration-map` / `rf/migration-explain` / the two
-            ;; `assert-*` guards. An app that never reaches a superseded EP-0013
-            ;; surface leaves them as Closure-DCE dead code.
+            ;; data plus the fail-loud migration diagnostics (the cross-realm
+            ;; duplicate-frame-id assertion). A leaf over `re-frame.error` /
+            ;; `re-frame.realm` (both already in the core spine); re-exported
+            ;; below as `rf/migration-map` / `rf/migration-explain` /
+            ;; `rf/assert-process-local-frame-id!`. An app that never reaches a
+            ;; superseded EP-0013 surface leaves them as Closure-DCE dead code.
             [re-frame.migration :as migration]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
@@ -798,13 +795,11 @@
 ;; runnable OBJECT constructor (`re-frame.live-frame/make-frame`). The migration
 ;; slices (rf2-32siq3.45/.46/.47) moved every record caller off the
 ;; keyword-returning contract first, so the flip is non-breaking for the public
-;; surface; the transition-window dual-export guard
-;; (`re-frame.migration/assert-no-dual-make-frame!`) is retired to a regression
-;; pin (it is no longer wired live — the facade now exports exactly one
-;; make-frame, the object one). The EP-0013 RECORD constructor survives, demoted
-;; to the advanced `re-frame.frame/make-frame` (gensym id + the record-config
-;; surface — `:on-create` / `:fx-overrides` / `:platform` / `:ssr` / `:doc` /
-;; `:preset` / `:tags` / …); it is no longer facade-exported.
+;; surface; the facade exports exactly one make-frame, the object one. The
+;; EP-0013 RECORD constructor survives, demoted to the advanced
+;; `re-frame.frame/make-frame` (gensym id + the record-config surface —
+;; `:on-create` / `:fx-overrides` / `:platform` / `:ssr` / `:doc` / `:preset` /
+;; `:tags` / …); it is no longer facade-exported.
 ;;
 ;; Record-config keys (the rf2-32siq3.45 finding — NEVER silent-drop): the
 ;; object constructor honours only the EP-0023 frame-creation opts

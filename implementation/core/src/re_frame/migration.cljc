@@ -25,43 +25,18 @@
       `(realm, frame)` address calls this to learn — with an actionable error —
       that a frame id already live in a DIFFERENT realm cannot be reused under
       the EP-0023 model. Fail-loud `:rf.error/cross-realm-frame-id`.
-    * `assert-no-dual-make-frame!` — the transition-window guard, now a RETIRED
-      REGRESSION PIN (EP-0023 collapse FINALE, rf2-32siq3.48). The public
-      `make-frame` name MIGRATED from the EP-0013 RECORD constructor
-      (`re-frame.frame/make-frame`, returns a gensym id) to the EP-0023 OBJECT
-      constructor (`re-frame.live-frame/make-frame`, returns the frame object):
-      `rf/make-frame` is now repointed onto the object path, so the facade
-      exports exactly one `make-frame` and the window is CLOSED. The guard fn is
-      no longer wired live; it survives only as a regression pin so the invariant
-      stays enforceable — if BOTH signatures are ever wired under one public name
-      again, it still fails loud `:rf.error/make-frame-dual-export` rather than
-      letting two incompatible `make-frame` contracts ship behind one name.
-
-  ## What this slice does NOT do (the make-frame name-collapse)
-
-  EP-0023 `make-frame` (live-frame OBJECT, `:images`/`:id`) and EP-0013
-  `re-frame.frame/make-frame` (gensym RECORD id) are SEPARATE registries with
-  INVERTED contracts (id-returning vs object-returning) and ~230 EP-0013 callers
-  across the SSR + adapter test suites. The full name-collapse + caller
-  migration + record/object unification needs an explicit ruling on the unified
-  return contract and is filed as the focused follow-up bead rf2-32siq3.32 (per
-  the rf2-32siq3.11 NOTES) — it is NOT attempted here. This slice lands the
-  migration SHIMS + diagnostics core, and `assert-no-dual-make-frame!` is the
-  guard that keeps the window safe until that ruling lands.
 
   ## Production elision
 
   Pure data + fail-loud diagnostics on the migration / frame-creation path (not
   a per-event hot path, not a DEBUG-gated branch). An app that never reaches a
   superseded EP-0013 surface never calls these (Closure DCE removes them). The
-  requires are `re-frame.error` (the canonical thrown-error builder),
-  `re-frame.realm` (the realm-frame membership read for the cross-realm check),
-  and `re-frame.live-frame` (the live-frame registry read for the dual-export
-  window) — all already in the core spine; this ns is a leaf (nothing in core
-  requires it back, so no cycle)."
-  (:require [re-frame.error      :as error]
-            [re-frame.realm      :as realm]
-            [re-frame.live-frame :as live-frame]))
+  requires are `re-frame.error` (the canonical thrown-error builder) and
+  `re-frame.realm` (the realm-frame membership read for the cross-realm check) —
+  both already in the core spine; this ns is a leaf (nothing in core requires it
+  back, so no cycle)."
+  (:require [re-frame.error :as error]
+            [re-frame.realm :as realm]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -250,58 +225,3 @@
                      :target-realm target-rid
                      :other-realms (vec (sort other))}}))
      frame-id)))
-
-;; ===========================================================================
-;; assert-no-dual-make-frame! — the transition-window guard
-;; ===========================================================================
-;;
-;; The public `make-frame` name MIGRATED from the EP-0013 RECORD constructor to
-;; the EP-0023 OBJECT constructor (bead NOTES). The two have INVERTED contracts
-;; (id-returning vs object-returning), so exporting BOTH behind one public name
-;; would ship an ambiguous surface. The name-collapse landed (rf2-32siq3.48 — the
-;; collapse FINALE): `rf/make-frame` is now the OBJECT constructor and the facade
-;; exports exactly one `make-frame`, so the transition window is CLOSED. This
-;; guard is now a RETIRED REGRESSION PIN — no longer wired live, but kept so the
-;; invariant stays ENFORCEABLE: it throws if both constructors are ever wired to
-;; a single public name again. It is parameterised on the two exported vars so a
-;; test can drive both the safe (one export) and the unsafe (dual export) cases
-;; without mutating the live facade.
-
-(defn assert-no-dual-make-frame!
-  "Fail loud with `:rf.error/make-frame-dual-export` when BOTH the EP-0013 RECORD
-  `make-frame` and the EP-0023 OBJECT `make-frame` are exported under one public
-  name (bead rf2-32siq3.11 NOTES — \"add a diagnostic if both signatures are ever
-  exported simultaneously during the transition window\"). `record-export` /
-  `object-export` are the two candidate exports (vars, fns, or nil when not
-  exported). A dual export is an AMBIGUOUS public surface — the two constructors
-  have inverted return contracts (id-returning vs object-returning), so one
-  public `make-frame` cannot mean both. Returns nil when at most one is exported.
-
-  RETIRED REGRESSION PIN (EP-0023 collapse FINALE, rf2-32siq3.48): the
-  name-collapse landed — `rf/make-frame` is now the OBJECT constructor and the
-  facade exports exactly one `make-frame`, so this guard is no longer wired into
-  the live facade. It survives so the invariant stays enforceable if the dual
-  export is ever reintroduced."
-  [record-export object-export]
-  (when (and (some? record-export) (some? object-export))
-    (error/throw-error!
-      :rf.error/make-frame-dual-export
-      'rf/make-frame
-      (str "rf/make-frame: both the EP-0013 record constructor "
-           "(re-frame.frame/make-frame — returns a gensym id) and the EP-0023 "
-           "object constructor (re-frame.live-frame/make-frame — returns the "
-           "live frame object) are exported under one public make-frame name. "
-           "Their return contracts are INVERTED, so one public name cannot mean "
-           "both. Export exactly one make-frame during the transition window; "
-           "the name-collapse + caller migration is the EP-0023 follow-up that "
-           "rules the unified contract.")
-      {:recovery :export-exactly-one-make-frame}))
-  nil)
-
-(defn make-frame-export-conflict?
-  "Pure predicate sibling of `assert-no-dual-make-frame!` — true when BOTH
-  `record-export` and `object-export` are present (the dual-export window
-  hazard), false otherwise. For tooling / tests that want to detect the hazard
-  without throwing."
-  [record-export object-export]
-  (boolean (and (some? record-export) (some? object-export))))
