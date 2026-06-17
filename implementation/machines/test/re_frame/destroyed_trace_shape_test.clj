@@ -47,8 +47,23 @@
 ;; envelope cascade keys (currently `:rf.trace/dispatch-id`) under
 ;; `:tags` per Spec 009 §Cascade-id stamping; those keys are not part
 ;; of the per-site contract.
+;;
+;; rf2-sfunt8 — an `:explicit` destroy closes the actor work attempt the
+;; reply-envelope way (a `:status :cancelled` reply — cancellation as DATA,
+;; Managed-Effects §Cancellation / EP-0011 §Cancellation). The cancelled
+;; reply facts ride ADDITIVELY on the destroyed trace, so they are part of
+;; the contract for the `:explicit` (cancellation) sites; a
+;; `:rf.machine/finished` destroy carries none of them (the actor already
+;; closed through `finalize-machine`'s `:rf.machine/done` reply).
+(def ^:private reply-envelope-keys
+  #{:work/id :work/kind :rf.reply/status :rf.reply/work-id
+    :rf.reply/work-status :rf.reply/cancelled? :rf.reply/cancel-reason
+    :rf.reply/correlation})
+
 (def ^:private canonical-site-keys
-  #{:frame :actor-id :system-id :parent-id :invoke-id :child-id :reason})
+  (clojure.set/union
+    #{:frame :actor-id :system-id :parent-id :invoke-id :child-id :reason}
+    reply-envelope-keys))
 
 (def ^:private framework-stamped-keys
   #{:rf.trace/dispatch-id})
@@ -93,7 +108,25 @@
       (is (contains? tags :reason)
           (str label ": :reason discriminator is always emitted"))
       (is (#{:explicit :rf.machine/finished} (:reason tags))
-          (str label ": :reason is one of :explicit / :rf.machine/finished")))))
+          (str label ": :reason is one of :explicit / :rf.machine/finished"))
+      ;; rf2-sfunt8 — an :explicit destroy is a cancellation; it carries the
+      ;; reply-envelope cancellation facts. A :rf.machine/finished destroy is
+      ;; NOT a cancellation (the actor closed through :rf.machine/done) — no
+      ;; cancelled reply facts.
+      (if (= :explicit (:reason tags))
+        (do
+          (is (= :cancelled (:rf.reply/status tags))
+              (str label ": an :explicit destroy carries :rf.reply/status :cancelled"))
+          (is (= :cancelled (:rf.reply/work-status tags))
+              (str label ": ... and :rf.reply/work-status :cancelled"))
+          (is (true? (:rf.reply/cancelled? tags))
+              (str label ": ... and the :rf.reply/cancelled? marker"))
+          (is (= :explicit (:rf.reply/cancel-reason tags))
+              (str label ": ... and :rf.reply/cancel-reason"))
+          (is (some? (:work/id tags))
+              (str label ": ... and the canonical :work/id")))
+        (is (not (contains? tags :rf.reply/status))
+            (str label ": a :rf.machine/finished destroy carries no cancelled reply facts"))))))
 
 ;; ---- Site 1: destroy-spawn-all-children! ---------------------------------
 

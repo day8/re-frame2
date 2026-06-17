@@ -188,3 +188,51 @@
         (is (= :completed (:work/status r)))
         (is (true? (-> r :correlation :guard-suppressed?)))
         (is (reply/valid-reply? r))))))
+
+;; ---- terminal cancellation replies (rf2-sfunt8) ---------------------------
+
+(deftest cancelled-timer-reply-is-canonical
+  (testing "rf2-sfunt8 — a cancelled :after timer is :status :cancelled DATA"
+    (let [r (m-reply/cancelled-timer-reply
+              {:actor-id :a/multi :state :loading :delay 30000
+               :decl-path [:loading] :epoch 1 :frame :rf/default
+               :reason :on-exit})]
+      (is (= :cancelled (:status r)))
+      (is (true? (:cancelled? r)) "cancellation is a positive fact")
+      (is (= :on-exit (:cancel/reason r)))
+      (is (= :cancelled (:work/status r)))
+      (is (= :timer (:work/kind r)))
+      ;; matches the fired / stale reply's work-id (same scheduling attempt row)
+      (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
+      (is (not (contains? r :value)) "a cancelled timer never fired — no :value")
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))))
+  (testing "every closed cancel reason produces a valid reply"
+    (doseq [reason m-reply/timer-cancel-reasons]
+      (let [r (m-reply/cancelled-timer-reply
+                {:actor-id :a/m :state :s :delay 100
+                 :decl-path [:s] :epoch 1 :frame :rf/default :reason reason})]
+        (is (= reason (:cancel/reason r)))
+        (is (reply/valid-reply? r) (str reason " ⇒ " (reply/validate-reply r)))))))
+
+(deftest cancelled-actor-reply-is-canonical
+  (testing "rf2-sfunt8 — a cancelled (destroyed) spawned actor is :status :cancelled"
+    (let [r (m-reply/cancelled-actor-reply
+              {:actor-id :auth/flow#1 :parent-id :auth/main
+               :work-bearing-path [:authenticating] :frame :rf/default
+               :reason :explicit})]
+      (is (= :cancelled (:status r)))
+      (is (true? (:cancelled? r)))
+      (is (= :explicit (:cancel/reason r)))
+      (is (= :cancelled (:work/status r)))
+      (is (= :machine (:work/kind r)))
+      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r))
+          "reuses the machine work-id so the cancel joins the spawn's row")
+      (is (not (contains? r :value)) "the actor never produced an :output-key result")
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))))
+  (testing "join-survivor cancel reason rides as :cancel/reason"
+    (let [r (m-reply/cancelled-actor-reply
+              {:actor-id :child/c#2 :parent-id :sup/all
+               :work-bearing-path [:hydrating] :frame :rf/default
+               :reason :on-join-resolution})]
+      (is (= :on-join-resolution (:cancel/reason r)))
+      (is (reply/valid-reply? r)))))

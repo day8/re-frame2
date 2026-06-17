@@ -15,7 +15,8 @@
   (rf2-lha2t) — it deliberately emits NO traces so the projection stays
   a value→value function. These helpers ARE side effects, so they live
   separately."
-  (:require [re-frame.trace :as trace]))
+  (:require [re-frame.machines.reply :as m-reply]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -35,18 +36,50 @@
   passing the key).
 
   `reason` is the discriminator — `:explicit` for direct-destroy
-  cascades, `:rf.machine/finished` for final-state auto-destroy."
+  cascades, `:rf.machine/finished` for final-state auto-destroy.
+
+  rf2-sfunt8 — an `:explicit` destroy is a CANCELLATION of an in-progress
+  actor work attempt (the actor was torn down before reaching a `:final?`
+  leaf), so it closes the work attempt the reply-envelope way: a
+  `:status :cancelled` reply (cancellation as DATA, not the absence of a
+  reply — Managed-Effects §Cancellation; EP-0011 §Cancellation). The
+  reply-envelope facts (`:work/id` keyed on the destroyed actor instance,
+  `:rf.reply/status :cancelled`, `:rf.reply/work-status :cancelled`,
+  `:cancel/reason`) ride ADDITIVELY so the cancelled completion joins the
+  same uniform work/reply row the spawn started, classified the same way
+  the single-`:spawn` `:rf.machine/done` reply is. A `:rf.machine/finished`
+  destroy is NOT a cancellation — the actor already closed its attempt
+  through `finalize-machine`'s `:rf.machine/done` reply — so it carries no
+  cancelled reply facts. The public destroyed-trace shape is unchanged."
   [{:keys [frame actor-id system-id parent-id invoke-id child-id reason]
     :or {reason :explicit}
     :as args}]
-  (trace/emit! :rf.machine :rf.machine/destroyed
-               (cond-> {:frame    frame
-                        :actor-id actor-id
-                        :reason   reason}
-                 (contains? args :system-id) (assoc :system-id system-id)
-                 (contains? args :parent-id) (assoc :parent-id parent-id)
-                 (contains? args :invoke-id) (assoc :invoke-id invoke-id)
-                 (contains? args :child-id)  (assoc :child-id  child-id))))
+  (let [cancelled? (= reason :explicit)
+        summary    (when cancelled?
+                     (m-reply/trace-reply
+                       (m-reply/cancelled-actor-reply
+                         {:actor-id          actor-id
+                          :parent-id         parent-id
+                          :work-bearing-path invoke-id
+                          :frame             frame
+                          :reason            reason})
+                       {:frame frame}))]
+    (trace/emit! :rf.machine :rf.machine/destroyed
+                 (cond-> {:frame    frame
+                          :actor-id actor-id
+                          :reason   reason}
+                   (contains? args :system-id) (assoc :system-id system-id)
+                   (contains? args :parent-id) (assoc :parent-id parent-id)
+                   (contains? args :invoke-id) (assoc :invoke-id invoke-id)
+                   (contains? args :child-id)  (assoc :child-id  child-id)
+                   cancelled? (assoc :work/id              (:work/id summary)
+                                     :work/kind            (:work/kind summary)
+                                     :rf.reply/status      (:status summary)
+                                     :rf.reply/work-id     (:work/id summary)
+                                     :rf.reply/work-status (:work/status summary)
+                                     :rf.reply/cancelled?  (:cancelled? summary)
+                                     :rf.reply/cancel-reason (:cancel/reason summary)
+                                     :rf.reply/correlation (:correlation summary))))))
 
 (defn emit-system-id-released!
   "Per Spec 005 §Cancellation cascade D8 — fire

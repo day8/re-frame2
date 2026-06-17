@@ -39,6 +39,7 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.paths :as paths]
+            [re-frame.machines.reply :as m-reply]
             [re-frame.machines.transition :as transition]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
@@ -204,7 +205,25 @@
   [frame-id k entry reason]
   (let [delay-key    (:delay k)
         delay-source (:delay-source entry)
-        sub-vec      (when (vector? delay-key) delay-key)]
+        sub-vec      (when (vector? delay-key) delay-key)
+        ;; rf2-sfunt8 — close the timer work attempt the reply-envelope way:
+        ;; a cancelled `:after` timer is `:status :cancelled` DATA, not the
+        ;; absence of a reply (Managed-Effects §Cancellation). The canonical
+        ;; `:work/id` matches the fired / stale reply's so the cancelled
+        ;; completion joins the same uniform work/reply row the timer's
+        ;; scheduling started; `:cancel/reason` carries the closed
+        ;; `timer-cancel-reasons` discriminator. The reply facts ride
+        ;; ADDITIVELY — the public trace shape (`:actor-id` / `:state` /
+        ;; `:delay` / `:epoch` / `:reason` / sub identity) is preserved.
+        cancel-reply (m-reply/cancelled-timer-reply
+                       {:actor-id  (:parent k)
+                        :state     (:state entry)
+                        :delay     (:resolved-ms entry)
+                        :decl-path (:spawn k)
+                        :epoch     (:epoch entry)
+                        :frame     frame-id
+                        :reason    reason})
+        summary      (m-reply/trace-reply cancel-reply {:frame frame-id})]
     (trace/emit! :rf.machine :rf.machine.timer/cancelled
                  (cond-> {;; rf2-ws5thu — the timer's owning actor INSTANCE;
                           ;; `:machine-id` is reserved for the registered TYPE.
@@ -213,7 +232,16 @@
                           :delay      (:resolved-ms entry)
                           :epoch      (:epoch entry)
                           :reason     reason
-                          :frame      frame-id}
+                          :frame      frame-id
+                          ;; reply-envelope vocabulary (Managed-Effects §9)
+                          :work/id              (:work/id summary)
+                          :work/kind            (:work/kind summary)
+                          :rf.reply/status      (:status summary)
+                          :rf.reply/work-id     (:work/id summary)
+                          :rf.reply/work-status (:work/status summary)
+                          :rf.reply/cancelled?  (:cancelled? summary)
+                          :rf.reply/cancel-reason (:cancel/reason summary)
+                          :rf.reply/correlation (:correlation summary)}
                    (some? delay-source) (assoc :delay-source delay-source)
                    (some? sub-vec)      (assoc :rf.sub/id      (first sub-vec)
                                                :rf.sub/query-v (vec sub-vec))))))

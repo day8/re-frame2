@@ -478,6 +478,88 @@
     (some? completed-at) (assoc :completed-at completed-at)))
 
 ;; ---------------------------------------------------------------------------
+;; Terminal CANCELLATION replies (Managed-Effects §Cancellation; EP-0011
+;; §Cancellation: "Cancellation is represented as data, not as the absence
+;; of a reply").
+;;
+;; rf2-sfunt8 — machine cancellation terminal paths (timer cancel on state
+;; exit / destroy / supersede / frame-destroy; actor destroy;
+;; `:spawn-all` join-survivor cancel) previously completed by ABSENCE of a
+;; reply — their traces carried reason / state / epoch but no canonical
+;; `:work/id`, `:rf.reply/status :cancelled`, `:rf.reply/work-status`, or
+;; `:cancel/reason`. A cancelled timer / actor could therefore have a
+;; scheduled / spawned START but no terminal EP-0011 reply row. These
+;; helpers close the work attempt the reply-envelope way: cancellation as
+;; DATA. The validated `:status :cancelled` shape requires BOTH
+;; `:cancel/reason` AND `:cancelled? true` (cancellation is a positive
+;; fact), and `:work/status :cancelled` (the closed work-status vocab).
+;; ---------------------------------------------------------------------------
+
+(def timer-cancel-reasons
+  "The closed `:rf.machine.timer/cancelled` `:reason` set (rf2-82a0u) —
+  the cancel-reason taxonomy a cancelled-timer reply's `:cancel/reason`
+  carries: `:on-exit` (state exit), `:on-destroy` (actor destroy),
+  `:on-resolution` (subscription-delay re-resolution), `:on-supersede`
+  (in-place reschedule), `:on-frame-destroy` (frame teardown)."
+  #{:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy})
+
+(defn cancelled-timer-reply
+  "Build the `:status :cancelled` reply for a cancelled machine `:after`
+  timer (EP-0011 §Cancellation; Managed-Effects §Cancellation). The timer's
+  host-clock handle was released before it fired; cancellation completes the
+  work attempt as DATA rather than the absence of a reply. Carries the
+  canonical `:work/id` `[:rf.work/timer <logical-id> <epoch>]` (matching
+  `after-fired-reply` / `after-stale-reply` so a cancelled timer joins the
+  same uniform work/reply row its scheduling started), `:work/kind :timer`,
+  `:work/status :cancelled`, the `:cancelled? true` marker, and
+  `:cancel/reason` from `timer-cancel-reasons`. NO `:value` (the timer never
+  fired).
+
+  `ctx` keys: `:actor-id` (the timer's owning actor INSTANCE — optional),
+  `:state`, `:delay`, `:decl-path`, `:epoch`, `:frame`, and `:reason` (one
+  of `timer-cancel-reasons`)."
+  [{:keys [actor-id state delay decl-path epoch frame reason]}]
+  (cond-> {:status        :cancelled
+           :cancelled?    true
+           :cancel/reason reason
+           :work/id       (timer-work-id actor-id decl-path epoch)
+           :work/kind     :timer
+           :work/status   :cancelled
+           :correlation   (cond-> {:state state
+                                   :delay delay
+                                   :gate  (after-suppression-gate decl-path epoch)}
+                            (some? actor-id) (assoc :actor-id actor-id))}
+    (some? frame) (assoc :rf.frame/id frame)))
+
+(defn cancelled-actor-reply
+  "Build the `:status :cancelled` reply for a cancelled (destroyed) spawned
+  actor whose work attempt is closed by teardown before it reached a
+  `:final?` leaf (EP-0011 §Cancellation — actor-destroy cancellation
+  completes through the same envelope). Reuses the machine work-id
+  `[:rf.work/machine actor-id work-bearing-path generation]` so the
+  cancelled completion joins the same uniform work/reply row the spawn
+  started; `:work/kind :machine`, `:work/status :cancelled`, the
+  `:cancelled? true` marker, and `:cancel/reason` (the destroy reason —
+  e.g. `:explicit` for a direct / cascade destroy, `:on-join-resolution`
+  for a join-survivor teardown). NO `:value` (the actor never produced an
+  `:output-key` result).
+
+  `ctx` keys: `:actor-id` (the destroyed actor INSTANCE), `:parent-id`
+  (optional), `:work-bearing-path` (the spawn declaring path — optional),
+  `:frame`, `:reason` (the cancel reason)."
+  [{:keys [actor-id parent-id work-bearing-path frame reason]}]
+  (cond-> {:status        :cancelled
+           :cancelled?    true
+           :cancel/reason reason
+           :work/id       (spawn-work-id actor-id work-bearing-path)
+           :work/kind     :machine
+           :work/status   :cancelled
+           :correlation   (cond-> {:actor-id actor-id}
+                            (some? parent-id)         (assoc :parent-id parent-id)
+                            (some? work-bearing-path) (assoc :invoke-id (vec work-bearing-path)))}
+    (some? frame) (assoc :rf.frame/id frame)))
+
+;; ---------------------------------------------------------------------------
 ;; Trace summaries (Managed-Effects §Tracing). Data-only summaries of the
 ;; canonical reply, routing every wire-bearing slot through the single
 ;; shared `re-frame.reply/trace-summary` → `re-frame.elision/elide-wire-value`
