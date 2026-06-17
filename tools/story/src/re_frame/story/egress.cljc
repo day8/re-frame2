@@ -13,6 +13,36 @@
   elsewhere (rf2-m25hd verified the MCP gate; rf2-6773q scrubbed logs).
   Human egress ships freely and is NOT privacy-gated.
 
+  ## EP-0015 scope reconciliation (rf2-nnc06c)
+
+  EP-0015 (final) scopes screenshots / manual copy OUT of the egress
+  contract — **except where a re-frame2 feature itself creates the
+  copied/exported artifact** (EP-0015 §Non-Goals). Story's share URL,
+  static build, copied EDN, and screenshot ARE feature-created artifacts,
+  so by the letter of that exception they are IN scope. The reconciliation
+  is a recorded post-EP ruling, not an oversight:
+
+  - **These artifacts are a TRUSTED-LOCAL operator act.** A human pressing
+    share / copy / export / screenshot is the trusted-local operator
+    revealing their OWN frame — the same actor and intent as the
+    `:rf.egress/local-raw` profile (EP-0015 issue 7). The artifact is
+    produced ON the operator's box, at the operator's deliberate request,
+    of an app the operator already has full programmatic access to. There
+    is no NEW disclosure the operator could not already make. So the ruling
+    is: human-local share/copy/export/screenshot artifacts ship UNREDACTED,
+    with the residual risk documented (the recipient of a deliberately
+    shared artifact sees whatever the operator chose to share).
+  - **The off-box / saved / tool boundaries are NOT this seam and ARE
+    classified.** An AI/MCP read of the same data is the off-box-tool
+    boundary (`:rf.egress/off-box-tool`, gated in the MCP jar — rf2-m25hd);
+    a hosted log sink is the off-box-observability boundary (scrubbed —
+    rf2-6773q). Those are where EP-0015's redaction lives. This module is
+    exclusively the human, on-box, operator-initiated artifact.
+  - **This module classifies REPRODUCIBILITY, not sensitivity.** It answers
+    \"can the recipient reproduce this artifact?\", never \"is this
+    sensitive?\". The two questions are orthogonal; EP-0015's classification
+    layer owns sensitivity at the off-box boundaries above.
+
   ## What this IS
 
   The genuinely valuable half of the T4 tension (spec/018 §4): a

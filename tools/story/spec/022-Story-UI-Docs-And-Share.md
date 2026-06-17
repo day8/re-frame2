@@ -42,8 +42,9 @@
 - [`../../../spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md)
   and [`../../../spec/Security.md`](../../../spec/Security.md) — the
   framework's path-level data-classification and privacy posture. These
-  bear on the AI/MCP boundary + logs (handled elsewhere, §4), NOT on
-  human egress of the dev's own app, which is not privacy-gated.
+  bear on the AI/MCP boundary + logs (the off-box boundaries, handled
+  elsewhere — §4), NOT on human egress of the dev's own app. The EP-0015
+  scope reconciliation for the feature-created-artifact exception is §3.
 
 ## Supersedes
 
@@ -146,6 +147,36 @@ is not the goal (the reframe). The human egress commands are:
 - static build (`story:build`);
 - copied EDN;
 - screenshots.
+
+### 3.0 EP-0015 scope reconciliation (rf2-nnc06c)
+
+EP-0015 (final) scopes screenshots / manual copy OUT of the egress
+contract **except where a re-frame2 feature itself creates the
+copied/exported artifact** ([spec/015 §Out of scope](../../../spec/015-Data-Classification.md#out-of-scope-explicit-non-goals)
++ [EP-0015 §Non-Goals](../../../docs/EP/EP-0015-frame-owned-egress-policy.md)).
+The four commands above ARE feature-created artifacts, so by the letter of
+that exception they fall IN scope. This is the recorded post-EP ruling
+that reconciles them, not an omission:
+
+- **They are a TRUSTED-LOCAL operator act.** A human pressing
+  share / copy / export / screenshot is the trusted-local operator
+  revealing their OWN frame — the same actor and intent as the
+  `:rf.egress/local-raw` profile ([spec/015 §Cross-tool visibility grain](../../../spec/015-Data-Classification.md#cross-tool-visibility-grain),
+  EP-0015 issue 7). The artifact is produced on the operator's box, at the
+  operator's deliberate request, of an app the operator already has full
+  programmatic access to — no NEW disclosure is created. **Ruling:**
+  human-local share/copy/export/screenshot artifacts ship UNREDACTED, with
+  the residual risk documented — the recipient of a deliberately shared
+  artifact sees whatever the operator chose to share. The operator owns
+  that choice, exactly as they own pasting their own console output.
+- **The off-box / saved / tool boundaries ARE classified — elsewhere
+  (§4).** An AI/MCP read of the same data is the off-box-tool boundary
+  (`:rf.egress/off-box-tool`, gated in the MCP jar); a hosted log sink is
+  the off-box-observability boundary (scrubbed). Those, not this human
+  egress UX, are where EP-0015's redaction lives.
+- **This module classifies REPRODUCIBILITY, not sensitivity** — it answers
+  "can the recipient reproduce this?", never "is this sensitive?". The two
+  axes are orthogonal; EP-0015 owns sensitivity at the off-box boundaries.
 
 Promotion (turning a captured run artifact into a named variant) is NOT in
 this set: it is registrar-WRITE authoring owned by
