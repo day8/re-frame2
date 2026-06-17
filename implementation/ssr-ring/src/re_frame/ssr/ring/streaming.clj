@@ -212,24 +212,7 @@
   recovered-to-nil sub case does NOT throw here — its buffered fail-
   closed status is picked up by the handler's post-shell `get-response`
   re-read."
-  [frame-id {:keys [root-view body-end csp-script-src-allowlist] :as opts}]
-  ;; rf2-h3dg0 — run the dev-mode `:csp-script-src-allowlist` scan over the
-  ;; raw `:body-end` hook on the REQUEST thread, mirroring what the non-
-  ;; streaming `default-html-shell` does at shell-build time (shell.clj —
-  ;; `check-body-end-csp-hosts!` is the FIRST thing it runs). The streaming
-  ;; suffix (`default-streaming-suffix`) injects `:body-end` RAW just like
-  ;; the non-streaming shell, but it only destructures `:body-end` /
-  ;; `:script-src` and never ran the allowlist scan — so streaming SSR
-  ;; silently lost the defense-in-depth CSP warning that non-streaming SSR
-  ;; emits for the SAME config (Spec 011 §trusted-shell envelope). Running
-  ;; it here (request thread, before the head commits) keeps the warning on
-  ;; the same thread + listener context as the non-streaming path and leaves
-  ;; `default-streaming-suffix` a pure string-builder symmetric with
-  ;; `default-streaming-prefix`. Production builds elide the whole check via
-  ;; `interop/debug-enabled?` inside `check-body-end-csp-hosts!`; the raw
-  ;; emission of `:body-end` into the suffix is UNCHANGED — the scan is a
-  ;; signal, never a block or rewrite.
-  (shell/check-body-end-csp-hosts! body-end csp-script-src-allowlist)
+  [frame-id {:keys [root-view] :as opts}]
   ;; rf2-er7qx2 — SSR blocking-resource drain (streaming counterpart of the
   ;; non-streaming `build-full-response*` drain). AFTER the `:on-create` drain
   ;; resolved the route + enqueued the route's blocking resource ensures and
