@@ -405,7 +405,12 @@ machines / timers:
 - **`status->class`** gives the one cross-surface colour class so a
   `:stale` HTTP reply and a `:stale` resource reply render the **same
   badge** (Cross-Cutting [F.11](019-Cross-Cutting-Insight.md) — the
-  unified `STALE` rendering).
+  unified `STALE` rendering). A `:stale-suppressed` row preserves the
+  canonical EP-0011 `:status :stale` + `:status-class :suppression` read off
+  the **unambiguous `:rf.reply/status`** (NEVER the bare `:status`, which on
+  a suppression row may carry the LEDGER status `:completed`/`:failed`/
+  `:suppressed`) — so a suppression row renders the SAME status/badge
+  contract a `:completed` row does, not just the `:stale?` phase flag.
 
 ### "What is still running?" and the stale-races view
 
@@ -417,9 +422,15 @@ status + trace cause, uniformly across families** — never per-family:
   §Work-ledger integration) and joins each to the **latest
   reply-envelope trace phase** for its `:work/id`, so the operator sees
   "the app is waiting on resource K (issued), HTTP req-5
-  (cancel-requested), …" with one query. `live-work-tally-by-kind`
-  counts live work per family — the active managed-effects dashboard
-  headline (Cross-Cutting F-C4).
+  (cancel-requested), …" with one query. The join keys on the canonical
+  `:work/id` **vector** carried on the ledger RECORD (`ledger-row` reads
+  `(:work/id record)`, falling back to the map key only for legacy /
+  nonconforming records) — the production `:rf.runtime/work-ledger` map is
+  keyed on the opaque CEDN-1 byte `work-id-id` STRING, so reading the record
+  field (not the map key) is what lets a live row join to the vector-keyed
+  trace rows and infer `:work-kind` from the kind-preserving head.
+  `live-work-tally-by-kind` counts live work per family — the active
+  managed-effects dashboard headline (Cross-Cutting F-C4).
 - **The stale-races view keys on `:work/id`** (Managed-Effects
   §Work-id correlation — `:work/id` is the *single* attempt identity,
   the key the ledger, stale suppression, and this view all share).

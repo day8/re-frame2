@@ -185,7 +185,7 @@ The Resources tab is a Dynamic L3 tab (`:rf.xray/selected-tab`
 `:resources`, mnemonic `s`, order 7 — after Routing). The view
 (`panels/resources.cljs`) is pure hiccup over the single composite sub
 `:rf.xray/resources-tab-data`; the projection algebra is pure data in
-`panels/resources_helpers.cljc` (JVM-portable, unit-tested). Eleven
+`panels/resources_helpers.cljc` (JVM-portable, unit-tested). Thirteen
 stacked sections:
 
 1. **Static resource registry** — per registered resource: id, source
@@ -220,6 +220,23 @@ stacked sections:
    promises) are structurally inaccessible — they live in side tables
    outside durable frame-state. Non-terminal (live) rows lead; the
    terminal recent-races tail trails dimmed.
+3a. **What is still running?** (EP-0011 live-work) — the cross-family
+   **uniform** reply-envelope read (NOT resource-private; see §Uniform
+   reply-envelope reads below): the live (non-terminal) work-ledger rows
+   joined to their latest reply-envelope trace **phase + emitting op** per
+   `:work/id`, each row carrying work-kind, ledger status, the joined
+   latest phase/op, attempt, owner count, and the canonical `:work/id`.
+   Below the rows, the **per-kind suppression tally** headline (the
+   active-effects dashboard count of stale suppressions per family).
+   **Silent-by-default**: the section renders nothing when there is no live
+   work AND no suppression data (a settled app shows no dashboard).
+3b. **Stale races** (EP-0011 stale-suppression / supersession) — the
+   cross-family stale-races view: every work/reply attempt arc that hit the
+   **stale-suppression correctness boundary** (carried ≠ current — one
+   attempt superseded another), grouped by `:work/id` and rendered with its
+   terminal `:stale` status, the phases the arc passed through, and the
+   `:work/id`. Only **suppressed** arcs render. **Silent-by-default**: the
+   section renders nothing when no arc was suppressed.
 4. **Route / resource graph** — per route declaring `:resources`: the
    route id + path, its declared resources, the **blocking vs
    non-blocking** split (blocking = **SSR wait point**), keep-previous
@@ -551,9 +568,19 @@ The composite's `:live-work`, `:stale-races`, and `:stale-tally` slots are
 facts (`:work/id` / `:work/kind` / reply `:status` / stale-suppression
 carried+current) the SAME way for **every** managed-async family, via
 [`panels/reply_envelope.cljc`](../src/day8/re_frame2_xray/panels/reply_envelope.cljc).
+They are **rendered** by §3a ("What is still running?") and §3b ("Stale
+races") above — silent-by-default so a settled app surfaces neither.
 "What is still running?" is the live (non-terminal) work-ledger rows
 joined to the latest reply-envelope trace phase per `:work/id`; the
 stale-races view groups every cross-family work/reply row by `:work/id`.
+The live-work join keys on the canonical `:work/id` **vector** carried on
+the ledger record (`reply_envelope/ledger-row` reads `(:work/id record)`,
+falling back to the opaque CEDN-1 byte map key only for legacy records),
+so a live ledger row correctly joins to the vector-keyed reply-envelope
+trace rows. A `:stale-suppressed` row preserves the canonical EP-0011
+`:status :stale` + `:status-class :suppression` read off the unambiguous
+`:rf.reply/status` (never misreading a bare ledger `:status`), the same
+cross-surface badge contract a `:completed` row renders.
 The resource family is the only ledger writer today, so the rows are all
 `:work/kind :resource` (and `:mutation`) for now; as HTTP / route /
 machine / timer families write their own ledger rows and emit their
