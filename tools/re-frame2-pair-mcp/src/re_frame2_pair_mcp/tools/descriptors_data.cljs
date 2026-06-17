@@ -429,6 +429,16 @@
                      "verbatim (filling only `:rf/time-ms` when absent), so the resulting state is DETERMINISTIC "
                      "and an agent can replay a fixture and assert the SAME output. `:rf/time-ms` must be an integer "
                      "(epoch ms); a malformed map returns `:reason :invalid-cofx` without dispatching. "
+                     "Strict replay (rf2-v52xsr / EP-0017 §6 / Tool-Pair §Replay): `cofx` ALONE is the LIVE "
+                     "scripted-coeffect path — the router's `:live` default, so a declared recordable fact ABSENT "
+                     "from the token is freshly MINTED. To REPLAY a recorded event (re-present its recorded `:rf.cofx` "
+                     "and reproduce the run) set `replay true`: the dispatch re-drives the event under "
+                     "`:rf.cofx/mint-policy :strict`, so a recorded fact MISSING from the token fails LOUDLY "
+                     "(`:rf.error/missing-required-cofx` — no generator runs, no host read) instead of silently "
+                     "re-minting a divergent value. The per-call strict opt wins over a `:live` frame config. "
+                     "`replay` is strict even with no `cofx` token (an empty record still halts on any declared "
+                     "recordable fact). Use `replay true` to ASSERT a fixture reproduces; omit it (with or without "
+                     "`cofx`) for ordinary live dispatch. "
                      "Examples: "
                      "1. Default (consequence): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :sync :epoch-id 7 :resolved [:cart/checkout] :db-changed? true :changed-paths [[:cart]] :effects-fired [:dispatch] :no-op? false :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
                      "2. No-op made visible: {:event \"[:noop/event]\"} -> {:ok? true :mode :sync :epoch-id 8 :db-changed? false :changed-paths [] :effects-fired [] :no-op? true}. "
@@ -437,7 +447,7 @@
                      "5. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :db-changed? true :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
                      "6. Dispatch-and-settle (full settled epoch): {:event \"[:list/toggle]\" :settle true} -> {:ok? true :mode :settle :settled? true :epoch-id 11 :epoch {...} :render-events [{:operation :rf.view/render :tags {...}} {:operation :rf.view/unmounted :tags {...}}] :cascade-summary {:renders 2 ...}} — one call returns the dispatch's complete epoch WITH the view renders/unmounts. "
                      "7. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}. "
-                     "8. Reproducible dispatch (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :cofx \"{:rf/time-ms 1781078400123}\"} -> {:ok? true :mode :sync :epoch-id 7 :db-changed? true ...} — the new todo's :created-at reads the scripted 1781078400123, so a replay asserts the SAME app-db. 9. Bad cofx: {:event \"[:x]\" :cofx \"[:not :a :map]\"} -> {:ok? false :reason :invalid-cofx :hint \"cofx must be a MAP ...\"}.")
+                     "8. Reproducible dispatch (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :cofx \"{:rf/time-ms 1781078400123}\"} -> {:ok? true :mode :sync :epoch-id 7 :db-changed? true ...} — the new todo's :created-at reads the scripted 1781078400123, so a replay asserts the SAME app-db. 9. Bad cofx: {:event \"[:x]\" :cofx \"[:not :a :map]\"} -> {:ok? false :reason :invalid-cofx :hint \"cofx must be a MAP ...\"}. 10. Strict replay (re-present a recorded token): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :replay true :cofx \"{:rf/time-ms 1781078400123 :counter/delta 4}\"} -> the dispatch re-drives under :rf.cofx/mint-policy :strict; a COMPLETE record reproduces the run, an INCOMPLETE one (missing a declared recordable fact) fails with :rf.error/missing-required-cofx instead of re-minting.")
    :typicalTokens 300
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
@@ -492,7 +502,22 @@
                                                        "same output. :rf/time-ms must be an integer (epoch ms); a "
                                                        "non-map / non-integer-:rf/time-ms / unreadable value returns "
                                                        ":reason :invalid-cofx and does NOT dispatch. Omit it for the "
-                                                       "ordinary live path (the runtime stamps :rf/time-ms).")}
+                                                       "ordinary live path (the runtime stamps :rf/time-ms). NB: `cofx` "
+                                                       "alone is LIVE — pair it with `replay true` to re-present a "
+                                                       "recorded token under the strict replay policy.")}
+                              :replay {:type "boolean"
+                                       :description (str "Strict replay (rf2-v52xsr / EP-0017 §6 / Tool-Pair §Replay): "
+                                                         "when true, re-drive the event under :rf.cofx/mint-policy "
+                                                         ":strict, re-presenting the recorded `cofx` token verbatim. A "
+                                                         "recorded recordable fact MISSING from the token fails LOUDLY "
+                                                         "(:rf.error/missing-required-cofx — no generator runs, no host "
+                                                         "read) instead of silently re-minting a divergent value, so an "
+                                                         "incomplete record cannot masquerade as a faithful replay. The "
+                                                         "per-call strict opt wins over a :live frame config. Strict even "
+                                                         "with no `cofx` (an empty record still halts on any declared "
+                                                         "recordable fact). Default false: a `cofx`-only dispatch stays "
+                                                         ":live (a declared-absent generator-backed fact is freshly "
+                                                         "minted). Set true to ASSERT a fixture reproduces.")}
                               :include-sensitive {:type "boolean"
                                                   :description (str "Epoch-egress privacy opt-in for the :trace / :settle modes "
                                                                     "(rf2-olvr5 / rf2-m9duxl). Those modes return a RAW "

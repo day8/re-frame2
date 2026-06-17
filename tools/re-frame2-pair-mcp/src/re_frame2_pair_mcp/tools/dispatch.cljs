@@ -364,6 +364,24 @@
         ;; would reject deep in the eval.
         cofx-r       (args/parse-cofx (wire/arg args :cofx))
         cofx         (when (= :ok (first cofx-r)) (second cofx-r))
+        ;; rf2-v52xsr · EP-0017 §6 / Tool-Pair §Replay — the named STRICT
+        ;; REPLAY affordance. `cofx` alone is the LIVE scripted-coeffect path
+        ;; (the router's `:live` default — a declared-but-absent
+        ;; generator-backed fact is freshly MINTED). Replay is the other
+        ;; gesture: re-drive a recorded event by re-presenting its recorded
+        ;; `:rf.cofx` UNDER `:rf.cofx/mint-policy :strict`, so a recorded fact
+        ;; MISSING from the token fails LOUDLY
+        ;; (`:rf.error/missing-required-cofx` — no generator runs, no host
+        ;; read) instead of silently re-minting a divergent value. Per
+        ;; Tool-Pair, a pair tool that re-dispatches a recorded event ALWAYS
+        ;; pairs the recorded cofx with strict; the strictness is a property
+        ;; of the replay gesture, and the per-call opt is the most-specific
+        ;; binding point so it wins over the (possibly `:live`) frame config.
+        ;; `replay` is independent of a supplied `cofx`: a record with no
+        ;; scripted facts still re-drives strict so any declared recordable
+        ;; fact absent from the (empty) record halts. Bare colon-tolerant
+        ;; boolean — no value parse needed.
+        replay?      (boolean (wire/arg args :replay))
         ;; rf2-olvr5 finding 1 — `:trace` (`dispatch-and-collect`) and
         ;; `:settle` (`dispatch-and-settle!`) return RAW epoch material
         ;; (`:epoch` carrying `:db-before`/`:db-after`/`:trigger-event`/
@@ -422,7 +440,16 @@
                         ;; key the router reads. The map is `pr-str`'d as an
                         ;; EDN literal by `rt-call`'s arg-emit path, exactly
                         ;; like `:fx-overrides`.
-                        cofx         (assoc :rf.cofx cofx))
+                        cofx         (assoc :rf.cofx cofx)
+                        ;; rf2-v52xsr · EP-0017 §6 / Tool-Pair §Replay — the
+                        ;; named replay affordance HARD-WIRES the strict mint
+                        ;; policy alongside the recorded `:rf.cofx`. The
+                        ;; per-call opt is the most-specific binding point and
+                        ;; wins over a `:live` frame config, so an incomplete
+                        ;; record fails loudly rather than re-minting. Emitted
+                        ;; whether or not a `cofx` token was supplied (a record
+                        ;; with no scripted facts still re-drives strict).
+                        replay?      (assoc :rf.cofx/mint-policy :strict))
             ;; rf2-vflrg: the event is now a parsed CLJS vector. Pass it
             ;; through `rt-call`'s normal arg-emit path so it is `pr-str`'d
             ;; as an EDN literal — the runtime fn receives data, not host

@@ -1298,3 +1298,93 @@
                  (let [edn (read-result-text r)]
                    (is (= :invalid-cofx-time-ms (:reason edn))))
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; Strict replay (rf2-v52xsr · EP-0017 §6 / Tool-Pair §Replay). Replay
+;; re-drives a recorded event through the app's own handlers by re-presenting
+;; the recorded `:rf.cofx` UNDER `:rf.cofx/mint-policy :strict`, so a recorded
+;; fact MISSING from the token fails LOUDLY (`:rf.error/missing-required-cofx`)
+;; instead of being silently re-minted — the exact divergence the recording
+;; discipline exists to kill. Ordinary live `cofx` dispatch stays `:live`
+;; (the router default) unless the named `replay` affordance is selected.
+;; ---------------------------------------------------------------------------
+
+(deftest replay-threads-strict-mint-policy-with-cofx
+  ;; The headline rf2-v52xsr case: `replay true` alongside a recorded `cofx`
+  ;; must emit BOTH the recorded `:rf.cofx` AND `:rf.cofx/mint-policy :strict`
+  ;; in the runtime opts — the per-call replay lever wins over the frame's
+  ;; (default :live) config, so an incomplete record halts rather than mints.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 9 :db-changed? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:todo/add {:text \"buy milk\"}]"
+                                           :replay true
+                                           :cofx "{:rf/time-ms 1781078400123 :counter/delta 4}"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (= {:rf/time-ms 1781078400123 :counter/delta 4} (:rf.cofx opts))
+                         "the recorded :rf.cofx token rides verbatim")
+                     (is (= :strict (:rf.cofx/mint-policy opts))
+                         "replay hard-wires :rf.cofx/mint-policy :strict")
+                     (is (re-find #":rf\.cofx/mint-policy" @captured)
+                         "the strict opt is emitted in the runtime form"))
+                   (done)))))))
+
+(deftest replay-without-cofx-still-strict
+  ;; Replay is strict EVEN WITHOUT a `cofx` token — a record with no scripted
+  ;; facts still re-drives under :strict so any declared-but-absent recordable
+  ;; fact fails loudly (no generator, no host read). The opts carry
+  ;; :rf.cofx/mint-policy :strict and NO :rf.cofx key.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 9}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :replay true})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (= :strict (:rf.cofx/mint-policy opts))
+                         "replay is strict regardless of a supplied cofx token")
+                     (is (not (contains? opts :rf.cofx))
+                         "no :rf.cofx key when no token was scripted"))
+                   (done)))))))
+
+(deftest live-cofx-dispatch-is-not-strict
+  ;; The control: ordinary `cofx` dispatch WITHOUT `replay` stays live — no
+  ;; :rf.cofx/mint-policy in the opts, so the router's :live default applies
+  ;; and a generator-backed fact absent from the token is freshly minted (the
+  ;; scripted-live path, distinct from replay).
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 9}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:todo/add {:text \"x\"}]"
+                                           :cofx "{:rf/time-ms 1781078400123}"})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))
+                         "the scripted token still rides")
+                     (is (not (contains? opts :rf.cofx/mint-policy))
+                         "live cofx dispatch carries NO strict opt — stays :live"))
+                   (done)))))))
+
+(deftest no-replay-no-strict-opt
+  ;; An ordinary live dispatch with no replay and no cofx carries neither the
+  ;; :rf.cofx nor the :rf.cofx/mint-policy opt — the runtime stamps :rf/time-ms
+  ;; and the router default :live applies. Guards against a stray strict opt.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 9}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :sync true})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (not (contains? opts :rf.cofx/mint-policy))
+                         "no strict opt without the replay affordance")
+                     (is (not (contains? opts :rf.cofx))))
+                   (done)))))))
