@@ -17,22 +17,30 @@
   route but only asserts the entry `:status` / view `:loading?` — it never
   reads the route blocking-slot or asserts the route TRANSITION completes.
 
-  THE GAP this pins (rf2-uvq8sq finding):
+  THE CONTRACT this pins (rf2-byl7bk.3.1 — spec-correct first-load semantics,
+  superseding the rf2-kz90ep characterisation that pinned the divergence):
 
     1. a blocking infinite route holds the transition `:loading` on PAGE 0
        in flight, and DRAINS (transition → `:idle`) when page-0 SUCCEEDS via
        the PAGE reply handler (`entry-replace-page` append path), NOT the
        scalar succeeded-handler;
 
-    2. the SUBTLE page-failed-handler contract (events.cljc ~lines 2318-2326):
-       a blocking page-0 FAILURE with NO prior data still DRAINS the slot as
-       `:success` — because `entry-page-failed` ALWAYS returns `:status
-       :loaded`, and `page-failed-handler` ALWAYS calls `drain-blocking …
-       :success`. So a blocking infinite route NEVER flips to route `:error`
-       on a page-0 failure (the feed settles `:loaded` with `:page-error`),
-       UNLIKE a blocking SCALAR resource. This divergence is INTENTIONAL but
-       was completely untested: a regression that errored the route on an
-       infinite page-0 failure would have passed every existing test.
+    2. a blocking page-0 FIRST-load FAILURE (no accumulated pages) uses the
+       FIRST-LOAD `:error` channel, NOT the load-more `:page-error` channel:
+       Spec 016 reserves `:error` / `:status :error` for first-load (page 0)
+       failure and `:page-error` for load-more (page N>0) failure only. So a
+       blocking infinite route whose required page 0 fails flips to route
+       `:error` (the feed settles `:status :error`, `:error` envelope, no
+       data) — EXACTLY like a blocking SCALAR resource, restoring parity. The
+       rf2-kz90ep test pinned the OPPOSITE (`:loaded` + `:page-error` + route
+       `:idle`), which tested the implementation against itself, not against
+       Spec 016; this fix inverts it;
+
+    3. a LOAD-MORE (page N>0) FAILURE with accumulated pages still uses the
+       `:page-error` channel: the feed stays `:loaded`, KEEPS all pages, and
+       the route (already drained on page-0 success) is undisturbed — the
+       third error channel is intact for the case the spec actually reserves
+       it for.
 
   The capturing transport REPLAYS the live managed-HTTP reply-append shape
   (the transport conj's its result as the LAST arg of the internal reply
@@ -187,23 +195,21 @@
           "the blocking slot drained when page 0 landed"))))
 
 ;; ===========================================================================
-;; 2. blocking infinite route page-0 FAILURE drains as :loaded, does NOT error
-;;    the route (the wave-7 divergence from a scalar resource)
+;; 2. blocking infinite route page-0 FIRST-load FAILURE errors the route
+;;    (the FIRST-load :error channel — parity with a scalar blocking resource)
 ;; ===========================================================================
 
-(deftest blocking-infinite-route-page-0-failure-drains-as-loaded-not-error
-  ;; rf2-kz90ep (2) — THE documented divergence (events.cljc ~2318-2326):
-  ;; a blocking infinite page-0 FAILURE with no prior data still DRAINS the
-  ;; slot as :success because entry-page-failed always returns :status :loaded
-  ;; and page-failed-handler always calls (drain-blocking … :success). So the
-  ;; feed settles :loaded with :page-error set, and the route lands :idle — it
-  ;; is NEVER flipped to :error, UNLIKE a blocking SCALAR resource (whose
-  ;; first-load failure → route :error, see resources_route_cljs_test
-  ;; 'blocking-first-load-failure-flips-route-to-error').
-  ;;
-  ;; If the runtime ever ERRORS the route on a page-0 infinite failure, THIS
-  ;; test fails loudly — the contract is intentional but was untested, so a
-  ;; regression that errored the route would have passed every existing test.
+(deftest blocking-infinite-route-page-0-failure-errors-route
+  ;; rf2-byl7bk.3.1 — THE spec-correct contract (Spec 016 §Status semantics +
+  ;; §Infinite resources): a blocking infinite page-0 FIRST-load FAILURE (no
+  ;; accumulated pages) settles the FIRST-load :error channel (`entry-failed`
+  ;; → :status :error, :error envelope, :data nil), and `page-failed-handler`
+  ;; drains the blocking slot as :FAILURE. drain-blocking then flips the route
+  ;; to :error (its (= :error (:status entry)) branch fires automatically) —
+  ;; EXACTLY like a blocking SCALAR resource. This INVERTS the rf2-kz90ep
+  ;; characterisation test (which pinned :loaded + :page-error + route :idle):
+  ;; Spec 016 reserves :error for first-load (page 0) and :page-error for
+  ;; load-more (page N>0) ONLY — page 0 is a first load, never a load-more.
   (register-blocking-infinite-route!)
   (rf/dispatch-sync [:rf.route/navigate :route/feed {:slug "intro"}])
   (let [nav-token (:nav-token (slice))
@@ -213,34 +219,34 @@
       (is (= :loading (:transition (slice))))
       (is (contains? (blocking-slot nav-token) k)))
     (reply-page-failure! failure)
-    (testing "the feed settles :loaded with :page-error — NOT the :error channel"
+    (testing "the feed settles :status :error with the :error channel — NOT :page-error"
       (let [e (entry k)]
-        (is (= :loaded (:status e))
-            "a page-0 failure leaves the feed :loaded (the third error channel), never :error")
-        (is (= failure (:page-error e)) ":page-error records the page-0 failure envelope")
-        (is (nil? (:error e)) "NOT the scalar first-load :error channel")
+        (is (= :error (:status e))
+            "a page-0 first-load failure (no pages) is :status :error, never :loaded")
+        (is (= failure (:error e)) ":error records the first-load failure envelope")
+        (is (nil? (:page-error e)) "NOT the load-more :page-error channel (page 0 is not a load-more)")
         (is (nil? (:refresh-error e)) "NOT the whole-feed :refresh-error channel")
+        (is (nil? (:data e)) "first-load failure clears data (no usable data)")
         (is (= 0 (state/page-count e)) "no page accumulated — page 0 never landed")))
-    (testing "the BLOCKING ROUTE is NOT errored / NOT blocked — it drains to :idle"
-      (is (not= :error (:transition (slice)))
-          "the blocking infinite route did NOT flip to :error on the page-0 failure")
-      (is (= :idle (:transition (slice)))
-          "the page-0 failure drained the slot as :success → route :idle (the documented divergence)")
-      (is (nil? (:error (slice)))
-          "no :rf.route/error written — a scalar first-load failure WOULD set one")
+    (testing "the BLOCKING ROUTE flips to :error (parity with a scalar blocking resource)"
+      (is (= :error (:transition (slice)))
+          "the blocking infinite route flips to :error on the page-0 first-load failure")
+      (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
+          ":rf.route/error carries the structured blocking-failure error")
       (is (empty? (blocking-slot nav-token))
           "the blocking slot drained on the page-0 failure (slot does not leak / hang the route)"))))
 
 ;; ===========================================================================
-;; 3. contrast guard — a SCALAR blocking first-load failure DOES error the
-;;    route (so #2 is a genuine divergence, not a no-op assertion)
+;; 3. contrast guard — a SCALAR blocking first-load failure errors the route
+;;    too, so #2 now confirms PARITY (infinite page-0 == scalar first load)
 ;; ===========================================================================
 
 (deftest scalar-blocking-first-load-failure-still-errors-route-contrast
-  ;; A guard so the divergence asserted above is meaningful: the SAME route
-  ;; shape with a SCALAR (non-infinite) blocking resource DOES flip to :error
-  ;; on a first-load failure. If both errored or both drained, #2 would prove
-  ;; nothing — this pins the contrast.
+  ;; A guard so #2's assertion has a parity baseline: the SAME route shape with
+  ;; a SCALAR (non-infinite) blocking resource ALSO flips to :error on a
+  ;; first-load failure. Post-fix #2 and #3 agree — a blocking infinite page-0
+  ;; first-load failure errors the route exactly like a scalar one (parity
+  ;; restored, the divergence rf2-kz90ep pinned is removed).
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]
@@ -260,8 +266,50 @@
     ;; settle the scalar via the SCALAR failed handler (its live reply shape)
     (rf/dispatch-sync (conj (:on-failure @last-managed-args)
                             {:kind :failure :failure {:status 503 :message "upstream down"}}))
-    (testing "a SCALAR blocking first-load failure flips the route to :error (contrast to #2)"
+    (testing "a SCALAR blocking first-load failure flips the route to :error (parity with #2)"
       (is (= :error (:transition (slice)))
-          "scalar first-load failure DOES error the route — the divergence in #2 is real")
+          "scalar first-load failure errors the route — infinite page-0 (#2) now matches it")
       (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
           ":rf.route/error carries the structured blocking-failure error"))))
+
+;; ===========================================================================
+;; 4. LOAD-MORE (page N>0) FAILURE keeps the :page-error channel intact — the
+;;    third error channel still applies where the spec reserves it (data kept)
+;; ===========================================================================
+
+(deftest blocking-infinite-route-load-more-failure-keeps-page-error-channel
+  ;; rf2-byl7bk.3.1 — the OTHER side of the split: a page N>0 (load-more)
+  ;; failure with accumulated pages is STILL the third error channel
+  ;; (`entry-page-failed` → :loaded + :page-error, all pages kept). Only page 0
+  ;; with no pages uses the first-load :error channel; a load-more failure must
+  ;; NOT error the route (the route already drained on the page-0 success) and
+  ;; must NOT lose the feed.
+  (register-blocking-infinite-route!)
+  (rf/dispatch-sync [:rf.route/navigate :route/feed {:slug "intro"}])
+  (let [nav-token (:nav-token (slice))
+        k         (feed-key "intro")
+        failure   {:kind :rf.http/server :status 503 :message "load-more down"}]
+    ;; page 0 SUCCEEDS first (cursor "c1" ⇒ a next page exists) — the route
+    ;; drains to :idle, then the feed has one accumulated page.
+    (reply-page-success! (page [:a :b] "c1"))
+    (is (= :idle (:transition (slice))) "route drained on page-0 success")
+    (is (= 1 (state/page-count (entry k))) "page 0 accumulated")
+    ;; now a load-more (page 1) is dispatched and FAILS.
+    (rf/dispatch-sync [:rf.resource/load-more {:resource :feed/articles
+                                               :scope    :rf.scope/global
+                                               :params   {:slug "intro"}}])
+    (let [args @last-managed-args]
+      (is (= 1 (:rf.resource/page-index (second (:on-failure args))))
+          "the load-more fetches page index 1 (a positive page, not page 0)")
+      (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
+    (testing "a load-more (N>0) failure keeps the feed :loaded + records :page-error"
+      (let [e (entry k)]
+        (is (= :loaded (:status e)) "load-more failure leaves the feed :loaded (data kept)")
+        (is (= failure (:page-error e)) ":page-error records the load-more failure envelope")
+        (is (nil? (:error e)) "NOT the first-load :error channel")
+        (is (= 1 (state/page-count e)) "the accumulated page-0 is KEPT (no data lost)")
+        (is (= [(page [:a :b] "c1")] (:data e)) "page-0 data still present")))
+    (testing "the route is undisturbed by the load-more failure (already :idle)"
+      (is (= :idle (:transition (slice)))
+          "a load-more failure does NOT error the route (route blocks on page 0 only)")
+      (is (nil? (:error (slice))) "no :rf.route/error written on a load-more failure"))))

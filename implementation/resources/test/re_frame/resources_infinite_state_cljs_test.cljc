@@ -19,11 +19,13 @@
     - `entry-replace-page` refreshes a page IN PLACE (R6 window-preserving
       refetch settle) — incl. the structural-sharing identical-value branch
       and the delegate-to-append-past-tail branch;
-    - `refetch-keep-count` is the pure R6 keep-count policy (the 4 disjoint
-      branches + the window clamp edges);
-    - `entry-refetch-reset` truncates the accumulation to the kept window at
-      refetch-issue (the keep-all no-op default + the truncation opt-ins +
-      the guard arms);
+    - `refetch-window-count` is the pure R6 multi-page REFRESH-window policy
+      (default page-0-only + the all-pages / windowed opt-ins + clamp edges;
+      rf2-byl7bk.3.3 — replaces the old truncate-the-tail keep-count);
+    - `refetch-sweep-tail` / `entry-begin-refetch-sweep` /
+      `entry-advance-refetch-sweep` / `clear-refetch-sweep` arm + drive the
+      ordered multi-page sweep cursor (the pages beyond 0 a windowed/all-pages
+      refetch re-fetches in sequence, replacing in place — never truncating);
     - `resolve-page->items` lifts the R3 accessor.
 
   The load-more EVENT (wave 3) + subs (wave 4) are out of scope."
@@ -358,95 +360,115 @@
                                              :next-page-param-fn next-cursor
                                              :loaded-at 1 :stale-at 2})))))
 
-;; ---- refetch-keep-count (R6 — the 4 disjoint branches + clamp edges) -------
+;; ---- refetch-window-count (R6 — multi-page refresh window, rf2-byl7bk.3.3) --
+;;
+;; Spec 016 §Refetch defines the opt-ins as a multi-page REFRESH of the
+;; accumulation IN SEQUENCE (NOT a truncate-the-tail): the default refreshes
+;; page 0 in place; `:refetch-all-pages?` refreshes EVERY page; `:refetch-window
+;; n` the first n. The accumulation length is preserved; its contents are
+;; re-fetched. These tests assert the new contract (the prior tests pinned the
+;; truncate-to-page-0 BUG — rf2-byl7bk.3.3).
 
-(deftest refetch-keep-count-empty-feed
-  (testing "an empty feed (page-count 0) keeps 0 — nothing to preserve"
-    (is (= 0 (state/refetch-keep-count nil 0)))
-    (is (= 0 (state/refetch-keep-count {:refetch-all-pages? true} 0)))
-    (is (= 0 (state/refetch-keep-count {:refetch-window 5} 0))
+(deftest refetch-window-count-empty-feed
+  (testing "an empty feed (page-count 0) refreshes 0 pages — nothing to refresh"
+    (is (= 0 (state/refetch-window-count nil 0)))
+    (is (= 0 (state/refetch-window-count {:refetch-all-pages? true} 0)))
+    (is (= 0 (state/refetch-window-count {:refetch-window 5} 0))
         "window over an empty feed is still 0 (zero-page short-circuits first)")))
 
-(deftest refetch-keep-count-default-preserves-window
-  (testing "the ruled DEFAULT (no policy / empty policy) keeps EVERY accumulated page"
-    (is (= 3 (state/refetch-keep-count nil 3)))
-    (is (= 3 (state/refetch-keep-count {} 3)))
-    (is (= 1 (state/refetch-keep-count {} 1)))))
+(deftest refetch-window-count-default-refreshes-page-0-only
+  (testing "the ruled DEFAULT (no policy / empty policy) refreshes PAGE 0 only —
+            the window-preserving default (replace page 0 in place, keep tail)"
+    (is (= 1 (state/refetch-window-count nil 3)))
+    (is (= 1 (state/refetch-window-count {} 3)))
+    (is (= 1 (state/refetch-window-count {} 1)))))
 
-(deftest refetch-keep-count-all-pages-opt-in
-  (testing ":refetch-all-pages? true keeps ONLY page 0 (re-accumulate from scratch)"
-    (is (= 1 (state/refetch-keep-count {:refetch-all-pages? true} 3)))
-    (is (= 1 (state/refetch-keep-count {:refetch-all-pages? true} 1)))
+(deftest refetch-window-count-all-pages-opt-in
+  (testing ":refetch-all-pages? true refreshes EVERY accumulated page (TanStack parity)"
+    (is (= 3 (state/refetch-window-count {:refetch-all-pages? true} 3))
+        "all 3 pages refreshed (not collapsed to page 0)")
+    (is (= 1 (state/refetch-window-count {:refetch-all-pages? true} 1)))
     (testing "all-pages? wins over a co-present :refetch-window (cond order)"
-      (is (= 1 (state/refetch-keep-count {:refetch-all-pages? true :refetch-window 2} 3))))))
+      (is (= 3 (state/refetch-window-count {:refetch-all-pages? true :refetch-window 2} 3))))))
 
-(deftest refetch-keep-count-window-clamps
-  (testing ":refetch-window n bounds the kept window to the first n pages"
-    (is (= 2 (state/refetch-keep-count {:refetch-window 2} 3)) "in-range window kept verbatim"))
+(deftest refetch-window-count-window-clamps
+  (testing ":refetch-window n refreshes the first n pages"
+    (is (= 2 (state/refetch-window-count {:refetch-window 2} 3)) "in-range window verbatim"))
   (testing "CLAMP HIGH — a window beyond the page count never invents pages"
-    (is (= 3 (state/refetch-keep-count {:refetch-window 5} 3))
+    (is (= 3 (state/refetch-window-count {:refetch-window 5} 3))
         "window > page-count clamps DOWN to page-count")
-    (is (= 3 (state/refetch-keep-count {:refetch-window 3} 3)) "window == page-count is exact"))
-  (testing "CLAMP LOW — a refetch always keeps at least page 0"
-    (is (= 1 (state/refetch-keep-count {:refetch-window 1} 3)) "window 1 keeps exactly page 0")
-    (is (= 1 (state/refetch-keep-count {:refetch-window 0} 3)) "window 0 clamps UP to 1")
-    (is (= 1 (state/refetch-keep-count {:refetch-window -4} 3)) "a negative window clamps UP to 1")))
+    (is (= 3 (state/refetch-window-count {:refetch-window 3} 3)) "window == page-count is exact"))
+  (testing "CLAMP LOW — a refetch always refreshes at least page 0"
+    (is (= 1 (state/refetch-window-count {:refetch-window 1} 3)) "window 1 refreshes exactly page 0")
+    (is (= 1 (state/refetch-window-count {:refetch-window 0} 3)) "window 0 clamps UP to 1")
+    (is (= 1 (state/refetch-window-count {:refetch-window -4} 3)) "a negative window clamps UP to 1")))
 
-;; ---- entry-refetch-reset (R6 — guard arms + truncation in step) ------------
+;; ---- refetch-sweep-tail (R6 — the ordered pages beyond 0 to re-fetch) ------
 
-(deftest refetch-reset-default-is-noop
-  (testing "the window-preserving DEFAULT keeps every page — a pure no-op
-            (the accumulated pages stay visible during the in-flight refetch)"
+(deftest refetch-sweep-tail-default-is-empty
+  (testing "the window-preserving DEFAULT starts NO sweep — page 0 is the
+            issue-time replacement; there is no tail to chain"
+    (is (= [] (state/refetch-sweep-tail (accumulated-3) nil)))
+    (is (= [] (state/refetch-sweep-tail (accumulated-3) {})))))
+
+(deftest refetch-sweep-tail-all-pages
+  (testing ":refetch-all-pages? sweeps pages 1..N-1 in order (page 0 is issue-time),
+            each pair carrying that page's durable :page-param"
+    (let [tail (state/refetch-sweep-tail (accumulated-3) {:refetch-all-pages? true})]
+      ;; accumulated-3 :page-params == [nil "c1" "c2"]
+      (is (= [["c1" 1] ["c2" 2]] tail)
+          "pages 1 and 2, each with its original param + index, in order"))))
+
+(deftest refetch-sweep-tail-window
+  (testing ":refetch-window 2 sweeps only page 1 (the bounded leading window
+            minus the issue-time page 0)"
+    (is (= [["c1" 1]] (state/refetch-sweep-tail (accumulated-3) {:refetch-window 2})))
+    (testing ":refetch-window 1 is page-0-only ⇒ empty tail (no sweep)"
+      (is (= [] (state/refetch-sweep-tail (accumulated-3) {:refetch-window 1}))))))
+
+(deftest refetch-sweep-tail-guard-arms
+  (testing "a nil / non-infinite / empty-feed entry yields an empty tail"
+    (is (= [] (state/refetch-sweep-tail nil {:refetch-all-pages? true})))
+    (is (= [] (state/refetch-sweep-tail (state/empty-entry :res/plain) {:refetch-all-pages? true})))
+    (is (= [] (state/refetch-sweep-tail (state/empty-infinite-entry :feed/timeline)
+                                        {:refetch-all-pages? true})))))
+
+;; ---- entry-begin / advance / clear refetch sweep (R6 cursor) ---------------
+
+(deftest entry-begin-refetch-sweep-default-noop
+  (testing "the window-preserving DEFAULT arms NO sweep cursor (returns the entry
+            unchanged — a plain refetch refreshes page 0 only)"
+    (let [e0 (accumulated-3)]
+      (is (identical? e0 (state/entry-begin-refetch-sweep e0 nil)))
+      (is (identical? e0 (state/entry-begin-refetch-sweep e0 {})))
+      (is (not (contains? (state/entry-begin-refetch-sweep e0 nil) :refetch-sweep))))))
+
+(deftest entry-begin-refetch-sweep-opt-in-arms-cursor
+  (testing ":refetch-all-pages? arms the cursor with pages 1..N-1 (issue-time
+            page 0 excluded) WITHOUT touching :data / :status / :revision"
     (let [e0 (accumulated-3)
-          e1 (state/entry-refetch-reset
-               e0 {:next-page-param-fn next-cursor :prev-page-param-fn prev-cursor
-                   :refetch-policy nil})]
-      (is (identical? e0 e1) "no policy → keep-all → the SAME entry object (true no-op)")
-      (is (= 3 (state/page-count e1))))
-    (testing "an explicit empty policy is also keep-all (a no-op)"
-      (let [e0 (accumulated-3)]
-        (is (identical? e0 (state/entry-refetch-reset
-                             e0 {:next-page-param-fn next-cursor :refetch-policy {}})))))))
+          e1 (state/entry-begin-refetch-sweep e0 {:refetch-all-pages? true})]
+      (is (= [["c1" 1] ["c2" 2]] (:refetch-sweep e1)) "cursor armed with the sweep tail")
+      (is (= 3 (state/page-count e1)) ":data UNTOUCHED — never truncated")
+      (is (= (:data e0) (:data e1)))
+      (is (= (:status e0) (:status e1)))
+      (is (= (:revision e0) (:revision e1)) "revision NOT bumped by arming the cursor")))
+  (testing ":refetch-window 2 arms a cursor with only page 1"
+    (let [e1 (state/entry-begin-refetch-sweep (accumulated-3) {:refetch-window 2})]
+      (is (= [["c1" 1]] (:refetch-sweep e1))))))
 
-(deftest refetch-reset-window-truncates-tail-and-params
-  (testing ":refetch-window 2 truncates a 3-page feed to its first 2 pages +
-            truncates :page-params in step + recomputes the cursor from the tail"
-    (let [e0 (accumulated-3)
-          e1 (state/entry-refetch-reset
-               e0 {:next-page-param-fn next-cursor :prev-page-param-fn prev-cursor
-                   :refetch-policy {:refetch-window 2}})]
-      (is (= 2 (state/page-count e1)) "tail dropped to the kept window")
-      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e1)))
-      (is (= [nil "c1"] (:page-params e1)) ":page-params truncated in step")
-      (is (= "c2" (:next-page-param e1)) "cursor recomputed from the kept tail's edge")
-      (is (identical? (nth (:data e0) 0) (nth (:data e1) 0))
-          "kept leading pages are shared by identity (only the dropped tail changes)")
-      (testing "the reset does NOT touch :status / :current-work / :revision
-                (entry-start-load already transitioned the entry)"
-        (is (= (:status e0) (:status e1)))
-        (is (= (:current-work e0) (:current-work e1)))
-        (is (= (:revision e0) (:revision e1)) "revision NOT bumped by the reset")))))
-
-(deftest refetch-reset-all-pages-truncates-to-page-0
-  (testing ":refetch-all-pages? truncates a 3-page feed to page 0 only"
-    (let [e1 (state/entry-refetch-reset
-               (accumulated-3)
-               {:next-page-param-fn next-cursor :prev-page-param-fn prev-cursor
-                :refetch-policy {:refetch-all-pages? true}})]
-      (is (= 1 (state/page-count e1)) "kept only page 0")
-      (is (= [(page [:a] "c1")] (:data e1)))
-      (is (= [nil] (:page-params e1)))
-      (is (= "c1" (:next-page-param e1)) "cursor recomputed from page 0's tail"))))
-
-(deftest refetch-reset-guard-arms
-  (testing "a nil entry is returned unchanged"
-    (is (nil? (state/entry-refetch-reset nil {:refetch-policy {:refetch-window 1}}))))
-  (testing "a non-infinite (ordinary) entry is returned unchanged (guard arm)"
-    (let [plain (state/empty-entry :res/plain)]
-      (is (identical? plain (state/entry-refetch-reset
-                              plain {:refetch-policy {:refetch-window 1}})))))
-  (testing "an empty (no-pages) infinite entry is returned unchanged (guard arm)"
-    (let [empty-feed (state/empty-infinite-entry :feed/timeline)]
-      (is (= 0 (state/page-count empty-feed)))
-      (is (identical? empty-feed (state/entry-refetch-reset
-                                   empty-feed {:refetch-policy {:refetch-all-pages? true}}))))))
+(deftest entry-advance-and-clear-refetch-sweep
+  (testing "advance pops the head leg; clearing the last leg removes the key"
+    (let [e0 (state/entry-begin-refetch-sweep (accumulated-3) {:refetch-all-pages? true})]
+      (is (= ["c1" 1] (state/next-refetch-sweep-leg e0)) "head leg is page 1")
+      (let [e1 (state/entry-advance-refetch-sweep e0)]
+        (is (= [["c2" 2]] (:refetch-sweep e1)) "page 1 popped, page 2 remains")
+        (is (= ["c2" 2] (state/next-refetch-sweep-leg e1)))
+        (let [e2 (state/entry-advance-refetch-sweep e1)]
+          (is (not (contains? e2 :refetch-sweep)) "last leg popped ⇒ cursor removed")
+          (is (nil? (state/next-refetch-sweep-leg e2)) "no next leg on an exhausted sweep")))))
+  (testing "clear-refetch-sweep drops an in-progress cursor (a failed/aborted leg stops it)"
+    (let [e0 (state/entry-begin-refetch-sweep (accumulated-3) {:refetch-all-pages? true})]
+      (is (not (contains? (state/clear-refetch-sweep e0) :refetch-sweep)))))
+  (testing "next-refetch-sweep-leg on an unarmed entry is nil"
+    (is (nil? (state/next-refetch-sweep-leg (accumulated-3))))))

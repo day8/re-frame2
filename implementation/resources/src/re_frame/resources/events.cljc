@@ -408,20 +408,24 @@
             ;; mints the same `:started-at` / `:deadline-at`.
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
-            ;; EP-0021 R6 — a forced REFETCH of an infinite feed resets the
-            ;; accumulation per the resource's `:refetch` policy BEFORE the
-            ;; replacement page-0 starts. The ruled DEFAULT is window-preserving
-            ;; (keep the visible pages until the replacement page-0 succeeds —
-            ;; a focus/reconnect/invalidation refetch never collapses a loaded
-            ;; feed to page 0); the opt-ins `:refetch-all-pages?` /
-            ;; `:refetch-window` are R6 day-one knobs handled at the reply layer
-            ;; (the replacement page-0 success determines what is kept). On an
-            ;; ENSURE (not force-new) the entry is left as-is — a fresh ensure of
-            ;; an infinite feed first-loads page 0 (empty `:data`), and an ensure
-            ;; of an already-loaded feed never reaches the `:else` fresh-load
-            ;; branch (fresh-skip / dedupe handle it). Window-preserving is a
-            ;; pure no-op on `entry'` here (the page vector simply stays), so the
-            ;; reset is recorded on the entry only when an opt-in discards.
+            ;; EP-0021 R6 — a forced REFETCH of an infinite feed re-fetches the
+            ;; refresh window per the resource's `:refetch` policy. The ruled
+            ;; DEFAULT is window-preserving — refresh PAGE 0 in place while the
+            ;; accumulated tail stays visible (a focus/reconnect/invalidation
+            ;; refetch never collapses a loaded feed to page 0), and start NO
+            ;; sweep. The day-one opt-ins re-fetch a MULTI-PAGE window IN
+            ;; SEQUENCE (rf2-byl7bk.3.3, Spec 016 §Refetch): `:refetch-all-pages?`
+            ;; refreshes every accumulated page param, `:refetch-window n` the
+            ;; first n. The issue-time path below ALWAYS re-fetches PAGE 0 (one
+            ;; in-flight fetch); a multi-page opt-in additionally ARMS a durable
+            ;; `:refetch-sweep` cursor (the pages beyond 0), which
+            ;; `page-succeeded-handler` then drives ONE LEG AT A TIME (each its
+            ;; own fresh generation + work-id) — replacing each page in place
+            ;; without ever truncating the accumulation. On an ENSURE (not
+            ;; force-new) the entry is left as-is — a fresh ensure of an infinite
+            ;; feed first-loads page 0 (empty `:data`), and an ensure of an
+            ;; already-loaded feed never reaches this `:else` fresh-load branch
+            ;; (fresh-skip / dedupe handle it).
             refetch-policy (when infinite? (:refetch spec))
             entry'     (cond-> (state/entry-start-load
                                  entry {:generation generation :work-id work-id
@@ -429,17 +433,12 @@
                          ;; `:keep-previous?` projection pointer (a pointer
                          ;; only — never this key's data / tags).
                          prev-key (assoc :previous-key prev-key)
-                         ;; EP-0021 R6 — a forced REFETCH of an infinite feed
-                         ;; resets the accumulation to the kept window per the
-                         ;; `:refetch` policy (window-preserving default = a
-                         ;; pure no-op; `:refetch-all-pages?` / `:refetch-window`
-                         ;; truncate the tail). An ensure (not force-new) leaves
-                         ;; the feed untouched (page-0 first load).
+                         ;; EP-0021 R6 — arm the multi-page sweep cursor for an
+                         ;; opt-in refetch (empty tail for the window-preserving
+                         ;; default = no cursor, no sweep). An ensure (not
+                         ;; force-new) arms nothing.
                          (and infinite? force-new?)
-                         (state/entry-refetch-reset
-                           {:next-page-param-fn (:next-page-param spec)
-                            :prev-page-param-fn (:prev-page-param spec)
-                            :refetch-policy     refetch-policy}))
+                         (state/entry-begin-refetch-sweep refetch-policy))
             ;; EP-0021 R8 — the page context for THIS fetch. A first ensure /
             ;; a refetch's replacement fetch a page-0 (`page-param-for-spec` —
             ;; the framework `nil` default, overridable via `:initial-page-param`
@@ -780,6 +779,138 @@
   `{:resource :scope :params :owner :cause}`."
   [cofx [_event-id payload]]
   (load-more-loaded cofx payload {:where 'rf.resource/load-more}))
+
+;; ---- refetch-page — a multi-page refetch sweep LEG (EP-0021 R6) -----------
+;;
+;; rf2-byl7bk.3.3: `:refetch-all-pages?` / `:refetch-window` re-fetch a
+;; multi-page window IN SEQUENCE. The issue-time `:rf.resource/refetch` fetches
+;; page 0 and arms a `:refetch-sweep` cursor (the pages beyond 0);
+;; `page-succeeded-handler` then chains this internal event ONE LEG AT A TIME —
+;; each leg re-fetches a SPECIFIC `(page-param page-index)` and REPLACES that
+;; page in place on success (via the page reply handlers' `entry-replace-page`).
+;; Single in-flight fetch per leg (one work-id, the existing substrate); the
+;; chain stops when the cursor empties or a leg fails. User code MUST NOT
+;; dispatch it.
+
+(defn- refetch-page-loaded
+  "Core of `:rf.resource.internal/refetch-page` (EP-0021 R6 sweep leg). Re-fetch
+  the page at the payload's `:rf.resource/page-param` / `:rf.resource/page-index`
+  (a SPECIFIC page, not the derived tail), transition the feed to `:fetching`
+  (pages stay visible), and address the PAGE reply handlers so the success
+  REPLACES that page in place (`entry-replace-page`) and chains the next sweep
+  leg. Mints a fresh generation (the recorded allocation, replay-stable) +
+  work-id like `load-more`. A vanished / non-infinite feed, or one with no live
+  sweep cursor, is a structural no-op (a superseded sweep — the feed was cleared
+  or re-loaded). Returns the reg-event effects map."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id
+    gen-allocation :rf.resource/generation-allocation
+    time-ms :rf/time-ms, app-db :db}
+   {:keys [resource owner cause] page-param :rf.resource/page-param
+    page-index :rf.resource/page-index :as payload} {:keys [where]}]
+  (let [runtime-db (or rt {})
+        spec       (registry/require-resource-spec! resource where)
+        scope      (registry/resolve-scope-for-event
+                     resource spec {:payload-scope (:scope payload) :db app-db} where)
+        cparams    (registry/validate+canonicalize-params
+                     resource spec (state/params-present? payload) where)
+        scoped-key (state/scoped-resource-key* scope resource cparams)
+        entry      (get-in runtime-db (state/entry-path scoped-key))]
+    (cond
+      ;; ----- the feed vanished / is no longer infinite — no-op -------------
+      (or (nil? entry) (not (state/infinite-entry? entry)))
+      (do
+        (trace/emit! :rf.event :rf.resource/load-more-skipped
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :reason :no-feed :owner owner :cause cause})
+        {:rf.db/runtime runtime-db})
+
+      ;; ----- the page index is past the (current) accumulation — no-op -----
+      ;; A sweep leg only refreshes a page the feed still has; a feed that
+      ;; shrank under the sweep (a clear / re-load) drops the stale leg.
+      (>= page-index (state/page-count entry))
+      (do
+        (trace/emit! :rf.event :rf.resource/load-more-skipped
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :reason :no-next-page :page-count (state/page-count entry)
+                      :owner owner :cause cause})
+        {:rf.db/runtime runtime-db})
+
+      ;; ----- issue the replacement fetch for THIS page (fresh generation) --
+      :else
+      (let [generation (:generation gen-allocation)
+            work-id    (work-ledger/resource-work-id scoped-key generation)
+            request-id (work-ledger/managed-request-id frame-id work-id)
+            started-at time-ms
+            deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
+            transport-id (or (:transport spec) transport/default-transport)
+            ;; the feed has data, so `entry-start-load` chooses `:fetching`
+            ;; (refresh-class — pages stay visible). The page vector is
+            ;; UNTOUCHED (a sweep leg replaces in place on its reply).
+            entry'     (state/entry-start-load
+                         entry {:generation generation :work-id work-id
+                                :request-id request-id :owner owner})
+            record     (work-ledger/work-record
+                         {:work-id      work-id
+                          :frame-id     frame-id
+                          :resource/key scoped-key
+                          :generation   generation
+                          :transport    transport-id
+                          :owner        owner
+                          :cause        cause
+                          :started-at   started-at
+                          :deadline-at  deadline
+                          ;; record the page index this leg refreshes (a
+                          ;; replacement, not a load-more append).
+                          :page-index   page-index})
+            rdb'       (-> runtime-db
+                           (assoc-in (state/entry-path scoped-key) entry')
+                           (work-ledger/put-record work-id record)
+                           (cond->
+                             owner (update-in (state/owner-index-path)
+                                              update owner (fnil conj #{}) (state/key-id scoped-key))))
+            req-ctx    (page-request-ctx page-param page-index)
+            http-args  (let [req-fn (:request spec)]
+                         (req-fn cparams req-ctx))
+            lower-fx   (do (transport/assert-managed-transport! transport-id where)
+                           (transport-http/lower
+                             {:http-args    http-args
+                              :request-id   request-id
+                              :work-id      work-id
+                              :resource/key scoped-key
+                              :scope        scope
+                              :frame-id     frame-id
+                              :generation   generation
+                              :where        where
+                              :on-success-id page-succeeded-reply
+                              :on-failure-id page-failed-reply
+                              :reply-payload (infinite-page-reply-payload
+                                               scoped-key scope generation
+                                               work-id page-param page-index)}))]
+        (trace/emit! :rf.event :rf.resource/work-started
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :generation generation :work/id work-id
+                      :status :running :owner owner :cause cause})
+        (trace/emit! :rf.event :rf.resource/fetch-started
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :generation generation :work/id work-id
+                      :status (:status entry') :owner owner :cause cause})
+        {:rf.db/runtime rdb'
+         :fx [[:rf.resource/commit-generation {:value generation}]
+              [:rf.resource/record-work-handle
+               {:frame-id frame-id :work-id work-id
+                :transport transport-id :request-id request-id}]
+              lower-fx]}))))
+
+(defn refetch-page-handler
+  "`:rf.resource.internal/refetch-page` — re-fetch ONE page of a multi-page
+  refetch sweep (EP-0021 R6, rf2-byl7bk.3.3). Chained by `page-succeeded-handler`
+  off the `:refetch-sweep` cursor; fetches the payload's specific
+  `(:rf.resource/page-param :rf.resource/page-index)` and replaces it in place
+  on success. User code MUST NOT dispatch it. Payload:
+  `{:resource :scope :params :cause :rf.resource/page-param
+    :rf.resource/page-index}`."
+  [cofx [_event-id payload]]
+  (refetch-page-loaded cofx payload {:where 'rf.resource.internal/refetch-page}))
 
 ;; ---- focus / reconnect revalidation (rf2-vtblcq) --------------------------
 ;;
@@ -2221,12 +2352,21 @@
             stale-at  (state/stale-at-for spec loaded-at)
             stale-delay-ms (state/positive-or-nil (:stale-after-ms spec))
             gc-delay-ms    (state/positive-or-nil (:gc-after-ms spec))
-            entry'    (state/entry-replace-page
+            replaced  (state/entry-replace-page
                         entry {:page decoded :page-param page-param
                                :page-index page-index
                                :next-page-param-fn (:next-page-param spec)
                                :prev-page-param-fn (:prev-page-param spec)
                                :loaded-at loaded-at :stale-at stale-at})
+            ;; EP-0021 R6 sweep (rf2-byl7bk.3.3): if a multi-page refetch sweep
+            ;; is armed, chain the NEXT leg — pop its `[page-param page-index]`
+            ;; off the `:refetch-sweep` cursor and re-fetch it (one in-flight
+            ;; leg at a time, "in sequence"). `entry-replace-page` preserves the
+            ;; cursor, so it rides through to here.
+            sweep-leg (state/next-refetch-sweep-leg replaced)
+            entry'    (if sweep-leg
+                        (state/entry-advance-refetch-sweep replaced)
+                        replaced)
             poll-delay-ms (when (seq (:active-owners entry'))
                             (state/positive-or-nil (:poll-interval-ms spec)))
             rdb'      (-> runtime-db
@@ -2237,7 +2377,20 @@
                           (work-ledger/prune-terminal-for-key resource-key)
                           ;; route blocking: a route-owned blocking infinite feed
                           ;; blocks on page 0 — drain the slot when page 0 lands.
-                          (route/drain-blocking resource-key entry' :success))]
+                          (route/drain-blocking resource-key entry' :success))
+            ;; the chained sweep leg is a self-dispatched internal event so it
+            ;; re-enters the router and mints its own replay-stable generation
+            ;; (the generation-allocation cofx) — the framework's follow-up-fetch
+            ;; pattern (cf. poll-fired / focus-reconnect refetch dispatch).
+            sweep-fx  (when sweep-leg
+                        (let [[leg-param leg-index] sweep-leg]
+                          [:dispatch [:rf.resource.internal/refetch-page
+                                      {:resource (second resource-key)
+                                       :scope    (first resource-key)
+                                       :params   (nth resource-key 2)
+                                       :cause    [:rf.resource/refetch-sweep leg-index]
+                                       :rf.resource/page-param leg-param
+                                       :rf.resource/page-index leg-index}]]))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -2248,31 +2401,54 @@
                       :page-index page-index :page-count (state/page-count entry')
                       :next-page-param (:next-page-param entry')
                       :terminal? (state/terminal? (:next-page-param entry'))})
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms poll-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  poll-delay-ms
-                        :server?        (state/server-frame? frame-id)}]]))))))
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
+                          [:rf.resource/schedule-timers
+                           {:frame-id       frame-id
+                            :resource/key   resource-key
+                            :stale-delay-ms stale-delay-ms
+                            :gc-delay-ms    gc-delay-ms
+                            :poll-delay-ms  poll-delay-ms
+                            :server?        (state/server-frame? frame-id)}])
+              fx        (cond-> []
+                          timers-fx (conj timers-fx)
+                          sweep-fx  (conj sweep-fx))]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx)))))))
 
 (defn page-failed-handler
-  "`:rf.resource.internal/page-failed` — an infinite-feed page fetch failed
-  (EP-0021 R2 — the THIRD error channel). Verifies frame + work-id +
-  generation; on match the feed returns to `:loaded`, KEEPS ALL accumulated
-  pages, and records `:page-error` (`entry-page-failed`) — distinct from a
-  first-load `:error` and a whole-feed `:refresh-error`, so a view shows
-  \"couldn't load more — retry\" without losing the feed. A stale / superseded /
-  cross-frame reply is SUPPRESSED. An ABORT (`:rf.http/aborted`) is a
-  cancellation, not a page error: the feed settles to `:loaded` (data kept)
-  with NO `:page-error` written, and the work row settles `:cancelled`.
+  "`:rf.resource.internal/page-failed` — an infinite-feed page fetch failed.
+  Verifies frame + work-id + generation; on match SPLITS the settlement by
+  page identity (rf2-byl7bk.3.1, Spec 016 §Status semantics / §Infinite):
+
+    - a FIRST-LOAD (page 0) failure with NO accumulated pages is NOT a
+      load-more failure — it is a first load with no usable data. It settles
+      the FIRST-load `:error` channel (`entry-failed` → `:status :error`,
+      `:error` envelope, `:data nil`) and drains a blocking route as
+      `:failure`, so a blocking infinite route flips to route `:error` exactly
+      like a blocking SCALAR resource (`drain-blocking`'s `:status :error`
+      branch fires automatically — no route.cljc change). Spec 016 reserves
+      `:error` / `:status :error` for first-load (page 0) failure;
+
+    - a LOAD-MORE (page N>0) failure — OR a page-0 failure when the feed
+      ALREADY has accumulated pages (an R6 window-preserving refetch that
+      fails its replacement page 0 is NOT a first load — there is a feed to
+      keep) — is the THIRD error channel: the feed returns to `:loaded`, KEEPS
+      ALL accumulated pages, and records `:page-error` (`entry-page-failed`),
+      so a view shows \"couldn't load more — retry\" without losing the feed.
+      The blocking slot drains as `:success` (the route blocks on page 0 only,
+      which already landed). Spec 016 reserves `:page-error` for load-more
+      (page N>0) failure only.
+
+  A stale / superseded / cross-frame reply is SUPPRESSED. An ABORT
+  (`:rf.http/aborted`) is a cancellation, not a page error: the feed settles
+  to `:loaded` (data kept) with NO `:page-error` written, and the work row
+  settles `:cancelled`.
 
   Event shape: `[_ <verification-payload> <http-result>]` — the transport
   appends `{:kind :failure :failure <:rf.http/* envelope>}` as the last arg."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
-   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation]
+               page-index :rf.resource/page-index :as payload} http-result]]
   (let [runtime-db   (or rt {})
         error        (rreply/transport-failure-envelope payload http-result)
         completed-at time-ms
@@ -2280,7 +2456,14 @@
                                            {:work-kind rreply/work-kind-resource
                                             :completed-at completed-at})
         aborted?     (= :cancelled (:status reply))
-        entry        (live-entry-for-reply runtime-db frame-id payload)]
+        entry        (live-entry-for-reply runtime-db frame-id payload)
+        ;; rf2-byl7bk.3.1 — a FIRST-load failure is a page-0 fetch (`page-index`
+        ;; 0) that has NO accumulated pages to keep. A page-0 refetch over a
+        ;; feed that already has pages (R6 window-preserving) is NOT a first
+        ;; load — it keeps `:page-error` + `:loaded` (data to keep).
+        first-load?  (and (some? entry)
+                          (= 0 page-index)
+                          (zero? (state/page-count entry)))]
     (cond
       ;; STALE SUPPRESSION (mandatory) — stale wins over the natural status
       ;; (a stale abort settles :suppressed, never an accepted :cancelled).
@@ -2301,7 +2484,10 @@
       ;; its pages and returns to :loaded WITHOUT a :page-error (a cancellation
       ;; is not a load-more failure). The work row settles terminal :cancelled.
       aborted?
-      (let [entry' (assoc entry :status :loaded :current-work nil)
+      ;; an abort during a multi-page refetch sweep STOPS the sweep (clear the
+      ;; cursor — a cancelled leg does not chain the next; rf2-byl7bk.3.3).
+      (let [entry' (-> (assoc entry :status :loaded :current-work nil)
+                       state/clear-refetch-sweep)
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path resource-key) entry')
                        (work-ledger/update-record
@@ -2315,17 +2501,47 @@
                       :status-before (:status entry) :status-after (:status entry')})
         {:rf.db/runtime rdb'})
 
-      ;; PAGE FAILURE — the third error channel: keep the feed, record
-      ;; :page-error, return to :loaded. (`route/drain-blocking … :failure`
-      ;; only flips a blocking FIRST-load — a feed that already has pages keeps
-      ;; :loaded, so the slot drains like a success; a blocking page-0 failure
-      ;; with no prior pages surfaces the route error via entry-page-failed
-      ;; keeping :status :loaded — but a blocking infinite route blocks on page
-      ;; 0, which on first failure has no data, so drain-blocking keys on the
-      ;; entry's :status. entry-page-failed always returns :loaded, so a route
-      ;; never errors on a load-more page failure — exactly the intent.)
+      ;; FIRST-LOAD FAILURE (rf2-byl7bk.3.1) — a page-0 fetch with no
+      ;; accumulated pages failed: there is no feed to keep, so this is a first
+      ;; load with no usable data, NOT a load-more. Settle the FIRST-load
+      ;; `:error` channel (`entry-failed` → `:status :error`, `:error`
+      ;; envelope, `:data nil`) and drain a blocking route as `:FAILURE` —
+      ;; `drain-blocking`'s `(= :error (:status entry))` branch then flips the
+      ;; route to `:error` (parity with a blocking scalar resource; no
+      ;; route.cljc change). Trace the first-load `:rf.resource/failed` op (not
+      ;; `:rf.resource/page-failed`) so the channel and the trace agree.
+      first-load?
+      (let [entry' (state/entry-failed entry {:error error})
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :failed {:error error :completed-at completed-at})
+                       (route/drain-blocking resource-key entry' :failure))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-completed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation :status :failed})
+        (trace/emit! :rf.event :rf.resource/failed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')
+                      :error error})
+        {:rf.db/runtime rdb'})
+
+      ;; LOAD-MORE PAGE FAILURE — the third error channel: keep the feed,
+      ;; record :page-error, return to :loaded. This is a page N>0 failure, OR
+      ;; a page-0 refetch over a feed that already has pages (R6 window-
+      ;; preserving — there is a feed to keep, so it is not a first load). The
+      ;; blocking slot drains as :success (the route blocks on page 0, which
+      ;; already landed for any feed that has accumulated pages). Spec 016
+      ;; reserves :page-error for load-more only.
       :else
-      (let [entry' (state/entry-page-failed entry {:error error})
+      ;; a failed leg STOPS any in-progress refetch sweep (clear the cursor —
+      ;; don't chain past a failure; rf2-byl7bk.3.3). The kept-feed +
+      ;; :page-error channel is unchanged.
+      (let [entry' (-> (state/entry-page-failed entry {:error error})
+                       state/clear-refetch-sweep)
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path resource-key) entry')
                        (work-ledger/update-record

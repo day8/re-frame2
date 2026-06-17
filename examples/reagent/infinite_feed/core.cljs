@@ -25,12 +25,14 @@
    - THE TERMINAL IS `nil` — `:next-page-param` returning nil is the single
      end-of-feed signal; the view reads `:has-next-page?` and shows an
      end-of-feed marker instead of the button.
-   - THE PAGE-ERROR CHANNEL — a load-more failure keeps every accumulated
-     page visible and surfaces `:page-error` (\"couldn't load more — retry\")
-     while the feed stays `:loaded`. A feed's page fetches all lower the same
-     way, so a PAGE 0 first-load failure lands on `:page-error` too (the feed
-     never collapses to the scalar `:error` state); the view shows a full
-     error screen or the inline retry by reading `:has-data?` alongside it.
+   - THE THREE ERROR CHANNELS — a LOAD-MORE failure (page N>0) keeps every
+     accumulated page visible and surfaces `:page-error` (\"couldn't load more —
+     retry\") while the feed stays `:loaded` (the third channel). A PAGE 0
+     FIRST-load failure with no accumulated pages settles the first-load
+     `:error` channel + `:status :error` (Spec 016 reserves `:error` for
+     first-load, `:page-error` for load-more), so the view shows the full error
+     screen on `:error` and the inline retry on `:page-error` — distinct axes,
+     never conflated.
 
    The view reads the combined `[:rf.resource/infinite-state …]` view-model —
    `:items` (the merged flat list, the headline read), `:has-next-page?`,
@@ -273,13 +275,14 @@
        (:loading? feed)
        [:p {:data-testid "feed-skeleton"} "Loading the feed…"]
 
-       ;; First load (page 0) failed with no usable data → error screen. An
-       ;; infinite feed has ONE error axis — `:page-error` (page fetches all
-       ;; lower the same way, so page 0's failure lands there, keeping the
-       ;; feed `:loaded`); whether to show a full error screen or the inline
-       ;; "couldn't load more" affordance is decided by `:has-data?`. (The
-       ;; scalar `:error` / `:refresh-error` channels stay nil for a feed.)
-       (and (:page-error feed) (not (:has-data? feed)))
+       ;; First load (page 0) failed with no usable data → full error screen.
+       ;; A page-0 FIRST-load failure with no accumulated pages settles the
+       ;; first-load `:error` channel + `:status :error` (Spec 016 §Status
+       ;; semantics — `:error` is reserved for first-load failure), exactly
+       ;; like a scalar resource; it is NOT the `:page-error` load-more channel
+       ;; (which is reserved for a page N>0 failure that keeps the feed). The
+       ;; whole-feed `:refresh-error` channel stays nil here.
+       (:error feed)
        [:p.error {:data-testid "feed-error"} "Could not load the feed."]
 
        :else
@@ -291,10 +294,11 @@
               (for [item (:items feed)]
                 ^{:key (:id item)} [feed-row item]))
 
-        ;; A load-more FAILURE (we have data) keeps every page visible and
-        ;; surfaces :page-error — the inline "couldn't load more — retry"
-        ;; affordance (the same channel a no-data page-0 failure uses for the
-        ;; full error screen above; :has-data? is what splits the two).
+        ;; A LOAD-MORE failure (page N>0 — we have data) keeps every page
+        ;; visible and surfaces :page-error — the inline "couldn't load more —
+        ;; retry" affordance (the THIRD error channel, distinct from the
+        ;; first-load :error full-screen above; a load-more failure never
+        ;; collapses the feed).
         (when (:page-error feed)
           [:p.warn {:data-testid "feed-page-error"}
            "Couldn't load more — tap retry."])

@@ -19,8 +19,11 @@
        feed);
     6. a page-fetch failure is the THIRD error channel — the feed keeps its
        pages + records `:page-error` (NOT `:error` / `:refresh-error`);
-    7. `:rf.resource/refetch` preserves the visible window by default (R6); the
-       `:refetch-all-pages?` / `:refetch-window` opt-ins truncate the tail.
+    7. `:rf.resource/refetch` preserves the visible window by default (R6 —
+       refresh page 0 in place); the `:refetch-all-pages?` / `:refetch-window`
+       opt-ins refresh a MULTI-PAGE window IN SEQUENCE (rf2-byl7bk.3.3 — a
+       chained sweep, one leg at a time, replacing each page in place; the
+       accumulation is never truncated).
 
   The capturing transport REPLAYS the real reply-append shape (Spec 014 §Reply
   addressing — the live transport conj's its result as the LAST arg of the
@@ -368,33 +371,84 @@
         (is (= (page [:b] "c2") (nth (:data e) 1)) "tail preserved")
         (is (= (page [:c] "c3") (nth (:data e) 2)) "tail preserved")))))
 
-(deftest refetch-all-pages-opt-in-collapses-to-page-0
-  (testing ":refetch-all-pages? opts OUT of window-preserving — the tail is
-            dropped at refetch and the feed re-accumulates from page 0 (R6)"
+(deftest refetch-all-pages-opt-in-refreshes-every-page-in-sequence
+  ;; rf2-byl7bk.3.3 — :refetch-all-pages? re-fetches EVERY accumulated page
+  ;; param IN SEQUENCE (TanStack parity), replacing each in place. The feed
+  ;; never collapses — its length is preserved; one fetch is in flight at a
+  ;; time (the chained sweep). This INVERTS the prior truncate-to-page-0 test.
+  (testing ":refetch-all-pages? sweeps page 0, then page 1, then page 2 in order"
     (let [k (accumulate-3! :ra/feed {:refetch {:refetch-all-pages? true}})]
       (rf/dispatch-sync [:rf.resource/refetch
                          {:resource :ra/feed :scope :rf.scope/global
                           :params {:filter :recent} :cause [:test :refresh-all]}])
-      (let [e (entry k)]
-        (is (= 1 (state/page-count e)) "truncated to page 0 at refetch"))
+      (testing "the issue-time fetch is page 0; the feed is NOT truncated"
+        (is (= 3 (state/page-count (entry k))) "WINDOW PRESERVED — feed not collapsed")
+        (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+            "the first fetch is page 0 (index 0)"))
+      ;; page-0 reply replaces in place, then CHAINS the page-1 leg.
       (reply-success! (page [:a*] "c1"))
       (let [e (entry k)]
-        (is (= 1 (state/page-count e)) "feed re-accumulates from page 0")
-        (is (= (page [:a*] "c1") (nth (:data e) 0)))))))
+        (is (= 3 (state/page-count e)) "still 3 pages after page-0 replacement")
+        (is (= (page [:a*] "c1") (nth (:data e) 0)) "page-0 replaced in place"))
+      (testing "the sweep CHAINED a page-1 fetch (the next leg, in sequence)"
+        (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+            "the second fetch is page 1")
+        (is (= "c1" (:rf.resource/page-param (second (:on-success @last-managed-args))))
+            "page 1 re-fetched with its original :page-param"))
+      ;; page-1 reply replaces in place, then chains page-2.
+      (reply-success! (page [:b*] "c2"))
+      (let [e (entry k)]
+        (is (= 3 (state/page-count e)))
+        (is (= (page [:b*] "c2") (nth (:data e) 1)) "page-1 replaced in place"))
+      (testing "the sweep CHAINED a page-2 fetch (the final leg)"
+        (is (= 2 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+            "the third fetch is page 2"))
+      ;; page-2 reply replaces in place — the sweep is now exhausted.
+      (reply-success! (page [:c*] "c3"))
+      (let [e (entry k)]
+        (is (= 3 (state/page-count e)) "all 3 pages refreshed; length preserved")
+        (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c*] "c3")] (:data e))
+            "every page replaced in place, in order")
+        (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared when exhausted")
+        (is (= :loaded (:status e)) "feed settled :loaded")))))
 
-(deftest refetch-window-opt-in-bounds-the-kept-window
-  (testing ":refetch-window n keeps the first n pages, drops beyond (R6)"
+(deftest refetch-window-opt-in-refreshes-the-bounded-window-in-sequence
+  ;; rf2-byl7bk.3.3 — :refetch-window n refreshes the first n pages in place
+  ;; (page 0 + the chained legs up to n-1), keeping pages beyond n untouched.
+  (testing ":refetch-window 2 refreshes pages 0 and 1, leaves page 2 alone"
     (let [k (accumulate-3! :rwn/feed {:refetch {:refetch-window 2}})]
       (rf/dispatch-sync [:rf.resource/refetch
                          {:resource :rwn/feed :scope :rf.scope/global
                           :params {:filter :recent} :cause [:test :window]}])
-      (let [e (entry k)]
-        (is (= 2 (state/page-count e)) "kept the first 2 pages, dropped the 3rd")
-        (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e))))
+      (is (= 3 (state/page-count (entry k))) "feed NOT truncated — full window preserved")
+      (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args)))) "page 0 first")
       (reply-success! (page [:a*] "c1"))
+      (testing "the sweep chained the page-1 leg (the bounded window)"
+        (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args)))) "then page 1"))
+      (reply-success! (page [:b*] "c2"))
       (let [e (entry k)]
-        (is (= 2 (state/page-count e)) "window held after the replacement")
-        (is (= (page [:a*] "c1") (nth (:data e) 0)) "page-0 replaced in place")))))
+        (is (= 3 (state/page-count e)) "feed length preserved (page 2 kept untouched)")
+        (is (= (page [:a*] "c1") (nth (:data e) 0)) "page 0 refreshed")
+        (is (= (page [:b*] "c2") (nth (:data e) 1)) "page 1 refreshed")
+        (is (= (page [:c] "c3") (nth (:data e) 2)) "page 2 left UNTOUCHED (outside the window)")
+        (is (not (contains? e :refetch-sweep)) "sweep cleared (window exhausted)")))))
+
+(deftest refetch-sweep-failure-stops-the-sweep-keeps-pages
+  ;; rf2-byl7bk.3.3 — a page failure DURING a sweep stops the chain (clears the
+  ;; cursor) and records :page-error, keeping all accumulated pages.
+  (testing "a page-1 sweep-leg failure stops the sweep + records :page-error"
+    (let [k (accumulate-3! :rsf/feed {:refetch {:refetch-all-pages? true}})]
+      (rf/dispatch-sync [:rf.resource/refetch
+                         {:resource :rsf/feed :scope :rf.scope/global
+                          :params {:filter :recent} :cause [:test :refresh-all]}])
+      (reply-success! (page [:a*] "c1"))          ;; page 0 replaced ⇒ chains page 1
+      (is (= 1 (:rf.resource/page-index (second (:on-failure @last-managed-args)))) "page-1 leg in flight")
+      (reply-failure! {:kind :rf.http/server :status 503})
+      (let [e (entry k)]
+        (is (= :loaded (:status e)) "feed stays :loaded (pages kept)")
+        (is (= 3 (state/page-count e)) "all pages preserved")
+        (is (some? (:page-error e)) ":page-error recorded for the failed sweep leg")
+        (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared — chain stopped")))))
 
 ;; ===========================================================================
 ;; 8. ensure dedupe / fresh-skip still applies to an infinite feed's page-0

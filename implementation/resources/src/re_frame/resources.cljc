@@ -414,6 +414,16 @@
 (events/reg-event :rf.resource/load-more
                      generation-meta
                      resource-events/load-more-handler)
+;; EP-0021 R6 (rf2-byl7bk.3.3) — `:rf.resource.internal/refetch-page` re-fetches
+;; ONE page of a multi-page refetch sweep (`:refetch-all-pages?` /
+;; `:refetch-window`). Chained by `page-succeeded-handler` one leg at a time; it
+;; mints a fresh generation (the work-id derives from it, for per-leg stale
+;; suppression) and records the work `:started-at` from the causal `:rf/time-ms`,
+;; so it declares the recordable generation-allocation + time cofx exactly like
+;; load-more. User code MUST NOT dispatch it.
+(events/reg-event :rf.resource.internal/refetch-page
+                     generation-meta
+                     resource-events/refetch-page-handler)
 ;; EP-0017 (rf2-601ife): `invalidate-tags` writes the durable `:invalidated-at`
 ;; fact from the event's causal `:rf/time-ms`, so it declares the time cofx.
 (events/reg-event :rf.resource/invalidate-tags
