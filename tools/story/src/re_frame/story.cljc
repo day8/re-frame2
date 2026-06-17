@@ -1836,11 +1836,9 @@
   `:recording?` false, `:events` carrying the captured event vectors in
   declared order, and `:variant-id` naming the source variant.
 
-  rf2-0io9uq (EP-0013): the returned state carries `:rf.realm/id` WHERE the
-  recording's target frame was in a non-default runtime realm; a single-realm
-  recording carries no realm key (the absent-key rule — absence means the
-  default realm). Pass the stamp through `recording->play-script`'s `:realm`
-  opt so replay targets the same realm."
+  EP-0023: a recording's address is the variant frame; replay dispatches
+  frame-scoped (`{:frame variant-id}`) and lands in the frame's own running
+  environment by construction — the state carries no separate realm key."
   []
   (recorder/stop-recording!))
 
@@ -1895,13 +1893,10 @@
 
   `events` may be the legacy bare-events vector OR the rich `:entries`
   vector (rf2-d5u89). `opts` accepts `:auto-run?`, `:name`,
-  `:auto-assert?` + `:final-db`/`:seed-db`/`:max-auto-assertions`,
-  `:wait-threshold-ms`, and `:realm` (rf2-0io9uq, EP-0013 — the runtime realm
-  the recording was captured in; carried onto the body under `:rf.realm/id`
-  WHERE non-default so replay targets the same realm, omitted for the default
-  realm by the absent-key rule) — see `re-frame.story.recorder.play-export/
+  `:auto-assert?` + `:final-db`/`:seed-db`/`:max-auto-assertions`, and
+  `:wait-threshold-ms` — see `re-frame.story.recorder.play-export/
   recording->play-script` for the full contract.
 
-  Returns `{:script [...steps] :auto-run? bool :name str? :rf.realm/id kw?}`."
+  Returns `{:script [...steps] :auto-run? bool :name str?}`."
   ([events]      (play-export/recording->play-script events))
   ([events opts] (play-export/recording->play-script events opts)))

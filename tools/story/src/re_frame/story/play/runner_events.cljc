@@ -49,10 +49,6 @@
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.story.predicates  :as pred]
-            ;; rf2-c6armm.12 — the shared absent-key realm util (the
-            ;; "carry only a non-default realm" rule, here under the `:realm`
-            ;; address-map key rather than the recording `:rf.realm/id` stamp).
-            [re-frame.story.realm       :as story-realm]
             [re-frame.story.registrar   :as registrar]))
 
 ;; ---- per-variant run-state -----------------------------------------------
@@ -254,40 +250,15 @@
     (registrar/handler-meta :variant variant-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-;; ---- replay realm targeting (rf2-0io9uq, EP-0013) ------------------------
+;; ---- replay target (EP-0023) ---------------------------------------------
 ;;
-;; A recording targets a FRAME (`variant-id`); the frame references the
-;; runtime REALM it lives in (Spec 002 §Frames reference realms). Replay
-;; dispatches through `{:frame variant-id}` — the framework derives the realm
-;; from the frame, so frame-scoped dispatch ALREADY lands in the frame's own
-;; realm. `replay-target` makes that address EXPLICIT + verifiable: it returns
-;; the `{:realm r :frame v}` map the recording replays against, reading the
-;; live realm via `rf/frame-realm` and applying the DEFAULT-realm absent-key
-;; rule — a default-realm / unknown frame omits `:realm`, so a single-realm
-;; recording's target is `{:frame v}` (byte-identical to the pre-realm shape,
-;; zero ceremony). A frame in a constructed realm reports `{:realm r :frame
-;; v}` so a caller can assert replay targets the SAME realm the recording was
-;; captured in.
-
-(defn replay-target
-  "Resolve the `{:realm r :frame v}` address replay dispatches `variant-id`'s
-  script against (rf2-0io9uq, EP-0013). Pure-ish — reads the live frame's realm
-  via `rf/frame-realm`, no dispatch.
-
-  Always carries `:frame variant-id`. Carries `:realm` ONLY when the frame is
-  in a NON-default realm (the absent-key rule — absence of `:realm` means the
-  default realm). So a single-realm recording resolves to `{:frame v}` and a
-  multi-realm recording to `{:realm r :frame v}`. Tolerant: a frame-realm read
-  that throws (no frame, framework absent) yields `{:frame v}` (the default-
-  realm target). The frame-scoped dispatch the runner already performs lands in
-  exactly this realm — this is the readable, assertable counterpart to it."
-  [variant-id]
-  (let [realm (try (rf/frame-realm variant-id)
-                   (catch #?(:clj Throwable :cljs :default) _ nil))]
-    ;; rf2-c6armm.12 — the absent-key rule through the shared Story realm util,
-    ;; under the `:realm` address-map key: a nil / default realm carries `:realm`
-    ;; nothing (target is `{:frame v}`), a constructed realm carries it.
-    (story-realm/stamp-realm {:frame variant-id} :realm realm)))
+;; A recording's replay address is the variant FRAME (`{:frame variant-id}`).
+;; EP-0023 collapses the old EP-0013 public `(realm, frame)` address to that
+;; single frame target: the runner dispatches frame-scoped, and the framework
+;; derives the running environment from the targeted frame, so replay lands in
+;; the frame's own image generation by construction. Realm survives only as the
+;; framework's internal installation substrate — the runner carries no separate
+;; realm key on the replay address.
 
 ;; ---- folded-plan consumption (rf2-5x1wt.19) ------------------------------
 ;;

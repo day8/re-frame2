@@ -92,13 +92,9 @@
   the write-back produces a new variant body and the origin tag
   identifies the MCP write surface as its producer.
 
-  rf2-0io9uq (EP-0013): the captured recording's runtime-realm stamp (read off
-  the source frame at recording time, `realm`) is threaded into
-  `recording->play-script` so the written-back body carries `:rf.realm/id`
-  WHERE the source frame is in a non-default realm — replay targets the same
-  realm. The default-realm absent-key rule applies: a single-realm recording
-  passes a nil / default realm, so the body carries no realm key and replays
-  unchanged (zero ceremony).
+  EP-0023: a recording's address is the source variant frame; replay
+  dispatches frame-scoped and lands in the frame's own running environment
+  by construction — the written-back body carries no separate realm key.
 
   rf2-l2cn5d (EP-0017): the captured `:rf.cofx` maps (the parallel `cofx`
   vector, index-aligned with `events` — framework `:rf/time-ms` plus any
@@ -113,9 +109,9 @@
   Returns the structured success result on the happy path, or an
   `error-result` whose `:structuredContent` merges the base recorder
   payload, the failure flag, and the registrar's `ex-data`."
-  [base body events cofx realm target-vid]
+  [base body events cofx target-vid]
   (try
-    (let [play-body (story/recording->play-script events {:realm realm :cofx cofx})
+    (let [play-body (story/recording->play-script events {:cofx cofx})
           id        (story/reg-variant*
                       target-vid
                       (assoc body :script play-body :origin config/origin))
@@ -315,12 +311,6 @@
                       ;; recorded recordable coeffects rather than restamping or
                       ;; failing `:rf.error/missing-required-cofx`.
                       cofx        (vec (:cofx final-state))
-                      ;; rf2-0io9uq (EP-0013): the recorder stamped the source
-                      ;; frame's runtime realm onto the recording WHERE it is a
-                      ;; non-default realm (absent-key rule). Read it back so the
-                      ;; write-back body can target the same realm on replay; nil
-                      ;; for a single-realm recording (no realm key emitted).
-                      realm       (get final-state :rf.realm/id)
                       ;; rf2-12f2q — the captured event vectors cross the
                       ;; AI/off-box boundary in BOTH the `:captured` slot
                       ;; and the `:play-snippet` text. A recorded event can
@@ -364,7 +354,7 @@
                                    :written-back?        false}]
                   (if-not write-back?
                     (result/edn-result base)
-                    (write-back! base body events cofx realm target-vid))))))))))))
+                    (write-back! base body events cofx target-vid))))))))))))
 
 (def descriptors
   "Registry descriptors for the recorder's MCP surface — the single

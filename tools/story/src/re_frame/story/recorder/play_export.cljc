@@ -74,9 +74,6 @@
   build the snippet text. JVM-testable end-to-end."
   (:require [clojure.string :as str]
             [re-frame.story.play.runner :as runner]
-            ;; rf2-c6armm.12 — the shared absent-key realm-stamp util (the
-            ;; "stamp only a non-default realm under :rf.realm/id" rule).
-            [re-frame.story.realm       :as story-realm]
             [re-frame.story.predicates  :as pred]))
 
 ;; ---------------------------------------------------------------------------
@@ -124,8 +121,7 @@
   opts (EP-0017 §3 — the dispatch-opts key is `:rf.cofx`). Returns nil
   when `cofx` is not a non-empty map, so a recording with no captured
   coeffects emits the byte-identical 2-element step (zero ceremony for
-  single-realm / no-cofx recordings, mirroring the realm absent-key
-  rule). `:rf/time-ms` rides along verbatim — it is always safe to
+  no-cofx recordings). `:rf/time-ms` rides along verbatim — it is always safe to
   surface (EP-0017 §3) and is the framework-stamped causal token replay
   must re-present rather than restamp."
   [cofx]
@@ -405,15 +401,6 @@
       :wait-threshold-ms  ms threshold above which the translator
                          inserts a `[:wait Δt]` step between entries.
                          Default `default-wait-threshold-ms` (50ms).
-      :realm             optional — the runtime realm id the recording was
-                         captured in (rf2-0io9uq, EP-0013). When supplied AND
-                         non-default, it is carried onto the body under
-                         `:rf.realm/id` so replay targets the same realm the
-                         recording was captured in. The DEFAULT-realm absent-
-                         key rule applies: a nil / `:rf.realm/default` realm
-                         stamps NOTHING, so a single-realm recording's body is
-                         byte-identical to the pre-realm shape and replays
-                         unchanged (zero ceremony).
       :cofx              optional — a parallel vector of captured flat
                          `:rf.cofx` maps (rf2-l2cn5d, EP-0017), index-aligned
                          with a BARE `events` vector. Each non-empty entry rides
@@ -424,7 +411,7 @@
                          members carry their own `:rf.cofx`. Empty / absent emits
                          the byte-identical 2-element steps.
 
-  Returns a map: `{:script [...steps] :auto-run? bool :name str? :rf.realm/id kw?}`.
+  Returns a map: `{:script [...steps] :auto-run? bool :name str?}`.
   The script is pre-coerced via `runner/coerce-script` so it round-
   trips through `runner/parse-spec` without further normalisation —
   what you get back is what the runner will execute.
@@ -434,7 +421,7 @@
   ([events]
    (recording->play-script events {}))
   ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions
-                   auto-run? wait-threshold-ms realm cofx]
+                   auto-run? wait-threshold-ms cofx]
             :or   {auto-assert?         false
                    auto-run?            true
                    max-auto-assertions  default-max-auto-assertions
@@ -450,13 +437,8 @@
          script         (vec (concat dispatch-steps assert-steps))
          base           {:script    script
                          :auto-run? (boolean auto-run?)}]
-     ;; rf2-0io9uq (EP-0013): carry the realm stamp WHERE present, by the
-     ;; absent-key rule (rf2-c6armm.12: through the shared Story realm util — a
-     ;; nil / default realm assocs nothing, so a single-realm body round-trips
-     ;; unchanged; any constructed realm stamps `:rf.realm/id`).
-     (-> (cond-> base
-           (and (string? name) (seq name)) (assoc :name name))
-         (story-realm/stamp-realm realm)))))
+     (cond-> base
+       (and (string? name) (seq name)) (assoc :name name)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: render the play-script map as EDN
