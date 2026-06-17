@@ -93,6 +93,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.module-view-helpers :as h]
             [day8.re-frame2-xray.panels.image-view-helpers :as ih]
             [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
@@ -211,8 +212,7 @@
   [module-row]
   (let [{:keys [registration-kinds registration-count]} module-row]
     (if (seq registration-kinds)
-      (str registration-count " descriptor"
-           (when (not= 1 registration-count) "s")
+      (str registration-count " " (common/pluralize registration-count "descriptor")
            " (" (str/join " · " (map name registration-kinds)) ")")
       "no registrations")))
 
@@ -255,7 +255,7 @@
               :style       realm-id-style}
        (str realm)]
       [:span {:style realm-meta-style}
-       (str "· " frame-count " frame" (when (not= 1 frame-count) "s"))]]
+       (str "· " frame-count " " (common/pluralize frame-count "frame"))]]
      (when (seq frames)
        [:div {:data-testid (str "rf-xray-module-view-realm-" rid-name "-frames")
               :style       realm-frames-style}

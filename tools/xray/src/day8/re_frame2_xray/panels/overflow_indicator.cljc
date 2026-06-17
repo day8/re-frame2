@@ -62,8 +62,7 @@
                      :color       (:text-secondary tokens)
                      :margin-right "4px"}}
       (str "+" hidden-count)]
-     " row"
-     (when (not= 1 hidden-count) "s")
+     (str " " (common/pluralize hidden-count "row"))
      " hidden — narrow the filter or selection to see more."]))
 
 (defn capped-list

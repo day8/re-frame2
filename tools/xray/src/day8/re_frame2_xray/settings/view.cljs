@@ -750,8 +750,7 @@
             ["Esc"          "Close modal / collapse popover / focus event list"]
             ["Ctrl+K / ⌘K"  "Command palette"]
             ["Ctrl+F"       "Find within active tab"]
-            ["o"            "Popout (window.open whole shell)"]
-            ["c"            "Causality popover (from any tab)"]]}
+            ["o"            "Popout (window.open whole shell)"]]}
    {:group "Ribbon nav cluster"
     :rows  [["j"     "Back one event (◀)"]
             ["k"     "Forward one event (▶)"]
@@ -882,10 +881,10 @@
 ;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
 ;;   `:general` for back-compat with the persisted settings shape;
 ;;   only the popup home moved here (rf2-pu9sb).
-;; * Cascades retained (slot `:buffer :cascades-retained`) — wired to
-;;   the framework's per-frame trace ring depth via
-;;   `(rf/configure! :trace-buffer {:cascades-retained N})` (rf2-43koh
-;;   consumer substrate).
+;; * Cascades retained (slot `:buffer :cascades-retained`) — stored +
+;;   persisted only. No settings effect writes it through to the
+;;   framework's per-frame trace ring (there is no
+;;   `apply-cascades-retained!` counterpart to `apply-epoch-history!`).
 ;; * App-db inspector collapse threshold (slot
 ;;   `:buffer :app-db/inspector-collapse-threshold`) — stored for the
 ;;   inspector layer.

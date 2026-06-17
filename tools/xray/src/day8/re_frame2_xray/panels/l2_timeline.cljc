@@ -305,9 +305,11 @@
 
 (defn- has-http-op?
   "True when any event in `events` is a `:rf.http/*` or `:http/*`
-  trace. Both namespaces are surfaced by the managed-HTTP substrate
-  (`:rf.http/` is the canonical Spec 009 prefix; `:http/` is the
-  legacy alias still in use by some adapters)."
+  trace. `:rf.http/` is the canonical Spec 009 prefix emitted by the
+  managed-HTTP substrate; the bare `:http/` branch is fixture-only
+  (exercised by the l2-timeline test fixtures, not emitted by any
+  real adapter) — kept defensively so a host that hand-rolls the bare
+  prefix still classifies."
   [events]
   (boolean
    (some (fn [ev]

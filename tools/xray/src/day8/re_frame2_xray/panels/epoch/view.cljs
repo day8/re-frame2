@@ -68,6 +68,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
+            [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
@@ -5258,7 +5259,7 @@
                 (pos? m)
                 (str m " unmounted")
                 :else
-                (str n " view" (when (not= 1 n) "s") " re-rendered"))]
+                (str n " " (common/pluralize n "view") " re-rendered"))]
     [:div {:data-testid "rf-xray-epoch-step-views"
            :data-step-kw "views"}
      (numbered-circle step-number :VIEWS)

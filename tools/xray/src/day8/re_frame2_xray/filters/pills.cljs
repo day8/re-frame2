@@ -67,21 +67,6 @@
   ;; tone; `:success`/`:error` are the reference's green/red tokens.
   (case mode :in (:success tokens) :out (:error tokens)))
 
-(defn- format-pattern
-  "Render the pill's pattern text. Keywords render with their leading
-  `:`; strings render verbatim. nil / blank falls back to `<empty>`
-  so a partially-saved pill is still visually addressable.
-
-  Kept for back-compat call sites; new code routes through
-  `typed/pill-label` so each kind picks its own format."
-  [pattern]
-  (cond
-    (nil? pattern)              "<empty>"
-    (keyword? pattern)          (str pattern)
-    (and (string? pattern)
-         (seq pattern))         pattern
-    :else                       "<empty>"))
-
 (defn- pill-kind
   "Read the pill's `:kind` slot, canonicalising via the typed-
   predicate ns so legacy `{:pattern …}` pills surface as

@@ -51,9 +51,6 @@
      (dispatch-fn [:rf.xray/select-machine-id machine-id]))
    nil))
 
-;; Back-compat alias for direct callers / tests that used the old name.
-(def dispatch-jump! dispatch-jump-via)
-
 (defn dispatch-jump-sync!
   "Test-only synchronous variant. Production code paths through the
   async `dispatch-jump-via` because UI clicks are inherently async;
