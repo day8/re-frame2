@@ -95,7 +95,11 @@
   a PR description, Notion, or any other Mermaid-aware markdown
   renderer."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as error]
+            ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
+            ;; the three emitters route through, so they address every node
+            ;; identically (one escape codec, one source of truth).
+            [day8.re-frame2-machines-viz.grammar :as g]))
 
 (def ^:private header-comment
   ;; Inserted at the top of every emitted block so a reader who pastes
@@ -110,12 +114,13 @@
 (def ^:private root-fallback-segment :rf.machines-viz.mermaid/root-fallback)
 (def ^:private parallel-root-path [:rf.machines-viz.mermaid/parallel-root])
 
-(defn- keyword-label
-  "Return a human-readable keyword label without the leading colon."
-  [id]
-  (if-let [ns (namespace id)]
-    (str ns "/" (name id))
-    (name id)))
+;; rf2-b2ygd2 — `keyword-label` is the SHARED fn-tolerant `grammar/name-of`
+;; (identical for keywords: `ns/name` or `name`, no leading colon). `label-
+;; value` keeps its Mermaid-edge dispatch (string verbatim, else `pr-str`).
+(def ^{:arglists '([id])
+       :doc "rf2-b2ygd2 — re-export of `grammar/name-of`: a human-readable
+  keyword label without the leading colon."}
+  keyword-label g/name-of)
 
 (defn- label-value
   "Return a label string for values that appear on Mermaid edges."
@@ -125,47 +130,13 @@
     (string? v)  v
     :else        (pr-str v)))
 
-(defn- target-path?
-  "True when `v` is a grammar vector-path target."
-  [v]
-  (and (vector? v)
-       (seq v)
-       (every? keyword? v)))
-
-(defn- history-node?
-  "rf2-m285a — true when a node under a compound's `:states` is a
-  `:type :history` PSEUDO-STATE (Spec 005 §History states), not an
-  ordinary occupiable substate. A history pseudo-state is never active:
-  a transition *to* it resolves to the compound's recorded / default
-  leaf. Pre-fix the Mermaid emitter rendered it as a bare leaf id in
-  incoming edges with no declaration, so it read as an ordinary state."
-  [state-node]
-  (and (map? state-node)
-       (= :history (:type state-node))))
-
-(defn- escape-id-segment
-  "Escape one keyword ns/name part INJECTIVELY into a Mermaid-id-safe
-  string: every char outside `[A-Za-z0-9]` becomes `_<2-hex>` (the
-  underscore itself → `_5f`). Distinct inputs always yield distinct
-  outputs, and the result contains no two consecutive underscores, so
-  the `_2f` ns/name marker and the `__` path separator can never arise
-  from segment content.
-
-  rf2-mnp93.6 — mirrors `chart/layout/escape-id-segment` (the SAME
-  injective scheme the SCXML codec + the chart's xyflow `node-id` use),
-  so the three emitters address every node identically. The naive
-  `str/replace #\"[^a-zA-Z0-9_]\" \"_\"` collapsed `:a/b`, `:a-b`, `:a_b`
-  all to `\"a_b\"` — two distinct states became ONE Mermaid node, silently
-  mis-wiring every edge to/from either."
-  [s]
-  (str/join
-    (map (fn [ch]
-           (if (re-matches #"[A-Za-z0-9]" (str ch))
-             (str ch)
-             (str "_" #?(:clj  (format "%02x" (int ch))
-                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
-                                 (if (= 1 (count h)) (str "0" h) h))))))
-         s)))
+;; rf2-b2ygd2 — grammar walker + injective id codec aliased from the SHARED
+;; `grammar` ns (the same `escape-id-segment` the chart `node-id` + the SCXML
+;; codec mint, so all three emitters address every node identically —
+;; rf2-mnp93.6).
+(def ^:private target-path? g/target-path?)
+(def ^:private history-node? g/history-node?)
+(def ^:private escape-id-segment g/escape-id-segment)
 
 (defn- id-segment
   "Render one path segment as an INJECTIVE Mermaid-id-safe string.
@@ -233,34 +204,15 @@
       (str/replace #"[\r\n]+" " ")
       (str/replace "\"" "'")))
 
-(defn- transition-candidates
-  "Normalise a transition spec to candidate maps.
+;; rf2-b2ygd2 — the transition-spec walker is the SHARED
+;; `grammar/transition-candidates` (chart + per-state SCXML emitters share
+;; it). NOTE the parallel-ROOT mermaid path uses its own region-aware
+;; exploder (`root-region-qualified-candidates`), mirroring the SCXML
+;; `root-transition-candidates` divergence (a vector-of-vectors is one
+;; multi-region target, not a candidate fork).
+(def ^:private transition-candidates g/transition-candidates)
 
-  Per Spec 005 §Transition table grammar, a transition spec may be:
-
-  - A keyword — the target state.
-  - A vector path of keywords — an absolute target path from the
-    current root (top-level machine root, or parallel-region root).
-  - A vector of transition specs — multiple candidates, first-match
-    wins at runtime; Mermaid renders every target-bearing branch.
-  - A map — `{:target ... :action ... :guard ...}`; `:target` is the
-    target state. Without `:target` the transition is internal (no
-    edge).
-  - A function — implementation-defined; we cannot statically render
-    a fn-shaped transition without running it, so we drop the edge."
-  [spec]
-  (cond
-    (keyword? spec)     [{:target spec}]
-    (target-path? spec) [{:target spec}]
-    (map? spec)         [spec]
-    (vector? spec)      (mapcat transition-candidates spec)
-    :else               []))
-
-(defn- parent-path
-  [path]
-  (if (seq path)
-    (pop path)
-    []))
+(def ^:private parent-path g/parent-path)
 
 (defn- resolve-target-path
   "Resolve a transition target against `source-path`.
@@ -281,17 +233,12 @@
   (when-let [guard (:guard candidate)]
     (str " [" (sanitise-label guard) "]")))
 
-(defn- reenter?
-  "rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
-  restart axis (`:reenter? true`, Spec 005 §Self-transitions / XState v5).
-  A TARGETED transition is INTERNAL by default; only `:reenter? true` makes
-  a self / ancestor / compound-declared-descendant target external (re-run
-  `:exit`+`:entry`, restart the target's `:after` timers + `:spawn`
-  children). Without this distinction a `{:target :same-state}` transition
-  charts IDENTICALLY whether or not `:reenter? true` is set."
-  [candidate]
-  (and (map? candidate)
-       (true? (:reenter? candidate))))
+;; rf2-b2ygd2 — the external-restart predicate is the SHARED
+;; `grammar/reenter?` (Spec 005 §Self-transitions / XState v5: a TARGETED
+;; transition is INTERNAL by default; only `:reenter? true` makes it
+;; external). Without this distinction a `{:target :same-state}` transition
+;; charts IDENTICALLY whether or not `:reenter? true` is set.
+(def ^:private reenter? g/reenter?)
 
 (defn- reenter-suffix
   "rf2-9dj21r — a trailing `↻` marker on the Mermaid edge label for a

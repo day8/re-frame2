@@ -83,31 +83,22 @@
 
   Per `tools/machines-viz/spec/000-Vision.md` §Decision trace
   §Interactive renderer (revised 2026-05-21)."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
+            ;; the three emitters (chart / mermaid / scxml) route through, so
+            ;; they address every node identically (one escape codec, one
+            ;; source of truth — no desync landmine).
+            [day8.re-frame2-machines-viz.grammar :as g]))
 
 ;; ---- definition walker --------------------------------------------------
 
-(defn- target-path?
-  "True when `v` is a grammar vector-path target (Spec 005)."
-  [v]
-  (and (vector? v)
-       (seq v)
-       (every? keyword? v)))
+;; rf2-b2ygd2 — grammar primitives now live in the shared `grammar` ns. The
+;; public-API names this ns has always exported (`name-of`, `history-node?`)
+;; are kept as thin re-exports so existing requirers (`chart.projection`,
+;; `scxml`, tests) are unchanged.
+(def ^{:doc "rf2-b2ygd2 — re-export of `grammar/history-node?`.
 
-(defn- transition-candidates
-  "Normalise a transition spec to candidate maps. Mirrors the
-  equivalent fn in the mermaid emitter; kept local so this ns has no
-  cross-dependency on machines-viz."
-  [spec]
-  (cond
-    (keyword? spec)     [{:target spec}]
-    (target-path? spec) [{:target spec}]
-    (map? spec)         [spec]
-    (vector? spec)      (mapcat transition-candidates spec)
-    :else               []))
-
-(defn history-node?
-  "rf2-m285a — true when a node under a compound's `:states` is a
+  rf2-m285a — true when a node under a compound's `:states` is a
   `:type :history` PSEUDO-STATE (Spec 005 §History states), not an
   ordinary occupiable substate. A history pseudo-state is NEVER active:
   a transition *to* it resolves to the compound's recorded / default
@@ -115,18 +106,13 @@
   The projector must paint it as a small `history-marker` glyph inside
   its owning compound — keeping incoming edges but treating it as
   neither initial nor final nor compound (it declares only `:type` /
-  `:deep?` / `:default-target`)."
-  [state-node]
-  (and (map? state-node)
-       (= :history (:type state-node))))
+  `:deep?` / `:default-target`)."}
+  history-node? g/history-node?)
 
-(defn- parent-path [path]
-  (if (seq path)
-    (pop path)
-    []))
+(def ^{:arglists '([v])
+       :doc "rf2-b2ygd2 — re-export of `grammar/name-of`.
 
-(defn name-of
-  "Render a guard / action / entry / exit symbol-like value as a short
+  Render a guard / action / entry / exit symbol-like value as a short
   string WITHOUT throwing on fn values. Keywords use `ns/name` when
   namespaced, plain `name` otherwise; non-keywords fall through to
   `str`. Inlined fn guards / actions surface their `:name` meta (named
@@ -135,15 +121,8 @@
 
   Public + namespace-preserving — `chart.projection` reuses this (it
   previously carried a near-duplicate `safe-name` that dropped the
-  namespace; rf2-ee38b.21 collapses the two)."
-  [v]
-  (cond
-    (nil? v)     nil
-    (keyword? v) (if-let [n (namespace v)]
-                   (str n "/" (name v))
-                   (name v))
-    (fn? v)      (or (some-> v meta :name str) "fn")
-    :else        (str v)))
+  namespace; rf2-ee38b.21 collapses the two)."}
+  name-of g/name-of)
 
 ;; ---- consumer-attachment requirements (rf2-skhlw2.1) --------------------
 ;;
@@ -301,13 +280,15 @@
     edge itself (flagging `:internal? true`), so this fn never sees it."
   [source-path target]
   (cond
-    (= :same-state target) (vec source-path)
-    (keyword? target)      (conj (parent-path source-path) target)
-    (target-path? target)  (vec target)
-    :else                  nil))
+    (= :same-state target)  (vec source-path)
+    (keyword? target)       (conj (g/parent-path source-path) target)
+    (g/target-path? target) (vec target)
+    :else                   nil))
 
-(defn reenter?
-  "rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
+(def ^{:arglists '([candidate])
+       :doc "rf2-b2ygd2 — re-export of `grammar/reenter?`.
+
+  rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
   restart axis (`:reenter? true`). Spec 005 §Self-transitions + XState v5:
   a TARGETED transition is INTERNAL by default — its own `:exit`/`:entry`
   do not re-run — and only `:reenter? true` makes a self / proper-ancestor
@@ -318,10 +299,8 @@
   a bare keyword / vector-path target never does. Carried onto the edge so
   the chart / Mermaid / SCXML emitters render a `:reenter? true` transition
   distinct from its internal default (otherwise two runtime-distinct
-  machines chart + export IDENTICALLY)."
-  [candidate]
-  (and (map? candidate)
-       (true? (:reenter? candidate))))
+  machines chart + export IDENTICALLY)."}
+  reenter? g/reenter?)
 
 (defn on-done-edges
   "rf2-41goo — emit the completion edge(s) for a node's `:on-done`
@@ -369,7 +348,7 @@
                 ;; rf2-9dj21r — carry the external-restart axis (a
                 ;; target-bearing `:on-done` may opt in to `:reenter?`).
                 (reenter? candidate) (assoc :reenter? true)))))
-        (transition-candidates on-done-spec)))
+        (g/transition-candidates on-done-spec)))
 
 (defn- collect-state-edges
   "Walk a state node and return edge-maps for every statically-
@@ -412,7 +391,7 @@
                                  internal? (assoc :internal? true)
                                  ;; rf2-9dj21r — the external-restart opt-in.
                                  (reenter? candidate) (assoc :reenter? true)))))
-                         (transition-candidates spec)))
+                         (g/transition-candidates spec)))
                  (:on state-node))
          (mapcat (fn [[delay spec]]
                    (keep (fn [candidate]
@@ -443,7 +422,7 @@
                                  internal? (assoc :internal? true)
                                  ;; rf2-9dj21r — the external-restart opt-in.
                                  (reenter? candidate) (assoc :reenter? true)))))
-                         (transition-candidates spec)))
+                         (g/transition-candidates spec)))
                  (:after state-node))
          (mapcat (fn [candidate]
                    ;; rf2-mnp93.4 — an internal (action-only) `:always`
@@ -473,7 +452,7 @@
                           ;; keys, and a cross/ancestor `:always` target may
                           ;; legitimately carry it).
                           (reenter? candidate) (assoc :reenter? true))])))
-                 (transition-candidates (:always state-node)))
+                 (g/transition-candidates (:always state-node)))
          ;; rf2-41goo — the compound / region-compound `:on-done`
          ;; completion edge (XState `onDone`). The done node is THIS node
          ;; (its path is the `done.state.<id>` the engine raises).
@@ -554,30 +533,12 @@
 
 ;; ---- public ids ---------------------------------------------------------
 
-(defn- escape-id-segment
-  "Sanitise one path segment into an xyflow-id-safe string
-  INJECTIVELY — distinct inputs always yield distinct outputs.
-
-  The naive `str/replace #\"[^a-zA-Z0-9_]\" \"_\"` collapses `:a/b`,
-  `:a-b`, `:a_b` all to `\"a_b\"` (rf2-ee38b.21 P2): a React key
-  collision drops one node + makes every edge addressing either
-  ambiguous. Hyphens are pervasive in re-frame keywords
-  (`:logged-in`, `:rate-limited`), so the collision is reachable.
-
-  Scheme: every char outside `[a-zA-Z0-9]` becomes `_<hex>` (the
-  underscore itself included), so the mapping is reversible and no two
-  distinct chars share an encoding. The path separator `__` (double
-  underscore) can never appear inside a segment because a literal `_`
-  encodes to `_5f`."
-  [s]
-  (str/join
-    (map (fn [ch]
-           (if (re-matches #"[a-zA-Z0-9]" (str ch))
-             (str ch)
-             (str "_" #?(:clj  (format "%02x" (int ch))
-                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
-                                 (if (= 1 (count h)) (str "0" h) h))))))
-         s)))
+;; rf2-b2ygd2 — the xyflow-id-safe injective escape is the SHARED
+;; `grammar/escape-id-segment` (the correctness-critical codec the mermaid +
+;; scxml id emitters mint the SAME way, so all three address every node
+;; identically). Aliased locally so `node-id` / `region-node-id` below read
+;; unchanged.
+(def ^:private escape-id-segment g/escape-id-segment)
 
 (defn node-id
   "Stable string id for a node, suitable for xyflow ids and SCXML
@@ -890,32 +851,16 @@
                       internal?            (assoc :internal? true)
                       ;; rf2-9dj21r — carry the external-restart axis.
                       (reenter? candidate) (assoc :reenter? true)))))
-              (transition-candidates spec)))
+              (g/transition-candidates spec)))
       machine-on)))
 
-(defn- normalise-root-targets
-  "rf2-3v3gv1 — normalise a PARALLEL-ROOT `:on` candidate's `:target` into a
-  vector of region-qualified absolute targets `[[<region> & <in-region-path>]
-  …]`, mirroring the runtime resolver (`re-frame.machines.parallel/
-  normalise-root-targets`) so the projected edges address the SAME regions the
-  engine moves. Per the grammar (Spec 005 §Root parallel `:on`):
-
-    - nil / absent → `[]` (TARGETLESS / action-only — runs `:action` / `:fx`,
-      moves no region);
-    - a vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target (head =
-      region name, rest = the in-region path); wrapped to `[[:a :two]]`;
-    - a vector of VECTORS (`[[:a :x] [:b :y]]`) → MULTIPLE region-qualified
-      targets, returned as-is.
-
-  An empty vector return means action-only — the caller self-anchors a
-  terminal/internal root chip rather than emitting a moved-region edge."
-  [target]
-  (cond
-    (nil? target)                        []
-    (and (vector? target)
-         (every? vector? target))        (vec target)
-    (vector? target)                     [target]
-    :else                                []))
+;; rf2-b2ygd2 — the parallel-root `:target` normaliser is the SHARED
+;; `grammar/normalise-root-targets` (also used by the SCXML emitter as
+;; `root-region-qualified-targets`), mirroring the runtime resolver
+;; (`re-frame.machines.parallel/normalise-root-targets`). Aliased locally so
+;; `collect-parallel-root-edges` / `collect-parallel-root-after-edges` below
+;; read unchanged.
+(def ^:private normalise-root-targets g/normalise-root-targets)
 
 (defn- collect-parallel-root-edges
   "rf2-3v3gv1 — emit edges for a `:type :parallel` machine's OWN top-level
@@ -972,7 +917,7 @@
                 ;; node as an internal chip (moves no region).
                 [(cond-> (assoc base :to [] :internal? true)
                    (reenter? candidate) (assoc :reenter? true))])))
-          (transition-candidates spec)))
+          (g/transition-candidates spec)))
       root-on)))
 
 (defn- collect-parallel-root-after-edges
@@ -1016,7 +961,7 @@
                      targets)
                 [(cond-> (assoc base :to [] :internal? true)
                    (reenter? candidate) (assoc :reenter? true))])))
-          (transition-candidates spec)))
+          (g/transition-candidates spec)))
       root-after)))
 
 ;; ---- public projection --------------------------------------------------

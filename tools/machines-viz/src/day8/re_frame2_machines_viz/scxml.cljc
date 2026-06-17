@@ -140,6 +140,13 @@
   Per [`API.md`](../../spec/API.md) §SCXML import/export."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
+            ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
+            ;; the three emitters route through, so they address every node
+            ;; identically (one escape codec, one source of truth). The SCXML
+            ;; DECODE side (unescape / decode-target) + the root-grammar-aware
+            ;; `root-transition-candidates` stay LOCAL — they are genuinely
+            ;; distinct from the shared emit-side walker.
+            [day8.re-frame2-machines-viz.grammar :as g]
             ;; rf2-bs3us — share the canonical parallel-root done-state id
             ;; with the chart projector so the two emitters agree on the
             ;; `done.state.<id>` label (single source of truth).
@@ -228,23 +235,14 @@
   rf2-mnp93.7)."
   "___")
 
-(defn- escape-id-segment
-  "Escape one keyword ns/name part INJECTIVELY into an xsd:ID-safe
-  string: every char outside `[A-Za-z0-9]` becomes `_<2-hex>` (the
-  underscore itself → `_5f`). Distinct inputs always yield distinct
-  outputs and the result contains no two consecutive underscores, so the
-  `__` / `___` reserved markers can never arise from segment content.
-  Mirrors `chart/layout/escape-id-segment` (single injective scheme
-  across all machines-viz id emitters)."
-  [s]
-  (str/join
-    (map (fn [ch]
-           (if (re-matches #"[A-Za-z0-9]" (str ch))
-             (str ch)
-             (str "_" #?(:clj  (format "%02x" (int ch))
-                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
-                                 (if (= 1 (count h)) (str "0" h) h))))))
-         s)))
+;; rf2-b2ygd2 — the xsd:ID-safe injective escape is the SHARED
+;; `grammar/escape-id-segment` (every char outside `[A-Za-z0-9]` → `_<2-hex>`,
+;; the underscore itself → `_5f`; no two consecutive underscores, so the
+;; `__` / `___` reserved markers can never arise from segment content). The
+;; SINGLE injective scheme across all machines-viz id emitters, so the SCXML
+;; codec mints byte-identical segment escapes to the chart `node-id` + mermaid
+;; `sanitise-id`.
+(def ^:private escape-id-segment g/escape-id-segment)
 
 (defn- unescape-id-segment
   "Inverse of `escape-id-segment`: replace every `_<2-hex>` triple with
@@ -335,17 +333,13 @@
   [depth]
   (apply str (repeat depth "  ")))
 
-(defn- transition-candidates
-  "Normalise a transition spec to candidate maps. Same grammar
-  walker as `mermaid.cljc/transition-candidates`."
-  [spec]
-  (cond
-    (keyword? spec) [{:target spec}]
-    (vector? spec)  (if (every? keyword? spec)
-                      [{:target spec}]
-                      (mapcat transition-candidates spec))
-    (map? spec)     [spec]
-    :else           []))
+;; rf2-b2ygd2 — the generic per-state transition-spec walker is the SHARED
+;; `grammar/transition-candidates` (chart + mermaid share it). NOTE the
+;; parallel-ROOT SCXML emitter uses its OWN `root-transition-candidates`
+;; (below) instead — there a vector-of-VECTORS is a SINGLE multi-region
+;; target, NOT a candidate fork, so it must NOT route through the generic
+;; walker. That divergence is PRESERVED.
+(def ^:private transition-candidates g/transition-candidates)
 
 ;; --- path qualification (rf2-mnp93.7) ------------------------------------
 ;;
@@ -361,22 +355,14 @@
 ;; (a sibling keyword when it shares the source's parent, else the
 ;; absolute vector path) so the round-trip is exact.
 
-(defn- target-path?
-  "True when `v` is a grammar VECTOR-PATH target (a vector of keywords)."
-  [v]
-  (and (vector? v) (seq v) (every? keyword? v)))
-
-(defn- history-node?
-  "rf2-m285a — true when a node under a compound's `:states` is a
-  `:type :history` PSEUDO-STATE (Spec 005 §History states). W3C SCXML has
-  a first-class `<history>` element; pre-fix `emit-state` emitted a
-  `<state>` / `<final>` for it (losing the history semantics on export
-  AND making round-trip produce a DIFFERENT machine)."
-  [state-node]
-  (and (map? state-node)
-       (= :history (:type state-node))))
-
-(defn- parent-path [path] (if (seq path) (pop path) []))
+;; rf2-b2ygd2 — grammar primitives aliased from the SHARED `grammar` ns. W3C
+;; SCXML emits a first-class `<history>` element for a `:type :history`
+;; pseudo-state (Spec 005 §History states); pre-fix `emit-state` emitted a
+;; `<state>` / `<final>`, losing the history semantics + making round-trip
+;; produce a DIFFERENT machine.
+(def ^:private target-path? g/target-path?)
+(def ^:private history-node? g/history-node?)
+(def ^:private parent-path g/parent-path)
 
 (defn- resolve-target-path
   "Resolve a transition target to its ABSOLUTE path from the machine
@@ -690,25 +676,15 @@
                       [{:target spec}])            ; :vec-target — ONE target
     :else           []))
 
-(defn- root-region-qualified-targets
-  "rf2-656ivk / rf2-m3otj2 — normalise a parallel-ROOT `:on` / `:after`
-  transition's `:target` into a vector of region-qualified absolute targets
-  `[[<region> & <in-region-path>] …]`, mirroring the runtime resolver
-  (`re-frame.machines.parallel/normalise-root-targets`) and the chart
-  projector (`chart.layout/normalise-root-targets`). Per the grammar
-  (Spec 005 §Root parallel `:on` / §Root-level `:after`):
-
-    - nil / absent  → `[]` (TARGETLESS / action-only);
-    - a vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target
-      (head = region, rest = in-region path); wrapped to `[[:a :two]]`;
-    - a vector of VECTORS (`[[:a :x] [:b :y]]`) → MULTIPLE, returned as-is."
-  [target]
-  (cond
-    (nil? target)                  []
-    (and (vector? target)
-         (every? vector? target))  (vec target)
-    (vector? target)               [target]
-    :else                          []))
+;; rf2-b2ygd2 — the parallel-root `:target` normaliser is the SHARED
+;; `grammar/normalise-root-targets` (also the chart projector's
+;; `normalise-root-targets`), mirroring the runtime resolver
+;; (`re-frame.machines.parallel/normalise-root-targets`):
+;;   - nil / absent  → `[]` (TARGETLESS / action-only);
+;;   - vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target;
+;;   - vector of VECTORS (`[[:a :x] [:b :y]]`) → MULTIPLE, returned as-is.
+;; This is the inverse-symmetric partner of `decode-root-parallel-target`.
+(def ^:private root-region-qualified-targets g/normalise-root-targets)
 
 (defn- emit-root-parallel-transition
   "rf2-656ivk / rf2-m3otj2 — emit ONE root-parallel `<transition>` (an `:on`
