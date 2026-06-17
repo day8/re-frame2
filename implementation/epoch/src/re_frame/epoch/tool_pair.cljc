@@ -50,7 +50,8 @@
   the precondition check + the trace emission + the perform / listener
   fan-out steps together. Pure-data shape of the preconditions makes
   the orchestrators a four-line case-match."
-  (:require [re-frame.elision :as elision]
+  (:require [clojure.string :as str]
+            [re-frame.elision :as elision]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.state :as state]
             [re-frame.frame :as frame]
@@ -1365,11 +1366,21 @@
 (defn- resource-family-op?
   "Whether a trace op belongs to the resource / mutation egress-record family —
   a `:rf.resource/*` or `:rf.mutation/*` keyword whose tags may embed
-  owner-local scoped keys (rf2-8x0gfa)."
+  owner-local scoped keys (rf2-8x0gfa). ALSO covers the resources-family
+  DIAGNOSTICS that ride the `:rf.warning/*` namespace but carry the same
+  owner-local scoped-key / scope tags — `:rf.warning/resource-*` (e.g.
+  `:rf.warning/resource-load-more-owner-ignored` per rf2-bi8vg1, which carries a
+  `:resource/key`, and `:rf.warning/resource-clear-scope-unresolved`, which
+  carries a `:scope`). Those rows must take the SAME fail-closed family egress
+  projection as the `:rf.resource/*` rows, not slip through the
+  scoped-key-blind generic walk."
   [op]
   (and (keyword? op)
        (when-let [ns* (namespace op)]
-         (or (= "rf.resource" ns*) (= "rf.mutation" ns*)))))
+         (or (= "rf.resource" ns*)
+             (= "rf.mutation" ns*)
+             (and (= "rf.warning" ns*)
+                  (str/starts-with? (name op) "resource-"))))))
 
 (defn- omit-off-box-resource-trace-keys
   "Per rf2-8x0gfa (EP-0015): redact the owner-local SCOPED KEYS embedded in the
