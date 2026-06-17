@@ -471,13 +471,8 @@
                     doc     (conj [:doc (pr-str doc)])
                     extends (conj [:extends (pr-str extends)])
                     true    (conj [:assertions (pr-assertions-vector merged)])
-                    true    (conj [:tags (pr-str #{:test})]))
-        body-str  (->> body-keys
-                       (map (fn [[k v]] (str k " " v)))
-                       (str/join "\n   "))]
-    (str "(" alias "/reg-variant "
-         (pr-str (or variant-id :story.expectations/example))
-         "\n  {" body-str "})")))
+                    true    (conj [:tags (pr-str #{:test})]))]
+    (pred/reg-variant-form alias (or variant-id :story.expectations/example) body-keys)))
 
 ;; ===========================================================================
 ;; DEFAULT NEW-VARIANT ID

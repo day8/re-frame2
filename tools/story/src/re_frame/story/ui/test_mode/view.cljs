@@ -205,15 +205,11 @@
     (:tick-event styles)))
 
 (defn- step-glyph
-  "Compact glyph for a tick: ✓ / ✗ / ⊘ for assertion outcomes, · for
-  plain events. Pure-data; doesn't reach into ratoms."
+  "Compact glyph for a tick: ✓ / ✗ / ⊘ for assertion outcomes (the shared
+  `predicates/assertion-glyph` vocabulary), · for plain events / unknown.
+  Pure-data; doesn't reach into ratoms."
   [status]
-  (case status
-    :pass  "✓"
-    :fail  "✗"
-    :skip  "⊘"
-    :event "·"
-    "·"))
+  (get pred/assertion-glyph status "·"))
 
 (defn- scrubber-section
   "Step-through scrubber (rf2-lc36w). One tick per play event with

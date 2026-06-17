@@ -510,6 +510,4 @@
         body-str (->> body
                       (map (fn [[k v]] (str k v)))
                       (str/join "\n  "))]
-    (str "(" alias "/reg-variant "
-         (pr-str variant-id)
-         "\n  {" body-str "})")))
+    (pred/reg-variant-envelope alias variant-id body-str)))

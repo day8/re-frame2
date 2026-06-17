@@ -90,6 +90,7 @@
   never invoke it and closure DCEs the lot (same contract as the rest of
   the Story UI). The pure `.cljc` helpers carry no DOM / Reagent dep."
   (:require [re-frame.story.plan :as plan]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.ui.schema-validation :as schema-validation]
             ;; `clojure.string` is consumed ONLY by the `:cljs` render
             ;; helpers (`str/join` in the provenance lines); the pure
@@ -391,10 +392,11 @@
                  ":setup   [[:dispatch [:your/setup-event {}]]] ; real events — proves handlers + app-db"
                  :db-seed
                  ":db-seed {} ; schema-checked direct app-db seed — fill the validated state shape")]
-    (str "(story/reg-variant " (pr-str new-id) "\n"
-         "  {:extends " (pr-str source-variant-id) "\n"
-         "   " slot "})\n"
-         ";; upgrade of " (pr-str source-variant-id)
+    (str (pred/reg-variant-envelope
+           "story" new-id
+           (str ":extends " (pr-str source-variant-id) "\n"
+                "   " slot))
+         "\n;; upgrade of " (pr-str source-variant-id)
          " — drop :sub-overrides; the artifact stays a variant.")))
 
 ;; ===========================================================================

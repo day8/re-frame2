@@ -41,7 +41,8 @@
   No signal is fabricated: a chip appears only when the variant body (or
   the run record) carries the data behind it."
   (:require [re-frame.story.plan         :as plan]
-            [re-frame.story.requirements :as requirements]))
+            [re-frame.story.requirements :as requirements]
+            [re-frame.story.theme.status :as status]))
 
 ;; ===========================================================================
 ;; AXIS 1 — STATUS
@@ -58,26 +59,23 @@
 ;; spec/018 §7.1 'SHOULD … after … exists' work).
 
 (def status-order
-  "Canonical render order for the status signal (spec/018 §12.6). `:running`
-  is the in-flight transient between `:pending` and a verdict. `:error` is a
-  tool/runtime/schema problem, DISTINCT from a failed expectation (`:fail`).
-  `:blocked` / `:dirty` / `:redacted` are the additional signal states the
-  spec names; they ride this axis as data lands."
-  [:pass :fail :cannot-run :error :running :pending :blocked :dirty :redacted])
+  "Canonical render order for the status signal — the shared
+  `theme.status/order` (spec/018 §12.6, the single status vocabulary).
+  `:running` is the in-flight transient between `:pending` and a verdict;
+  `:error` is a tool/runtime/schema problem DISTINCT from a failed
+  expectation (`:fail`); `:blocked` / `:dirty` / `:redacted` are the
+  additional signal states the spec names. Derived (not re-encoded) so the
+  sidebar can never drift from the tool-wide order (rf2-8fr3yd)."
+  status/order)
 
 (def status-labels
-  "Pure data → data: the compact chip label per status keyword (spec/018
-  §12.6 — pending / pass / fail / error / cannot-run / blocked / dirty /
-  redacted MUST be distinguishable in text, not only colour)."
-  {:pass       "pass"
-   :fail       "fail"
-   :cannot-run "cannot-run"
-   :error      "error"
-   :running    "running"
-   :pending    "pending"
-   :blocked    "blocked"
-   :dirty      "dirty"
-   :redacted   "redacted"})
+  "Pure data → data: the compact chip label per status keyword. Derived
+  from `theme.status/descriptors` — the single source of truth for the
+  status vocabulary (spec/018 §12.6 — pending / pass / fail / error /
+  cannot-run / blocked / dirty / redacted MUST be distinguishable in text,
+  not only colour). Single-sourced (not re-encoded) so the sidebar chip
+  label can never drift from the canonical status label (rf2-8fr3yd)."
+  (into {} (map (fn [[k d]] [k (:label d)])) status/descriptors))
 
 (defn status-signal
   "Pure data → data: the single status chip for a variant given its run

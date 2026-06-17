@@ -43,6 +43,7 @@
   closure DCEs the lot."
   (:require [re-frame.story.ui.test-mode.pure        :as pure]
             [re-frame.story.ui.test-mode.state       :as state]
+            [re-frame.story.theme.status :as status]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -109,11 +110,12 @@
                  :color      (:warning colors/tokens)
                  :font-style "italic"}})
 
-(def ^:private status-pill
-  {:pass       {:bg (:success-bg colors/tokens) :fg (:success colors/tokens) :glyph "✓" :label "pass"}
-   :fail       {:bg (:danger-bg colors/tokens)  :fg (:danger colors/tokens)  :glyph "✗" :label "fail"}
-   :error      {:bg (:danger-bg colors/tokens)  :fg (:danger colors/tokens)  :glyph "✖" :label "error"}
-   :cannot-run {:bg (:warning-bg colors/tokens) :fg (:warning colors/tokens) :glyph "⊘" :label "cannot-run"}})
+;; Deliberate glyph override: this pane marks `:error` with a HEAVY cross
+;; (✖) rather than the shared `theme.status` descriptor's `!`, so a browser-
+;; tier executor error reads as a hard failure-of-the-check (not a soft
+;; warning) inline in the result row. Colour + the other three glyphs derive
+;; from the shared status vocabulary (rf2-8fr3yd dedup).
+(def ^:private error-glyph "✖")
 
 (def ^:private kind-title
   {:visual         "Visual snapshot"
@@ -123,9 +125,13 @@
 
 (defn- pill
   "The status pill for one browser-tier row — pass / fail / error, plus the
-  distinct THIRD `:cannot-run` state (spec/018 §12.6)."
+  distinct THIRD `:cannot-run` state (spec/018 §12.6). Colour + glyph derive
+  from the shared `theme.status` descriptor (the single status vocabulary),
+  with a deliberate heavy-cross `:error` glyph override (see `error-glyph`).
+  Unmapped statuses degrade to the descriptor's neutral fallback."
   [status]
-  (let [{:keys [bg fg glyph label]} (get status-pill status (:fail status-pill))]
+  (let [{:keys [bg fg glyph]} (status/descriptor status)
+        glyph (if (= status :error) error-glyph glyph)]
     [:span {:style       {:padding        "2px 8px"
                           :border-radius  "8px"
                           :background     bg
@@ -136,7 +142,7 @@
                           :letter-spacing "0.4px"}
             :data-test   "story-va-status-pill"
             :data-status (name status)}
-     (str glyph " " label)]))
+     (str glyph " " (name status))]))
 
 (defn- findings-list
   "Render an a11y findings list (structural or axe) readably — the finding

@@ -57,6 +57,7 @@
   `save-variant` + the substrate's `promote-run-artifact!`)."
   (:require [clojure.string :as str]
             [re-frame.story.artifact  :as artifact]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.promotion :as promotion]
             ;; `review-dialog` is `.cljc` — its pure transitions
             ;; (`default-variant-id-with-prefix` / `parse-variant-id-string`)
@@ -199,13 +200,8 @@
                         (keep (fn [k]
                                 (when (contains? body k)
                                   [k (pr-str (get body k))])))
-                        vec)
-        body-str   (->> body-keys
-                        (map (fn [[k v]] (str k " " v)))
-                        (str/join "\n   "))]
-    (str "(story/reg-variant "
-         (pr-str variant-id)
-         "\n  {" body-str "})")))
+                        vec)]
+    (pred/reg-variant-form "story" variant-id body-keys)))
 
 ;; ===========================================================================
 ;; CLJS-ONLY: the capture store

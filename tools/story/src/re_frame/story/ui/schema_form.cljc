@@ -65,7 +65,8 @@
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
-            [re-frame.story.malli-schema :as msu]))
+            [re-frame.story.malli-schema :as msu]
+            [re-frame.story.predicates :as pred]))
 
 ;; ===========================================================================
 ;; PURE: scalar-schema → widget descriptor (flat shapes only)
@@ -336,11 +337,14 @@
   ([source-variant-id query-v value]
    (override-snippet source-variant-id query-v value false))
   ([source-variant-id query-v value from-edn?]
-   (let [v-str (pp-value value 20)]
-     (str "(story/reg-variant " (pr-str source-variant-id) "-pinned\n"
-          "  {:extends " (pr-str source-variant-id) "\n"
-          "   :sub-overrides {" (pr-str query-v) " " v-str "}})\n"
-          ";; pins " (pr-str query-v)
+   (let [v-str    (pp-value value 20)
+         pinned-id (keyword (namespace source-variant-id)
+                            (str (name source-variant-id) "-pinned"))]
+     (str (pred/reg-variant-envelope
+            "story" pinned-id
+            (str ":extends " (pr-str source-variant-id) "\n"
+                 "   :sub-overrides {" (pr-str query-v) " " v-str "}"))
+          "\n;; pins " (pr-str query-v)
           " for design exploration — lowest fidelity, never proof of sub logic."
           (when from-edn?
             "\n;; value entered as raw EDN (the output schema was not flat-renderable).")))))

@@ -634,13 +634,15 @@
       (run-toggle-off-callbacks! nil)))
   nil)
 
-;; ---- legacy single-knob shims (deprecated; tests + back-compat) ----------
+;; ---- legacy single-knob shim (deprecated; configure! + tests) ------------
 ;;
-;; The pre-rf2-6z4znr single process-global surface (`set-egress-profile!` /
-;; `get-egress-profile` / the no-arg `include-sensitive?`) is retained as a
-;; thin shim over the session-pin so existing test fixtures and the
-;; `configure!` path keep working. These operate on the SESSION-PIN, never on
-;; a per-frame override — the per-frame act is `set-frame-egress-profile!`.
+;; The pre-rf2-6z4znr single process-global setter (`set-egress-profile!`) is
+;; retained as a thin shim over the session-pin so the `configure!` session-
+;; default path + existing fixtures keep working. It operates on the SESSION-
+;; PIN, never on a per-frame override — the per-frame act is
+;; `set-frame-egress-profile!`. To READ the session-pin, deref
+;; `session-egress-profile`; for a frame's effective profile use
+;; `resolve-egress-profile`.
 
 (defn set-egress-profile!
   "DEPRECATED single-knob shim (rf2-6z4znr): sets the SESSION-PIN profile.
@@ -650,26 +652,16 @@
   [profile]
   (set-session-egress-profile! profile))
 
-(defn get-egress-profile
-  "Return the current SESSION-PIN profile (the tool-UX default for frames
-  with no per-frame override). For a specific frame's effective profile use
-  `resolve-egress-profile`."
-  []
-  @session-egress-profile)
-
 (defn include-sensitive?
   "True iff the profile resolved for `frame-id` reveals sensitive values
   (i.e. resolves to `:rf.size/include-sensitive? true`). Every Story trace
   listener consults this (via `suppress-sensitive?`) — passing the frame the
   event / recording targets — to decide whether a `:sensitive?` event is
   shown or redacted. Frame-scoped (EP-0015 issue 7): revealing one frame
-  never reveals another. Fail-closed by default.
-
-  The no-arg arity reads the session-pin and is retained for back-compat
-  surfaces (DOM capture's element-level redaction, legacy callers); prefer
-  the `frame-id` arity at every per-event seam."
-  ([] (include-sensitive? nil))
-  ([frame-id] (profile-includes-sensitive? (resolve-egress-profile frame-id))))
+  never reveals another. Fail-closed by default. Pass `nil` to resolve
+  against the session-pin (a frameless / unknown-frame seam)."
+  [frame-id]
+  (profile-includes-sensitive? (resolve-egress-profile frame-id)))
 
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top

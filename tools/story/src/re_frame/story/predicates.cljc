@@ -18,6 +18,19 @@
   (the `:rf.assert/*` family)."
   "rf.assert")
 
+(def assertion-glyph
+  "Canonical assertion-outcome glyph map — the single source of truth for
+  the three assertion verdicts shared by the assertion strip, the test-
+  mode result table, and the step-through scrubber (rf2-8fr3yd). `:skip`
+  is an assertion-level verdict distinct from `theme.status/:cannot-run`
+  (which is a runner-tier status), so it is NOT a `theme.status` descriptor
+  — this is the assertion vocabulary, not the tool-wide status vocabulary.
+  Consumers supply their own fallback for non-assertion ticks (`:event`,
+  unknown). Pure data."
+  {:pass "✓"
+   :fail "✗"
+   :skip "⊘"})
+
 (defn parent-story-id
   "Derive a variant's parent story id by stripping the variant's name
   per /spec/007-Stories.md §Canonical id grammar — a variant id `:story.foo/bar`
@@ -70,6 +83,49 @@
   (review-dialog) just for this 4-line helper."
   [prefix]
   (str "\n" (apply str (repeat (count prefix) \space))))
+
+(defn reg-variant-envelope
+  "Wrap an already-rendered body string in the `(<alias>/reg-variant <id>
+  { … })` form-envelope every codegen builder emits. Pure data → string.
+
+  `body-str` renders verbatim between the body braces (the opening `{`
+  sits two spaces in under the form's opening paren). The eight Story
+  codegen builders share this wrapper; they differ only in how each
+  assembles `body-str` (Shape-A builders via `reg-variant-form` below;
+  play-export / view-state / schema-form via their own body shape).
+
+  Byte-identical to the hand-rolled envelope the builders previously
+  carried (rf2-8fr3yd). Builders that derive a default id or alias resolve
+  those at the call site and pass the resolved values in."
+  [alias variant-id body-str]
+  (str "(" alias "/reg-variant "
+       (pr-str variant-id)
+       "\n  {" body-str "})"))
+
+(defn reg-variant-form
+  "Render a `(<alias>/reg-variant <id> { … })` form whose body is a list
+  of `[key value-string]` pairs — the Shape-A codegen path shared by
+  save-variant / recorder / author-expectations / promotion. Pure data →
+  string.
+
+  Each pair renders as `key value-string` (`key` prints verbatim — a
+  keyword as `:foo`; `value-string` is already-rendered EDN), one per
+  line, the continuation aligned three spaces under the body's opening
+  `{`:
+
+      (reg-variant-form \"story\" :story.saved/x [[:extends \":story/a\"]
+                                                  [:args \"{}\"]])
+      ;; => \"(story/reg-variant :story.saved/x\\n  {:extends :story/a\\n   :args {}})\"
+
+  Byte-identical to the hand-rolled builders (rf2-8fr3yd). Lives in the
+  predicates leaf so every producer can `:require` it without cycle risk
+  (they already `:require` `indent-after` from here)."
+  [alias variant-id body-keys]
+  (reg-variant-envelope
+    alias variant-id
+    (->> body-keys
+         (map (fn [[k v]] (str k " " v)))
+         (str/join "\n   "))))
 
 ;; ---- predicate-symbol resolution -----------------------------------------
 

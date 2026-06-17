@@ -636,7 +636,7 @@
   restoring the prior value afterwards (the assertions fixture does not
   reset it, so a `set-egress-profile!` must be unwound by hand)."
   [profile thunk]
-  (let [prev (config/get-egress-profile)]
+  (let [prev @config/session-egress-profile]
     (config/set-egress-profile! profile)
     (try (thunk)
          (finally (config/set-egress-profile! prev)))))

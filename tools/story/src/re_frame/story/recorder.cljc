@@ -293,13 +293,8 @@
         body-keys   (cond-> []
                       doc     (conj [:doc (pr-str doc)])
                       extends (conj [:extends (pr-str extends)])
-                      true    (conj [:script script-map-str]))
-        body-str    (->> body-keys
-                         (map (fn [[k v]] (str k " " v)))
-                         (str/join "\n   "))]
-    (str "(" alias "/reg-variant "
-         (pr-str (or variant-id :story.recorded/example))
-         "\n  {" body-str "})")))
+                      true    (conj [:script script-map-str]))]
+    (pred/reg-variant-form alias (or variant-id :story.recorded/example) body-keys)))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: canonical assertion vocabulary
