@@ -93,12 +93,13 @@
   app that never calls the construction/install surface they are dead code
   Closure DCE removes; an app that DOES call `rf/app` / `rf/install!` keeps
   exactly what it references."
-  (:require [clojure.set        :as set]
-            [re-frame.error     :as error]
-            [re-frame.realm     :as realm]
-            [re-frame.frame     :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.late-bind :as late-bind]))
+  (:require [clojure.set           :as set]
+            [re-frame.error        :as error]
+            [re-frame.realm        :as realm]
+            [re-frame.frame        :as frame]
+            [re-frame.registrar    :as registrar]
+            [re-frame.source-store :as source-store]
+            [re-frame.late-bind    :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -797,47 +798,66 @@
       (registrar/register! kind id (descriptor->registration-metadata desc)))))
 
 (defn- seat-into-realm!
-  "Run `thunk` (the per-descriptor seating) with `registrar/*registrar*` bound
-  to realm `rid`'s OWN registrar atom, so every `register!` / `unregister!` the
-  lowering path issues targets THAT realm's `(kind, id) → metadata` table
-  (EP-0013 stage 9 isolation). For the default realm the realm's registrar IS
-  the process-global atom, so the binding rebinds to the same atom — the
-  default-realm seating path is byte-identical. `install!` / `reinstall!`
-  validate `rid` upstream (`resolve-target-realm!`), so an explicit unknown id
-  never reaches here — it threw `:rf.error/unknown-realm` before any mutation
-  (rf2-c6armm.1/.2). The nil-registrar arm below stays as a defensive no-op for
-  any non-install caller; the install path always resolves a real registrar.
+  "Run `thunk` (the per-descriptor seating) with `registrar/*registrar*` AND
+  `source-store/*source-store*` bound to realm `rid`'s OWN registrar + source
+  store, so every `register!` / `unregister!` the lowering path issues targets
+  THAT realm's `(kind, id) → metadata` resolver table AND its EP-0023
+  `kind → id → provenance-ns → descriptor` source store (EP-0013 stage 9 +
+  rf2-9fn4is isolation). `registrar/register!` writes EVERY descriptor through
+  `source-store/record-descriptor!` (keyed by `(active-source-store)`), so
+  binding only the registrar leaked the realm's provenance descriptors into the
+  process-default source store — and a later non-default removal could delete a
+  default-realm source slot with the same `(kind, id)`. Binding BOTH keeps the
+  resolver map and the source store in the same realm.
+
+  For the default realm BOTH atoms ARE the process-global ones, so the bindings
+  rebind to the same atoms — the default-realm seating path is byte-identical.
+  `install!` / `reinstall!` validate `rid` upstream (`resolve-target-realm!`),
+  so an explicit unknown id never reaches here — it threw `:rf.error/unknown-realm`
+  before any mutation (rf2-c6armm.1/.2). The nil-registrar arm below stays as a
+  defensive no-op for any non-install caller; the install path always resolves a
+  real registrar (and `realm/source-store` always resolves a real store, falling
+  back to the process default).
 
   ATOMIC (EP-0013 §Installation step 4 — \"attach the app and registrar
-  atomically\"): the seating loop is all-or-nothing. The thunk seats a
-  MULTI-descriptor app one descriptor at a time, and a malformed descriptor can
-  throw PART-WAY (after kinds 1..N-1 already landed). To keep the realm's
-  registrar and its `:app` slot from ever disagreeing, the registrar atom's
-  value is captured BEFORE the loop and RESTORED on any throw, then the throw
-  re-propagates — so a failed `install!` leaves the realm exactly as it was
-  (no half-populated registrar; `install!` records no partial `:app`, since
-  `set-installed-app!` runs only after the thunk returns cleanly). The
-  default-realm path snapshots the process-global atom the same way; a
+  atomically\"): the seating loop is all-or-nothing across BOTH atoms. The thunk
+  seats a MULTI-descriptor app one descriptor at a time, and a malformed
+  descriptor can throw PART-WAY (after kinds 1..N-1 already landed). To keep the
+  realm's registrar, its source store, and its `:app` slot from ever disagreeing,
+  BOTH atoms' values are captured BEFORE the loop and RESTORED on any throw, then
+  the throw re-propagates — so a failed `install!` leaves the realm exactly as it
+  was (no half-populated registrar OR source store; `install!` records no partial
+  `:app`, since `set-installed-app!` runs only after the thunk returns cleanly).
+  The default-realm path snapshots the process-global atoms the same way; a
   successful seating restores nothing (the loop's writes stand). INTERNAL."
   [rid thunk]
-  (let [reg (realm/registrar (realm/realm rid))]
-    ;; EP-0013 step 4 (rf2-a15n62): bind BOTH the realm's registrar (so every
-    ;; `register!` the lowering issues targets the realm's table) AND
-    ;; `frame/*current-realm*` (so a `:frame` descriptor lowered through
-    ;; `reg-frame` is STAMPED with — and keyed under — the target realm, not the
-    ;; default). `frame/call-with-realm` is a no-op binding for the default
-    ;; realm, so the default-realm seating path stays byte-identical.
+  (let [realm-map (realm/realm rid)
+        reg       (realm/registrar realm-map)
+        store     (realm/source-store realm-map)]
+    ;; EP-0013 step 4 (rf2-a15n62) + rf2-9fn4is: bind the realm's registrar (so
+    ;; every `register!` the lowering issues targets the realm's resolver table),
+    ;; the realm's source store (so `record-descriptor!`'s provenance write lands
+    ;; in the realm's own store, not the default), AND `frame/*current-realm*`
+    ;; (so a `:frame` descriptor lowered through `reg-frame` is STAMPED with —
+    ;; and keyed under — the target realm, not the default). `frame/call-with-realm`
+    ;; is a no-op binding for the default realm, so the default-realm seating
+    ;; path stays byte-identical.
     (frame/call-with-realm rid
      (fn []
-      (binding [registrar/*registrar* reg]
+      (binding [registrar/*registrar*        reg
+                source-store/*source-store*  store]
         (if reg
-          (let [snapshot @reg]
+          (let [reg-snapshot   @reg
+                store-snapshot @store]
             (try
               (thunk)
               (catch #?(:clj Throwable :cljs :default) e
-                ;; Roll back every registration the partial loop landed, so a
-                ;; mid-stream failure leaves the realm's registrar untouched.
-                (reset! reg snapshot)
+                ;; Roll back every registration AND source-store write the
+                ;; partial loop landed, so a mid-stream failure leaves the realm's
+                ;; resolver table and source store both untouched (atomic across
+                ;; both atoms — rf2-9fn4is).
+                (reset! reg   reg-snapshot)
+                (reset! store store-snapshot)
                 (throw e))))
           ;; No registrar atom resolved (an unknown id with no default fallback) —
           ;; nothing to snapshot; run the thunk as-is.
