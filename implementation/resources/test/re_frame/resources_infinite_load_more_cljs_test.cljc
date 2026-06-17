@@ -42,6 +42,7 @@
    [re-frame.http-managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -124,15 +125,19 @@
                       :params {:filter :recent} :owner [:test :w]}]))
 
 (defn- load-more! [resource]
+  ;; The supported idiom (rf2-bi8vg1): a load-more is OWNERLESS — the feed's
+  ;; liveness is the route/ensure owner's, never a per-page lease.
   (rf/dispatch-sync [:rf.resource/load-more
                      {:resource resource :scope :rf.scope/global
-                      :params {:filter :recent} :owner [:test :w]
+                      :params {:filter :recent}
                       :cause [:user :feed/load-more]}]))
 
 (defn- load-more-with-owner!
-  "A load-more carrying an ARBITRARY `owner` (rf2-d095i1 characterization).
-  The feed identity (scope + resource + canonical params) is unchanged — only
-  the owner differs from the ensure/route owner."
+  "A load-more carrying a MISTAKEN `owner` (rf2-bi8vg1 — the unsupported,
+  warn-and-ignored input). The feed identity (scope + resource + canonical
+  params) is unchanged — only the stray owner differs from the route/ensure
+  owner. A load-more is OWNERLESS by contract, so this dispatch is expected to
+  emit `:rf.warning/resource-load-more-owner-ignored` and drop the owner."
   [resource owner]
   (rf/dispatch-sync [:rf.resource/load-more
                      {:resource resource :scope :rf.scope/global
@@ -466,28 +471,54 @@
       (is (= 1 (state/page-count (entry k))) "feed untouched"))))
 
 ;; ===========================================================================
-;; 9. rf2-d095i1 — a load-more given a MISTAKEN (non-ensure) owner
-;;    CHARACTERIZATION: pin the CURRENT behaviour (rf2-bi8vg1 is unresolved).
+;; 9. rf2-bi8vg1 — a load-more given a MISTAKEN (non-route) owner is
+;;    WARN-AND-IGNORED (the ruled guard, NOT the earlier characterization).
 ;; ===========================================================================
 ;;
-;; The rf2-bi8vg1 bug bead originally claimed a load-more given a non-route /
-;; non-ensure owner SILENTLY DROPS the page reply. The source trace DISPROVES
-;; that: the scoped key is built from scope + resource + canonical-params ONLY
-;; (state/scoped-resource-key*); the owner never enters the scoped key, the
-;; work-id, or the reply payload (infinite-page-reply-payload). The page reply
-;; handlers verify the live entry via live-entry-for-reply, which matches on
-;; :rf.frame/id + :work/id + :generation — the OWNER IS NEVER CONSULTED. So a
-;; load-more with a different owner STILL APPENDS its page.
+;; A `:rf.resource/load-more` is OWNERLESS by contract (EP-0021): the feed's
+;; liveness is the ROUTE owner's (the route that ensured page 0), and a
+;; load-more is a user-caused page extension during that route's lifetime, NOT
+;; a new lease. rf2-d095i1 first proved the page reply is NOT dropped (the
+;; scoped key / work-id / reply payload never carry the owner; live-entry-for-
+;; reply matches on :rf.frame/id + :work/id + :generation) — but characterized
+;; a REAL failure mode: a stray owner attached a SECOND durable lease to the
+;; feed (:active-owners + the derived :owner-index), silently extending its
+;; liveness / GC lifetime until an explicit :rf.resource/release-owner.
 ;;
-;; The REAL failure mode is an OWNER LEASE LEAK: the stray owner is attached to
-;; the feed entry's :active-owners (via entry-start-load) AND the derived
-;; :owner-index — a second lease that extends the feed's liveness / GC lifetime
-;; and requires an explicit :rf.resource/release-owner to clean up.
-;;
-;; These tests PIN the current behaviour (do NOT assert a desired-but-unruled
-;; disposition — rf2-bi8vg1 is the open ruling). They settle the symptom
-;; conflict (append-or-drop) and quantify the lease-leak so the ruling has a
-;; regression anchor and the operator can settle bi8vg1.
+;; rf2-bi8vg1 RULED that footgun WARN-AND-IGNORE (Option 1a — reject ANY owner,
+;; not a conflict predicate): a non-nil :owner on a load-more is recognised-
+;; but-unhonourable input, so the runtime emits a loud, recoverable WARNING
+;; (:rf.warning/resource-load-more-owner-ignored, per Conventions §No silent
+;; swallow — a WARNING, not an error, because the cascade continues safely),
+;; NORMALIZES the owner to nil (it reaches NEITHER :active-owners, the
+;; :owner-index, NOR the work record), and STILL fetches + appends the page.
+;; :cause is untouched (attribution preserved). These tests assert that guard:
+;; the warning fires, no lease leaks, and the page still appends in order.
+
+(defn- record-resource-traces!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  trace event whose :operation is a `:rf.resource/*` OR a `:rf.warning/*` op
+  emitted during it (in capture order). The listener is unregistered in a
+  `finally`. (The owner-ignored diagnostic is a `:rf.warning/*`-namespaced op,
+  not a `:rf.resource/*` lifecycle op, so both namespaces are captured.)"
+  [body-fn]
+  (let [seen (atom [])
+        k    ::resource-trace-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev]
+          (when (and (keyword? (:operation ev))
+                     (contains? #{"rf.resource" "rf.warning"}
+                                (namespace (:operation ev))))
+            (swap! seen conj ev))))
+    (try (body-fn)
+         (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
+(defn- owner-ignored-warnings
+  "The captured `:rf.warning/resource-load-more-owner-ignored` events."
+  [traces]
+  (filterv #(= :rf.warning/resource-load-more-owner-ignored (:operation %))
+           traces))
 
 (defn- owner-index-keys
   "The set of OWNERS currently in the derived :owner-index."
@@ -503,36 +534,48 @@
          (map key)
          set)))
 
-(deftest load-more-mistaken-owner-STILL-APPENDS-the-page
-  ;; rf2-d095i1 — settles the rf2-bi8vg1 symptom conflict: the page reply is
-  ;; NOT dropped. A load-more carrying an owner DIFFERENT from ensure's
-  ;; ([:wrong :owner] vs ensure's [:test :w]) still issues the request and the
-  ;; page STILL APPENDS — because the owner is absent from the scoped key,
-  ;; the work-id, and the reply verification (live-entry-for-reply).
-  (testing "a load-more with a MISTAKEN owner still fires the request + appends"
+(deftest load-more-mistaken-owner-WARNS-but-STILL-APPENDS-the-page
+  ;; rf2-bi8vg1 (ruled WARN-AND-IGNORE) — a load-more carrying an owner DIFFERENT
+  ;; from ensure's ([:wrong :owner] vs ensure's [:test :w]) emits a loud, RECOVER-
+  ;; ABLE warning and STILL issues the request + appends: the owner is absent from
+  ;; the scoped key, the work-id, and the reply verification (live-entry-for-reply),
+  ;; so the user's data keeps loading.
+  (testing "a load-more with a MISTAKEN owner WARNS, then still fires the request + appends"
     (let [k (load-page-0! :mo/feed (page [:a] "c1"))]
       (reset! last-managed-args nil)
-      (load-more-with-owner! :mo/feed [:wrong :owner])
-      (is (some? @last-managed-args) "the load-more DID issue a page request (not dropped at the gate)")
+      (let [traces (record-resource-traces!
+                     #(load-more-with-owner! :mo/feed [:wrong :owner]))
+            warns  (owner-ignored-warnings traces)]
+        (testing "the recoverable warning fired at the point of the mistake"
+          (is (= 1 (count warns))
+              "exactly one :rf.warning/resource-load-more-owner-ignored")
+          (let [w (first warns)]
+            (is (= :warning (:op-type w)) "it is a WARNING (recoverable), not an error")
+            ;; emit!'s third arg lands under :tags (per build-event)
+            (is (= [:wrong :owner] (get-in w [:tags :owner]))
+                "the warning names the offending owner")
+            (is (some? (get-in w [:tags :hint]))
+                "the warning carries a fix hint (remove :owner)"))))
+      (is (some? @last-managed-args) "the load-more DID issue a page request (warn-and-PROCEED, not dropped)")
       (let [e (entry k)]
         (is (= :fetching (:status e)) "feed transitioned to :fetching (data kept)")
         (is (= "c1" (get-in @last-managed-args [:request :params :cursor]))
-            "the request carried the page-0-derived next param — the wrong owner did not divert it"))
+            "the request carried the page-0-derived next param — the ignored owner did not divert it"))
       ;; the page reply lands — verified by work-id + generation, NOT owner
       (reply-success! (page [:b] "c2"))
       (let [e (entry k)]
-        (testing "the page APPENDED despite the mistaken owner (NOT a silent drop — settles rf2-bi8vg1's premise)"
+        (testing "the page APPENDED despite the ignored owner (warn-and-PROCEED)"
           (is (= :loaded (:status e)))
           (is (= 2 (state/page-count e)) "exactly the load-more page appended")
           (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e)) "appended in order")
           (is (= "c2" (:next-page-param e)) "cursor advanced from the appended page"))))))
 
-(deftest load-more-mistaken-owner-LEAKS-a-spurious-lease
-  ;; rf2-d095i1 — the REAL failure mode (re-framing rf2-bi8vg1): the stray
-  ;; owner attaches a SECOND lease to the feed. This pins the leak so the
-  ;; rf2-bi8vg1 ruling (loud error / documented no-op / accept-and-route) has
-  ;; a regression anchor. CHARACTERIZATION ONLY — current behaviour, not a
-  ;; ruled-desirable one.
+(deftest load-more-mistaken-owner-DROPS-the-stray-lease-NO-leak
+  ;; rf2-bi8vg1 (ruled WARN-AND-IGNORE) — the guard that prevents the
+  ;; rf2-d095i1 lease leak: a stray non-route owner is IGNORED. It is NORMALIZED
+  ;; to nil before the entry update, so it reaches NEITHER :active-owners NOR the
+  ;; derived :owner-index NOR the work record — :active-owners is UNCHANGED, no
+  ;; second lease pins the feed, and the page still appends. :cause survives.
   (testing "page-0 ensure attaches ONLY the ensure owner"
     (let [k (load-page-0! :ml/feed (page [:a] "c1"))
           e (entry k)]
@@ -540,24 +583,60 @@
           "before the mistaken load-more, only ensure's owner holds a lease")
       (is (= #{[:test :w]} (owners-for-key k))
           ":owner-index agrees — one owner for this key")
-      (testing "a load-more with a MISTAKEN owner LEAKS a second lease into :active-owners"
-        (load-more-with-owner! :ml/feed [:wrong :owner])
+      (testing "a load-more with a MISTAKEN owner does NOT attach a second lease"
+        (record-resource-traces!
+          #(load-more-with-owner! :ml/feed [:wrong :owner]))
         (let [e' (entry k)]
-          (is (contains? (:active-owners e') [:wrong :owner])
-              "the stray owner LEAKED into :active-owners (the lease leak)")
+          (is (not (contains? (:active-owners e') [:wrong :owner]))
+              "the stray owner was DROPPED — NOT attached to :active-owners (no leak)")
           (is (contains? (:active-owners e') [:test :w])
               "the original ensure owner is still present")
-          (is (= 2 (count (:active-owners e')))
-              "TWO leases now hold the feed live — a quiet owner lease leak (re-framed rf2-bi8vg1)")))
-      (testing "the leak is mirrored into the derived :owner-index"
-        (is (contains? (owner-index-keys) [:wrong :owner])
-            "the stray owner is a key in :owner-index")
-        (is (= #{[:test :w] [:wrong :owner]} (owners-for-key k))
-            ":owner-index lists BOTH leases against this feed's key"))
-      (testing "the leak SURVIVES the page reply (it is a durable lease, not in-flight state)"
+          (is (= #{[:test :w]} (:active-owners e'))
+              ":active-owners UNCHANGED — exactly one lease still holds the feed")))
+      (testing "the dropped owner is absent from the derived :owner-index"
+        (is (not (contains? (owner-index-keys) [:wrong :owner]))
+            "the stray owner is NOT a key in :owner-index")
+        (is (= #{[:test :w]} (owners-for-key k))
+            ":owner-index lists only the original lease against this feed's key"))
+      (testing "the work record carries NO owner (the in-flight page is ownerless)"
+        (let [e' (entry k)
+              rec (work-ledger/get-record (runtime-db) (:current-work e'))]
+          (is (some? rec) "a work record exists for the in-flight load-more page")
+          (is (empty? (:owners rec))
+              "the work record's :owners is empty — the ignored owner never joined it")))
+      (testing "no leak survives the page reply (the feed stays at one lease)"
         (reply-success! (page [:b] "c2"))
         (let [e' (entry k)]
-          (is (contains? (:active-owners e') [:wrong :owner])
-              "the spurious lease persists after the page settles — needs an explicit release-owner to clear")
-          (is (= 2 (count (:active-owners e')))
-              "still two leases after settle — confirming the durable leak"))))))
+          (is (= :loaded (:status e')) "feed settled :loaded")
+          (is (= 2 (state/page-count e')) "the page still appended (warn-and-PROCEED)")
+          (is (= #{[:test :w]} (:active-owners e'))
+              "still exactly one lease after settle — no durable leak to release"))))))
+
+(deftest load-more-mistaken-owner-PRESERVES-cause
+  ;; rf2-bi8vg1 — :cause is UNTOUCHED by the owner-drop (attribution preserved):
+  ;; the dropped owner does not strip the load-more's cause from the work record.
+  (testing "the load-more's :cause survives the owner normalization"
+    (let [k (load-page-0! :mc/feed (page [:a] "c1"))]
+      (record-resource-traces!
+        #(load-more-with-owner! :mc/feed [:wrong :owner]))
+      (let [rec (work-ledger/get-record (runtime-db) (:current-work (entry k)))]
+        (is (= [[:user :feed/load-more]] (:causes rec))
+            "the load-more's :cause is recorded on the work record (owner dropped, cause kept)")))))
+
+(deftest load-more-ownerless-emits-no-owner-ignored-warning
+  ;; rf2-bi8vg1 — the bright-line guard fires ONLY on a supplied owner: a
+  ;; correct, OWNERLESS load-more (the documented idiom) emits no warning.
+  (testing "an ownerless load-more (the supported idiom) does NOT warn"
+    (let [k (load-page-0! :ok/feed (page [:a] "c1"))
+          traces (record-resource-traces!
+                   #(rf/dispatch-sync [:rf.resource/load-more
+                                       {:resource :ok/feed :scope :rf.scope/global
+                                        :params {:filter :recent}
+                                        :cause [:user :feed/load-more]}]))]
+      (is (empty? (owner-ignored-warnings traces))
+          "no :rf.warning/resource-load-more-owner-ignored for an ownerless load-more")
+      (reply-success! (page [:b] "c2"))
+      (let [e (entry k)]
+        (is (= 2 (state/page-count e)) "the ownerless load-more appended normally")
+        (is (= #{[:test :w]} (:active-owners e))
+            "still exactly the route/ensure owner — load-more added no lease")))))

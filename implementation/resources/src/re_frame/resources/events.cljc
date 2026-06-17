@@ -609,7 +609,7 @@
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
-   {:keys [resource owner cause] :as payload} {:keys [where]}]
+   {:keys [resource cause] supplied-owner :owner :as payload} {:keys [where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
         scope      (registry/resolve-scope-for-event
@@ -617,6 +617,24 @@
         cparams    (registry/validate+canonicalize-params
                      resource spec (state/params-present? payload) where)
         scoped-key (state/scoped-resource-key* scope resource cparams)
+        ;; EP-0021 / rf2-bi8vg1 — `:rf.resource/load-more` is OWNERLESS by
+        ;; contract: the feed's liveness is the ROUTE owner's (the route that
+        ;; ensured page 0), and a load-more is a user-caused page extension
+        ;; during that route's lifetime, NOT a new lease. A supplied `:owner` is
+        ;; a recognised-but-unhonourable input (a plausible mistake — a consumer
+        ;; copying the `ensure`/`refetch` payload shape) that would otherwise
+        ;; attach a SECOND, durable lease to the feed (`:active-owners` +
+        ;; `:owner-index`) and silently extend its liveness / GC lifetime until
+        ;; an explicit `:rf.resource/release-owner` — the owner-lease LEAK
+        ;; rf2-d095i1 characterized. Per Conventions §No silent swallow, this is
+        ;; a WARNING (continuation is safe — the append path is proven correct):
+        ;; emit the loud diagnostic at the point of the mistake, then NORMALIZE
+        ;; the owner to nil so it reaches NEITHER `:active-owners`, the
+        ;; `:owner-index`, NOR the work record. `:cause` is untouched
+        ;; (attribution preserved). The page still fetches + appends — the
+        ;; user's data keeps loading. Bright-line rule (1a — reject ANY owner,
+        ;; not a conflict predicate): a load-more NEVER takes an owner.
+        owner      nil
         entry      (get-in runtime-db (state/entry-path scoped-key))
         prior-work (:current-work entry)
         prior-record (when prior-work (work-ledger/get-record runtime-db prior-work))
@@ -632,6 +650,31 @@
         next-param (state/next-param-for (:next-page-param spec) pages)
         terminal?  (state/terminal? next-param)
         page-index (state/page-count entry)]
+    ;; rf2-bi8vg1 — surface the dropped owner ONCE, at the point of the mistake,
+    ;; for EVERY branch (issue / skip / dedupe / no-feed): the owner is ignored
+    ;; the same way regardless of whether this load-more fetches a page or
+    ;; no-ops, so the diagnostic does not depend on the outcome. The owner is
+    ;; already normalized to nil above, so it cannot reach `:active-owners`, the
+    ;; `:owner-index`, or any in-flight work record on any path. Per Conventions
+    ;; §No silent swallow (`:rf.warning/*` when the cascade continues safely).
+    (when (some? supplied-owner)
+      (trace/emit! :warning :rf.warning/resource-load-more-owner-ignored
+                   {:rf.frame/id  frame-id
+                    :resource     resource
+                    :resource/key scoped-key
+                    :owner        supplied-owner
+                    :cause        cause
+                    :recovery     :remove-owner
+                    :hint         (str ":rf.resource/load-more was given :owner "
+                                       (pr-str supplied-owner)
+                                       ", but a load-more is OWNERLESS — the feed's "
+                                       "liveness is the route owner's (the route that "
+                                       "ensured page 0). The owner is IGNORED (it is "
+                                       "NOT attached to :active-owners / :owner-index, "
+                                       "so no durable lease leaks) and the page still "
+                                       "fetches + appends. Remove :owner from the "
+                                       "load-more payload. Per Spec 016 §Causal event "
+                                       "— load-more.")}))
     (cond
       ;; ----- no feed: load-more before page 0 exists — no-op --------------
       ;; The first page is `ensure`'s page-0, not a load-more; a load-more with
@@ -774,9 +817,14 @@
   via the `:rf.resource.internal/page-succeeded` reply; a failure records
   `:page-error` (`entry-page-failed`) via `:rf.resource.internal/page-failed` —
   the third error channel (the feed keeps its pages). Generation + work-id
-  stale suppression protect a late page reply exactly as for any fetch. Per
-  Spec 016 §Causal event — load-more. Payload:
-  `{:resource :scope :params :owner :cause}`."
+  stale suppression protect a late page reply exactly as for any fetch.
+
+  A load-more is **OWNERLESS** (rf2-bi8vg1): the feed's liveness is the ROUTE
+  owner's (the route that ensured page 0), so a load-more carries NO `:owner`.
+  A supplied `:owner` is IGNORED with a `:rf.warning/resource-load-more-owner-ignored`
+  (it is not attached to `:active-owners` / `:owner-index`, so no durable lease
+  leaks) and the page still fetches + appends. Per Spec 016 §Causal event —
+  load-more. Payload: `{:resource :scope :params :cause}`."
   [cofx [_event-id payload]]
   (load-more-loaded cofx payload {:where 'rf.resource/load-more}))
 
