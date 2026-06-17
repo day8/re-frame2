@@ -71,6 +71,7 @@
             [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
+            [re-frame.resources.transport.http :as transport-http]
             [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.trace :as trace]))
 
@@ -1168,8 +1169,13 @@
                        ;; attempt (the ledger is named neutrally; the resource
                        ;; writer uses :resource, the mutation writer :mutation).
                        (assoc :work/kind :mutation))
-        lower-fx   (transport/lower-ensure
-                     transport-id
+        ;; rf2-rrcfwk — guard the declared transport (registration-time
+        ;; misconfig throw), then lower directly into the only initial-scope
+        ;; transport. The one-arm dispatch indirection
+        ;; (`transport/lower-ensure`) is folded into this guarded call.
+        lower-fx   (do
+                     (transport/assert-managed-transport! transport-id where)
+                     (transport-http/lower
                      {:http-args    http-args
                       :request-id   request-id
                       ;; the reply addresses the MUTATION internal replies,
@@ -1201,7 +1207,7 @@
                       :scope        cscope
                       :frame-id     frame-id
                       :generation   generation
-                      :where        where})
+                      :where        where}))
         rdb0       (-> runtime-db
                        (assoc-in (mstate/instance-path instance-id) instance')
                        (work-ledger/put-record work-id record))
