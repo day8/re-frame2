@@ -51,16 +51,14 @@
             [re-frame.mcp-base.overflow :as base-overflow]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
-;; `default-max-tokens` and `token-estimate` come from
-;; `re-frame.mcp-base.overflow` (rf2-vw4sq) — the cap value and the
-;; character→token approximation are cross-MCP conventions, pinned once
-;; in the base.
+;; `default-max-tokens` and the character→token approximation
+;; (`base-overflow/token-estimate`) come from `re-frame.mcp-base.overflow`
+;; (rf2-vw4sq) — both are cross-MCP conventions pinned once in the base.
+;; `default-max-tokens` is re-exported here because production call sites
+;; reference `cap/default-max-tokens`; the test-only `token-estimate`
+;; re-export moved to `test-utils` (rf2-ttspi7) — production code calls
+;; `base-overflow/token-estimate` directly.
 (def default-max-tokens base-overflow/default-max-tokens)
-
-(defn token-estimate
-  "Delegates to `base-overflow/token-estimate`."
-  [s]
-  (base-overflow/token-estimate s))
 
 (defn max-tokens-arg
   "Resolve the per-call cap from MCP args. Returns the integer cap in
@@ -98,9 +96,11 @@
    "dispatch"      "Trace mode is returning a full epoch — re-run with `trace false` and read the epoch via `watch-epochs`/`snapshot` with a narrower path."})
 
 ;; The fallback string lives in `re-frame.mcp-base.overflow` so the
-;; cross-MCP marker presents identically. Re-exported here to avoid
-;; touching the every-call-site `get overflow-hints` usage.
-(def overflow-hint-fallback base-overflow/overflow-hint-fallback)
+;; cross-MCP marker presents identically. Production reads it via
+;; `base-overflow/overflow-hint-fallback` (or, more usually, lets
+;; `base-cap/apply-cap` apply the fallback when a tool has no specific
+;; hint). The test-only `overflow-hint-fallback` re-export moved to
+;; `test-utils` (rf2-ttspi7).
 
 (def ^:private result-io
   "ResultIO reify over re-frame2-pair-mcp's `#js {:content #js [...]}` shape

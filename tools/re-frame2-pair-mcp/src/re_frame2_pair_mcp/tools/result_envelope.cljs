@@ -95,10 +95,13 @@
   namespaces); single-sourced from `re-frame.mcp-base.vocab/result-key`."
   base-vocab/result-key)
 
-(def ^:private preview-cap
+(def preview-cap
   "Max chars of an unserializable value's `pr-str` text to carry on the
   wire as `:preview`. Long enough to identify the shape, short enough to
-  stay well under the token cap on its own."
+  stay well under the token cap on its own.
+
+  Public (rf2-ttspi7) so the test-only `test-utils/truncate-preview`
+  pins against the SAME single-sourced cap the runtime wrap embeds."
   240)
 
 ;; ---------------------------------------------------------------------------
@@ -315,16 +318,8 @@
   [result-map]
   (boolean (some-> result-map meta ::codec-error)))
 
-;; ---------------------------------------------------------------------------
-;; Preview helper (server-side; used by tests + diagnostics).
-;; ---------------------------------------------------------------------------
-
-(defn truncate-preview
-  "Truncate `text` to `preview-cap` chars with a char-count suffix —
-  the same shape the runtime wrap emits. Exposed for the server-side
-  tests so the preview contract is pinned in one place."
-  [text]
-  (let [n (count text)]
-    (if (> n preview-cap)
-      (str (subs text 0 preview-cap) " …(" n " chars)")
-      text)))
+;; `truncate-preview` (the test-only preview-shape helper) moved to
+;; `re-frame2-pair-mcp.test-utils/truncate-preview` (rf2-ttspi7) — the
+;; MCP server never calls it; only tests assert the preview contract.
+;; It pins against the same `preview-cap` constant below (now public so
+;; the single source of truth stays here).

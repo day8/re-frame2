@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > The cross-MCP, framework-runtime-free mirror of the closed six-member `:rf.egress/*` profile enum and its `:rf.size/*` floor (EP-0015 §10). A pure-data table + `profile-size-opts` resolver an MCP server uses to express its egress boundary as a NAMED profile — *which boundary is this?* — without pulling the framework runtime graph into its bundle.
 
-This doc is one of twelve per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
+This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
 ## The problem it solves
 

@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the cross-MCP cursor codec, the EDN-with-no-tagged-literals reader, the size cap, the `::malformed` recovery contract, the `:limit` clamp, and the `cursor-stale-result` envelope. The cursor PAYLOAD shape is consumer-side (story carries `{:offset :total :sig}`; pair carries `{:after-id :ms :until-ms :frame}`).
 
-This doc is one of twelve per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
+This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
 ## Scope
 

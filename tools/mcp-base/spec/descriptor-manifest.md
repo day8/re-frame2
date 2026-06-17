@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > The shared, platform-agnostic serialiser + drift-check that lets BOTH MCP servers (`re-frame2-pair-mcp`, `story-mcp`) GENERATE / VALIDATE a committed `tool-descriptors.edn` manifest from their tool registry — so adding / removing / renaming an MCP tool goes RED in CI until the manifest is regenerated. Models the project's API-governance keystone (`rf2-3nbl5.2`, `spec/api-manifest.edn`) on the MCP descriptor surface (`rf2-sofwv`).
 
-This doc is one of twelve per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md).
+This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md).
 
 ## The problem it solves
 

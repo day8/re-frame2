@@ -125,6 +125,40 @@
   (let [[tag _] (args/parse-positive-int-arg "max-events" "soon")]
     (is (= :err tag) "non-numeric junk is rejected")))
 
+;; rf2-ykv9a0 cross-runtime safe-integer guard, routed through
+;; `base-args/coerce-finite-long` by rf2-ttspi7. A whole numeric (or
+;; numeric string) ABOVE the JS safe-integer ceiling (2^53 − 1 =
+;; 9 007 199 254 740 991) is NOT losslessly representable across both
+;; hosts; before the routing it slipped past `coerce-int`'s
+;; `Number.isInteger` check (a double like 9007199254740993 is "integral"
+;; in JS) and reached the runtime budget, while mcp-base's `max-tokens`
+;; rejected the same value — the divergence this closes.
+
+(deftest positive-int-arg-rejects-over-safe-integer
+  ;; 2^53 + 1 — past the safe-integer window. `Number.isInteger` is true
+  ;; for it (it's a whole double), so it would have passed the OLD
+  ;; coerce-int; the finite/range guard now rejects it as a bad numeric.
+  (let [over (+ 9007199254740992 1)
+        [tag env] (args/parse-positive-int-arg "max-buffered-events" over)]
+    (is (= :err tag) "an over-safe-integer numeric is rejected, not forwarded")
+    (is (= :invalid-numeric-arg (:reason env)))
+    (is (= "max-buffered-events" (:arg env))))
+  ;; The string arm routes the parsed value through the SAME guard.
+  (let [[tag _] (args/parse-positive-int-arg "poll-ms" "9007199254740993")]
+    (is (= :err tag) "an over-safe-integer numeric STRING is rejected too"))
+  ;; The boundary value (exactly 2^53 − 1) is in-domain and accepted.
+  (is (= [:ok 9007199254740991]
+         (args/parse-positive-int-arg "max-buffered-bytes" 9007199254740991))
+      "the safe-integer ceiling itself is in-domain"))
+
+(deftest non-negative-int-arg-rejects-over-safe-integer
+  (let [[tag env] (args/parse-non-negative-int-arg "max-events" (+ 9007199254740992 1))]
+    (is (= :err tag) "an over-safe-integer numeric is rejected on the non-negative arm too")
+    (is (= :invalid-numeric-arg (:reason env))))
+  (is (= [:ok 9007199254740991]
+         (args/parse-non-negative-int-arg "max-ms" 9007199254740991))
+      "the safe-integer ceiling itself is in-domain"))
+
 (deftest non-negative-int-arg-accepts-zero-sentinel
   ;; 0 = unbounded — the documented sentinel for max-ms / max-events.
   (is (= [:ok 0] (args/parse-non-negative-int-arg "max-ms" 0)))
@@ -953,7 +987,7 @@
       (is (= "subscribe" (:tool marker)))
       (is (= 500 (:cap-tokens marker)))
       (is (> (:token-count marker) 500)))
-    (is (<= (cap/token-estimate msg) 500)
+    (is (<= (tu/token-estimate msg) 500)
         "the overflow-marker message itself stays under the cap")))
 
 (deftest emit-progress-tick-nil-cap-disables-gate

@@ -17,6 +17,7 @@
        unchanged (additive codec)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.result-envelope :as renv]))
 
 ;; ---------------------------------------------------------------------------
@@ -192,8 +193,8 @@
 
 (deftest truncate-preview-caps-long-text
   (let [long-text (apply str (repeat 500 "x"))
-        out       (renv/truncate-preview long-text)]
+        out       (tu/truncate-preview long-text)]
     (is (str/includes? out "chars)") "a long preview carries the char-count suffix")
     (is (< (count out) 500) "the preview is truncated under the source length"))
-  (is (= "short" (renv/truncate-preview "short"))
+  (is (= "short" (tu/truncate-preview "short"))
       "a short preview is returned verbatim"))

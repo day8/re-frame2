@@ -8,10 +8,12 @@
   is replaced with a structured `{:rf.mcp/overflow ...}` marker.
 
   Tests pin the public helpers directly from
-  `re-frame2-pair-mcp.tools.cap`: `token-estimate`, `max-tokens-arg`,
-  `overflow-payload`, `sum-text-tokens`, `apply-cap`,
-  `overflow-hints`, `overflow-hint-fallback`, `default-max-tokens`.
-  A rename or signature change surfaces as a failing test rather
+  `re-frame2-pair-mcp.tools.cap`: `max-tokens-arg`, `overflow-payload`,
+  `sum-text-tokens`, `apply-cap`, `overflow-hints`, `default-max-tokens`.
+  The two cross-MCP re-exports that production never used —
+  `token-estimate` and `overflow-hint-fallback` — moved to
+  `re-frame2-pair-mcp.test-utils` (rf2-ttspi7) and are pinned via `tu/`
+  here. A rename or signature change surfaces as a failing test rather
   than a silent contract drift.
 
   Live end-to-end coverage of `invoke` lives in
@@ -20,6 +22,7 @@
   (:require [cljs.test :refer-macros [deftest is]]
             [cljs.reader]
             [applied-science.js-interop :as j]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.cap :as cap]))
 
 ;; ---------------------------------------------------------------------------
@@ -45,11 +48,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest token-estimate-is-chars-div-4
-  (is (zero? (cap/token-estimate "")))
-  (is (zero? (cap/token-estimate "abc")))
-  (is (= 1 (cap/token-estimate "abcd")))
-  (is (= 250 (cap/token-estimate (big-string 1000))))
-  (is (= 5000 (cap/token-estimate (big-string 20000)))))
+  (is (zero? (tu/token-estimate "")))
+  (is (zero? (tu/token-estimate "abc")))
+  (is (= 1 (tu/token-estimate "abcd")))
+  (is (= 250 (tu/token-estimate (big-string 1000))))
+  (is (= 5000 (tu/token-estimate (big-string 20000)))))
 
 ;; ---------------------------------------------------------------------------
 ;; max-tokens-arg — per-call override resolution.
@@ -98,7 +101,7 @@
 (deftest sum-text-tokens-single-slot
   (let [r (ok-text-result {:hello "world"})]
     (is (pos? (cap/sum-text-tokens r)))
-    (is (= (cap/token-estimate (read-text r)) (cap/sum-text-tokens r)))))
+    (is (= (tu/token-estimate (read-text r)) (cap/sum-text-tokens r)))))
 
 (deftest sum-text-tokens-empty-content-is-zero
   (is (zero? (cap/sum-text-tokens #js {:content #js []}))))
@@ -156,7 +159,7 @@
         edn (read-edn out)
         marker (:rf.mcp/overflow edn)]
     (is (= "no-such-tool" (:tool marker)))
-    (is (= cap/overflow-hint-fallback (:hint marker)))))
+    (is (= tu/overflow-hint-fallback (:hint marker)))))
 
 (deftest apply-cap-unknown-strategy-degrades-safely
   ;; Unknown strategy must NOT throw and must NOT ship the over-budget
@@ -203,7 +206,7 @@
   ;; Small text slot, large structuredContent. The token sum must reflect
   ;; the structured JSON bytes, not just the text slot.
   (let [r          (dual-coded-result {:ok? true} {:big-payload (big-string 30000)})
-        text-only  (cap/token-estimate (read-text r))
+        text-only  (tu/token-estimate (read-text r))
         total      (cap/sum-text-tokens r)]
     (is (> total (+ text-only 5000))
         "structuredContent JSON bytes MUST be summed alongside the text slot")))
@@ -386,7 +389,7 @@
       (is (string? (:hint marker)))
       (is (re-find #"(?i)filter|max-events|max-buffered" (:hint marker))
           "the marker carries the subscribe per-tool next-step hint"))
-    (is (<= (cap/token-estimate out) 500)
+    (is (<= (tu/token-estimate out) 500)
         "the overflow-marker message itself stays under the cap")))
 
 (deftest cap-message-respects-custom-cap-override

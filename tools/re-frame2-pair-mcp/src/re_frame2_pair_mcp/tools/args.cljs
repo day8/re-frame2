@@ -442,13 +442,40 @@
 (defn- coerce-int
   "Coerce an MCP numeric arg to an integer, or `::bad` if it isn't a
   whole number. Accepts a JS/CLJS number (must be integral) or a numeric
-  string. Fractional numbers and non-numeric junk are `::bad`."
+  string. Fractional numbers and non-numeric junk are `::bad`.
+
+  Cross-runtime safe-integer guard (rf2-ykv9a0, routed here by
+  rf2-ttspi7): the numeric core goes through
+  `base-args/coerce-finite-long`, which returns `nil` for `##NaN` /
+  `##Inf` / `##-Inf` and for any finite magnitude outside the JS
+  safe-integer window `[-(2^53−1), 2^53−1]`. Previously a JS
+  `Number.isInteger` value above that ceiling (e.g. `9007199254740993`,
+  representable as a JS integral double but NOT round-trippable through
+  a CLJS `long` / a JVM long without loss) passed straight through to
+  `(long raw)` here while `mcp-base` rejected the same value — the
+  divergence this routing closes. The tagged `[:ok]`/`[:err]` wrappers
+  (`parse-positive-int-arg` etc.) stay local; only the numeric core is
+  shared.
+
+  A whole numeric below the safe-integer ceiling but outside the window
+  on the string arm is caught by routing the parsed string back through
+  the SAME guard. Fractional numbers are still `::bad` (the integer
+  knobs reject non-whole values; we do NOT adopt mcp-base's benign-floor
+  posture here)."
   [raw]
   (cond
-    (and (number? raw) (js/Number.isInteger raw)) (long raw)
-    (number? raw)                                 ::bad
-    (string? raw)                                 (or (parse-long (str/trim raw)) ::bad)
-    :else                                         ::bad))
+    (and (number? raw) (js/Number.isInteger raw))
+    (if-let [n (base-args/coerce-finite-long raw)] n ::bad)
+
+    (number? raw)
+    ::bad
+
+    (string? raw)
+    (let [parsed (parse-long (str/trim raw))]
+      (if (and parsed (base-args/coerce-finite-long parsed)) parsed ::bad))
+
+    :else
+    ::bad))
 
 (defn- err-int
   "Build the `[:err {…}]` envelope for an invalid numeric arg. `arg-name`

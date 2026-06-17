@@ -59,40 +59,30 @@
   A payload with no repeated subtrees deduplicates to a one-entry
   cache (the wire shape is very slightly larger than the input). The
   encoder skips wrapping in that case via an `empty-payload?` short-
-  circuit — matching pair-mcp's behaviour byte-for-byte."
+  circuit — matching pair-mcp's behaviour byte-for-byte.
+
+  ## Where the dedup encode step lives (rf2-ttspi7)
+
+  `empty-payload?` and `dedup-value` were byte-identical to pair-mcp's,
+  so they are lifted to `re-frame.mcp-base.dedup` and delegated here.
+  Only the INVERSE (`dedup-expand`) stays local — see its docstring for
+  why story-mcp keeps its inverse in production while pair-mcp keeps
+  its inverse in test-utils."
   (:require [de-dupe.core :as dd]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame.mcp-base.vocab :as base-vocab]))
 
 (defn empty-payload?
-  "True for values where dedup yields no win — nil, empty collections,
-  scalars. Skipping the wrap avoids the trivial cache-of-one shape
-  bloating the wire for empty / single-record responses.
-
-  Mirrors `re-frame2-pair-mcp.tools.dedup/empty-payload?` byte-for-byte
-  so cross-MCP behaviour is uniform."
+  "Delegates to `re-frame.mcp-base.dedup/empty-payload?` (rf2-ttspi7)."
   [v]
-  (or (nil? v)
-      (and (coll? v) (empty? v))
-      (not (coll? v))))
+  (base-dedup/empty-payload? v))
 
 (defn dedup-value
-  "Apply structural dedup to `v` and wrap the result in the cross-MCP
-  marker (`base-vocab/dedup-table-key`). Returns `v` unchanged when
-  `enabled?` is false or when `v` is empty / scalar (no dedup
-  opportunity).
-
-  Uses `de-dupe.core/de-dupe-eq` (equality-based) — see the namespace
-  docstring for the identity-vs-equality rationale.
-
-  Mirrors `re-frame2-pair-mcp.tools.dedup/dedup-value` byte-for-byte;
-  the only difference is the underlying `de-dupe` library entry
-  resolves to the JVM-side `.cljc` arm rather than the CLJS arm.
-  Algorithm + wire shape are identical by `.cljc` design."
+  "Delegates to `re-frame.mcp-base.dedup/dedup-value` (rf2-ttspi7). Uses
+  `de-dupe.core/de-dupe-eq` (equality-based) — see the namespace
+  docstring for the identity-vs-equality rationale."
   [v enabled?]
-  (if (or (not enabled?) (empty-payload? v))
-    v
-    (let [cache (dd/de-dupe-eq v)]
-      {base-vocab/dedup-table-key cache})))
+  (base-dedup/dedup-value v enabled?))
 
 (defn dedup-expand
   "Reverse `dedup-value`. Given a value possibly wrapped in the

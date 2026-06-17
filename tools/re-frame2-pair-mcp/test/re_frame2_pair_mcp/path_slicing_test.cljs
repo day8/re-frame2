@@ -14,15 +14,15 @@
   `tools.args/parse-path-arg`, `tools.summary/tree-summary`,
   `tools.summary/deepest-valid-prefix`,
   `tools.snapshot-pipeline/slice-app-db-in-snapshot`,
-  `tools.cap/token-estimate`. A rename or signature change surfaces
+  `test-utils/token-estimate`. A rename or signature change surfaces
   as a failing test rather than a silent contract drift.
 
   Live end-to-end coverage of `get-path-tool` and the snapshot
   `:path` arg lives in `test/stdio-roundtrip.js` (degraded-mode
   dispatch) and the manual live-nREPL integration test."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.summary :as summary]))
 
@@ -153,7 +153,7 @@
     (is (= 5000 (:count marker)))
     (is (= summary/summary-keys-cap (count (:keys marker))))
     (is (true? (:keys-truncated? marker)))
-    (is (< (cap/token-estimate (pr-str marker)) 5000)
+    (is (< (tu/token-estimate (pr-str marker)) 5000)
         "Marker for a 5k-entry map MUST still fit the wire cap")))
 
 (deftest tree-summary-scalar-returns-value-unchanged
@@ -316,6 +316,6 @@
         [out _] (pipeline/slice-app-db-in-snapshot snap nil :summary)
         wire    (pr-str (-> out :rf/default :app-db))]
     (is (contains? (-> out :rf/default :app-db) :rf.mcp/summary))
-    (is (< (cap/token-estimate wire) 5000)
+    (is (< (tu/token-estimate wire) 5000)
         (str "Summary marker MUST be under the 5k cap. Got "
-             (cap/token-estimate wire) " tokens for serialised marker"))))
+             (tu/token-estimate wire) " tokens for serialised marker"))))
