@@ -36,10 +36,16 @@
     (is (= "<div>1 &lt; 2 &amp;&amp; 3 &gt; 0</div>"
            (server/render-to-static-markup [:div "1 < 2 && 3 > 0"])))))
 
-(deftest text-content-quotes-not-escaped
-  (testing "quotes are NOT escaped in text content (matches react-dom/server)"
-    (is (= "<div>say \"hi\"</div>"
-           (server/render-to-static-markup [:div "say \"hi\""])))))
+(deftest text-content-quotes-and-apostrophe-escaped
+  (testing "rf2-4dlxga: quotes (\" -> &quot;) and apostrophes (' -> &#39;)
+            ARE escaped in text content — byte-equal to
+            re-frame.ssr.html-helpers/escape-html's full 5-char set"
+    (is (= "<div>say &quot;hi&quot;</div>"
+           (server/render-to-static-markup [:div "say \"hi\""])))
+    (is (= "<div>it&#39;s</div>"
+           (server/render-to-static-markup [:div "it's"])))
+    (is (= "<div>say &quot;hi&quot; &amp; &#39;bye&#39;</div>"
+           (server/render-to-static-markup [:div "say \"hi\" & 'bye'"])))))
 
 (deftest text-content-numbers-and-keywords
   (testing "numeric children stringify"
