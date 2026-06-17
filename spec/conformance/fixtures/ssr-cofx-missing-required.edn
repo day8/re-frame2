@@ -1,0 +1,52 @@
+;; Conformance fixture: ssr/cofx-missing-required
+;;
+;; rf2-sb47ni — the NEGATIVE half of the EP-0017 provided-recordable SSR
+;; contract (companion to `ssr-cofx-provided-recordable.edn`). A server handler
+;; DECLARES a provided recordable boundary fact via `:rf.cofx/requires`, but the
+;; dispatch token does NOT carry the value under `:rf.cofx`. A `:provided?` fact
+;; has no supplier and cannot be minted, so its absence is
+;; `:rf.error/missing-required-cofx` in EVERY mode (Spec 002 §Mint policies +
+;; Spec 009 §Error catalogue) — the cascade halts during context assembly,
+;; BEFORE the handler runs. This is the replay safety contract: a provided fact
+;; that the boundary forgot to stamp fails LOUD rather than silently delivering
+;; nil into app state.
+;;
+;; The dispatch carries `:expect-error :rf.error/missing-required-cofx`; the SSR
+;; conformance runner (rf2-sb47ni) asserts the dispatch threw an `ex-info`
+;; whose `:rf.error/id` ex-data slot equals that id (mirrors the core runner's
+;; `:expect-error` convention). The handler body never runs, so no `:never`
+;; slot is written.
+
+{:fixture/id           :ssr/cofx-missing-required
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error}
+ :fixture/doc          "EP-0017 provided recordable cofx absence: a server handler declaring `:rf.cofx/requires [:ssr.cofx/request-time]` whose token does NOT carry the provided value throws `:rf.error/missing-required-cofx` during context assembly (every mode — a provided fact has no supplier and cannot be minted). The handler body never runs. A port that delivers nil, throws generically, or fails to throw FAILS."
+
+ :fixture/registry
+ {:event {:ssr/needs-request-time
+          {:doc       "Server handler: declares a provided recordable fact whose value is ABSENT from the token."
+           :platforms #{:server}}}
+  :cofx  {:ssr.cofx/request-time
+          ;; Provided recordable boundary fact — no supplier. Absent from the
+          ;; token here ⇒ `:rf.error/missing-required-cofx` at delivery.
+          {:recordable? true :provided? true
+           :doc "Provided recordable request-time fact; deliberately NOT stamped on the token."}}}
+
+ :fixture/handlers
+ {:event {:ssr/needs-request-time
+          ;; Reading the registered provided fact auto-wires it onto
+          ;; `:rf.cofx/requires` and forces the event-fx shape. The body never
+          ;; runs — delivery throws first (the value is absent + unminteable).
+          [[:set [:never] [:cofx-key :ssr.cofx/request-time]]]}}
+
+ :fixture/frame-config {:platform :server}
+
+ :fixture/dispatches
+ ;; No `:rf.cofx` on the token — the declared provided fact is absent. The
+ ;; runner asserts the boundary throw rather than a committed app-db.
+ [{:event [:ssr/needs-request-time] :expect-error :rf.error/missing-required-cofx}]
+
+ :fixture/expect
+ ;; The handler body never ran (context assembly threw first), so the `:never`
+ ;; slot was never written.
+ {:final-app-db {}}}

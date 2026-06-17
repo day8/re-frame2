@@ -244,24 +244,39 @@
         cofx-registry (get-in fixture [:fixture/registry :cofx] {})
         helpers       (adapter-helpers)]
     ;; ---- cofx -----------------------------------------------------------
-    ;; EP-0017: `reg-cofx` registers a value-returning AMBIENT supplier
-    ;; (`(fn [] value)`), not the retired ctx→ctx injector. For ssr the cofx
-    ;; registry slots are declarative only (their presence in
-    ;; :fixture/registry exists so meta lookups don't 404); fixtures that
-    ;; need real cofx delivery use the core conformance-test ns. The
-    ;; supplier returns the fixture's declared value (or nil for a bare
-    ;; `[[:noop]]`), delivered flat under the cofx-id to handlers that
-    ;; declare `:rf.cofx/requires [cofx-id]`.
+    ;; EP-0017 distinguishes TWO cofx shapes; the SSR runner now exercises
+    ;; both (rf2-sb47ni):
+    ;;
+    ;;   - AMBIENT value-returning cofx — `reg-cofx` takes a supplier
+    ;;     `(fn [] value)`; the runtime runs it at context assembly and
+    ;;     delivers the value flat under the cofx-id to a handler that
+    ;;     declares `:rf.cofx/requires [cofx-id]`. The supplier returns the
+    ;;     fixture's declared value (or nil for a bare `[[:noop]]`).
+    ;;
+    ;;   - PROVIDED recordable cofx (`{:provided? true …}`, typically
+    ;;     `:recordable? true`) — a BOUNDARY-supplied fact with NO supplier;
+    ;;     its VALUE rides the dispatch token flat under `:rf.cofx`, not a
+    ;;     generator. Post-#4104 `reg-cofx` REJECTS `provided? true` + a
+    ;;     supplier as `:rf.error/cofx-registration-invalid` (the shape
+    ;;     rf2-xuhdni fixed in the core runner), so register WITHOUT one. A
+    ;;     declared provided fact that is absent from the token throws
+    ;;     `:rf.error/missing-required-cofx` at delivery. This mirrors the
+    ;;     core runner so an SSR/hydration fixture can exercise the EP-0017
+    ;;     replay contract: provided facts ride flat on the token, absence
+    ;;     fails loudly (Spec 002 §Satisfaction algorithm + §The :rf.cofx
+    ;;     envelope is the host-integration path SSR/hydration uses).
     (doseq [[cofx-id meta] cofx-registry]
-      (let [body     (get-in hmap [:cofx cofx-id] [[:noop]])
-            supplier (fn []
-                       (reduce (fn [v step]
-                                 (case (first step)
-                                   :set (let [[_ _ sv] step] sv)
-                                   v))
-                               nil
-                               body))]
-        (rf/reg-cofx cofx-id meta supplier)))
+      (if (:provided? meta)
+        (rf/reg-cofx cofx-id meta)
+        (let [body     (get-in hmap [:cofx cofx-id] [[:noop]])
+              supplier (fn []
+                         (reduce (fn [v step]
+                                   (case (first step)
+                                     :set (let [[_ _ sv] step] sv)
+                                     v))
+                                 nil
+                                 body))]
+          (rf/reg-cofx cofx-id meta supplier))))
     ;; ---- events --------------------------------------------------------
     ;; EP-0017: a handler takes delivery of a cofx by DECLARING it in the
     ;; `:rf.cofx/requires` registration metadata — not via an `inject-cofx`
@@ -533,7 +548,11 @@
           ;; under its declared :platform / :ssr config.
           _            (rf/destroy-frame! :rf/default)
           _            (rf/reg-frame :rf/default frame-config)
-          dispatches   (or (:fixture/dispatches fixture) [])]
+          dispatches   (or (:fixture/dispatches fixture) [])
+          ;; rf2-sb47ni — accumulate per-dispatch boundary-throw mismatches
+          ;; (the `:expect-error` cofx-delivery assertions). Mirrors the core
+          ;; runner's `dispatch-error-failures` channel.
+          dispatch-error-failures (atom [])]
       ;; EP-0002 (rf2-9o48ih): a bare `dispatch-sync` with no explicit
       ;; `{:frame …}` opt resolves its target from the established frame
       ;; scope, never from an invented `:rf/default` floor (the carried
@@ -542,6 +561,43 @@
       (rf/with-frame :rf/default
       (doseq [ev dispatches]
         (cond
+          ;; ---- map-form dispatch (rf2-sb47ni) --------------------------
+          ;; A map dispatch carries `:event` plus optional opts. EP-0017
+          ;; SSR/hydration fixtures use this to supply a PROVIDED recordable
+          ;; fact flat on the token via `:rf.cofx {…}`, and to assert the
+          ;; boundary throw a MISSING declared provided fact raises via
+          ;; `:expect-error`. The remaining opts (`:rf.cofx`, `:source`)
+          ;; pass through to `dispatch-sync` verbatim.
+          (and (map? ev) (contains? ev :expect-error))
+          ;; EP-0017 cofx-delivery errors throw during context assembly,
+          ;; escaping `dispatch-sync` (not captured into the chain). Catch
+          ;; here and compare the ex-data `:rf.error/id`. Mirrors the core
+          ;; runner's `:expect-error` branch.
+          (let [event (:event ev)
+                want  (:expect-error ev)
+                opts  (dissoc ev :event :expect-error)
+                got   (try (rf/dispatch-sync event opts) ::no-throw
+                           (catch clojure.lang.ExceptionInfo e
+                             (:rf.error/id (ex-data e)))
+                           (catch Throwable e e))]
+            (cond
+              (= got ::no-throw)
+              (swap! dispatch-error-failures conj
+                     (str "dispatch " (pr-str event) " expected to throw "
+                          want " but did not throw"))
+              (not= got want)
+              (swap! dispatch-error-failures conj
+                     (str "dispatch " (pr-str event) " expected error " want
+                          " but got " (if (instance? Throwable got)
+                                        (str "a non-ExceptionInfo throw: "
+                                             (some-> ^Throwable got .getMessage))
+                                        got)))))
+
+          (map? ev)
+          ;; A map dispatch with no `:expect-error` — `:event` plus opts
+          ;; (e.g. `:rf.cofx` provided-fact delivery) flow to dispatch-sync.
+          (rf/dispatch-sync (:event ev) (dissoc ev :event))
+
           (and (vector? ev) (= :rf/hydrate (first ev)))
           ;; Per Spec 011 §The :rf/hydrate event the call site stamps
           ;; :source :ssr-hydration on the dispatch envelope. The
@@ -659,6 +715,7 @@
                                  (every? #(= (:expected %) (:actual %)) sub-checks)
                                  (empty? trace-failures)
                                  (empty? not-emit-failures)
+                                 (empty? @dispatch-error-failures)
                                  (or (nil? pe-check) (:passed? pe-check))
                                  (or (nil? head-check) (:passed? head-check))
                                  (or (nil? req-check) (:passed? req-check))
@@ -668,6 +725,7 @@
          :sub-checks        sub-checks
          :trace-failures    trace-failures
          :not-emit-failures not-emit-failures
+         :dispatch-error-failures @dispatch-error-failures
          :pe-check          pe-check
          :head-check        head-check
          :req-check         req-check
@@ -745,6 +803,8 @@
             (println "    trace:" tf))
           (doseq [nef (:not-emit-failures f)]
             (println "    not-emit:" nef))
+          (doseq [def (:dispatch-error-failures f)]
+            (println "    expect-error:" def))
           (when-let [pe (:pe-check f)]
             (when-not (:passed? pe)
               (println "    public-error expected:" (:expected pe))
