@@ -300,9 +300,9 @@ The kinds are listed in the order they appear in [§Registry model — the canon
 
 ### Re-registration of a different function — collision warning
 
-A re-registration with a *different* function (not just an updated source-coords pair on the same fn) is silent last-write-wins. This can mask collisions when two namespaces accidentally use the same id (`:save` from feature A clobbering `:save` from feature B).
+A re-registration from a *different source location* (not a same-source re-eval of the same id) is silent last-write-wins. This can mask collisions when two namespaces accidentally use the same id (`:save` from feature A clobbering `:save` from feature B).
 
-The runtime can be configured to warn at registration time when an id is reassigned to a different fn — recommend turning this on in dev. The detection compares fn identity (or, in CLJS reference, source-coord pairs from [§Source-coordinate capture](#source-coordinate-capture-cljs-reference)). A re-eval of the same source file produces the same `(file, line)` pair and is silent; a different file or line reassigning the id surfaces `:rf.warning/registration-collision`.
+The runtime can be configured to warn at registration time when an id is reassigned from a different source location — recommend turning this on in dev. The detection keys on the registration's **source-coord provenance** — its `(ns, file, line)` envelope from [§Source-coordinate capture](#source-coordinate-capture-cljs-reference) — **not** fn identity. (Comparing fn identity is wrong: a same-file save-and-re-eval allocates a *fresh* fn instance every time, so an identity comparison would fire on every hot reload — the exact false positive this rule must avoid.) A re-eval of the same source location produces the same `(ns, file, line)` provenance and is silent; a different file, line, or namespace reassigning the id surfaces `:rf.warning/registration-collision`. A programmatic / REPL registration that carries no captured provenance does not participate (there is no source identity to clash).
 
 ### How registrations interact with active machine instances
 
