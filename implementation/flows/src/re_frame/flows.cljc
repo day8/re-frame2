@@ -50,9 +50,17 @@
 ;; (`flows-snapshot` / `last-inputs-snapshot`) and the existing reset fns
 ;; (`reset-flows!` / `reset-last-inputs!`). The facade re-exports both
 ;; pairs.
+;;
+;; EP-0015 (rf2-guga0n): `last-inputs-snapshot` returns the RAW cached input
+;; values (owner-local app-db / runtime-db slices, possibly sensitive /
+;; large). It is an internal / test / rollback seam — `^:no-doc`, NOT an
+;; egress boundary. The egress-safe readback is `last-inputs-egress`, which
+;; projects each cached input under the owning frame's policy and fails
+;; closed for an unresolvable frame.
 
 (def flows-snapshot       registry/flows-snapshot)
-(def last-inputs-snapshot registry/last-inputs-snapshot)
+(def ^:no-doc last-inputs-snapshot registry/last-inputs-snapshot)
+(def last-inputs-egress   registry/last-inputs-egress)
 
 (def reg-flow           registry/reg-flow)
 (def clear-flow         registry/clear-flow)
