@@ -69,9 +69,13 @@
 ;;
 ;; Per Spec 002 §4 + Spec 001 §Collisions: `:db` and `:event` are the
 ;; fold's own arguments — NOT registered suppliers and never declarable via
-;; `:rf.cofx/requires`. A `reg-cofx` colliding with them (or with an
-;; application id under an `rf.`-prefixed namespace) is the registration-time
-;; hard error `:rf.error/cofx-name-collision`.
+;; `:rf.cofx/requires`. A `reg-cofx` colliding with them is the
+;; registration-time hard error `:rf.error/cofx-name-collision`. An
+;; application id under an `rf.`-prefixed namespace is a LINT diagnostic
+;; (Spec 009 §9), not a registration guard — the registration site cannot
+;; tell an app id from a framework/subsystem `rf.*` fact. A duplicate cofx
+;; id across namespaces is caught at EP-0023 image assembly
+;; (`:rf.error/image-duplicate-id`), uniformly with every other kind.
 
 (def ^:private fold-argument-keys
   "The fold's own argument keys — staged by the runtime, never registered as
@@ -114,9 +118,11 @@
   internally contradictory (`:provided?` without `:recordable?`; a missing
   supplier on a non-provided fact; a provided fact carrying a supplier that
   delivery will silently ignore). DISTINCT from
-  `:rf.error/cofx-name-collision`, which is reserved for genuine duplicate
-  ownership (`:db` / `:event` / another registered id). Per Spec 001
-  §`reg-cofx` + Spec 009 §Error catalogue."
+  `:rf.error/cofx-name-collision`, which is reserved for the call-time
+  ownership clashes (`:db` / `:event` fold-argument keys; the same id twice
+  in one `:rf.cofx/requires`). A duplicate cofx id across namespaces is
+  caught at EP-0023 image assembly (`:rf.error/image-duplicate-id`), not
+  here. Per Spec 001 §`reg-cofx` + Spec 009 §Error catalogue."
   [id reason]
   (trace/emit-error! :rf.error/cofx-registration-invalid
                      {:rf.cofx/id id
@@ -169,9 +175,12 @@
   Registration-time errors:
 
       :rf.error/cofx-name-collision       the id collides with the fold's
-                                          argument keys (`:db` / `:event`)
-                                          or another registered coeffect id
-                                          (genuine duplicate ownership).
+                                          argument keys (`:db` / `:event`).
+                                          (A duplicate cofx id across
+                                          namespaces is caught at EP-0023
+                                          image assembly as
+                                          `:rf.error/image-duplicate-id`,
+                                          not here.)
       :rf.error/cofx-registration-invalid the metadata grade is malformed —
                                           `:provided?` without
                                           `:recordable?`, a missing supplier

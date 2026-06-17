@@ -658,10 +658,16 @@ last rung, not the default.
 ### 8. Collisions and errors
 
 Registration-time collisions (hard error, `:rf.error/cofx-name-collision`):
-a coeffect id colliding with another registered id (one registry, one
-id-namespace — the grade is a property, not a namespace), with the fold's
-argument keys (`:db`, `:event`), or an application id under an `rf.`-prefixed
-namespace. No per-handler or dispatch-time collision rules are needed: the
+a coeffect id colliding with the fold's argument keys (`:db`, `:event`), or
+the same id declared twice (any args) in one `:rf.cofx/requires` scope. A
+coeffect id colliding with **another registered id** across namespaces is
+not a `reg-cofx` call-time guard — it is caught generically at EP-0023 image
+assembly as `:rf.error/image-duplicate-id`, uniformly with every other
+registered kind (same-namespace re-registration is an ordinary hot-reload
+replacement). An application id under an `rf.`-prefixed namespace is a LINT
+diagnostic (§9 / Spec 009 §9), not a registration guard — the registration
+site cannot tell an app id from a framework/subsystem `rf.*` fact. No
+per-handler or dispatch-time collision rules are needed: the
 requires-vs-inject double-delivery is unexpressible (`inject-cofx` is
 removed) and an undeclared supplied leaf is never staged (declared-only
 delivery).
@@ -673,7 +679,7 @@ delivery).
 | `:rf.error/cofx-request-invalid` | malformed `:rf.cofx/requires` at registration |
 | `:rf.error/cofx-registration-invalid` | malformed `reg-cofx` metadata grade at registration — `:provided?` without `:recordable?`, a missing supplier on a non-provided fact, or a provided fact carrying a (silently ignored) supplier |
 | `:rf.error/cofx-value-invalid` | a supplied/replayed value fails the structural EDN check or the registration's `:schema` — **fires in production** |
-| `:rf.error/cofx-name-collision` | registration-time name collision (above) — genuine duplicate ownership only |
+| `:rf.error/cofx-name-collision` | registration-time name collision (above) — the fold's argument keys (`:db` / `:event`), or the same id declared twice in one `:rf.cofx/requires` scope. A duplicate cofx id across namespaces is `:rf.error/image-duplicate-id` at EP-0023 image assembly, not here |
 | `:rf.error/world-inputs-renamed` | `:rf.world/inputs` supplied in dispatch opts — hard error naming `:rf.cofx` |
 | `:rf.error/inject-cofx-removed` | `inject-cofx` called — hard error naming `:rf.cofx/requires` |
 
