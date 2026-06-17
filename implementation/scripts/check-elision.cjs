@@ -62,9 +62,6 @@ const DEV_ONLY_SENTINELS = [
   // re-frame.schemas — validate-sub! reason string.
   { source: 're-frame.schemas/validate-sub!',
     sentinel: ' return value failed schema ' },
-  // re-frame.schemas — validate-cofx! reason string.
-  { source: 're-frame.schemas/validate-cofx!',
-    sentinel: ' injected value failed schema ' },
   // re-frame.schemas — validate-fx! reason string.
   { source: 're-frame.schemas/validate-fx!',
     sentinel: ' args failed schema ' },

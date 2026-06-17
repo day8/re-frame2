@@ -733,41 +733,12 @@
           (is (= [:user/strict "bad"] (-> v :tags :received)))
           (is (= :no-recovery (:recovery v))))))))
 
-(deftest cofx-validation-direct-call-shape
-  ;; NB `validate-cofx!` is DEMOTED (EP-0017) — NOT the live runtime cofx
-  ;; schema path (that is `re-frame.cofx/validate-recordable-value!` →
-  ;; `:rf.error/cofx-value-invalid`, covered by
-  ;; recordable-cofx-value-invalid-* above). This pins only the demoted fn's
-  ;; pure-shape contract (return value + trace tags) so a refactor of the
-  ;; shared `run-validation` core can't silently break it while the fn / its
-  ;; hook publication survive pending the Spec 010 step-2 rewrite.
-  (testing "rf2-rbbmt — validate-cofx! returns true on pass, false on
-            fail, true on the no-:schema soft-pass arm; emits the
-            canonical :where :cofx trace with the locked tag shape"
-    (let [traces (atom [])]
-      (rf/register-listener! ::cfd (fn [ev] (swap! traces conj ev)))
-      (is (true? (schemas/validate-cofx! :app-version :ev/origin "1.4.5"
-                                         {:schema :string}))
-          "well-typed cofx value passes")
-      (is (false? (schemas/validate-cofx! :app-version :ev/origin 42
-                                          {:schema :string}))
-          "malformed cofx value fails")
-      (is (true? (schemas/validate-cofx! :app-version :ev/origin 42 {}))
-          "no :schema on meta → soft pass (validate.cljc:250 true arm)")
-      (rf/unregister-listener! ::cfd)
-      (let [violations (filter #(= :rf.error/schema-validation-failure
-                                   (:operation %))
-                               @traces)]
-        (is (= 1 (count violations)))
-        (let [v (first violations)]
-          (is (= :cofx        (-> v :tags :where)))
-          (is (= :app-version (-> v :tags :rf.cofx/id)))
-          (is (= :ev/origin   (-> v :tags :event-id)))
-          (is (= :ev/origin   (-> v :tags :failing-id)))
-          (is (= :app-version (-> v :tags :schema-id)))
-          (is (= 42           (-> v :tags :value)))
-          (is (= 42           (-> v :tags :received)))
-          (is (= :no-recovery (:recovery v))))))))
+;; NB the cofx-validation-direct-call-shape test was REMOVED per rf2-nkf4l3:
+;; the injection-time `validate-cofx!` fn it pinned was retired (EP-0017). The
+;; live cofx schema contract is `re-frame.cofx/validate-recordable-value!` →
+;; `:rf.error/cofx-value-invalid` (a production hard error), covered by
+;; recordable-cofx-value-invalid-attributes-named-frame above and the cofx
+;; satisfaction tests in the core artefact.
 
 (deftest sub-return-validation-direct-call-shape
   (testing "rf2-rbbmt — validate-sub! returns true on pass, false on
@@ -798,29 +769,13 @@
           (is (= [1 2]        (-> v :tags :received)))
           (is (= :replaced-with-default (:recovery v))))))))
 
-;; ---- G3 (rf2-rbbmt): production-elision symmetry for cofx + sub ----------
+;; ---- G3 (rf2-rbbmt): production-elision symmetry for sub ----------
 ;;
-;; debug-enabled?=false elision is pinned for app-db (:75), event (:282),
-;; and fx (:472) but NOT for validate-cofx! / validate-sub!. The bodies
-;; share the outer `(if interop/debug-enabled? ... true)` gate, so a
-;; refactor of one wrapper that broke its gate would slip past the suite.
-;; These direct-call pins close that asymmetry.
-
-(deftest cofx-validation-elides-when-debug-disabled
-  (testing "rf2-rbbmt — validate-cofx! is a no-op (returns true, emits
-            nothing) when debug-enabled? is false (production)"
-    (let [traces (atom [])]
-      (rf/register-listener! ::cfe (fn [ev] (swap! traces conj ev)))
-      (with-redefs [interop/debug-enabled? false]
-        (is (true? (schemas/validate-cofx! :app-version :ev/origin 42
-                                           {:schema :string}))
-            "production gate returns true unconditionally — even on a
-             value that would fail in dev"))
-      (rf/unregister-listener! ::cfe)
-      (is (empty? (filter #(= :rf.error/schema-validation-failure
-                              (:operation %))
-                          @traces))
-          "no validation trace when debug-enabled? is false"))))
+;; debug-enabled?=false elision is pinned for app-db, event, and fx but NOT
+;; for validate-sub! (the cofx elision pin was removed with validate-cofx! per
+;; rf2-nkf4l3). The bodies share the outer `(if interop/debug-enabled? ... true)`
+;; gate, so a refactor of one wrapper that broke its gate would slip past the
+;; suite. This direct-call pin closes that asymmetry for the sub surface.
 
 (deftest sub-return-validation-elides-when-debug-disabled
   (testing "rf2-rbbmt — validate-sub! is a no-op (returns true, emits
@@ -1224,8 +1179,6 @@
       (is (true? (schemas/validate-event! :ev/x [:ev/x "bad"]
                                           {:schema [:cat [:= :ev/x] :int]}))
           "event: nil validator → true")
-      (is (true? (schemas/validate-cofx! :cf/x :ev/o 42 {:schema :string}))
-          "cofx: nil validator → true")
       (is (true? (schemas/validate-sub! :sub/x [:sub/x] [1] {:schema [:vector :string]}))
           "sub-return: nil validator → true")
       (is (true? (schemas/validate-fx! :fx/x :ev/o {:x "bad"} {:schema [:map [:x :int]]}))
@@ -1351,10 +1304,9 @@
       (rf/register-listener! ::nilexp (fn [ev] (swap! traces conj ev)))
       ;; app-db walk emit site.
       (is (false? (schemas/validate-app-schema! {:n "bad"} :h/app-db)))
-      ;; the four meta-bearing emit sites (run-validation core).
+      ;; the three meta-bearing emit sites (run-validation core).
       (is (false? (schemas/validate-event! :ev/x [:ev/x "bad"]
                                            {:schema [:cat [:= :ev/x] :int]})))
-      (is (false? (schemas/validate-cofx! :cf/x :ev/o 42 {:schema :string})))
       (is (false? (schemas/validate-sub! :sub/x [:sub/x] [1]
                                          {:schema [:vector :string]})))
       (is (false? (schemas/validate-fx! :fx/x :ev/o {:x "bad"}
@@ -1363,7 +1315,7 @@
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
-        (is (= 5 (count violations))
+        (is (= 4 (count violations))
             "every emit site fired its trace even with no explainer registered")
         (doseq [v violations]
           (is (contains? (:tags v) :explain)

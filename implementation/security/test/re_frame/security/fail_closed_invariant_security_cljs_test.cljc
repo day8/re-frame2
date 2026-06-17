@@ -149,7 +149,7 @@
                  " must fail CLOSED (false), got " (pr-str verdict)))))))
 
 (deftest meta-bearing-surfaces-never-pass-a-malformed-schema
-  (testing "rf2-a5kzs#2 — the four meta-bearing validate-*! fns return
+  (testing "rf2-a5kzs#2 — the three meta-bearing validate-*! fns return
             FALSE (reject) for a malformed schema, emitting
             :rf.error/malformed-schema. None coerces to true; none throws."
     (doseq [schema malformed-schemas]
@@ -159,9 +159,6 @@
                           (str "event / " (pr-str schema) " → false")))]
         (is (pos? (count (ops traces :rf.error/malformed-schema)))
             (str "event / " (pr-str schema) " emits :rf.error/malformed-schema")))
-      ;; :where :cofx
-      (is (false? (schemas/validate-cofx! :cf/x :ev/x {:any :thing} {:schema schema}))
-          (str "cofx / " (pr-str schema) " → false"))
       ;; :where :fx-args
       (is (false? (schemas/validate-fx! :fx/x :ev/x {:any :thing} {:schema schema}))
           (str "fx / " (pr-str schema) " → false"))
@@ -211,7 +208,6 @@
                 [(try (schemas/validate-with-registered-fn schema [:x])
                       (catch #?(:clj Throwable :cljs :default) _ :threw))
                  (schemas/validate-event! :ev/x [:ev/x 1] {:schema schema})
-                 (schemas/validate-cofx! :cf/x :ev/x {} {:schema schema})
                  (schemas/validate-fx!   :fx/x :ev/x {} {:schema schema})
                  (schemas/validate-sub!  :sub/x [:sub/x] {} {:schema schema})])))]
       (is (nil? result)
