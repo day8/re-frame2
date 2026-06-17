@@ -363,17 +363,37 @@
     :else                    false))
 
 ;; ---------------------------------------------------------------------------
-;; Redaction projection (spec/004 §Privacy, rf2-shy6n / rf2-ee38b.3)
+;; Redaction projection (spec/004 §Privacy, rf2-shy6n / rf2-ee38b.3 /
+;; rf2-006y9b)
 ;;
-;; A value captured from a path / sub the frame marked sensitive (via
-;; `re-frame.core/add-marks` / `set-marks`, or a schema entry with
-;; `{:sensitive? true}`) MUST NOT land raw on the assertion record's
-;; `:actual` slot — the record serialises into observation surfaces (the
-;; test-mode pane, MCP `read-assertions`, JSON-log egress) per spec/015
-;; §Data-Classification. We project the captured value through
-;; `re-frame.elision/elide-wire-value` (the frame-aware wire-egress
-;; projection) so a sensitive path records `:rf/redacted`, not the secret.
-;; A path with no sensitive declaration passes through unchanged.
+;; An assertion record is a value-bearing OBSERVATION surface: it serialises
+;; into the test-mode pane, MCP `read-assertions`, and JSON-log egress per
+;; spec/015 §Data-Classification (which lists "Xray / Story panel rendering"
+;; and "MCP / tool wire transport" as boundaries projection must guard). So
+;; NO slot of the record may carry the raw secret for a sensitive path —
+;; not `:actual`, and (rf2-006y9b) not `:expected`, `:payload`, or `:reason`
+;; either.
+;;
+;; The contract (rf2-006y9b, aligning to EP-0015's frame-owned model):
+;;
+;;   1. A value read from a sensitive path / sub projects to `:rf/redacted`
+;;      in `:actual` (the captured observation).
+;;   2. The author-supplied `:expected` for a sensitive path is ALSO
+;;      projected before it lands on the record, so an author who pinned the
+;;      raw secret as the expected value does not leak it through `:expected`
+;;      / `:payload` / `:reason`.
+;;   3. The documented `:rf/redacted` sentinel is a first-class legal
+;;      `:expected` value: a `:rf.assert/path-equals` against a sensitive
+;;      path PASSES when `expected` is the sentinel (proving the observation
+;;      surface saw the sentinel) OR the raw value (the comparison is made
+;;      against the raw read, then BOTH expected and actual are projected for
+;;      the record). Both the doc-following author (writes `:rf/redacted`)
+;;      and the value-pinning author (writes the raw value) get a passing
+;;      assertion with a leak-free record.
+;;
+;; Projection rides `re-frame.elision/elide-wire-value` (the frame-aware
+;; wire-egress walker) keyed on the asserted path + the variant frame; a path
+;; with no sensitive declaration passes through unchanged.
 ;; ---------------------------------------------------------------------------
 
 (defn- redact-at
@@ -388,6 +408,28 @@
                                   frame-id (assoc :frame frame-id)))
     (catch #?(:clj Throwable :cljs :default) _ v)))
 
+(defn- sentinel-expected?
+  "True iff the author wrote the framework redaction sentinel
+  (`:rf/redacted`) as the `:expected` value — the documented way to pin the
+  redaction contract for a sensitive path (rf2-006y9b). Such an expected is
+  considered satisfied when the observed value at the path projects to the
+  sentinel (i.e. the path is sensitive)."
+  [expected]
+  (= :rf/redacted expected))
+
+(defn- path-equals-passed?
+  "Pass/fail for an equality assertion against a sensitive-aware path
+  (rf2-006y9b). Passes iff the raw value equals the author's expected, OR
+  the author pinned the `:rf/redacted` sentinel AND the path is sensitive
+  (the projected `actual` is the sentinel). This makes the documented
+  sentinel contract real: an author writing `:rf/redacted` against a
+  sensitive path gets a green assert without the comparison ever leaking the
+  raw value into the record."
+  [raw expected actual]
+  (or (= expected raw)
+      (and (sentinel-expected? expected)
+           (= :rf/redacted actual))))
+
 ;; ---------------------------------------------------------------------------
 ;; The canonical seven — defined as plain helper fns that produce the
 ;; assertion record. The `install-canonical-assertions!` boot fn wraps
@@ -397,16 +439,26 @@
 
 (defn- evaluate-path-equals
   [frame-id db [path expected]]
-  (let [raw     (get-in db path)
-        passed? (= expected raw)
-        actual  (redact-at frame-id path raw)]
+  (let [raw          (get-in db path)
+        actual       (redact-at frame-id path raw)
+        passed?      (path-equals-passed? raw expected actual)
+        ;; rf2-006y9b — project the author-supplied `:expected` against the
+        ;; same path so a raw secret pinned as the expected value does not
+        ;; leak through `:expected` / `:payload` / `:reason`. The sentinel
+        ;; passes through unchanged (it is the sentinel, not a path value).
+        exp-redacted (if (sentinel-expected? expected)
+                       expected
+                       (redact-at frame-id path expected))]
     {:passed?  passed?
-     :expected expected
+     :expected exp-redacted
      :actual   actual
      :path     path
+     ;; The record payload is rebuilt from the REDACTED expected so the
+     ;; serialised `:payload` slot never carries the raw secret either.
+     :payload  [path exp-redacted]
      :reason   (if passed?
                  "path equals expected"
-                 (str "expected " (pr-str expected)
+                 (str "expected " (pr-str exp-redacted)
                       " at " (pr-str path)
                       " but got "  (pr-str actual)))}))
 
@@ -491,23 +543,33 @@
   ;; an app-db path). Where the sub-vec carries an app-db path (the
   ;; common `[:sub/id & path]` shape) the projection redacts; otherwise
   ;; the value passes through unchanged.
-  (let [raw     (try
-                  (subs/compute-sub sub-vec frame-state)
-                  (catch #?(:clj Throwable :cljs :default) _
-                    ::compute-error))
-        passed? (and (not= raw ::compute-error)
-                     (= raw expected))
-        actual  (cond
-                  (= raw ::compute-error) :rf.assert/sub-threw
-                  :else                   (redact-at frame-id (vec (rest sub-vec)) raw))]
+  (let [sub-path     (vec (rest sub-vec))
+        raw          (try
+                       (subs/compute-sub sub-vec frame-state)
+                       (catch #?(:clj Throwable :cljs :default) _
+                         ::compute-error))
+        threw?       (= raw ::compute-error)
+        actual       (cond
+                       threw?  :rf.assert/sub-threw
+                       :else   (redact-at frame-id sub-path raw))
+        passed?      (and (not threw?)
+                          (path-equals-passed? raw expected actual))
+        ;; rf2-006y9b — project the author-supplied `:expected` against the
+        ;; sub's args-path so a sensitive sub's expected value does not leak.
+        exp-redacted (if (or threw? (sentinel-expected? expected))
+                       expected
+                       (redact-at frame-id sub-path expected))]
     {:passed?  passed?
-     :expected expected
+     :expected exp-redacted
      :actual   actual
      :sub-vec  sub-vec
+     ;; Rebuild the record payload from the redacted expected (the sub-vec
+     ;; itself is an id + path args, not a secret bearer).
+     :payload  [sub-vec exp-redacted]
      :reason   (cond
-                 (= raw ::compute-error) "subscription threw during evaluation"
+                 threw?  "subscription threw during evaluation"
                  passed? "subscription returned expected value"
-                 :else (str "expected " (pr-str expected)
+                 :else (str "expected " (pr-str exp-redacted)
                             " from " (pr-str sub-vec)
                             " but got " (pr-str actual)))}))
 
@@ -1054,9 +1116,16 @@
                          :no-warnings     (evaluate-no-warnings     (warnings frame-id) payload)
                          :effect-emitted  (evaluate-effect-emitted  (emitted-fx frame-id) payload))
           elapsed-ms   (- (interop/now-ms) start-ms)
-          record       (assertion-record assertion-id payload
+          ;; rf2-006y9b — a value-comparing evaluator (`:path-equals` /
+          ;; `:sub-equals`) returns a REDACTED `:payload` rebuilt from the
+          ;; projected expected, so the record's `:payload` slot never
+          ;; carries the raw secret. Evaluators that introduce no
+          ;; secret-bearing payload return none and we fall back to the raw
+          ;; event payload (it carries no sensitive value for those kinds).
+          record-payload (or (:payload extras) payload)
+          record       (assertion-record assertion-id record-payload
                                          (:passed? extras)
-                                         (dissoc extras :passed?)
+                                         (dissoc extras :passed? :payload)
                                          dispatch-id elapsed-ms
                                          frame-id)]
       ;; Append the record to [:rf.story/assertions] directly on the

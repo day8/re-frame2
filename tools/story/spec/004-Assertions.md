@@ -240,43 +240,57 @@ the row seq does not warn.
 
 ## Privacy
 
-Assertion records are an observation surface and obey the framework's
-path-level data-classification contract
+An assertion record is a value-bearing **observation surface** — it
+serialises into the `:test`-mode pane, MCP `read-assertions`, and JSON-log
+egress, all of which spec/015 lists as boundaries projection must guard. So
+**no slot of the record may carry a raw secret for a sensitive path** — not
+`:actual`, and (rf2-006y9b) not `:expected`, `:payload`, or `:reason`. The
+record obeys the framework's path-level data-classification contract
 ([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
 The rules:
 
-1. **`:actual` passes through `re-frame.elision/elide-wire-value`
-   before landing in `:assertions`** (wired by rf2-ee38b.3). If a
-   variant declared per-frame marks via
-   `(re-frame.core/add-marks <variant-id> {path mark, ...})` or
-   `(re-frame.core/set-marks <variant-id> {path mark, ...})` (per
-   [spec/015 §2. App-db marks (per frame)](../../../spec/015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks)),
-   then a `:rf.assert/path-equals [:auth :token] ...` lookup against a
-   path-marked-sensitive slot records `:actual :rf/redacted`, NOT the
-   raw value. The `assertions/evaluate-path-equals` /
-   `evaluate-path-matches` evaluators project `:actual` keyed on the
-   asserted path; `evaluate-sub-equals` projects keyed on the sub-vec's
-   args path (`(rest sub-vec)`), so a parameterised sub
-   `[:sub/id :user :ssn]` reading a marked `[:user :ssn]` redacts. A
-   bare sub-id whose args carry no app-db path relies on sub-engine
-   marker propagation (spec/015 §App-db → subs) — tracked separately.
-   `:expected` is author-supplied (typically the sentinel itself) and is
-   not projected.
-2. **The sentinel literal is a legal `:expected` value.** Authors
-   write the `:rf/redacted` sentinel directly into the assertion to
-   pin the redaction contract: a passing
-   `:rf.assert/path-equals [:auth :token] :rf/redacted` proves the
-   observation surface saw a sentinel, NOT the secret.
-3. **Cross-frame isolation holds.** A variant's `add-marks` /
-   `set-marks` declaration scopes to its own frame; an adjacent
-   variant in a side-by-side pane sees only its own declared marks
-   (per [`002-Runtime.md`](002-Runtime.md) §Per-variant frame
-   allocation + spec/015 §App-db marks scoping).
-4. **Display contract — same posture as Xray.** The `:test` mode
-   pane and the `[data-test="story-test-row-detail"]` disclosure
-   render `:rf/redacted` per spec/015 §Display contract. A disclosure
-   that revealed the underlying value would be non-conformant — see
-   spec/015 §The display contract.
+1. **Every value-bearing slot passes through
+   `re-frame.elision/elide-wire-value` before landing in `:assertions`.**
+   Durable app-db classification is **frame-owned** per
+   [spec/015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md#frame-owned-durable-classification):
+   a variant declares its sensitive / large paths at frame creation
+   (`:sensitive` / `:large` on the variant's `reg-frame` config — see
+   [`002-Runtime.md` §Frame-owned classification](002-Runtime.md)). A
+   `:rf.assert/path-equals [:auth :token] ...` lookup against a frame-marked-
+   sensitive slot records `:actual :rf/redacted`, NOT the raw value. The
+   `evaluate-path-equals` / `evaluate-sub-equals` evaluators project
+   `:actual` keyed on the asserted path; `evaluate-sub-equals` keys on the
+   sub-vec's args path (`(rest sub-vec)`), so a parameterised sub
+   `[:sub/id :user :ssn]` reading a sensitive `[:user :ssn]` redacts. A bare
+   sub-id whose args carry no app-db path relies on sub-engine marker
+   propagation (spec/015 §Derived sensitivity) — tracked separately.
+2. **`:expected`, `:payload`, and `:reason` are projected too**
+   (rf2-006y9b). An author who pins the *raw* expected value against a
+   sensitive path does not leak it: `:expected` is projected against the
+   same path before it lands on the record (→ `:rf/redacted`), `:payload`
+   is rebuilt from the redacted expected (`[path :rf/redacted]`), and
+   `:reason` prints the redacted form. The pass/fail outcome is unchanged —
+   the equality is checked against the raw read, then both expected and
+   actual are projected for the record.
+3. **The `:rf/redacted` sentinel is a first-class legal `:expected`
+   value.** An author writes the documented sentinel directly to pin the
+   contract: a `:rf.assert/path-equals [:auth :token] :rf/redacted` against a
+   sensitive path **passes** (the observation surface saw the sentinel) —
+   the comparison treats a sentinel expected as satisfied when the projected
+   `:actual` is `:rf/redacted`. Both the doc-following author (writes the
+   sentinel) and the value-pinning author (writes the raw value) get a green
+   assertion with a leak-free record.
+4. **Cross-frame isolation holds.** A variant's frame-owned classification
+   scopes to its own frame; an adjacent variant in a side-by-side pane sees
+   only its own declared classification (per
+   [`002-Runtime.md`](002-Runtime.md) §Per-variant frame allocation +
+   spec/015 §Frame-owned durable classification, which is cross-frame-
+   distinct by construction).
+5. **Display contract — same posture as Xray.** The `:test` mode pane and
+   the `[data-test="story-test-row-detail"]` disclosure render `:rf/redacted`
+   per spec/015 §The display contract. A disclosure that revealed the
+   underlying value would be non-conformant — `:rf/redacted` MUST NOT be
+   expandable.
 
 See also:
 
