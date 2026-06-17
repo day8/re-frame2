@@ -143,7 +143,7 @@
       (contains? (on-match-event-ids route-meta) event-id))))
 
 (defn on-match-error-handler
-  "`:rf.route.internal/on-match-error` event-fx handler. Registered by
+  "`:rf.route.internal/on-match-error` event handler. Registered by
   the `re-frame.routing` façade so a `:reload` of the façade re-runs the
   registration."
   [{rdb :rf.db/runtime} [_ {:keys [error nav-token]}]]

@@ -215,8 +215,9 @@
    :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
 minted at processing-start from the active frame's host nav-token
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
-coeffect). Delivered under `:coeffects :rf.route/nav-allocation` to a nav
-commit handler that declares `:rf.cofx/requires [:rf.route/nav-allocation]`.
+coeffect). Delivered FLAT under the `:rf.route/nav-allocation` key in the
+coeffects map (EP-0017 §5) to a nav commit handler that declares
+`:rf.cofx/requires [:rf.route/nav-allocation]`.
 The handler writes only `:token` into the route slice and rides `:counter`
 on the `:rf.route/commit-nav-counter` fx (host high-water `max` bump).
 Recorded so record+replay re-presents the same nav-token verbatim
@@ -256,9 +257,9 @@ Recorded so record+replay re-presents the same nav-token verbatim
    :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
 minted at processing-start from the active frame's host pending-nav
 high-water mark and RECORDED onto the causal token (EP-0017 recordable
-coeffect). Delivered under `:coeffects :rf.route/pending-nav-allocation` to
-a nav entry handler that declares `:rf.cofx/requires
-[:rf.route/pending-nav-allocation]`. On a `:can-leave` block the handler
+coeffect). Delivered FLAT under the `:rf.route/pending-nav-allocation` key
+in the coeffects map (EP-0017 §5) to a nav entry handler that declares
+`:rf.cofx/requires [:rf.route/pending-nav-allocation]`. On a `:can-leave` block the handler
 writes only `:id` into the pending-navigation slot and rides `:counter` on
 the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
 `[:rf.route/continue \"pn-N\"]` re-matches under replay (replay-determinism

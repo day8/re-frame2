@@ -60,7 +60,7 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn simulate-http-resolution-handler
-  "`:rf.test/simulate-http-resolution` event-fx handler. Registered at
+  "`:rf.test/simulate-http-resolution` event handler. Registered at
   ns-load (below) so a `(require 're-frame.routing.test-support :reload)`
   re-wires it on a fresh registrar.
 

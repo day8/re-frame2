@@ -112,7 +112,7 @@
     tags))
 
 (defn navigate-handler
-  "`:rf.route/navigate` event-fx handler. Registered by the façade so a
+  "`:rf.route/navigate` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar.
 
   EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db

@@ -269,9 +269,13 @@
       (is (= "en-AU" @seen)
           "the declared coeffect arrived FLAT under its id (no nesting)"))))
 
-(deftest reg-event-rf-cofx-requires-generator-arg-path
-  (testing "EP-0017 generator path on reg-event: a `[:cofx-id arg]` declaration
-            passes the literal arg to the cofx generator, delivered flat"
+(deftest reg-event-rf-cofx-requires-one-arg-ambient-supplier-arg-path
+  (testing "EP-0017 §2 one-arg AMBIENT supplier on reg-event: a `[:cofx-id arg]`
+            declaration passes the literal arg to a call-site-parameterized
+            ambient supplier `(fn [arg] value)`, delivered flat. This is the
+            ambient (never-recorded) supplier-arg path — distinct from the
+            slice-B recordable-generator / mint-policy machinery exercised
+            below (which mints + writes back to the causal record)"
     (let [seen (atom ::unset)]
       ;; The call-site-parameterized supplier is one-arg `(fn [arg] value)`
       ;; (cofx.cljc §Supplier signatures), declared `[id arg]` in :rf.cofx/requires.
@@ -857,7 +861,9 @@
           "a FRAMEWORK-AUTHORITY handler writes :rf.db/runtime silently — NO app-handler-runtime-effect diagnostic"))))
 
 (deftest reg-event-unchanged-db-return-is-a-true-noop
-  (testing "EP-0018 §4 (rf2-na5i1z): a `{:db db}` return that re-installs the
+  (testing "COMMIT-SEMANTICS COMPANION — rf2-ekq28v (NOT EP-0018-owned; the
+            EP-0018 §4 Conformance section assigns the `{:db <identical>}` no-op
+            to rf2-ekq28v): a `{:db db}` return that re-installs the
             SAME app-db value is a true no-op — app-db is unchanged AND the
             change-trace stream reflects the no-op (`:rf.event/db-noop` fires,
             `:rf.event/db-changed` does NOT). A regression that treated every
@@ -886,7 +892,9 @@
             "an unchanged `{:db db}` return does NOT fire :rf.event/db-changed")))))
 
 (deftest reg-event-db-nil-return-is-coerced-to-empty-map-with-diagnostic
-  (testing "EP-0018 §4 + rf2-ekq28v (rf2-na5i1z): a `{:db nil}` return is
+  (testing "COMMIT-SEMANTICS COMPANION — rf2-ekq28v (NOT EP-0018-owned; the
+            EP-0018 §4 Conformance section assigns the `{:db nil}` -> `{:db {}}`
+            coercion to rf2-ekq28v): a `{:db nil}` return is
             COERCED to `{}` at the commit boundary (app-db is always a map,
             never nil — the v1 nil-footgun is removed structurally) AND emits
             the dev-mode `:rf.warning/db-nil-coerced` diagnostic for
@@ -917,8 +925,9 @@
             "the coercion diagnostic carries :recovery :warned (the value is still applied)")))))
 
 (deftest reg-event-deliberate-empty-db-clear-emits-no-diagnostic
-  (testing "EP-0018 §4 + rf2-ekq28v (rf2-na5i1z): a DELIBERATE clear — returning
-            `{:db {}}` (a distinct, non-nil empty map) — clears app-db WITHOUT
+  (testing "COMMIT-SEMANTICS COMPANION — rf2-ekq28v (NOT EP-0018-owned; the
+            companion to the `{:db nil}` coercion above): a DELIBERATE clear —
+            returning `{:db {}}` (a distinct, non-nil empty map) — clears app-db WITHOUT
             the `:rf.warning/db-nil-coerced` diagnostic, distinguishing the
             intentional empty-map clear from the accidental-nil footgun. A
             regression that warned on a deliberate `{:db {}}` clear goes RED"

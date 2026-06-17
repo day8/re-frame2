@@ -3,9 +3,9 @@
 
   Per Spec 012 §Navigation tokens — stale-result suppression. Owns:
     - `:rf.route/nav-token` cofx — injects the current navigation epoch
-      token (`[:rf.runtime/routing :current :nav-token]`) into an
-      `:on-match` handler's `:coeffects` under key `:rf.route/nav-token`,
-      so the handler can capture it and thread it into an async
+      token (`[:rf.runtime/routing :current :nav-token]`) FLAT under the
+      `:rf.route/nav-token` key in an `:on-match` handler's coeffects map
+      (EP-0017 §5), so the handler can capture it and thread it into an async
       continuation;
     - `:rf.route/with-nav-token` fx — wraps an async-completion fx
       entry (`:do`) with a stale-result check: match → run; mismatch →
@@ -52,8 +52,8 @@
   Universal platform: the route slice exists on both client and server,
   so the cofx resolves under SSR and browser alike."
   {:doc "The current navigation epoch token, read from
-`[:rf.runtime/routing :current :nav-token]` and delivered under
-`:coeffects :rf.route/nav-token`. Declare with
+`[:rf.runtime/routing :current :nav-token]` and delivered FLAT under the
+`:rf.route/nav-token` key in the handler coeffects map (EP-0017 §5). Declare with
 `:rf.cofx/requires [:rf.route/nav-token]` on an `:on-match`-reached
 handler; capture the value and thread it into an async continuation so a
 superseding navigation suppresses the stale result. Per Spec 012

@@ -1,5 +1,18 @@
-;; re-frame2 EP-0018 one-form event-MODEL conformance tier
-;; (rf2-xhfxcs.6; EP-0018 §Conformance + Bead Plan item 7).
+;; re-frame2 event-conformance tier — the broader event-conformance TEST
+;; surface (rf2-xhfxcs.6; EP-0018 §Conformance + Bead Plan item 7).
+;;
+;; Its CORE lock is the EP-0018 one-form event-MODEL contract (the
+;; `event_model_conformance_cljs_test.cljc` umbrella), but follow-on locks
+;; have since landed alongside it on this same surface:
+;;
+;;   - the EP-0017 recordable-coeffect locks live IN the model-conformance
+;;     ns (flat declared delivery, the one-arg ambient supplier arg path,
+;;     and the slice-B recordable-generator / mint-policy machinery —
+;;     `:live` mint + write-back, `:strict` refuse-to-mint, `:explicit-live`
+;;     escape; rf2-lpyw1v); and
+;;   - the EP-0023 image-loaded frame dispatch-isolation lock is a SEPARATE
+;;     ns (`event_frame_isolation_conformance_cljs_test.cljc`, rf2-slvzn3)
+;;     this alias also runs.
 ;;
 ;; This is NOT a published Maven artefact — it has no `src/`. It is a
 ;; cross-artefact TEST surface (the precedent is `reply-conformance/` and

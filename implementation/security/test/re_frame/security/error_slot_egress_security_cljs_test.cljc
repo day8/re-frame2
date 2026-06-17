@@ -70,11 +70,12 @@
             [re-frame.marks :as marks]
             [re-frame.mcp-base.sensitive :as sens]
             [re-frame.routing :as routing]
-            ;; Call `navigate-handler` directly (a plain event-fx handler fn)
-            ;; so site 2 exercises the REAL redaction path headless — no
-            ;; reactive-substrate adapter / `dispatch-sync` machinery needed.
-            ;; A `:params`-schema validation reject short-circuits inside the
-            ;; handler before any push/scroll fx, so a synthetic cofx suffices.
+            ;; Call `navigate-handler` directly (the `reg-event` handler fn,
+            ;; `(cofx event) -> effects-map-or-nil`) so site 2 exercises the
+            ;; REAL redaction path headless — no reactive-substrate adapter /
+            ;; `dispatch-sync` machinery needed. A `:params`-schema validation
+            ;; reject short-circuits inside the handler before any push/scroll
+            ;; fx, so a synthetic cofx suffices.
             [re-frame.routing.navigate :as navigate]
             [re-frame.routing.registry :as registry]
             [re-frame.test-support :as test-support]
