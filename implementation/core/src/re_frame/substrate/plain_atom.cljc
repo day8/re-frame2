@@ -118,8 +118,11 @@
       (str "no hiccup emitter is bound on the plain-atom adapter; require the "
            "re-frame.ssr namespace (which calls set-hiccup-emitter! on load) "
            "before calling render-to-string.")
+      ;; EP-0015 (rf2-uwqale): carry an EP-0015-safe SUMMARY of the
+      ;; render-tree, never the raw tree (a thrown render diagnostic is
+      ;; captured off-box before path-based projection can classify it).
       {:recovery :require-re-frame-ssr
-       :extra    {:render-tree render-tree}})))
+       :extra    {:render-tree/summary (error/diag-value-summary render-tree)}})))
 
 (defn- register-context-provider [_frame-keyword]
   ;; No React context on the JVM; users thread frames as arguments per

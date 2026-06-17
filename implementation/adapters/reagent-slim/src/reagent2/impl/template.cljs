@@ -48,6 +48,7 @@
   `React.Children.only` invocation."
   (:require [clojure.string :as str]
             [reagent2.impl.component :as component]
+            [reagent2.impl.diag :as diag]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -672,9 +673,13 @@
             (when (and (vector? el)
                        (not (get-react-key el))
                        (exists? js/console))
+              ;; EP-0015 (rf2-uwqale): summarise the offending child, never
+              ;; `pr-str` it whole — a hiccup child can carry app-owned
+              ;; sensitive/large values and the warning lands verbatim in
+              ;; the browser console (an off-box observation surface).
               (.warn js/console
                      (str "[reagent-slim] each child in a list should have a unique"
-                          " :key prop; saw " (pr-str el)))))
+                          " :key prop; saw " (pr-str (diag/value-summary el))))))
           (.push arr (as-element el))
           (recur (next items)))))
     arr))
@@ -841,19 +846,24 @@
       :else
       ;; Canonical shape replicated inline (bundle isolation — see the
       ;; empty-vector throw above for the rationale).
-      (throw (ex-info (str "Hiccup head " (pr-str tag)
+      ;; EP-0015 (rf2-uwqale): the head + argv summarise into shape-only
+      ;; diagnostics — never the raw head/children. A bad-tag throw is
+      ;; captured by error boundaries / host logs before the projector can
+      ;; classify it, and the argv carries app-owned hiccup children that
+      ;; can hold sensitive/large values.
+      (throw (ex-info (str "Hiccup head " (pr-str (diag/value-summary tag))
                            " is not a valid element head; use a keyword "
                            "(DOM tag or :>/:<>/:r>/:f>), a Reagent component "
                            "class, a React component class, or a fn. "
                            "[:rf.error/template-bad-tag]")
-                      {:rf.error/id :rf.error/template-bad-tag
-                       :where       'reagent2.template/as-element
-                       :reason      (str "Hiccup head must be a keyword (DOM tag "
-                                         "or :>/:<>/:r>/:f>), a Reagent component "
-                                         "class, a React component class, or a fn.")
-                       :recovery    :supply-a-valid-hiccup-head
-                       :tag         tag
-                       :argv        argv})))))
+                      {:rf.error/id   :rf.error/template-bad-tag
+                       :where         'reagent2.template/as-element
+                       :reason        (str "Hiccup head must be a keyword (DOM tag "
+                                           "or :>/:<>/:r>/:f>), a Reagent component "
+                                           "class, a React component class, or a fn.")
+                       :recovery      :supply-a-valid-hiccup-head
+                       :tag/summary   (diag/value-summary tag)
+                       :argv/summary  (diag/value-summary argv)})))))
 
 (defn as-element
   "Top-level hiccup → React element conversion.

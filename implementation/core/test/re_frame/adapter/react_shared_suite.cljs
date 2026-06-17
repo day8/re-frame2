@@ -998,11 +998,13 @@
 (defn assert-render-to-string-throws-with-no-emitter
   "Before the emitter is installed, render-to-string throws ExceptionInfo
   whose ex-message is ':rf.error/no-hiccup-emitter-bound' and whose
-  ex-data carries :reason + :render-tree (rf2-gc5v9 / rf2-y9spn)."
+  ex-data carries :reason + an EP-0015-safe :render-tree/summary — the
+  SHAPE of the tree, never the raw tree (rf2-gc5v9 / rf2-y9spn /
+  rf2-uwqale)."
   [{:keys [set-emitter! render-to-string name]}]
   (testing (str name " — render-to-string throws when no emitter is installed")
     (set-emitter! nil)
-    (let [tree   [:div "smoke"]
+    (let [tree   [:div "smoke-secret-xyzzy"]
           thrown (try (render-to-string tree {}) nil
                       (catch :default e e))]
       (is (some? thrown) "render-to-string threw when no emitter was installed")
@@ -1011,7 +1013,12 @@
       (let [data (ex-data thrown)]
         (is (some? data) "the thrown value carries ex-data")
         (is (string? (:reason data)) ":reason key is a string")
-        (is (= tree (:render-tree data)) ":render-tree key carries the caller's tree")))))
+        ;; EP-0015 (rf2-uwqale): raw render-tree is gone — shape only.
+        (is (nil? (:render-tree data)) "the raw :render-tree slot is gone (EP-0015)")
+        (is (= :vector (:type (:render-tree/summary data)))
+            ":render-tree/summary describes the tree's SHAPE")
+        (is (not (re-find #"xyzzy" (pr-str data)))
+            "no hiccup child content leaked into the thrown ex-data")))))
 
 (defn assert-render-to-string-returns-html-after-direct-install
   "After (set-hiccup-emitter! emitter-fn), render-to-string returns the
