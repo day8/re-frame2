@@ -115,7 +115,11 @@
 ;; `:refresh-failed`, `:stale-suppressed`, `:stale-scheduled` /
 ;; `:stale-fired` / `:gc-scheduled` / `:gc-fired` / `:gc-skipped` /
 ;; `:poll-scheduled` / `:poll-fired` (`timers.cljc` + `events.cljc`;
-;; poll = EP-0020), `:work-abort-requested`, `:route-plan`
+;; poll = EP-0020), `:work-abort-requested`, the EP-0021 infinite-feed
+;; load-more ops `:load-more` / `:page-appended` / `:page-failed` /
+;; `:load-more-skipped` (`events.cljc` — the next-page fetch start, the
+;; tail-append success, the THIRD error channel, and the terminal /
+;; in-flight / no-feed no-op), `:route-plan`
 ;; (`route.cljc` — route-entry planning), `:hydrated` / `:hydrate-refetch`
 ;; / `:hydrate-clock-skew` and `:restored` / `:restore-clock-skew`
 ;; (`ssr.cljc` — SSR hydration + epoch/SSR restore reconcile). The
@@ -169,6 +173,18 @@
    :rf.resource/succeeded            {:class :success      :label "succeeded"}
    :rf.resource/failed               {:class :failure      :label "failed"}
    :rf.resource/refresh-failed       {:class :failure      :label "refresh failed"}
+   ;; EP-0021 — the infinite-feed load-more ops. A `load-more` issues the next
+   ;; page fetch (lifecycle, an APPEND start); `page-appended` is the page
+   ;; success (a tail append, success-class); `page-failed` is the THIRD error
+   ;; channel (a load-more failure that KEPT the feed, failure-class, distinct
+   ;; from first-load `:failed` / background `:refresh-failed`);
+   ;; `load-more-skipped` is a no-op (terminal / in-flight join / no-feed —
+   ;; dedupe-class, like a cache-hit, no new work). Spec 009 §Where trace
+   ;; emission lives + Xray 024 §The `:rf.resource/*` trace family.
+   :rf.resource/load-more            {:class :lifecycle    :label "load more"}
+   :rf.resource/page-appended        {:class :success      :label "page appended"}
+   :rf.resource/page-failed          {:class :failure      :label "page failed"}
+   :rf.resource/load-more-skipped    {:class :dedupe       :label "load more skipped"}
    :rf.resource/invalidated          {:class :invalidation :label "invalidated"}
    :rf.resource/refetch-decision     {:class :lifecycle    :label "refetch decision"}
    :rf.resource/revalidate-scan      {:class :lifecycle    :label "revalidate scan"}
@@ -587,27 +603,47 @@
                         scoped-key
                         [scoped-key nil nil])
          raw-data     (:data entry)]
-     {:scoped-key     scoped-key
-      :scope          (summarize (eg raw-scope :scope))
-      :resource-id    (or raw-rid (:resource/id entry))
-      :params         (summarize (eg raw-params :params))
-      :status         (:status entry)
-      :stale?         (derive-stale? entry now-ms)
-      :has-data?      (entry-has-data? raw-data)
-      :data           (summarize (eg raw-data :data))
-      :error          (when (:error entry) (summarize (eg (:error entry) :error)))
-      :refresh-error  (when (:refresh-error entry) (summarize (eg (:refresh-error entry) :refresh-error)))
-      :loaded-at      (:loaded-at entry)
-      :stale-at       (:stale-at entry)
-      :invalidated-at (:invalidated-at entry)
-      :generation     (:generation entry)
-      :attempt        (:attempt entry)
-      :request-id     (:request-id entry)
-      :current-work   (:current-work entry)
-      :active-owners  (vec (:active-owners entry))
-      :owner-count    (count (:active-owners entry))
-      :tags           (vec (:tags entry))
-      :gc-eligible?   (gc-eligible? entry)})))
+     (cond-> {:scoped-key     scoped-key
+              :scope          (summarize (eg raw-scope :scope))
+              :resource-id    (or raw-rid (:resource/id entry))
+              :params         (summarize (eg raw-params :params))
+              :status         (:status entry)
+              :stale?         (derive-stale? entry now-ms)
+              :has-data?      (entry-has-data? raw-data)
+              :data           (summarize (eg raw-data :data))
+              :error          (when (:error entry) (summarize (eg (:error entry) :error)))
+              :refresh-error  (when (:refresh-error entry) (summarize (eg (:refresh-error entry) :refresh-error)))
+              :loaded-at      (:loaded-at entry)
+              :stale-at       (:stale-at entry)
+              :invalidated-at (:invalidated-at entry)
+              :generation     (:generation entry)
+              :attempt        (:attempt entry)
+              :request-id     (:request-id entry)
+              :current-work   (:current-work entry)
+              :active-owners  (vec (:active-owners entry))
+              :owner-count    (count (:active-owners entry))
+              :tags           (vec (:tags entry))
+              :gc-eligible?   (gc-eligible? entry)}
+       ;; EP-0021 — the INFINITE-FEED surface (R1/R2/R3). All pure functions of
+       ;; the durable entry: an `:infinite?` feed carries an ordered page vector
+       ;; in `:data`, a runtime-owned `:next-page-param` cursor (nil = the single
+       ;; terminal), and the THIRD error channel `:page-error` (a load-more
+       ;; failure that KEPT the feed). `:page-count` is the page-vector length;
+       ;; `:terminal?` is the derived `:has-next-page?` complement. The cursor is
+       ;; egress-projected (a cursor can carry record ids — Spec 016 §Tooling).
+       ;; `:fetching-next?` (a load-more vs a whole-feed refresh) is NOT a pure
+       ;; function of the entry — it joins the in-flight work record's
+       ;; `:page-index` (see `work-row` `:page-index`); the panel reads it off
+       ;; the §3 work-ledger join, not here.
+       (:infinite? entry)
+       (merge (let [next-param (:next-page-param entry)]
+                {:infinite?      true
+                 :page-count     (count (:data entry))
+                 :cursor         (summarize (eg next-param :params))
+                 :terminal?      (nil? next-param)
+                 :has-next-page? (some? next-param)
+                 :page-error     (when (:page-error entry)
+                                   (summarize (eg (:page-error entry) :error)))}))))))
 
 (defn project-instances
   "Project a frame's live resource entries map `{<scoped-key> <entry>}`
@@ -686,6 +722,13 @@
      :deadline-at  (or (:deadline-at record) (:deadline record))
      :attempt      (or (:attempt record) (:retry-attempt record))
      :transport    (:transport record)
+     ;; EP-0021 — the recorded page index of an infinite-feed work record: 0
+     ;; (a page-0 first-load / whole-feed refetch) or a positive tail index (a
+     ;; load-more APPEND). A LIVE positive-index row is the durable fact behind
+     ;; the `:fetching-next?` derived sub (a load-more in flight, distinct from
+     ;; a whole-feed `:fetching?` refresh — Spec 016 §Causal event — load-more
+     ;; R2); nil for a non-infinite work record.
+     :page-index   (:page-index record)
      :outcome      (when (contains? record :outcome) (summarize (:outcome record)))}))
 
 (defn project-work-ledger

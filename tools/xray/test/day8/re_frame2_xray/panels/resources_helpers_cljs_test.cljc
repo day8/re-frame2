@@ -117,6 +117,16 @@
     (is (= :gc (h/op-class :rf.resource/poll-fired)))
     (is (= "poll scheduled" (h/op-label :rf.resource/poll-scheduled)))
     (is (= "poll fired"     (h/op-label :rf.resource/poll-fired))))
+  (testing "EP-0021 infinite-feed load-more family — class + label"
+    (is (h/resource-trace-op? :rf.resource/load-more))
+    (is (= :lifecycle (h/op-class :rf.resource/load-more)))
+    (is (= :success   (h/op-class :rf.resource/page-appended)))
+    (is (= :failure   (h/op-class :rf.resource/page-failed)))
+    (is (= :dedupe    (h/op-class :rf.resource/load-more-skipped)))
+    (is (= "load more"          (h/op-label :rf.resource/load-more)))
+    (is (= "page appended"      (h/op-label :rf.resource/page-appended)))
+    (is (= "page failed"        (h/op-label :rf.resource/page-failed)))
+    (is (= "load more skipped"  (h/op-label :rf.resource/load-more-skipped))))
   (testing "the closed enum matches the runtime-emitted set EXACTLY — no
             extra (e.g. the never-emitted `:rf.resource/ensure` event-id or
             the folded `work-suppressed`) and none missing (rf2-uqwbhr)"
@@ -136,6 +146,11 @@
                        :rf.resource/succeeded
                        :rf.resource/failed
                        :rf.resource/refresh-failed
+                       ;; EP-0021 — the infinite-feed load-more family
+                       :rf.resource/load-more
+                       :rf.resource/page-appended
+                       :rf.resource/page-failed
+                       :rf.resource/load-more-skipped
                        :rf.resource/invalidated
                        :rf.resource/refetch-decision
                        :rf.resource/revalidate-scan
@@ -391,6 +406,76 @@
             "no second work-identity synonym in the projection")))
     (testing "causes summarized (may carry data)"
       (is (vector? (:causes (first rows)))))))
+
+;; ---- (5b) EP-0021 infinite-feed surface --------------------------------
+
+(def ^:private infinite-entries
+  (byte-keyed
+    {;; a LOADED feed with 2 accumulated pages + a live cursor (more pages)
+     [session-scope :feed/articles {:tag "clj"}]
+     {:resource/id :feed/articles :status :loaded :infinite? true
+      :data [[{:id 1}] [{:id 2}]]                  ; 2 vector pages
+      :page-params [nil "cursor-1"]
+      :next-page-param "cursor-2"                  ; more pages → not terminal
+      :generation 3 :loaded-at (- now 1000) :stale-at (+ now 50000)
+      :active-owners #{[:lease "feed"]} :tags #{[:feed "clj"]}}
+     ;; a TERMINAL feed (nil cursor) carrying a load-more :page-error
+     [session-scope :feed/articles {:tag "done"}]
+     {:resource/id :feed/articles :status :loaded :infinite? true
+      :data [[{:id 9}]]
+      :page-params [nil]
+      :next-page-param nil                         ; nil cursor = terminal
+      :page-error {:kind :rf.http/server-error :status 500}
+      :generation 2 :loaded-at (- now 500) :stale-at (+ now 50000)
+      :active-owners #{[:lease "feed2"]}}}))
+
+(deftest infinite-instance-surface-test
+  (let [rows  (h/project-instances infinite-entries now)
+        live  (first (filter #(= {:tag "clj"} (get-in % [:scoped-key 2])) rows))
+        term  (first (filter #(= {:tag "done"} (get-in % [:scoped-key 2])) rows))]
+    (testing "an :infinite? entry surfaces the feed facts (pure from the entry)"
+      (is (:infinite? live))
+      (is (= 2 (:page-count live)))
+      (is (false? (:terminal? live)))
+      (is (true? (:has-next-page? live)))
+      ;; the cursor is egress-projected (summarized — a cursor can carry ids)
+      (is (contains? live :cursor))
+      (is (nil? (:page-error live))))
+    (testing "a TERMINAL feed: nil cursor → :terminal?, no :has-next-page?"
+      (is (= 1 (:page-count term)))
+      (is (true? (:terminal? term)))
+      (is (false? (:has-next-page? term))))
+    (testing "the THIRD error channel — a load-more :page-error is surfaced
+              (summarized, distinct from :error / :refresh-error)"
+      (is (some? (:page-error term)))
+      (is (nil? (:error term)))
+      (is (nil? (:refresh-error term))))
+    (testing "a NON-infinite entry carries NONE of the infinite facts"
+      (let [ordinary (first (h/project-instances entries now))]
+        (is (not (contains? ordinary :infinite?)))
+        (is (not (contains? ordinary :page-count)))
+        (is (not (contains? ordinary :cursor)))))))
+
+(deftest infinite-work-ledger-page-index-test
+  (let [ledger (byte-keyed-ledger
+                 [;; a LIVE load-more (positive page index) — the :fetching-next? basis
+                  {:work/id [:rf.work/resource [session-scope :feed/articles {:tag "clj"}] 4]
+                   :work/kind :resource :resource/key [session-scope :feed/articles {:tag "clj"}]
+                   :generation 4 :status :running :page-index 2}
+                  ;; a page-0 first-load / whole-feed refetch (index 0)
+                  {:work/id [:rf.work/resource [session-scope :feed/articles {:tag "new"}] 1]
+                   :work/kind :resource :resource/key [session-scope :feed/articles {:tag "new"}]
+                   :generation 1 :status :running :page-index 0}
+                  ;; a non-infinite record — no page-index
+                  {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "x"}] 1]
+                   :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "x"}]
+                   :generation 1 :status :running}])
+        rows   (h/project-work-ledger ledger)
+        by-rid (fn [rid] (first (filter #(= rid (get-in % [:resource/key :resource-id])) rows)))]
+    (testing "the work-row carries :page-index (the :fetching-next? durable fact)"
+      (is (= 2 (:page-index (by-rid :feed/articles))) "the live LOAD-MORE (positive tail index)")
+      (is (some #(= 0 (:page-index %)) rows) "a page-0 fetch records index 0")
+      (is (nil? (:page-index (by-rid :article/by-slug))) "a non-infinite record has no page-index"))))
 
 ;; ---- (6) project-route-graph -------------------------------------------
 
