@@ -117,27 +117,6 @@
                     :value  v}}))
     s))
 
-(defn- structurally-valid-uri?
-  "True when `s` parses as a structurally-valid URI reference per RFC 3986
-  (java.net.URI's grammar). This is a SHAPE check — it does NOT gate the
-  scheme, host, or origin (that is `:rf.server/safe-redirect`'s job for the
-  caller-untrusted path); it only rejects strings that are not a
-  well-formed URI reference at all (an unencoded space, a stray `^` / `<` /
-  `>` / `{` / `}` / backtick, a `%` not followed by two hex digits, …).
-  Both absolute URLs (`https://example.com/path`) and relative references
-  (`/login`, `a/b`, the empty reference) parse cleanly. On the CLJS branch
-  the fx is no-op'd by `:rf.fx/skipped-on-platform`, so the check is a
-  JVM-only gate and the CLJS branch trivially passes."
-  [s]
-  #?(:clj
-     (try
-       (URI. ^String s)
-       true
-       (catch URISyntaxException _ false)
-       (catch NullPointerException _ false)
-       (catch IllegalArgumentException _ false))
-     :cljs true))
-
 (defn- validate-redirect-location!
   "Throw `:rf.error/redirect-invalid-location` if the redirect location
   `loc` contains CR / LF / NUL. Same CRLF-injection vector as a
@@ -145,15 +124,15 @@
   `?next=https://example.com%0d%0aSet-Cookie:%20stolen=1` URL-decodes
   into literal CRLF and would split the header on the wire.
 
-  This is the SHARED CRLF gate — both `:rf.server/redirect` (caller-
+  This is the SHARED CR/LF/NUL gate — both `:rf.server/redirect` (caller-
   trusted) and `:rf.server/safe-redirect` (caller-untrusted) run it as a
-  defence-in-depth first step. It deliberately does NOT do the structural
-  URL-shape check: `safe-redirect-fx` does its own full parse + scheme +
-  host gate (emitting the specific `:rf.error/safe-redirect-*`
-  categories), and stacking a throwing structural gate ahead of those
-  would both mask its specific error categories and break its throw-free
-  emit-and-no-op contract. The structural URL-shape gate is layered on the
-  trusted path only, via `validate-redirect-location-shape!` below."
+  defence-in-depth first step, and it is the ONLY structural gate on the
+  caller-trusted path (rf2-ziv4gd: no URL-shape check — a raw space or
+  RFC 3986 shape quirk a browser accepts in a `Location` header passes
+  through). It deliberately does NOT do any URL-shape / scheme / host
+  validation: `safe-redirect-fx` does its own full parse + scheme + host
+  gate (emitting the specific `:rf.error/safe-redirect-*` categories) for
+  the caller-untrusted path."
   [loc]
   (let [s (str loc)]
     (when (http-validation/contains-injection-char? s)
@@ -166,43 +145,6 @@
              " redirect :location before setting it.")
         {:recovery :remove-injection-chars-from-location
          :extra    {:location loc}}))
-    s))
-
-(defn- validate-redirect-location-shape!
-  "Throw `:rf.error/redirect-invalid-location` if the redirect location
-  `loc` is not a structurally-valid URI reference (RFC 3986). The
-  structural URL-shape gate Spec 011 §CRLF fail-fast names for the
-  caller-trusted `:rf.server/redirect` (the `Location:` value gets the
-  CRLF check PLUS a structural URL-shape check).
-
-  Rejects a `:location` that is not a well-formed URI reference — an
-  unencoded space, a stray control/delimiter char (`^`, `<`, `>`, `{`,
-  `}`, backtick), a malformed `%`-escape, … — so a structurally-malformed
-  redirect target fails fast at fx-handler time rather than reaching the
-  wire as a broken `Location` header.
-
-  This is a SHAPE check ONLY: `:rf.server/redirect` stays caller-trusted
-  — it accepts arbitrary *origins* without allowlist / relative-only
-  gating (that is `:rf.server/safe-redirect`'s job, rf2-zfm8v). The
-  structural gate merely rejects a target that no `Location:` header could
-  legitimately carry. Called only from `redirect-fx`; `safe-redirect-fx`
-  has its own (richer, emit-based) parse gate."
-  [loc]
-  (let [s (str loc)]
-    (when-not (structurally-valid-uri? s)
-      (error/throw-error!
-        :rf.error/redirect-invalid-location
-        'rf.ssr/response
-        (str "redirect :location is not a"
-             " structurally-valid URI reference"
-             " (RFC 3986) — a structurally-malformed"
-             " redirect target cannot be written as a"
-             " Location header. Per Spec 011 §CRLF"
-             " fail-fast (structural URL-shape check)."
-             " Supply a well-formed URI reference as :location.")
-        {:recovery :supply-a-well-formed-uri
-         :extra    {:location   loc
-                    :reason-tag :structural-url-shape}}))
     s))
 
 ;; rf2-z7gor / security audit 2026-05-14 — header-name + cookie-field
@@ -541,11 +483,12 @@
   absent. Multiple writes emit `:rf.warning/multiple-redirects`
   (last-write-wins). Throws `:rf.error/redirect-invalid-location` on a
   location carrying CR/LF/NUL (rf2-hbty2) — a `?next=…` query-param
-  redirect would otherwise let an attacker forge headers — OR on a
-  location that is not a structurally-valid URI reference (RFC 3986), per
-  Spec 011 §CRLF fail-fast (the `Location:` value gets the CRLF check PLUS
-  a structural URL-shape check). The structural check is a SHAPE gate only
-  — it does not gate the redirect's origin (this fx stays caller-trusted).
+  redirect would otherwise let an attacker forge headers — per Spec 011
+  §CRLF fail-fast. The CR/LF/NUL header-splitting gate is the ONLY gate
+  on this caller-trusted path: no URL-shape check is applied, so a raw
+  space or other RFC 3986 shape quirk every browser accepts in a
+  `Location` header passes through unchanged (URL-shape + origin
+  validation is `:rf.server/safe-redirect`'s job, rf2-ziv4gd).
 
   **Canonical redirect target key is `:location`** (rf2-vngir). The
   retired synonyms `:url` / `:to` throw `:rf.error/redirect-retired-
@@ -562,12 +505,14 @@
   (let [;; rf2-vngir: the canonical (and only) redirect target key.
         location  (:location redirect-map)
         _         (when (some? location)
-                    ;; CRLF gate (shared) + structural URL-shape gate
-                    ;; (trusted-path only, Spec 011 §CRLF fail-fast,
-                    ;; rf2-kjf3m.4). safe-redirect-fx runs the CRLF gate but
-                    ;; NOT this shape gate — it has its own emit-based parse.
-                    (validate-redirect-location! location)
-                    (validate-redirect-location-shape! location))
+                    ;; Shared CR/LF/NUL header-splitting gate only — the
+                    ;; sole structural gate on the caller-trusted path
+                    ;; (Spec 011 §CRLF fail-fast). No URL-shape check:
+                    ;; `:rf.server/redirect` is caller-trusted, so a raw
+                    ;; space or RFC 3986 shape quirk a browser accepts
+                    ;; passes through (rf2-ziv4gd). safe-redirect-fx runs
+                    ;; this same gate plus its own emit-based parse.
+                    (validate-redirect-location! location))
         status    (or (:status redirect-map) 302)
         normalised (cond-> (assoc redirect-map :status status)
                      location (assoc :location location))
