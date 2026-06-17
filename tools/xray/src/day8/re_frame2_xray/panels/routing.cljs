@@ -79,6 +79,7 @@
   `routing_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
@@ -466,10 +467,20 @@
 ;; not duplicated across production and test surfaces (rf2-e8330v).
 
 (defn- registered-routes-value
-  "The flat `{<route-id> <meta>}` map sourced from `(rf/registrations
-  :route)`."
+  "The flat `{<route-id> <meta>}` map sourced from the HOST app's
+  default-realm `:route` registrar.
+
+  Read via `host-registry/registrations` (the generation-bypassing realm-
+  targeted form), NOT a bare `(rf/registrations :route)`: this fn runs inside
+  the `:rf.xray/registered-routes` sub COMPUTATION, and Xray seats in its OWN
+  image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
+  image generation — a bare read would resolve through Xray's OWN image (which
+  carries no `:route` ids) and return `{}`, collapsing the Routing panel to its
+  silent empty-table state. The host's routes live in the process-global
+  default-realm registrar; `host-registry/registrations` reads it directly. See
+  `day8.re-frame2-xray.host-registry`."
   []
-  (rf/registrations :route))
+  (host-registry/registrations :route))
 
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db

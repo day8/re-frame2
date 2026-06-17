@@ -53,6 +53,7 @@
   algebra lives in `resources_helpers.cljc` (JVM-portable)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
             [day8.re-frame2-xray.panels.reply-envelope :as reply]
@@ -1008,11 +1009,18 @@
 ;; branch — `(or override (real …))` — lives in ONE place (the seam),
 ;; not duplicated across production and test surfaces (rf2-e8330v).
 
+;; Host-registry reads (`:resource` / `:resource-scope` / `:route`) go through
+;; `host-registry/*` (the generation-bypassing default-realm form), NOT bare
+;; `(rf/registrations …)`: these run inside the Resources subs' COMPUTATION, and
+;; Xray seats in its OWN image-loaded `:rf/xray` frame, so the sub build binds
+;; the registrar to Xray's image generation — a bare read would resolve through
+;; Xray's OWN image (no host `:resource*` ids) and lose the host registry. See
+;; `day8.re-frame2-xray.host-registry`.
 (defn- registered-resources-value []
-  (rf/registrations :resource))
+  (host-registry/registrations :resource))
 
 (defn- registered-scope-resolvers-value []
-  (rf/registrations :resource-scope))
+  (host-registry/registrations :resource-scope))
 
 (defn- resource-entries-value [target-runtime-db]
   (when (map? target-runtime-db)
@@ -1122,7 +1130,7 @@
     (fn [[registrations entries ledger trace-buffer sub-reads routing-slice
           scope-resolvers] _]
       (let [now-ms        (.now js/Date)
-            routes-map    (rf/registrations :route)
+            routes-map    (host-registry/registrations :route)
             registry-rows (h/project-registry registrations routes-map)
             instance-rows (h/project-instances entries now-ms)
             work-rows     (h/project-work-ledger ledger)

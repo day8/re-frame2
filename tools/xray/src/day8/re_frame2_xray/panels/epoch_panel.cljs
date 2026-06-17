@@ -33,10 +33,22 @@
   classifies the status (`:no-focus / :focused / :epoch-evicted`) and
   resolves the matching record."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
+
+;; rf2-bbua4z — the registry resolvers below run INSIDE the
+;; `:rf.xray/epoch-pipeline` sub COMPUTATION (threaded into
+;; `proj/project-numbered`), and Xray seats in its OWN image-loaded `:rf/xray`
+;; frame, so the sub build binds the registrar to Xray's image generation. They
+;; therefore read the HOST app's registrar via `host-registry/handler-meta` (the
+;; generation-bypassing default-realm form), NOT a bare `(rf/handler-meta …)`: a
+;; bare read would resolve the focused event / its interceptors / its cofx
+;; declarations through Xray's OWN image (which carries none of the host's), and
+;; the INTERCEPTORS + RECORDABLE COEFFECTS steps would silently vanish. See
+;; `day8.re-frame2-xray.host-registry`.
 
 ;; ---- authored-interceptor resolver (rf2-se9a9t / EP-0022 §11) -------------
 ;;
@@ -57,14 +69,12 @@
   authored interceptors yields no step."
   [event-id]
   (when (some? event-id)
-    (let [meta    (try (rf/handler-meta :event event-id)
-                       (catch :default _ nil))
+    (let [meta    (host-registry/handler-meta :event event-id)
           entries (:interceptors meta)]
       (when (seq entries)
         {:entries         entries
          :resolve-meta-fn (fn [icpt-id]
-                            (try (rf/handler-meta :interceptor icpt-id)
-                                 (catch :default _ nil)))}))))
+                            (host-registry/handler-meta :interceptor icpt-id))}))))
 
 ;; ---- declared-recordable resolver (rf2-n9v5ga / EP-0017 §9) ---------------
 ;;
@@ -103,8 +113,7 @@
   [cofx-id]
   (or (= cofx-id :rf/time-ms)
       (boolean
-        (:recordable? (try (rf/handler-meta :cofx cofx-id)
-                           (catch :default _ nil))))))
+        (:recordable? (host-registry/handler-meta :cofx cofx-id)))))
 
 (defn resolve-event-recordables
   "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017 §9,
@@ -117,8 +126,7 @@
   not falsely presented as a recordable input."
   [event-id]
   (when (some? event-id)
-    (let [meta     (try (rf/handler-meta :event event-id)
-                        (catch :default _ nil))
+    (let [meta     (host-registry/handler-meta :event event-id)
           requires (:rf.cofx/requires meta)]
       (when (seq requires)
         (let [recordables (into #{}

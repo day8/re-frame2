@@ -44,7 +44,6 @@
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
             ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The
             ;; LIVE machine-snapshots sub reads the RAW runtime-db slot
             ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 —
@@ -57,6 +56,7 @@
             ;; marker before any panel surface reads it — never raw.
             [re-frame.marks :as marks]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
             ;; mini-pipeline lives in the Epoch panel view; the Machine
@@ -660,10 +660,24 @@
 ;; production and test surfaces (rf2-e8330v).
 
 (defn- registered-machines-value
-  "Registered-machine vector (reads `(rf/machines)`)."
+  "Registered-machine vector — the machine-ids of the HOST app (every `:event`
+  registration whose metadata carries `:rf/machine? true`, the same derivation
+  `re-frame.machines/machines` runs).
+
+  Derived from `host-registry/registrations` (the generation-bypassing
+  default-realm form), NOT `(machines/machines)`: the framework's `machines`
+  reads `registrar/registrations :event`, which is generation-scoped. This fn
+  runs inside the `:rf.xray/registered-machines` sub COMPUTATION, and Xray seats
+  in its OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
+  resolve through Xray's OWN image (no host machines) and the inspector would
+  show no machines. Reading the host registrar directly restores the host's
+  machine list. See `day8.re-frame2-xray.host-registry`."
   []
-  (try (vec (machines/machines))
-       (catch :default _ [])))
+  (try
+    (->> (host-registry/registrations :event)
+         (keep (fn [[id m]] (when (:rf/machine? m) id)))
+         vec)
+    (catch :default _ [])))
 
 (defn- machine-snapshots-value
   "The egress-redacted live snapshots map off the target frame's
@@ -675,13 +689,23 @@
       (redact-live-snapshots snapshots))))
 
 (defn- machine-definitions-value
-  "The `{machine-id meta}` definition map for `machines`."
+  "The `{machine-id meta}` definition map for `machines` — each machine's spec
+  map (`:initial`, `:data`, `:states`, `:guards`, …) read from the HOST app's
+  `:event` registrar's `:rf/machine` slot (the same value
+  `re-frame.machines/machine-meta` returns).
+
+  Resolved via `host-registry/handler-meta` (the generation-bypassing
+  default-realm form), NOT `(machines/machine-meta id)`: the framework's
+  `machine-meta` reads `registrar/lookup :event id`, which is generation-scoped.
+  This fn runs inside the `:rf.xray/machine-definitions` sub COMPUTATION under
+  Xray's OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
+  resolve through Xray's image (no host machines) and lose every definition.
+  See `day8.re-frame2-xray.host-registry`."
   [machines]
   (into {}
         (keep (fn [id]
-                (let [m (try (machines/machine-meta id)
-                             (catch :default _ nil))]
-                  (when m [id m]))))
+                (let [m (host-registry/handler-meta :event id)]
+                  (when (:rf/machine? m) [id (:rf/machine m)]))))
         (or machines [])))
 
 ;; ---- registration entry --------------------------------------------------

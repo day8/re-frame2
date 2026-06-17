@@ -48,6 +48,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
             [day8.re-frame2-xray.filters.persistence :as filters-persistence]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
@@ -484,7 +485,7 @@
    ;; that panel-read is fixed under image-loaded seating, keep the legacy realm
    ;; seating here while `seat-xray-frame!` is the proven self-seating callable.
    ;; See the rf2-rjml45 follow-up bead.
-   (rf/reg-frame frame-id {:rf.trace/frame-no-emit? true})
+   (image-reads/seat-xray-frame! frame-id)
    (doseq [{:keys [handler]} @first-mount-hooks]
      (handler frame-id))))
 

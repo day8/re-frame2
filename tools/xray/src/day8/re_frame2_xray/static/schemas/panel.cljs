@@ -55,6 +55,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
@@ -354,17 +355,27 @@
 
 (defn- registry-value
   "The three input registries assembled from public surfaces: app-db
-  schemas via the `re-frame.schemas` façade, event / sub specs via
-  `(rf/registrations <kind>)`."
+  schemas via the `re-frame.schemas` façade, event / sub specs via the HOST
+  app's `:event` / `:sub` registrar.
+
+  The event / sub reads go through `host-registry/registrations` (the
+  generation-bypassing default-realm form), NOT a bare `(rf/registrations
+  <kind>)`: this runs inside the `:rf.xray.static.schemas/registry` sub
+  COMPUTATION, and Xray seats in its OWN image-loaded `:rf/xray` frame, so the
+  sub build binds the registrar to Xray's image generation — a bare read would
+  resolve through Xray's OWN image and the schemas catalogue would lose the host
+  app's event/sub specs. (App-db schemas live in a dedicated side-table keyed by
+  frame, not the registrar, so `read-app-schemas-by-frame` is unaffected.) See
+  `day8.re-frame2-xray.host-registry`."
   []
   {:schemas-by-frame
    (try (read-app-schemas-by-frame)
         (catch :default _ {}))
    :events
-   (try (rf/registrations :event)
+   (try (host-registry/registrations :event)
         (catch :default _ {}))
    :subs
-   (try (rf/registrations :sub)
+   (try (host-registry/registrations :sub)
         (catch :default _ {}))})
 
 ;; ---- registrations -------------------------------------------------------
