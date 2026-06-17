@@ -152,14 +152,16 @@
   verdict is not behaviour-under-test (mirrors the retired listener's
   `assertion-event?` skip + `evidence/narrative`'s span-attribution rule).
 
-  Privacy (Spec 009 §Privacy + EP-0015 rf2-3t26eh): the `:trigger-event`
-  of an epoch flagged `:rf.epoch/sensitive?` is dropped while Story's
-  local-render egress profile redacts (`:rf.egress/local-redacted` — the
-  default), so a sensitive event vector never reaches an assertion
-  record's `:actual`. Under the trusted-local `:rf.egress/local-raw`
-  profile, sensitive trigger-events pass through."
+  Privacy (Spec 009 §Privacy + EP-0015 issue 7, rf2-6z4znr): the
+  `:trigger-event` of an epoch flagged `:rf.epoch/sensitive?` is dropped
+  while the egress profile resolved FOR THIS FRAME redacts
+  (`:rf.egress/local-redacted` — the default), so a sensitive event vector
+  never reaches an assertion record's `:actual`. The reveal decision is
+  frame-scoped: only when this frame has been explicitly revealed to the
+  trusted-local `:rf.egress/local-raw` boundary do its sensitive
+  trigger-events pass through — revealing a sibling frame does not."
   [frame-id]
-  (let [show? (config/include-sensitive?)]
+  (let [show? (config/include-sensitive? frame-id)]
     (into []
           (comp (remove (fn [{:keys [rf.epoch/sensitive?]}]
                           (and sensitive? (not show?))))

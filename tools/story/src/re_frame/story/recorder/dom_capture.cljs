@@ -309,9 +309,13 @@
   counter for the recording's variant when it redacts, so the UI's
   REDACTED hint stays accurate."
   [el]
-  (let [v (target-value el)]
-    (if (and (sensitive-element? el) (not (config/include-sensitive?)))
-      (do (config/note-suppressed! (recorder/recording-variant))
+  (let [v       (target-value el)
+        variant (recorder/recording-variant)]
+    ;; rf2-6z4znr — resolve the reveal decision against the RECORDING's frame
+    ;; (per-(tool,frame) visibility). Revealing a sibling frame never reveals
+    ;; this capture; a nil recording-variant fails closed (redacts).
+    (if (and (sensitive-element? el) (not (config/include-sensitive? variant)))
+      (do (config/note-suppressed! variant)
           redacted-type-text)
       v)))
 

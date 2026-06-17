@@ -1056,7 +1056,7 @@
                  (= operation :rf.event/dispatched)
                  (= (:frame tags) (recording-variant))
                  (vector? (:rf.event/v tags)))
-        (if (config/suppress-sensitive? ev)
+        (if (config/suppress-sensitive? ev (:frame tags))
           (do
             ;; Record-but-redact (rf2-hdadz): append the redacted
             ;; placeholder so the row's position survives, and bump the

@@ -141,6 +141,8 @@
   (let [collected (atom [])
         listener  (fn [ev]
                     (cond
+                      ;; rf2-6z4znr — resolve the suppress decision against
+                      ;; the event's own frame (per-(tool,frame) visibility).
                       (config/suppress-sensitive? ev)
                       (config/note-suppressed! (get-in ev [:tags :frame]))
 
