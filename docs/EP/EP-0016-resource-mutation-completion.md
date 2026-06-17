@@ -393,21 +393,21 @@ and inspect.
   (final).** This EP is a post-final amendment to the resources contract. It
   does not reopen the read-resource foundation, work ledger, route ownership,
   SSR, cache-hit, lifecycle, or HTTP-only graduation decisions.
-- **[EP-0019](EP-0019-optimistic-mutation-rollback.md) (proposal) — successor.**
+- **[EP-0019](EP-0019-optimistic-mutation-rollback.md) (final) — successor.**
   The optimistic rollback / tag-addressed patching this EP defers (see
   [§Non-Goals](#non-goals), [§Synthesis from alternatives](#synthesis-from-alternatives),
   and issue 9 in [§Open Issues](#open-issues)) is the subject of EP-0019. It
   reuses this EP's scoped-invalidation descriptors, map-form exact targets, and
   `:reply-to` continuation unchanged.
-- **[EP-0020](EP-0020-active-owner-polling.md) (proposal) — successor.**
+- **[EP-0020](EP-0020-active-owner-polling.md) (final) — successor.**
   Interval revalidation (polling) is the cache-freshness sibling of this EP's
   mutation/invalidation surface; it reuses the same named scope resolvers and
   refetch substrate.
-- **[EP-0021](EP-0021-infinite-resources.md) (proposal) — successor.** The
+- **[EP-0021](EP-0021-infinite-resources.md) (final) — successor.** The
   pagination / infinite-feed primitives this EP lists as a non-goal
   ([§Non-Goals](#non-goals): "No pagination primitives") are designed in
   EP-0021, which builds on the read-resource and invalidation surfaces here.
-- **[EP-0011](EP-0011-uniform-async-reply-envelope.md) (accepted).** Mutation
+- **[EP-0011](EP-0011-uniform-async-reply-envelope.md) (final).** Mutation
   `:reply-to` uses the same core idea: async completion is a causal reply map
   delivered to an event target. EP-0016 is the concrete resources/mutations
   slice; EP-0011 remains the cross-family envelope proposal.
@@ -422,10 +422,10 @@ and inspect.
   identity, scope resolver ids are the named scope-derivation facts, and
   request decoration remains HTTP policy instead of becoming resource-local
   auth policy.
-- **[EP-0012](EP-0012-path-optics-and-canonical-forms.md) (accepted).** Named
+- **[EP-0012](EP-0012-path-optics-and-canonical-forms.md) (final).** Named
   scope resolver inputs and map-form resource targets should use canonical
   params/scope identity rules defined there where applicable.
-- **[EP-0014](EP-0014-derivation-and-process-algebra.md) (proposal).** Named
+- **[EP-0014](EP-0014-derivation-and-process-algebra.md) (final).** Named
   scope resolvers are shaped consistently with EP-0014's derivation vocabulary
   (declared inputs, output, lifecycle), so if EP-0014 is accepted they slot
   into its algebra unchanged — but this EP specifies them independently and
@@ -1363,6 +1363,12 @@ as the record of what was ruled; dispositions and riders are inline.
    EP-0012's disposition 5; the recommended driver when the trigger fires is a
    Linearlite-class port (the local-first ecosystem's canonical
    optimistic-workload benchmark), not an invented stressor.
+   **Delivered by [EP-0019](EP-0019-optimistic-mutation-rollback.md) (final):**
+   the optimistic apply / commit / rollback / reconcile surface graduated there,
+   carrying exactly this follow-on scope (tag-addressed patching via
+   `:optimistic-tags`, per-entry revision tracking, rollback-by-invalidation on
+   conflict), and reusing this EP's scoped-invalidation descriptors and
+   `:reply-to` continuation unchanged.
 
 ## Recommendation
 

@@ -1,6 +1,17 @@
 # EP-0004: Parametric Subscription Inputs
 
 Status: final
+Type: standards-track
+
+> This EP restores a disciplined, signal-free version of re-frame v1's
+> two-function `reg-sub` form: a pure `input-fn` from the outer query vector to a
+> vector of input query vectors, resolved in the same frame as the outer
+> subscription. Its normative home is
+> [`spec/006-ReactiveSubstrate.md` §Subscription input producers](../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn),
+> which governs; this document is the design record behind that contract.
+>
+> **`final` — no open errata; shipped clean.** The contract graduated into the
+> reactive-substrate spec and is governed there.
 
 ## Abstract
 
