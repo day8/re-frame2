@@ -12,7 +12,6 @@
   `:input-values` / `:rf.flow/failed` `:inputs` trace slots already use."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.marks :as marks]
@@ -21,8 +20,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.flows.registry :as registry]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
