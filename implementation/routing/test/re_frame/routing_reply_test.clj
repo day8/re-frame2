@@ -92,6 +92,32 @@
         (is (= {:route/nav-token "nav-2"} (:rf.reply/current trace)) "current gate")
         (is (= :rf.route/nav-token-stale (:stale/reason trace)))))))
 
+(deftest suppress-carries-completed-at-on-stale-reply
+  (testing "rf2-ux8sgg — a route loader that supplies the reply completion
+            time (`:completed-at`, the recordable :rf/time-ms fact, EP-0017)
+            carries it verbatim onto the stale reply; absence omits it. This
+            pins the production lane the pure substrate exposes — the stale
+            route reply is tied to the actual replayed completion token."
+    (let [{:keys [reply]}
+          (route-reply/suppress {:route-id     :route/article
+                                 :nav-token    "nav-1"
+                                 :loader-id    :article/loaded
+                                 :frame        :rf/default
+                                 :completed-at 1717000000000}
+                                "nav-2")]
+      (is (= 1717000000000 (:completed-at reply))
+          "the supplied completion time rides the stale reply (not dropped)")
+      (is (= :stale (:status reply)) "still a stale reply")
+      (is (not (contains? reply :value)) "still app-state-safe (no :value)"))
+    (testing "absence omits the slot — a loader that sourced no completion time"
+      (let [{:keys [reply]}
+            (route-reply/suppress {:route-id  :route/article
+                                   :nav-token "nav-1"
+                                   :loader-id :article/loaded}
+                                  "nav-2")]
+        (is (not (contains? reply :completed-at))
+            ":completed-at is omitted when the caller supplies none")))))
+
 (deftest suppress-honours-dispatch-stale-opt-in
   (testing "a framework test/tool target may opt into stale delivery via :dispatch-stale?
             (app targets MUST NOT) — delegated to re-frame.reply/suppress"
