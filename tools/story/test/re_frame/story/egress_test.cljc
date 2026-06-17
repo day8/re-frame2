@@ -122,3 +122,47 @@
     (doseq [s egress/statuses]
       (is (string? (get egress/status-labels s))
           (str "missing label for " s)))))
+
+;; ---- EP-0015 scope reconciliation (rf2-nnc06c) ---------------------------
+;;
+;; Story's share / copy / static / screenshot are feature-created artifacts,
+;; so EP-0015 scopes them in — but the recorded ruling is that human-local
+;; egress ships UNREDACTED (the trusted-local operator act). The classifier
+;; is REPRODUCIBILITY-only: it must NOT redact a sensitive value, and a
+;; sensitive value must not change the reproducibility verdict. These tests
+;; pin that the human-egress seam is orthogonal to sensitivity.
+
+(deftest classify-does-not-redact-sensitive-values
+  (testing "a sensitive value in a copied-EDN override SHIPS verbatim — the
+            human-egress classifier never substitutes :rf/redacted"
+    (let [secret "BEARER-secret-12345"
+          r      (egress/classify {:cell-overrides {:auth/token secret}})]
+      ;; A plain string round-trips, so it is fully reproducible — and it
+      ;; ships verbatim (the classifier returns a verdict, not a redacted
+      ;; payload; nothing in the report is :rf/redacted).
+      (is (= :full (:status r))
+          "a round-tripping sensitive string is fully reproducible")
+      (is (empty? (:reasons r))
+          "a sensitive value introduces NO reproducibility downgrade")
+      (is (not (some #{:rf/redacted} (tree-seq coll? seq r)))
+          "the reproducibility report carries no redaction sentinel — human
+           egress is not a redaction seam")))
+  (testing "the reproducibility verdict is identical whether the value is a
+            secret or a benign string — sensitivity is orthogonal"
+    (is (= (egress/classify {:cell-overrides {:k "BEARER-secret-12345"}})
+           (egress/classify {:cell-overrides {:k "benign"}}))
+        "same shape ⇒ same reproducibility status regardless of sensitivity")))
+
+(deftest classify-screenshot-is-always-view-only-and-unredacted
+  (testing "a screenshot artifact (a function-valued render handle pinned as
+            an override) is view-only — but still never redacted"
+    ;; A screenshot of the live canvas cannot be replayed from the artifact;
+    ;; the egress UI marks it view-only. The classifier reports that without
+    ;; ever inspecting sensitivity.
+    (let [r (egress/classify {:cell-overrides {:render (fn [] :pixels)}})]
+      (is (= :view-only (:status r))
+          "a function-valued artifact is view-only (no replay)")
+      (is (some #(= :override-fn (:code %)) (:reasons r))
+          "the downgrade reason names the unserialisable override")
+      (is (not (some #{:rf/redacted} (tree-seq coll? seq r)))
+          "still no redaction — the human-egress seam is reproducibility-only"))))

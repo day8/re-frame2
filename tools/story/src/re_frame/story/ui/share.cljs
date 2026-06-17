@@ -686,7 +686,14 @@
   Returns nil when `:open?` is false so the shell can mount it
   unconditionally next to the other modals. Per the reframe these
   commands SHIP enabled and are NOT privacy-gated — the only contract
-  is the reproducibility honesty each row carries."
+  is the reproducibility honesty each row carries.
+
+  EP-0015 scope (rf2-nnc06c): these ARE feature-created artifacts, so the
+  EP scopes them in — but the recorded ruling is that human-local
+  share/copy/export/screenshot is a trusted-local operator act
+  (the `:rf.egress/local-raw` intent) and ships unredacted; the off-box
+  boundaries (MCP / logs) are where redaction lives. See
+  `re-frame.story.egress` §EP-0015 scope reconciliation + spec/022 §3.0."
   []
   (let [{:keys [open? copied error]} @dialog-state]
     (when open?
