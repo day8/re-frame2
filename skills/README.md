@@ -98,9 +98,10 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   **Xray**, the re-frame2 in-app devtools panel. Answers how to *launch*
   Xray (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
   the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
-  8 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
-  Machine / Routes / Resources / Graph — the last being Xray's UI over the
-  EP-0014 derivation/process graph) and the 5 Static registry-browse
+  9 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
+  Machine / Routes / Resources / Graph / Modules — Graph being Xray's UI over the
+  EP-0014 derivation/process graph, and Modules the EP-0013 module/realm/app-value
+  lens (L4-only)) and the 5 Static registry-browse
   tabs (Machines / Routes / Schemas / Flows / Interceptors). There is no
   Issues tab — issues surface inline. Xray owns
   the *seeing*; `re-frame2-pair` owns the *driving*.

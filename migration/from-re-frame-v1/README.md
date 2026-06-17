@@ -2514,7 +2514,7 @@ Per audit-of-audits routing: two near-identical names (`:rf/url-changed` as an e
 
 **Type A** (mechanical). Two-symbol rename plus two late-bind hook-key renames.
 
-Per audit-of-audits #20: the dev-time validator fns the framework calls at the locked Spec 010 validation sites are named on the **kind axis** — `validate-event!`, `validate-fx!`, `validate-sub!`, `validate-app-schema!`. The two pre-rename names (`validate-app-db!` and `validate-sub-return!`) sat off-axis (one named after the *target slot*, one after the *value role*) and broke the family symmetry the other siblings established. (The injection-time `validate-cofx!` member was later retired per rf2-nkf4l3 — EP-0017 made the live cofx schema check `re-frame.cofx`'s `:rf.error/cofx-value-invalid` recordable-value contract, not a dev-only schema-validation trace.)
+Per audit-of-audits #20: the dev-time validator fns the framework calls at the locked Spec 010 validation sites are named on the **kind axis** — `validate-event!`, `validate-fx!`, `validate-sub!`, `validate-app-schema!`. The two pre-rename names (`validate-app-db!` and `validate-sub-return!`) sat off-axis (one named after the *target slot*, one after the *value role*) and broke the family symmetry the other siblings established. (The injection-time `validate-cofx!` member was later retired per EP-0017 — which made the live cofx schema check `re-frame.cofx`'s `:rf.error/cofx-value-invalid` recordable-value contract, not a dev-only schema-validation trace.)
 
 | Old | New | Surface |
 |---|---|---|
