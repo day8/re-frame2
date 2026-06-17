@@ -21,9 +21,8 @@
     (Spec 009 §:op-type vocabulary — :rf.registry/*)
   - dispatch through `dispatch-sync` to walk the router → events → fx
     pipeline (Spec 009 §Where trace emission lives)
-  - `:rf.http/managed` Spec 014 trace ops (`:rf.http/retry-attempt`,
-    `:rf.warning/decode-defaulted`) — emitted only inside
-    `(when interop/debug-enabled? ...)` branches.
+  - `:rf.http/managed` Spec 014 trace ops (`:rf.http/retry-attempt`)
+    — emitted only inside `(when interop/debug-enabled? ...)` branches.
   - `re-frame.epoch` public surface — `epoch-history`, `restore-epoch!`,
     `register-epoch-listener!`, `unregister-epoch-listener!`, `configure :epoch-history`,
     plus the `:rf.epoch/*` trace ops emitted by `settle!` and
@@ -120,7 +119,6 @@
   ;; Spec 014 — `:rf.http/managed` ships gated trace ops:
   ;;
   ;;   :rf.http/retry-attempt              (info trace, both transports)
-  ;;   :rf.warning/decode-defaulted        (warning trace, both transports)
   ;;   :rf.http/aborted-on-actor-destroy   (info trace, rf2-wvkn cancellation cascade)
   ;;
   ;; All emit sites are wrapped in `(when interop/debug-enabled? ...)`,

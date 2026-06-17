@@ -673,11 +673,7 @@
         (let [decoded (http-decode/decode-response-body
                         {:body-text        "{\"ok\":true}"
                          :headers          {ct-key "application/json"}
-                         :decode           :auto
-                         :decode-supplied? false
-                         :request-id       :test/req
-                         :url              "/test"
-                         :sensitive?       false})]
+                         :decode           :auto})]
           (is (= {:ok true} decoded)
               (str "non-canonical Content-Type casing " (pr-str ct-key)
                    " must sniff to :json, not :blob")))))))
@@ -735,11 +731,7 @@
                             {:body-text   "lossy-utf8-text"
                              :body-binary native
                              :headers     {}
-                             :decode      mode
-                             :decode-supplied? true
-                             :request-id  :test/req
-                             :url         "/test"
-                             :sensitive?  false}))
+                             :decode      mode}))
               (str mode " must return the native binary body, not body-text"))))))
   (testing "binary mode with no :body-binary (e.g. JVM transport) falls back to body-text"
     (doseq [mode [:blob :array-buffer :form-data]]
@@ -747,11 +739,7 @@
              (http-decode/decode-response-body
                {:body-text        "raw-payload"
                 :headers          {}
-                :decode           mode
-                :decode-supplied? true
-                :request-id       :test/req
-                :url              "/test"
-                :sensitive?       false}))
+                :decode           mode}))
           (str mode " with absent :body-binary returns the raw body-text payload")))))
 
 ;; ---- 6. retry exhaustion --------------------------------------------------

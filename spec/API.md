@@ -431,7 +431,6 @@ The eight `:kind` values inside a failure reply, all reserved under `:rf.http/*`
 | `:operation` | `:op-type` | When |
 |---|---|---|
 | `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`; carries `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` |
-| `:rf.warning/decode-defaulted` | `:warning` | The request relied on `:decode :auto` (default); informational, not an error |
 | `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded; carries `:frame`, `:id` (per [014 §Middleware](014-HTTPRequests.md#middleware)) |
 | `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot; carries `:frame`, `:id` |
 | `:rf.error/http-interceptor-failed` | `:error` | A request-interceptor `:before` threw; carries `:frame`, `:interceptor-id`, `:url`, `:cause`. The request is NOT dispatched (per [014 §Middleware §Failure mode](014-HTTPRequests.md#failure-mode)) |

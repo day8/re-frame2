@@ -257,7 +257,6 @@ Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-even
 | `:operation` | `:op-type` | When |
 |---|---|---|
 | `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`. Carries `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms`. |
-| `:rf.warning/decode-defaulted` | `:warning` | The request relied on `:decode :auto` (the default). Informational; not an error. |
 | `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Carries `:frame`, `:id`. |
 | `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot. |
 | `:rf.error/http-interceptor-failed` | `:error` | A request-interceptor `:before` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause`. The request is NOT dispatched. |

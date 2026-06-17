@@ -949,7 +949,7 @@
   `:rf.http/decode-failure`). Decode runs only on 2xx; if that fails
   the failure category is `:rf.http/decode-failure`."
   [ctx result]
-  (let [{:keys [decode decode-supplied? accept request-id url]} ctx
+  (let [{:keys [decode accept request-id]} ctx
         {:keys [ok? status status-text headers body-text body-binary]} result]
     (cond
       (and (>= status 400) (< status 500))
@@ -998,20 +998,6 @@
                   :body-binary      body-binary
                   :headers          headers
                   :decode           decode
-                  :decode-supplied? decode-supplied?
-                  :request-id       request-id
-                  :url              url
-                  ;; rf2-xuvj7 — the originating event-id keys the
-                  ;; one-shot-per-handler decode-defaulted latch.
-                  ;; Nil for synthetic / test-path callers with no
-                  ;; origin event; the latch degrades to a shared
-                  ;; runtime-wide slot in that case.
-                  :handler-id       (first (:origin-event ctx))
-                  :sensitive?       (:sensitive? ctx)
-                  ;; rf2-ppkh3v — the originating frame, so the
-                  ;; decode-defaulted warning's URL redaction consults
-                  ;; the frame's frame-local HTTP carriers (EP-0015 §3).
-                  :frame            (:frame ctx)
                   ;; rf2-wu1n5 — thread the keyword-cap from the
                   ;; normalised ctx into the decoder; nil means
                   ;; the reader uses its default.

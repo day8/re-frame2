@@ -42,7 +42,7 @@
 
   ## Production elision
 
-  Trace events (`:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`,
+  Trace events (`:rf.http/retry-attempt`,
   the `:rf.error/*` from failures) gate on `interop/debug-enabled?`. The
   `:rf.http/managed` fx itself is dev+prod (user-facing).
 

@@ -47,8 +47,7 @@
     (is (nil? (decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json"}
-                 :decode           :json
-                 :decode-supplied? true}))
+                 :decode           :json}))
         "empty 2xx JSON body must decode to nil on the running host")))
 
 (deftest whitespace-only-2xx-json-body-decodes-to-nil-cross-host
@@ -61,8 +60,7 @@
       (is (nil? (decode/decode-response-body
                   {:body-text        s
                    :headers          {"content-type" "application/json"}
-                   :decode           :json
-                   :decode-supplied? true}))
+                   :decode           :json}))
           (str "whitespace-only body " (pr-str s) " must decode to nil")))))
 
 (deftest empty-2xx-auto-json-body-decodes-to-nil-cross-host
@@ -73,8 +71,7 @@
     (is (nil? (decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json; charset=utf-8"}
-                 :decode           :auto
-                 :decode-supplied? false}))
+                 :decode           :auto}))
         "auto-sniffed empty 2xx JSON body must decode to nil")))
 
 (deftest non-empty-json-body-still-parses-cross-host
@@ -85,8 +82,7 @@
            (decode/decode-response-body
              {:body-text        "{\"ok\":true}"
               :headers          {"content-type" "application/json"}
-              :decode           :json
-              :decode-supplied? true}))
+              :decode           :json}))
         "a real JSON body must still parse")))
 
 (deftest empty-2xx-schema-body-parses-to-nil-then-schema-decides-cross-host
@@ -102,8 +98,7 @@
     (is (nil? (decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json"}
-                 :decode           [:maybe [:map [:id :int]]]
-                 :decode-supplied? true}))
+                 :decode           [:maybe [:map [:id :int]]]}))
         "empty 2xx body under a [:maybe ...] schema decodes to nil cross-host")))
 
 ;; ---------------------------------------------------------------------------
@@ -130,8 +125,7 @@
              #(decode/decode-response-body
                 {:body-text        "{:a 1}"            ;; valid EDN, NOT JSON
                  :headers          {"content-type" "application/edn"}
-                 :decode           [:map [:a :int]]
-                 :decode-supplied? true})))
+                 :decode           [:map [:a :int]]})))
         "non-JSON declared MIME under a schema must throw the tagged error")))
 
 (deftest schema-rejects-text-plain-content-type-cross-host
@@ -142,8 +136,7 @@
              #(decode/decode-response-body
                 {:body-text        "hello"
                  :headers          {"content-type" "text/plain"}
-                 :decode           [:map [:a :int]]
-                 :decode-supplied? true})))
+                 :decode           [:map [:a :int]]})))
         "text/plain under a schema must throw the tagged error")))
 
 (deftest schema-tolerates-absent-content-type-cross-host
@@ -158,8 +151,7 @@
                 #(decode/decode-response-body
                    {:body-text        "{\"a\":1}"
                     :headers          {}                 ;; no content-type
-                    :decode           [:map [:a :int]]
-                    :decode-supplied? true})))
+                    :decode           [:map [:a :int]]})))
         "absent Content-Type must NOT trigger the non-JSON schema rejection")))
 
 (deftest schema-accepts-json-content-type-cross-host
@@ -171,6 +163,5 @@
                 #(decode/decode-response-body
                    {:body-text        "{\"a\":1}"
                     :headers          {"content-type" "application/json"}
-                    :decode           [:map [:a :int]]
-                    :decode-supplied? true})))
+                    :decode           [:map [:a :int]]})))
         "application/json under a schema must NOT trigger the non-JSON rejection")))

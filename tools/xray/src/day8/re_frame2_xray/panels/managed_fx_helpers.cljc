@@ -219,8 +219,7 @@
     :rf.http/timeout
     :rf.http/decode-failure
     :rf.http/handled
-    :rf.http/managed-issued
-    :rf.warning/decode-defaulted})
+    :rf.http/managed-issued})
 
 (def websocket-trace-operations
   #{:rf.ws/connected

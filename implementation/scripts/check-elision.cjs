@@ -132,11 +132,6 @@ const DEV_ONLY_SENTINELS = [
   // sites must elide; the keyword's string fragment should not survive.
   { source: 're-frame.http-managed/maybe-retry! (rf.http/retry-attempt)',
     sentinel: 'rf.http/retry-attempt' },
-  // re-frame.http-managed — :rf.warning/decode-defaulted trace op (Spec
-  // 014 §:auto). Emitted only when the user did NOT supply :decode AND
-  // interop/debug-enabled?. The string fragment must elide in production.
-  { source: 're-frame.http-managed/maybe-emit-decode-defaulted! (rf.warning/decode-defaulted)',
-    sentinel: 'rf.warning/decode-defaulted' },
   // re-frame.http-managed — :rf.http/aborted-on-actor-destroy trace op
   // (Spec 014 §Abort on actor destroy, rf2-wvkn). Emitted by
   // abort-on-actor-destroy when the cancellation-cascade hook fires.

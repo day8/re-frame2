@@ -256,19 +256,7 @@ Sniff the response Content-Type header:
 - `text/*` → `:text`.
 - otherwise → `:blob`.
 
-Handles 90% of cases without ceremony. Whenever the runtime falls through to `:auto` (i.e., the user didn't supply `:decode`), it emits a `:rf.warning/decode-defaulted` trace so the choice is visible in tooling and logs. The warning is **latched one-shot-per-handler**: a happy-path handler that omits `:decode` re-issues the same defaulted request on every invocation, so emitting once per request would flood the trace surface with steady-state noise. The first defaulted request from a given originating event-id warns; subsequent requests from that handler stay quiet (a fresh handler id warns again). The handler id rides at `:handler-id`:
-
-```clojure
-{:operation :rf.warning/decode-defaulted
- :op-type   :warning
- :tags      {:request-id  <id-or-nil>
-             :handler-id  <originating-event-id-or-nil>
-             :url         <url>
-             :content-type <header-value>
-             :resolved-decoder <:json | :text | :blob>}}
-```
-
-The warning is informational, not an error — auto-decode is supported and stable. The trace just lets pair tools and 10x panels surface "this handler is relying on the default" once per call site so users can choose to be explicit when they want.
+Handles 90% of cases without ceremony. Falling through to `:auto` (i.e., not supplying `:decode`) is normal, supported, and stable usage — no trace fires for it. Supply an explicit `:decode` only when you want to override the content-type sniff or run a schema.
 
 ### Schema reflection (optional, ergonomic)
 
@@ -1335,7 +1323,7 @@ Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/regist
 
 ### 4. Trace-event redaction + stamping rules
 
-For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/decode-defaulted`, `:rf.warning/failure-swallowed`), implementations MUST:
+For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/failure-swallowed`), implementations MUST:
 
 1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
 2. **Redact denylisted query-string parameter values** in `:url` slots regardless of the effective `:sensitive?` flag. Param-name + position preserved; the value is replaced inline with the `:rf/redacted` text token.
@@ -1472,7 +1460,7 @@ Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`
 
 ### Query-string denylist is always-on
 
-Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on) the framework redacts denylisted query-string parameter values in `:url` slots **regardless** of the effective `:sensitive?` flag. Param-name and position are preserved; the value is replaced inline with the `:rf/redacted` text token. Always-on was chosen over flag-gated because query-string-auth patterns (older REST APIs, webhooks) leak through `:rf.warning/decode-defaulted` and similar URL-carrying traces even when the dispatching event isn't `:sensitive?` — the redaction must run unconditionally for the URL slot to be safe.
+Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on) the framework redacts denylisted query-string parameter values in `:url` slots **regardless** of the effective `:sensitive?` flag. Param-name and position are preserved; the value is replaced inline with the `:rf/redacted` text token. Always-on was chosen over flag-gated because query-string-auth patterns (older REST APIs, webhooks) leak through `:rf.http/retry-attempt` and similar URL-carrying traces even when the dispatching event isn't `:sensitive?` — the redaction must run unconditionally for the URL slot to be safe.
 
 ### Stale-suppression piggy-backs on the epoch carry
 
@@ -1486,7 +1474,7 @@ Per [Pattern-StaleDetection](Pattern-StaleDetection.md) and [§Reply addressing]
 - [Spec 002 §Routing](002-Frames.md#routing-the-dispatch-envelope) — frame-aware fx contract; reply dispatches inherit `:frame`.
 - [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:spawn`.
 - [Spec 005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
-- [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`, `:rf.warning/failure-swallowed`, and the `:rf.http/*` failure-category traces follow it.
+- [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/failure-swallowed`, and the `:rf.http/*` failure-category traces follow it.
 - [Spec 010 §Schemas](010-Schemas.md) — the schema language `:decode <schema>` consumes. Spec 010 standardises the schema-attachment surface (`:schema` metadata, `reg-app-schema`, `app-schemas-digest`) and the pluggable validator seam (Malli is the CLJS reference's default); the `:rf.http/managed` decode step parses the response body and applies the registered schema language's decode-or-validate primitive (on CLJS reference: `malli.core/decode` + `malli.transform/json-transformer`). There is no separate "Spec 010 decode pipeline" — the decode contract belongs to this Spec; Spec 010 provides the schema language.
 - [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) — the canonical end-to-end illustration of [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.http/*` namespace is reserved for this Spec.
