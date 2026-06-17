@@ -62,6 +62,7 @@
             [re-frame.live-frame :as live-frame]
             [re-frame.image :as image]
             [re-frame.image-assembly :as image-assembly]
+            [re-frame.trace :as trace]
             [day8.re-frame2-xray.panels.image-view-helpers :as h]))
 
 ;; ===========================================================================
@@ -126,17 +127,14 @@
   PURE: `rf/image` is data, not registration (no realm, no registrar, no side
   effect).
 
-  This is the CONSTRUCT-and-PROVE half of the dogfooding the EP names: Xray
-  builds its OWN registration-set value (a SEPARATE image, not shared
-  registration state) and `xray-image-isolated-from?` proves it
-  registration-disjoint from a target frame's image. The returned image value
-  is Xray's instruction set; it never mixes with a target frame's image, and
-  the target frame is inspected as DATA through the live-read fns. To SEAT a
-  running Xray in a frame built from this image one would construct
-  `(rf/make-frame {:id :rf.xray/main :images [(xray-image)] :initial-db
-  {:rf.xray/target <target-frame-id>}})` — that seating is deferred follow-up
-  (rf2-32siq3.36); what this fn realizes is the image VALUE and (via the
-  isolation predicate) the proven disjointness, not the seated runtime.
+  This is the registration-set value the dogfooding seats: Xray builds its OWN
+  registration-set value (a SEPARATE image, not shared registration state),
+  `xray-image-isolated-from?` proves it registration-disjoint from a target
+  frame's image, and `seat-xray-frame!` SEATS a running Xray frame on it (true
+  runtime self-seating — Xray runs in its own image-loaded frame, not the legacy
+  shared registrar). The returned image value is Xray's instruction set; it
+  never mixes with a target frame's image, and the target frame is inspected as
+  DATA through the live-read fns.
 
   Returns the normalized inert image value (`:rf.image/id` /
   `:rf.image/include-ns` / …)."
@@ -229,3 +227,77 @@
        (empty? (set/intersection (application-resolver-keyset xray-gen)
                                  (application-resolver-keyset target-gen))))
      (catch :default _ false))))
+
+(defn xray-frame-seated?
+  "True iff a live frame is already registered under `frame-id` in the EP-0023
+  process-local live-frame registry — the idempotency probe `seat-xray-frame!`
+  reads to avoid the fail-loud duplicate-`:id` gate on re-seat (re-open,
+  hot-reload, repeated testbed mount). Pure read of the registry snapshot."
+  [frame-id]
+  (some? (live-frame/live-frame frame-id)))
+
+(defn seat-xray-frame!
+  "SEAT a running Xray frame in its OWN EP-0023 image-loaded frame — the TRUE
+  runtime dogfood (EP-0023 §Xray Beside The Target, rf2-32siq3.36). This is the
+  runtime counterpart to `xray-image` (the image VALUE) and
+  `xray-image-isolated-from?` (the proven disjointness): Xray runs in genuine
+  registration ISOLATION from the inspected target — its `:rf.xray/*`
+  registrations are resolved through the frame's OWN sealed image generation
+  (built from `(xray-image)`), never the shared default registrar.
+
+  Replaces the legacy realm seating (`reg-frame frame-id {:rf.trace/frame-no-
+  emit? true}`), which produced the shell frame against the process-global
+  registrar and relied on id-collision-avoidance. Here the frame resolves ONLY
+  Xray's image (plus the framework-standard registrations the assembly unions
+  into every generation) — the EP's literal `(rf/make-frame {:id … :images
+  [(xray-image)] …})` shape.
+
+  ## Idempotency
+
+  `make-frame {:id …}` is fail-loud on a duplicate live `:id` (EP-0023 §Id
+  Spaces — `:rf.error/live-frame-id-conflict`), so the seating runs ONLY when
+  `frame-id` is not already live (`xray-frame-seated?`). A re-open / hot-reload /
+  repeated testbed mount that finds the frame already seated SKIPS the
+  `make-frame` and just re-asserts the trace-emission gate below (the per-frame
+  app-db seeding is the caller's idempotent first-mount-hook chain, not this
+  fn's job).
+
+  ## Trace-emission gate (rf2-2qaqh — preserved)
+
+  `make-frame` is the EP-0023 OBJECT constructor: it honours only the
+  frame-creation opts (`:images` / `:id` / `:initial-db` / …) and would reject
+  the record-config `:rf.trace/frame-no-emit?` flag. That flag is frame-scoped
+  trace state owned by `re-frame.trace`, keyed by frame-id independently of the
+  generation, so it is set DIRECTLY via `trace/set-frame-no-emit!` — the same
+  canonical seam `reg-frame` routes the flag through. Asserted on EVERY call
+  (seat or re-seat) so a hot-reload never drops the gate that keeps Xray's own
+  reactive substrate from flooding the trace ring it inspects.
+
+  `frame-id` is the shell frame id (`:rf/xray` for the production singleton, a
+  distinct id for a second testbed shell). Two arities mirror the other EP-0023
+  seams here:
+
+    (seat-xray-frame! frame-id)
+      seat against the LIVE source store (the production runtime: where
+      `register-xray-handlers!` registers Xray's `:rf.xray/*` instruction set).
+
+    (seat-xray-frame! frame-id pool)
+      seat against an EXPLICIT descriptor `pool` (the deterministic test/harness
+      form `make-frame`'s 2-arity takes — does not depend on what the live store
+      carries).
+
+  Returns the live frame OBJECT on a fresh seat, or nil on a re-seat skip."
+  ([frame-id] (seat-xray-frame! frame-id ::live))
+  ([frame-id pool]
+   (let [already? (xray-frame-seated? frame-id)
+         opts {:id frame-id :images [(xray-image)]}
+         obj (when-not already?
+               (if (= pool ::live)
+                 (live-frame/make-frame opts)
+                 (live-frame/make-frame opts pool)))]
+     ;; Frame-scoped trace gate (rf2-2qaqh): mark the shell frame a tool /
+     ;; inspector frame so its own `:rf.sub/run` / `:rf.view/render` reactivity
+     ;; does NOT flood the shared trace ring it inspects. Independent of the
+     ;; image generation, so set on both fresh seat and re-seat.
+     (trace/set-frame-no-emit! frame-id true)
+     obj)))

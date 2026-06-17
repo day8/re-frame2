@@ -273,18 +273,41 @@ the target's registration set.
 > Xray runs in its own frame. Xray inspects the target frame. That keeps the
 > inspection tool from becoming part of the thing being inspected.
 
-**Scope (honest claim, rf2-32siq3.35).** What is realized today is the
-**CONSTRUCT-and-PROVE** half: Xray builds its OWN real `rf/image` (a separate
-registration-set value) and the implementation **proves** it
-registration-disjoint from a target frame's image. The running Xray shell is
-NOT yet SEATED in a frame built from that image via `rf/make-frame` — Xray
-still runs on the ambient registrar like any other surface. Actually seating
-Xray in its own frame is deferred follow-up (**rf2-32siq3.36**). So the claim is
-"Xray's instruction set is a separate image, provably non-overlapping with the
-target's" — the image VALUE plus the proven disjointness — not the full "Xray
-runs in its own frame" runtime. With the strengthened proof (below) the
-**isolation** claim is true; only the "runs-in-its-own-frame" claim is scoped
-down to construct-and-prove.
+**Scope (runtime self-seating shipped as a callable; production-singleton flip
+deferred).** The dogfood now has a working RUNTIME arm: Xray
+builds its OWN real `rf/image` (a separate registration-set value), the
+implementation **proves** it registration-disjoint from a target frame's image,
+AND `image_view_reads/seat-xray-frame!` **SEATS a running Xray frame built from
+that image** via `rf/make-frame {:images [(xray-image)]}` — true runtime
+self-seating in genuine registration ISOLATION (the seated frame resolves ONLY
+Xray's `:rf.xray/*` registrations plus the framework standards the assembly
+unions into every generation, not the shared default registrar). This is the
+literal `(rf/make-frame {:id … :images [(xray-image)] …})` shape the EP names,
+shipped as a tested, callable seam.
+
+The seating preserves the `:rf.trace/frame-no-emit?` gate that keeps
+Xray's own reactivity out of the trace ring it inspects: `make-frame` is the
+EP-0023 OBJECT constructor and honours only the frame-creation opts (`:images` /
+`:id` / `:initial-db` / …), rejecting the record-config flag, so the gate is set
+directly through `re-frame.trace/set-frame-no-emit!` (the same canonical seam
+`reg-frame` routed it through) — asserted on every seat / re-seat. The seating is
+idempotent: `make-frame {:id …}` is fail-loud on a duplicate live `:id`, so a
+re-open / hot-reload / repeated testbed mount finds the frame already live
+(`xray-frame-seated?`) and skips the re-create, re-asserting only the gate.
+
+**What is deferred.** The default production-singleton mount path
+(`mount/ensure-xray-frame!`) is NOT yet flipped onto `seat-xray-frame!`; it keeps
+the legacy realm seating (`reg-frame {:rf.trace/frame-no-emit? true}`) for now.
+The blocker is the image selector grain: `xray-image`'s `day8.re-frame2-xray.**`
+glob sweeps in Xray's OWN `*-cljs-test` namespaces in any dev/test build that
+loads them, and those tests co-register `:rf.xray/*` ids (e.g.
+`[:fx :rf.editor/open]` from both `open-in-editor` and `open-in-editor-cljs-test`)
+— so assembling the image fails loud (`:rf.error/image-duplicate-id`) under the
+node-test build. The seating-core seam is therefore exercised against an explicit
+descriptor pool (deterministic, no test-ns sweep), and the production flip waits
+on a test-namespace-excluding image selector. The disjointness claim is true and
+proven (below) regardless; only the default-singleton flip is scoped to a
+follow-on.
 
 Xray therefore models its registration set as a **separate image**, NOT as
 shared registration state:
@@ -371,9 +394,10 @@ does not flip `:images?` (there is no image content to show).
 - `panels/image_view_reads.cljs` — the READ-TIME fail-soft live read seam
   (`live-frames` · `resolve-descriptor` · `image-view-data`) over the EP-0023
   core surfaces (`re-frame.live-frame` / `re-frame.image` /
-  `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor
-  (`xray-image` · `xray-image-id` · `xray-source-glob` · `resolver-keyset` ·
-  `application-resolver-keyset` · `xray-image-isolated-from?`).
+  `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor +
+  SEATING (`xray-image` · `xray-image-id` · `xray-source-glob` ·
+  `resolver-keyset` · `application-resolver-keyset` · `xray-image-isolated-from?`
+  · `xray-frame-seated?` · `seat-xray-frame!`).
   `resolver-keyset` is the full `[kind id]`-keyset reader (every resolved
   registration, framework standards included — what the FRAMES section
   displays); `application-resolver-keyset` is the application-owned subset
@@ -381,13 +405,26 @@ does not flip `:images?` (there is no image content to show).
   every generation — rf2-32siq3.41) that the disjointness predicate compares;
   `xray-image-isolated-from?` assembles both images and compares those
   application-owned keysets (live-store + explicit-pool arities, fail-soft to a
-  conservative `false`). Xray may require these core
+  conservative `false`). `seat-xray-frame!` is the TRUE runtime seating
+  (EP-0023 §Xray Beside The Target): `rf/make-frame {:id frame-id :images
+  [(xray-image)]}` (live-store + explicit-pool arities) +
+  `re-frame.trace/set-frame-no-emit!` for the
+  trace gate, guarded by `xray-frame-seated?` (a live-frame registry probe) for
+  idempotency on re-seat. Xray may require these core
   namespaces directly — bundle isolation forbids `implementation/` requiring
   from `tools/`, not the reverse, the same pattern Xray uses for
-  `re-frame.frame` / `re-frame.registrar`. (The read seam's fail-soft is
-  READ-TIME robustness, not absent-core-surface tolerance: the core EP-0023
-  namespaces are hard-`:require`d, so an old core fails at LOAD before the
-  try/catch.)
+  `re-frame.frame` / `re-frame.registrar` / `re-frame.trace`. (The read seam's
+  fail-soft is READ-TIME robustness, not absent-core-surface tolerance: the core
+  EP-0023 namespaces are hard-`:require`d, so an old core fails at LOAD before
+  the try/catch.) `seat-xray-frame!` + `xray-frame-seated?` are covered by
+  `image_view_reads_cljs_test` (seats against an explicit pool; asserts the
+  seated frame resolves ONLY Xray's app-owned ids, the trace-no-emit gate is
+  set, and re-seat is idempotent — no duplicate-`:id` throw).
+- `mount.cljs/ensure-xray-frame!` — currently keeps the legacy realm seating
+  (`reg-frame {:rf.trace/frame-no-emit? true}`) for the production singleton.
+  The flip onto `seat-xray-frame!` waits on a test-namespace-excluding image
+  selector (the `day8.re-frame2-xray.**` glob sweeps Xray's own `*-cljs-test`
+  registrations in dev/test builds → a fail-loud assembly collision); see §8.1.
 - `panels/module_view.cljs` — extended with the FRAMES section (`frame-row` ·
   `descriptor-rows` · `frames-section-body`) + the `:rf.xray/image-view` sub.
 - Tests: `panels/image_view_helpers_cljs_test.cljc` (the generation/image
