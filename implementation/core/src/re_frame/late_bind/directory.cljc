@@ -374,6 +374,10 @@
    {:key         :machines/on-frame-destroyed!
     :producer-ns 're-frame.machines
     :description "Per-frame `:after` timer-table cleanup hook called from frame/destroy-frame! (rf2-ysa94)."}
+   {:key         :machines/on-frame-restored!
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-u5kmf8"
+    :description "Epoch-restore host-transient quiesce for machine `:after` timers. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: releases the restored frame's in-flight `:after` host-clock handles (the orphaned async host work the unwound epochs spawned — NOT frame-state) so a leaked wall-clock timer never fires against the restored state. Emits one `:rf.machine.timer/cancelled :reason :on-restore` per entry. The restore counterpart of `:machines/on-frame-destroyed!` (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :machines/teardown-on-frame-destroy!
     :producer-ns 're-frame.machines
     :design-bead "rf2-vsigt"
@@ -615,6 +619,10 @@
     :producer-ns 're-frame.http-managed
     :design-bead "rf2-wvkn"
     :description ":spawn cancellation cascade tied to actor destruction."}
+   {:key         :http/abort-in-flight-for-frame!
+    :producer-ns 're-frame.http-managed
+    :design-bead "rf2-u5kmf8"
+    :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:work/status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :http/register-managed-machine!
     :producer-ns 're-frame.http-managed
     :design-bead "rf2-ijm7"

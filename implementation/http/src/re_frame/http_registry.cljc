@@ -27,6 +27,7 @@
   both atoms and mutates them under one `swap!` per slot. Keeping it
   next to the atoms makes the invariant local."
   (:require [re-frame.http-privacy :as privacy]
+            [re-frame.http-reply   :as http-reply]
             [re-frame.interop      :as interop]
             [re-frame.late-bind    :as late-bind]
             [re-frame.trace        :as trace]))
@@ -364,6 +365,93 @@
         (try
           ((:abort-fn handle) :actor-destroyed)
           (catch #?(:clj Throwable :cljs :default) _ nil)))))
+  nil)
+
+;; ---- abort-in-flight-for-frame! (rf2-u5kmf8) ------------------------------
+;;
+;; Epoch-restore host-transient quiesce for NON-resource managed HTTP. The epoch
+;; restore boundary (`perform-restore!`) installs the captured durable
+;; frame-state WHOLESALE, but a plain `:rf.http/managed` request in flight is
+;; host work — an AbortController / CompletableFuture + an in-flight registry
+;; slot, NOT frame-state — so the wholesale install leaves it attached to the
+;; pre-restore timeline. Unlike resource-backed HTTP (whose work-ledger row the
+;; resources reconcile dangles), a plain managed request has no ledger gate: its
+;; late completion would still deliver to its original `:rf/reply-to` target
+;; against the restored state.
+;;
+;; This aborts every in-flight managed request the restored frame issued,
+;; suppressing the app reply (the abort fires with `:reason :epoch-restored`,
+;; which `http-transport` treats as a reply-suppressing reason — no delivery to
+;; `:rf/reply-to`) and emitting the EP-0011 `:status :stale` /
+;; `:work/status :suppressed` envelope facts for the suppressed attempt
+;; (Managed-Effects §restore: "epoch restore MUST NOT revive host work" —
+;; clauses 2/3/4 of §Stale suppression). It is the non-resource counterpart of
+;; the resources reconcile, published as the `:http/abort-in-flight-for-frame!`
+;; late-bind hook the epoch boundary fires AFTER a successful install.
+
+(defn- emit-restore-stale-trace!
+  "Emit the canonical EP-0011 `:status :stale` / `:work/status :suppressed`
+  reply-envelope trace for one managed HTTP attempt aborted because epoch
+  restore unwound its timeline (rf2-u5kmf8), WITHOUT dispatching any app target.
+  Mirrors `http-transport/emit-superseded-stale-trace!` (the supersede sibling):
+  the carried work-id is the aborted attempt's identity; there is no current
+  work-id (restore replaces the attempt with nothing) so the gate suppresses the
+  carried id against a nil current. Gated on `debug-enabled?` like the other
+  `:rf.http/*` trace rows."
+  [handle]
+  (when interop/debug-enabled?
+    (let [stale-ctx {:request-id   (:request-id handle)
+                     :origin-event (:origin-event handle)
+                     :issuance     (:issuance handle)
+                     :attempt      (:attempt handle)
+                     :frame        (:frame handle)}
+          {:keys [reply trace]} (http-reply/suppress stale-ctx nil)
+          summary (http-reply/trace-reply
+                    reply
+                    (cond-> {:sensitive? (true? (:sensitive? handle))}
+                      (:frame handle) (assoc :frame (:frame handle))))]
+      (trace/emit! :info :rf.http/stale-suppressed
+                   (cond-> {:rf.reply/status       (:status summary)
+                            :rf.reply/work-status  (:work/status summary)
+                            :rf.reply/stale-reason (:stale/reason summary)
+                            :rf.reply/work-id      (:work/id summary)
+                            :work/id               (:work/id summary)
+                            :work/kind             :http
+                            :rf.reply/carried      (:rf.reply/carried trace)
+                            :rf.reply/current      (:rf.reply/current trace)
+                            :recovery              :suppressed-on-epoch-restore}
+                     (:frame handle) (assoc :frame (:frame handle)))))))
+
+(defn abort-in-flight-for-frame!
+  "Abort every in-flight managed HTTP request issued by `frame-id`, because epoch
+  restore unwound that frame's timeline (rf2-u5kmf8). For each matching handle:
+  emit the EP-0011 stale-suppression envelope facts, then fire its `:abort-fn`
+  with `:reason :epoch-restored` — a reply-suppressing reason, so the late
+  completion does NOT deliver to its original `:rf/reply-to` target
+  (Managed-Effects §restore). The abort-fn cascade clears the registry slot via
+  `clear-in-flight!`.
+
+  Walks BOTH indexes (an anonymous-from-actor request is only in
+  `actor-in-flight`), filtering on the handle's `:frame` stamp, and dedupes by
+  identity so a handle present in both indexes fires once. Snapshots the handles
+  before firing so an abort-fn's own `clear-in-flight!` swap cannot trip a
+  concurrent-modification on the iteration. Each abort-fn is fired defensively —
+  a throwing one must not strand the rest. Idempotent and a no-op for a frame
+  with no in-flight managed HTTP (an app that issues none pays nothing). Returns
+  nil."
+  [frame-id]
+  (when frame-id
+    (let [handles (->> (concat (vals @in-flight)
+                               (mapcat val @actor-in-flight))
+                       (filter #(= frame-id (:frame %)))
+                       (reduce (fn [acc h]
+                                 (if (some #(identical? % h) acc) acc (conj acc h)))
+                               []))]
+      (doseq [handle handles]
+        (emit-restore-stale-trace! handle)
+        (when-let [abort-fn (:abort-fn handle)]
+          (try (abort-fn :epoch-restored)
+               (catch #?(:clj Throwable :cljs :default) _ nil))))))
   nil)
 
 ;; ---- spawned-actor detection (rf2-ma0wvq inversion) -----------------------

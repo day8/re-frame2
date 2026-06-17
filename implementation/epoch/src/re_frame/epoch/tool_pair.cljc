@@ -596,6 +596,74 @@
        frame-state)
      frame-state)))
 
+;; ---- restore-time host-transient quiesce (rf2-u5kmf8) ---------------------
+;;
+;; EP-0011 / Managed-Effects §SSR, preload, hydration, and restore: "Hydration
+;; and epoch restore MUST NOT revive host work." A restore installs the captured
+;; durable frame-state WHOLESALE, but the ASYNC HOST WORK the unwound epochs
+;; spawned — machine `:after` host-clock timers (re-frame.machines.timer's
+;; frame-scoped handle table) and non-resource managed-HTTP AbortControllers /
+;; in-flight handles (re-frame.http-registry) — is NOT frame-state, so the
+;; wholesale install does not touch it. It stays attached to the pre-restore
+;; timeline. Restore must QUIESCE it for the restored frame: cancel/clear the
+;; orphaned host handles so a late pre-restore completion is stale-suppressed and
+;; never delivers to its original `:rf/reply-to` target.
+;;
+;; The `:resources/reconcile-on-restore` hook (rf2-7r5mc2) reconciles the
+;; Resources subsystem's runtime-db slice + clears its host transients. This is
+;; the restore counterpart for the OTHER managed async subsystems — the mirror
+;; of destroy-frame!'s `:machines/on-frame-destroyed!` /
+;; `:http/abort-on-actor-destroy` teardown chain. Each subsystem publishes a
+;; restore hook keyed by frame-id:
+;;
+;;   :machines/on-frame-restored!        — cancel/clear the frame's in-flight
+;;                                          `:after` host-clock timers (the pure
+;;                                          per-path epoch invariant already
+;;                                          stale-drops a fired timer; this
+;;                                          eagerly releases the orphaned host
+;;                                          handle so it never fires at all).
+;;   :http/abort-in-flight-for-frame!    — abort every non-resource managed HTTP
+;;                                          request in flight for the frame,
+;;                                          suppressing the app reply (no
+;;                                          delivery to the original
+;;                                          `:rf/reply-to`) and emitting the
+;;                                          EP-0011 stale-suppression facts.
+;;
+;; Late-bound so the epoch artefact never statically depends on the optional
+;; machines / http artefacts — absent the artefact the hook is nil and quiesce is
+;; a clean no-op (an app with no async host work pays nothing). Each hook is
+;; fired best-effort: a throwing hook is swallowed so one bad subsystem cleanup
+;; cannot strand the others, matching destroy-frame!'s `safe-call-hook!` posture.
+
+(def ^:private restore-quiesce-hooks
+  "The late-bind hook keys perform-restore! fires to quiesce orphaned async host
+  work after a successful install. Each takes the restored frame-id. New managed
+  async subsystems join the chain by publishing their own restore hook here."
+  [:machines/on-frame-restored!
+   :http/abort-in-flight-for-frame!])
+
+(defn quiesce-orphaned-async-host-work!
+  "Fire the restore-time host-transient quiesce hook chain for `frame-id`
+  (rf2-u5kmf8). Invoked by `perform-restore!` ONLY AFTER a successful
+  `replace-frame-state!` install — a destroyed-frame install (which wrote
+  nothing) returns before this point, so a restore that never landed never
+  cancels a live frame's host work. Each `restore-quiesce-hooks` entry is a
+  late-bound `(fn [frame-id])`; an unregistered hook (the artefact is absent) is
+  a no-op, and a throwing hook is swallowed so one bad subsystem cleanup cannot
+  block the rest. Returns nil."
+  [frame-id]
+  (doseq [hook-key restore-quiesce-hooks]
+    (when-let [f (late-bind/get-fn hook-key)]
+      (try (f frame-id)
+           (catch #?(:clj Throwable :cljs :default) ex
+             (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
+                                {:category  :rf.warning/restore-quiesce-hook-exception
+                                 :hook      hook-key
+                                 :frame     frame-id
+                                 :exception ex
+                                 :recovery  :ignored})))))
+  nil)
+
 (defn commit-resources-restore-traces!
   "Emit the resources restore-reconcile trace rows DEFERRED by
   `reconcile-runtime-db-on-restore` (rf2-obi8rr), consulting the late-bound
@@ -733,6 +801,17 @@
               ;; deferred. A destroyed-frame install (nil branch above) returns
               ;; before this point, so those rows never fire for a no-op write.
               (commit-resources-restore-traces! frame-state-target)
+              ;; rf2-u5kmf8 — quiesce the orphaned async host work the unwound
+              ;; epochs spawned (machine :after host-clock timers + non-resource
+              ;; managed-HTTP in-flight handles). These are host transients, not
+              ;; frame-state, so the wholesale install left them attached to the
+              ;; pre-restore timeline; cancelling/clearing them now keeps a late
+              ;; pre-restore completion from delivering to its original
+              ;; :rf/reply-to target (EP-0011 / Managed-Effects §restore: "epoch
+              ;; restore MUST NOT revive host work"). Fired ONLY on the success
+              ;; branch, like commit-resources-restore-traces! above — a
+              ;; destroyed-frame install returns before this point.
+              (quiesce-orphaned-async-host-work! frame-id)
               true))))))
 
 ;; ---- replace-app-db! preconditions ----------------------------------------
