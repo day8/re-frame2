@@ -32,6 +32,7 @@
             [re-frame.http-managed :as http-managed]
             [re-frame.http-reply :as http-reply]
             [re-frame.http-test-support]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.reply :as reply]
             [re-frame.schemas :as schemas]
@@ -50,6 +51,12 @@
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   (frame/ensure-default-frame!)
+  ;; `clear-all!` wipes the framework's built-in `:rf/time-ms` reg-cofx
+  ;; (registered at `re-frame.cofx` ns-load). Reload it so the provided
+  ;; recordable coeffect is present for the EP-0017 reply-time tests
+  ;; (rf2-5vdfrm) — a reply handler declaring `:rf.cofx/requires [:rf/time-ms]`
+  ;; needs its supplier registered.
+  (require 're-frame.cofx :reload)
   (require 're-frame.http-managed :reload)
   (require 're-frame.http-test-support :reload)
   (rf/with-frame :rf/default
@@ -471,3 +478,117 @@
                (:work/id (:rf.reply/carried trace))))
         (is (nil? (:rf.reply/current trace))
             "no live successor — the actor that owned the target is gone")))))
+
+;; ===========================================================================
+;; Group 5 — EP-0017 HTTP-reply :rf.cofx time delivery (rf2-5vdfrm). The HTTP
+;; completion time (read ONCE at finalisation in `reply-ctx`) rides the reply
+;; dispatch's flat `:rf.cofx` `:rf/time-ms`. A reply handler DECLARING
+;; `{:rf.cofx/requires [:rf/time-ms]}` receives EXACTLY that HTTP completion
+;; timestamp; an UNDECLARED reply handler does NOT see implicit `:rf/time-ms`
+;; flat. This is the HTTP-owned boundary that supplies host completion time as
+;; the reply token's recordable cofx — distinct from the core
+;; provided-cofx-delivery conformance.
+;;
+;; The test fails if `dispatch-reply-via-late-bind!` stops supplying flat
+;; `:rf.cofx`, regresses to the retired `:rf.world/inputs`, or relies on an
+;; implicit fresh-clock read (the declared handler would then see a value
+;; != the HTTP `:completed-at`, or the undeclared handler would see one).
+;; ===========================================================================
+
+(deftest http-reply-declared-handler-receives-completion-time-flat
+  (testing "rf2-5vdfrm — a reply handler declaring {:rf.cofx/requires [:rf/time-ms]} receives the HTTP completion timestamp (== the :rf.http/replied trace :completed-at) flat under :rf/time-ms; the reply dispatch carries it on a flat :rf.cofx supplied BY HTTP (not the router's enqueue fill)"
+    (let [srv    (start-server!
+                   (fn [^HttpExchange ex]
+                     (write-response! ex 200 "application/json" "{\"v\":1}")))
+          cofx   (atom ::unset)
+          traces (atom [])
+          ;; Capture the :rf.cofx OPT the http reply path passes to
+          ;; `:router/dispatch!`. This directly pins that HTTP SUPPLIES a flat
+          ;; `:rf.cofx` `:rf/time-ms` on the reply dispatch (the bead's literal
+          ;; failure condition: "fails if dispatch-reply-via-late-bind! stops
+          ;; supplying flat :rf.cofx"), rather than relying on the router's
+          ;; missing-cofx enqueue fill — whose value coincides with
+          ;; :completed-at to the millisecond and so cannot discriminate.
+          reply-dispatch-opts (atom nil)
+          real-dispatch! (late-bind/get-fn :router/dispatch!)
+          lid    ::cofx-time]
+      (try
+        (late-bind/set-fn! :router/dispatch!
+          (fn [ev opts]
+            (when (= :svc/replied (first ev))
+              (reset! reply-dispatch-opts opts))
+            (real-dispatch! ev opts)))
+        (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf/reg-event :svc/call
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
+                    :request-id :svc/call
+                    :decode     :json
+                    :on-success [:svc/replied]}]]}))
+        ;; The reply handler DECLARES the recordable fact, so it is delivered
+        ;; FLAT under its id (EP-0017 §2/§5). The handler reads it off the
+        ;; reply token's recordable coeffects — NOT a fresh ambient clock.
+        (rf/reg-event :svc/replied
+          {:rf.cofx/requires [:rf/time-ms]}
+          (fn [{:keys [db] :as coeffects} _]
+            (reset! cofx coeffects)
+            {:db (assoc db :done true)}))
+        (rf/dispatch-sync [:svc/call])
+        (let [db (await-reply! #(:done %))
+              c  @cofx
+              replied (->> @traces
+                           (filter #(= :rf.http/replied (:operation %)))
+                           first)
+              trace-completed-at (get-in replied [:tags :completed-at])
+              opts @reply-dispatch-opts]
+          (is (some? db))
+          ;; (1) HTTP supplies a flat :rf.cofx :rf/time-ms on the reply dispatch.
+          (is (= {:rf/time-ms trace-completed-at} (:rf.cofx opts))
+              "the http reply dispatch SUPPLIES a flat :rf.cofx {:rf/time-ms <completed-at>} — not omitted, not nested")
+          (is (= :http (:source opts))
+              "the reply dispatch self-tags :source :http")
+          ;; (2) the declared handler receives that completion time FLAT.
+          (is (number? (:rf/time-ms c))
+              "the declared recordable fact arrived FLAT under :rf/time-ms")
+          (is (some? trace-completed-at)
+              "the :rf.http/replied trace carries the canonical :completed-at")
+          (is (= trace-completed-at (:rf/time-ms c))
+              "the handler's :rf/time-ms IS the HTTP completion time (read once in reply-ctx), not a fresh clock read")
+          (testing "the flat :rf.cofx record carries the same fact (the EP-0017 envelope field)"
+            (is (= trace-completed-at (get (:rf.cofx c) :rf/time-ms)))
+            (is (not (contains? c :rf.world/inputs))
+                "the retired :rf.world/inputs nested envelope is GONE (flat rename)")))
+        (finally
+          (late-bind/set-fn! :router/dispatch! real-dispatch!)
+          (trace/unregister-listener! lid)
+          (stop-server! srv))))))
+
+(deftest http-reply-undeclared-handler-does-not-see-implicit-time
+  (testing "rf2-5vdfrm — an UNDECLARED reply handler does NOT receive :rf/time-ms flat (no implicit time delivery); the fact rides :rf.cofx but is not handed flat without a declaration"
+    (let [srv    (start-server!
+                   (fn [^HttpExchange ex]
+                     (write-response! ex 200 "application/json" "{\"v\":1}")))
+          cofx   (atom ::unset)]
+      (try
+        (rf/reg-event :svc/call2
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/c")}
+                    :decode     :json
+                    :on-success [:svc/replied2]}]]}))
+        ;; NO :rf.cofx/requires — the handler must NOT see :rf/time-ms flat.
+        (rf/reg-event :svc/replied2
+          (fn [{:keys [db] :as coeffects} _]
+            (reset! cofx coeffects)
+            {:db (assoc db :done2 true)}))
+        (rf/dispatch-sync [:svc/call2])
+        (await-reply! #(:done2 %))
+        (let [c @cofx]
+          (is (not (contains? c :rf/time-ms))
+              "an undeclared reply handler does NOT receive :rf/time-ms flat (no implicit time delivery)")
+          (is (map? (:rf.cofx c))
+              "the flat :rf.cofx record is still reachable for generic code (EP-0017 §5)")
+          (is (not (contains? c :rf.world/inputs))
+              "the retired :rf.world/inputs nested envelope is GONE"))
+        (finally (stop-server! srv))))))
