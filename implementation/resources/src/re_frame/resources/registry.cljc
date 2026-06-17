@@ -124,6 +124,138 @@
     {:recovery :fix-registration
      :extra    extra}))
 
+;; ---- :infinite registration validation (Spec 016 §Infinite resources) -----
+;;
+;; The `:infinite`-only additive slice of the `reg-resource` args-map
+;; (`:rf/infinite-resource-args`, Spec-Schemas; EP-0021 R1–R8). `:infinite
+;; true` selects the slice and makes `:next-page-param` REQUIRED — a fail-closed
+;; gate symmetric with the `:scope` / `:params-schema` / `:request` gates above.
+;; The per-page cursor is NEVER a registration key (R8): it is the
+;; runtime-threaded page-param the `:request` fn reads from its RESERVED ctx
+;; (`{:rf.resource/page-param p :rf.resource/page-index i}`); a non-infinite
+;; `:request` still receives a nil/empty ctx (NO new 3-arity). The
+;; `:rf.error/infinite-missing-page-accessor` error is RUNTIME-detected at the
+;; first non-vector page in the merge layer (wave 4), not here — at registration
+;; we have no page to inspect; here we shape-validate `:page->items` (a keyword
+;; or fn) when present.
+
+(defn infinite-resource?
+  "True iff `spec` declares an infinite feed (`:infinite true`). The single
+  predicate the registry validation and the runtime read so the `:infinite`
+  slice is gated by the SAME marker. Per Spec 016 §Registration — :infinite."
+  [spec]
+  (true? (:infinite spec)))
+
+(defn- validate-infinite-spec!
+  "Validate the `:infinite`-only slice of a `reg-resource` spec (Spec 016
+  §Infinite resources and load-more feeds, EP-0021). A no-op when the resource
+  is NOT infinite (`:infinite` absent / not `true`). When `:infinite true`:
+
+    - `:next-page-param` is REQUIRED and MUST be a fn — a missing / non-fn
+      value raises `:rf.error/infinite-missing-next-page-param` (R8 gate,
+      symmetric with `:scope` / `:params-schema` / `:request`);
+    - the optional `:prev-page-param` (R7 mirror) MUST be a fn when present;
+    - the optional `:page->items` (R3 accessor) MUST be a keyword or fn when
+      present (a non-vector page with NO `:page->items` is the RUNTIME-detected
+      `:rf.error/infinite-missing-page-accessor`, raised at the merge site in
+      wave 4 — not here);
+    - the optional `:refetch` policy (R6) MUST be a map with a boolean
+      `:refetch-all-pages?` and/or an integer `:refetch-window` when present.
+
+  Also rejects an `:infinite` value that is present but not literally `true`
+  (`:infinite false` is meaningless — a resource is infinite or it is an
+  ordinary resource; the flag is `[:= true]` per `:rf/infinite-resource-args`).
+  Fails in dev AND prod (a caller bug)."
+  [resource-id spec]
+  (when (contains? spec :infinite)
+    ;; `:infinite` is the `[:= true]` selector — present-but-not-true is a typo.
+    (when-not (true? (:infinite spec))
+      (throw (registration-error
+               :rf.error/invalid-resource-spec
+               'rf/reg-resource
+               (str "resource " resource-id " declares :infinite "
+                    (pr-str (:infinite spec)) " — the :infinite flag is the "
+                    "literal `true` selector for the load-more feed kind. Omit "
+                    "it for an ordinary resource. Per Spec 016 §Infinite "
+                    "resources and load-more feeds.")
+               {:resource-id resource-id :infinite (:infinite spec)})))
+    (when (infinite-resource? spec)
+      ;; `:next-page-param` is REQUIRED + MUST be a fn (the R8 gate).
+      (when-not (fn? (:next-page-param spec))
+        (throw (registration-error
+                 :rf.error/infinite-missing-next-page-param
+                 'rf/reg-resource
+                 (str "infinite resource " resource-id " declares no valid "
+                      ":next-page-param. :infinite true makes :next-page-param "
+                      "REQUIRED — a pure fn (last-page all-pages) → next-param | "
+                      "nil (nil = the single terminal, no more pages). Per Spec "
+                      "016 §Registration — :infinite (R8).")
+                 {:resource-id resource-id :next-page-param (:next-page-param spec)})))
+      ;; `:prev-page-param` (R7 mirror) MUST be a fn when present.
+      (when (and (contains? spec :prev-page-param)
+                 (not (fn? (:prev-page-param spec))))
+        (throw (registration-error
+                 :rf.error/invalid-resource-spec
+                 'rf/reg-resource
+                 (str "infinite resource " resource-id " declares a "
+                      ":prev-page-param that is not a fn (got "
+                      (pr-str (:prev-page-param spec)) "). :prev-page-param is "
+                      "the optional R7 bidirectional mirror — a pure fn "
+                      "(first-page all-pages) → prev-param | nil. Per Spec 016 "
+                      "§Causal event — load-more (R7).")
+                 {:resource-id resource-id :prev-page-param (:prev-page-param spec)})))
+      ;; `:page->items` (R3 accessor) MUST be a keyword or fn when present.
+      (when (and (contains? spec :page->items)
+                 (not (or (keyword? (:page->items spec))
+                          (fn? (:page->items spec)))))
+        (throw (registration-error
+                 :rf.error/invalid-resource-spec
+                 'rf/reg-resource
+                 (str "infinite resource " resource-id " declares a :page->items "
+                      "that is neither a keyword nor a fn (got "
+                      (pr-str (:page->items spec)) "). :page->items is the R3 "
+                      "merge accessor for a non-vector / enveloped page — a "
+                      "keyword key (e.g. :items) or (fn [page] → seq-of-items). "
+                      "Per Spec 016 §Subscription contract (R3).")
+                 {:resource-id resource-id :page->items (:page->items spec)})))
+      ;; `:refetch` (R6 policy) MUST be a well-formed map when present.
+      (when (contains? spec :refetch)
+        (let [refetch (:refetch spec)
+              {:keys [refetch-all-pages? refetch-window]} refetch]
+          (when-not (map? refetch)
+            (throw (registration-error
+                     :rf.error/invalid-resource-spec
+                     'rf/reg-resource
+                     (str "infinite resource " resource-id " declares a :refetch "
+                          "that is not a map (got " (pr-str refetch) "). :refetch "
+                          "is the R6 policy map {:refetch-all-pages? bool "
+                          ":refetch-window int}; omitted ⇒ the window-preserving "
+                          "default. Per Spec 016 §Refetch and invalidation of an "
+                          "infinite feed (R6).")
+                     {:resource-id resource-id :refetch refetch})))
+          (when (and (contains? refetch :refetch-all-pages?)
+                     (not (boolean? refetch-all-pages?)))
+            (throw (registration-error
+                     :rf.error/invalid-resource-spec
+                     'rf/reg-resource
+                     (str "infinite resource " resource-id "'s :refetch "
+                          ":refetch-all-pages? is not a boolean (got "
+                          (pr-str refetch-all-pages?) "). Per Spec 016 §Refetch "
+                          "and invalidation of an infinite feed (R6).")
+                     {:resource-id resource-id :refetch refetch})))
+          (when (and (contains? refetch :refetch-window)
+                     (not (integer? refetch-window)))
+            (throw (registration-error
+                     :rf.error/invalid-resource-spec
+                     'rf/reg-resource
+                     (str "infinite resource " resource-id "'s :refetch "
+                          ":refetch-window is not an integer (got "
+                          (pr-str refetch-window) "). It bounds how much of the "
+                          "accumulation is refreshed. Per Spec 016 §Refetch and "
+                          "invalidation of an infinite feed (R6).")
+                     {:resource-id resource-id :refetch refetch}))))))
+  nil))
+
 (defn- validate-resource-spec!
   "Fail loudly at the authoring boundary when a resource spec omits the
   REQUIRED keys (Spec 016 §Resource registration spec). The fail-closed
@@ -190,6 +322,13 @@
                   "N ms); a non-positive or absent value means no polling. Per "
                   "Spec 016 §Polling.")
              {:resource-id resource-id :poll-interval-ms (:poll-interval-ms spec)})))
+  ;; `:infinite` is OPTIONAL (Spec 016 §Infinite resources and load-more feeds,
+  ;; EP-0021). When declared it gates the `:infinite`-only slice
+  ;; (`:rf/infinite-resource-args`): `:infinite true` makes `:next-page-param`
+  ;; REQUIRED, and shape-validates the other infinite-only keys. Reject a
+  ;; malformed `:infinite` shape loudly at the authoring boundary (R1–R8 are
+  ;; the binding rulings).
+  (validate-infinite-spec! resource-id spec)
   nil)
 
 ;; ---- reg-resource / clear-resource ---------------------------------------
