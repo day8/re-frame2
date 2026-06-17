@@ -371,9 +371,10 @@
 ;; "trusted-local", which remain current trust-boundary descriptors
 ;; (`:rf.egress/local-raw` IS "trusted local operator"). A mention carrying a
 ;; retirement/rename marker on the same line (the proposal-doc rename rows
-;; name the replacement) is approved. The closed six-member profile enum and
-;; the `:rf.egress/output-sensitivity` value set are PINNED positively by
-;; `ep0015-egress-enum-problems` over the spec/Conventions.md owner row.
+;; name the replacement) is approved. (The earlier positive closed-enum pin
+;; over the spec/Conventions.md owner row was removed as over-strict — see
+;; the rf2 toomuch trimming review note in api-md-check; this retired-form
+;; scan stands.)
 ;; ---------------------------------------------------------------------------
 
 (def ^:private egress-profile-retirement-markers
