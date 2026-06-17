@@ -29,8 +29,8 @@
 (deftest no-duplicates-yields-empty
   (testing "a manifest with distinct [namespace var] keys has no duplicates"
     (is (empty? (gen/duplicate-rows
-                  [{:namespace "re-frame.core" :var "reg-event-db" :tier :front-porch}
-                   {:namespace "re-frame.core" :var "subscribe"    :tier :front-porch}
+                  [{:namespace "re-frame.core" :var "reg-event"  :tier :front-porch}
+                   {:namespace "re-frame.core" :var "subscribe"  :tier :front-porch}
                    {:namespace "re-frame.adapter.uix" :var "adapter" :tier :adapter}])))))
 
 (deftest duplicate-within-cljs-only-detected
