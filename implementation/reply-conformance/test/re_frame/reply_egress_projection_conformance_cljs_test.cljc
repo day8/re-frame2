@@ -58,7 +58,6 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
-            [re-frame.projection :as projection]
             [re-frame.reply :as reply]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))

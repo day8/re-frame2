@@ -106,8 +106,10 @@
                                       registrations + late-bind hook
                                       publication for the stub family
                                       (rf2-lwmgw).
-   - `re-frame.util-json`           — pure-Clojure JSON reader extracted
-                                      per rf2-p7da; shared by the decode
+   - `re-frame.util-json`           — JSON reader extracted per rf2-p7da
+                                      (Cheshire on the JVM, native
+                                      `JSON.parse` on CLJS); shared by
+                                      the decode
                                       pipeline. (Currently shipped in
                                       the http artefact; lift to core
                                       if a second consumer appears.)

@@ -9,10 +9,11 @@
   every operator family by `schemas_walker_operators_test`, but the
   `:large?` public entry point — `extract-large-paths-from-schema`,
   re-exported from `re-frame.schemas` and published as the
-  `:schemas/extract-large-paths-from-schema` late-bind hook that
-  `re-frame.elision` consumes — had no direct slice-local unit
-  coverage. It was exercised ONLY indirectly via one `reg-app-schema`
-  elision-population integration test (`schemas_reg_side_effects_test`).
+  `:schemas/extract-large-paths-from-schema` late-bind hook that the
+  machines / resources / http artefacts consume (EP-0015 §8 removed the
+  former `re-frame.elision` registry-population feed; durable egress
+  classification is now frame-owned) — had no direct slice-local unit
+  coverage.
 
   A regression in the `:large?` wiring (a wrong flag-key threaded
   through the shared walker, or a structural-recognition break that the
