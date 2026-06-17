@@ -981,7 +981,6 @@
   ["re-frame.routing" "frame-scroll-cache"]     {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "save-scroll-position!"]  {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-scroll-cache!"]    {:tier :implementation :owner "012" :status "v1"}
-  ["re-frame.routing" "default-max-decoded-keys"] {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-counters!"]        {:tier :implementation :owner "012" :status "v1"}
   ;; rf2-oosjmh: host-side transient nav-counter seams (the sibling of the
   ;; scroll-cache seams above). The two monotonic allocators (:nav-token-counter

@@ -89,15 +89,12 @@
    entry. Routing never reads it."
   [rdb url default-scroll frame nav-allocation app-db]
   (let [rdb (or rdb {})
-        ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
-        ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7) — and the
-        ;; guard's documented intent is to treat such a URL as a
-        ;; route-miss, not to crash the event drain. `match-url-fail-closed`
-        ;; catches the throw and yields a NIL match plus a `:throw-reason`
-        ;; discriminator, so an over-capped (or otherwise throwing) URL
-        ;; arriving via `:rf.route/transitioned` /
-        ;; `:rf.route/handle-url-change` fails closed to
-        ;; `:rf.route/not-found` exactly like a bare miss — the
+        ;; rf2-6t1xb: any unexpected throw out of `match-url` must not
+        ;; crash the event drain. `match-url-fail-closed` catches the
+        ;; throw and yields a NIL match plus a `:throw-reason`
+        ;; discriminator (`:match-error`), so a throwing URL arriving via
+        ;; `:rf.route/transitioned` / `:rf.route/handle-url-change` fails
+        ;; closed to `:rf.route/not-found` exactly like a bare miss — the
         ;; fail-closed contract the docstring promises.
         {:keys [match throw-reason]} (registry/match-url-fail-closed url)
         ;; rf2-4ic0f: when match-url returns nil, discriminate the
@@ -312,7 +309,7 @@
                   pending-nav-allocation)]
     (or blocked
         ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
-        ;; forward-nav route-miss / malformed-url / too-many-keys trace sites
+        ;; forward-nav route-miss / malformed-url trace sites
         ;; carry `:frame`, consistent with the popstate / SSR sibling
         ;; (`handle-url-change-handler`, :restore below) and the programmatic
         ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on

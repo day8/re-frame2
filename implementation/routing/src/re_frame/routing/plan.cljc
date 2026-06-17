@@ -57,18 +57,17 @@
 ;; not-found fallback writes `{:url url}` into the slice's `:params`,
 ;; discriminated by an optional `:reason` for per-route error UIs and SSR
 ;; projections. The reason vocabulary is SHARED across both entry points
-;; (rf2-4ic0f / rf2-6t1xb): a `match-url` throw stamps its cause
-;; (`:too-many-keys` / `:match-error`); a malformed percent-encoding
-;; stamps `:malformed-url`; a schema-validation miss stamps `:validation`;
-;; a bare route-miss carries no reason. Encoding the shape once keeps the
-;; two paths' fallback params byte-for-byte identical.
+;; (rf2-4ic0f / rf2-6t1xb): an unexpected `match-url` throw stamps
+;; `:match-error`; a malformed percent-encoding stamps `:malformed-url`; a
+;; schema-validation miss stamps `:validation`; a bare route-miss carries
+;; no reason. Encoding the shape once keeps the two paths' fallback params
+;; byte-for-byte identical.
 
 (defn not-found-params
   "Build the `:rf.route/not-found` slice `:params` map for `url` under
   the optional `reason` discriminator. `reason` is one of the throw-cause
-  keywords (`:too-many-keys` / `:match-error`), `:malformed-url`,
-  `:validation`, or nil (bare miss). Returns `{:url url}` (bare miss) or
-  `{:url url :reason reason}`."
+  keyword `:match-error`, `:malformed-url`, `:validation`, or nil (bare
+  miss). Returns `{:url url}` (bare miss) or `{:url url :reason reason}`."
   [url reason]
   (cond-> {:url url}
     reason (assoc :reason reason)))
@@ -165,10 +164,9 @@
   "Pure: the telemetry both entry points emit on a fail-closed / not-found
   navigation, returned as a vector of intents for `emit-intents!`. Inputs:
 
-    :throw-reason — non-nil when `match-url` threw the DoS-cap / match-error
-                    guard; emits `:rf.warning/malformed-url` carrying
-                    `{:url :reason}` (the hostile-URL stream rf2-3k3o7 added
-                    the cap for).
+    :throw-reason — non-nil when `match-url` threw an unexpected error
+                    (`:match-error`); emits `:rf.warning/malformed-url`
+                    carrying `{:url :reason}`.
     :malformed?   — the URL's percent-encoding failed to decode; emits
                     `:rf.warning/malformed-url` carrying `{:url}` (rf2-4ic0f).
                     Mutually exclusive with `:throw-reason` (a throw

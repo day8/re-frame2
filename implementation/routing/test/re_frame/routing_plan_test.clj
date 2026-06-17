@@ -46,9 +46,6 @@
     (is (= {:url "/x" :reason :validation}
            (plan/not-found-params "/x" :validation))
         "schema-validation miss fallback")
-    (is (= {:url "/x" :reason :too-many-keys}
-           (plan/not-found-params "/x" :too-many-keys))
-        "DoS-cap match-url throw fallback")
     (is (= {:url "/x" :reason :match-error}
            (plan/not-found-params "/x" :match-error))
         "unexpected match-url throw fallback")))
@@ -104,19 +101,14 @@
              {:throw-reason nil :malformed? true :no-not-found? false
               :url "/a%2" :frame nil})))))
 
-(deftest fallback-telemetry-intents-too-many-keys-and-match-error
+(deftest fallback-telemetry-intents-match-error
   (testing "a match-url throw emits :rf.warning/malformed-url carrying the throw :reason"
-    (is (= [[:emit :warning :rf.warning/malformed-url
-             {:url "/x" :reason :too-many-keys}]]
-           (plan/fallback-telemetry-intents
-             {:throw-reason :too-many-keys :malformed? false :no-not-found? false
-              :url "/x" :frame nil}))
-        "the DoS-cap throw — surfaced regardless of which nav event it arrived on")
     (is (= [[:emit :warning :rf.warning/malformed-url
              {:url "/x" :reason :match-error}]]
            (plan/fallback-telemetry-intents
              {:throw-reason :match-error :malformed? false :no-not-found? false
-              :url "/x" :frame nil})))))
+              :url "/x" :frame nil}))
+        "an unexpected match-url throw — surfaced regardless of which nav event it arrived on")))
 
 (deftest fallback-telemetry-intents-missing-not-found-route
   (testing "a not-found fallback with no registered not-found route emits :rf.warning/no-not-found-route"
@@ -128,17 +120,17 @@
 (deftest fallback-telemetry-intents-threads-frame-onto-every-tag
   (testing "when :frame is present it lands on every emitted tag map (epoch/Xray attribution)"
     (is (= [[:emit :warning :rf.warning/malformed-url
-             {:url "/x" :reason :too-many-keys :frame :worker}]
+             {:url "/x" :reason :match-error :frame :worker}]
             [:emit :warning :rf.warning/no-not-found-route
              {:url "/x" :frame :worker}]]
            (plan/fallback-telemetry-intents
-             {:throw-reason :too-many-keys :malformed? false :no-not-found? true
+             {:throw-reason :match-error :malformed? false :no-not-found? true
               :url "/x" :frame :worker})))))
 
 (deftest fallback-telemetry-intents-ordering-is-stable
   (testing "malformed/throw warning precedes the no-not-found warning"
     (let [intents (plan/fallback-telemetry-intents
-                    {:throw-reason :too-many-keys :malformed? false
+                    {:throw-reason :match-error :malformed? false
                      :no-not-found? true :url "/x" :frame nil})]
       (is (= 2 (count intents)))
       (is (= :rf.warning/malformed-url (nth (first intents) 2)))

@@ -1219,62 +1219,56 @@
           "[:maybe :uuid] coerces the present capture to a UUID")
       (is (false? (:validation-failed? m))))))
 
-;; ---- rf2-3k3o7: keyword-interning cap on query keys + values -------------
+;; ---- rf2-3k3o7 / rf2-x0ngkv: keyword-interning defence on query keys -------
 ;;
-;; Symmetric with rf2-wu1n5's `:rf.http/max-decoded-keys` cap on JSON
-;; object keys. JVM keywords intern into a process-global, never-GC'd
-;; table; an attacker-influenced URL stream with N-unique query keys (or
-;; N-unique `:keyword`-typed values) would otherwise permanently burn
-;; N slots on long-running SSR JVMs. Three defenses:
+;; The keyword-interning DoS (an attacker-influenced URL stream with
+;; N-unique query keys burning N permanent slots on a long-running SSR
+;; JVM) is closed at the source by SELECTIVE KEYWORDING — `coerce-query`
+;; promotes ONLY keys declared by the route's `:query` schema /
+;; `:query-defaults` / `:query-retain` to keyword keys; every undeclared
+;; URL key passes through as a **string**, so a hostile URL of N-unique
+;; undeclared keys interns ZERO keywords. No raw-query-size cap is needed
+;; (rf2-x0ngkv removed the redundant `default-max-decoded-keys` ceiling).
+;; The remaining defences:
 ;;
-;; 1. URL-level cap on number of unique query keys — overflow throws
-;;    `:rf.error/route-too-many-keys` with `:limit` / `:count` ex-data.
-;; 2. Selective keywording — only keys declared by the route's `:query`
-;;    schema / `:query-defaults` are promoted to keyword keys. Unknown
-;;    keys stay as **string** keys.
-;; 3. `:keyword`-typed value gate — a bare `:keyword` type-form stays
+;; 1. Selective keywording — only keys declared by the route's `:query`
+;;    schema / `:query-defaults` / `:query-retain` are promoted to keyword
+;;    keys. Unknown keys stay as **string** keys. (This IS the closure.)
+;; 2. `:keyword`-typed value gate — a bare `:keyword` type-form stays
 ;;    as a string; `[:enum :a :b ...]` is the bounded-allowlist path.
 
-(deftest rf2-3k3o7-cap-on-unique-query-keys
-  (testing "match-url rejects URLs whose query exceeds the
-            `default-max-decoded-keys` cap with a structured ex-info"
+(deftest rf2-3k3o7-repeated-query-key-last-wins-stays-string
+  (testing "rf2-5ifai: no :query vocabulary declared, so a repeated key
+            stays a STRING and collapses last-wins — never interns a
+            keyword, no cap involved"
     (rf/reg-route :route/search {:path "/search"})
-    ;; A URL one over the cap trips the throw.
-    (let [n      (inc routing/default-max-decoded-keys)
-          q      (clojure.string/join "&" (map #(str "k" % "=v") (range n)))
-          url    (str "/search?" q)
-          thrown (try (routing/match-url url) ::no-throw
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo thrown)
-          "over-cap URL throws ex-info")
-      (let [data (ex-data thrown)]
-        (is (= :rf.error/route-too-many-keys (:rf.error/id data)))
-        (is (= 'rf/match-url (:where data)))
-        (is (= routing/default-max-decoded-keys (:limit data)))
-        (is (>= (:count data) routing/default-max-decoded-keys))))))
-
-(deftest rf2-3k3o7-repeated-query-key-counts-once
-  (testing "the cap follows unique-key semantics, not raw pair count.
-            rf2-5ifai: no :query vocabulary declared, so the key stays
-            a string."
-    (rf/reg-route :route/search {:path "/search"})
-    (let [n   (inc routing/default-max-decoded-keys)
+    (let [n   5000
           q   (clojure.string/join "&" (repeat n "q=v"))
           m   (routing/match-url (str "/search?" q))]
       (is (= :route/search (:route-id m)))
       (is (= {"q" "v"} (:query m))
-          "many repeated pairs for one key stay under the unique-key cap"))))
+          "many repeated pairs for one undeclared key collapse last-wins as a string")
+      (is (contains? (:query m) "q")
+          "the surviving key is a STRING, not an interned keyword")
+      (is (not (contains? (:query m) :q))))))
 
-(deftest rf2-3k3o7-under-cap-succeeds
-  (testing "URLs at-or-under the cap parse successfully"
+(deftest rf2-x0ngkv-many-undeclared-keys-stay-strings-no-cap
+  (testing "a route declaring NO query vocabulary keeps EVERY URL key as a
+            string regardless of cardinality — no per-URL key cap, the
+            keyword table is never extended (rf2-x0ngkv removed the cap)"
     (rf/reg-route :route/search {:path "/search"})
-    ;; A URL with 100 unique keys is well under the cap.
-    (let [n   100
+    ;; Far more unique keys than the old 10000 cap would have permitted:
+    ;; the parse succeeds (no throw) and every key is a STRING.
+    (let [n   15000
           q   (clojure.string/join "&" (map #(str "k" % "=v") (range n)))
           url (str "/search?" q)
           m   (routing/match-url url)]
-      (is (some? m) "under-cap URL parses without throwing")
-      (is (= :route/search (:route-id m))))))
+      (is (some? m) "a high-cardinality URL parses without throwing — no cap")
+      (is (= :route/search (:route-id m)))
+      (is (= n (count (:query m))) "every unique key survives")
+      (is (every? string? (keys (:query m)))
+          "EVERY undeclared key is a STRING — zero keywords interned")
+      (is (not-any? keyword? (keys (:query m)))))))
 
 (deftest rf2-3k3o7-undeclared-query-keys-stay-as-strings
   (testing "query keys NOT declared by the route's `:query` schema or
@@ -1297,17 +1291,11 @@
       (is (not (contains? (:query m) :unknown2))
           "no `:unknown2` keyword in the result map"))))
 
-(deftest match-url-fail-closed-turns-cap-throw-into-nil-match
-  (testing "rf2-6t1xb: `match-url-fail-closed` catches the DoS-cap throw
-            and returns {:match nil :throw-reason :too-many-keys} rather
-            than propagating — the fail-closed primitive the nav entry
-            points build on"
+(deftest match-url-fail-closed-passes-through-match-and-miss
+  (testing "rf2-6t1xb: `match-url-fail-closed` is the generic
+            navigation-resilience wrapper — a clean match and a bare miss
+            both pass through with no `:throw-reason`"
     (rf/reg-route :route/search {:path "/search"})
-    (let [{:keys [match throw-reason]}
-          (registry/match-url-fail-closed (rts/over-cap-url))]
-      (is (nil? match) "an over-cap URL yields a NIL match (a route-miss)")
-      (is (= :too-many-keys throw-reason)
-          "the cap throw is discriminated as :too-many-keys"))
     (testing "a clean match passes through with no throw-reason"
       (let [{:keys [match throw-reason]}
             (registry/match-url-fail-closed "/search?q=clojure")]
