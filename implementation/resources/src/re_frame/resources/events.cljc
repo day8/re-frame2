@@ -463,7 +463,16 @@
                           :owner        owner
                           :cause        cause
                           :started-at   started-at
-                          :deadline-at  deadline})
+                          :deadline-at  deadline
+                          ;; EP-0021 R2 — an ensure / refetch of an infinite
+                          ;; feed always fetches PAGE 0 (`page-index` 0 above —
+                          ;; a first load or a window-preserving refetch's
+                          ;; replacement page). Recording 0 (not nil) marks this
+                          ;; in-flight work as NOT a load-more, so a whole-feed
+                          ;; `:fetching?` refresh derives `:fetching-next?`
+                          ;; FALSE. A non-infinite resource records no page-index
+                          ;; (nil). Per Spec 016 §Subscription contract (R2).
+                          :page-index   (when infinite? page-index)})
             rdb'       (-> runtime-db
                            (assoc-in (state/entry-path scoped-key) entry')
                            (cond->
@@ -686,7 +695,15 @@
                           :owner        owner
                           :cause        cause
                           :started-at   started-at
-                          :deadline-at  deadline})
+                          :deadline-at  deadline
+                          ;; EP-0021 R2 — a load-more is an APPEND at the
+                          ;; positive page index (`page-count` ≥ 1, the tail);
+                          ;; recording it on the durable row is what lets the
+                          ;; `:fetching-next?` sub tell a load-more in flight
+                          ;; apart from a whole-feed `:fetching?` refresh (which
+                          ;; fetches page-0). Per Spec 016 §Causal event —
+                          ;; load-more / §Subscription contract (R2).
+                          :page-index   page-index})
             owner-newly-attached? (and (some? owner)
                                        (not (contains? (:active-owners entry) owner)))
             rdb'       (-> runtime-db

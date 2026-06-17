@@ -50,6 +50,7 @@
             [re-frame.interop :as interop]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
 
@@ -406,6 +407,224 @@
     (when (and (:previous-key e) (nil? (:data e)))
       (:data (get-in rt (state/entry-path (:previous-key e)))))))
 
+;; ---- the infinite-feed projection family (EP-0021 R3) ---------------------
+;;
+;; The merged list + page metadata for an `:infinite` feed. All passive, all
+;; DERIVED (never stored — derived values are not durable facts), and — for
+;; the merge — FRAMEWORK-OWNED MEMOISED rather than an ordinary app sub over
+;; `:pages` (R3, the deliberate divergence from the `:select` precedent: the
+;; merge is the headline read of every feed, so the framework owns the
+;; memoised projection once). The page-vector lives in the entry's `:data`
+;; (R1); these subs read it from the SAME frame-state signal the scalar family
+;; reads, resolving the feed identity via `entry-for`.
+;;
+;; `:fetching-next?` is the one projection that is NOT a pure function of the
+;; entry alone (R2): a load-more and a whole-feed refresh BOTH leave the feed
+;; at `:fetching` (no 6th FSM state). The distinguishing durable fact is the
+;; in-flight work record's `:page-index` — a load-more APPENDS at a positive
+;; index (the tail), a page-0 fetch / refetch fetches index 0 — so the sub
+;; joins the entry's `:current-work` to its work-ledger row and reads the
+;; recorded page index (the "page-fetch work evidence" R1 names).
+
+(defn- feed-entry-for
+  "Read the infinite-feed entry for a sub `payload` (resolving + validating its
+  scoped key against `runtime-db` / `app-db`), or nil when no entry / a
+  non-infinite entry. The infinite projections are no-ops on an ordinary
+  (non-feed) resource — they project the documented empty-feed shape rather
+  than throwing, so a view that subscribes the wrong family degrades to empty
+  rather than crashing (the loud failure is reserved for a genuine
+  missing-accessor merge, below)."
+  [runtime-db app-db payload]
+  (let [e (entry-for runtime-db app-db payload)]
+    (when (state/infinite-entry? e) e)))
+
+;; Framework-owned merge memo (R3). A bounded per-feed cache keyed on the
+;; feed's byte `key-id` → `{:pages <page-vector> :items <merged-vector>}`. The
+;; sub re-runs its body on EVERY frame-state change (an unrelated runtime-db /
+;; app-db commit), but the page vector only moves when a page is actually
+;; appended / replaced, so the expensive `(into [] (mapcat …) pages)` flatten
+;; is skipped (an `identical?` hit) on every re-run that did not touch THIS
+;; feed's pages. The subscription layer's own output `=` memoisation then keeps
+;; the sub quiet downstream; this memo additionally keeps the COMPUTATION quiet
+;; (the framework owns the merge, not the app — R3). Host-side transient state
+;; (NOT runtime-db); cleared per-test by the resources reset hook.
+(defonce ^:private
+  ^{:doc "Framework-owned `:rf.resource/items` merge memo: `{<feed-key-id>
+   {:pages <page-vector> :items <merged-items-vector>}}`. ONE slot per feed
+   key, OVERWRITTEN in place on each recompute — it grows with the number of
+   DISTINCT feed keys ever merged (the same growth profile as the runtime-db
+   `:entries` map), not per-append; each slot is a tiny pair of pointers
+   (structurally shared with the entry's `:data`). The merge recomputes ONLY
+   when the cached `:pages` is not `identical?` to the live page vector (a real
+   append / replace), so a sub re-running on an unrelated frame-state change
+   re-uses the prior merged list. A stale slot for a GC'd feed is harmless (it
+   is just re-keyed the next time that key reloads, or never read again) and is
+   dropped wholesale on the per-test reset; a host-side derivation cache is not
+   correctness-bearing, so it carries no eviction-on-GC machinery. Host-side
+   transient (NOT runtime-db); reset per-test by `reset-merge-memo!`."}
+  items-merge-memo
+  (atom {}))
+
+(defn reset-merge-memo!
+  "Drop the framework-owned `:rf.resource/items` merge memo (test isolation).
+  Published as a reset hook so the shared CLJS reset-runtime fixture clears it
+  per test — it is host-side transient dev state (a derivation cache), not
+  runtime-db. Returns nil."
+  []
+  (reset! items-merge-memo {})
+  nil)
+
+(defn merged-items
+  "The framework-owned, MEMOISED merged item list for an infinite-feed
+  `entry` (R3) — the headline `:rf.resource/items` read. Resolves the
+  resource's `:page->items` accessor and flattens the entry's `:data` page
+  vector via `state/merge-pages->items` (vector pages flatten by identity; a
+  non-vector page REQUIRES the accessor or raises
+  `:rf.error/infinite-missing-page-accessor`). Memoised on the page-vector
+  IDENTITY keyed by the feed's `key-id`: a re-run whose page vector is
+  `identical?` to the last merged one returns the cached merged list without
+  re-flattening. Returns `[]` for a nil / empty feed. Pure modulo the memo."
+  [entry where]
+  (let [pages (:data entry)]
+    (if (empty? pages)
+      []
+      (let [k-id   (state/key-id (:resource/key entry))
+            cached (get @items-merge-memo k-id)]
+        (if (and cached (identical? (:pages cached) pages))
+          (:items cached)
+          (let [spec     (registry/resource-meta (:resource/id entry))
+                accessor (state/resolve-page->items (:page->items spec))
+                merged   (state/merge-pages->items
+                           pages accessor (:resource/id entry) where)]
+            (swap! items-merge-memo assoc k-id {:pages pages :items merged})
+            merged))))))
+
+(defn items-sub-fn
+  "Project `:rf.resource/items` — the merged / flattened item list of an
+  infinite feed (the HEADLINE read). Framework-owned + memoised (R3). `[]`
+  when no feed / empty feed. Raises `:rf.error/infinite-missing-page-accessor`
+  when a non-vector page has no `:page->items`. Per Spec 016 §Subscription
+  contract."
+  [frame-state [_id payload]]
+  (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
+    (if e (merged-items e 'rf.resource/items) [])))
+
+(defn pages-sub-fn
+  "Project `:rf.resource/pages` — the raw ordered page vector (the TanStack
+  `pages` analogue), for views that need page boundaries. `[]` when no feed.
+  Per Spec 016 §Subscription contract."
+  [frame-state [_id payload]]
+  (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
+    (vec (:data e))))
+
+(defn page-count-sub-fn
+  "Project `:rf.resource/page-count` — the number of accumulated pages (0 when
+  no feed). Per Spec 016 §Subscription contract."
+  [frame-state [_id payload]]
+  (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
+    (state/page-count e)))
+
+(defn has-next-page?-sub-fn
+  "Project `:rf.resource/has-next-page?` — `(some? :next-page-param)`, the
+  observable terminal (a view never re-derives nil). false when no feed. Per
+  Spec 016 §Subscription contract."
+  [frame-state [_id payload]]
+  (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
+    (and (some? e) (not (state/terminal? (:next-page-param e))))))
+
+(defn has-prev-page?-sub-fn
+  "Project `:rf.resource/has-prev-page?` — `(some? :prev-page-param)`, the
+  bidirectional mirror (observable; the prepend event is deferred, R7). false
+  when no feed. Per Spec 016 §Subscription contract."
+  [frame-state [_id payload]]
+  (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
+    (and (some? e) (not (state/terminal? (:prev-page-param e))))))
+
+(defn page-error-sub-fn
+  "Project `:rf.resource/page-error` — the last load-more failure envelope
+  (the THIRD error channel; distinct from `:error` / `:refresh-error`), or
+  nil. Per Spec 016 §Subscription contract / §Causal event — load-more."
+  [frame-state [_id payload]]
+  (:page-error (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)))
+
+(defn- fetching-next?*
+  "DERIVED `:fetching-next?` (R2): true iff a LOAD-MORE is in flight on the
+  feed `entry`, read from `runtime-db`. A load-more and a whole-feed refresh
+  both leave the feed at `:fetching` (no 6th FSM state), so the entry status
+  alone cannot tell them apart; the distinguishing durable fact is the
+  in-flight work record's `:page-index` — a load-more APPENDS at a POSITIVE
+  index (the tail), a page-0 fetch / refetch fetches index 0. The sub joins
+  the entry's `:current-work` pointer to its live work-ledger row and reads the
+  recorded page index. false when the feed is not fetching, has no live work,
+  or the live work is a page-0 fetch / whole-feed refresh. Per Spec 016
+  §Causal event — load-more (R2) / §Subscription contract."
+  [runtime-db entry]
+  (boolean
+    (when (and (some? entry) (= :fetching (:status entry)))
+      (let [work-id (:current-work entry)
+            record  (when work-id (work-ledger/get-record runtime-db work-id))
+            status  (:status record)]
+        (and (some? record)
+             ;; the work is genuinely LIVE (not terminal / doomed) …
+             (not (work-ledger/terminal? status))
+             (not= :abort-requested status)
+             ;; … and it is a load-more APPEND (a positive page index), not a
+             ;; page-0 fetch / whole-feed refresh (index 0 / absent).
+             (let [pi (:page-index record)]
+               (and (integer? pi) (pos? pi))))))))
+
+(defn fetching-next?-sub-fn
+  "Project `:rf.resource/fetching-next?` — a load-more in flight (R2),
+  distinct from `:fetching?` (a whole-feed refresh). Per Spec 016
+  §Subscription contract / §Causal event — load-more."
+  [frame-state [_id payload]]
+  (let [rt (runtime-of frame-state)
+        e  (feed-entry-for rt (app-of frame-state) payload)]
+    (fetching-next?* rt e)))
+
+(defn infinite-state-sub-fn
+  "Project `:rf.resource/infinite-state` — the combined infinite view-model
+  (the feed analogue of `:rf.resource/state`): the merged `:items`, the raw
+  `:pages`, `:page-count`, `:has-next-page?` / `:has-prev-page?`, the DERIVED
+  `:loading?` / `:fetching?` / `:fetching-next?` / `:stale?` / `:has-data?`,
+  and the three error channels (`:error` first-load / `:refresh-error`
+  whole-feed / `:page-error` load-more). Framework-owned + memoised merge (R3).
+  Empty-feed shape when no infinite entry. Per Spec 016 §Subscription
+  contract."
+  [frame-state [_id payload]]
+  (let [rt (runtime-of frame-state)
+        e  (feed-entry-for rt (app-of frame-state) payload)]
+    (if (nil? e)
+      ;; documented empty-feed projection (idle, nothing accumulated)
+      {:status :idle :items [] :pages [] :page-count 0
+       :has-next-page? false :has-prev-page? false
+       :loading? false :fetching? false :fetching-next? false
+       :stale? false :has-data? false
+       :error nil :refresh-error nil :page-error nil}
+      (let [next? (fetching-next?* rt e)]
+        {:status         (:status e)
+         :items          (merged-items e 'rf.resource/infinite-state)
+         :pages          (vec (:data e))
+         :page-count     (state/page-count e)
+         :has-next-page? (not (state/terminal? (:next-page-param e)))
+         :has-prev-page? (not (state/terminal? (:prev-page-param e)))
+         :loading?       (= :loading (:status e))
+         ;; `:fetching?` is a WHOLE-FEED refresh; `:fetching-next?` is a
+         ;; load-more — both ride `:fetching` (no 6th FSM state, R2), so split
+         ;; them here so the view-model fields are disjoint.
+         :fetching?      (and (= :fetching (:status e)) (not next?))
+         :fetching-next? next?
+         :stale?         (stale? e)
+         ;; an infinite feed's `:data` is the page VECTOR (`[]` when empty), so
+         ;; `:has-data?` is "≥ 1 accumulated page" — delegated to the shared
+         ;; `state/has-data?` (which knows the infinite-feed shape: `(seq data)`,
+         ;; never the scalar `(some? data)` that an empty `[]` would satisfy), so
+         ;; the sub and the restore/FSM readers never drift.
+         :has-data?      (state/has-data? e)
+         :error          (:error e)
+         :refresh-error  (:refresh-error e)
+         :page-error     (:page-error e)}))))
+
 ;; ---- registration helper -------------------------------------------------
 
 (defn register-subs!
@@ -451,4 +670,32 @@
   (subs/reg-frame-state-sub :rf.resource/previous-data
     {:doc "Passive read of the prior key's data, projected while a new page/filter resource first-loads under :keep-previous? (not inserted into the new entry). Per Spec 016 §Paginated and previous data."}
     previous-data-sub-fn)
+  ;; ---- the infinite-feed projection family (EP-0021 R3) -----------------
+  ;; `:rf.resource/items` / `:pages` / `:infinite-state` are the framework-
+  ;; owned MEMOISED merge subs (R3 — NOT ordinary app subs over :pages); the
+  ;; page-metadata subs round out the load-more UI state.
+  (subs/reg-frame-state-sub :rf.resource/items
+    {:doc "Passive read of an infinite feed's MERGED / flattened item list (the headline read) — DERIVED + framework-owned-memoised by concatenating each accumulated page's items (R3). A vector page flattens by identity; a non-vector / enveloped page REQUIRES a :page->items accessor (else :rf.error/infinite-missing-page-accessor). [] for a non-feed / empty feed. Per Spec 016 §Subscription contract (R3)."}
+    items-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/pages
+    {:doc "Passive read of an infinite feed's raw ordered page vector (the TanStack `pages` analogue) — for views that need page boundaries. [] for a non-feed. Per Spec 016 §Subscription contract (R3)."}
+    pages-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/page-count
+    {:doc "Passive read of an infinite feed's accumulated page count (0 when no feed). Per Spec 016 §Subscription contract."}
+    page-count-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/has-next-page?
+    {:doc "Passive read: true iff an infinite feed has a next page ((some? :next-page-param) — nil is the single terminal). false for a non-feed / terminal feed. Per Spec 016 §Subscription contract."}
+    has-next-page?-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/has-prev-page?
+    {:doc "Passive read: true iff an infinite feed has a prev page ((some? :prev-page-param) — the bidirectional mirror; the prepend event is deferred, R7). false for a non-feed. Per Spec 016 §Subscription contract."}
+    has-prev-page?-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/fetching-next?
+    {:doc "Passive read: true iff a LOAD-MORE is in flight on an infinite feed (R2) — distinct from :fetching? (a whole-feed refresh). Derived from the in-flight work record's page index (a load-more appends at a positive index). Per Spec 016 §Subscription contract / §Causal event — load-more."}
+    fetching-next?-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/page-error
+    {:doc "Passive read of an infinite feed's last LOAD-MORE failure envelope (the third error channel; distinct from :error first-load and :refresh-error whole-feed), or nil. Per Spec 016 §Subscription contract / §Causal event — load-more."}
+    page-error-sub-fn)
+  (subs/reg-frame-state-sub :rf.resource/infinite-state
+    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf.resource/state, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry. Per Spec 016 §Subscription contract (R3)."}
+    infinite-state-sub-fn)
   nil)
