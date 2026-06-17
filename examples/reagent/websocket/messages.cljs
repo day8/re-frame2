@@ -390,18 +390,34 @@
     {:db (assoc-in db [:messages :draft] "")
      :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
 
+;; EP-0017: the request-id is a DURABLE correlation fact — it is written into
+;; the connection machine's :in-flight slot and the eventual reply is matched
+;; against it. A durable id must be a FOLDED FACT, never an ambient
+;; `(random-uuid)` read at the handler write site — otherwise replay mints a
+;; different id and the correlation no longer matches the recorded request.
+;; The app-owned generator is a RECORDABLE `reg-cofx`: the generator runs at
+;; context-assembly, the minted id is recorded onto the causal token, and
+;; replay re-presents it verbatim. `:ws.app/request` DECLARES it via
+;; `:rf.cofx/requires` and reads it flat from the coeffects map.
+(rf/reg-cofx :ws.app/request-id
+  {:recordable? true
+   :doc "Replayable correlation id for an outbound request-reply (EP-0017)."}
+  (fn [] (random-uuid)))
+
 (rf/reg-event :ws.app/request
   {:doc "Issue a request-reply via the connection machine's
          correlation slot. The reply lands at [:messages :last-reply]
-         once the mock server echoes back."}
-  (fn handler-app-request [_ [_ body]]
-    (let [rid (random-uuid)]
-      {:fx [[:dispatch [:ws/connection
-                        [:ws/request {:request-id rid
-                                      :body       {:type :request
-                                                   :body body}
-                                      :reply      [:ws.app/request-reply]
-                                      :timeout-ms 5000}]]]]})))
+         once the mock server echoes back. The correlation id is folded
+         from the `:ws.app/request-id` recordable coeffect (EP-0017),
+         never minted ambiently — replay re-presents the same id."
+   :rf.cofx/requires [:ws.app/request-id]}
+  (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
+    {:fx [[:dispatch [:ws/connection
+                      [:ws/request {:request-id rid
+                                    :body       {:type :request
+                                                 :body body}
+                                    :reply      [:ws.app/request-reply]
+                                    :timeout-ms 5000}]]]]}))
 
 (rf/reg-event :ws.app/request-reply
   {:doc "Reply event fired by the connection machine's :register-request
