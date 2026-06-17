@@ -60,20 +60,20 @@
   fallback, per rf2-mdjp). The UI hides the chip entirely so the user
   doesn't click a no-op.
 
-  ## Defense-in-depth scheme allowlist (rf2-cm93v / rf2-p887o)
+  ## Scheme-rejection denylist (rf2-vwcsq, rf2-ox357n)
 
-  `editor-uri/editor-uri` already rejects `javascript:` / `data:` /
-  `vbscript:` for `{:custom ...}` templates (per rf2-vwcsq). The
-  click-time seam below layers a positive-allowlist gate on top
-  (`editor-uri/allowed-uri?`): before assigning to `window.location`
-  we verify the final URI's scheme is in
-  `editor-uri/allowed-editor-uri-schemes`. Anything outside the set
-  (in particular `http:` / `https:` / new schemes we did not
-  anticipate) is rejected at the click-time seam — a custom template
-  that resolves to `https://...` would navigate the tab rather than
-  launch an editor; the allowlist makes that an obvious no-op rather
-  than a silent surprise. The predicate lives in the shared
-  `editor-uri` ns so Xray's parallel surface consumes the same gate.
+  `editor-uri/editor-uri` rejects `javascript:` / `data:` / `vbscript:`
+  for `{:custom ...}` templates at build time (per rf2-vwcsq) — the
+  spec-mandated scheme-rejection list (Security.md / Tool-Pair.md
+  §Editor URI scheme allowlist): everything other than the three
+  known-bad schemes passes through. The click-time `open!` seam below
+  re-applies the same cheap denylist (`editor-uri/forbidden-scheme?`)
+  because the `:rf.editor/open` reg-fx accepts a pre-resolved
+  `{:uri ...}` arg that bypasses `editor-uri`'s build-time gating —
+  the denylist must fire at every handoff. Per rf2-ox357n the prior
+  positive allowlist was removed: it failed CLOSED on any uncatalogued
+  editor scheme (a silent dead button), the exact friction the spec
+  forbids. Unknown custom non-dangerous schemes now pass through.
 
   ## Bundle isolation
 
@@ -169,10 +169,10 @@
 
 (defn resolve-uri
   "Pure-data: source-coord → launchable URI string, or nil. Returns nil
-  when the coord lacks `:file`, when `editor-uri/editor-uri` returns nil
-  (a forbidden scheme per rf2-vwcsq), or when the resolved URI's scheme
-  is outside `editor-uri/allowed-editor-uri-schemes` (the shared
-  positive allowlist per rf2-cm93v / rf2-p887o).
+  when the coord lacks `:file` or when `editor-uri/editor-uri` returns
+  nil (a forbidden scheme per rf2-vwcsq — `javascript:` / `data:` /
+  `vbscript:`). Per rf2-ox357n there is no positive allowlist: any
+  non-dangerous scheme (built-in or unknown custom) passes through.
 
   Per rf2-zfy1e: threads the configured project-root through
   `editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
@@ -188,10 +188,10 @@
   Xray's `resolve-uri` (rf2-r2un8 port)."
   [source-coord]
   (when (editor-uri/has-source? source-coord)
-    (let [opts {:project-root (config/get-project-root)}
-          uri  (editor-uri/editor-uri (config/get-editor) source-coord opts)]
-      (when (and uri (editor-uri/allowed-uri? uri))
-        uri))))
+    (let [opts {:project-root (config/get-project-root)}]
+      ;; `editor-uri` already denylist-gates the resolved URI inline at
+      ;; build time (rf2-vwcsq), returning nil on a forbidden scheme.
+      (editor-uri/editor-uri (config/get-editor) source-coord opts))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
@@ -237,17 +237,18 @@
   Public so the element-inspector (rf2-h0jc0), the `:rf.editor/open`
   reg-fx (registered in `install!`), and any host panel that wants the
   click-time gate can share the exact same launcher. One launcher, one
-  allowlist seam.
+  denylist seam.
 
-  Per rf2-vwcsq: `uri` is the return of `editor-uri/editor-uri`, which
-  already rejects `javascript:` / `data:` / `vbscript:` schemes by
-  returning `nil`. Per rf2-cm93v / rf2-p887o this fn applies a second,
-  positive allowlist gate (`editor-uri/allowed-uri?`) before handing
-  the URI off — closing the `http:` / `https:` / unknown-scheme path
-  that a `{:custom ...}` template could otherwise resolve to. A
-  rejected URI is a click-time no-op (no navigation, no console noise
-  — the chip's `(when uri ...)` earlier guard handles the absent
-  case; the allowlist handles the shaped-but-disallowed case).
+  Per rf2-vwcsq + rf2-ox357n: this fn re-applies the cheap scheme
+  denylist (`editor-uri/forbidden-scheme?`) before handing the URI off.
+  A URI built via `resolve-uri` was already denylist-gated at build
+  time, but the `:rf.editor/open` reg-fx also accepts a pre-resolved
+  `{:uri ...}` arg that bypasses build-time gating — so the denylist
+  must fire here too. A URI on a forbidden scheme (`javascript:` /
+  `data:` / `vbscript:`, case-insensitive, leading-whitespace tolerant)
+  is a click-time no-op. Per rf2-ox357n there is no positive allowlist:
+  unknown custom non-dangerous schemes navigate as the developer
+  intended (the spec mandates a rejection list, not an allowlist).
 
   Per rf2-muvs8: emits a `console.log` of the URI before navigation so
   developers can diagnose silent OS-handler failures (relative paths,
@@ -262,7 +263,7 @@
   tests stub the navigation without mutating `js/window.location`
   (which is non-configurable in modern browsers)."
   [uri]
-  (when (and uri (editor-uri/allowed-uri? uri))
+  (when (and uri (not (editor-uri/forbidden-scheme? uri)))
     (js/console.log "[rf.story/open-in-editor] navigating to:" uri)
     (@navigator uri)
     nil))
@@ -287,8 +288,8 @@
   The source-coord is sent verbatim to the endpoint (the server resolves a
   classpath-relative `:file` at runtime); the URI fallback resolves the
   coord through `resolve-uri` (rf2-zfy1e project-root prefix + the
-  allowlist gate). When the coord cannot produce a usable URI either, the
-  fallback is a harmless no-op. Returns nothing."
+  build-time scheme denylist). When the coord cannot produce a usable
+  URI either, the fallback is a harmless no-op. Returns nothing."
   [source-coord]
   (open-endpoint/open-coord!
     source-coord
@@ -303,12 +304,11 @@
   preference from `config/editor`; constructs the URI via
   `resolve-uri`; click fires `(open! uri)`.
 
-  Returns nil when the source-coord has no usable `:file` slot, when
-  `editor-uri/editor-uri` returns nil (a scheme rejected by the
-  `editor-uri`-side gate per rf2-vwcsq), or when the resolved URI's
-  scheme is not in `editor-uri/allowed-editor-uri-schemes` (the
-  shared positive allowlist per rf2-cm93v / rf2-p887o). The UI hides
-  the chip rather than rendering an unclickable affordance.
+  Returns nil when the source-coord has no usable `:file` slot or when
+  `editor-uri/editor-uri` returns nil (a forbidden scheme rejected by
+  the `editor-uri`-side denylist per rf2-vwcsq). Per rf2-ox357n there is
+  no positive allowlist — any non-dangerous scheme produces a chip. The
+  UI hides the chip rather than rendering an unclickable affordance.
 
   `variant-of-style` is `:title` (default — for the canvas title bar)
   or `:test-detail` (for the per-test failure detail box, slightly
@@ -382,7 +382,7 @@
 ;; alongside the imperative chip. Hosts that don't render the chip
 ;; directly — agents replaying via MCP, custom Story-host panels — can
 ;; dispatch `[:rf.story/open-in-editor coord]` and let the registered
-;; fx fire the URI through the same allowlist gate the chip uses. The
+;; fx fire the URI through the same denylist gate the chip uses. The
 ;; `:rf.editor/open` reg-fx is namespaced under `:rf.editor/*` (not
 ;; `:rf.story.fx/*`) because the gate is editor-related, not Story-
 ;; specific — Xray registers the same fx-id, idempotently. Either tool
@@ -402,7 +402,7 @@
       and returns `{:fx [[:rf.editor/open {:uri ...}]]}`.
 
     - `:rf.editor/open` reg-fx — the side-effectful launcher. Calls
-      `open!` (which applies the rf2-cm93v allowlist + writes
+      `open!` (which re-applies the rf2-vwcsq scheme denylist + writes
       `window.location` via the navigator seam). Shares the
       `:rf.editor/*` namespace with Xray's parallel registration so
       both tools observe a single registered fx-id at runtime; whichever
@@ -445,7 +445,7 @@
   ;; Event handler. Accepts the same coord-shape `coerce-coord`
   ;; recognises (bare map, `{:source-coord ...}` wrapper, or a
   ;; `"file:line"` display string). Resolves the URI through the
-  ;; allowlist seam and routes it to `:rf.editor/open`.
+  ;; denylist seam and routes it to `:rf.editor/open`.
   (rf/reg-event :rf.story/open-in-editor
     (fn [_ctx [_event-id payload]]
       (let [coord (coerce-coord payload)]
