@@ -1274,9 +1274,10 @@ A new resource event extends the feed by one page. It is **causal** ([§Public A
  {:resource :feed/timeline
   :scope    {:from-db :app/session}     ;; resolved like any resource event
   :params   {:filter :recent}           ;; the FEED identity (not a page)
-  :owner    [:route :route/home nav-token]
-  :cause    [:user :feed/load-more]}]
+  :cause    [:user :feed/load-more]}]   ;; OWNERLESS — carries a :cause, not an :owner
 ```
+
+**Ownerless (MUST).** A `load-more` MUST be **ownerless**: it carries a `:cause`, never an `:owner`. The route (or whatever owner first-loaded the feed) already *owns* the one feed entry for its lifetime, keeping it alive; a load-more *extends* that one owned entry — it does not intend to keep anything alive on its own, so it omits `:owner` and supplies only `:cause` (owner keeps alive; cause explains why). This is the same owner-vs-cause distinction a manual refresh makes ([§Owners are liveness leases](#owners-are-liveness-leases) — an event that only extends data without intending to keep it active is a cause, not an owner). A **supplied `:owner` is warn-and-ignored**: the runtime drops it and emits `:rf.warning/resource-load-more-owner-ignored` (DCE'd in production) rather than minting a stray lease that would pin the feed alive past its real owner — a load-more never changes the active-owner set.
 
 FSM interaction (MUST) — **no 6th FSM state (R2)**; the five states are untouched:
 
