@@ -30,11 +30,10 @@
             ;; sequence below.
             [counter-with-stories.elision-demo :as elision]
             [counter-with-stories.stories]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
-            ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config]
             ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
-            ;; live-app↔Story-shell hash router + React-root handle.
+            ;; live-app↔Story-shell hash router + React-root handle, and
+            ;; (rf2-77wqzi) the open-in-editor project-root config via the
+            ;; `:story-subdir` opt.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -60,32 +59,6 @@
 (defn live-app-root []
   [rf/frame-provider {:frame :rf/default} [counter-app]])
 
-;; -- rf2-r1uod / rf2-5dphw — Xray 'Open in editor' project-root.
-;;
-;; Story testbeds register source-coords with classpath-relative `:file`
-;; slots (e.g. `"counter_with_stories/core.cljs"`); OS-side editor URI
-;; handlers (`vscode://file/<path>...` etc.) resolve `<path>` against the
-;; filesystem and reject relative paths, so a testbed must hand Story an
-;; absolute on-disk root that prepends to a coord like
-;; `counter_with_stories/core.cljs:42`. That root is `<repo>/tools/story/
-;; testbeds` (the Story testbeds source-path under shadow-cljs).
-;;
-;; The value is plumbed via `story/configure! :rf.story/project-root` and
-;; bridged into Xray's slot by `re-frame.story.xray-preset/propagate-
-;; project-root!` so both Story's own 'Open' chips and Xray-as-RHS's chips
-;; (the Event lens Handler / Dispatch / Interceptors, Trace rows, Issues
-;; ribbon) resolve against the same root.
-;;
-;; rf2-5dphw — the root is DERIVED from the build environment (the
-;; build-time `re-frame.testbed.config/repo-root` goog-define joined with
-;; this testbed's tool-relative subdir), NOT a hardcoded personal path, so
-;; a fresh clone at any path on any OS gets working open-in-editor. A
-;; `?project-root=<path>` query string still overrides per session (CI,
-;; another dev's machine) — no code change needed. See
-;; `re-frame.testbed.config` for the cross-platform mechanism.
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/story/testbeds"))
-
 ;; -- Routing between app and story shell ----------------------------------
 ;;
 ;; The live-app↔Story-shell hash router + React-root host handle live in
@@ -108,18 +81,11 @@
   ;; (rf2-y8gag — audit D-2) and removed from every canonical testbed.
   ;; Configure the global args layer (Layer 1 of the args-precedence
   ;; chain; see `002-Runtime.md` §Args resolution precedence). The stories layer their own args on
-  ;; top via reg-story / reg-variant.
-  ;;
-  ;; rf2-r1uod — `:project-root` seeds Story's own 'Open' chips AND
-  ;; (via the xray-preset bridge) Xray-as-RHS's open-in-editor
-  ;; chips so the Event lens / Trace rows / Issues ribbon resolve
-  ;; their classpath-relative source-coord `:file` slots to absolute
-  ;; on-disk URIs the OS-side editor handler can stat. Symmetric to
-  ;; shop's rf2-6jyf6. The `?project-root=...` query string lets
-  ;; other hosts override the mayor-checkout default without a code
-  ;; change.
-  (story/configure! {:rf.story/global-args  {:locale :en}
-                     :rf.story/project-root (resolve-project-root)})
+  ;; top via reg-story / reg-variant. The open-in-editor project-root is
+  ;; now host-owned via the `:story-subdir` opt on
+  ;; `mount-with-hash-routing!` below (rf2-77wqzi), so this call carries
+  ;; only the global-args layer.
+  (story/configure! {:rf.story/global-args {:locale :en}})
   ;; EP-0002 (rf2-9o48ih): `init!` installs the adapter only — register the
   ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
   ;; boot work (seed dispatch + elision listener install) inside its scope.
@@ -147,5 +113,11 @@
   ;; on Story being enabled (the ns itself is Story-tooling).
   (story-ci/install-ci-hooks!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
-  ;; `#/stories` lands on the shell without a manual click-through.
-  (story-host/mount-with-hash-routing! live-app-root))
+  ;; `#/stories` lands on the shell without a manual click-through. The
+  ;; `:story-subdir` opt (rf2-77wqzi) hands the host this testbed's
+  ;; tool-relative source subdir; the host resolves the on-disk
+  ;; open-in-editor project-root (build-env define or `?project-root=`
+  ;; override, cross-platform) and calls `story/configure!` itself — which
+  ;; also bridges the root into Xray's slot. Replaces the former inline
+  ;; `resolve-project-root` + `story/configure! :rf.story/project-root`.
+  (story-host/mount-with-hash-routing! live-app-root {:story-subdir "tools/story/testbeds"}))

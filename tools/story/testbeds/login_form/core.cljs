@@ -14,18 +14,16 @@
   bundle-isolation grep at `implementation/scripts/check-bundle-
   isolation.cjs` covers the Story-sentinel absence."
   (:require [re-frame.core      :as rf]
-            [re-frame.story     :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
             [login-form.events]
             [login-form.subs]
             [login-form.views :as views]
             [login-form.stories]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
-            ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config]
             ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
-            ;; live-app↔Story-shell hash router + React-root handle.
+            ;; live-app↔Story-shell hash router + React-root handle, and
+            ;; (rf2-77wqzi) the open-in-editor project-root config via the
+            ;; `:story-subdir` opt.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -68,26 +66,6 @@
   [rf/frame-provider {:frame :rf/default} [login-app]])
 
 ;; ---------------------------------------------------------------------------
-;; rf2-r1uod — Xray-as-RHS open-in-editor project-root for the live
-;; testbed. Story testbeds register source-coords with classpath-
-;; relative `:file` slots; OS-side editor URI handlers reject relative
-;; paths. The Story testbeds source-path under shadow-cljs is
-;; `../tools/story/testbeds` so the on-disk root that prepends to a
-;; coord like `login_form/stories.cljs:42` is the testbeds dir below.
-;; Plumbed via `story/configure! :rf.story/project-root` and bridged into
-;; Xray's slot by `xray-preset/propagate-project-root!`. Symmetric
-;; to shop's rf2-6jyf6.
-;; ---------------------------------------------------------------------------
-
-;; rf2-5dphw — open-in-editor project-root derived from the build
-;; environment (the build-time `re-frame.testbed.config/repo-root`
-;; goog-define joined with this testbed's tool-relative subdir), not a
-;; hardcoded personal path. `?project-root=<path>` still overrides per
-;; session. See `re-frame.testbed.config` for the cross-platform mechanism.
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/story/testbeds"))
-
-;; ---------------------------------------------------------------------------
 ;; Hash-routing between the live app and the Story shell
 ;; ---------------------------------------------------------------------------
 ;;
@@ -107,10 +85,6 @@
   ;; `reg-*` in `login-form.stories` (loaded via the :require above)
   ;; auto-installs the canonical vocabulary per rf2-p1ydc (audit D-2
   ;; / rf2-y8gag).
-  ;; rf2-r1uod — `:rf.story/project-root` plumbed through Story; the
-  ;; `xray-preset` bridge propagates it into Xray's slot so the
-  ;; Xray-as-RHS open-in-editor chips resolve absolute on-disk paths.
-  (story/configure! {:rf.story/project-root (resolve-project-root)})
   ;; The live page wires `:rf.http/managed` to a demo override so
   ;; submit / retry have something to do. Story variants don't see
   ;; this — they allocate their own frames and the `force-fx-stub`
@@ -132,4 +106,10 @@
     (rf/dispatch-sync [:login/flow [:login/dismiss]]))
   ;; Wire the live-app↔Story-shell hash router (shared helper). The live-app
   ;; root is frame-scoped via `live-app-root` (the `frame-provider` wrapper).
-  (story-host/mount-with-hash-routing! live-app-root))
+  ;; The `:story-subdir` opt (rf2-77wqzi) hands the host this testbed's
+  ;; tool-relative source subdir; the host resolves the on-disk
+  ;; open-in-editor project-root (build-env define or `?project-root=`
+  ;; override, cross-platform) and calls `story/configure!` itself — which
+  ;; also bridges the root into Xray's slot. Replaces the former inline
+  ;; `resolve-project-root` + `story/configure!`.
+  (story-host/mount-with-hash-routing! live-app-root {:story-subdir "tools/story/testbeds"}))
