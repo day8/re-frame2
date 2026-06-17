@@ -10,21 +10,20 @@
   would chain it WITHOUT recording it in the registry, re-opening the
   rf2-4edk/9hoos/qy6cl/z79p8 defect class the CLJS gate can no longer see).
 
-  Two assertions:
+  SINGLE CHOKEPOINT assertion — no source file other than
+  `re-frame.late-bind` itself (which DEFINES the chokepoint) may call
+  `(chain-fn! :adapter/clear-warn-once-caches! ...)` directly. Every
+  contributor goes through `register-warn-once-clear-fn!` (core/views) or
+  `install-clear-warn-once-step!` (the spine/adapter seam, itself a thin
+  delegator). This guarantees enrolment-and-chaining are atomic: you
+  cannot chain without registering.
 
-    1. SINGLE CHOKEPOINT — no source file other than `re-frame.late-bind`
-       itself (which DEFINES the chokepoint) may call
-       `(chain-fn! :adapter/clear-warn-once-caches! ...)` directly. Every
-       contributor goes through `register-warn-once-clear-fn!` (core/views)
-       or `install-clear-warn-once-step!` (the spine/adapter seam, itself a
-       thin delegator). This guarantees enrolment-and-chaining are atomic:
-       you cannot chain without registering.
-
-    2. ENROLMENT COVERAGE — every standalone warn-once clear-fn the
-       adapter/views family publishes as a `clear-*warned*!`-shaped
-       late-bind hook (the historical straggler shape — a `defonce` cache
-       with a hand-published clear-fn) is routed through the chokepoint
-       somewhere in source.
+  (A second assertion once enumerated standalone `clear-*warned*!`-shaped
+  late-bind hooks — the historical straggler shape, a `defonce` cache with
+  a hand-published clear-fn — and checked each was routed through the
+  chokepoint. The last such hook, `:views/clear-plain-fn-warned-pairs!`,
+  was removed in rf2-k4xous once its warning was retired per EP-0002, so
+  that shape no longer exists in source and the assertion had no subject.)
 
   Walks the same source tree as `re-frame.late-bind-drift-test`.")
 
@@ -89,72 +88,3 @@
                "rf2-4edk/9hoos/qy6cl/z79p8 defect class. Route through the "
                "chokepoint:\n  "
                (str/join "\n  " (sort offenders)))))))
-
-;; ---------------------------------------------------------------------------
-;; 2. Enrolment coverage — every published clear-*warned* hook is chokepointed
-;; ---------------------------------------------------------------------------
-
-(def ^:private clear-warned-hook-re
-  "Match a late-bind publication of a `clear-…warned…`-shaped clear-fn —
-  the historical straggler shape (a standalone hand-published clear-fn for
-  a warn-once cache). e.g. `(late-bind/set-fn! :views/clear-plain-fn-warned-pairs! …`."
-  #"\(late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/clear-[a-zA-Z0-9!?*+\-]*warned[a-zA-Z0-9!?*+\-]*)")
-
-(defn- published-clear-warned-hooks
-  "Map of `clear-*warned*` hook-key → producing-ns-sym across all source."
-  []
-  (into {}
-        (for [^java.io.File f (source-files)
-              :let [content (slurp f)
-                    ns-sym  (ns-name-of content)]
-              k (->> (re-seq clear-warned-hook-re content)
-                     (map (comp keyword #(subs % 1) second)))]
-          [k ns-sym])))
-
-(defn- files-routing-through-chokepoint
-  "Source whose content references the chokepoint or its spine seam by the
-  name of a clear-fn — used as a coarse 'this cache is wired in' signal."
-  []
-  (->> (source-files)
-       (map (fn [^java.io.File f] [(.getPath f) (slurp f)]))
-       (into {})))
-
-(deftest every-clear-warned-hook-is-routed-through-the-chokepoint
-  (testing "every standalone clear-*warned* warn-once clear-fn the
-            adapter/views family publishes is also wired into the chain via
-            the chokepoint (rf2-z79p8) — so it is enrolled in the registry
-            and the CLJS gate covers it"
-    (let [hooks      (published-clear-warned-hooks)
-          all-source (vals (files-routing-through-chokepoint))
-          ;; A clear-fn is 'wired' if SOME source file enrols it through
-          ;; the chokepoint or the spine seam. We match on the unqualified
-          ;; fn name (the symbol after the last `/` in the hook key, minus
-          ;; the `clear-`/`!` decoration is too lossy — instead match the
-          ;; fn-name token the clear-fn is defined under, which by
-          ;; convention is the hook key's local name).
-          enrol-tokens ["register-warn-once-clear-fn!"
-                        "install-clear-warn-once-step!"]
-          chokepoint-source (filter (fn [s]
-                                      (some #(str/includes? s %) enrol-tokens))
-                                    all-source)]
-      (is (seq hooks)
-          "sanity: at least one clear-*warned* hook is published in source")
-      (is (seq chokepoint-source)
-          "sanity: the chokepoint / spine seam is referenced in source")
-      ;; For each published clear-*warned* hook, its local fn name should
-      ;; appear in a chokepoint-routing source file. The hook key's local
-      ;; name mirrors the clear-fn symbol (e.g.
-      ;; :views/clear-plain-fn-warned-pairs! ↔ clear-plain-fn-warned-pairs!).
-      (let [unrouted
-            (for [[hook-key _producer] hooks
-                  :let [fn-name (name hook-key)]
-                  :when (not (some #(str/includes? % fn-name) chokepoint-source))]
-              hook-key)]
-        (is (empty? unrouted)
-            (str "These clear-*warned* warn-once clear-fns are published as "
-                 "standalone late-bind hooks but their fn-name is NOT "
-                 "referenced at any chokepoint (register-warn-once-clear-fn! "
-                 "/ install-clear-warn-once-step!) call site — they may be "
-                 "stragglers NOT wired into the fixture chain (the "
-                 "rf2-z79p8 defect class):\n  "
-                 (str/join "\n  " (sort (map str unrouted)))))))))

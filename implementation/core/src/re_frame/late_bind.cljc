@@ -163,20 +163,21 @@
 ;; Every process-wide `defonce` warn-once cache in the adapter / views
 ;; family (`warned-non-dom-roots`, the rf2-9hoos `seen-render-keys` set,
 ;; the slim hiccup interpreter's `warned-keyword-prop` cache, and the
-;; Spec 004 `warned-plain-fn-frame-pairs` plain-fn-under-non-default-frame
-;; set) must be wiped by the standard `make-reset-runtime-fixture` between
-;; tests — otherwise a sibling test's first-encounter warning silently
-;; swallows a later test's same-key warning. The mechanism is the chained
-;; `:adapter/clear-warn-once-caches!` late-bind hook the fixture fires.
+;; React-hook spine's per-adapter source-coord cache) must be wiped by the
+;; standard `make-reset-runtime-fixture` between tests — otherwise a sibling
+;; test's first-encounter warning silently swallows a later test's same-key
+;; warning. The mechanism is the chained `:adapter/clear-warn-once-caches!`
+;; late-bind hook the fixture fires.
 ;;
-;; This defect class has now bitten four times: rf2-4edk (the original
-;; source-coord cache), rf2-9hoos (seen-render-keys), rf2-qy6cl (the slim
-;; keyword-prop cache), and rf2-z79p8 (the plain-fn pairs cache — the 4th
-;; straggler). Each fix was the SAME one-liner: chain the clear-fn. The
-;; pattern is fragile because there is no single chokepoint and nothing
-;; asserts the set of `defonce` warn-once caches equals the set of clears
-;; in the chain — a 5th cache can be added with a bare `defonce` + a
-;; standalone clear-fn and silently escape the fixture.
+;; This defect class bit four times before the chokepoint landed: rf2-4edk
+;; (the original source-coord cache), rf2-9hoos (seen-render-keys), rf2-qy6cl
+;; (the slim keyword-prop cache), and rf2-z79p8 (a since-retired plain-fn
+;; pairs cache — its warning is gone per EP-0002, removed in rf2-k4xous).
+;; Each fix was the SAME one-liner: chain the clear-fn. The pattern was
+;; fragile because there was no single chokepoint and nothing asserted the
+;; set of `defonce` warn-once caches equals the set of clears in the chain —
+;; a cache could be added with a bare `defonce` + a standalone clear-fn and
+;; silently escape the fixture.
 ;;
 ;; `register-warn-once-clear-fn!` is that chokepoint: it both (a) chains
 ;; the clear-fn into `:adapter/clear-warn-once-caches!` and (b) records
