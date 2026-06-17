@@ -22,7 +22,7 @@
     - `:rf/hydrate` event with `:replace-frame-state` semantics; the server-
       supplied payload's `:rf/app-db` replaces the client frame-state
       (app-db + serializable runtime-db).
-    - The six `:rf.server/*` response-shape fxs gated by `:platforms
+    - The seven `:rf.server/*` response-shape fxs gated by `:platforms
       #{:server}`; the accumulator at `[:rf/response]` is consumed by
       the host adapter after drain. Per §HTTP response contract.
     - `reg-error-projector` + default `:rf.ssr/default-error-projector`,
@@ -67,7 +67,7 @@
             ;; rf2-kjf3m.2 — the standard `:rf.fx.server/*-args` /
             ;; `:rf.server/cookie` Malli args schemas Spec 011 §Standard fx
             ;; (line 438) + [Spec-Schemas §Standard fx args schemas] name as
-            ;; registered. Attached as the `:schema` key on the six
+            ;; registered. Attached as the `:schema` key on the seven
             ;; `:rf.server/*` reg-fx calls below so the Spec 010 §step-5
             ;; fx-args `:schema` boundary check actually fires on the server
             ;; fx args (it previously did not — the calls carried only :doc
@@ -293,7 +293,7 @@ the client's registered app-schema digest. A mismatch emits a structured
    :platforms #{:client}}
   hydrate/check-schema-digest-fx)
 
-;; ---- the six :rf.server/* response-shape fxs ------------------------------
+;; ---- the seven :rf.server/* response-shape fxs ----------------------------
 ;;
 ;; Per Spec 011 §HTTP response contract.
 

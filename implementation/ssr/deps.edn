@@ -29,7 +29,7 @@
 ;; `rf/project-error`, dispatches `:rf/hydrate`, or relies on the
 ;; `:rf.server/*` fxs / the per-request response accumulator (read via
 ;; `re-frame.ssr/get-response`) — loading the namespace registers the
-;; six `:rf.server/*` fxs, the `:rf/hydrate` handler, and publishes the
+;; seven `:rf.server/*` fxs, the `:rf/hydrate` handler, and publishes the
 ;; late-bind hooks (`:ssr/render-tree-hash`) and the plain-atom adapter's
 ;; `:render-to-string` slot.
 ;;
