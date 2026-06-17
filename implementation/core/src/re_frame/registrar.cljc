@@ -403,22 +403,62 @@
                          (source-coords meta) (assoc :source-coords
                                                      (source-coords meta))))))))
 
-(defn- maybe-emit-collision!
-  "Emit `:rf.warning/registration-collision` once per `(kind, id)`
-  when a re-registration swaps in a different handler-fn (different
-  in fn identity).
+(defn- collision?
+  "True when re-registering `new-meta` over `previous` is a genuine
+  cross-source COLLISION (an accidental id clash between two different
+  authoring sites) rather than a benign same-source re-eval (hot reload).
 
   Per Spec 001 §Re-registration of a different function — collision
-  warning. The existing `:rf.registry/handler-replaced` trace stays
-  intact (with `:different-fn?` tag); this warning surface is the
-  separate dev-nudge that single-source-of-truth tools surface to
-  the developer. Same suppression discipline as missing-doc — fires
-  once per `(kind, id)` to keep the dev stream readable.
+  warning: \"A re-eval of the same source file produces the same
+  `(file, line)` pair and is silent; a different file or line reassigning
+  the id surfaces `:rf.warning/registration-collision`.\" The canonical
+  identity is therefore the registration's PROVENANCE — its source-coord
+  envelope (`:ns` / `:file` / `:line`), the same provenance boundary the
+  source store keys on (`source-store.cljc`: same `(kind, id, ns)` is a
+  hot reload; a different ns for the same `(kind, id)` is the
+  image-isolation collision case).
+
+  Comparing fn IDENTITY (the prior implementation) mis-detected: a
+  same-file save-and-re-eval yields a FRESH fn instance, so identity
+  always differs and the warning fired on every hot reload — exactly the
+  false positive the spec says MUST be silent. Comparing provenance
+  instead, the same source site re-evaluates to the same `(ns, file,
+  line)` and is correctly silent.
+
+  Absent provenance on EITHER side (a programmatic / REPL `register!`
+  that bypassed the macro path — no coords captured) is NOT a collision:
+  there is no source identity to clash, and the macro-path carve-out
+  matches `maybe-emit-missing-doc!`'s `macro-path?` discipline. Returns
+  false in that case so programmatic churn stays silent."
+  [previous new-meta]
+  (let [prev-coords (source-coords previous)
+        new-coords  (source-coords new-meta)]
+    (and (some? prev-coords)
+         (some? new-coords)
+         (not= prev-coords new-coords))))
+
+(defn- maybe-emit-collision!
+  "Emit `:rf.warning/registration-collision` once per `(kind, id)`
+  when a re-registration reassigns the id from a DIFFERENT source
+  location (different `(ns, file, line)` provenance) — an accidental
+  id clash between two authoring sites, not a hot-reload re-eval of
+  the same source.
+
+  Per Spec 001 §Re-registration of a different function — collision
+  warning, the detection keys on the source-coord PROVENANCE pair, not
+  fn identity (which a same-file re-eval always changes — see
+  `collision?`). A same-source re-eval is silent; a different file/line/
+  ns reassigning the id surfaces the warning. The existing
+  `:rf.registry/handler-replaced` trace stays intact (with
+  `:different-fn?` tag) on EVERY re-registration; this warning surface is
+  the separate dev-nudge that single-source-of-truth tools surface to the
+  developer. Same suppression discipline as missing-doc — fires once per
+  `(kind, id)` to keep the dev stream readable.
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   for production elision (Spec 009 §Production builds)."
   [kind id previous new-meta]
-  (when (not= (:handler-fn previous) (:handler-fn new-meta))
+  (when (collision? previous new-meta)
     (let [k [kind id]]
       (when-not (contains? @collision-warned k)
         (swap! collision-warned conj k)

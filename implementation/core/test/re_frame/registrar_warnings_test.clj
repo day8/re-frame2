@@ -78,6 +78,25 @@
              :column 1}]
     (f)))
 
+(defn- reg-at
+  "Register an `:event` for `id` with an explicit source-coord `provenance`
+  envelope (`{:ns :file :line ...}`) and a freshly-allocated handler-fn.
+
+  The collision tests drive `registrar/register!` directly rather than the
+  `reg-event` MACRO because the macro re-captures coords from its own call
+  site `(meta &form)` — two macro calls in the test file are always on
+  different LINES, so they could never share the same provenance, which is
+  exactly the hot-reload re-eval case the rf2-skxd6x fix must keep SILENT.
+  A real hot reload lands at `register!` with the SAME `(ns, file, line)`
+  but a fresh fn instance; passing the provenance metadata explicitly here
+  reproduces that faithfully. A `nil` `provenance` reproduces the
+  programmatic / REPL path (no captured coords)."
+  ([id] (reg-at id nil))
+  ([id provenance]
+   (registrar/register! :event id
+                        (merge (or provenance {})
+                               {:handler-fn (fn [{:keys [db]} _] {:db db})}))))
+
 ;; =============================================================================
 ;; F1 — `:rf.warning/missing-doc`
 ;; =============================================================================
@@ -203,51 +222,120 @@
 
 ;; =============================================================================
 ;; F2 — `:rf.warning/registration-collision`
+;;
+;; Per Spec 001 §Re-registration of a different function — collision warning:
+;; the detection keys on the registration's source-coord PROVENANCE pair
+;; (`:ns` / `:file` / `:line`), NOT fn identity. "A re-eval of the same source
+;; file produces the same `(file, line)` pair and is silent; a different file
+;; or line reassigning the id surfaces `:rf.warning/registration-collision`."
+;;
+;; rf2-skxd6x fix: the prior implementation compared `:handler-fn` identity, so
+;; a same-file save-and-re-eval (which yields a FRESH fn instance) false-fired
+;; the warning on every hot reload — exactly the false positive the spec says
+;; MUST be silent. These tests pin the corrected provenance boundary.
 ;; =============================================================================
 
-(deftest collision-fires-on-different-fn-re-registration
-  (testing "re-registering an id with a different handler-fn emits the warning"
-    (let [recorded (record-traces! ::collision-different)]
-      (with-stamped-coords
-        (fn []
-          (rf/reg-event :collide/id {:doc "first"}  (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
-          (rf/reg-event :collide/id {:doc "second"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))))
+;; The CORE regression for rf2-skxd6x: a same-source re-eval (same coords,
+;; different fn instance) is a hot reload and MUST be silent. Driven through
+;; `registrar/register!` so the provenance can be held CONSTANT across the two
+;; registrations (the `reg-event` macro re-captures its own call-site coords,
+;; so two macro calls are always on different lines — see `reg-at`).
+
+(deftest collision-silent-on-same-source-re-eval
+  (testing "re-registering from the same (ns,file,line) with a fresh fn is a hot reload — silent"
+    (let [recorded (record-traces! ::collision-same-source)
+          coords   {:ns 're-frame.registrar-warnings-test
+                    :file "registrar_warnings_test.clj"
+                    :line 42 :column 3}]
+      ;; Two registrations from the IDENTICAL source location, each with a
+      ;; freshly-allocated handler-fn (what a save-triggered re-eval produces).
+      ;; The prior fn-identity implementation false-fired here; the provenance
+      ;; boundary keeps it silent (rf2-skxd6x).
+      (reg-at :hot/reload coords)
+      (reg-at :hot/reload coords)
+      (is (empty? (warnings-of recorded :rf.warning/registration-collision))
+          "same-source re-eval (fresh fn, same coords) must NOT warn — it's a hot reload"))))
+
+(deftest collision-fires-on-cross-provenance-reassignment
+  (testing "re-registering the id from a DIFFERENT provenance (file/line/ns) warns"
+    (let [recorded (record-traces! ::collision-cross)]
+      ;; Feature A registers :collide/id; feature B (a different file) clobbers it.
+      (reg-at :collide/id {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1})
+      (reg-at :collide/id {:ns 'feature.b :file "feature/b.cljc" :line 20 :column 1})
       (let [warns (warnings-of recorded :rf.warning/registration-collision)]
         (is (= 1 (count warns))
-            "exactly one collision warning fires on the second registration")
+            "exactly one collision warning fires on the cross-provenance reassignment")
         (let [t (:tags (first warns))]
           (is (= :event (:kind t)))
           (is (= :collide/id (:id t)))
           (is (map? (:source-coords t))
-              ":source-coords carries the NEW registration's coords")
-          ;; :previous-coords is the captured envelope of the prior reg;
-          ;; both registrations were stamped with the same coords here.
-          (is (map? (:previous-coords t))))))))
+              ":source-coords carries the NEW (feature B) registration's coords")
+          (is (= 'feature.b (:ns (:source-coords t))))
+          (is (map? (:previous-coords t))
+              ":previous-coords carries the prior (feature A) registration's coords")
+          (is (= 'feature.a (:ns (:previous-coords t)))))))))
+
+(deftest collision-fires-on-same-file-different-line
+  (testing "two registrations of the same id at different lines in one file collide"
+    (let [recorded (record-traces! ::collision-same-file-diff-line)]
+      ;; Same ns + file but a DIFFERENT line — two distinct authoring sites in
+      ;; one file accidentally reusing an id. Per the spec's `(file, line)` rule.
+      (reg-at :dup/id {:ns 're-frame.registrar-warnings-test
+                       :file "registrar_warnings_test.clj" :line 10 :column 1})
+      (reg-at :dup/id {:ns 're-frame.registrar-warnings-test
+                       :file "registrar_warnings_test.clj" :line 99 :column 1})
+      (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
+          "different line in the same file is a collision (Spec 001)"))))
+
+(deftest collision-silent-on-programmatic-path
+  (testing "programmatic register! (no captured coords) does not warn"
+    (let [recorded (record-traces! ::collision-programmatic)]
+      ;; No coords on either registration — there is no source identity to clash.
+      (reg-at :prog/id nil)
+      (reg-at :prog/id nil)
+      (is (empty? (warnings-of recorded :rf.warning/registration-collision))
+          "programmatic / REPL path has no provenance — no collision to detect"))))
 
 (deftest collision-suppressed-on-third-re-registration
-  (testing "subsequent re-registrations of the same (kind, id) do NOT re-emit"
+  (testing "subsequent cross-provenance re-registrations of the same (kind, id) do NOT re-emit"
     (let [recorded (record-traces! ::collision-suppressed)]
-      (with-stamped-coords
-        (fn []
-          (rf/reg-event :churn/id {:doc "a"} (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
-          (rf/reg-event :churn/id {:doc "b"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))
-          (rf/reg-event :churn/id {:doc "c"} (fn [{:keys [db]} _] {:db (assoc db :v 3)}))
-          (rf/reg-event :churn/id {:doc "d"} (fn [{:keys [db]} _] {:db (assoc db :v 4)}))))
+      ;; Four registrations, each from a distinct provenance — only the first
+      ;; cross-provenance reassignment warns; warn-once suppresses the rest.
+      (doseq [[ns line] [['feat.a 1] ['feat.b 2] ['feat.c 3] ['feat.d 4]]]
+        (reg-at :churn/id {:ns ns :file (str ns ".cljc") :line line :column 1}))
       (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
-          "warn-once: only the first different-fn re-registration emits"))))
+          "warn-once: only the first cross-provenance re-registration emits"))))
 
 ;; The existing `:rf.registry/handler-replaced` trace must keep firing on
 ;; EVERY re-registration (per Spec 001 §Hot-reload trace surface, rf2-6w7zn)
-;; — the collision warning is a SEPARATE surface, not a replacement.
+;; — the collision warning is a SEPARATE surface, not a replacement. Crucially,
+;; handler-replaced fires even on the SILENT same-source hot-reload path.
+
+(deftest handler-replaced-fires-on-silent-hot-reload
+  (testing "handler-replaced fires on a same-source re-eval even though collision is silent"
+    (let [recorded (record-traces! ::replaced-on-hot-reload)
+          coords   {:ns 're-frame.registrar-warnings-test
+                    :file "registrar_warnings_test.clj" :line 7 :column 1}]
+      (reg-at :hr/id coords)
+      (reg-at :hr/id coords)
+      (reg-at :hr/id coords)
+      (let [replaced (filterv (fn [ev]
+                                (and (= :rf.registry (:op-type ev))
+                                     (= :rf.registry/handler-replaced
+                                        (:operation ev))))
+                              @recorded)
+            collisions (warnings-of recorded :rf.warning/registration-collision)]
+        (is (= 2 (count replaced))
+            "handler-replaced fires on each of the two re-registrations")
+        (is (empty? collisions)
+            "no collision on a same-source hot reload (the rf2-skxd6x fix)")))))
 
 (deftest collision-warning-coexists-with-handler-replaced
   (testing "handler-replaced still fires unconditionally; collision is the dev-nudge addition"
     (let [recorded (record-traces! ::coexist)]
-      (with-stamped-coords
-        (fn []
-          (rf/reg-event :coex/id {:doc "1"} (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
-          (rf/reg-event :coex/id {:doc "2"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))
-          (rf/reg-event :coex/id {:doc "3"} (fn [{:keys [db]} _] {:db (assoc db :v 3)}))))
+      ;; Three registrations from three distinct provenances.
+      (doseq [[ns line] [['c.a 1] ['c.b 2] ['c.c 3]]]
+        (reg-at :coex/id {:ns ns :file (str ns ".cljc") :line line :column 1}))
       (let [replaced (filterv (fn [ev]
                                 (and (= :rf.registry (:op-type ev))
                                      (= :rf.registry/handler-replaced
