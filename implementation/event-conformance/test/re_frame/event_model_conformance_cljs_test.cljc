@@ -71,6 +71,7 @@
             [re-frame.event-emit :as event-emit]
             [re-frame.late-bind :as late-bind]
             [re-frame.observability :as observability]
+            [re-frame.privacy :as privacy]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -1426,7 +1427,7 @@
 ;;     and the off-box sink omitting/redacting raw event args).
 ;; ===========================================================================
 
-(defn- redacted? [v] (= :rf/redacted v))
+(defn- redacted? [v] (= privacy/redacted-sentinel v))
 
 (deftest ep0015-off-box-handled-event-sink-receives-projected-record-event-args-omitted
   (testing "EP-0015 §9 / Spec 015: the NORMAL production off-box observation

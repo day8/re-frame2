@@ -59,6 +59,7 @@
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
             [re-frame.reply :as reply]
+            [re-frame.reply-conformance-fixtures :as fixtures]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -102,16 +103,21 @@
 (def ^:private work-id
   [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1])
 
-(def ^:private completed-at-ms 1781078400456)
+;; Shared across the reply-conformance tier — owned by
+;; `re-frame.reply-conformance-fixtures` (rf2-b2a3a2).
+(def ^:private completed-at-ms fixtures/completion-time-ms)
 
 (defn- ok-reply []
-  {:status       :ok
-   :value        (reply-body)
-   :work/id      work-id
-   :work/kind    :resource
-   :work/status  :completed
-   :rf.frame/id  frame-id
-   :completed-at completed-at-ms})
+  ;; The canonical :ok reply SHAPE built via the shared
+  ;; `re-frame.reply-conformance-fixtures/canonical-ok-reply` (rf2-b2a3a2).
+  ;; This suite's row additionally pins `:work/status :completed`.
+  (fixtures/canonical-ok-reply
+    {:value        (reply-body)
+     :work/id      work-id
+     :work/kind    :resource
+     :work/status  :completed
+     :rf.frame/id  frame-id
+     :completed-at completed-at-ms}))
 
 (defn- error-reply []
   ;; The failure payload's wire-bearing leaves sit at the declared coordinates

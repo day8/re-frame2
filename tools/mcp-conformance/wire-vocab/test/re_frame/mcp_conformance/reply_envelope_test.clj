@@ -69,7 +69,8 @@
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [malli.error :as me]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as fx]
+            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed reply vocabularies — mirrored from re-frame.reply as literal
@@ -213,21 +214,6 @@
    "implementation/machines/src/re_frame/machines/transition.cljc"
    "implementation/routing/src/re_frame/routing/nav_token.cljc"])
 
-(defn- near-miss-variants
-  "Near-miss spellings of a `:rf.reply/*` key a rename MUST NOT slip through:
-  snake_case name, ns-dots→underscores, pluralised, predicate form."
-  [k]
-  (let [s   (pr-str k)
-        ns* (namespace k)
-        nm  (name k)]
-    (cond-> []
-      (str/includes? nm "-")
-      (conj (str ":" ns* "/" (str/replace nm #"-" "_")))
-      (str/includes? ns* ".")
-      (conj (str ":" (str/replace ns* #"\." "_") "/" nm))
-      true
-      (into [(str s "s") (str s "?")]))))
-
 ;; ===========================================================================
 ;; (1) Schema conformance — every production-shaped fixture validates.
 ;; ===========================================================================
@@ -344,7 +330,7 @@
             production emit site — a rename to a near-miss form must FAIL"
     (let [sources (into {} (map (juxt identity fx/read-source)) emit-source-files)]
       (doseq [k reply-envelope-keys
-              variant (near-miss-variants k)
+              variant (pins/near-miss-variants k)
               [file text] sources]
         (is (not (re-find (fx/variant-regex variant) text))
             (str "near-miss spelling " variant " of " (pr-str k)
