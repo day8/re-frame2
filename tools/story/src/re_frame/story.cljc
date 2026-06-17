@@ -855,15 +855,24 @@
                      :rf.story/egress-profile}
         unknown    (remove known-keys (keys opts))]
     (when (seq unknown)
-      (throw (ex-info ":rf.error/unknown-story-config-key"
-                      {:rf.error/id :rf.error/unknown-story-config-key
-                       :where       'rf.story/configure!
-                       :recovery    :fix-call-site
-                       :reason      (str "configure! got unknown key(s): "
-                                         (pr-str (vec unknown))
-                                         " — known keys are " (pr-str known-keys))
-                       :unknown     (vec unknown)
-                       :known       known-keys}))))
+      ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape:
+      ;; a human sentence + the trailing `[:rf.error/<id>]` token as the
+      ;; ex-message, with `:rf.error/id` the sole machine discriminator.
+      ;; The central `re-frame.error` builder is NOT used here — `tools/`
+      ;; is bundle-isolated and MUST NOT `:require re-frame.*`, so the shape
+      ;; is hand-rolled inline (mirroring reagent-slim's same constraint).
+      (let [msg (str "configure! got unknown key(s): "
+                     (pr-str (vec unknown))
+                     " — known keys are " (pr-str known-keys) ". "
+                     "Fix the call site (a typo such as :rf.story/edtior "
+                     "would land here). [:rf.error/unknown-story-config-key]")]
+        (throw (ex-info msg
+                        {:rf.error/id :rf.error/unknown-story-config-key
+                         :where       'rf.story/configure!
+                         :recovery    :fix-call-site
+                         :reason      msg
+                         :unknown     (vec unknown)
+                         :known       known-keys})))))
   (when (some? global-args)
     (config/set-global-args! global-args))
   (when (contains? opts :rf.story/global-decorators)
