@@ -409,7 +409,19 @@
          correlation slot. The reply lands at [:messages :last-reply]
          once the mock server echoes back. The correlation id is folded
          from the `:ws.app/request-id` recordable coeffect (EP-0017),
-         never minted ambiently — replay re-presents the same id."
+         never minted ambiently — replay re-presents the same id.
+
+         APP-LEVEL correlation, NOT the EP-0011 uniform reply envelope
+         (rf2-eygytk). re-frame2 deliberately does not ship a managed
+         WebSocket (Pattern-WebSocket / Managed-Effects §WebSocket), so a
+         per-message request/reply over the open socket is a
+         Pattern-AsyncEffect interaction whose correlation the app owns:
+         a per-message `:request-id`, a registered `:reply` event target,
+         and the connection machine's `:in-flight` map. This is the
+         spec-blessed app/library convention — it is intentionally NOT the
+         framework's `:rf/reply-to` + reply-map vocabulary (property 9 is
+         exempt for the WebSocket surface). The wire `:request-id` is
+         app-level protocol correlation, not the EP-0011 `:work/id`."
    :rf.cofx/requires [:ws.app/request-id]}
   (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
     {:fx [[:dispatch [:ws/connection
@@ -421,7 +433,10 @@
 
 (rf/reg-event :ws.app/request-reply
   {:doc "Reply event fired by the connection machine's :register-request
-         flow once the correlated reply lands."}
+         flow once the correlated reply lands. The arg is the app's own
+         reply BODY (the server echo), not an EP-0011 reply map — this is
+         the app-level Pattern-WebSocket correlation shape, outside the
+         uniform reply envelope (rf2-eygytk; see :ws.app/request)."}
   (fn handler-app-request-reply [{:keys [db]} [_ body]]
     {:db (assoc-in db [:messages :last-reply] body)}))
 
