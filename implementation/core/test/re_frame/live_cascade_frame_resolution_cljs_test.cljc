@@ -40,6 +40,7 @@
             [re-frame.core           :as rf]
             [re-frame.events         :as events]
             [re-frame.image          :as image]
+            [re-frame.image-assembly :as asm]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -513,3 +514,107 @@
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                     (:rf.error/id (ex-data e)))))
           "an unknown frame id fails loud through the facade export"))))
+
+;; ===========================================================================
+;; 10. NO-ID FRAME RELOAD IS REGISTRY-COHERENT (rf2-3az1vn P1) — reloading a
+;;     DIRECT (no public :id) frame object must patch the live-frame registry
+;;     slot keyed by the object's PRIVATE runnable-id. Dispatch / subscribe
+;;     collapse a frame object to its runnable-id keyword and then RE-RESOLVE the
+;;     generation from the registry (router/frame-resolution-target reads
+;;     (live-frame runnable-id)) — so if the slot still pointed at the OLD object
+;;     after a reload, a dispatch / subscribe / child dispatch through the
+;;     reloaded object would silently resolve the STALE v1 image. The old
+;;     swap-frame-generation! `(when (some? id) …)` guard skipped no-id frames
+;;     (their public id is nil), leaving the gensym slot stale; the fix keys the
+;;     in-place update by the runnable-id (present on every object) under the same
+;;     identical? stale-handle guard.
+;; ===========================================================================
+
+(deftest no-id-reload-patches-the-runnable-id-registry-slot
+  (testing "(a) (live-frame (:rf.frame/runnable-id reloaded)) carries v2 after a
+            no-id reload — the registry slot dispatch/subscribe re-resolve through
+            points at the reloaded object, not the stale v1 one (rf2-3az1vn P1)"
+    (let [pool-v1 [(event-desc "ex.counter.v1" :counter/inc
+                               (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 1)}))
+                   (sub-desc   "ex.counter.v1" :counter/value (fn [db _] (:n db)))]
+          pool-v2 [(event-desc "ex.counter.v2" :counter/inc
+                               (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 10)}))
+                   (sub-desc   "ex.counter.v2" :counter/value (fn [db _] (:n db)))]
+          img-v1  (image/image {:include-ns ["ex.counter.v1"]})
+          img-v2  (image/image {:include-ns ["ex.counter.v2"]})
+          ;; NO :id — a direct object keyed in the registry under a gensym
+          ;; runnable-id only.
+          frame   (lf/make-frame {:images [img-v1] :initial-db {:n 0}} pool-v1)
+          runnable (:rf.frame/runnable-id frame)
+          reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
+      (is (some? runnable) "a no-id object carries a private runnable-id")
+      (is (empty? (lf/live-frame-ids)) "but contributes no PUBLIC id")
+      (is (identical? reloaded (lf/live-frame runnable))
+          "(a) the runnable-id registry slot now holds the RELOADED v2 object")
+      (is (= :counter/inc (:id (asm/resolve-descriptor
+                                 (lf/frame-generation (lf/live-frame runnable))
+                                 :event :counter/inc)))
+          "and (live-frame runnable-id) resolves the v2 generation's descriptor"))))
+
+(deftest no-id-reload-dispatch-and-subscribe-resolve-v2 ;; (b)
+  (testing "(b) a REAL dispatch + subscribe through the reloaded no-id object
+            resolve the v2-only registration — they collapse the object to its
+            runnable-id and re-resolve from the (now-patched) registry slot
+            (rf2-3az1vn P1)"
+    (let [;; v1 has NO :counter/bump; v2 adds it. So resolving the v2-only id at
+          ;; all proves the reloaded generation (not the stale v1) is in force.
+          pool-v1 [(event-desc "ex.c.v1" :counter/inc
+                               (fn [{:keys [db]} _] {:db (assoc db :gen :v1)}))
+                   (sub-desc   "ex.c.v1" :counter/which (fn [db _] (:gen db)))]
+          pool-v2 [(event-desc "ex.c.v2" :counter/inc
+                               (fn [{:keys [db]} _] {:db (assoc db :gen :v2)}))
+                   (event-desc "ex.c.v2" :counter/bump ;; v2-ONLY event
+                               (fn [{:keys [db]} _] {:db (assoc db :bumped true)}))
+                   (sub-desc   "ex.c.v2" :counter/which (fn [db _] (:gen db)))]
+          img-v1  (image/image {:include-ns ["ex.c.v1"]})
+          img-v2  (image/image {:include-ns ["ex.c.v2"]})
+          frame   (lf/make-frame {:images [img-v1] :initial-db {}} pool-v1)
+          reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
+      ;; Dispatch the SHARED id through the reloaded object: it must run v2's impl.
+      (rf/dispatch-sync reloaded [:counter/inc])
+      (is (= :v2 (:gen (rf/app-db-value reloaded)))
+          "dispatch through the reloaded object ran the v2 :counter/inc handler")
+      ;; Dispatch the V2-ONLY id: it resolves only if the registry slot is v2.
+      (rf/dispatch-sync reloaded [:counter/bump])
+      (is (true? (:bumped (rf/app-db-value reloaded)))
+          "the v2-only :counter/bump resolved + ran — the runnable-id slot is v2")
+      ;; Subscribe through the reloaded object: the v2 sub computes over v2 app-db.
+      (is (= :v2 @(rf/subscribe reloaded [:counter/which]))
+          "subscribe through the reloaded object resolved the v2 sub")
+      (testing "dispatching through the OLD pre-reload object handle ALSO resolves
+                v2 — both handles collapse to the same runnable-id, whose slot is
+                now the reloaded generation (no stale-handle divergence)"
+        (rf/dispatch-sync frame [:counter/bump])
+        (is (true? (:bumped (rf/app-db-value frame)))
+            "the v2-only id resolved through the original handle too")))))
+
+(deftest no-id-reload-child-dispatch-resolves-v2 ;; (c)
+  (testing "(c) a CHILD :dispatch emitted from the reloaded no-id frame's handler
+            re-enters process-event! for the SAME runnable-id, re-derives the
+            generation from the (patched) registry slot, and resolves the v2-only
+            child — proving the whole cascade stays on the reloaded image
+            (rf2-3az1vn P1)"
+    (let [;; v1 parent has no child wiring. v2 parent emits a v2-only child via :fx.
+          pool-v1 [(event-desc "ex.cd.v1" :counter/inc
+                               (fn [{:keys [db]} _] {:db (assoc db :parent :v1)}))]
+          pool-v2 [(event-desc "ex.cd.v2" :counter/inc
+                               (fn [{:keys [db]} _]
+                                 {:db (assoc db :parent :v2)
+                                  :fx [[:dispatch [:counter/child]]]}))
+                   (event-desc "ex.cd.v2" :counter/child ;; v2-ONLY child
+                               (fn [{:keys [db]} _] {:db (assoc db :child :v2)}))]
+          img-v1  (image/image {:include-ns ["ex.cd.v1"]})
+          img-v2  (image/image {:include-ns ["ex.cd.v2"]})
+          frame   (lf/make-frame {:images [img-v1] :initial-db {}} pool-v1)
+          reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
+      (rf/dispatch-sync reloaded [:counter/inc])
+      (let [db (rf/app-db-value reloaded)]
+        (is (= :v2 (:parent db)) "the parent resolved the v2 :counter/inc handler")
+        (is (= :v2 (:child db))
+            "the CHILD :dispatch re-derived the generation from the patched
+             runnable-id slot and resolved the v2-only :counter/child handler")))))

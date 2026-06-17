@@ -678,22 +678,31 @@
 
 (defn- swap-frame-generation!
   "Swap `new-generation` onto `frame-object`, returning the RELOADED frame
-  object. For an `:id`-bearing frame the live-frame registry slot is updated IN
-  PLACE (the same id keeps naming the same live context, now running the new
-  generation) — but ONLY when the registry currently holds THIS object (so a
-  reload of a stale object handle does not clobber a frame re-registered under
-  the id since). A direct (no-id) frame object's reloaded copy is simply
-  returned for the caller to hold. Returns the reloaded frame object."
+  object. The live-frame registry slot is updated IN PLACE under the frame's
+  `:rf.frame/runnable-id` ADDRESS — the SAME key `make-frame` registered the
+  object under (the public `:rf.frame/id` for an id-bearing frame, a private
+  gensym `:rf.frame/<gensym>` for a no-id direct object). Keying by the
+  runnable-id is what keeps generation routing coherent for a NO-ID frame too:
+  dispatch / subscribe collapse a frame object to its runnable-id and then
+  re-resolve the generation from this registry, so the slot MUST point at the
+  reloaded object or a reloaded no-id frame would resolve the stale OLD image
+  (and a child dispatch carrying the runnable-id likewise). The update is
+  guarded by an `identical?` stale-handle check — applied ONLY when the registry
+  currently holds THIS object — so a reload of a stale object handle does not
+  clobber a frame re-registered under the id since. Returns the reloaded frame
+  object (the caller also holds it directly)."
   [frame-object new-generation]
-  (let [reloaded (swap-generation frame-object new-generation)
-        id       (:rf.frame/id frame-object)]
-    (when (some? id)
+  (let [reloaded    (swap-generation frame-object new-generation)
+        runnable-id (get frame-object frame/runnable-id-key)]
+    (when (some? runnable-id)
       ;; Update the registry slot in place, but only if it still holds THIS
-      ;; object — guards against clobbering a frame re-registered under the id.
+      ;; object — guards against clobbering a frame re-registered under the
+      ;; runnable-id. Applies to id-bearing AND no-id frames: the no-id frame's
+      ;; gensym runnable-id slot is what dispatch/subscribe re-resolve through.
       (swap! live-frames
              (fn [m]
-               (if (identical? frame-object (get m id))
-                 (assoc m id reloaded)
+               (if (identical? frame-object (get m runnable-id))
+                 (assoc m runnable-id reloaded)
                  m))))
     reloaded))
 

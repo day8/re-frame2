@@ -1164,6 +1164,54 @@
         (is (= 1 (count fallthrough))
             "exactly one :rf.error/override-fallthrough trace surfaced the un-registered redirect target")))))
 
+(deftest malformed-fx-override-value-fails-loud
+  (testing "a non-fn / non-keyword / non-nil :fx-overrides value (number / string
+            / map) emits :rf.error/override-fallthrough and runs the original fx —
+            no longer silently swallowed (rf2-3az1vn P2)"
+    (doseq [bad-value [42 "not-an-override" {:also :bad} [:vec :tor]]]
+      (let [original-fired (atom 0)
+            traces         (collect-traces! ::malformed-override)]
+        (rf/reg-fx :fx-test.3az1vn/target
+                   {:platforms #{:client :server}}
+                   (fn [_ _] (swap! original-fired inc)))
+        (rf/reg-event :fx-test.3az1vn/issue
+          (fn [_ _] {:fx [[:fx-test.3az1vn/target {}]]}))
+        (rf/dispatch-sync
+          [:fx-test.3az1vn/issue]
+          {:fx-overrides {:fx-test.3az1vn/target bad-value}})
+        (rf/unregister-listener! ::malformed-override)
+        (is (= 1 @original-fired)
+            (str "the original fx ran (recovery :replaced-with-default) for "
+                 (pr-str bad-value)))
+        (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
+          (is (= 1 (count fallthrough))
+              (str "exactly one :rf.error/override-fallthrough surfaced the malformed "
+                   "override value " (pr-str bad-value))))))))
+
+(deftest nil-and-false-fx-override-values-stay-silent
+  (testing "nil and false :fx-overrides values are the documented noop placeholder
+            (spec/002 §`:fx-overrides`): silent fall-through to the original fx,
+            NO :rf.error/override-fallthrough trace (rf2-3az1vn P2 — the silent
+            no-op is intentionally KEPT)"
+    (doseq [noop-value [nil false]]
+      (let [original-fired (atom 0)
+            traces         (collect-traces! ::noop-override)]
+        (rf/reg-fx :fx-test.3az1vn/noop-target
+                   {:platforms #{:client :server}}
+                   (fn [_ _] (swap! original-fired inc)))
+        (rf/reg-event :fx-test.3az1vn/noop-issue
+          (fn [_ _] {:fx [[:fx-test.3az1vn/noop-target {}]]}))
+        (rf/dispatch-sync
+          [:fx-test.3az1vn/noop-issue]
+          {:fx-overrides {:fx-test.3az1vn/noop-target noop-value}})
+        (rf/unregister-listener! ::noop-override)
+        (is (= 1 @original-fired)
+            (str "the original fx ran for the noop placeholder " (pr-str noop-value)))
+        (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
+          (is (empty? fallthrough)
+              (str "no override-fallthrough trace for the documented noop value "
+                   (pr-str noop-value))))))))
+
 ;; ---- 7c. reserved-fx OVERRIDE TIER (rf2-snsup5) ---------------------------
 ;;
 ;; Mike-ruled 2026-06-10 (option A, STATE-INSTALLATION criterion): a reserved

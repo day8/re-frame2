@@ -39,8 +39,7 @@
 
   Pure namespace — no runtime state, no trace, no host I/O. `.cljc` so the
   JVM test sweep exercises the walker cross-host."
-  #?(:clj (:import [java.util UUID Date]
-                   [java.time Instant])))
+  #?(:clj (:import [java.util UUID Date])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -52,13 +51,24 @@
      :cljs (uuid? x)))
 
 (defn- inst-leaf?
-  "A `#inst` value: a `java.util.Date` or `java.time.Instant` on the JVM, a
-  `js/Date` on CLJS. `#inst` is a tagged EDN literal, so an instant IS
-  recordable data even though it is a host object — the EDN reader round-trips
-  it. (Contrast a bare host `Date` used as a non-`#inst` opaque handle: there
-  is no such thing — every Date prints / reads as `#inst`.)"
+  "A `#inst` value that ROUND-TRIPS through `pr-str` / `read-string`: a
+  `java.util.Date` on the JVM, a `js/Date` on CLJS. `#inst` is a tagged EDN
+  literal, so such an instant IS recordable data even though it is a host
+  object — the EDN reader's default `#inst` reader returns it unchanged in
+  meaning.
+
+  `java.time.Instant` is DELIBERATELY excluded on the JVM. Although Clojure's
+  `pr-str` prints an `Instant` with the `#inst` tag, the EDN reader's default
+  `#inst` reader produces a `java.util.Date`, NOT an `Instant` — and with no
+  data-reader bound for the tag a bare `read-string` of the printed form throws
+  `No reader function for tag inst`. So an `Instant` does NOT round-trip; treat
+  it as a non-recordable host handle so the failure surfaces AT THE SOURCE
+  coeffect (via `explain-non-recordable`) rather than far away at replay /
+  Xray / SSR / epoch-export time. Authors who genuinely need to record an
+  instant convert to `java.util.Date` (`Date/from`) at the boundary
+  (rf2-3az1vn P2)."
   [x]
-  #?(:clj  (or (instance? Date x) (instance? Instant x))
+  #?(:clj  (instance? Date x)
      :cljs (instance? js/Date x)))
 
 (defn- recordable-leaf?

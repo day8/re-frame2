@@ -604,21 +604,27 @@
         ;; Per Spec 009 §Hot-reload dedup — re-emits suppressed by shape
         ;; (B4 ruling, rf2-g1b2m): consult the dedup table. Identical
         ;; shape on re-register (a hot-reload that didn't actually
-        ;; change the handler) emits ZERO trace events; a real edit
-        ;; emits exactly one `:rf.registry/handler-replaced`. The
-        ;; sibling collision-warning is gated on the same allow signal
-        ;; — a suppressed hot-reload re-emit must not surface the
-        ;; collision warning either.
+        ;; change the handler) emits ZERO `:rf.registry/handler-replaced`
+        ;; trace events; a real edit emits exactly one.
         (when interop/debug-enabled?
           (when (dedup-allow? :rf.registry/handler-replaced kind id metadata)
             (emit! :rf.registry/handler-replaced
-                   {:kind kind :id id :different-fn? different?})
-            ;; Per Spec 001 §Re-registration of a different function —
-            ;; collision warning (rf2-45kaz). Fires alongside
-            ;; handler-replaced when the fn-identity actually changed,
-            ;; with the same per-(kind, id) suppression discipline so
-            ;; the dev stream stays readable across hot-reload churn.
-            (maybe-emit-collision! kind id previous metadata))))
+                   {:kind kind :id id :different-fn? different?}))
+          ;; Per Spec 001 §Re-registration of a different function —
+          ;; collision warning (rf2-45kaz). Decoupled from the
+          ;; handler-replaced dedup gate (rf2-3az1vn P2): the collision
+          ;; warning detects a CROSS-SOURCE id clash by PROVENANCE
+          ;; (different `(ns, file, line)`), not by handler-fn shape, and
+          ;; carries its OWN per-(kind, id) suppression (`collision-warned`).
+          ;; Nesting it inside the `dedup-allow?` (handler-replaced) gate
+          ;; meant a kind with no rotating `:handler-fn` — `:frame`,
+          ;; `:route`, `:head` — could be deduped-away by shape and so a
+          ;; GENUINE cross-source clash for those kinds never warned. Call
+          ;; it independently (still under `interop/debug-enabled?` for
+          ;; production elision); `collision?` keeps a same-source hot-reload
+          ;; re-eval silent, and the warn-once cache keeps the dev stream
+          ;; readable across reload churn.
+          (maybe-emit-collision! kind id previous metadata)))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
       ;; this to track when fresh ids appear in the registry. The B4

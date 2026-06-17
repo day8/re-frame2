@@ -613,11 +613,44 @@
                              :recovery       :replaced-with-default})
             original-fx-id))
 
+        ;; `nil` / `false` — the documented noop-style placeholder
+        ;; (spec/002 §`:fx-overrides`): "no override", silently fall
+        ;; through to the original fx. KEPT silent on purpose.
+        (or (nil? override-target) (false? override-target))
+        original-fx-id
+
         :else
-        ;; Neither fn nor keyword — treat as "no override" and fall
-        ;; through to the original fx. Includes `nil` (documented in
-        ;; spec/002 §`:fx-overrides` as a noop-style placeholder).
-        original-fx-id))
+        ;; Any OTHER value (a number / string / map / vector / …) is a
+        ;; malformed `:fx-overrides` entry — an `:fx-overrides` value must
+        ;; be an fx-id keyword (id-redirect), a fn (override body), or
+        ;; nil/false (noop). Fail LOUD, matching the sibling
+        ;; unregistered-keyword branch (rf2-3az1vn P2 + spec/002 §`:fx-overrides`
+        ;; :else throw): emit `:rf.error/override-fallthrough` through BOTH
+        ;; error substrates so a silently-swallowed bad override surfaces in
+        ;; dev AND production observability, then fall through to the original
+        ;; fx (recovery `:replaced-with-default`).
+        (do
+          (emit-fx-error! :rf.error/override-fallthrough
+                          origin-event
+                          origin-event-id
+                          frame-id
+                          nil
+                          {:failing-id    original-fx-id
+                           :overrides-map overrides
+                           :override      override-target
+                           :frame         frame-id
+                           :reason        (str "Override for `"
+                                               original-fx-id
+                                               "` is `"
+                                               (pr-str override-target)
+                                               "`, which is not a valid `:fx-overrides` "
+                                               "value — it must be an fx-id keyword "
+                                               "(id-redirect), a function (override body), "
+                                               "or nil/false (noop). Using the registered `"
+                                               original-fx-id
+                                               "` instead.")
+                           :recovery      :replaced-with-default})
+          original-fx-id)))
     original-fx-id))
 
 (defn- resolved-fx-meta
