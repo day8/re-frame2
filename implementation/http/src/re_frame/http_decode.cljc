@@ -89,14 +89,41 @@
   [body-text]
   (and (string? body-text) (str/blank? body-text)))
 
+(defn- json-media-type?
+  "rf2-houkno — RFC 6839 / IANA structured-syntax-suffix aware JSON
+  media-type predicate. Strips parameters (the `;charset=…` tail) and the
+  type prefix, then accepts a subtype of exactly `json` OR any subtype
+  carrying the `+json` structured-syntax suffix. This recognises mainstream
+  vendor JSON media types — `application/vnd.api+json` (JSON:API),
+  `application/ld+json` (JSON-LD), `application/vnd.github+json` — that a
+  bare `(str/includes? ct \"application/json\")` substring check wrongly
+  rejected (a real footgun against correct servers).
+
+  Examples that match: `application/json`, `application/json; charset=utf-8`,
+  `application/vnd.api+json`, `application/ld+json`, `text/json`.
+  Examples that do NOT: `application/edn`, `text/plain`, `application/xml`."
+  [content-type]
+  (when (string? content-type)
+    (let [;; drop parameters (`; charset=…`, `; boundary=…`), trim, lower-case
+          essence (-> content-type (str/split #";") first str/trim str/lower-case)
+          ;; subtype is the part after the first "/"; tolerate a missing "/"
+          subtype (let [idx (str/index-of essence "/")]
+                    (if idx (subs essence (inc idx)) essence))]
+      (boolean
+        (or (= "json" subtype)
+            (str/ends-with? subtype "+json"))))))
+
 (defn- sniff-decoder
-  "Per Spec 014 §`:auto`: sniff the response Content-Type header."
+  "Per Spec 014 §`:auto`: sniff the response Content-Type header.
+  rf2-houkno — JSON sniffing recognises RFC 6839 `+json` structured-syntax
+  suffix media types (e.g. `application/vnd.api+json`) via `json-media-type?`,
+  not just a bare `application/json` substring."
   [content-type]
   (let [ct (some-> content-type str/lower-case)]
     (cond
-      (and ct (str/includes? ct "application/json")) :json
-      (and ct (str/starts-with? ct "text/"))         :text
-      :else                                          :blob)))
+      (json-media-type? content-type)        :json
+      (and ct (str/starts-with? ct "text/")) :text
+      :else                                  :blob)))
 
 (defn- json-content-type?
   "rf2-upexd.2 — does the response declare a JSON Content-Type? The
@@ -107,10 +134,16 @@
   JSON-eligible — many JSON APIs omit the header, and rejecting them
   would be a regression; only a Content-Type that is PRESENT and
   declares a NON-JSON MIME is rejected as a clear contract violation
-  rather than silently JSON-parsing (and failing) a non-JSON body."
+  rather than silently JSON-parsing (and failing) a non-JSON body.
+
+  rf2-houkno — JSON eligibility now honours RFC 6839 `+json` structured-
+  syntax suffix media types (e.g. `application/vnd.api+json`,
+  `application/ld+json`) via `json-media-type?`, not just a bare
+  `application/json` substring — those carry valid JSON bodies by
+  construction and were wrongly rejected as non-JSON before."
   [content-type]
   (or (nil? content-type)
-      (some-> content-type str/lower-case (str/includes? "application/json"))))
+      (json-media-type? content-type)))
 
 (def ^:private binary-decode-kinds
   "Decode modes whose result is a native binary/structured Fetch body

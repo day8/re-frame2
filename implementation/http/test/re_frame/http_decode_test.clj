@@ -187,6 +187,85 @@
              :decode-supplied? true
              :max-decoded-keys 2})))))
 
+;; ---- rf2-houkno: +json vendor media types (RFC 6839 suffix) ---------------
+;;
+;; The JSON gate (`json-content-type?` for schema eligibility + `sniff-decoder`
+;; for `:auto`) previously keyed on a bare `(str/includes? ct "application/json")`
+;; substring, so mainstream vendor JSON types — application/vnd.api+json
+;; (JSON:API), application/ld+json (JSON-LD), application/vnd.github+json —
+;; were wrongly rejected (schema path) or mis-sniffed to :blob (:auto path)
+;; even though the body is valid JSON. rf2-houkno accepts subtype "json" OR
+;; the "+json" structured-syntax suffix (RFC 6839 / IANA), parameter-stripped.
+
+(deftest schema-decode-accepts-vendor-plus-json-media-types
+  (testing "rf2-houkno — a schema :decode over a body whose Content-Type
+            carries the RFC 6839 `+json` suffix (vnd.api+json, ld+json,
+            vnd.github+json) decodes as JSON rather than being rejected
+            as `:rf.error/http-schema-non-json-content-type`"
+    (doseq [ct ["application/vnd.api+json"
+                "application/ld+json"
+                "application/vnd.github+json"
+                "application/vnd.api+json; charset=utf-8"]]
+      (is (= {:title "hello" :id 42}
+             (decode/decode-response-body
+               {:body-text "{\"title\":\"hello\",\"id\":42}"
+                :headers   {"content-type" ct}
+                :decode    [:map [:title :string] [:id :int]]
+                :decode-supplied? true}))
+          (str "vendor +json media type should decode as JSON: " ct)))))
+
+(deftest schema-decode-still-rejects-genuine-non-json-content-type
+  (testing "rf2-houkno — the present-non-JSON reject guard is KEPT: a
+            schema :decode over an application/edn / text/plain response
+            still raises the clear MIME-mismatch error (not a misleading
+            Malli string-validation failure)"
+    (doseq [ct ["application/edn" "text/plain" "application/xml"]]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf.error/http-schema-non-json-content-type"
+            (decode/decode-response-body
+              {:body-text "{\"title\":\"hello\"}"
+               :headers   {"content-type" ct}
+               :decode    [:map [:title :string]]
+               :decode-supplied? true}))
+          (str "genuine non-JSON media type must still reject: " ct)))))
+
+(deftest auto-sniff-resolves-plus-json-to-json
+  (testing "rf2-houkno — :auto sniffing of a `+json` suffix Content-Type
+            resolves to :json (parses the body) rather than mis-sniffing
+            to :blob"
+    (doseq [ct ["application/vnd.api+json"
+                "application/ld+json"
+                "application/vnd.github+json; charset=utf-8"]]
+      (is (= {:ok true}
+             (decode/decode-response-body
+               {:body-text        "{\"ok\":true}"
+                :headers          {"content-type" ct}
+                :decode           :auto
+                :decode-supplied? false
+                :request-id       :req-pj
+                :handler-id       :handler/pj
+                :url              "https://example.test/pj"}))
+          (str "vendor +json media type should auto-sniff to :json: " ct)))))
+
+(deftest json-media-type-predicate-edge-cases
+  (testing "rf2-houkno — the JSON media-type predicate accepts json subtype
+            + +json suffix (parameter-stripped) and rejects genuine non-JSON"
+    (let [json-media-type? @#'decode/json-media-type?]
+      (is (true?  (json-media-type? "application/json")))
+      (is (true?  (json-media-type? "application/json; charset=utf-8")))
+      (is (true?  (json-media-type? "APPLICATION/JSON")))
+      (is (true?  (json-media-type? "text/json")))
+      (is (true?  (json-media-type? "application/vnd.api+json")))
+      (is (true?  (json-media-type? "application/ld+json")))
+      (is (true?  (json-media-type? "application/vnd.github+json; charset=utf-8")))
+      (is (false? (json-media-type? "application/edn")))
+      (is (false? (json-media-type? "text/plain")))
+      (is (false? (json-media-type? "application/xml")))
+      ;; a subtype that merely CONTAINS "json" but is not json / +json
+      (is (false? (json-media-type? "application/jsonrequest")))
+      (is (nil?   (json-media-type? nil))))))
+
 ;; ---- G4: :rf.warning/decode-defaulted dev emission ------------------------
 ;;
 ;; Spec 014 §`:auto`. The warning fires when the user did NOT supply
