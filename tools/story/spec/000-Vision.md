@@ -162,7 +162,7 @@ Story participates in the framework's path-level data-classification
 contract ([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
 Story is **not** a separate observation surface that needs its own
 classification machinery — it consumes the framework's existing
-sentinels (`:rf/redacted`, `:rf/large`) and propagation graph at the
+sentinels (`:rf/redacted`, `:rf.size/large-elided`) and propagation graph at the
 boundaries it owns.
 
 The posture is normative across Story's surfaces:
