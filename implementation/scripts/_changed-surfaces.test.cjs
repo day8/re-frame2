@@ -575,9 +575,13 @@ function storyXrayJobBlock(workflow) {
   const start = workflow.indexOf('\n  story-xray-browser:');
   assert.notEqual(start, -1, 'story-xray-browser job not found in test.yml');
   // The next top-level job starts at the next `\n  <name>:` at 2-space
-  // indent. Find it from just after the job header.
+  // indent. Find it from just after the job header. The workflow file is
+  // CRLF, so the line break after the next job header is `\r\n` — match
+  // `\r?\n` (mirroring jobBlock) or the search never matches and this
+  // returns the whole rest-of-file, letting a later job's step satisfy a
+  // story-xray-browser assertion (rf2-8ng3e1).
   const rest = workflow.slice(start + 1);
-  const nextJob = rest.search(/\n {2}[A-Za-z0-9_-]+:\n/);
+  const nextJob = rest.search(/\n {2}[A-Za-z0-9_-]+:\r?\n/);
   return nextJob === -1 ? rest : rest.slice(0, nextJob);
 }
 
