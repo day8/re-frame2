@@ -146,6 +146,19 @@
          (finally (trace-tooling/unregister-listener! k)))
     @seen))
 
+(defn- record-target-skipped-warnings!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  `:rf.warning/mutation-target-skipped` warning emitted during it (rf2-1vpbld)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::target-skipped-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (= :rf.warning/mutation-target-skipped (:operation ev))
+                   (swap! seen conj ev))))
+    (try (body-fn)
+         (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
 (defn- save-article-spec
   ([] (save-article-spec {}))
   ([overrides]
@@ -848,9 +861,11 @@
             {:resource :r/article :params {:slug "w"}} (fn [])
             (constantly true) 'test :patches)))))
 
-(deftest validate-target-map-canonicalizes-and-rejects-whole-map
-  ;; rf2-3yyaur / EP-0016 Rider 2 — one bad target rejects the WHOLE arm (no
-  ;; partial write), valid targets are re-keyed by the canonical STORAGE key,
+(deftest validate-target-map-strict-policy-rejects-whole-map
+  ;; rf2-3yyaur / EP-0016 Rider 2 — the DEFAULT (:strict) policy (pre-write /
+  ;; optimistic / execute-time callers, where no server write has landed): one
+  ;; bad target — recoverable OR corruption-class — rejects the WHOLE arm (no
+  ;; partial write); valid targets are re-keyed by the canonical STORAGE key;
   ;; and a {:from-db …} target whose scope resolves nil is FAIL-CLOSED (dropped,
   ;; recorded in the returned nil-resolved ids — never an implicit global).
   ;; The injected `resolve-target-scope` resolves :rf.scope/same (here the
@@ -860,13 +875,22 @@
                           (nil? scope)                 [:resolved :rf.scope/global]
                           (= scope {:from-db :nope})   [:nil-resolved :nope]
                           :else                        [:resolved scope]))]
-    (testing "a single bad target (typo scope) rejects the whole map"
+    (testing "a single bad target (typo scope) rejects the whole map (default :strict)"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
             (mstate/validate-target-map!
               {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
                {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
               resolve-scope (constantly true) :patches 'test))))
+    (testing "a RECOVERABLE bad target (unregistered) ALSO rejects the whole arm under :strict"
+      ;; the pre-write / optimistic surface still whole-arm-rejects an
+      ;; unregistered resource (rf2-1vpbld — only the POST-WRITE settle path relaxes).
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+            (mstate/validate-target-map!
+              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+               {:resource :r/nope :params {:slug "x"} :scope :rf.scope/global} :bad}
+              resolve-scope #(= % :r/article) :patches 'test))))
     (testing "an all-valid map is re-keyed by the canonical STORAGE key (and no nils)"
       (is (= [{[:rf.scope/global :r/article {:slug "w"}] :v} []]
              (mstate/validate-target-map!
@@ -882,12 +906,97 @@
       (is (= [nil []] (mstate/validate-target-map! {} resolve-scope (constantly true) :patches 'test)))
       (is (= [nil []] (mstate/validate-target-map! nil resolve-scope (constantly true) :patches 'test))))))
 
-(deftest bad-patch-target-fails-closed-no-partial-cache-mutation
-  ;; rf2-3yyaur — end-to-end: a mutation whose :patches targets an unregistered
-  ;; resource fails on the success path BEFORE any cache mutation. The event
-  ;; loop catches the throw, so we observe the fail-closed EFFECT: the bad
-  ;; target's entry was never (partially) written, and the second VALID patch
-  ;; in the same arm also did not land (one bad target rejects the whole arm).
+(deftest validate-target-map-skip-recoverable-policy
+  ;; rf2-1vpbld — the POST-WRITE settle policy (:skip-recoverable): a RECOVERABLE
+  ;; bad sibling (unregistered resource / non-map / non-keyword :resource) is
+  ;; DROPPED-AND-collected (not thrown) while the VALID siblings still canonicalize
+  ;; + land — the server write already committed, so a typo must not strand the
+  ;; whole arm. CACHE-IDENTITY CORRUPTION (reserved-scope typo / non-EDN scope /
+  ;; params) STILL THROWS. Returns the 3-tuple [canonical nil-ids skipped].
+  (let [resolve-scope (fn [{:keys [scope]}]
+                        (cond
+                          (nil? scope)                 [:resolved :rf.scope/global]
+                          (= scope {:from-db :nope})   [:nil-resolved :nope]
+                          :else                        [:resolved scope]))]
+    (testing "an unregistered sibling is SKIPPED while the valid sibling LANDS"
+      (let [[canonical nils skipped]
+            (mstate/validate-target-map!
+              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+               {:resource :r/nope :params {:slug "x"} :scope :rf.scope/global} :bad}
+              resolve-scope #(= % :r/article) :patches 'test :skip-recoverable)]
+        (is (= {[:rf.scope/global :r/article {:slug "w"}] :ok} canonical)
+            "the valid sibling canonicalized + retained its value")
+        (is (= [] nils))
+        (is (= 1 (count skipped)))
+        (is (= :unregistered-resource (:reason (first skipped))))
+        (is (= :r/nope (:resource (first skipped))) "the recoverable resource id is recorded")))
+    (testing "a non-keyword :resource sibling is SKIPPED while the valid one LANDS"
+      (let [[canonical _nils skipped]
+            (mstate/validate-target-map!
+              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+               {:resource "article" :params {:slug "x"} :scope :rf.scope/global} :bad}
+              resolve-scope (constantly true) :populates 'test :skip-recoverable)]
+        (is (= {[:rf.scope/global :r/article {:slug "w"}] :ok} canonical))
+        (is (= [:non-keyword-resource] (mapv :reason skipped)))))
+    (testing "CACHE-IDENTITY CORRUPTION (reserved-scope typo) STILL THROWS even under :skip-recoverable"
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+            (mstate/validate-target-map!
+              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+               {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
+              resolve-scope (constantly true) :patches 'test :skip-recoverable))))
+    (testing "CACHE-IDENTITY CORRUPTION (non-EDN params) STILL THROWS"
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+            (mstate/validate-target-map!
+              {{:resource :r/article :params {:slug "w" :cb (fn [])} :scope :rf.scope/global} :bad}
+              resolve-scope (constantly true) :patches 'test :skip-recoverable))))
+    (testing "a {:from-db …} nil-resolve is STILL fail-closed-dropped (separate from skip)"
+      (is (= [{} [:nope] []]
+             (mstate/validate-target-map!
+               {{:resource :r/article :params {:slug "w"} :scope {:from-db :nope}} :v}
+               resolve-scope (constantly true) :populates 'test :skip-recoverable))))
+    (testing "an empty / nil map returns the 3-tuple empty shape [nil [] []]"
+      (is (= [nil [] []] (mstate/validate-target-map! {} resolve-scope (constantly true) :patches 'test :skip-recoverable)))
+      (is (= [nil [] []] (mstate/validate-target-map! nil resolve-scope (constantly true) :patches 'test :skip-recoverable))))))
+
+(deftest classify-target-key-corruption-vs-recoverable
+  ;; rf2-1vpbld — the pure classifier: recoverable cases return [:skip …]
+  ;; (dropped by the relaxed settle policy), corruption-class THROWS.
+  (testing "an unregistered resource classifies :skip :unregistered-resource"
+    (is (= [:skip :unregistered-resource {:target (pr-str {:resource :r/nope :params {:slug "w"}})
+                                          :resource :r/nope}]
+           (mstate/classify-target-key
+             {:resource :r/nope :params {:slug "w"}} :rf.scope/global (constantly false) 'test :patches))))
+  (testing "a non-map target classifies :skip :non-map-target"
+    (is (= :non-map-target
+           (second (mstate/classify-target-key :r/article :rf.scope/global (constantly true) 'test :patches)))))
+  (testing "a non-keyword :resource classifies :skip :non-keyword-resource"
+    (is (= :non-keyword-resource
+           (second (mstate/classify-target-key {:resource "article" :params {}} :rf.scope/global (constantly true) 'test :patches)))))
+  (testing "a valid target classifies :apply <canonical key>"
+    (is (= [:apply [:rf.scope/global :r/article {:slug "w"}]]
+           (mstate/classify-target-key
+             {:resource :r/article :params {:slug "w"}} :rf.scope/global (constantly true) 'test :patches))))
+  (testing "a reserved-scope typo THROWS (corruption) — never classified :skip"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/classify-target-key
+            {:resource :r/article :params {:slug "w"}} :rf.scope/glabal (constantly true) 'test :patches))))
+  (testing "corruption (non-EDN scope) wins even when the resource is also unregistered"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/classify-target-key
+            {:resource :r/nope :params {:slug "w"}} (fn []) (constantly false) 'test :patches)))))
+
+(deftest recoverable-patch-target-skipped-while-valid-sibling-lands
+  ;; rf2-1vpbld — end-to-end POST-WRITE settle: a mutation whose :patches has
+  ;; ONE recoverable bad target (an UNREGISTERED resource) and one VALID sibling.
+  ;; The server write ALREADY COMMITTED (the reply event fired post-write), so
+  ;; the bad sibling is DROPPED-AND-WARNED while the valid sibling LANDS and the
+  ;; instance SETTLES — instead of the old all-or-nothing throw that stranded the
+  ;; whole committed mutation (the asymmetry-fix: a patch on a missing entry
+  ;; already no-ops; an unregistered target now does too, with a loud warning).
   (rf/reg-resource :r/article (article-resource-spec))
   (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
         bad-key  [:rf.scope/global :r/never-registered {:slug "w"}]]
@@ -898,18 +1007,119 @@
                                             (fn [old r] (merge old r))
                                             {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global}
                                             (fn [old _] old)})})
-    ;; seed the good entry so a (wrongly) partial patch would be observable
+    ;; seed the good entry so the patch has data to transform
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
     (reply-success! @last-managed-args {:title "old"})
     (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad1}])
+    (let [warns (record-target-skipped-warnings!
+                  (fn []
+                    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad1}])
+                    (reply-success! @last-managed-args {:title "new"})))]
+      (testing "the VALID sibling patch LANDED (the recoverable bad target was dropped, not all-or-nothing)"
+        (is (= {:title "new"} (:data (entry good-key))) "good entry patched")
+        (is (nil? (entry bad-key)) "the unregistered key was never written"))
+      (testing "the instance SETTLED :success + the work row :completed (the actual defect — the throw used to strand both)"
+        (let [i (instance :bad1)]
+          (is (= :success (:status i)) "instance reached :success")
+          (is (= {:title "new"} (:result i)) "result settled"))
+        (is (= :completed (:status (mutation-record :bad1))) "work-ledger row flipped :completed"))
+      (testing "the dropped target is recorded on the patch-summary :target-skipped (egress-safe evidence)"
+        (let [summary (:patch-summary (instance :bad1))
+              skipped (:target-skipped summary)]
+          (is (= 1 (count skipped)))
+          (is (= :patches (:arm (first skipped))))
+          (is (= :unregistered-resource (:reason (first skipped))))
+          (is (= :r/never-registered (:resource (first skipped))))))
+      (testing "the dedicated :rf.warning/mutation-target-skipped dev tripwire fired"
+        (let [warn (some #(when (= :rf.warning/mutation-target-skipped (:operation %)) %) warns)
+              ;; the trace event's payload map rides under the event's `:tags`
+              ;; field (the trace-bus envelope shape — as the scope-mismatch tests read).
+              pay  (:tags warn)]
+          (is (some? warn) "the dedicated skipped-target warning was emitted")
+          (is (= :unregistered-resource (:reason pay)))
+          (is (= :r/never-registered (:resource pay)))
+          (is (= :patches (:arm pay))))))))
+
+(deftest corruption-class-patch-target-still-throws-no-partial-mutation
+  ;; rf2-1vpbld — the CORRUPTION-class throw is KEPT: a :patches target carrying
+  ;; a reserved-scope TYPO (which would silently write the cache under a WRONG
+  ;; scope) STILL aborts the whole arm — no relaxed policy may swallow a
+  ;; wrong-identity write. The event loop catches the throw, so we observe the
+  ;; fail-closed EFFECT: the valid sibling in the same arm did NOT land.
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      ;; the SECOND target carries a bare reserved-scope typo
+                      ;; (:rf.scope/glabal) — cache-identity corruption.
+                      :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
+                                            (fn [old r] (merge old r))
+                                            {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal}
+                                            (fn [old _] old)})})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:view :a]}])
+    (reply-success! @last-managed-args {:title "old"})
+    (reset! last-managed-args nil)
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad2}])
     (reply-success! @last-managed-args {:title "new"})
-    (testing "fail-closed: the good entry was NOT patched (the whole arm was rejected
-              before any cache mutation), and the unregistered key was never written"
-      (is (= {:title "old"} (:data (entry good-key))) "good entry unchanged")
-      (is (nil? (entry bad-key)) "no partial write of the bad target"))))
+    (testing "corruption-class: the valid sibling did NOT land (the whole arm was rejected)"
+      (is (= {:title "old"} (:data (entry good-key))) "good entry unchanged — corruption still fails closed"))))
+
+(deftest recoverable-populate-target-skipped-while-valid-sibling-lands
+  ;; rf2-1vpbld — :populates smoke: an unregistered populate target is
+  ;; SKIPPED-AND-WARNED while the valid sibling SEEDS the cache and the instance
+  ;; SETTLES.
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/create
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug)}})
+                      :populates (fn [_p r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} r
+                                             {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global} r})})
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/create :params {:slug "w"} :instance :pop1}])
+    (reply-success! @last-managed-args {:title "seeded"})
+    (testing "the valid populate SEEDED the entry; the unregistered sibling was skipped"
+      (is (= {:title "seeded"} (:data (entry good-key))) "valid populate landed")
+      (is (= :success (:status (instance :pop1))) "instance settled :success")
+      (is (= :completed (:status (mutation-record :pop1))) "work row :completed"))
+    (testing "the skipped populate sibling is recorded :target-skipped with :arm :populates"
+      (let [skipped (:target-skipped (:patch-summary (instance :pop1)))]
+        (is (= [:populates] (mapv :arm skipped)))
+        (is (= [:unregistered-resource] (mapv :reason skipped)))
+        (is (= [:r/never-registered] (mapv :resource skipped)))))))
+
+(deftest recoverable-remove-target-skipped-while-valid-sibling-lands
+  ;; rf2-1vpbld — :removes smoke: an unregistered remove target is
+  ;; SKIPPED-AND-WARNED while the valid sibling DROPS its entry and the instance
+  ;; SETTLES.
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+    (reply-success! @last-managed-args {:title "doomed"})
+    (is (some? (entry good-key)) "entry seeded")
+    (reset! last-managed-args nil)
+    (rf/reg-mutation :m/delete2
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
+                      :removes (fn [{:keys [slug]} _r]
+                                 [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                                  {:resource :r/never-registered :params {:slug slug} :scope :rf.scope/global}])})
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete2 :params {:slug "w"} :instance :rm1}])
+    (reply-success! @last-managed-args {:deleted true})
+    (testing "the valid remove DROPPED its entry; the unregistered sibling was skipped"
+      (is (nil? (entry good-key)) "valid remove landed")
+      (is (= [good-key] (:removed (:patch-summary (instance :rm1)))) "only the valid key removed")
+      (is (= :success (:status (instance :rm1))) "instance settled :success")
+      (is (= :completed (:status (mutation-record :rm1))) "work row :completed"))
+    (testing "the skipped remove sibling is recorded :target-skipped with :arm :removes"
+      (let [skipped (:target-skipped (:patch-summary (instance :rm1)))]
+        (is (= [:removes] (mapv :arm skipped)))
+        (is (= [:unregistered-resource] (mapv :reason skipped)))))))
 
 (deftest valid-patch-target-still-applies
   ;; rf2-3yyaur — the happy path is UNCHANGED: a well-formed, registered,
