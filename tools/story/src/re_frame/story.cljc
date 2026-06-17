@@ -79,13 +79,15 @@
   Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
   the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
-  (:require [re-frame.core              :as rf]
-            ;; rf2-bsk1d9 (EP-0015): Story does NOT re-export `add-marks` /
-            ;; `set-marks`. Durable app-db classification is a frame-creation
-            ;; concern — a variant declares `:sensitive` / `:large` on its
-            ;; body and the runtime threads them onto its `reg-frame` config
-            ;; (`re-frame.story.frames`). The `re-frame.marks` require is gone.
-            [re-frame.story.config      :as config]
+  ;; rf2-bsk1d9 (EP-0015): Story does NOT re-export `add-marks` /
+  ;; `set-marks`. Durable app-db classification is a frame-creation
+  ;; concern — a variant declares `:sensitive` / `:large` on its body and
+  ;; the runtime threads them onto its `reg-frame` config
+  ;; (`re-frame.story.frames`). The `re-frame.marks` require is gone, and
+  ;; with the re-exports dropped the `re-frame.core` require has no live
+  ;; call site either, so it is removed (the docstring above still names
+  ;; `rf/dispatch-sync` etc. illustratively).
+  (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
             ;; weight for query / canonical-boot / lifecycle surfaces.

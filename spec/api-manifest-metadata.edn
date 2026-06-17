@@ -1192,8 +1192,12 @@
   ["re-frame.story" "tags-without-axis"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "tags-default-excluded"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "tag->axis-index"]        {:tier :tooling :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "add-marks"]              {:tier :tooling :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "set-marks"]              {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; rf2-bsk1d9 (EP-0015): Story no longer re-exports `add-marks` /
+  ;; `set-marks`. Frame-owned `:sensitive` / `:large` classification at
+  ;; frame creation is the public boundary; the public post-creation
+  ;; path-marks mutation surface is superseded (spec/015 §Supersession).
+  ;; Story published these only as duals of the (already-removed)
+  ;; `re-frame.core/{add-marks,set-marks}` façade vars — both rows are gone.
   ;; Canonical vocabulary values (tooling — read-only vocab).
   ["re-frame.story" "canonical-tags"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "canonical-axes"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
