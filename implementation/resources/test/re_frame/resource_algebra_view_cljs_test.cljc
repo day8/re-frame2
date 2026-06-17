@@ -301,6 +301,98 @@
           (is (not= (:lifecycle nv) (:lifecycle nl))
               "the two nodes carry their OWN distinct owner sets (not gated together)"))))))
 
+;; ---- EP-0015 egress redaction of the live graph snapshot (rf2-0t0l3w) ----
+;;
+;; `resource-cache-algebra-view` is a TOOL-facing egress boundary (Xray,
+;; re-frame2-pair-mcp, conformance fixtures consume it). EP-0015 treats
+;; resource entries, work-ledger rows, scopes, params, and owner/cause
+;; summaries as EGRESS RECORDS: the raw scope/params embedded in the node
+;; KEY, `:id`, `:inputs`, `:output`, and `:work-ledger :record :resource/key`
+;; cannot be reached by a generic value-path walk, so the tooling surface
+;; must project them through the resource OWNER classification BEFORE egress.
+
+(def ^:private secret "tenant-jwt-SECRET-9f3a")
+
+(defn- contains-secret?
+  "Deep-walk `v`; true iff the raw secret string appears ANYWHERE (leaf, key,
+  scope, params, work-ledger record, :output path tail)."
+  [v]
+  (boolean
+    (cond
+      (= v secret)  true
+      (map? v)      (some contains-secret? (concat (keys v) (vals v)))
+      (coll? v)     (some contains-secret? v)
+      :else         false)))
+
+(deftest live-view-redacts-sensitive-params-at-tool-egress
+  (testing "rf2-0t0l3w: a :sensitive? resource's scoped-key scope/params are
+            projected to opaque handles in EVERY identity position — the node
+            map key, :id, :inputs, :output, and the in-flight work-ledger
+            record :resource/key — while resource-id identity + connectivity
+            survive and no raw secret egresses"
+    (rf/reg-resource :secret/article
+                     (article-spec {:sensitive?    true
+                                    :params-schema [:map [:auth-token :string]]}))
+    (let [scope      [:rf.scope/tenant secret]
+          params     {:auth-token secret}
+          scoped-key (install-live-entry! :rf/default :secret/article scope params
+                                          {:owner [:route :route/article 17] :in-flight? true})
+          view       (resources-tooling/resource-cache-algebra-view :rf/default)
+          node       (first (vals view))]
+      (is (= 1 (count view)) "exactly one live node")
+      (is (some? node))
+      (testing "no raw secret anywhere in the egressed view"
+        (is (not (contains-secret? view))))
+      (testing "the resource-id identity + graph connectivity survive projection"
+        (is (= :secret/article (nth (:id node) 1))
+            "resource-id preserved in the node :id 3-tuple")
+        (is (= :secret/article (second (:resource/key (:record (:work-ledger node))))
+               )
+            "resource-id preserved in the work-ledger record :resource/key"))
+      (testing "the node MAP KEY does not embed the raw secret"
+        (is (not (contains-secret? (keys view))))))))
+
+(deftest live-view-preserves-non-sensitive-identity
+  (testing "rf2-0t0l3w guard: a NON-sensitive resource still rides its scope /
+            params verbatim (projection must not over-redact the common case)"
+    (rf/reg-resource :plain/article (article-spec))
+    (let [scope  :rf.scope/global
+          params {:slug "welcome"}
+          scoped-key (install-live-entry! :rf/default :plain/article scope params
+                                          {:status :loaded :owner [:lease :p 1]})
+          view   (resources-tooling/resource-cache-algebra-view :rf/default)
+          node   (get view (state/key-id scoped-key))]
+      (is (some? node))
+      (is (= [[:scope scope] [:param params]] (:inputs node))
+          "non-sensitive scope + params ride verbatim")
+      (is (= scoped-key (:id node)) "non-sensitive scoped key rides verbatim"))))
+
+(deftest live-view-redacts-derived-sensitive-scope
+  (testing "rf2-0t0l3w: a resource whose {:from-db <resolver>} scope derives
+            sensitivity from a frame-sensitive :db input is redacted at egress
+            EVEN when the owner did not declare :sensitive? (derived-sensitivity
+            inheritance, Spec 015 §Derived sensitivity)"
+    ;; FRAME classification: the resolver's :db input path is sensitive.
+    (rf/reg-frame :sens/frame
+                  {:doc "frame with a sensitive tenant-id"
+                   :sensitive {:app-db [[:session :tenant-id]]}})
+    ;; resolver reading the frame-sensitive path (default :inherit propagates)
+    (rf/reg-resource-scope :session/tenant
+                           {:inputs  {:tenant-id [:db [:session :tenant-id]]}
+                            :resolve (fn [{:keys [tenant-id]} _]
+                                       (when tenant-id [:rf.scope/tenant tenant-id]))})
+    ;; a tenant-scoped resource — NOT itself declared :sensitive?
+    (rf/reg-resource :derived/article
+                     (article-spec {:scope {:from-db :session/tenant}}))
+    (let [scope      [:rf.scope/tenant secret]
+          params     {:slug "x"}
+          scoped-key (install-live-entry! :sens/frame :derived/article scope params
+                                          {:status :loaded :owner [:lease :d 1]})
+          view       (resources-tooling/resource-cache-algebra-view :sens/frame)]
+      (is (= 1 (count view)) "one node")
+      (testing "the derived-sensitive scope is redacted at egress (no raw secret)"
+        (is (not (contains-secret? view)))))))
+
 ;; ---- registry semantics --------------------------------------------------
 
 (deftest cleared-resource-is-removed-from-the-static-view
