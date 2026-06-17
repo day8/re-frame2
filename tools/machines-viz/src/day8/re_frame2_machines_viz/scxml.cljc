@@ -119,6 +119,17 @@
     comments but are not part of this round-trip.
   - Source-coord metadata — stripped at export time (same posture as
     share-URL encoding; see `Principles.md` §No session data in shares).
+  - Consumer-attachment `:rf.cofx/requires` (EP-0017 — the replay-critical
+    host facts a named guard / action / entry / exit consumes; rf2-skhlw2.1):
+    INTENTIONALLY OMITTED. W3C SCXML has no native attribute for re-frame2
+    coeffect requirements, and the requirements ride the `:guards` /
+    `:actions` named-entry registry, which SCXML does not carry (only the
+    NAME survives, via `cond=` / the action comment). On import a re-frame2
+    machine re-attaches its requirements from its own registry, so a comment
+    round-trip would be redundant. The interactive MachineChart is the
+    EP-0017 'which transitions consume which facts' surface; SCXML stays W3C
+    topology interop. The omission is locked by `scxml-cljs-test`'s no-cofx-
+    vocabulary regression.
 
   Round-trip failure modes throw the canonical thrown-error shape (Spec
   009 §The thrown-error shape): `:rf.error/id` is the `:scxml/...`

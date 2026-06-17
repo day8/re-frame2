@@ -53,6 +53,16 @@
   - Microstep flashes, transition glow, `:tags`, guard evaluation,
     actions — none of these are part of the static topology. Guard
     ids still appear on edge labels when present.
+  - Consumer-attachment `:rf.cofx/requires` (EP-0017 — the
+    replay-critical host facts a named guard / action consumes;
+    rf2-skhlw2.1): INTENTIONALLY OMITTED. Mermaid state-diagram syntax
+    has no slot for per-callback coeffect metadata, and an edge label
+    carries only `event [guard] / action` (names, never the named-entry
+    registry the requirements live on). The interactive MachineChart is
+    the EP-0017 'which transitions consume which facts' surface (it paints
+    a `needs <id>` chip per guard / action / entry / exit consumer); the
+    Markdown-paste lane stays a topology sketch. The omission is locked by
+    `mermaid-cljs-test`'s no-cofx-vocabulary regression.
   - Parallel-region broadcast macrosteps — regions render, but Mermaid
     does not model the shared one-event/many-regions transition
     semantics.

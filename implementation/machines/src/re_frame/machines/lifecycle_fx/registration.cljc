@@ -1,8 +1,10 @@
 (ns re-frame.machines.lifecycle-fx.registration
   "Registration boundary: handler factory + `reg-machine*`.
 
-  `make-machine-handler` is the event-fx handler factory beneath the
-  `reg-machine` macro; `reg-machine*` is the plain-fn surface used by
+  `make-machine-handler` is the `reg-event` handler factory beneath the
+  `reg-machine` macro (EP-0018 one-event surface — a single
+  `(cofx, event) -> effects-map-or-nil` handler, no `reg-event-fx` /
+  `reg-event-db` split); `reg-machine*` is the plain-fn surface used by
   the late-bind table and by REPL workflows. The factory decomposes
   into:
 
