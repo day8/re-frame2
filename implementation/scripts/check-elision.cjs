@@ -36,6 +36,7 @@ const fs   = require('fs');
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
 const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
+const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -603,21 +604,19 @@ function checkBundle(label, bundlePath, mustContain) {
 // true ⇒ every sentinel must be PRESENT; false ⇒ every sentinel must be
 // ABSENT. Returns { ok, passed, checked }. Shared by the dev-only ABSENT
 // check and the EP-0023 PROD-SURVIVING (present) / PROD-ABSENT-WHEN-UNUSED
-// (absent) checks (rf2-32siq3.40).
+// (absent) checks (rf2-32siq3.40). The loop + tally are the shared
+// `assertSentinelSet` (lib/sentinel-scan.cjs, rf2-j552l2); this wrapper
+// supplies the elision gate's exact diagnostic line format.
 function assertSentinels(blob, sentinels, mustContain) {
-  let ok = true;
-  let passed = 0;
-  for (const { source, sentinel } of sentinels) {
-    const present  = blob.includes(sentinel);
-    const expected = mustContain ? 'PRESENT' : 'ABSENT';
-    const actual   = present     ? 'PRESENT' : 'ABSENT';
-    const ok1      = present === mustContain;
-    const tag      = ok1 ? 'OK' : 'FAIL';
-    report.detail(`          [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
-    if (ok1) passed += 1;
-    else ok = false;
-  }
-  return { ok, passed, checked: sentinels.length };
+  return assertSentinelSet(blob, sentinels, {
+    mustContain,
+    emit: (line) => report.detail(line),
+    formatLine: ({ source, sentinel, present, tag }) => {
+      const expected = mustContain ? 'PRESENT' : 'ABSENT';
+      const actual   = present     ? 'PRESENT' : 'ABSENT';
+      return `          [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`;
+    },
+  });
 }
 
 // ----- main ------------------------------------------------------------------

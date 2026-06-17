@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 /*
- * Per-feature artefact bundle-isolation verifier (bead rf2-51x5,
- * discovered-from rf2-o423 test-coverage audit).
+ * Bundle-isolation verifier (bead rf2-51x5, discovered-from rf2-o423
+ * test-coverage audit; scope since broadened to tools/ + dev-only deps).
  *
  * The counter example is the canonical no-feature app: it imports zero
- * per-feature artefacts. Every per-feature split (schemas / machines /
- * routing / flows / http / ssr) was verified at PR-time with a one-shot
- * grep against this same bundle; this script makes the same assertion
- * permanent so a future change that accidentally re-imports a split-out
- * namespace into core (e.g. `(:require [re-frame.flows])` slipping into
- * `re-frame.core`) is caught by CI rather than by a downstream consumer
- * paying for the regression.
+ * per-feature artefacts AND nothing under tools/. Three families of
+ * leak are pinned absent from its production bundle:
+ *   - per-feature splits (schemas / machines / routing / flows / http /
+ *     ssr / epoch) — each ships as its own Maven jar; core MUST NOT
+ *     `:require` any of them (the re-export wrappers late-bind at call
+ *     time);
+ *   - the tooling siblings + dev-only composers (trace.tooling,
+ *     subs.tooling, the EP-0014 algebra-view siblings, derivation.graph,
+ *     trace.cascade, Story) — dev/inspection surfaces gated behind the
+ *     Xray preload;
+ *   - dev-only npm/Maven dependencies machines-viz + the Xray EDN widget
+ *     pull in (xyflow / elkjs / cljs-devtools / zprint / editscript).
+ * Every one of these was verified at PR-time with a one-shot grep against
+ * this same bundle; this script makes the assertion permanent so a future
+ * change that accidentally re-imports a split-out namespace into core
+ * (e.g. `(:require [re-frame.flows])` slipping into `re-frame.core`) — or
+ * drags a tools/ ns / dev dep into a production-reachable path — is caught
+ * by CI rather than by a downstream consumer paying for the regression.
  *
  * Strategy: grep, not parse — the same shape as scripts/check-elision.cjs
  * and scripts/check-perf-bundle.cjs. The closure compiler may rename
@@ -173,69 +184,35 @@ const ARTEFACTS = [
     expectedAllowListHits: 2,
   },
 
-  // Epoch artefact (rf2-69ad2 split — re-frame.epoch lives at
-  // implementation/epoch/). Xray's preload.cljs `:requires`
-  // re-frame.epoch to anchor it onto the dev classpath so every
-  // Xray-enabled build has working time-travel; the preload is
-  // dev-only (gated by shadow-cljs `:devtools/preloads`) so the
-  // anchor must NOT pull epoch into a production bundle. This entry
-  // pins that contract — if a host or a refactor accidentally
-  // `:requires` re-frame.epoch from production-classpath code, the
-  // sentinel below will appear in the counter bundle and this check
-  // fails (per audit rf2-i0veg §5c).
+  // Epoch artefact (rf2-69ad2 / rf2-lt4e split — re-frame.epoch lives
+  // at implementation/epoch/; Tool-Pair §Time-travel surface, the
+  // seventh per-feature split per rf2-5vjj Strategy B). Counter imports
+  // zero epoch symbols — the `day8/re-frame2-epoch` artefact must DCE
+  // entirely when the consuming app doesn't `:require` re-frame.epoch.
+  // Xray's preload.cljs `:requires` re-frame.epoch to anchor it onto the
+  // dev classpath so every Xray-enabled build has working time-travel;
+  // the preload is dev-only (gated by shadow-cljs `:devtools/preloads`)
+  // so the anchor must NOT pull epoch into a production bundle. Core's
+  // public re-exports (`rf/epoch-history`, `rf/restore-epoch!`, …) look
+  // the producing fns up through the late-bind hook table at call time;
+  // a non-zero internal-sentinel hit means the epoch namespace got
+  // dragged in (most likely a stray `:require` in a core/* ns — per
+  // audit rf2-i0veg §5c). The trace-op keywords below are emitted from
+  // epoch.cljc's function bodies as keyword data and survive `:advanced`
+  // (string literals are not renamed) regardless of whether
+  // `interop/debug-enabled?` gates the emission callsite.
   {
     name: 'epoch',
     internalSentinels: [
       // epoch.cljc — restore-schema-mismatch trace op-name (a string
       // literal inside `enabled-ops` and emitted from the restore
-      // path). Unique to epoch.cljc; survives :advanced (string
-      // literals are not renamed).
+      // path). Unique to epoch.cljc.
       { source: 're-frame.epoch (rf.epoch/restore-schema-mismatch)',
         sentinel: 'rf.epoch/restore-schema-mismatch' },
-      // epoch.cljc — restore-during-drain trace op-name. Same
-      // contract; second sentinel guards against a future rename
-      // of one but not the other.
+      // epoch.cljc — restore-during-drain trace op-name. Second
+      // sentinel guards against a future rename of one but not the other.
       { source: 're-frame.epoch (rf.epoch/restore-during-drain)',
         sentinel: 'rf.epoch/restore-during-drain' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
-  },
-
-  {
-    name: 'ssr',
-    internalSentinels: [
-      // ssr.cljc — namespace-prefix on every server-only fx and trace
-      // op (`:rf.server/respond`, `:rf.server/redirect`, ...). The
-      // prefix appears in the bundle only when ssr.cljc's body is
-      // compiled in.
-      { source: 're-frame.ssr server-only fx prefix (rf.server/)',
-        sentinel: 'rf.server/' },
-      // ssr.cljc — :rf/hydrate event-id (the CLJS hydration entry
-      // point registered by ssr.cljc).
-      { source: 're-frame.ssr hydrate event (rf/hydrate)',
-        sentinel: 'rf/hydrate' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
-  },
-
-  // Epoch (rf2-lt4e — Tool-Pair §Time-travel surface, the seventh
-  // per-feature split per rf2-5vjj Strategy B). Counter imports
-  // zero epoch symbols — the `day8/re-frame2-epoch` artefact must
-  // DCE entirely when the consuming app doesn't `:require`
-  // `re-frame.epoch`. Core's public re-exports (`rf/epoch-history`,
-  // `rf/restore-epoch!`, …) look the producing fns up through the
-  // late-bind hook table at call time; a non-zero internal-sentinel
-  // hit here means the epoch namespace got dragged in (most likely
-  // a stray `:require` in a core/* ns). The trace-op keywords below
-  // are emitted from epoch.cljc's function bodies as keyword data
-  // and survive `:advanced` regardless of whether `interop/debug-
-  // enabled?` gates the emission callsite (the keyword name is
-  // referenced at the gate test, not only inside the gated body).
-  {
-    name: 'epoch',
-    internalSentinels: [
       // epoch.cljc — on-frame-destroyed! emits this per silenced cb.
       { source: 're-frame.epoch on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
         sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
@@ -259,6 +236,24 @@ const ARTEFACTS = [
     // the example's entry points.
     consumerAllowList: /epoch\/settle!/g,
     expectedAllowListHits: 1,
+  },
+
+  {
+    name: 'ssr',
+    internalSentinels: [
+      // ssr.cljc — namespace-prefix on every server-only fx and trace
+      // op (`:rf.server/respond`, `:rf.server/redirect`, ...). The
+      // prefix appears in the bundle only when ssr.cljc's body is
+      // compiled in.
+      { source: 're-frame.ssr server-only fx prefix (rf.server/)',
+        sentinel: 'rf.server/' },
+      // ssr.cljc — :rf/hydrate event-id (the CLJS hydration entry
+      // point registered by ssr.cljc).
+      { source: 're-frame.ssr hydrate event (rf/hydrate)',
+        sentinel: 'rf/hydrate' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
   },
 
   // re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener

@@ -51,7 +51,7 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { classifyReleaseBundle, countSubstring } = require('./lib/read-release-bundle.cjs');
+const { assertSentinelSet, classifyOrFail } = require('./lib/sentinel-scan.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -174,32 +174,31 @@ const SLIM_SSR_PRESENCE_SENTINELS = [
 
 // ----- helpers ---------------------------------------------------------------
 //
-// Bundle reading + the countSubstring grep primitive are shared with the
-// sibling check-* scripts via scripts/lib/read-release-bundle.cjs
-// (rf2-jkake.15). `readReleaseBlob` reads only top-level *.js — the
-// release artefact — so a stale dev-build `cljs-runtime/` subdir from a
-// prior `shadow-cljs compile` doesn't get grep-ed alongside (rf2-z9a06):
-// that trap, first documented inline here, was the reason the reader was
-// factored out (rf2-qlk4w) and is now the shared default for the whole
-// check-*-bundle family.
+// Bundle reading is shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-jkake.15): `readReleaseBlob`
+// reads only top-level *.js — the release artefact — so a stale dev-build
+// `cljs-runtime/` subdir from a prior `shadow-cljs compile` doesn't get
+// grep-ed alongside (rf2-z9a06); that trap, first documented inline here,
+// was the reason the reader was factored out (rf2-qlk4w) and is now the
+// shared default for the whole check-*-bundle family. The per-sentinel
+// scan loop + tally is the shared assertSentinelSet (scripts/lib/
+// sentinel-scan.cjs, rf2-j552l2); checkAbsent / checkPresent below supply
+// this gate's exact diagnostic line format.
 
 // ----- the four contract checks ---------------------------------------------
 
 function checkAbsent(blob, sentinels, blobLabel) {
   // Assert each sentinel's hit-count is 0. Used for the slim build's
   // "no stock-Reagent / no react-dom/server" assertion.
-  let ok = true;
-  let passedCount = 0;
-  for (const { source, sentinel } of sentinels) {
-    const hits = countSubstring(blob, sentinel);
-    const passed = hits === 0;
-    const tag = passed ? 'OK' : 'FAIL';
-    report.detail(`    [${tag}] ${source}: ` +
-                  `${JSON.stringify(sentinel)} expected 0 in ${blobLabel}, was ${hits}`);
-    if (passed) passedCount += 1;
-    if (!passed) ok = false;
-  }
-  return { ok, checked: sentinels.length, passed: passedCount };
+  const { ok, passed } = assertSentinelSet(blob, sentinels, {
+    mustContain: false,
+    count: true,
+    emit: (line) => report.detail(line),
+    formatLine: ({ source, sentinel, hits, tag }) =>
+      `    [${tag}] ${source}: ` +
+      `${JSON.stringify(sentinel)} expected 0 in ${blobLabel}, was ${hits}`,
+  });
+  return { ok, checked: sentinels.length, passed };
 }
 
 function checkPresent(blob, sentinels, blobLabel) {
@@ -208,18 +207,15 @@ function checkPresent(blob, sentinels, blobLabel) {
   // bundle, proving the grep has signal. If a sentinel goes to 0 in the
   // stock build too (e.g. a future Reagent rev DCEs it), we re-derive
   // the sentinel set; this script then prevents silent vacuous passes.
-  let ok = true;
-  let passedCount = 0;
-  for (const { source, sentinel } of sentinels) {
-    const hits = countSubstring(blob, sentinel);
-    const passed = hits >= 1;
-    const tag = passed ? 'OK' : 'FAIL';
-    report.detail(`    [${tag}] ${source}: ` +
-                  `${JSON.stringify(sentinel)} expected >=1 in ${blobLabel}, was ${hits}`);
-    if (passed) passedCount += 1;
-    if (!passed) ok = false;
-  }
-  return { ok, checked: sentinels.length, passed: passedCount };
+  const { ok, passed } = assertSentinelSet(blob, sentinels, {
+    mustContain: true,
+    count: true,
+    emit: (line) => report.detail(line),
+    formatLine: ({ source, sentinel, hits, tag }) =>
+      `    [${tag}] ${source}: ` +
+      `${JSON.stringify(sentinel)} expected >=1 in ${blobLabel}, was ${hits}`,
+  });
+  return { ok, checked: sentinels.length, passed };
 }
 
 // ----- main ------------------------------------------------------------------
@@ -230,43 +226,49 @@ function main() {
 
   const slimDir  = path.join(ROOT, 'out', 'examples', 'counter-slim-and-fast');
   const stockDir = path.join(ROOT, 'out', 'examples', 'counter');
-  const slimCls  = classifyReleaseBundle(slimDir);
-  const stockCls = classifyReleaseBundle(stockDir);
-  const slim  = slimCls.blob;
-  const stock = stockCls.blob;
-
-  if (slimCls.status !== 'ok') {
-    report.flushDetails();
-    if (slimCls.status === 'empty') {
+  // classifyOrFail (scripts/lib/sentinel-scan.cjs, rf2-j552l2) shares the
+  // missing/empty two-arm guard (rf2-utvst non-vacuous floor); each reject
+  // callback owns this gate's actionable stderr + the exit.
+  const slimCls = classifyOrFail(slimDir, {
+    onMissing: (dir) => {
+      report.flushDetails();
+      console.error(`[reagent-slim-bundle-isolation] slim bundle missing — ${dir}`);
+      console.error('                    Did you run "shadow-cljs release examples/counter-slim-and-fast"?');
+      process.exit(1);
+    },
+    onEmpty: (dir) => {
+      report.flushDetails();
       // Non-vacuous floor (rf2-utvst): the slim bundle is checked
       // negative-only (Contracts 2+3); a present-but-empty slim dir
       // satisfies both absence checks and would false-GREEN.
-      console.error(`[reagent-slim-bundle-isolation] slim bundle present but empty (zero top-level JS) — ${slimDir}`);
+      console.error(`[reagent-slim-bundle-isolation] slim bundle present but empty (zero top-level JS) — ${dir}`);
       console.error('                    The release emitted no bundle; the stock-Reagent and');
       console.error('                    react-dom/server absence checks would pass vacuously.');
       console.error('                    Rebuild "shadow-cljs release examples/counter-slim-and-fast".');
-    } else {
-      console.error(`[reagent-slim-bundle-isolation] slim bundle missing — ${slimDir}`);
-      console.error('                    Did you run "shadow-cljs release examples/counter-slim-and-fast"?');
-    }
-    process.exit(1);
-  }
-  if (stockCls.status !== 'ok') {
-    report.flushDetails();
-    if (stockCls.status === 'empty') {
-      console.error(`[reagent-slim-bundle-isolation] stock bundle present but empty (zero top-level JS) — ${stockDir}`);
-      console.error('                    The methodology control emitted no bundle; the stock-');
-      console.error('                    Reagent present-check would have no signal.');
-      console.error('                    Rebuild "shadow-cljs release examples/counter".');
-    } else {
-      console.error(`[reagent-slim-bundle-isolation] stock bundle missing — ${stockDir}`);
+      process.exit(1);
+    },
+  });
+  const stockCls = classifyOrFail(stockDir, {
+    onMissing: (dir) => {
+      report.flushDetails();
+      console.error(`[reagent-slim-bundle-isolation] stock bundle missing — ${dir}`);
       console.error('                    Did you run "shadow-cljs release examples/counter"?');
       console.error('                    The stock bundle is required as the methodology control:');
       console.error('                    its presence of the stock-Reagent sentinels proves the');
       console.error('                    grep has signal.');
-    }
-    process.exit(1);
-  }
+      process.exit(1);
+    },
+    onEmpty: (dir) => {
+      report.flushDetails();
+      console.error(`[reagent-slim-bundle-isolation] stock bundle present but empty (zero top-level JS) — ${dir}`);
+      console.error('                    The methodology control emitted no bundle; the stock-');
+      console.error('                    Reagent present-check would have no signal.');
+      console.error('                    Rebuild "shadow-cljs release examples/counter".');
+      process.exit(1);
+    },
+  });
+  const slim  = slimCls.blob;
+  const stock = stockCls.blob;
 
   report.detail(`slim  bundle: ${slimDir}  (${slim.length} chars)`);
   report.detail(`stock bundle: ${stockDir} (${stock.length} chars)`);

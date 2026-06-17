@@ -38,6 +38,8 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
+// Shared loopbackBindRe factory + framework-free test harness (rf2-j552l2).
+const { loopbackBindRe, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = path.resolve(__dirname, '..', '..', 'examples', 'scripts');
 const PLAY_SCRIPTS_RUNNER = path.join(
@@ -58,10 +60,7 @@ const {
   MIN_PLAY_ROWS,
 } = require(PLAY_SCRIPTS_RUNNER);
 
-const tests = [];
-function test(name, fn) {
-  tests.push({ name, fn });
-}
+const { test, run } = createPolicyTestSuite('story-script-runners-policy');
 
 // ---- Finding 1: pageerror is fatal, even with all play rows matched ----
 
@@ -127,8 +126,7 @@ test('play-scripts runner verdict is computed from BOTH failures and pageErrors 
 // feature-load runner uses the HTTP_SERVER_BIN constant — accept both).
 // NB `[\s\S]{0,80}?` (not `[^]]`): the latter is the JS-regex gotcha
 // `[^]` (any char) followed by a literal `]`, which would NOT match here.
-const LOOPBACK_BIND_RE =
-  /(?:httpServerBin\(\)|HTTP_SERVER_BIN),[\s\S]{0,80}?['"]-a['"]\s*,\s*['"]127\.0\.0\.1['"]/;
+const LOOPBACK_BIND_RE = loopbackBindRe('(?:httpServerBin\\(\\)|HTTP_SERVER_BIN)');
 
 for (const runner of [PLAY_SCRIPTS_RUNNER, FEATURE_LOAD_RUNNER]) {
   const base = path.basename(runner);
@@ -274,20 +272,4 @@ test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf
   );
 });
 
-let failed = 0;
-for (const { name, fn } of tests) {
-  try {
-    fn();
-  } catch (err) {
-    failed += 1;
-    console.error(`FAIL ${name}`);
-    console.error(err && err.stack ? err.stack : err);
-  }
-}
-
-if (failed > 0) {
-  console.error(`story-script-runners-policy tests: ${failed} failed.`);
-  process.exit(1);
-}
-
-console.log(`story-script-runners-policy tests: ${tests.length} passed.`);
+run();

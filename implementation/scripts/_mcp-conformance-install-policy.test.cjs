@@ -37,61 +37,19 @@ const assert = require('assert/strict');
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
+// Shared stripComments (EXECUTABLE-source-only matching) + framework-free
+// test harness (rf2-j552l2). perTestPass:true preserves this suite's
+// per-test `PASS  <name>` line.
+const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = __dirname;
 const RUNNER_PATH = path.join(SCRIPTS_DIR, 'test-mcp-conformance.cjs');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..', '..');
 const TOOLS = path.join(REPO_ROOT, 'tools');
 
-const tests = [];
-function test(name, fn) {
-  tests.push({ name, fn });
-}
+const { test, run } = createPolicyTestSuite('mcp-conformance-install-policy', { perTestPass: true });
 
 const RUNNER_SRC = fs.readFileSync(RUNNER_PATH, 'utf8');
-
-// Strip line- and block-comments so policy assertions match EXECUTABLE
-// source only — the doc-comment necessarily quotes `npm install`. Reuse
-// the same simple stripper shape as _script-spawn-policy.test.cjs.
-function stripComments(src) {
-  let out = '';
-  let i = 0;
-  const n = src.length;
-  let inLine = false;
-  let inBlock = false;
-  let inStr = false;
-  let strQuote = '';
-  while (i < n) {
-    const c = src[i];
-    const c2 = src[i + 1];
-    if (inLine) {
-      if (c === '\n') { inLine = false; out += c; }
-      i += 1;
-      continue;
-    }
-    if (inBlock) {
-      if (c === '*' && c2 === '/') { inBlock = false; i += 2; continue; }
-      i += 1;
-      continue;
-    }
-    if (inStr) {
-      out += c;
-      if (c === '\\') { out += c2 == null ? '' : c2; i += 2; continue; }
-      if (c === strQuote) { inStr = false; strQuote = ''; }
-      i += 1;
-      continue;
-    }
-    if (c === '/' && c2 === '/') { inLine = true; i += 2; continue; }
-    if (c === '/' && c2 === '*') { inBlock = true; i += 2; continue; }
-    if (c === '"' || c === "'" || c === '`') {
-      inStr = true; strQuote = c; out += c; i += 1; continue;
-    }
-    out += c;
-    i += 1;
-  }
-  return out;
-}
-
 const RUNNER_CODE = stripComments(RUNNER_SRC);
 
 // 1. Install steps are declared via `install: true` + resolved through
@@ -279,21 +237,4 @@ test('LIVE: lockfile-backed tool packages the runner installs have a present, dr
   );
 });
 
-let failed = 0;
-for (const { name, fn } of tests) {
-  try {
-    fn();
-    console.log(`PASS  ${name}`);
-  } catch (err) {
-    failed += 1;
-    console.error(`FAIL  ${name}`);
-    console.error(err && err.stack ? err.stack : err);
-  }
-}
-
-if (failed > 0) {
-  console.error(`mcp-conformance-install-policy tests: ${failed} failed.`);
-  process.exit(1);
-}
-
-console.log(`mcp-conformance-install-policy tests: ${tests.length} passed.`);
+run();
