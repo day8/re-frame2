@@ -80,10 +80,11 @@
 ;;
 ;; The CAUSAL BOUNDARY: `build-envelope` ensures every dispatch carries an
 ;; `:rf.cofx` map bearing `:rf/time-ms` — the one host-clock read whose value
-;; durable writes may fold (Spec 002 §The World-Input Rule, EP-0010). EP-0017
-;; (slice-A.2) renames the envelope field from `:rf.world/inputs` to the flat
-;; `:rf.cofx` map (one fact per owner-qualified key, no grouping sub-maps) and
-;; the framework time fact from the nested `:time-ms` to the flat `:rf/time-ms`.
+;; durable writes may fold (Spec 002 §Recordable coeffects, EP-0010). EP-0017
+;; (slice-A.2) RETIRED the EP-0010 envelope field `:rf.world/inputs`, renaming
+;; it to the flat `:rf.cofx` map (one fact per owner-qualified key, no grouping
+;; sub-maps) and the framework time fact from the nested `:time-ms` to the flat
+;; `:rf/time-ms`.
 ;; This is the ONLY place the clock is read for the causal token; it is NOT
 ;; re-read inside the handler, flow transform, resource reducer, work-ledger
 ;; writer, or commit.
@@ -183,7 +184,7 @@
                         the closed-enum trigger-kind / functional-origin
                         axis.
     :rf.cofx            EP-0017 recordable-coeffect map (flat, one fact per
-                        owner-qualified key; Spec 002 §The World-Input Rule).
+                        owner-qualified key; Spec 002 §Recordable coeffects).
                         The router ensures it exists and carries `:rf/time-ms`
                         (epoch-ms wall clock) stamped from
                         `interop/epoch-now-ms` HERE — the causal boundary —
@@ -232,7 +233,7 @@
         ;; EP-0010 (rf2-47lgee / rf2-nftz2s): VALIDATE a caller-supplied
         ;; `:rf.cofx` at the PUBLIC dispatch boundary BEFORE the clock
         ;; stamp below — a supplied value must be nil-or-map and a supplied
-        ;; `:rf/time-ms` must be an integer (Spec 002 §The World-Input Rule +
+        ;; `:rf/time-ms` must be an integer (Spec 002 §Recordable coeffects +
         ;; Spec-Schemas.md §:rf.cofx). A malformed causal token is not
         ;; a harmless typo: it folds straight into durable writes (the epoch
         ;; record's `:committed-at`, resource `:settled-at`) and breaks the
@@ -2330,11 +2331,13 @@
       registrar for the WHOLE cascade WHEN the frame belongs to a
       non-default realm (EP-0013 staging step 4, rf2-a15n62). This is
       the realm-routed resolution seam: the event-handler lookup
-      (`resolve-handler`), every cofx injection (`inject-cofx` runs as
-      an interceptor `:before` inside `run-handler-cascade!`), and the
-      whole fx walk (`do-fx` runs post-commit inside this same call) all
-      resolve through `registrar/active-registrar`, so binding once here
-      routes event + cofx + fx coherently to the realm that OWNS the
+      (`resolve-handler`), every declared coeffect's supplier /
+      generator lookup (`:rf.cofx/requires` delivery runs at context
+      assembly via `re-frame.cofx/deliver-declared-cofx`, BEFORE the
+      interceptor chain — EP-0017 retired the `inject-cofx` interceptor),
+      and the whole fx walk (`do-fx` runs post-commit inside this same
+      call) all resolve through `registrar/active-registrar`, so binding
+      once here routes event + cofx + fx coherently to the realm that OWNS the
       frame (ALL-OR-NOTHING — routing only some would be an incoherent
       half-dispatch where a realm-local handler's effects resolve in the
       default registrar). The realm is DERIVED from the carried frame
@@ -2436,7 +2439,7 @@
         ;; envelope at the causal boundary). Threaded into the synthesised
         ;; `:halted-depth` record's `:committed-at` so even this never-ran
         ;; marker carries a replayable causal time per EP-0010 §Time / Spec
-        ;; 002 §The World-Input Rule, not an ambient assembly-time read. nil
+        ;; 002 §Recordable coeffects, not an ambient assembly-time read. nil
         ;; only on the defensive empty-queue fallback (no envelope to read);
         ;; the epoch surface tolerates a nil `:committed-at` there.
         halting-time-ms (-> halting-envelope :rf.cofx :rf/time-ms)
@@ -2495,8 +2498,8 @@
   rf2-bh56rc: `committed-at` is the settling event's causal `:rf/time-ms` (its
   envelope's `:rf.cofx` `:rf/time-ms`, stamped at the causal boundary).
   Threaded into the epoch record's `:committed-at` so the durable
-  causal-time fact is replayable per EP-0010 §Time / Spec 002 §The
-  World-Input Rule, not an ambient assembly-time host-clock read."
+  causal-time fact is replayable per EP-0010 §Time / Spec 002 §Recordable
+  coeffects, not an ambient assembly-time host-clock read."
   [frame-id frame-state-before frame-state-after committed-at]
   (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
     (settle! frame-id frame-state-before frame-state-after committed-at)))
@@ -2658,8 +2661,8 @@
               ;; rf2-bh56rc: this event's causal `:rf/time-ms` — the
               ;; `:rf.cofx` `:rf/time-ms` stamped on the envelope at the
               ;; causal boundary (`build-envelope`). Threaded into the epoch
-              ;; record's `:committed-at` (per EP-0010 §Time / Spec 002 §The
-              ;; World-Input Rule) so the durable causal-time fact is
+              ;; record's `:committed-at` (per EP-0010 §Time / Spec 002
+              ;; §Recordable coeffects) so the durable causal-time fact is
               ;; replayable rather than an ambient assembly-time clock read.
               time-ms   (-> envelope :rf.cofx :rf/time-ms)]
           ;; Per rf2-9neiq: expose this event's pre-cascade frame-state to a

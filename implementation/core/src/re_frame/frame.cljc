@@ -1545,8 +1545,8 @@
 ;; on its own frame mid-drain runs INSIDE this binding, so the
 ;; `:halted-destroy` epoch record's `:committed-at` is the DESTROYING
 ;; event's causal time — replayable — rather than an ambient host-clock
-;; read at assembly time (per EP-0010 §Time / Spec 002 §The World-Input
-;; Rule). nil outside a drain — the moot out-of-cascade destroy commits no
+;; read at assembly time (per EP-0010 §Time / Spec 002 §Recordable
+;; coeffects). nil outside a drain — the moot out-of-cascade destroy commits no
 ;; record, so the epoch surface's nil-tolerant fallback applies.
 (def ^:dynamic *cascade-time-ms* nil)
 

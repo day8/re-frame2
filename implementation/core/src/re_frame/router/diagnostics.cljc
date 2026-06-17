@@ -305,7 +305,7 @@
 
   EP-0017 makes `:rf.cofx` the durable causal token (the flat
   recordable-coeffect map): its `:rf/time-ms` is the one host-clock fact
-  durable writes fold (Spec 002 §The World-Input Rule), and replay / restore
+  durable writes fold (Spec 002 §Recordable coeffects), and replay / restore
   / SSR-hydration feed it verbatim. So a malformed token is not a harmless
   typo — a non-map supplied value, or a non-integer `:rf/time-ms`, propagates
   straight into durable-write code (the epoch record's `:committed-at`,
@@ -345,8 +345,8 @@
   Checked at the causal boundary in `re-frame.router/build-envelope` BEFORE
   `ensure-cofx` stamps `:rf/time-ms`, so an invalid token fails fast WITHOUT
   first reading the clock for a dispatch that cannot proceed (the same
-  fail-before-clock-read ordering as the retirement check). Per Spec 002 §The
-  World-Input Rule + EP-0010 §Time + EP-0017 §The envelope field."
+  fail-before-clock-read ordering as the retirement check). Per Spec 002
+  §Recordable coeffects + EP-0010 §Time + EP-0017 §The envelope field."
   [opts event]
   (when (contains? opts :rf.cofx)
     (let [supplied (:rf.cofx opts)]
@@ -354,8 +354,8 @@
         (error/throw-error!
           :rf.error/invalid-cofx 're-frame.router/build-envelope
           (str ":rf.cofx must be nil or a MAP "
-               "of recordable coeffect facts (Spec 002 §The "
-               "World-Input Rule), got "
+               "of recordable coeffect facts (Spec 002 "
+               "§Recordable coeffects), got "
                (pr-str supplied)
                ". The map's `:rf/time-ms` (wall-clock "
                "epoch ms) is the durable causal token "

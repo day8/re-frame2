@@ -22,8 +22,8 @@
 
 (def ^:private build-envelope
   "Pull the private envelope builder — the dispatch envelope is not
-  exposed to user handlers, so the EP-0010 world-input stamping
-  (rf2-s9ss0t) is asserted directly against `build-envelope`'s output."
+  exposed to user handlers, so the EP-0017 `:rf.cofx` recordable-coeffect
+  stamping (rf2-s9ss0t) is asserted directly against `build-envelope`'s output."
   #'router/build-envelope)
 
 (use-fixtures :each
@@ -79,7 +79,7 @@
             "event-emit substrate fired under disabled debug gate
              — always-on means always-on")))))
 
-(deftest dispatched-at-retired-world-inputs-stamped-regardless-of-gate
+(deftest dispatched-at-retired-cofx-stamped-regardless-of-gate
   (testing "Per EP-0010 rider b (rf2-s9ss0t): `:dispatched-at` is RETIRED
             in the same change that lands the envelope stamp — no
             coexistence window. Its diagnostic dispatch-time need is the
