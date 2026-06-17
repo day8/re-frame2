@@ -932,8 +932,9 @@ retained as the implementation record.
   removal of public `rf/path`, `unwrap-interceptor`, and `->interceptor`
   authoring.
 
-Guide impact: update the event-registration and migration guide chapters. The
-new teachable payoff is "full-context work is named and inspectable."
+Guide impact: update the interceptor and migration guide material
+(`concepts/interceptors.md` and the v1 migration guide). The new teachable
+payoff is "full-context work is named and inspectable."
 
 ### B2. Registrar and router implementation
 
@@ -969,8 +970,8 @@ Guide impact: focused handler examples use `[:rf.interceptor/path path]`.
 - Update skills to teach `reg-interceptor` and path refs.
 - Make the migration skill look up v1 helper implementations where needed.
 
-Guide impact: the quickstart and event-handler chapters should show direct
-destructuring instead of `unwrap`.
+Guide impact: the `quickstart.md` and event-handler guide material should show
+direct destructuring instead of `unwrap`.
 
 ### B5. Tooling and conformance
 
