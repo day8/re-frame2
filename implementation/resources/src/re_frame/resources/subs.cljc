@@ -269,14 +269,15 @@
     e))
 
 ;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
-
-(defn- now-ms
-  "Current epoch-ms — the live clock the `:stale?` derivation compares
-  `:stale-at` against. Freshness is computed from durable timestamps, not
-  from trusting a timer fired on time (Spec 016 §Stale and GC scheduling)."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.now js/Date)))
+;;
+;; The live clock the `:stale?` derivation compares `:stale-at` against is the
+;; core WALL-clock `re-frame.interop/epoch-now-ms` (rf2-366u0g) — byte-identical
+;; to the private `now-ms` this ns used to define (`System/currentTimeMillis`
+;; on the JVM, `js/Date.now` on CLJS), and the canonical EP-0010 §Time
+;; wall-clock surface. NOT the perf clock `interop/now-ms` (`performance.now()`
+;; on CLJS, origin-relative), which is incomparable with the `js/Date`-based
+;; `:stale-at` timestamps. Freshness is computed from durable timestamps, not
+;; from trusting a timer fired on time (Spec 016 §Stale and GC scheduling).
 
 (defn- stale?
   "Derived: an entry is stale iff it has been explicitly invalidated
@@ -286,9 +287,10 @@
   refreshing stale data. Per Spec 016 §Status semantics. A computed value,
   never a stored fact. Delegates to the single shared `state/entry-stale?`
   derivation (the same one the SSR projection + the stale-timer re-check
-  use) so freshness never drifts between readers."
+  use) so freshness never drifts between readers; the live clock is the
+  canonical wall-clock `interop/epoch-now-ms`."
   [entry]
-  (state/entry-stale? entry (now-ms)))
+  (state/entry-stale? entry (interop/epoch-now-ms)))
 
 ;; ---- the projections (public derived sub values) -------------------------
 

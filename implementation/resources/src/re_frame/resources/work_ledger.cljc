@@ -82,8 +82,7 @@
   trace). The two continuations are kept distinct: the ledger owns the
   framework-internal reified continuation; the call-site target is the app's
   transport-payload continuation."
-  (:require [re-frame.identity :as identity]
-            [re-frame.late-bind :as late-bind]
+  (:require [re-frame.late-bind :as late-bind]
             [re-frame.reply :as reply]
             [re-frame.resources.state :as state]))
 
@@ -125,7 +124,7 @@
   [scoped-key generation]
   [:rf.work/resource scoped-key generation])
 
-(defn work-id-id
+(def work-id-id
   "The CEDN-1 BYTE-IDENTITY map-key for a `work-id`
   (`[:rf.work/resource <scoped-key> <generation>]`) — its `canonical-bytes`
   string (rf2-9e0tyq). The work-ledger runtime-db map is keyed on THIS string,
@@ -137,9 +136,14 @@
   map-key comparison exactly the CEDN-1 identity. The work-id VECTOR remains
   the kind-preserving `:work/id` carried in the record, the entry's
   `:current-work`, and on the wire. Total on a work-id over a canonical
-  scoped-key. Per Spec 016 §Frame work ledger."
-  [work-id]
-  (identity/canonical-bytes work-id))
+  scoped-key. Per Spec 016 §Frame work ledger.
+
+  This IS `state/key-id` (both are `canonical-bytes` of an
+  already-canonical EDN identity — rf2-366u0g): the work-id-as-map-key
+  byte-identity rule is the SAME rule the scoped-key-as-map-key follows, so
+  the ledger surface re-binds the one canonical wrapper under its own name
+  rather than re-typing the `canonical-bytes` call."
+  state/key-id)
 
 (defn managed-request-id
   "Build the frame-QUALIFIED managed-HTTP transport correlation token
@@ -177,10 +181,11 @@
   "The terminal work statuses an attempt may reach with an outcome
   summary. Terminal rows are pruned on the linked entry's next successful
   transition; a bounded per-resource-key tail is retained for Xray. Per
-  Spec 016 §Ledger row retention and identity. (Mirrors
-  `re-frame.resources.state/terminal-work-statuses`; re-exported here as
-  the ledger surface's own name so a ledger consumer reads one home.)"
-  #{:completed :failed :timed-out :suppressed :cancelled})
+  Spec 016 §Ledger row retention and identity. The canonical set lives in
+  `re-frame.resources.state/terminal-work-statuses` (rf2-366u0g — no longer
+  re-typed here); re-bound under the ledger surface's own name so a ledger
+  consumer reads one home."
+  state/terminal-work-statuses)
 
 (defn terminal?
   "True iff `status` is a terminal work-ledger status (the attempt has

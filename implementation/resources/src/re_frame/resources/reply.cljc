@@ -137,6 +137,46 @@
   (= http-aborted-kind (:kind error)))
 
 ;; ---------------------------------------------------------------------------
+;; Transport-payload extractors (Spec 014 §Reply addressing). The managed-HTTP
+;; transport APPENDS its PUBLIC reply payload as the LAST arg of the
+;; framework-internal reply event:
+;;   [:rf.*.internal/succeeded <verification-payload> {:kind :success :value <data>}]
+;;   [:rf.*.internal/failed    <verification-payload> {:kind :failure :failure <envelope>}]
+;; Both the resource read path (`events.cljc`) and the mutation write path
+;; (`mutation_events.cljc`) lift arg 3 identically — they differ ONLY by the
+;; inline DURABLE-LAYER spelling the direct-dispatch test shape falls back to
+;; (`:data` for a resource entry, `:result` for a mutation instance). One
+;; shared failure extractor + one fallback-key-parameterized success extractor
+;; (rf2-366u0g) so the two surfaces never drift.
+;; ---------------------------------------------------------------------------
+
+(defn transport-success-value
+  "Extract the decoded success value from a managed-HTTP success reply. The
+  transport appends `{:kind :success :value <decoded>}` as `http-result`
+  (arg 3); read its `:value`. Falls back to an inline value on the
+  verification payload under `fallback-key` (the direct-dispatch test shape,
+  no transport in the loop) — `:data` for a resource entry, `:result` for a
+  mutation instance (kh9jz6 / EP-0007: `:value` is the reply-map spelling;
+  `:data` / `:result` are the durable-layer spellings)."
+  [verification-payload http-result fallback-key]
+  (if (contains? http-result :value)
+    (:value http-result)
+    (get verification-payload fallback-key)))
+
+(defn transport-failure-envelope
+  "Extract the failure envelope from a managed-HTTP failure reply. The
+  transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as
+  `http-result` (arg 3); read its `:failure` (the closed `:rf.http/*` failure
+  shape, the same envelope the durable entry `:error` / `:refresh-error`
+  carries — Spec 016 §Status semantics). Falls back to an inline `:error` on
+  the verification payload (the direct-dispatch test shape). Identical for the
+  resource and mutation surfaces (rf2-366u0g)."
+  [verification-payload http-result]
+  (if (contains? http-result :failure)
+    (:failure http-result)
+    (:error verification-payload)))
+
+;; ---------------------------------------------------------------------------
 ;; Canonical reply-map builders (Managed-Effects §The reply map / §Status
 ;; taxonomy). The verification payload the resource / mutation lowering
 ;; stamped supplies the identity / correlation facts; the transport's

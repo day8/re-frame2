@@ -42,6 +42,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
+   [re-frame.interop :as interop]
    [re-frame.late-bind :as late-bind]
    ;; load-bearing side-effecting require: the façade publishes the restore
    ;; reconcile hook + registers the resource registrar kind.
@@ -184,12 +185,12 @@
   ;; not re-read the live clock during install." The structural restore tests
   ;; prove the durable timestamps SURVIVE (they are passed through, not
   ;; recomputed); this one PROVES it adversarially — it stubs the ONLY live-clock
-  ;; read in the reconcile (`ssr/now-ms`) to a sentinel NOTHING durable should
-  ;; ever stamp, then asserts every restored entry's :loaded-at / :stale-at /
-  ;; :invalidated-at is the SNAPSHOT's value, untouched by the sentinel. A
-  ;; regression that freshened any durable timestamp from the live install clock
-  ;; would stamp the sentinel and fail loudly here.
-  (testing "the live install clock (now-ms) does NOT freshen any durable restored
+  ;; read in the reconcile (`interop/epoch-now-ms`) to a sentinel NOTHING durable
+  ;; should ever stamp, then asserts every restored entry's :loaded-at /
+  ;; :stale-at / :invalidated-at is the SNAPSHOT's value, untouched by the
+  ;; sentinel. A regression that freshened any durable timestamp from the live
+  ;; install clock would stamp the sentinel and fail loudly here.
+  (testing "the live install clock (interop/epoch-now-ms) does NOT freshen any durable restored
             entry timestamp — they ride through equal to the snapshot's"
     (let [sentinel    9999999999999  ; the install-clock value nothing durable may stamp
           ;; one of each freshness shape: a loaded entry with a future stale-at,
@@ -201,7 +202,7 @@
                               :loaded-at 1000 :stale-at 8000 :invalidated-at 1500})
           ka (state/scoped-resource-key :rf.scope/global :a {})
           kb (state/scoped-resource-key :rf.scope/global :b {})]
-      (with-redefs [ssr/now-ms (constantly sentinel)]
+      (with-redefs [interop/epoch-now-ms (constantly sentinel)]
         (let [out (ssr/reconcile-on-restore (runtime-db-with {ka loaded kb invalidated}) :app/main)
               es  (get-in out [state/resources-key :entries])
               ;; rf2-9e0tyq — entries are keyed on the byte key-id.
@@ -363,7 +364,7 @@
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
           rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}]
-      (with-redefs [ssr/now-ms (constantly live-sentinel)]
+      (with-redefs [interop/epoch-now-ms (constantly live-sentinel)]
         (let [out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms restore-time})
               inst (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1)])]
           (is (= :error (:status inst)) "the pending instance is terminally dangled")
@@ -377,7 +378,7 @@
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
           rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}]
-      (with-redefs [ssr/now-ms (constantly live-sentinel)]
+      (with-redefs [interop/epoch-now-ms (constantly live-sentinel)]
         (let [out (ssr/reconcile-on-restore rdb :app/main)]
           (is (= live-sentinel (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :settled-at]))
               "no causal time supplied → the unit path falls back to the live clock"))))))
