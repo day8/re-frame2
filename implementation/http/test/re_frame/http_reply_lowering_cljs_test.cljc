@@ -55,6 +55,30 @@
       (is (= [:rf.work/http :article/by-id 2 1] (:work/id (:rf.reply/current trace))))
       (is (= [:rf.work/http :article/by-id 1 1] (:work/id trace))))))
 
+(deftest actor-destroy-obsolete-target-suppression
+  (testing "rf2-yrrpe2 — actor-destroy obsolete-target predicate + canonical stale suppression (host-symmetric pure core)"
+    (testing "the obsolete-target predicate: target == actor-id → obsolete; ordinary target → meaningful"
+      (is (true?  (http-reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1)))
+      (is (false? (http-reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1)))
+      (is (false? (http-reply/actor-destroy-target-obsolete? :worker/proc#1 nil)))
+      (is (false? (http-reply/actor-destroy-target-obsolete? nil :worker/proc#1))))
+    (testing "actor-destroy-suppress produces a canonical :status :stale / :work/status :suppressed reply with carried work-id, no current successor"
+      (let [actor-ctx {:request-id   [:worker/proc#1 :slow]
+                       :origin-event [:worker/proc#1 [:rf.http/failed]]
+                       :issuance     1
+                       :attempt      1
+                       :frame        :app/main}
+            {:keys [deliver? reply trace]} (http-reply/actor-destroy-suppress actor-ctx)]
+        (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
+        (is (= :suppressed (:work/status reply)))
+        (is (= :stale (:status reply)))
+        (is (= :rf.http/actor-destroyed-target-obsolete (:stale/reason reply)))
+        (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
+        (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+        (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1] (:work/id (:rf.reply/carried trace))))
+        (is (nil? (:rf.reply/current trace))
+            "no live successor — the actor that owned the target is gone")))))
+
 (deftest canonical-replies-validate
   (testing ":status :ok success"
     (let [r (http-reply/success-reply ctx {:title "Welcome"})]
