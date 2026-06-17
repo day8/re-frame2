@@ -171,7 +171,10 @@
          A fresh `:loaded` entry the route already ensured is a cache-hit; a
          logged-out resolution fail-closes."}
   (fn [{rt :rf.db/runtime} _]
-    (let [page (get-in rt [:rf.runtime/routing :current :query :page])]
+    ;; Default to page 1 so the ensure hits the SAME `{:page 1}` key the home
+    ;; route + feed subscription use on the canonical no-`?page=` URL — a raw
+    ;; nil would ensure an orphan `{:page nil}` entry (rf2-01jbr9).
+    (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)]
       {:fx [[:dispatch [:rf.resource/ensure
                         {:resource :realworld/feed
                          :params   {:page page}
