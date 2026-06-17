@@ -8,14 +8,19 @@
   nonetheless transport-NEUTRAL: the core assumes no URL, HTTP method,
   status code, or body, so the deferred GraphQL transport (and any later
   transport) can plug in without weakening the core semantics. This
-  namespace holds that neutral seam; the HTTP lowering itself lives in the
-  sibling `re-frame.resources.transport.http`.
+  namespace owns the neutral surface the runtime depends on: the
+  `default-transport` constant the registration path defaults to, and the
+  `assert-managed-transport!` registration-time misconfig guard. The HTTP
+  lowering itself lives in the sibling `re-frame.resources.transport.http`,
+  which the runtime call sites lower into directly after the guard.
 
-  The transport dispatch lives here; the runtime's ensure/refetch →
-  work-ledger-record → managed-HTTP lowering routes through `lower-ensure`
-  into the sibling `re-frame.resources.transport.http`."
-  (:require [re-frame.error :as error]
-            [re-frame.resources.transport.http :as http]))
+  There is intentionally NO dispatch table here: with a single built-in
+  transport a dispatch indirection has exactly one live arm, so the runtime
+  guards the declared transport at the call site and lowers into
+  `transport.http/lower`. A real dispatch table is reintroduced only when a
+  second transport (the deferred GraphQL one) lands — at which point the
+  guard becomes the dispatch."
+  (:require [re-frame.error :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -30,33 +35,30 @@
   `:transport`, initial scope: `:rf.http/managed`, the only built-in)."
   managed-http-transport)
 
-(defn lower-ensure
-  "Lower an ensure/refetch into the resource's declared transport — the
-  transport-neutral entry point the runtime calls after it has created or
-  joined a work-ledger record. Dispatches on `transport`; the only
-  initial-scope target is `:rf.http/managed` (delegates to
-  `re-frame.resources.transport.http/lower`).
+(defn assert-managed-transport!
+  "Registration-time misconfig guard: the runtime call sites
+  (`events`/`mutation-events`) invoke this with a resource/mutation's
+  declared `:transport` (defaulted to `default-transport`) BEFORE lowering
+  into `transport.http/lower`. The only initial-scope transport is
+  `:rf.http/managed`; any other declared transport is a loud
+  `:rf.error/resource-unknown-transport` misconfig (`:recovery
+  :fix-registration`). Returns `transport` on success.
 
   Per Spec 016 §Transport: the runtime owns reply addressing and request
   correlation; the internal reply payloads stamp the qualified
   `:rf.frame/id`, `:work/id`, `:resource/key`, `:scope`, and
   `:generation`, and success/failure handlers MUST verify frame + work-id
   + generation before writing (cancellation is an optimization; stale
-  suppression is the correctness boundary). The verification work identity
-  is `:work/id` (EP-0007 — the qualified spelling the ledger / entry / reply
-  envelope share).
-
-  The runtime supplies the live ensure-context; this fn delegates to the
-  transport's lowering."
-  [transport ensure-ctx]
-  (let [transport (or transport default-transport)]
-    (if (= transport managed-http-transport)
-      (http/lower ensure-ctx)
-      (error/throw-error!
-        :rf.error/resource-unknown-transport 're-frame.resources.transport/lower-ensure
-        (str "unknown resource transport " transport
-             " — the only initial-scope transport is "
-             managed-http-transport
-             " (Spec 016 §Transport).")
-        {:recovery :fix-registration
-         :extra    {:transport transport}}))))
+  suppression is the correctness boundary). When a second transport lands
+  this guard becomes a real dispatch over the declared transport."
+  [transport where]
+  (when-not (= transport managed-http-transport)
+    (error/throw-error!
+      :rf.error/resource-unknown-transport (or where 're-frame.resources.transport/assert-managed-transport!)
+      (str "unknown resource transport " transport
+           " — the only initial-scope transport is "
+           managed-http-transport
+           " (Spec 016 §Transport).")
+      {:recovery :fix-registration
+       :extra    {:transport transport}}))
+  transport)

@@ -43,7 +43,8 @@
   are the WORK-LEDGER SUBSTRATE slice (rf2-afpdkn) — landed here. GC
   scheduling / timers are the invalidation+GC slice. The HTTP request
   execution is the managed-HTTP slice (rf2-p19360); this slice LOWERS into
-  the existing transport seam (`transport/lower-ensure`).
+  managed HTTP (`transport.http/lower`) after the transport seam's
+  registration-time guard (`transport/assert-managed-transport!`).
 
   ## Work-ledger substrate (rf2-afpdkn)
 
@@ -69,6 +70,7 @@
             [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
+            [re-frame.resources.transport.http :as transport-http]
             [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.trace :as trace]))
 
@@ -377,16 +379,22 @@
             ;; writing (stale suppression is the correctness boundary).
             http-args  (let [req-fn (:request spec)]
                          (req-fn cparams nil))
-            lower-fx   (transport/lower-ensure
-                         transport-id
-                         {:http-args    http-args
-                          :request-id   request-id
-                          :work-id      work-id
-                          :resource/key scoped-key
-                          :scope        scope
-                          :frame-id     frame-id
-                          :generation   generation
-                          :where        where})]
+            ;; rf2-rrcfwk — guard the declared transport (registration-time
+            ;; misconfig throw), then lower directly into the only
+            ;; initial-scope transport. The one-arm dispatch indirection
+            ;; (`transport/lower-ensure`) is folded into this guarded call;
+            ;; a real dispatch table returns only when a second transport
+            ;; lands (the guard becomes the dispatch).
+            lower-fx   (do (transport/assert-managed-transport! transport-id where)
+                           (transport-http/lower
+                             {:http-args    http-args
+                              :request-id   request-id
+                              :work-id      work-id
+                              :resource/key scoped-key
+                              :scope        scope
+                              :frame-id     frame-id
+                              :generation   generation
+                              :where        where}))]
         (trace/emit! :rf.event :rf.resource/work-started
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
