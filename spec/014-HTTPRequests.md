@@ -631,7 +631,17 @@ Pass an `AbortController.signal` directly:
 
 The fx threads the signal through to the underlying transport. User owns the controller's lifecycle. CLJS-only (Fetch supports it; XHR fallback ignores).
 
-The two are mutually exclusive — pick one. Supplying BOTH `:abort-signal` AND `:request-id` against one request would wire two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path) whose simultaneous-abort interaction would be ambiguous. Rather than tolerate the ambiguity, the spec resolves it by rejecting the combination outright: per the pre-alpha reject-misuse posture the `:rf.http/managed` fx body rejects it at the dispatch site (before `run-attempt!`) with a thrown `:rf.error/http-bad-abort-config` ex-info — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+**Both may be supplied together.** `:abort-signal` and `:request-id` are NOT mutually exclusive — a request may carry both, and each attaches a cancellation source to the **one** managed request. There is no second Fetch signal and no race: the runtime forwards an external `:abort-signal` into the SAME framework-owned internal controller the `:request-id` supersede/managed-abort path drives (the single signal Fetch accepts is always the internal one; the caller signal funnels in through `addEventListener`). The once-only `:finalised?` CAS (see [§Abort precedence](#abort-precedence-abort-always-wins)) guarantees **exactly one terminal outcome** regardless of which cancellation source acts first, and abort wins *by classification, not by race ordering* (the `:aborted?` cell is flipped before the CAS).
+
+The single final outcome is determined by the **finalising cancellation source** — the source whose observation wins the once-only finalisation:
+
+- **External `:abort-signal` wins** (or a manual `:rf.http/managed-abort` on the same `:request-id`) → a live `:rf.http/aborted` reply with `:reason :user` is delivered to the failure target.
+- **Same-`:request-id` supersede wins** (a fresh request replaces the prior one) → the prior request's reply is **suppressed** (no app target runs) and a `:rf.http/stale-suppressed` trace records the superseded attempt's correlation (`:stale/reason :rf.http/request-id-superseded`), exactly as [§`:request-id` (internal)](#request-id-internal) describes for the supersede-alone case.
+- **Already completed and cleared** → a later supersede (or external abort) does **not** retroactively suppress or reclassify a request that has already finalised; the finalisation that already won stands.
+
+In short: supplying both keys is a legal, fully-defined configuration; the finalise order picks the single winner and the CAS guarantees no second reply.
+
+> **JVM caveat.** `:abort-signal` is CLJS-only (Fetch supports it; the XHR fallback ignores it; the JVM transport ignores it, emitting a `:rf.http/cljs-only-key-ignored-on-jvm` trace). So when both keys are present on the JVM, only the `:request-id` cancellation path is portable — the external signal has no effect there. Use `:request-id` for cross-host cancellation.
 
 ### Abort on actor destroy
 
