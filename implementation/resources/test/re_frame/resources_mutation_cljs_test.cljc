@@ -97,6 +97,20 @@
   ([frame-id scoped-key]
    (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
 
+(defn- mutation-record
+  "The serializable work-ledger record for a mutation INSTANCE's current
+  attempt — found by scanning the frame's ledger for the row whose
+  `:work/id` embeds `[:rf.mutation instance-id]`. The mutation work-id head
+  is `[:rf.work/resource [:rf.mutation instance-id] generation]`, so a row
+  scan keyed on the embedded instance key is the stable test reader (the
+  generation is runtime-allocated)."
+  ([instance-id] (mutation-record :rf/default instance-id))
+  ([frame-id instance-id]
+   (->> (vals (get-in (runtime-db frame-id) [:rf.runtime/work-ledger]))
+        (filter (fn [r] (= [:rf.mutation instance-id]
+                           (second (:work/id r)))))
+        first)))
+
 (defn- reply-success!
   ([args result] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
   ;; EP-0010: a fixture may script the reply token's :rf.cofx to pin
@@ -1347,6 +1361,48 @@
   (testing "the accepted terminal cancellation fired the continuation"
     (is (= 1 (count @replied)))
     (is (= :cancelled (:status (second (first @replied)))))))
+
+(deftest accepted-abort-reply-settles-ledger-cancelled
+  ;; rf2-qsn30x (EP-0011): an ACCEPTED mutation abort/cancel reply
+  ;; (`{:kind :rf.http/aborted}`, which the reply substrate lowers to
+  ;; `:status :cancelled` / `:work/status :cancelled`) must settle the
+  ;; work-ledger row terminal `:cancelled` — NOT `:failed`. The ledger
+  ;; status MUST agree with the canonical reply's `:work/status`
+  ;; (Managed-Effects §Status taxonomy / §Work-status mapping). A stale
+  ;; abort still settles `:suppressed` (covered by the stale suite); this
+  ;; pins the LIVE/accepted path.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :ac1
+                      :reply-to [:test/save-replied]}])
+  (reply-failure! @last-managed-args {:kind :rf.http/aborted :reason :user-abort})
+  (testing "the canonical reply work-status is :cancelled"
+    (is (= :cancelled (:status (second (first @replied))))))
+  (testing "the work-ledger row settled terminal :cancelled (agrees with the reply)"
+    (let [rec (mutation-record :ac1)]
+      (is (= :cancelled (:status rec)))
+      (is (= :cancelled (:work/status (second (first @replied))))
+          "the ledger status agrees with the canonical reply :work/status")))
+  (testing "the ledger outcome carries the cancel reason, not an error summary"
+    (let [rec (mutation-record :ac1)]
+      (is (= :aborted (:reason (:outcome rec))))
+      (is (nil? (:error (:outcome rec)))))))
+
+(deftest accepted-failure-reply-still-settles-ledger-failed
+  ;; rf2-qsn30x guard: a genuine (non-abort) failure reply still settles the
+  ;; ledger row `:failed` — the abort branch must NOT swallow ordinary
+  ;; failures into `:cancelled`.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :af1
+                      :reply-to [:test/save-replied]}])
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (testing "the work-ledger row settled terminal :failed"
+    (is (= :failed (:status (mutation-record :af1)))))
+  (testing "the canonical reply work-status is :error"
+    (is (= :error (:status (second (first @replied)))))))
 
 (deftest stale-reply-does-not-fire-the-continuation
   ;; Validation rule 4: a STALE / superseded mutation reply fires NO
