@@ -1743,29 +1743,88 @@
                       :status-before (:status entry) :status-after (:status entry')})
         {:rf.db/runtime rdb'}))))
 
+(def ^:private aborted-event-failure
+  "The synthetic `:rf.http/aborted` failure envelope the legacy
+  `:rf.resource.internal/aborted` event lowers through the canonical failure
+  path. The production managed-HTTP abort path arrives as an `:rf.http/aborted`
+  FAILURE through `failed-handler`; this legacy/ad-hoc reply event carries no
+  transport envelope of its own, so it synthesises the same abort kind so it
+  flows the SAME `rreply/failure-reply` → `:status :cancelled` lowering, the
+  SAME `live-entry-for-reply` verification, and the SAME stale-wins-over-
+  cancelled suppression boundary (rf2-iu0z8t)."
+  {:kind :rf.http/aborted :reason :aborted})
+
 (defn aborted-handler
-  "`:rf.resource.internal/aborted` — a transport read was aborted. For the
-  cache ENTRY this is a stale reply — the verification gate suppresses it
-  (the entry settles to its last stable status through its own subsequent
-  transitions, never left stranded), so this handler makes NO durable entry
-  write. For the WORK LEDGER it settles the work row terminal `:cancelled`
-  and clears the host handle. Per Spec 016 §Cancellation is opportunistic;
-  stale suppression is mandatory / §Ledger row retention and identity.
+  "`:rf.resource.internal/aborted` — a transport read was aborted. A LEGACY /
+  ad-hoc reply event: the PRODUCTION managed-HTTP abort path already arrives
+  as an `:rf.http/aborted` FAILURE through `failed-handler` (Spec 014 routes
+  an intentional cancellation through `:on-failure`), so this event is
+  retained only for direct-dispatch / test callers — and it is now LOWERED
+  through the SAME canonical failure / stale-suppression path rather than
+  ad-hoc settling the row from the verification payload (rf2-iu0z8t). It:
+
+   - builds the canonical reply via `rreply/failure-reply` with a synthetic
+     `:rf.http/aborted` envelope → `:status :cancelled`;
+   - runs `live-entry-for-reply` (frame + work-id + generation verification),
+     so a STALE / superseded / CROSS-FRAME aborted event NEVER settles an
+     accepted `:cancelled` — it is SUPPRESSED (stale validation wins over the
+     natural cancellation status; a cross-frame event is rejected without
+     touching this frame's entry or ledger);
+   - on the live path settles the entry to a non-error stable state
+     (`entry-abort-settled` — no `:error` / `:refresh-error`), marks the work
+     row terminal `:cancelled`, drains any route blocking slot like a
+     non-error settle, and clears the host handle.
 
   EP-0017 declared-only delivery (rf2-rl27r2): a cancellation is still a
   managed-async completion with a reply token, so its terminal work-ledger
   outcome carries the reply token's causal `:completed-at` (DECLARED
-  `:rf/time-ms`, consumed FLAT) — symmetric with the failure / success paths."
+  `:rf/time-ms`, consumed FLAT) — symmetric with the failure / success paths.
+
+  Event shape: `[_ <verification-payload>]`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
-   [_event-id {work-id :work/id resource-key :resource/key :keys [generation]}]]
-  (let [runtime-db (or rt {})]
-    (work-ledger/clear-handle! frame-id work-id)
-    (trace/emit! :rf.event :rf.resource/work-abort-requested
-                 {:rf.frame/id frame-id :resource/key resource-key
-                  :work/id work-id :generation generation})
-    {:rf.db/runtime (work-ledger/update-record
-                      runtime-db work-id work-ledger/mark-terminal
-                      :cancelled {:reason :aborted :completed-at time-ms})}))
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload}]]
+  (let [runtime-db   (or rt {})
+        completed-at time-ms
+        ;; lower through the SHARED failure reply builder — a synthetic
+        ;; `:rf.http/aborted` envelope yields `:status :cancelled`
+        ;; (Managed-Effects §Status taxonomy), exactly as the production abort
+        ;; arriving via `failed-handler` does.
+        _reply       (rreply/failure-reply payload aborted-event-failure
+                                           {:work-kind rreply/work-kind-resource
+                                            :completed-at completed-at})
+        entry        (live-entry-for-reply runtime-db frame-id payload)]
+    (if (nil? entry)
+      ;; STALE / CROSS-FRAME SUPPRESSION (mandatory): a superseded / vanished /
+      ;; cross-frame aborted event never mutates a newer (or another frame's)
+      ;; entry, and the row settles terminal :suppressed — NEVER an accepted
+      ;; :cancelled (stale validation wins over the natural cancellation
+      ;; status, rf2-jzh5gq / rf2-iu0z8t). The :outcome diagnostic records
+      ;; :aborted for tooling.
+      (let [stale (stale-suppress-reply runtime-db resource-key payload
+                                        {:outcome :aborted})]
+        (emit-resource-stale-suppressed!
+          frame-id resource-key work-id generation :aborted stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed {:reason :stale-reply :outcome :aborted
+                                       :completed-at completed-at})})
+      ;; LIVE accepted cancellation: settle the entry to a non-error stable
+      ;; state, mark the work row terminal :cancelled, drain a route blocking
+      ;; slot like a non-error settle. NO :error / :refresh-error write.
+      (let [entry' (entry-abort-settled entry)
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :cancelled {:reason :aborted :completed-at completed-at})
+                       (route/drain-blocking resource-key entry' :success))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-abort-requested
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')})
+        {:rf.db/runtime rdb'}))))
 
 (defn stale-fired-handler
   "`:rf.resource.internal/stale-fired` — a stale timer fired. The timer is
