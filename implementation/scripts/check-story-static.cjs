@@ -20,8 +20,8 @@
  *        the chosen port is not the one we spawned.
  *
  * 3. Drives a headless Chromium against the resolved base URL and
- *    verifies the Story shell mounted (the canonical "Select a variant
- *    or workspace" placeholder is rendered, and the chrome landmarks
+ *    verifies the Story shell mounted (the empty-state canvas
+ *    `data-test="story-canvas-empty"` is rendered, and the chrome landmarks
  *    are present).
  * 4. Verifies the first-visit help overlay is suppressed (per
  *    spec/013 §Static-mode runtime semantics — visitors arriving at a
@@ -243,12 +243,15 @@ async function smokeTest(baseUrl, diagnostics) {
   try {
     await page.goto(baseUrl, { waitUntil: 'load', timeout: 30000 });
 
-    // The shell renders the "Select a variant or workspace" placeholder
-    // when no variant / workspace is selected. The Story chrome lands
-    // around it: the sidebar lists the four counter variants + two
-    // workspaces.
+    // The shell renders its empty-state canvas ("No variant selected" +
+    // a pick-from-the-sidebar hint) when no variant / workspace is selected.
+    // The Story chrome lands around it: the sidebar lists the four counter
+    // variants + two workspaces. Asserted via the stable
+    // `data-test="story-canvas-empty"` attribute (shell.cljs) rather than the
+    // placeholder PROSE, which has drifted before — the test-id is the
+    // contract, the copy is not.
     await page
-      .getByText(/Select a variant or workspace from the sidebar/i, { exact: false })
+      .locator('[data-test="story-canvas-empty"]')
       .first()
       .waitFor({ state: 'visible', timeout: 15000 });
 
