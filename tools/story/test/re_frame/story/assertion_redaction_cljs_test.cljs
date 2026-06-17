@@ -103,8 +103,50 @@
                         ;; against the raw value before projection.
                         (is (true? (:passed? pe))
                             "redaction does not change the pass/fail outcome")
+                        ;; rf2-006y9b — :expected / :payload / :reason MUST
+                        ;; NOT carry the raw secret either (the whole record
+                        ;; egresses to the test pane / MCP / log sinks).
+                        (is (= :rf/redacted (:expected pe))
+                            ":expected is projected — the raw token does not leak")
+                        (is (= [[:auth :token] :rf/redacted] (:payload pe))
+                            ":payload is rebuilt from the redacted expected")
+                        (is (not (re-find #"BEARER-secret-12345" (str (:reason pe))))
+                            ":reason does not print the raw token")
                         (story/destroy-variant!
                           :story.redaction.path-equals/probe)
+                        (done)))))))))))
+
+(deftest assertion-path-equals-sentinel-expected-passes
+  (testing "rf2-006y9b: an author who pins the documented :rf/redacted
+            sentinel as :expected against a sensitive path gets a PASSING
+            assertion (the sentinel contract), with no raw value anywhere"
+    (rf/reg-event :auth/login2
+      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-99999")}))
+    (story/reg-variant :story.redaction.sentinel/probe
+      {:events [[:auth/login2]]
+       :play-script [[:dispatch-sync [:rf.assert/path-equals
+                 [:auth :token]
+                 :rf/redacted]]]})
+    (async done
+      (-> (story/run-variant :story.redaction.sentinel/probe)
+          (async-lib/then
+            (fn [_first-run]
+              (story/add-marks :story.redaction.sentinel/probe
+                            {[:auth :token] :sensitive})
+              (-> (story/execute-play! :story.redaction.sentinel/probe)
+                  (async-lib/then
+                    (fn [_]
+                      (let [recs (story/read-assertions
+                                   :story.redaction.sentinel/probe)
+                            pe   (last (filter #(= :rf.assert/path-equals
+                                                   (:assertion %))
+                                               recs))]
+                        (is (true? (:passed? pe))
+                            "the sentinel-expected assertion PASSES against a sensitive path")
+                        (is (= :rf/redacted (:expected pe)))
+                        (is (= :rf/redacted (:actual pe)))
+                        (story/destroy-variant!
+                          :story.redaction.sentinel/probe)
                         (done)))))))))))
 
 (deftest assertion-path-equals-non-sensitive-passes-value-through
