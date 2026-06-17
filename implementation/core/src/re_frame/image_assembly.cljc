@@ -173,7 +173,7 @@
 (defonce ^{:doc "A MONOTONIC generation integer for the framework-standard
   registry (EP-0023 §Image — the resolved-generation cache's
   framework-standard-registration generation key leg). Bumped on every
-  `register-standard!` / `forget-standard!` / `clear-standards!` mutation; read
+  `register-standard!` / `clear-standards!` mutation; read
   by the resolved-generation cache key so a cached generation is invalidated the
   instant any standard descriptor changes. Starts at 0."
             :private true}
@@ -183,8 +183,8 @@
 (defn standard-generation
   "The framework-standard registry's MONOTONIC generation integer (EP-0023
   §Image — the resolved-generation cache key's standard-registration leg).
-  Increments on every `register-standard!` / `forget-standard!` /
-  `clear-standards!`; equal across two reads ⇒ the standard set is unchanged and
+  Increments on every `register-standard!` / `clear-standards!`; equal across
+  two reads ⇒ the standard set is unchanged and
   a sealed generation assembled then may be reused."
   []
   @standard-generation*)
@@ -204,15 +204,6 @@
     (swap! standard-registry assoc [kind id] desc)
     (swap! standard-generation* inc)
     desc))
-
-(defn forget-standard!
-  "Remove the framework-standard descriptor for `[kind id]`. Mirror of
-  `register-standard!` for the standard owner's teardown path. Bumps the
-  standard generation."
-  [kind id]
-  (swap! standard-registry dissoc [kind id])
-  (swap! standard-generation* inc)
-  nil)
 
 (defn clear-standards!
   "Reset the framework-standard registry. Test fixtures use this between cases.
@@ -1067,7 +1058,7 @@
 ;;     never handed back for another (rf2-1x2zuc). ANY reg-*/forget-*/clear on
 ;;     the active store bumps its generation leg.
 ;;   * the framework-standard generation: `standard-generation` — ANY
-;;     register-standard!/forget-standard!/clear bumps it.
+;;     register-standard!/clear bumps it.
 ;;
 ;; For the EXPLICIT-POOL arity `(assemble images descriptors)` the registered
 ;; pool is supplied directly (tests / a pre-snapshotted store), NOT read from
@@ -1317,10 +1308,3 @@
   "The set of kinds present in a sealed `generation`'s resolver. Tools use this."
   [generation]
   (:rf.gen/kinds generation))
-
-(defn generation-ids
-  "The ids registered under `kind` in a sealed `generation`. Pure."
-  [generation kind]
-  (into #{}
-        (comp (filter #(= kind (first %))) (map second))
-        (keys (:rf.gen/resolver generation))))

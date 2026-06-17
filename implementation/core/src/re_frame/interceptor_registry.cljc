@@ -487,16 +487,3 @@
                         (or (interceptor-ref? entry)
                             (interceptor-value? entry))))
                  chain)))
-
-;; ---- handler-meta surface (Spec 001 §Source coords, metadata, handler-meta)-
-
-(defn interceptor-handler-meta
-  "The `handler-meta :interceptor` surface — the registered interceptor's
-  metadata + source coordinate by id, looked up through the active registrar
-  (Spec 001 §Source coords, metadata, and `handler-meta`). Returns nil when no
-  interceptor is registered under `id`. The stored `:rf/interceptor-descriptor`
-  is retained on the returned meta so tooling can introspect the descriptor
-  shape; production strips the pure-documentation `:doc` per the registrar
-  policy."
-  [id]
-  (registrar/lookup interceptor-kind id))
