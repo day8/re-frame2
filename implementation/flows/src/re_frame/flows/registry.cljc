@@ -138,14 +138,15 @@
   a frame whose dirty-check rows all cleared leaves no key behind.
   Snapshot — observers MUST NOT mutate (the underlying atoms are private).
 
-  RAW — NOT an egress boundary (EP-0015, rf2-guga0n). The cached input
-  vectors are the OWNER-LOCAL app-db / runtime-db values just read for the
-  dirty check, so they can be sensitive or large. This accessor returns them
-  verbatim and is for INTERNAL / TEST / ROLLBACK use only (the failed-flow
-  rollback snapshot, conformance harnesses, dirty-check assertions). Any tool
-  or direct read that crosses a trust boundary MUST instead call
-  `last-inputs-egress`, which projects each cached input under the owning
-  frame's policy and fails closed when no live frame resolves."
+  RAW — NOT an egress boundary (EP-0015). The cached input vectors are the
+  OWNER-LOCAL app-db / runtime-db values just read for the dirty check, so
+  they can be sensitive or large. This accessor returns them verbatim and is
+  for INTERNAL / TEST / ROLLBACK use only (the failed-flow rollback snapshot,
+  conformance harnesses, dirty-check assertions). Any tool or direct read
+  that crosses a trust boundary MUST go through the elided trace path
+  (`:rf.flow/computed` `:input-values` / `:rf.flow/failed` `:inputs`, which
+  ride `re-frame.flows/elide-inputs`), NOT this raw accessor — the cached
+  dirty-check value is never shipped off-box."
   []
   (reduce-kv
     (fn [acc frame-id inner-atom]
@@ -637,63 +638,6 @@
   (if (= :rf.db/runtime (first input-path))
     (subvec (vec input-path) 1)
     (vec input-path)))
-
-;; ---- projected egress readback (EP-0015, rf2-guga0n) ---------------------
-;;
-;; `last-inputs-snapshot` returns the RAW cached input vectors — owner-local
-;; app-db / runtime-db values, possibly sensitive or large. That accessor is
-;; an internal / test / rollback seam, NOT an egress boundary. `last-inputs-
-;; egress` is the trust-boundary readback: it projects each cached input
-;; value through the SAME `elision/elide-wire-value` walker (and the SAME
-;; `input-resolve-path` declaration-coordinate normalization) that the
-;; `:rf.flow/computed` `:input-values` / `:rf.flow/failed` `:inputs` trace
-;; slots already ride (`re-frame.flows/elide-inputs`). So a flow reading a
-;; sensitive / large input surfaces a redacted / elided value here, never the
-;; raw one, and an unresolvable frame FAILS CLOSED (the walker redacts the
-;; whole value rather than ship it under no policy — EP-0015 §13).
-
-(defn- elide-cached-inputs
-  "Project a single flow's cached input vector under the owning `frame-id`'s
-  elision policy. Each value is walked against its declared input-path
-  coordinate (the SAME normalization the trace input-value elision uses), so
-  per-path `:sensitive` / `:large` declarations apply. When the flow is no
-  longer registered (an orphaned dirty-check row), there is no `:inputs` to
-  seed a `:path`, so each value is walked frameless-or-against-the-frame with
-  no path — which fails closed for an unresolvable frame and is a no-op for a
-  live frame with no overlapping declaration."
-  [frame-id flow-id inputs]
-  (let [flow        (get-in @flows [frame-id flow-id])
-        input-paths (:inputs flow)]
-    (mapv (fn [v idx]
-            (let [in-path (get input-paths idx)]
-              (elision/elide-wire-value
-                v (cond-> {:frame frame-id}
-                    in-path (assoc :path (input-resolve-path in-path))))))
-          inputs
-          (range (count inputs)))))
-
-(defn last-inputs-egress
-  "Return the dirty-check value re-aggregated to the canonical observation
-  shape `{flow-id {frame-id inputs}}`, with every cached input value
-  PROJECTED under the owning frame's egress policy (EP-0015, rf2-guga0n).
-  This is the trust-boundary counterpart of the raw `last-inputs-snapshot`:
-  a tool / direct read that crosses an egress boundary calls THIS, so a
-  sensitive cached input surfaces as `:rf/redacted` and a large one as the
-  size-elision marker, never the raw value. An orphaned row whose frame is
-  not live fails closed (whole value redacted).
-
-  Snapshot — observers MUST NOT mutate (the underlying atoms are private)."
-  []
-  (reduce-kv
-    (fn [acc frame-id inner-atom]
-      (reduce-kv
-        (fn [acc flow-id inputs]
-          (assoc-in acc [flow-id frame-id]
-                    (elide-cached-inputs frame-id flow-id inputs)))
-        acc
-        @inner-atom))
-    {}
-    @frame-last-inputs))
 
 (defn- input-overlaps-declaration?
   "True iff ANY of the flow's resolved input paths overlaps ANY path in the

@@ -1032,11 +1032,10 @@
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "clear-flow"]            {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
-  ;; EP-0015 (rf2-guga0n): the raw `last-inputs-snapshot` is now `^:no-doc`
-  ;; (internal / test / rollback seam, NOT an egress boundary), so it drops
-  ;; off the public manifest. The egress-safe projected readback is
-  ;; `last-inputs-egress`.
-  ["re-frame.flows" "last-inputs-egress"]    {:tier :tooling :owner "013" :status "v1"}
+  ;; EP-0015: the raw `last-inputs-snapshot` is `^:no-doc` (internal / test /
+  ;; rollback seam, NOT an egress boundary), so it stays off the public
+  ;; manifest. Off-box reads ride the elided trace path, not a dedicated
+  ;; accessor.
   ;; EP-0014 slice-3 (rf2-s8w3nw): the derivation/process algebra view of
   ;; registered flows. JVM-only convenience alias of
   ;; `re-frame.flows.tooling/flow-algebra-view` (the body lives in the
