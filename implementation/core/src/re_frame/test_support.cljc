@@ -99,6 +99,16 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
+            ;; EP-0023 live-frame registry (rf2-32siq3.32 / rf2-rjml45). The
+            ;; runtime fixture resets BOTH the runnable-record registry
+            ;; (`frame/frames`) AND the live-frame index together — a frame
+            ;; seated via `rf/make-frame {:id …}` registers in `live-frames`,
+            ;; and a stale entry leaking across tests would make the next
+            ;; `make-frame`/`seat-*` treat the id as already-seated (or fail
+            ;; loud on the duplicate id). A core spine ns, so required directly
+            ;; (no late-bind indirection); no cycle (live-frame does not depend
+            ;; on this ns).
+            [re-frame.live-frame :as live-frame]
             ;; The flows / schemas / machines / routing / http-managed /
             ;; epoch artefacts ship in separate Maven coordinates and are
             ;; reached only through late-bind hooks — see the
@@ -487,6 +497,13 @@
            schemas-snap  (when snapshot-fn (snapshot-fn))]
        (try
          (reset! frame/frames {})
+         ;; Reset the EP-0023 live-frame index in lockstep with the runnable-
+         ;; record registry (rf2-rjml45). A frame seated via `make-frame {:id …}`
+         ;; — e.g. the Xray production singleton — registers here; without this
+         ;; reset a stale `:rf/xray` (or any test frame id) leaks across tests,
+         ;; so the next `seat-*`/`make-frame` either skips its create (treating
+         ;; the id as already-live) or fails loud on the duplicate id.
+         (live-frame/clear-live-frames!)
          (run-reset-hooks! :pre-dispose)
          (adapter/dispose-adapter!)
          (run-reset-hooks! :post-dispose)
@@ -561,6 +578,10 @@
            (restore-registrar! snap)
            (when restore-fn (restore-fn schemas-snap))
            (reset! frame/frames {})
+           ;; Clear the live-frame index in the finally too (rf2-rjml45), in
+           ;; lockstep with the `frame/frames` reset, so a frame seated by the
+           ;; test body never survives into the next fixture run.
+           (live-frame/clear-live-frames!)
            (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
              (reset-flows!)))))))))
 

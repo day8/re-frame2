@@ -120,6 +120,40 @@
   frame's image selects the target's own namespaces, never this one."
   "day8.re-frame2-xray.**")
 
+(def xray-exclude-globs
+  "The `:exclude-ns` globs that SUBTRACT Xray's OWN test + test-support
+  namespaces from the `xray-source-glob` selection (EP-0023 §Namespace-Selected
+  Images, §Xray Beside The Target).
+
+  The headline-isolation `day8.re-frame2-xray.**` `:include-ns` glob sweeps in
+  EVERY Xray-authored registration — including, in any dev/test build that loads
+  them, Xray's OWN `*-cljs-test` namespaces. Those tests co-register the same
+  `:rf.xray/*` / `:rf.*` ids the production sources do (e.g.
+  `day8.re-frame2-xray.open-in-editor-cljs-test` registers `[:fx :rf.editor/open]`
+  alongside the production `day8.re-frame2-xray.open-in-editor`). With no declared
+  `:replace` winner, image assembly is fail-loud on the `(kind, id)` collision
+  (`:rf.error/image-duplicate-id`) — which blocked flipping the production
+  singleton onto image-loaded seating.
+
+  Two excludes cover the two shapes of Xray's non-production namespaces:
+
+    - `day8.re-frame2-xray.**.*-cljs-test` — the `deftest` namespaces (every
+      Xray test ns's leaf segment ends `-cljs-test`, at any depth). The `**`
+      absorbs the intermediate segments (it matches the depth-1
+      `…mount-cljs-test` and the deep `…panels.app-db-diff-cljs-test` alike) and
+      the intra-segment `*-cljs-test` matches the leaf suffix WITHIN that one
+      segment (the EP-0023 intra-segment glob — the `*` never crosses a `.`).
+    - `day8.re-frame2-xray.test-helpers.**` — the test-support host fixtures
+      (`…test-helpers.host-fixtures.counter` et al), a clean whole-segment
+      subtree that registers APP fixture ids, not Xray's production set.
+
+  Production builds never load these namespaces, so the excludes are no-ops
+  there (`:exclude-ns` is NOT zero-match fail-loud — a defensive guard); in
+  dev/test they keep the production image registration-disjoint from Xray's own
+  test registrations so the singleton seats without an assembly collision."
+  ["day8.re-frame2-xray.**.*-cljs-test"
+   "day8.re-frame2-xray.test-helpers.**"])
+
 (defn xray-image
   "Construct XRAY'S OWN EP-0023 image VALUE — the inspector's registration set
   as inert data, selected by the `:include-ns` glob over Xray's own source
@@ -136,11 +170,20 @@
   never mixes with a target frame's image, and the target frame is inspected as
   DATA through the live-read fns.
 
+  The `:include-ns` glob is NARROWED by `:exclude-ns` (`xray-exclude-globs`) so
+  Xray's OWN `*-cljs-test` + `test-helpers.**` namespaces are subtracted — in a
+  dev/test build that loads them, those co-register the same `:rf.xray/*` ids the
+  production sources do, and without the exclude the `(kind, id)` collision is a
+  fail-loud `:rf.error/image-duplicate-id` at assembly (the blocker that gated
+  the production-singleton flip). Production builds never load those namespaces,
+  so the exclude is a no-op there.
+
   Returns the normalized inert image value (`:rf.image/id` /
-  `:rf.image/include-ns` / …)."
+  `:rf.image/include-ns` / `:rf.image/exclude-ns` / …)."
   []
   (image/image {:id         xray-image-id
-                :include-ns [xray-source-glob]}))
+                :include-ns [xray-source-glob]
+                :exclude-ns xray-exclude-globs}))
 
 (defn resolver-keyset
   "The set of `[kind id]` resolver keys a sealed image `generation` carries
