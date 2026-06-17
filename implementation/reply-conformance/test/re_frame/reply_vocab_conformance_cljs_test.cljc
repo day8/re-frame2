@@ -66,6 +66,7 @@
             ;; though `clojure -M:test` is green. See rf2-u99i9j.
             #?(:cljs [cljs.reader])
             [re-frame.reply :as reply]
+            [re-frame.reply-conformance-fixtures :as fixtures]
             [re-frame.http-reply :as http-reply]
             [re-frame.resources.reply :as rreply]
             [re-frame.machines.reply :as m-reply]
@@ -98,7 +99,9 @@
 ;; live-dispatch `:rf.cofx` half is owned by the router / per-family lowering
 ;; suites. The HTTP / resource / mutation success fixtures seed this value;
 ;; the machine fixture seeds its own (distinct) value.
-(def ^:private completion-time-ms 1781078400456)
+;; Shared across the reply-conformance tier — owned by
+;; `re-frame.reply-conformance-fixtures` (rf2-b2a3a2).
+(def ^:private completion-time-ms fixtures/completion-time-ms)
 
 (def ^:private http-ctx
   {:request-id   :article/by-id
@@ -213,7 +216,7 @@
     :work-head :rf.work/resource
     :success   #(rreply/success-reply resource-vp {:title "Welcome"}
                                       {:work-kind rreply/work-kind-resource
-                                       :completed-at 1781078400456})
+                                       :completed-at completion-time-ms})
     :error     #(rreply/failure-reply resource-vp a-failure
                                       {:work-kind rreply/work-kind-resource})
     :cancel    #(rreply/failure-reply resource-vp an-abort
@@ -224,7 +227,7 @@
     :work-head :rf.work/resource ;; mutation reuses the resource head with a [:rf.mutation …] key
     :success   #(rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
                                       {:work-kind rreply/work-kind-mutation
-                                       :completed-at 1781078400456})
+                                       :completed-at completion-time-ms})
     :error     #(rreply/failure-reply mutation-vp a-failure
                                       {:work-kind rreply/work-kind-mutation})
     :cancel    #(rreply/failure-reply mutation-vp an-abort

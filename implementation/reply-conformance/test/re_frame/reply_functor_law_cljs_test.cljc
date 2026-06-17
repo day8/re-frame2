@@ -87,6 +87,7 @@
   functor law."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.reply :as reply]
+            [re-frame.reply-conformance-fixtures :as fixtures]
             [re-frame.routing.reply :as route-reply]
             [re-frame.machines.reply :as m-reply]))
 
@@ -106,18 +107,20 @@
 ;; dropped or mutated the completion fact (mis-threading causal completion
 ;; time, the bead's rf2-ear61v concern) would surface in the identity-
 ;; preservation test.
-(def ^:private completion-time-ms 1781078400456)
+;; Shared across the reply-conformance tier — owned by
+;; `re-frame.reply-conformance-fixtures` (rf2-b2a3a2).
+(def ^:private completion-time-ms fixtures/completion-time-ms)
 
 (def ^:private route-reply
   "A canonical route-loader :ok reply (the loader's decoded payload). The
   route work-id rides; the value is the loaded resource; `:completed-at` is
-  the durable causal completion time (EP-0017)."
-  {:status       :ok
-   :value        {:article {:id 42 :title "Welcome"}}
-   :work/id      (route-reply/work-id {:route-id :route/article :nav-token "nav-1" :loader-id :article/loaded})
-   :work/kind    :route
-   :rf.frame/id  :app/main
-   :completed-at completion-time-ms})
+  the durable causal completion time (EP-0017). Built via the shared
+  `re-frame.reply-conformance-fixtures/canonical-ok-reply` (rf2-b2a3a2)."
+  (fixtures/canonical-ok-reply
+    {:value       {:article {:id 42 :title "Welcome"}}
+     :work/id     (route-reply/work-id {:route-id :route/article :nav-token "nav-1" :loader-id :article/loaded})
+     :work/kind   :route
+     :rf.frame/id :app/main}))
 
 (def ^:private spawn-reply
   "A canonical machine spawned-actor :ok reply (the child's :output-key
