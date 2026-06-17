@@ -295,12 +295,31 @@ written against those final/implemented contracts, not against pending
 dependencies.
 
 - **Post-final amendments arrive via [EP-0016](EP-0016-resource-mutation-completion.md)
-  (proposal).** Per EP-0009's amendment rule, substantive changes to this final
-  contract go through a new EP. EP-0016 proposes mutation completion
+  (final).** Per EP-0009's amendment rule, substantive changes to this final
+  contract go through a new EP. EP-0016 delivered mutation completion
   continuations, per-target scoped invalidation, and named scope resolvers;
-  where it is accepted, its changes land in `spec/016-Resources.md` (which
+  its changes landed in `spec/016-Resources.md` (which
   governs) and this EP remains the unamended design record of the original
   scope.
+
+- **Deferred slices delivered by successor EPs.** The future slices this EP
+  enumerates as out of the first scope (optimistic rollback, polling, infinite
+  resources — see §Non-Goals) each landed in a dedicated
+  successor EP, all now **final**, all amending `spec/016-Resources.md` (which
+  governs):
+  - **[EP-0019](EP-0019-optimistic-mutation-rollback.md)** — optimistic mutation
+    apply / commit / rollback / reconcile (the deferred optimistic-update slice).
+  - **[EP-0020](EP-0020-active-owner-polling.md)** — active-owner polling (the
+    deferred polling slice).
+  - **[EP-0021](EP-0021-infinite-resources.md)** — infinite / load-more resources
+    (the deferred infinite-resources slice).
+  This EP remains the unamended record of the original scope; each successor back-links here.
+
+- **Graduation graded by [EP-0006](EP-0006-runtime-subsystem-contract.md)
+  (final).** EP-0006's runtime-subsystem checklist *informed EP-0003's
+  graduation* (by recommendation, not hard dependency): the resource trio
+  (`:rf.runtime/resources`, `:rf.runtime/work-ledger`, `:rf.runtime/mutations`)
+  graduated against that grading.
 
 - **Builds on the app/runtime partition (landed).** Resource Queries stores its
   cache in the framework-owned runtime partition (`:rf.runtime/resources`) of the
