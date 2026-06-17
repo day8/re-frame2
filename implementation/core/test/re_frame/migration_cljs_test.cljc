@@ -14,14 +14,12 @@
       rejected fail-loud `:rf.error/cross-realm-frame-id` under the EP-0023
       process-local frame-id space, while re-asserting the SAME realm (the
       in-place re-registration case) does NOT collide;
-    * `assert-no-dual-make-frame!` is the transition-window guard, now a RETIRED
-      REGRESSION PIN (EP-0023 collapse FINALE, rf2-32siq3.48): the window is
-      CLOSED — `rf/make-frame` is repointed onto the EP-0023 OBJECT constructor,
-      so the facade exports exactly one `make-frame`. The guard fn survives so
-      the invariant stays enforceable against a synthetic dual export: BOTH the
-      EP-0013 record `make-frame` and the EP-0023 object `make-frame` wired under
-      one name fail-loud `:rf.error/make-frame-dual-export`, while at most one
-      export is the safe state.
+    * `rf/make-frame` is repointed onto the EP-0023 OBJECT constructor (EP-0023
+      collapse FINALE, rf2-32siq3.48): the transition window is CLOSED — the
+      facade exports exactly one `make-frame`, which returns the live frame
+      OBJECT (not the EP-0013 gensym keyword id), and a record-only config key
+      fails loud `:rf.error/make-frame-record-only-key` rather than being
+      silently dropped.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -171,42 +169,9 @@
         "a fresh id passes for any target realm")))
 
 ;; ---------------------------------------------------------------------------
-;; assert-no-dual-make-frame! — the transition-window guard
-;; ---------------------------------------------------------------------------
-
-(deftest dual-make-frame-export-fails-loud
-  (testing "EP-0023 transition window (bead rf2-32siq3.11 NOTES): both the
-            record and object make-frame exported under one name is rejected"
-    ;; Stand-ins for the two exported constructors — identity is all the guard
-    ;; checks (presence of both).
-    (let [record-export (fn [_config] :rf.frame/some-id)
-          object-export  (fn [_opts] {:rf.frame/object true})]
-      (is (= :rf.error/make-frame-dual-export
-             (err-id #(migration/assert-no-dual-make-frame! record-export object-export)))
-          "both exports present fails loud")
-      (is (migration/make-frame-export-conflict? record-export object-export)
-          "the pure predicate agrees both-present is a conflict"))))
-
-(deftest single-or-zero-make-frame-export-is-the-safe-window
-  (testing "at most one make-frame export is the safe window state — no throw"
-    (let [record-export (fn [_config] :rf.frame/some-id)
-          object-export  (fn [_opts] {:rf.frame/object true})]
-      (is (nil? (migration/assert-no-dual-make-frame! record-export nil))
-          "only the record export — safe")
-      (is (nil? (migration/assert-no-dual-make-frame! nil object-export))
-          "only the object export — safe")
-      (is (nil? (migration/assert-no-dual-make-frame! nil nil))
-          "neither exported — safe")
-      (is (not (migration/make-frame-export-conflict? record-export nil))
-          "one export is not a conflict")
-      (is (not (migration/make-frame-export-conflict? nil nil))
-          "no export is not a conflict"))))
-
-;; ---------------------------------------------------------------------------
 ;; The live facade repoint (EP-0023 collapse FINALE, rf2-32siq3.48): rf/make-frame
-;; IS the EP-0023 OBJECT constructor. The transition window is CLOSED — the guard
-;; above survives as a retired regression pin (asserted against stand-ins), and
-;; the facade var resolves to the object path. Asserted against the real facade.
+;; IS the EP-0023 OBJECT constructor. The transition window is CLOSED — the facade
+;; var resolves to the object path. Asserted against the real facade.
 ;; ---------------------------------------------------------------------------
 
 (deftest facade-make-frame-is-the-ep-0023-object-constructor

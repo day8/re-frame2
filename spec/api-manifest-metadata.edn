@@ -393,9 +393,8 @@
   ;; RETURNS THE LIVE FRAME OBJECT in all cases, not a gensym keyword id. The
   ;; migration slices (.45/.46/.47) moved every record caller off the
   ;; keyword-returning contract first, so the flip is non-breaking for the public
-  ;; surface; the transition-window dual-export guard
-  ;; (`re-frame.migration/assert-no-dual-make-frame!`) is retired to a regression
-  ;; pin. Status `v1` -> `EP-0023` (the surface is now reshaped by the named EP).
+  ;; surface; the facade exports exactly one `make-frame`, the object one. Status
+  ;; `v1` -> `EP-0023` (the surface is now reshaped by the named EP).
   ;; The EP-0013 RECORD constructor survives, demoted to the advanced
   ;; `re-frame.frame/make-frame` (gensym id + the `:on-create` / `:fx-overrides`
   ;; / `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` record-config surface);
@@ -422,8 +421,7 @@
   ;; row exists ahead of the spec/API.md projection, which EP-0023 graduates
   ;; separately — same posture as `image`). NON-BREAKING addition: it is a new
   ;; name, no existing surface changes; the `rf/make-frame` repoint onto the
-  ;; OBJECT constructor + the `assert-no-dual-make-frame!` retirement are the
-  ;; later caller-migration slice, NOT this one.
+  ;; OBJECT constructor is the later caller-migration slice, NOT this one.
   ["re-frame.core" "reload-images!"]      {:tier :advanced    :owner "002" :status "EP-0023"}
   ;; EP-0023 (rf2-32siq3.17 — image-loaded frames): `image` is the public
   ;; `rf/image` CONSTRUCTOR — it builds an IMAGE value, the selected
@@ -446,9 +444,9 @@
   ;; duplicate-frame-id migration diagnostic. Advanced tier (migration tooling,
   ;; not beginner front-porch), owned by 002 (Frames — EP-0023's normative home,
   ;; the sibling of `image` / `make-frame`). Status `EP-0023` (proposal-stage).
-  ;; The make-frame OBJECT/RECORD name-collapse + the `assert-no-dual-make-frame!`
-  ;; guard are deliberately NOT facade-exported during the transition window (the
-  ;; guard lives in `re-frame.migration` for the name-collapse follow-up to wire).
+  ;; The make-frame OBJECT/RECORD name-collapse has LANDED (rf2-32siq3.48):
+  ;; `rf/make-frame` is repointed onto the OBJECT constructor and the facade
+  ;; exports exactly one `make-frame`, the object one.
   ["re-frame.core" "migration-map"]               {:tier :advanced :owner "002" :status "EP-0023"}
   ["re-frame.core" "migration-explain"]           {:tier :advanced :owner "002" :status "EP-0023"}
   ["re-frame.core" "assert-process-local-frame-id!"] {:tier :advanced :owner "002" :status "EP-0023"}

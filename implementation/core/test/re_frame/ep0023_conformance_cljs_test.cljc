@@ -39,8 +39,9 @@
        re-resolve every live frame; no frame left stale; reload of an unknown
        frame errors cleanly.
     8. Migration diagnostics (§Backwards Compatibility) —
-       `assert-process-local-frame-id!` (cross-realm dup) +
-       `assert-no-dual-make-frame!` fire on the right conditions.
+       `assert-process-local-frame-id!` (cross-realm dup) fires on the right
+       conditions; `rf/make-frame` is repointed onto the EP-0023 object
+       constructor (the dual-export window is closed).
 
   Every fail-loud assertion branches on the `:rf.error/id` DISCRIMINATOR, never
   the message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -782,8 +783,8 @@
 ;;
 ;; assert-process-local-frame-id! fires on a cross-realm duplicate frame id (the
 ;; EP-0013 (realm, frame) affordance the EP-0023 process-local frame-id space
-;; removes); assert-no-dual-make-frame! fires when both make-frame constructors
-;; are exported under one public name during the transition window.
+;; removes); rf/make-frame is repointed onto the EP-0023 object constructor (the
+;; dual-export window is closed — the facade exports exactly one make-frame).
 
 (defn- app-with-frame
   "An EP-0013 app value carrying a single :frames section for `frame-id` — the
@@ -818,10 +819,9 @@
 (deftest s8-make-frame-repointed-to-the-object-constructor
   (testing "EP-0023 collapse FINALE (rf2-32siq3.48): rf/make-frame is REPOINTED
             onto the OBJECT constructor — it returns the live frame OBJECT, not a
-            gensym keyword id. The dual-export window is CLOSED; the guard is a
-            retired regression pin (the migration unit suite asserts it still
-            fires on a synthetic dual-export). Built against an explicit descriptor
-            pool (the 2-arity) so the repoint pin does not project the live store."
+            gensym keyword id. The dual-export window is CLOSED; the facade exports
+            exactly one make-frame. Built against an explicit descriptor pool (the
+            2-arity) so the repoint pin does not project the live store."
     (let [pool    [(reg-desc "examples.counter" :event :counter/inc ::inc)]
           img     (rf/image {:include-ns ["examples.counter"]})
           created (rf/make-frame {:images [img]} pool)]
@@ -835,15 +835,7 @@
       (is (= :rf.error/make-frame-record-only-key
              (err-id #(rf/make-frame {:on-create [:noop]})))
           ":on-create is the EP-0013 record surface — fail loud, redirect to
-           re-frame.frame/make-frame"))
-    (testing "the retired guard is still a live regression pin against a synthetic
-              dual export (the window invariant stays enforceable)"
-      (let [record-export (fn [_config] :rf.frame/some-id)
-            object-export (fn [_opts] {:rf.frame/object true})]
-        (is (= :rf.error/make-frame-dual-export
-               (err-id #(migration/assert-no-dual-make-frame! record-export object-export))))
-        (is (nil? (migration/assert-no-dual-make-frame! nil object-export))
-            "exactly one export — safe")))))
+           re-frame.frame/make-frame"))))
 
 ;; ===========================================================================
 ;; SECTION 9 — Framework-standard registry populated
