@@ -441,10 +441,30 @@
       ;; the cursor is egress-projected (summarized — a cursor can carry ids)
       (is (contains? live :cursor))
       (is (nil? (:page-error live))))
+    ;; rf2-byl7bk.3.4 — the per-page cursor CHAIN (the ordered record of how the
+    ;; accumulation advanced; NOT part of the cache key). Each element is a
+    ;; cursor egress-projected the SAME way :cursor is — a summary map, never
+    ;; the raw cursor.
+    (testing "the durable :page-params vector is projected as egress-summaries"
+      (is (vector? (:page-params live)))
+      (is (= 2 (count (:page-params live)))
+          "one summary per accumulated page (page-0 seed + 1 next-cursor)")
+      (is (every? map? (:page-params live)) "each element is a summary map")
+      (is (every? #(contains? % :preview) (:page-params live))
+          "each is a render-safe summary, not the raw cursor value")
+      (is (= ["nil" "\"cursor-1\""]
+             (mapv :preview (:page-params live)))
+          "the ordered cursor chain (page-0 nil seed, then \"cursor-1\")
+           survives projection verbatim — plain feed, non-sensitive owner,
+           no redaction")
+      (is (every? #(false? (:redacted? %)) (:page-params live))
+          "a non-sensitive feed's cursors are NOT over-redacted"))
     (testing "a TERMINAL feed: nil cursor → :terminal?, no :has-next-page?"
       (is (= 1 (:page-count term)))
       (is (true? (:terminal? term)))
-      (is (false? (:has-next-page? term))))
+      (is (false? (:has-next-page? term)))
+      (is (= 1 (count (:page-params term)))
+          "the terminal feed's single-page chain is projected too"))
     (testing "the THIRD error channel — a load-more :page-error is surfaced
               (summarized, distinct from :error / :refresh-error)"
       (is (some? (:page-error term)))
@@ -454,7 +474,30 @@
       (let [ordinary (first (h/project-instances entries now))]
         (is (not (contains? ordinary :infinite?)))
         (is (not (contains? ordinary :page-count)))
-        (is (not (contains? ordinary :cursor)))))))
+        (is (not (contains? ordinary :cursor)))
+        (is (not (contains? ordinary :page-params)))))))
+
+;; rf2-byl7bk.3.4 — page-params are cursor values; a SENSITIVE-owner feed must
+;; redact each cursor in the chain the SAME way the live-cache scope/params /
+;; the `:cursor` are redacted on the off-box path (the rf2-3tysyj treatment).
+(deftest infinite-page-params-egress-redaction-test
+  (let [;; an egress-fn that redacts the :params slot (mirrors the off-box
+        ;; `resource-egress-fn` for a `:sensitive?` owner) and passes other
+        ;; slots through — page-params + the cursor project through `:params`.
+        egress-fn     (fn [v slot] (if (= :params slot) h/redacted-sentinel v))
+        rows          (h/project-instances infinite-entries now egress-fn)
+        live          (first (filter #(= {:tag "clj"} (get-in % [:scoped-key 2])) rows))]
+    (testing "each VALUE-bearing page-param in the chain is redacted off-box"
+      (is (= 2 (count (:page-params live))))
+      ;; the page-0 seed is nil (nothing to redact — stays nil, as the live
+      ;; :data/scope nil slots do); every NON-nil cursor in the chain redacts.
+      (is (= [false true] (mapv :redacted? (:page-params live)))
+          "the nil seed has nothing to redact; the real cursor redacts")
+      (is (= "[redacted]" (:preview (second (:page-params live))))
+          "no raw cursor value leaks off-box")
+      ;; the cursor (current :next-page-param) routes through the SAME :params
+      ;; slot, so it redacts identically — page-params are not a new leak path.
+      (is (:redacted? (:cursor live))))))
 
 (deftest infinite-work-ledger-page-index-test
   (let [ledger (byte-keyed-ledger
@@ -676,6 +719,95 @@
         (is (= :article/by-slug (:resource-id fs)))
         (is (= :lifecycle (:class fs)))
         (is (= "vector" (get-in fs [:resource/key :scope :type])))))))
+
+;; rf2-byl7bk.3.5 — the four EP-0021 infinite-feed trace ops carry op-specific
+;; page evidence (param/index/count/next/terminal/reason/page-error). The
+;; generic lifecycle projection dropped them; the `:page` detail must retain
+;; them, with cursor-bearing facts egress-projected (3.4/3tysyj).
+(def ^:private infinite-trace-buffer
+  [;; a load-more issued the next-page fetch (carries the resolved cursor +
+   ;; the page index it appends at + the count so far)
+   {:id 20 :operation :rf.resource/load-more
+    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
+           :generation 4 :work/id [:rf.work/resource :feed 4]
+           :page-param "cursor-1" :page-index 1 :page-count 1}}
+   ;; the page-fetch succeeded + appended (new count + derived next cursor)
+   {:id 21 :operation :rf.resource/page-appended
+    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
+           :generation 4 :work/id [:rf.work/resource :feed 4]
+           :page-index 1 :page-count 2
+           :next-page-param "cursor-2" :terminal? false}}
+   ;; a TERMINAL page-appended (no next cursor → terminal? true)
+   {:id 22 :operation :rf.resource/page-appended
+    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
+           :generation 5 :page-index 2 :page-count 3
+           :next-page-param nil :terminal? true}}
+   ;; a load-more no-op (terminal feed → :no-next-page skip reason)
+   {:id 23 :operation :rf.resource/load-more-skipped
+    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
+           :reason :no-next-page :page-count 3}}
+   ;; a deduped in-flight load-more skip
+   {:id 24 :operation :rf.resource/load-more-skipped
+    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
+           :reason :in-flight :work/id [:rf.work/resource :feed 4]}}
+   ;; the THIRD error channel — a load-more page fetch FAILED (feed kept)
+   {:id 25 :operation :rf.resource/page-failed
+    :tags {:resource/key [session-scope :feed/articles {:tag "clj"}]
+           :generation 4 :status-before :loaded :status-after :loaded
+           :page-error {:kind :rf.http/server-error :status 500}}}])
+
+(deftest infinite-lifecycle-timeline-page-detail-test
+  (let [rows   (h/lifecycle-timeline infinite-trace-buffer)
+        by-id  (fn [id] (first (filter #(= id (:id %)) rows)))
+        lm     (by-id 20) appended (by-id 21) terminal (by-id 22)
+        skip-t (by-id 23) skip-if  (by-id 24) failed   (by-id 25)]
+    (testing "the four infinite ops are projected (in buffer order)"
+      (is (= [:rf.resource/load-more :rf.resource/page-appended
+              :rf.resource/page-appended :rf.resource/load-more-skipped
+              :rf.resource/load-more-skipped :rf.resource/page-failed]
+             (mapv :operation rows))))
+    (testing ":rf.resource/load-more retains param (egress-projected) + index + count"
+      (is (map? (:page lm)))
+      (is (= "\"cursor-1\"" (get-in lm [:page :page-param :preview]))
+          "the resolved cursor is egress-projected (summarized), not raw")
+      (is (= 1 (get-in lm [:page :page-index])))
+      (is (= 1 (get-in lm [:page :page-count])))
+      (is (not (contains? (:page lm) :next-page-param))
+          "load-more carries no next-page-param tag"))
+    (testing ":rf.resource/page-appended retains index/count/next-cursor/terminal"
+      (is (= 1 (get-in appended [:page :page-index])))
+      (is (= 2 (get-in appended [:page :page-count])))
+      (is (= "\"cursor-2\"" (get-in appended [:page :next-page-param :preview]))
+          "the derived next cursor is egress-projected")
+      (is (false? (get-in appended [:page :terminal?]))))
+    (testing "a TERMINAL page-appended surfaces :terminal? true + nil next"
+      (is (true? (get-in terminal [:page :terminal?])))
+      (is (= "nil" (get-in terminal [:page :next-page-param :preview]))))
+    (testing ":rf.resource/load-more-skipped retains the skip :reason"
+      (is (= :no-next-page (get-in skip-t [:page :reason])))
+      (is (= 3 (get-in skip-t [:page :page-count])))
+      (is (= :in-flight (get-in skip-if [:page :reason]))))
+    (testing ":rf.resource/page-failed surfaces the :page-error (summarized,
+              the THIRD error channel)"
+      (is (some? (get-in failed [:page :page-error])))
+      (is (contains? (get-in failed [:page :page-error]) :preview)))
+    (testing "a NON-infinite op (the plain lifecycle buffer) carries no :page"
+      (is (not (contains? (first (h/lifecycle-timeline trace-buffer)) :page))))))
+
+(deftest infinite-lifecycle-timeline-page-param-egress-test
+  ;; the cursor-bearing facts route through the single-arg egress-fn the way
+  ;; the off-box `get-resource-history` threads `resource-trace-egress-fn`.
+  (let [egress-fn (fn [_v] h/redacted-sentinel)   ; redact every value
+        rows      (h/lifecycle-timeline infinite-trace-buffer egress-fn)
+        by-id     (fn [id] (first (filter #(= id (:id %)) rows)))]
+    (testing "page-param / next-page-param / page-error redact off-box"
+      (is (:redacted? (get-in (by-id 20) [:page :page-param])))
+      (is (:redacted? (get-in (by-id 21) [:page :next-page-param])))
+      (is (:redacted? (get-in (by-id 25) [:page :page-error]))))
+    (testing "the metadata facts ride raw (NOT egressed)"
+      (is (= 1 (get-in (by-id 20) [:page :page-index])))
+      (is (= :no-next-page (get-in (by-id 23) [:page :reason])))
+      (is (true? (get-in (by-id 22) [:page :terminal?]))))))
 
 (deftest invalidation-graph-test
   (let [rows (h/invalidation-graph trace-buffer)]

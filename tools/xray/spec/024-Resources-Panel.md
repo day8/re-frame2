@@ -214,11 +214,16 @@ stacked sections:
    R1/R2/R3):** an `:infinite?` entry additionally carries `:page-count`
    (the accumulated page-vector length), the runtime-owned `:cursor`
    (the `:next-page-param` — egress-projected, since a cursor can carry
-   record ids), `:terminal?` (the derived `:has-next-page?` complement —
-   `nil` cursor is the single terminal), and `:page-error` (the THIRD
-   error channel — a load-more failure that KEPT the feed, summarized,
-   distinct from `:error` / `:refresh-error`). All are **pure functions
-   of the durable entry**. The `:fetching-next?` distinction (a load-more
+   record ids), `:page-params` (the ordered **per-page cursor chain** — the
+   durable record of how the accumulation advanced, page-0's `nil` seed then
+   each resolved next-page param; explicitly **NOT** part of the feed cache
+   key, so the only tool-facing record of the page-by-page fetch sequence —
+   each element egress-projected the SAME way `:cursor` is, since cursors
+   carry record ids; Spec 016 §Trace surfacing), `:terminal?` (the derived
+   `:has-next-page?` complement — `nil` cursor is the single terminal), and
+   `:page-error` (the THIRD error channel — a load-more failure that KEPT the
+   feed, summarized, distinct from `:error` / `:refresh-error`). All are
+   **pure functions of the durable entry**. The `:fetching-next?` distinction (a load-more
    in flight vs a whole-feed `:fetching?` refresh) is NOT a pure function
    of the entry — both leave the feed at `:fetching` (no 6th FSM state);
    the distinguishing durable fact is the in-flight work record's
@@ -272,7 +277,23 @@ stacked sections:
 5. **Lifecycle timeline** — the ordered `:rf.resource/*` trace rows
    (oldest-first), each carrying op label + semantic class colour,
    resource id, summarized resource key, generation, owner, summarized
-   cause, and status before/after.
+   cause, and status before/after. **The infinite-feed page evidence
+   (EP-0021):** the four load-more family ops (`:rf.resource/load-more` /
+   `page-appended` / `page-failed` / `load-more-skipped`) additionally
+   carry a `:page` detail map with the op-specific facts the generic row
+   drops — `:page-param` (the resolved cursor, on `load-more`) /
+   `:next-page-param` (the derived cursor, on `page-appended`) **both
+   egress-projected** (a cursor carries record ids — same treatment as the
+   instance row's `:cursor`), the **raw** metadata `:page-index` /
+   `:page-count` / `:terminal?` (`page-appended`) / `:reason`
+   (`load-more-skipped` — `:no-feed` / `:no-next-page` terminal /
+   `:in-flight` deduped), and the summarized `:page-error` (`page-failed` —
+   the THIRD error channel). Without this the timeline shows that a load-more
+   happened but loses which cursor was used, which page index appended/failed,
+   terminal-vs-in-flight, and the resulting next cursor. The **same `:page`
+   detail rides `get-resource-history`**, so MCP/AI callers retain the page
+   evidence too (Spec 016 §Trace surfacing). A non-infinite op carries no
+   `:page` slot.
 6. **Invalidation / mutation graph** — the `:rf.resource/invalidated`
    rows: summarized scope, the invalidated tags, summarized cause, the
    matched scoped keys, the match count (distinguishes a broad-tag storm
