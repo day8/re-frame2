@@ -49,3 +49,25 @@
            (share/parse-modes-param "Mode.app/dark,Mode.app/mobile")))
     (is (= {:label "Shared" :count 7}
            (share/parse-overrides-param "{:label \"Shared\", :count 7}")))))
+
+(deftest scenario-overrides-token-roundtrips-with-spaced-string-value
+  (testing "the browser-decoded `overrides=` token the share-url-hydrates
+            scenario drives (`{:label \"Shared Label\"}`) parses as a kept
+            override, not a dropped one. A space-bearing string value is the
+            case that exposed the stale pre-rf2-j0hwf `label:\"...\"` wire
+            form (it was classified :dropped), so this pins the EDN-map form."
+    (let [decoded "{:label \"Shared Label\"}"
+          parsed  (share/parse-overrides-param* decoded)]
+      (is (= {:label "Shared Label"} (:overrides parsed))
+          "the spaced-string override is kept")
+      (is (= [] (:dropped parsed))
+          "nothing is dropped — the EDN-map wire form reads cleanly")
+      ;; The URL the scenario sends carries the js/encodeURIComponent form
+      ;; (space → %20, not +); URLSearchParams.get decodes it back to the
+      ;; EDN-map string above. Round-trip the encoder to lock the contract.
+      (let [token (share/build-overrides-token {:label "Shared Label"})]
+        (is (string? token))
+        (is (= {:label "Shared Label"}
+               (share/parse-overrides-param
+                 (js/decodeURIComponent token)))
+            "the CLJS-encoded token round-trips through URLSearchParams-style decode")))))
