@@ -1,9 +1,9 @@
-(ns re-frame.world-inputs-router-stamp-clock-cljs-test
+(ns re-frame.cofx-router-stamp-clock-cljs-test
   "rf2-qz0uog (EP-0010 §Dispatch Envelope Stamping) — CLJS LIVE-path
   regression for the router's `:rf.cofx` `:rf/time-ms` stamp.
 
-  WHY A NEW CLJS SUITE. The existing core world-input tests
-  (`re-frame.world-inputs-test`) are JVM-ONLY and assert only that an
+  WHY A NEW CLJS SUITE. The existing core `:rf.cofx` envelope tests
+  (`re-frame.cofx-envelope-test`) are JVM-ONLY and assert only that an
   omitted `:time-ms` is stamped to a NUMBER. On the JVM `interop/now-ms`
   (elapsed) and `interop/epoch-now-ms` (wall-clock) are BOTH
   `System.currentTimeMillis`-ish, so a regression swapping the router's
@@ -77,14 +77,14 @@
         ;; intentionally UNSCRIPTED — no :rf.cofx opt — so the router's
         ;; build-envelope performs the live host-clock read under test.
         (rf/dispatch-sync [:wi.clk/capture] {:frame :wi.clk/cofx})
-        (let [after   (js/Date.now)
-              cofx    @captured
-              world   (:rf.cofx cofx)
-              time-ms (:rf/time-ms world)]
+        (let [after    (js/Date.now)
+              cofx     @captured
+              rf-cofx  (:rf.cofx cofx)
+              time-ms  (:rf/time-ms rf-cofx)]
           (is (some? cofx) "the handler ran and captured its coeffects")
           (is (contains? cofx :rf.cofx)
               ":rf.cofx is a framework coeffect on the handler ctx")
-          (is (map? world) ":rf.cofx is a map")
+          (is (map? rf-cofx) ":rf.cofx is a map")
           (is (number? time-ms) ":rf/time-ms is a stamped number")
           ;; The CLASS assertion: wall-clock epoch ms, not a perf origin time.
           ;; Pre-swap ~1.78e12; a now-ms swap lands ~1e4 (performance.now) on
@@ -105,7 +105,7 @@
 
 (deftest router-stamps-omitted-time-ms-as-wall-clock-epoch-on-the-dispatched-trace
   (testing "rf2-qz0uog — the SAME omitted-time-ms stamp rides the
-            :rf.event/dispatched trace (the Xray Event-lens WORLD INPUTS
+            :rf.event/dispatched trace (the Xray Event-lens :rf.cofx
             surface, rf2-jt854w): the trace-side :rf.cofx :time-ms is
             ALSO a wall-clock epoch ms (> 1e12), not a perf-clock value. Covers
             the router envelope-stamp path as seen by the trace stream, not
@@ -123,10 +123,10 @@
                              first)
               ;; the op-type-specific payload slots ride under :tags;
               ;; build-event hoists only :source to top-level (rf2-jt854w).
-              world     (get-in enqueue [:tags :rf.cofx])
-              time-ms   (:rf/time-ms world)]
+              rf-cofx   (get-in enqueue [:tags :rf.cofx])
+              time-ms   (:rf/time-ms rf-cofx)]
           (is (some? enqueue) ":rf.event/dispatched fired")
-          (is (map? world)
+          (is (map? rf-cofx)
               ":rf.cofx rides the dispatched trace under :tags")
           (is (number? time-ms) "the trace-side :rf/time-ms is a stamped number")
           (is (> time-ms wall-clock-floor)

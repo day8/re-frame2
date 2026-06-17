@@ -1,8 +1,9 @@
-(ns re-frame.dispatched-trace-world-inputs-test
+(ns re-frame.dispatched-trace-cofx-test
   "Per rf2-jt854w (EP-0010 observability completion) — the
   `:rf.event/dispatched` enqueue trace carries the envelope's causal
-  `:rf.cofx` map so Xray's Event lens (rf2-9fyn40, the WORLD INPUTS
-  surface) has data to render.
+  `:rf.cofx` map so Xray's Event lens (rf2-9fyn40, the RECORDABLE
+  COEFFECTS surface — renamed from WORLD INPUTS by EP-0017 §9) has data
+  to render.
 
   Before this, `emit-dispatched-trace!` stamped
   `:rf.event/v` / `:frame` / `:rf.event/origin` / `:source` / `:rf.event/sync?`
@@ -19,7 +20,7 @@
   prod-elision probe (`npm run test:elision`): the whole `:rf.event/dispatched`
   emit DCE's under `:advanced` + `goog.DEBUG=false` (the `event/dispatched`
   op keyword is a `check-elision.cjs` dev-only sentinel), so the dev arm —
-  including the world-inputs stamp — rides that same whole-body elision. This
+  including the `:rf.cofx` stamp — rides that same whole-body elision. This
   JVM test pins the DEV-SIDE PRESENCE contract (`interop/debug-enabled?` is
   true by default on the JVM).
 
@@ -63,7 +64,7 @@
 
 ;; ---- the dispatched trace carries :rf.cofx ------------------------
 
-(deftest dispatched-trace-carries-world-inputs-with-time-ms
+(deftest dispatched-trace-carries-cofx-with-time-ms
   (testing ":rf.event/dispatched carries the envelope's :rf.cofx map,
    and that map carries the framework-stamped causal :time-ms"
     (rf/reg-event :rf2-jt854w/noop (fn [{:keys [db]} _] {:db db}))
@@ -73,17 +74,17 @@
           ;; The op-type-specific payload slots (`:rf.event/v`,
           ;; `:rf.event/origin`, `:rf.cofx`, ...) ride under
           ;; `:tags`; `build-event` hoists only `:source` to top-level.
-          wi         (get-in enqueue [:tags :rf.cofx])]
+          rf-cofx    (get-in enqueue [:tags :rf.cofx])]
       (is (some? enqueue) ":rf.event/dispatched fired")
       (is (contains? (:tags enqueue) :rf.cofx)
           ":rf.cofx is stamped on the dispatched trace (rf2-jt854w)")
-      (is (map? wi) ":rf.cofx is a map")
-      (is (contains? wi :rf/time-ms)
+      (is (map? rf-cofx) ":rf.cofx is a map")
+      (is (contains? rf-cofx :rf/time-ms)
           "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
-      (is (integer? (:rf/time-ms wi))
+      (is (integer? (:rf/time-ms rf-cofx))
           ":rf/time-ms is an epoch-ms integer"))))
 
-(deftest dispatched-trace-preserves-caller-supplied-world-inputs
+(deftest dispatched-trace-preserves-caller-supplied-cofx
   (testing "a caller-supplied :rf.cofx (test/replay/SSR fixture) rides
    onto the dispatched trace verbatim — additional owner-qualified facts
    are preserved alongside the framework-required :rf/time-ms"
@@ -98,7 +99,7 @@
           [enqueue]  (dispatched-of evs)]
       (is (some? enqueue) ":rf.event/dispatched fired")
       (is (= scripted (get-in enqueue [:tags :rf.cofx]))
-          "the caller-supplied causal world-input map is stamped verbatim"))))
+          "the caller-supplied causal :rf.cofx map is stamped verbatim"))))
 
 (deftest dispatched-trace-fills-missing-time-ms-from-supplied-map
   (testing "a caller-supplied map WITHOUT :rf/time-ms has it filled by the router;
@@ -109,17 +110,17 @@
                          (rf/dispatch-sync [:rf2-jt854w/fill]
                                            {:rf.cofx {:todo/score 0.99}})))
           [enqueue]  (dispatched-of evs)
-          wi         (get-in enqueue [:tags :rf.cofx])]
+          rf-cofx    (get-in enqueue [:tags :rf.cofx])]
       (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (= 0.99 (:todo/score wi)) "caller-supplied fact preserved")
-      (is (integer? (:rf/time-ms wi))
+      (is (= 0.99 (:todo/score rf-cofx)) "caller-supplied fact preserved")
+      (is (integer? (:rf/time-ms rf-cofx))
           ":rf/time-ms filled by the router at the causal boundary"))))
 
-(deftest world-inputs-rides-under-tags-alongside-event-payload-slots
+(deftest cofx-rides-under-tags-alongside-event-payload-slots
   (testing ":rf.cofx rides under :tags alongside the other op-type-
    specific payload slots (:rf.event/v, :rf.event/origin, :rf.event/sync?) —
    build-event hoists only :source to top-level, so the Event lens reads the
-   world-input map off (get-in event [:tags :rf.cofx])"
+   :rf.cofx map off (get-in event [:tags :rf.cofx])"
     (rf/reg-event :rf2-jt854w/placement (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       (fn [] (rf/dispatch-sync [:rf2-jt854w/placement])))

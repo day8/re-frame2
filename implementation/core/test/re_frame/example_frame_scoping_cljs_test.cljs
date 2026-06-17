@@ -38,7 +38,7 @@
      `:rf.cofx/mint-policy :strict` (which re-feeds the recorded value
      verbatim and never re-mints) and asserts the durable id is the token's
      id on BOTH runs (identical across runs). Mirrors
-     `world_inputs_test/supplied-uuid-replay-stable-where-ambient-would-diverge`,
+     `cofx_envelope_test/supplied-uuid-replay-stable-where-ambient-would-diverge`,
      but executed against the EXAMPLES' OWN handlers — so a drift back to a
      write-site `(random-uuid)` (the rf2-wbgb74 bug) fails loud here.
 

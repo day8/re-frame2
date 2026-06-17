@@ -1,9 +1,9 @@
-(ns re-frame.world-inputs-test
-  "EP-0010 §Causal World Inputs core slice (rf2-s9ss0t).
+(ns re-frame.cofx-envelope-test
+  "EP-0017 `:rf.cofx` recordable-coeffect envelope core slice (rf2-s9ss0t).
 
   Pins the `:rf.cofx` envelope + coeffect contract that makes the
   frame fold deterministic with respect to prior frame-state plus the
-  causal token (Spec 002 §The World-Input Rule):
+  causal token (Spec 002 §Recordable coeffects):
 
     - the router STAMPS `:rf.cofx {:rf/time-ms ...}` when the caller
       omits it (Spec 002 §Dispatch Envelope Stamping);
@@ -19,6 +19,11 @@
       other framework defaults (`fx/framework-coeffect-keys`);
     - `:dispatched-at` is RETIRED in the same change (rider b) — its
       diagnostic dispatch-time need is the trace event `:time` stamp.
+
+  EP-0017 renamed the EP-0010 envelope field `:rf.world/inputs` to the flat
+  `:rf.cofx` map (no alias); this namespace pins the live `:rf.cofx` contract.
+  The retired-key hard-error coverage lives in `re-frame.cofx-cljs-test` and
+  `re-frame.event-model-conformance-cljs-test`.
 
   JVM-only — the stamping path is platform-agnostic (`interop/now-ms`
   realises on both hosts); no CLJS host dependency under test."
@@ -134,7 +139,7 @@
 ;; core boundary that protects ordinary public dispatch.
 ;; ===========================================================================
 
-(deftest non-map-world-inputs-is-a-hard-error
+(deftest non-map-cofx-is-a-hard-error
   (testing "a supplied non-map :rf.cofx is a hard error (not silently stamped)"
     (rf/reg-frame :wi/bad-shape {:doc "ctx"})
     (testing "build-envelope throws even with the dev gate OFF (prod-survivable)"
@@ -190,7 +195,7 @@
         (is (re-find #"INTEGER" (:reason data))
             "the message states the integer/epoch-ms contract")))))
 
-(deftest valid-world-inputs-shapes-pass
+(deftest valid-cofx-shapes-pass
   (testing "the valid shapes the validator must NOT reject"
     (rf/reg-frame :wi/valid {:doc "ctx"})
     (testing "nil :rf.cofx passes (the router stamps a fresh map)"
@@ -355,14 +360,14 @@
                                             :rf.cofx "not-a-map"}))
           "both the map-shape guard and the structural slice-A guard are always-on"))))
 
-(deftest invalid-world-inputs-rejected-before-clock-read
-  ;; Mirrors retired-dispatched-at-rejected-before-world-input-clock-read: the
-  ;; validation runs BEFORE the world-input clock stamp, so an invalid token
+(deftest invalid-cofx-rejected-before-clock-read
+  ;; Mirrors retired-dispatched-at-rejected-before-causal-clock-read: the
+  ;; validation runs BEFORE the causal-token clock stamp, so an invalid token
   ;; fails fast WITHOUT triggering the always-on epoch-now-ms read for a
   ;; dispatch that cannot proceed. Redefine epoch-now-ms to throw a distinct
   ;; marker; if the clock is read before validation, that marker surfaces.
   (testing "a malformed :rf.cofx throws the validation error WITHOUT
-            reading the world-input clock first"
+            reading the causal-token clock first"
     (rf/reg-frame :wi/order2 {:doc "ctx"})
     (with-redefs [interop/epoch-now-ms
                   (fn [] (throw (ex-info "clock read before validation"
@@ -375,11 +380,11 @@
             data (ex-data ex)]
         (is (some? ex) "an exception was thrown")
         (is (not (::clock-read data))
-            "the world-input clock was NOT read before validation — failed fast")
+            "the causal-token clock was NOT read before validation — failed fast")
         (is (= :rf.error/invalid-cofx (:rf.error/id data))
             "the surfaced error is the validation error, proving it ran first")))))
 
-(deftest invalid-world-inputs-raised-through-full-dispatch
+(deftest invalid-cofx-raised-through-full-dispatch
   (testing "the full dispatch path (not just build-envelope) raises the validation error"
     (rf/reg-frame :wi/dispatch-bad {:doc "ctx"})
     (rf/reg-event :wi/bad-noop (fn [{:keys [db]} _] {:db db}))
@@ -390,7 +395,7 @@
         "dispatch-sync surfaces the malformed-token error synchronously")))
 
 ;; ===========================================================================
-;; Child dispatch gets its OWN world-input map (no :rf/time-ms inheritance)
+;; Child dispatch gets its OWN :rf.cofx map (no :rf/time-ms inheritance)
 ;; ===========================================================================
 
 (deftest child-dispatch-gets-fresh-time-ms
@@ -399,7 +404,7 @@
     (let [envelopes (atom [])]
       ;; A user fx-handler receives the parent dispatch envelope under
       ;; (:envelope m); each handler in the cascade fires its own capture,
-      ;; so we read both the parent's and child's stamped world map.
+      ;; so we read both the parent's and child's stamped :rf.cofx map.
       (rf/reg-fx :wi/capture-env
         (fn [m _args] (swap! envelopes conj (:envelope m))))
       (rf/reg-event :wi/parent
@@ -426,7 +431,7 @@
             "child did NOT inherit the parent's :rf/time-ms — distinct causal token (EP-0010)")))))
 
 ;; ===========================================================================
-;; rf2-irbjjq: a :dispatch-later child gets FRESH world-inputs stamped at
+;; rf2-irbjjq: a :dispatch-later child gets a FRESH :rf.cofx map stamped at
 ;; FIRE time (the causal boundary is when the deferred dispatch RUNS, not when
 ;; it was enqueued) — :rf/time-ms is NOT the parent's, NOT the enqueue-time clock,
 ;; while the inherited envelope fields (:frame / :trace-id / :origin) still
@@ -442,7 +447,7 @@
 ;; settled. `:rf.cofx` is deliberately ABSENT from
 ;; `re-frame.fx/inheritable-envelope-keys`, so the deferred child is stamped
 ;; a fresh `:rf/time-ms` at fire from `interop/epoch-now-ms` rather than copying
-;; the parent's — the mechanism the existing world-input tests pin only for
+;; the parent's — the mechanism the existing :rf.cofx tests pin only for
 ;; the synchronous case.
 ;;
 ;; We make the wall clock ADVANCE between enqueue and fire (a mutable clock
@@ -453,8 +458,8 @@
 ;; :rf.cofx to the inheritable set, fails loudly here.
 ;; ===========================================================================
 
-(deftest dispatch-later-child-gets-fresh-world-inputs-stamped-at-fire-time
-  (testing "a :fx [[:dispatch-later …]] child is stamped FRESH world-inputs at
+(deftest dispatch-later-child-gets-fresh-cofx-stamped-at-fire-time
+  (testing "a :fx [[:dispatch-later …]] child is stamped a FRESH :rf.cofx at
             FIRE time — :rf/time-ms is the fire-time clock, NOT the parent token,
             NOT the enqueue-time clock; inherited fields still propagate"
     (rf/reg-frame :wi/later {:doc "ctx"})
@@ -467,7 +472,7 @@
           captured-child (atom nil)]
       ;; The deferred child reads its own envelope off the fx-handler ctx
       ;; (:envelope m) — the same surface child-dispatch-gets-fresh-time-ms
-      ;; uses — so we observe the world-inputs map the router stamped for it.
+      ;; uses — so we observe the :rf.cofx map the router stamped for it.
       (rf/reg-fx :wi.later/capture-env
         (fn [m _args] (reset! captured-child (:envelope m))))
       (rf/reg-event :wi.later/parent
@@ -540,7 +545,7 @@
 ;; Coeffect visibility + trace projection filtering
 ;; ===========================================================================
 
-(deftest world-inputs-visible-as-coeffect
+(deftest cofx-visible-as-coeffect
   (testing "handlers read :rf.cofx from the coeffect map"
     (rf/reg-frame :wi/cofx {:doc "ctx"})
     (let [cofx (capture-coeffects :wi/cofx
@@ -550,7 +555,7 @@
       (is (= 1781078400456 (get-in cofx [:rf.cofx :rf/time-ms]))
           "the supplied :rf/time-ms is what the handler reads"))))
 
-(deftest world-inputs-filtered-from-user-cofx-projection
+(deftest cofx-filtered-from-user-cofx-projection
   (testing "fx/user-injected-coeffects strips :rf.cofx like the other framework defaults"
     (is (contains? fx/framework-coeffect-keys :rf.cofx)
         ":rf.cofx is in the framework-coeffect-keys filter set")
@@ -615,17 +620,17 @@
                                       :dispatched-at 123}))
           "dispatch-sync surfaces the retirement hard error synchronously"))))
 
-(deftest retired-dispatched-at-rejected-before-world-input-clock-read
+(deftest retired-dispatched-at-rejected-before-causal-clock-read
   ;; rf2-s2mizv finding #3: the retired-opt validation runs BEFORE the
-  ;; world-input clock stamp, so an invalid dispatch fails fast WITHOUT first
-  ;; triggering the always-on `epoch-now-ms` read + world-input map allocation.
+  ;; causal-token clock stamp, so an invalid dispatch fails fast WITHOUT first
+  ;; triggering the always-on `epoch-now-ms` read + :rf.cofx map allocation.
   ;; Pre-fix, `build-envelope` stamped `:rf.cofx {:rf/time-ms …}` and only
   ;; THEN rejected `:dispatched-at` — wasting a clock read on a dispatch that
   ;; cannot proceed. We assert ordering by redefining `epoch-now-ms` to throw a
   ;; DISTINCT marker: if the clock is read before the retirement check, that
   ;; marker surfaces instead of the retirement error.
   (testing "supplying :dispatched-at throws the retirement error WITHOUT reading
-            the world-input clock first"
+            the causal-token clock first"
     (rf/reg-frame :wi/order {:doc "ctx"})
     (with-redefs [interop/epoch-now-ms
                   (fn [] (throw (ex-info "clock read before retirement check"
@@ -637,7 +642,7 @@
             data (ex-data ex)]
         (is (some? ex) "an exception was thrown")
         (is (not (::clock-read data))
-            "the world-input clock was NOT read before the retirement check —
+            "the causal-token clock was NOT read before the retirement check —
              the dispatch failed fast on the retired opt")
         (is (= :rf.error/dispatched-at-retired (:rf.error/id data))
             "the surfaced error is the retirement hard error, proving the
@@ -666,7 +671,7 @@
             and the supplied values land in app-db EXACTLY as supplied"
     (rf/reg-frame :wi/todos {:doc "ctx"})
     ;; The durable handler: reads the causal token's scripted id + colour from
-    ;; the world-input coeffect (NOT an ambient `random-uuid` / `rand-nth`) and
+    ;; the :rf.cofx coeffect (NOT an ambient `random-uuid` / `rand-nth`) and
     ;; folds them into a durable app-db entity. A `reg-event` handler so we can
     ;; read the `:rf.cofx` framework coeffect off the cofx map.
     (rf/reg-event :todo/create
@@ -690,7 +695,7 @@
         (is (= color (:todo/color entity))
             "the durable :todo/color equals the supplied :random value exactly")
         (is (= "buy milk" (:todo/text entity))
-            "the event arg rides through alongside the world-input ids")))))
+            "the event arg rides through alongside the :rf.cofx ids")))))
 
 (deftest supplied-uuid-replay-stable-where-ambient-would-diverge
   (testing "re-running the SAME causal token reproduces the SAME durable id
