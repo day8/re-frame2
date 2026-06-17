@@ -56,10 +56,20 @@
 ;; exclusive). So the always-on record cannot drive a second projection of
 ;; the same frame. NON-PROJECTING by design.
 
-(defn- emit-always-on-error!
+(defn emit-always-on-error!
   "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
-  error-emit registry via the `:error-emit/dispatch-error-record` late-bind
-  hook. No-op when the producer hasn't loaded. Returns nil."
+  error-emit registry (surface #4), via the `:error-emit/dispatch-error-
+  record` late-bind hook. `record` is the union shape `{:error <kw> :frame
+  <id-or-nil> :time <ms> + flat category keys}`. A no-op when the
+  `error-emit` producer hasn't loaded (the hook is nil) — the dev
+  `trace/emit-error!` companion still fires. Returns nil.
+
+  SINGLE SOURCE within the ssr artefact (rf2-50e82k): both the projector
+  (`project-error`) and the listener (`re-frame.ssr.error-listener`, which
+  already :requires this ns) call this one definition, closing the drift
+  risk on the `:error-emit/dispatch-error-record` hook keyword + the
+  nil-return contract. (The ssr-ring artefact keeps its own local wrapper
+  in `re-frame.ssr.ring.lifecycle` — a deliberate artefact boundary.)"
   [record]
   (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record! record))
