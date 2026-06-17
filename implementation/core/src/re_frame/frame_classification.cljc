@@ -56,6 +56,18 @@
     `:frame-classification/http-carriers` late-bind hook (EP-0015 HTTP
     slice, bead-plan item 8 — rf2-ppkh3v).
 
+    `:headers` is vector-only — the header denylist is immutable (a
+    default-off header would be a real leak). `:query-params` additionally
+    accepts a `{:include [..] :except [..]}` policy map (rf2-4wqxq8):
+    `:include` extends the defaults (as the legacy vector form does), and
+    `:except` SUBTRACTS denylisted names from the built-in defaults for
+    THIS frame's own dev trace — effective policy `(defaults − except) ∪
+    include`. All redaction is debug-gated trace surface (elided in
+    production), so `:except` only relaxes dev-trace friction over a
+    harmless routing/pagination key; the query defaults stay on-by-default
+    and subtractable per name. A name in both `:include` and `:except`
+    stays sensitive (`:include` wins).
+
   - **`:observability`** (`:handled-events` / `:errors`) is durable frame
     sink policy, likewise retained on the frame's `:config`. This slice
     validates its shape (each entry a map naming a `:sink` keyword);
@@ -199,31 +211,70 @@
 ;; §Privacy). Carrier names MUST be strings (header / query-param names are
 ;; strings on the wire); a non-string name fails loudly.
 
-(defn- validate-carriers!
-  "Validate one HTTP carrier-name vector (`:headers` or `:query-params`).
-  Each name must be a string; a non-string carrier fails loudly. `carrier-key`
-  names the slot for the error. Returns the (unchanged) vector, or `nil`."
-  [frame-id carrier-key names]
-  (cond
-    (nil? names) nil
-
-    (not (vector? names))
+(defn- validate-carrier-name-vector!
+  "Validate a vector of carrier names — each must be a string; a non-string
+  name fails loudly. `bad-key` locates the slot for the error message.
+  Returns the (unchanged) vector."
+  [frame-id carrier-key bad-key names]
+  (when-not (vector? names)
     (throw (classification-error
              frame-id
              (str ":sensitive :http " carrier-key ", when present, must be a "
                   "vector of carrier-name strings")
-             {:bad-key [:sensitive :http carrier-key] :bad-value names}))
+             {:bad-key bad-key :bad-value names})))
+  (doseq [n names]
+    (when-not (string? n)
+      (throw (classification-error
+               frame-id
+               (str ":sensitive :http " carrier-key " names must be "
+                    "strings (header / query-param names are strings)")
+               {:bad-key bad-key :bad-carrier n}))))
+  names)
 
-    :else
+(def ^:private query-param-policy-keys #{:include :except})
+
+(defn- validate-carriers!
+  "Validate one HTTP carrier slot (`:headers` or `:query-params`).
+
+  `:headers` accepts only a vector of carrier-name strings — the header
+  denylist is immutable (no `:except` subtraction; a default-off header
+  would be a real leak).
+
+  `:query-params` (rf2-4wqxq8) accepts EITHER:
+   - a vector of carrier-name strings — the legacy include-only form, OR
+   - a map `{:include [..] :except [..]}` — `:include` extends the defaults,
+     `:except` subtracts from the built-in defaults for this frame's own dev
+     trace. Both keys are optional; each (when present) is a vector of
+     strings; an unknown key fails loudly (closed grammar).
+
+  Each carrier name must be a string; a non-string carrier fails loudly.
+  Returns the (unchanged) value, or `nil`."
+  [frame-id carrier-key names]
+  (cond
+    (nil? names) nil
+
+    ;; rf2-4wqxq8 — query-params may carry a {:include :except} policy map.
+    (and (= :query-params carrier-key) (map? names))
     (do
-      (doseq [n names]
-        (when-not (string? n)
+      (doseq [k (keys names)]
+        (when-not (contains? query-param-policy-keys k)
           (throw (classification-error
                    frame-id
-                   (str ":sensitive :http " carrier-key " names must be "
-                        "strings (header / query-param names are strings)")
-                   {:bad-key [:sensitive :http carrier-key] :bad-carrier n}))))
-      names)))
+                   (str "unknown :sensitive :http :query-params key " k
+                        "; valid keys are :include and :except")
+                   {:bad-key [:sensitive :http :query-params k]
+                    :valid   query-param-policy-keys}))))
+      (when-some [inc (:include names)]
+        (validate-carrier-name-vector!
+          frame-id :query-params [:sensitive :http :query-params :include] inc))
+      (when-some [exc (:except names)]
+        (validate-carrier-name-vector!
+          frame-id :query-params [:sensitive :http :query-params :except] exc))
+      names)
+
+    :else
+    (validate-carrier-name-vector!
+      frame-id carrier-key [:sensitive :http carrier-key] names)))
 
 (def ^:private http-carrier-keys #{:headers :query-params})
 
@@ -485,18 +536,27 @@
 ;; point so the HTTP layer never re-derives the lower-cased form per emit.
 
 (defn http-carriers
-  "Resolve `frame-id`'s frame-local HTTP carrier extension sets from its
-  `reg-frame` `:sensitive {:http {:headers [..] :query-params [..]}}` config
-  (EP-0015 §3). Returns
+  "Resolve `frame-id`'s frame-local HTTP carrier policy from its `reg-frame`
+  `:sensitive {:http {:headers [..] :query-params ..}}` config (EP-0015 §3).
+  Returns
 
       {:headers      #{<lower-cased header name>...}
-       :query-params #{<lower-cased query-param name>...}}
+       :query-params <query-param policy>}
 
-  — the EXTENSIONS only (the immutable built-in defaults are owned by the
-  HTTP layer and unioned there). Returns `nil` when `frame-id` is nil, the
+  where the `:query-params` policy is (rf2-4wqxq8):
+   - a `#{<lower-cased name>...}` SET for the legacy include-only vector form
+     (`:query-params [\"shop_token\"]`) — names EXTEND the built-in defaults; OR
+   - a `{:include #{..} :except #{..}}` MAP for the `{:include [..] :except [..]}`
+     form — `:include` extends the defaults, `:except` subtracts from them for
+     this frame's own dev trace (`(defaults − except) ∪ include`). Empty
+     include/except sub-sets are dropped; a policy that resolves to nothing
+     (e.g. all-empty vectors) yields `nil` for `:query-params`.
+
+  `:headers` are EXTENSIONS only (the immutable built-in defaults are owned by
+  the HTTP layer and unioned there). Returns `nil` when `frame-id` is nil, the
   frame is unregistered, or the frame declares no `:sensitive :http` block —
-  the common case, so the redactor's per-frame lookup allocates nothing when
-  a frame carries no carrier policy. Names are lower-cased for the
+  the common case, so the redactor's per-frame lookup allocates nothing when a
+  frame carries no carrier policy. Names are lower-cased for the
   case-insensitive wire match. Pure (modulo the registry read)."
   [frame-id]
   (when frame-id
@@ -507,7 +567,18 @@
                         (when (seq names)
                           (into #{} (map str/lower-case) names)))
                 hs (->set (:headers http))
-                qs (->set (:query-params http))]
+                raw-qs (:query-params http)
+                qs (if (map? raw-qs)
+                     ;; {:include :except} policy map — lower-case both sub-sets,
+                     ;; drop empties, and collapse to nil when nothing remains.
+                     (let [inc (->set (:include raw-qs))
+                           exc (->set (:except raw-qs))]
+                       (when (or inc exc)
+                         (cond-> {}
+                           inc (assoc :include inc)
+                           exc (assoc :except exc))))
+                     ;; legacy include-only vector → plain extension set
+                     (->set raw-qs))]
             (when (or hs qs)
               (cond-> {}
                 hs (assoc :headers hs)

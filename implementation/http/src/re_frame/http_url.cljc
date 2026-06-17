@@ -106,26 +106,46 @@
     "hmac"})
 
 (defn sensitive-query-param?
-  "Predicate: is `param-name` in the merged query-param denylist (built-in
-  defaults ∪ the emitting frame's `frame-extras`)? Case-insensitive.
+  "Predicate: is `param-name` sensitive under the emitting frame's effective
+  query-param policy? Case-insensitive.
 
-  `frame-extras` is the frame-local carrier extension set — a set of
-  lower-cased param names resolved from the emitting frame's
-  `:sensitive {:http {:query-params [..]}}` policy (EP-0015 §3), or `nil`
-  when the frame declares none. The built-in defaults always apply; the
-  frame set EXTENDS them.
+  `frame-policy` is the frame-local query-param carrier policy resolved from
+  the emitting frame's `:sensitive {:http {:query-params ..}}` config
+  (EP-0015 §3), or `nil` when the frame declares none. Two shapes are
+  accepted (rf2-4wqxq8):
 
-  Per rf2-ydp66 — short-circuits via `contains?` lookups on the source
-  sets rather than building a fresh union per call. The URL redactor calls
-  this once per query-string param; two `contains?` ops on small sets are
-  O(1) and allocate nothing."
+   - a **set** of lower-cased names — the legacy include-only extension set
+     (`:query-params [\"shop_token\"]`). The built-in defaults always apply;
+     the set EXTENDS them.
+   - a **policy map** `{:include #{..} :except #{..}}` — `:include` extends
+     the defaults (as above); `:except` SUBTRACTS from the immutable
+     built-in defaults for THIS frame's own dev trace. The effective policy
+     is `(defaults − except) ∪ include`. A name in BOTH wins as sensitive
+     (`:include` takes precedence over `:except`) — declaring a name
+     sensitive is never overridden by also excepting it.
+
+  The `:except` path is a frame-local DEV-TRACE subtraction only (all
+  redaction is debug-gated trace surface, elided entirely in production);
+  it lets a frame stop redacting a harmless routing/pagination key/token in
+  its OWN local trace. The immutable header denylist and the on-by-default
+  query defaults are unchanged — `:except` is opt-in per name.
+
+  Per rf2-ydp66 — short-circuits via `contains?` lookups on the source sets
+  rather than building a fresh union per call."
   ([param-name] (sensitive-query-param? param-name nil))
-  ([param-name frame-extras]
+  ([param-name frame-policy]
    (boolean
      (when (string? param-name)
-       (let [lowered (str/lower-case param-name)]
-         (or (contains? default-query-param-denylist lowered)
-             (and frame-extras (contains? frame-extras lowered))))))))
+       (let [lowered (str/lower-case param-name)
+             ;; Normalise both accepted shapes to [include except].
+             [include except] (if (map? frame-policy)
+                                [(:include frame-policy) (:except frame-policy)]
+                                [frame-policy nil])
+             included? (and include (contains? include lowered))]
+         ;; :include wins over :except (declaring sensitive is never undone).
+         (or included?
+             (and (contains? default-query-param-denylist lowered)
+                  (not (and except (contains? except lowered))))))))))
 
 (defn- percent-decode-name
   "rf2-065xo — percent-decode a query-param NAME for denylist comparison
@@ -165,17 +185,19 @@
   sensitive. The redactor consults the decoded form so an encoded auth
   token is denied just like its plain spelling.
 
-  `frame-extras` is the emitting frame's frame-local query-param carrier
-  extension set (EP-0015 §3), or `nil` for defaults-only.
+  `frame-policy` is the emitting frame's frame-local query-param carrier
+  policy (EP-0015 §3) — a legacy include-only set OR a
+  `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
+  defaults-only. Threaded verbatim to `sensitive-query-param?`.
 
   Decode is comparison-only and total: a malformed escape decodes to
   `nil`, so matching falls back to the raw name and never throws."
   ([param-name] (sensitive-query-param-name? param-name nil))
-  ([param-name frame-extras]
+  ([param-name frame-policy]
    (boolean
-     (or (sensitive-query-param? param-name frame-extras)
+     (or (sensitive-query-param? param-name frame-policy)
          (when-let [decoded (percent-decode-name param-name)]
-           (sensitive-query-param? decoded frame-extras))))))
+           (sensitive-query-param? decoded frame-policy))))))
 
 ;; ---- URL query-string redaction (rf2-2p8wr) -------------------------------
 
@@ -228,14 +250,16 @@
   verbatim in the rebuilt pair — only the value is replaced (decoding is
   comparison-only).
 
-  `frame-extras` is the emitting frame's frame-local query-param carrier
-  extension set (EP-0015 §3), or `nil` for defaults-only."
-  [pair force-all? frame-extras]
+  `frame-policy` is the emitting frame's frame-local query-param carrier
+  policy (EP-0015 §3) — a legacy include-only set OR a
+  `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
+  defaults-only."
+  [pair force-all? frame-policy]
   (let [eq-idx (str/index-of pair "=")
         [pname _pvalue] (if eq-idx
                           [(subs pair 0 eq-idx) (subs pair (inc eq-idx))]
                           [pair nil])]
-    (if (or force-all? (sensitive-query-param-name? pname frame-extras))
+    (if (or force-all? (sensitive-query-param-name? pname frame-policy))
       (str pname "=" redacted-url-token)
       pair)))
 
@@ -252,17 +276,21 @@
   (e.g. `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`).
   Fragment portion (`#…`) preserved verbatim.
 
-  `frame-extras` is the emitting frame's frame-local query-param carrier
-  extension set (EP-0015 §3), or `nil` for defaults-only — it UNIONS onto
-  the immutable built-in denylist for the always-on (`sensitive?` false)
-  redaction.
+  `frame-policy` is the emitting frame's frame-local query-param carrier
+  policy (EP-0015 §3), or `nil` for defaults-only. Accepts a legacy
+  include-only set (UNIONed onto the immutable built-in denylist) OR a
+  `{:include #{..} :except #{..}}` map (rf2-4wqxq8) whose `:except` set
+  SUBTRACTS from the built-in defaults for this frame's own dev trace —
+  effective policy `(defaults − except) ∪ include`. Applies to the
+  always-on (`sensitive?` false) redaction; a `sensitive?`-true request
+  still redacts EVERY param regardless of policy.
 
   Returns `[redacted-url any-redacted?]` where `any-redacted?` is true
   iff at least one param value was redacted (the caller uses this to
   decide whether to stamp `:sensitive?` per the denylist-is-signal
   rule). Nil / non-string / no-query inputs return `[url-str false]`."
   ([url-str sensitive?] (redact-url-query-string url-str sensitive? nil))
-  ([url-str sensitive? frame-extras]
+  ([url-str sensitive? frame-policy]
    (cond
      (not (string? url-str))
      [url-str false]
@@ -282,7 +310,7 @@
                changed?   (volatile! false)
                pairs      (str/split query #"&")
                redacted   (mapv (fn [p]
-                                  (let [out (redact-query-param p force-all? frame-extras)]
+                                  (let [out (redact-query-param p force-all? frame-policy)]
                                     (when-not (identical? out p)
                                       (vreset! changed? true))
                                     out))
@@ -300,5 +328,5 @@
   (which use `redact-url-query-string` directly for the flag). No
   production caller invokes this single-value wrapper."
   ([url-str sensitive?] (first (redact-url-query-string url-str sensitive? nil)))
-  ([url-str sensitive? frame-extras]
-   (first (redact-url-query-string url-str sensitive? frame-extras))))
+  ([url-str sensitive? frame-policy]
+   (first (redact-url-query-string url-str sensitive? frame-policy))))
