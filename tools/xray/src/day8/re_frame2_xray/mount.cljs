@@ -369,22 +369,22 @@
   calls are surgical no-ops on the frame side and (per each hook's own
   idempotency contract) no-ops on the hook side.
 
-  EP-0023 §Xray Beside The Target (rf2-32siq3.36 / rf2-rjml45): the TRUE
-  image-loaded seating (`image_view_reads/seat-xray-frame!` →
-  `rf/make-frame {:id :rf/xray :images [(xray-image)]}`) is shipped as a proven,
-  tested callable, AND the test-namespace assembly collision that was the first
-  blocker is now resolved by the EP-0023 `:exclude-ns` selector on `xray-image`
-  (rf2-rjml45 — the production node-test suite is green with the flip). The
-  default production-singleton path is NOT yet flipped, however: flipping it
-  surfaced a SECOND, distinct blocker — a browser-runtime regression in the
-  Routing panel (the `routes-epochs` nightly xray-feature-gate scenario), where
-  the image-loaded seating breaks the routing-tab-data composite's
-  target-frame read (`:rf.xray/observed-frame` / `current-route-slice` resolves
-  empty → `currentId:null`, empty route table). The node-test suite does not
-  catch it (it is a browser-only feature-gate path). Until that panel-read path
-  is fixed under image-loaded seating, the singleton keeps the legacy realm
-  seating below; `seat-xray-frame!` remains the proven runtime self-seating
-  callable. See the follow-up bead filed from rf2-rjml45.
+  EP-0023 §Xray Beside The Target (rf2-32siq3.36): the production singleton is
+  SEATED in its OWN image-loaded frame via `image_view_reads/seat-xray-frame!`
+  (`rf/make-frame {:id :rf/xray :images [(xray-image)]}`) — true runtime
+  self-seating in genuine registration isolation, NOT the legacy shared
+  registrar. Two blockers gated this flip and both are resolved: the
+  test-namespace assembly collision (the `day8.re-frame2-xray.**` glob sweeping
+  in Xray's own `*-cljs-test` namespaces → `:rf.error/image-duplicate-id`) is
+  fixed by the EP-0023 `:exclude-ns` selector on `xray-image`; and the
+  host-registry read regression under image-loaded seating — a `:rf.xray/*`
+  sub's bare `(rf/registrations …)` / `(rf/handler-meta …)` resolving through
+  Xray's OWN image generation instead of the inspected host's process-global
+  registrar (the `routes-epochs` nightly xray-feature-gate caught it: empty
+  route table / `currentId:null`) — is fixed by reading the host registry
+  through `day8.re-frame2-xray.host-registry` (the realm-targeted,
+  generation-bypassing form). Both the node-test suite and the
+  `routes-epochs` feature-gate are green with the flip.
 
   ## `frame-id` arg (rf2-lnluk)
 
@@ -470,21 +470,18 @@
    ;; emit?`; the framework's `reg-frame` honours it on every (re-)
    ;; registration so the gate survives hot-reload.
    ;;
-   ;; EP-0023 §Xray Beside The Target (rf2-32siq3.36 / rf2-rjml45) — the TRUE
-   ;; image-loaded SEATING of this singleton via `image-reads/seat-xray-frame!`
-   ;; (the `rf/make-frame {:id :rf/xray :images [(xray-image)]}` path) is SHIPPED
-   ;; + proven as a callable, tested seating-core, and the first flip blocker
-   ;; (the `day8.re-frame2-xray.**` glob sweeping in Xray's OWN `*-cljs-test`
-   ;; namespaces → `:rf.error/image-duplicate-id`) is RESOLVED by the
-   ;; `:exclude-ns` selector on `xray-image`. The default singleton is NOT yet
-   ;; flipped, though: flipping it surfaced a SECOND blocker — a browser-runtime
-   ;; regression in the Routing panel (the `routes-epochs` nightly
-   ;; xray-feature-gate), where the image-loaded seating breaks the
-   ;; routing-tab-data target-frame read (empty current-route-slice / route
-   ;; table). The node-test suite is green; the gap is a browser-only path. Until
-   ;; that panel-read is fixed under image-loaded seating, keep the legacy realm
-   ;; seating here while `seat-xray-frame!` is the proven self-seating callable.
-   ;; See the rf2-rjml45 follow-up bead.
+   ;; EP-0023 §Xray Beside The Target (rf2-32siq3.36) — SEAT this singleton in
+   ;; its OWN image-loaded frame via `image-reads/seat-xray-frame!` (the
+   ;; `rf/make-frame {:id :rf/xray :images [(xray-image)]}` path), replacing the
+   ;; legacy realm seating (`reg-frame {:rf.trace/frame-no-emit? true}`). The
+   ;; seated frame resolves ONLY Xray's `:rf.xray/*` registrations (plus the
+   ;; framework standards), in genuine isolation from the inspected target.
+   ;; `seat-xray-frame!` re-asserts the trace-no-emit gate directly through
+   ;; `re-frame.trace/set-frame-no-emit!` (the same seam `reg-frame` routed it
+   ;; through), and is idempotent on re-seat (`xray-frame-seated?` skips the
+   ;; duplicate-`:id` `make-frame`). Host-registry reads inside Xray's subs go
+   ;; through `host-registry` (generation-bypassing) so the inspector still sees
+   ;; the inspected app's registrar, not its own image's — see that ns.
    (image-reads/seat-xray-frame! frame-id)
    (doseq [{:keys [handler]} @first-mount-hooks]
      (handler frame-id))))
