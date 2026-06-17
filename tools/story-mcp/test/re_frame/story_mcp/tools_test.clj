@@ -90,6 +90,21 @@
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
   (recorder/clear!)
+  ;; Disable epoch-ring recording for the duration of each story-mcp test
+  ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so a
+  ;; standalone `cd tools/story-mcp && clojure -M:test` never loads
+  ;; `re-frame.epoch` and `run-variant`'s `:narrative` projection reads an
+  ;; empty tape. Under the tools-root aggregate (`cd tools && clojure
+  ;; -M:test`) a STORY test namespace REQUIRES `re-frame.epoch`, installing
+  ;; the capture hooks process-wide — so story-mcp's `run-variant` then
+  ;; projects a full per-event narrative (each beat carries full :db /
+  ;; trace-events), ballooning the wire payload past the MCP token cap (the
+  ;; whole run-result is replaced by a `:rf.mcp/overflow` marker, failing the
+  ;; shape + elision-indicator assertions). `(rf/configure! :epoch-history
+  ;; {:depth 0})` reproduces the artefact's own epoch-free posture: it is a
+  ;; core-facade knob that no-ops when epoch is absent and disables ring
+  ;; recording when present.
+  (rf/configure! :epoch-history {:depth 0})
   ;; Fixture story + variant.
   (story/reg-story :story.button
     {:doc       "A clickable button."
@@ -145,7 +160,12 @@
       (frame-class/install! frame-id
         (frame-class/validate+extract frame-id classification-config))
       {:db db}))
-  (t))
+  (try
+    (t)
+    (finally
+      ;; Restore the shipped epoch-ring default so a story namespace running
+      ;; after this one in the aggregate sees the normal depth-50 posture.
+      (rf/configure! :epoch-history {:depth 50}))))
 
 (use-fixtures :each reset-story-and-config)
 
@@ -363,13 +383,34 @@
 ;; leaf's prose catalogue.) This deftest closes that arm.
 ;; ---------------------------------------------------------------------------
 
+(defn- artefact-root
+  "Resolve the `tools/story-mcp/` artefact root on disk, cwd-independently.
+  The per-tool `:test` alias runs from `tools/story-mcp` (a cwd-relative
+  `(io/file …)` works), but the tools-root aggregate (`tools/deps.edn :test`,
+  rf2-f2tkbt) runs from `tools/`, where a cwd-relative `spec/API.md` /
+  `../../skills/…` would miss. The repo-tree files `spec/API.md` and the
+  consuming skill leaf are NOT on the classpath (story-mcp ships only `src`
+  + `test`), so we anchor off a known classpath SOURCE resource
+  (`re_frame/story_mcp/protocol.cljc` under the `src` `:paths` root) and walk
+  its parent chain up to the artefact root. Falls back to the JVM cwd if the
+  resource is absent (e.g. a jar). Mirrors the xray guard tests' src-root
+  resolution, generalised one level up to the artefact root."
+  []
+  (let [marker (io/resource "re_frame/story_mcp/protocol.cljc")]
+    (if (and marker (= "file" (.getProtocol marker)))
+      ;; .../tools/story-mcp/src/re_frame/story_mcp/protocol.cljc
+      ;;   → protocol.cljc → story_mcp → re_frame → src → story-mcp (root)
+      (-> (io/file (.toURI marker))
+          .getParentFile .getParentFile .getParentFile .getParentFile)
+      (io/file "."))))
+
 (def ^:private story-mcp-loop-leaf
-  "The consuming skill leaf, read relative to the test JVM cwd
-  (`tools/story-mcp/`; see CI `working-directory`). Read once at
-  ns-load — if the path drifts, `slurp` throws and the drift test
-  errors loudly rather than silently passing on an empty string."
-  (delay (slurp (io/file ".." ".." "skills" "re-frame2" "references"
-                         "tooling" "story-mcp-loop.md"))))
+  "The consuming skill leaf, read relative to the `tools/story-mcp/` artefact
+  root (resolved cwd-independently via `artefact-root`). Read once at
+  ns-load — if the path drifts, `slurp` throws and the drift test errors
+  loudly rather than silently passing on an empty string."
+  (delay (slurp (io/file (artefact-root) ".." ".." "skills" "re-frame2"
+                         "references" "tooling" "story-mcp-loop.md"))))
 
 (def ^:private number-words
   "Spelled-out integers the leaf's tool-count claim may use. Keyed wide
@@ -3749,11 +3790,11 @@
           "the affected set is six tools (spec/002 §sensitive-read gate) — not three"))))
 
 (def ^:private api-md
-  "The consolidated public-API page, read relative to the test JVM cwd
-  (`tools/story-mcp/`; see CI `working-directory`). Read once at ns-load
-  — if the path drifts `slurp` throws and the drift test errors loudly
-  rather than silently passing on an empty string."
-  (delay (slurp (io/file "spec" "API.md"))))
+  "The consolidated public-API page, read relative to the `tools/story-mcp/`
+  artefact root (resolved cwd-independently via `artefact-root`). Read once
+  at ns-load — if the path drifts `slurp` throws and the drift test errors
+  loudly rather than silently passing on an empty string."
+  (delay (slurp (io/file (artefact-root) "spec" "API.md"))))
 
 (defn- api-section
   "Return the `### \\`<tool-name>\\`` section body from API.md — the text
