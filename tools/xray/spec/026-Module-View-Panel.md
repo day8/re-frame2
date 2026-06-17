@@ -273,12 +273,13 @@ the target's registration set.
 > Xray runs in its own frame. Xray inspects the target frame. That keeps the
 > inspection tool from becoming part of the thing being inspected.
 
-**Scope (runtime self-seating shipped as a callable; production-singleton flip
-deferred).** The dogfood now has a working RUNTIME arm: Xray
-builds its OWN real `rf/image` (a separate registration-set value), the
-implementation **proves** it registration-disjoint from a target frame's image,
-AND `image_view_reads/seat-xray-frame!` **SEATS a running Xray frame built from
-that image** via `rf/make-frame {:images [(xray-image)]}` — true runtime
+**Scope (runtime self-seating shipped as a callable + test-ns collision fixed;
+production-singleton flip gated on a routing-panel read fix — rf2-rjml45).** The
+dogfood has a working RUNTIME arm: Xray builds its OWN real `rf/image` (a
+separate registration-set value), the implementation **proves** it
+registration-disjoint from a target frame's image, AND
+`image_view_reads/seat-xray-frame!` **SEATS a running Xray frame built from that
+image** via `rf/make-frame {:id … :images [(xray-image)]}` — true runtime
 self-seating in genuine registration ISOLATION (the seated frame resolves ONLY
 Xray's `:rf.xray/*` registrations plus the framework standards the assembly
 unions into every generation, not the shared default registrar). This is the
@@ -295,19 +296,42 @@ idempotent: `make-frame {:id …}` is fail-loud on a duplicate live `:id`, so a
 re-open / hot-reload / repeated testbed mount finds the frame already live
 (`xray-frame-seated?`) and skips the re-create, re-asserting only the gate.
 
-**What is deferred.** The default production-singleton mount path
-(`mount/ensure-xray-frame!`) is NOT yet flipped onto `seat-xray-frame!`; it keeps
-the legacy realm seating (`reg-frame {:rf.trace/frame-no-emit? true}`) for now.
-The blocker is the image selector grain: `xray-image`'s `day8.re-frame2-xray.**`
-glob sweeps in Xray's OWN `*-cljs-test` namespaces in any dev/test build that
-loads them, and those tests co-register `:rf.xray/*` ids (e.g.
-`[:fx :rf.editor/open]` from both `open-in-editor` and `open-in-editor-cljs-test`)
-— so assembling the image fails loud (`:rf.error/image-duplicate-id`) under the
-node-test build. The seating-core seam is therefore exercised against an explicit
-descriptor pool (deterministic, no test-ns sweep), and the production flip waits
-on a test-namespace-excluding image selector. The disjointness claim is true and
-proven (below) regardless; only the default-singleton flip is scoped to a
-follow-on.
+**The test-namespace collision and its fix (rf2-rjml45).** Flipping the singleton
+exposed a selector-grain blocker: `xray-image`'s `day8.re-frame2-xray.**`
+`:include-ns` glob sweeps in Xray's OWN `*-cljs-test` + `test-helpers.**`
+namespaces in any dev/test build that loads them, and those co-register the same
+`:rf.xray/*` ids the production sources do (e.g. `[:fx :rf.editor/open]` from both
+`open-in-editor` and `open-in-editor-cljs-test`) — so assembling the image failed
+loud (`:rf.error/image-duplicate-id`) under the node-test build. The fix is an
+EP-0023 `:exclude-ns` SELECTOR (added to the framework image API) that subtracts
+those namespaces from the production image: `xray-image` declares
+`:exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+"day8.re-frame2-xray.test-helpers.**"]`. `:exclude-ns` is a subtractive narrowing
+knob over `:include-ns` (matched by provenance namespace, NOT zero-match
+fail-loud — a defensive guard); the `*-cljs-test` form relies on the EP-0023
+intra-segment `*` wildcard (each `*` matches zero-or-more chars within one
+segment, never crossing a `.`), so the trailing `*-cljs-test` matches a leaf
+segment suffix at any depth via `**`. Production builds never load the excluded
+namespaces, so the exclude is a no-op there. With the test registrations
+subtracted, the production image assembles WITHOUT a collision (the node-test
+suite is green with the flip applied), and `xray-image` ships this `:exclude-ns`
+today.
+
+**What is still deferred (rf2-rjml45 follow-up).** The default production-singleton
+mount path (`mount/ensure-xray-frame!`) is NOT yet flipped onto
+`seat-xray-frame!`; it keeps the legacy realm seating
+(`reg-frame {:rf.trace/frame-no-emit? true}`) for now. Flipping it surfaced a
+SECOND, distinct blocker beyond the dup-id: a browser-runtime regression in the
+**Routing panel** (the `routes-epochs` nightly xray-feature-gate scenario). Under
+image-loaded seating the routing-tab-data composite's target-frame read
+(`:rf.xray/observed-frame` → `:rf.xray/current-route-slice` /
+`:rf.xray/target-frame-runtime-db`) resolves empty — the panel renders
+`currentId:null` with an empty route table even though the target frame
+(`:rf/default`) navigates correctly (the trace shows `:rf.route/activated`). The
+node-test suite does NOT catch it (it is a browser-only feature-gate path; the
+node suite is green). The disjointness + seating-core claims hold regardless; only
+the default-singleton flip waits on fixing that panel-read path under image-loaded
+seating.
 
 Xray therefore models its registration set as a **separate image**, NOT as
 shared registration state:
@@ -315,7 +339,11 @@ shared registration state:
 - `image_view_reads/xray-image` constructs Xray's OWN EP-0023 `rf/image` — an
   inert value selecting Xray's own source namespaces (`:include-ns
   ["day8.re-frame2-xray.**"]`, under which every `:rf.xray/*` registration is
-  authored and stamped `:rf.provenance/ns`, which survives production elision).
+  authored and stamped `:rf.provenance/ns`, which survives production elision),
+  NARROWED by `:exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+  "day8.re-frame2-xray.test-helpers.**"]` so Xray's own test + test-support
+  namespaces are subtracted (rf2-rjml45 — they co-register the production ids in
+  a dev/test build; the exclude keeps the production image collision-free).
   It is Xray's instruction set as data.
 - Xray's `:rf.xray/*` registrations do NOT leak INTO a target frame's image:
   a target frame's image selects the TARGET's own namespaces, not Xray's.
@@ -396,8 +424,13 @@ does not flip `:images?` (there is no image content to show).
   core surfaces (`re-frame.live-frame` / `re-frame.image` /
   `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor +
   SEATING (`xray-image` · `xray-image-id` · `xray-source-glob` ·
-  `resolver-keyset` · `application-resolver-keyset` · `xray-image-isolated-from?`
-  · `xray-frame-seated?` · `seat-xray-frame!`).
+  `xray-exclude-globs` · `resolver-keyset` · `application-resolver-keyset` ·
+  `xray-image-isolated-from?` · `xray-frame-seated?` · `seat-xray-frame!`).
+  `xray-image` declares `:include-ns [xray-source-glob]` NARROWED by
+  `:exclude-ns xray-exclude-globs` (`["day8.re-frame2-xray.**.*-cljs-test"
+  "day8.re-frame2-xray.test-helpers.**"]`) so Xray's own test + test-support
+  namespaces are subtracted from the production image (rf2-rjml45 — they
+  co-register the production ids in a dev/test build).
   `resolver-keyset` is the full `[kind id]`-keyset reader (every resolved
   registration, framework standards included — what the FRAMES section
   displays); `application-resolver-keyset` is the application-owned subset
@@ -419,12 +452,22 @@ does not flip `:images?` (there is no image content to show).
   the try/catch.) `seat-xray-frame!` + `xray-frame-seated?` are covered by
   `image_view_reads_cljs_test` (seats against an explicit pool; asserts the
   seated frame resolves ONLY Xray's app-owned ids, the trace-no-emit gate is
-  set, and re-seat is idempotent — no duplicate-`:id` throw).
-- `mount.cljs/ensure-xray-frame!` — currently keeps the legacy realm seating
-  (`reg-frame {:rf.trace/frame-no-emit? true}`) for the production singleton.
-  The flip onto `seat-xray-frame!` waits on a test-namespace-excluding image
-  selector (the `day8.re-frame2-xray.**` glob sweeps Xray's own `*-cljs-test`
-  registrations in dev/test builds → a fail-loud assembly collision); see §8.1.
+  set, and re-seat is idempotent — no duplicate-`:id` throw). The `xray-image`
+  `:exclude-ns` is covered by `xray-image-excludes-its-own-test-registrations`
+  (a pool carrying a production id and its `*-cljs-test` sibling selects ONLY the
+  production descriptor and assembles without a dup-id).
+- `mount.cljs/ensure-xray-frame!` — keeps the legacy realm seating
+  (`reg-frame {:rf.trace/frame-no-emit? true}`) for the production singleton. The
+  TRUE image-loaded flip (`seat-xray-frame! :rf/xray` →
+  `rf/make-frame {:id :rf/xray :images [(xray-image)]}`) is proven + the dup-id
+  blocker resolved (the `:exclude-ns` selector on `xray-image`, §8.1; node-test
+  green with the flip), but a SECOND blocker — a browser-runtime Routing-panel
+  read regression (the `routes-epochs` nightly gate) — gates the default flip; see
+  the rf2-rjml45 follow-up. The runtime-reset test fixture
+  (`re-frame.test-support/make-reset-runtime-fixture`) now clears the EP-0023
+  live-frame registry in lockstep with `frame/frames` (so a frame seated via
+  `make-frame {:id …}` in one test does not leak into the next) — kept regardless
+  of the flip.
 - `panels/module_view.cljs` — extended with the FRAMES section (`frame-row` ·
   `descriptor-rows` · `frames-section-body`) + the `:rf.xray/image-view` sub.
 - Tests: `panels/image_view_helpers_cljs_test.cljc` (the generation/image

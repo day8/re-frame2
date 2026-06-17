@@ -71,7 +71,17 @@ Two ways to put registrations into an image:
                           "docs.shared.widgets.*"]}))
 ```
 
-The glob grammar is small and case-sensitive: a literal segment matches itself, `*` matches exactly one dot-free segment, and `**` matches zero or more segments. So `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` or `docs.shared.widgets.forms.input`; `docs.shared.**` matches all three. The selector does **not** load code — namespaces must already be required through normal `ns` dependencies; the glob only chooses from what the runtime already knows. And a pattern that matches *nothing* is an assembly error, not an empty image: that turns a typo, a forgotten `require`, or a dead-code-eliminated namespace into a loud failure at assembly time instead of a silently incomplete frame.
+The glob grammar is small and case-sensitive: a literal segment matches itself, `*` matches exactly one dot-free segment, and `**` matches zero or more segments. A segment may also carry an intra-segment `*` (each matching zero or more characters *within* that one segment, never crossing a `.`), so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`. So `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` or `docs.shared.widgets.forms.input`; `docs.shared.**` matches all three. The selector does **not** load code — namespaces must already be required through normal `ns` dependencies; the glob only chooses from what the runtime already knows. And an `:include-ns` pattern that matches *nothing* is an assembly error, not an empty image: that turns a typo, a forgotten `require`, or a dead-code-eliminated namespace into a loud failure at assembly time instead of a silently incomplete frame.
+
+**Narrow a broad glob with `:exclude-ns`.** A recursive `**` glob sometimes sweeps in sibling namespaces a frame must not load — classically a feature's own `*-test` namespaces, which in a dev/test build co-register the same ids the production sources do (an image selecting both fails assembly with a duplicate-id collision). `:exclude-ns` subtracts from the `:include-ns` selection by provenance namespace, same grammar:
+
+```clojure
+(rf/image {:include-ns ["day8.re-frame2-xray.**"]
+           :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
+                        "day8.re-frame2-xray.test-helpers.**"]})
+```
+
+Unlike `:include-ns`, an `:exclude-ns` pattern that matches nothing is a no-op (a defensive guard, not a fail-loud error) — so a production build that never loads the excluded namespaces is unaffected, while the dev/test build gets the collision-free narrowing. `:exclude-ns` applies only to the glob-selected registrations, never to inline `:registrations`.
 
 **Or supply registrations inline with `:registrations`.** Useful for generated code, tests, or library packaging where authoring a whole namespace is overkill. The sections mirror the `reg-*` names, and entries are call-shaped tuples:
 

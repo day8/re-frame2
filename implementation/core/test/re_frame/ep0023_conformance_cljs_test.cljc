@@ -192,6 +192,43 @@
                (err-id #(image/select-descriptors
                           (rf/image {:include-ns ["Docs.shared.**"]}) pool))))))))
 
+(deftest s1-exclude-ns-subtracts-and-intra-segment-glob
+  (testing "EP-0023 §Namespace-Selected Images: `:exclude-ns` subtracts from the
+            `:include-ns` selection by provenance ns (not zero-match fail-loud,
+            never touches inline), and the intra-segment `*` matches within one
+            segment — the tool-self-seating narrowing case"
+    ;; A production ns alongside its `*-cljs-test` sibling co-registering the
+    ;; SAME id (the collision an exclude prevents), plus a deep test ns and a
+    ;; test-support subtree.
+    (let [pool [(reg-desc "app.feature.editor"          :fx    :editor/open ::prod)
+                (reg-desc "app.feature.editor-cljs-test" :fx   :editor/open ::test)
+                (reg-desc "app.feature.panels.diff-cljs-test" :sub :diff/x ::deep)
+                (reg-desc "app.feature.test-helpers.counter" :event :ctr/inc ::fixture)]
+          ids (fn [img] (set (map (juxt :kind :id)
+                                  (image/select-descriptors img pool))))]
+      (testing "the intra-segment `*-cljs-test` (under `**`) excludes the test
+                nss at any depth; only the production descriptor survives"
+        (is (= #{[:fx :editor/open]}
+               (ids (rf/image {:include-ns ["app.feature.**"]
+                               :exclude-ns ["app.feature.**.*-cljs-test"
+                                            "app.feature.test-helpers.**"]})))))
+      (testing "the surviving :editor/open is the PRODUCTION provenance, not the
+                `*-cljs-test` sibling — the dup-id is gone"
+        (let [sel (image/select-descriptors
+                    (rf/image {:include-ns ["app.feature.**"]
+                               :exclude-ns ["app.feature.**.*-cljs-test"
+                                            "app.feature.test-helpers.**"]})
+                    pool)]
+          (is (= 1 (count sel)))
+          (is (= "app.feature.editor" (:rf.provenance/ns (first sel))))))
+      (testing "an :exclude-ns pattern matching nothing is a NO-OP, not
+                fail-loud (unlike :include-ns) — the full include selection
+                survives (all 4 descriptors, no throw)"
+        (is (= 4 (count (image/select-descriptors
+                          (rf/image {:include-ns ["app.feature.**"]
+                                     :exclude-ns ["never.matches.**"]})
+                          pool))))))))
+
 (deftest s1-inline-registrations-lower-to-descriptors
   (testing "EP-0023 §Image Fragments: inline :registrations are selected
             UNCONDITIONALLY (their image was supplied) — never by :include-ns —
