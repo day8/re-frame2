@@ -23,15 +23,30 @@ Type: standards-track
 > and the managed-effects/runtime-subsystem sections that define dispatch
 > envelopes, coeffects, reply envelopes, restore, and conformance fixtures.
 
+> **⚠ The envelope field is RENAMED — `:rf.world/inputs` → `:rf.cofx` (EP-0017).**
+> This EP's body, examples, and Backwards-Compatibility section describe the
+> originally-shipped surface, where the recordable-coeffect map rode the envelope
+> under `:rf.world/inputs` and v1 `inject-cofx` had a migration path.
+> [EP-0017 (Recordable Coeffects)](EP-0017-recordable-coeffects.md) **superseded
+> that surface**: the field is now the flat `:rf.cofx` map, the old spelling is a
+> **hard error** (`:rf.error/world-inputs-renamed`, no alias / no coexistence
+> window), and `inject-cofx` is **removed**. The rename and the flat-map shape are
+> graduated into `spec/002-Frames.md` §Recordable coeffects and
+> `spec/Spec-Schemas.md` (`:rf.cofx`). **Read this EP for the recording *rule* and
+> rationale; the spec governs the current authoring surface.** The recording
+> contract itself (durable state folds facts, never reads) is unchanged.
+
 > **`final` means the decisions are settled (2026-06-11, bead `rf2-s9ss0t`).**
 > All five open issues were dispositioned with three riders recorded (see
 > [§Open Issues](#open-issues)); the design is locked. The **core slice** has
-> shipped: the `:rf.world/inputs` envelope field + framework coeffect, the
-> envelope stamping rule (`:time-ms` stamped once at the causal boundary,
-> caller-supplied preserved, child dispatches stamped fresh), the user-cofx
-> trace-projection filter, and the `:dispatched-at` retirement (rider b, no
-> coexistence window) are normative in `spec/002-Frames.md` §Causal world
-> inputs and registered in `spec/Spec-Schemas.md` (`:rf.world/inputs`).
+> shipped: the recordable-coeffect envelope field + framework coeffect (shipped as
+> `:rf.world/inputs`, since **renamed to `:rf.cofx` by EP-0017** — see the
+> supersession banner above), the envelope stamping rule (`:time-ms` stamped once
+> at the causal boundary, caller-supplied preserved, child dispatches stamped
+> fresh), the user-cofx trace-projection filter, and the `:dispatched-at`
+> retirement (rider b, no coexistence window) are normative in
+> `spec/002-Frames.md` §Recordable coeffects and registered in
+> `spec/Spec-Schemas.md` (`:rf.cofx`).
 > Finalizing the *decisions* does not, on its own, assert the *implementation*
 > is gap-free (EP-0005 pattern); the [Implementation errata](#implementation-errata)
 > ledger below records the wave's build steps — now all shipped and closed, with
@@ -106,15 +121,17 @@ closing bead-ids / commits are cited per step.
   the PR spine in `.github/workflows/test.yml` (`rf2-f2t151`).
 - **Docs + guide update — SHIPPED.** Step 10 ([§Guide Impact](#guide-impact)).
   The guide teaches causal world inputs instead of ambient clock stubbing across
-  the event/coeffect chapter (`docs/guide/07-effects-and-coeffects.md` —
-  §Causal world inputs, §Testing is just supplying the inputs, §Why handlers
-  never read the clock), the testing chapter
-  (`docs/guide/13-testing.md` §Freezing the clock with world inputs), and the v1
-  migration chapter (`docs/guide/25-from-re-frame-v1.md` §Ambient world reads in
-  durable handlers) (`rf2-nj416f`, `rf2-q2vbuf`; comment + skills passes
+  the effects-and-coeffects concept page
+  (`docs/guide/concepts/effects-and-coeffects.md` — §Two grades: ambient and
+  recordable, §Testing is just supplying the inputs), the testing how-tos
+  (`docs/guide/how-to/test-an-event-handler.md` and
+  `docs/guide/how-to/test-a-cascade.md`, which pin `:rf/time-ms` via `:rf.cofx`
+  rather than freezing the clock), and the v1 migration chapter
+  (`docs/guide/25-from-re-frame-v1.md`) (`rf2-nj416f`, `rf2-q2vbuf`; comment + skills passes
   `rf2-kpg1fh`, `rf2-d4q7xc`). The spec graduation that anchors them is normative
-  in `spec/002-Frames.md` §Causal world inputs and `spec/Spec-Schemas.md`
-  (`:rf.world/inputs` / `WorldInputs`).
+  in `spec/002-Frames.md` §Recordable coeffects and `spec/Spec-Schemas.md`
+  (`:rf.cofx` — renamed from the shipped `:rf.world/inputs` / `WorldInputs` by
+  EP-0017).
 
 ### Deferred — recordable UUID / random coeffects
 
@@ -1172,7 +1189,8 @@ original recommendations are kept verbatim as the record of what was ruled.
 ## Guide Impact
 
 On graduation, the implementation bead must update the guide's event/coeffect
-and testing material (currently chapter 07's clock/coeffect guidance) to teach
+and testing material (the `concepts/effects-and-coeffects.md` clock/coeffect
+guidance and the testing how-tos) to teach
 causal world inputs instead of ambient clock stubbing as the replay-safe path.
 The guide should show `:rf.world/inputs` on dispatch/reply tokens, fixture
 examples for time/UUID/random values, and the boundary where diagnostic
