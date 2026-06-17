@@ -39,7 +39,7 @@
 
   1. fx-id — `probe-timer-fx` is the single (test-only) effect handler;
      its args map is the declarative timer spec (no caller code).
-  2. closed args-map shape — `{:timer/id :after :reply-to :retry ...}`,
+  2. closed args-map shape — `{:timer/id :after :rf/reply-to :retry ...}`,
      validated by `valid-args?`.
   3. failure taxonomy — timer failures carry `:kind :rf.timer/*`
      (`:rf.timer/elapsed-error`, `:rf.timer/cancelled`) under `:error` /
@@ -114,11 +114,18 @@
     {:timer/id    <keyword>       ;; logical timer id (required)
      :after       <pos-int ms>    ;; the delay (required)
      :generation  <int>           ;; the supersession epoch (required)
-     :reply-to    <reply target>  ;; the :rf/reply-to continuation (required)
+     :rf/reply-to <reply target>  ;; the canonical reply continuation (required)
      :retry       <data map>      ;; OPTIONAL declarative retry-as-data
      :frame       <frame-id>}     ;; OPTIONAL frame stamp
+
+  The reply target is pinned under the CANONICAL `:rf/reply-to` key — the
+  single property-9 target spelling (Managed-Effects §The reply target). The
+  probe is the core-surface conformance example a future managed async writer
+  copies, so it carries no second reply-target spelling: a fresh consumer that
+  copies the probe inherits `:rf/reply-to`, not an unqualified alias.
+
   Pure — a malformed spec is data the caller classifies, not a throw."
-  [{:keys [timer/id after generation reply-to] :as args}]
+  [{:keys [timer/id after generation] :rf/keys [reply-to] :as args}]
   (boolean
     (and (map? args)
          (keyword? id)
