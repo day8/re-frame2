@@ -406,6 +406,14 @@
 (events/reg-event :rf.resource/refetch
                      generation-meta
                      resource-events/refetch-handler)
+;; EP-0021 R2 — `:rf.resource/load-more` extends an infinite feed by one page.
+;; It mints a generation (the same host-side monotone allocator, for stale
+;; suppression — the work-id derives from it) and records the work-ledger
+;; `:started-at` from the causal `:rf/time-ms`, so it declares the recordable
+;; generation-allocation cofx + the time cofx exactly like ensure / refetch.
+(events/reg-event :rf.resource/load-more
+                     generation-meta
+                     resource-events/load-more-handler)
 ;; EP-0017 (rf2-601ife): `invalidate-tags` writes the durable `:invalidated-at`
 ;; fact from the event's causal `:rf/time-ms`, so it declares the time cofx.
 (events/reg-event :rf.resource/invalidate-tags
@@ -456,6 +464,19 @@
 (events/reg-event :rf.resource.internal/failed
                      time-meta
                      resource-events/failed-handler)
+;; EP-0021 R1/R2 — the infinite-feed PAGE reply handlers. DISTINCT from the
+;; scalar succeeded / failed replies: a page success APPENDS / replaces-in-place
+;; one page (`entry-replace-page`); a page failure is the THIRD error channel
+;; (`entry-page-failed` keeps the feed + records `:page-error`). They reuse the
+;; same `live-entry-for-reply` verification + stale suppression and consume the
+;; reply token's causal `:rf/time-ms` (→ `:loaded-at` / `:completed-at`), so
+;; each declares the time cofx. User code MUST NOT dispatch them.
+(events/reg-event :rf.resource.internal/page-succeeded
+                     time-meta
+                     resource-events/page-succeeded-handler)
+(events/reg-event :rf.resource.internal/page-failed
+                     time-meta
+                     resource-events/page-failed-handler)
 (events/reg-event :rf.resource.internal/aborted
                      time-meta
                      resource-events/aborted-handler)

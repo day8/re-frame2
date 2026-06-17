@@ -689,13 +689,29 @@
     ;; unknown signal — no transition (defensive; callers pass the closed set)
     status))
 
+;; `infinite-entry?` (the `:infinite?` feed predicate) is defined below in the
+;; infinite-feed refinement section, but `has-data?` reads it — forward-declare
+;; so the canonical predicate stays in one home (the infinite section) while the
+;; shared status derivation can consult it (EP-0021 R1).
+(declare infinite-entry?)
+
 (defn has-data?
   "True iff the entry currently has usable last-known-good `:data`. The
   fact `:loading?` / `:fetching?` / `:has-data?` derive from. Spec 016
   §Status semantics — durable entries store facts, derived booleans are
-  computed (here + in subs), never stored."
+  computed (here + in subs), never stored.
+
+  EP-0021 R1: an INFINITE feed's `:data` is the ordered PAGE VECTOR, seeded
+  EMPTY (`[]`) before page 0 loads. An empty page vector is NO usable data —
+  the feed first-loads page 0 (`:loading`), not a refresh (`:fetching`). So a
+  feed is `has-data?` iff it has at least one accumulated page; only an empty
+  vector (not a non-empty one, and not a scalar nil) reads as no-data. A scalar
+  entry is `has-data?` iff its `:data` is non-nil (unchanged)."
   [entry]
-  (some? (:data entry)))
+  (let [data (:data entry)]
+    (if (infinite-entry? entry)
+      (boolean (seq data))
+      (some? data))))
 
 (defn entry-stale?
   "Derived freshness fact: true iff `entry` is stale against `clock-ms` —
@@ -1103,6 +1119,114 @@
            :status       :loaded
            :page-error   error
            :current-work nil)
+    entry))
+
+(defn entry-replace-page
+  "PURE infinite-feed page REPLACE-IN-PLACE transition (R6 window-preserving
+  refetch): replace the page at `page-index` of the feed `entry` with a
+  freshly-fetched, decoded `page` (and its resolved `page-param`), WITHOUT
+  growing the feed — the accumulated tail is preserved and stays visible. This
+  is the settle a window-preserving `refetch`'s replacement page-0 performs
+  (the ruled R6 default): the feed never collapses to page 0; page 0 is
+  refreshed in place and the rest of the window is kept.
+
+  Like `entry-append-page` it recomputes `:next-page-param` / `:prev-page-param`
+  from the resulting page vector, clears `:page-error` / `:refresh-error`,
+  re-stamps `:loaded-at` / `:stale-at`, returns to `:loaded`, clears
+  `:current-work`, and bumps `:revision` UNCONDITIONALLY (an authoritative
+  durable write — EP-0019 / byl7bk). Structural sharing keeps every OTHER page
+  identical (only the replaced index is new).
+
+  When `page-index` is at or beyond the current page count this DELEGATES to
+  `entry-append-page` (a replacement past the tail is an append — e.g. a
+  window-preserving refetch of a feed that was emptied), so one settle covers
+  both the in-place refresh and the append. A nil entry is returned unchanged.
+  Per Spec 016 §Refetch and invalidation of an infinite feed (R6)."
+  [entry {:keys [page next-page-param-fn prev-page-param-fn page-param page-index
+                 loaded-at stale-at] :as opts}]
+  (if entry
+    (let [pages (or (:data entry) [])]
+      (if (>= page-index (count pages))
+        (entry-append-page entry opts)
+        (let [prev-page (nth pages page-index)
+              ;; structural sharing: keep the OLD page value when the decoded
+              ;; page is `=` (a refetch that returned identical page-0 stays
+              ;; quiet downstream); only the replaced index is ever new.
+              shared    (if (and (some? prev-page) (= prev-page page)) prev-page page)
+              pages'    (assoc pages page-index shared)
+              params'   (assoc (or (:page-params entry) []) page-index page-param)]
+          (-> entry
+              (assoc :status          :loaded
+                     :data            pages'
+                     :page-params     params'
+                     :next-page-param (next-param-for next-page-param-fn pages')
+                     :prev-page-param (prev-param-for prev-page-param-fn pages')
+                     :page-error      nil
+                     :refresh-error   nil
+                     :loaded-at       loaded-at
+                     :stale-at        stale-at
+                     :invalidated-at  nil
+                     :current-work    nil)
+              bump-revision))))
+    entry))
+
+(defn refetch-keep-count
+  "PURE: how many leading pages a `refetch` of an infinite feed KEEPS, given
+  the resource's optional `:refetch` policy (R6) and the feed's current
+  `page-count`. The ruled DEFAULT is window-preserving — keep EVERY
+  accumulated page (`page-count`), so a focus/reconnect/invalidation refetch
+  never collapses a loaded feed to page 0. The day-one opt-ins:
+
+    - `:refetch-all-pages? true` — do NOT preserve the window: keep ONLY page 0
+      (the replacement page-0 re-accumulates the feed from scratch, the
+      TanStack-parity \"refresh the whole thing\" intent; v1 re-fetches page 0
+      and the user re-loads forward rather than a synchronous N-page sweep);
+    - `:refetch-window n` — bound the kept window to the first `n` pages
+      (clamped to `[1, page-count]` — a refetch always keeps at least page 0,
+      and never invents pages beyond what is loaded).
+
+  Returns the keep-count (always ≥ 1 for a non-empty feed; 0 for an empty
+  feed). Per Spec 016 §Refetch and invalidation of an infinite feed (R6)."
+  [refetch-policy page-count]
+  (let [{:keys [refetch-all-pages? refetch-window]} refetch-policy]
+    (cond
+      (zero? page-count)          0
+      refetch-all-pages?          1
+      (integer? refetch-window)   (max 1 (min refetch-window page-count))
+      :else                       page-count)))
+
+(defn entry-refetch-reset
+  "PURE infinite-feed REFETCH reset transition (R6), applied at refetch-ISSUE
+  (before the replacement page-0 fetch starts): truncate the feed's
+  accumulation to the first `keep-count` pages per `refetch-keep-count`, so the
+  in-flight refetch refreshes exactly the intended window. The ruled DEFAULT
+  (window-preserving) keeps EVERY page — a pure no-op here — so the accumulated
+  pages stay visible during the refetch (the feed is `:fetching`, not collapsed
+  to page 0). The opt-ins (`:refetch-all-pages?` / `:refetch-window`) truncate
+  the tail.
+
+  The `:next-page-param` is RECOMPUTED from the (possibly truncated) tail so a
+  windowed refetch resumes load-more from the kept window's edge; `:page-params`
+  is truncated in step. `:data` / `:page-params` keep their leading pages by
+  identity (structural sharing — only the dropped tail changes). Does NOT touch
+  `:status` / `:current-work` / `:revision` (the caller's `entry-start-load`
+  already transitioned the entry to `:fetching` and recorded the work). A nil /
+  non-infinite / empty entry is returned unchanged. Per Spec 016 §Refetch and
+  invalidation of an infinite feed (R6)."
+  [entry {:keys [next-page-param-fn prev-page-param-fn refetch-policy]}]
+  (if (and entry (infinite-entry? entry) (seq (:data entry)))
+    (let [pages      (:data entry)
+          keep-count (refetch-keep-count refetch-policy (count pages))]
+      (if (>= keep-count (count pages))
+        entry                                   ;; window-preserving — keep all
+        (let [pages'  (subvec pages 0 keep-count)
+              params' (subvec (or (:page-params entry) []) 0
+                              (min keep-count (count (:page-params entry))))]
+          (assoc entry
+                 :data            pages'
+                 :page-params     params'
+                 :next-page-param (next-param-for next-page-param-fn pages')
+                 :prev-page-param (prev-param-for prev-page-param-fn pages')))))
     entry))
 
 (defn resolve-page->items
