@@ -655,9 +655,9 @@ When a `:rf.http/managed` fx is processed, the runtime captures the **originatin
 
 The fx records the (`request-id`, `actor-id`) pair in its in-flight registry alongside the abort handle. When the spawned actor is later destroyed (any of the destroy triggers per [Spec 005 §The contract](005-StateMachines.md#the-contract)), the runtime invokes the late-bind hook `:http/abort-on-actor-destroy` with the destroyed actor's address. The hook walks the in-flight registry, identifies every request whose actor-id matches, and aborts each — synthesising a standard `:rf.http/aborted` failure with `:reason :actor-destroyed`.
 
-#### Failure shape
+#### Failure shape — meaningful target
 
-The aborted reply is the same shape as a manual-abort failure:
+When the request's reply target is **still meaningful** — an ordinary registered event (a separate recorder handler), not the destroyed actor itself — the aborted reply is the same shape as a manual-abort failure and is delivered as a live `:status :cancelled` outcome:
 
 ```clojure
 {:rf/reply {:kind    :failure
@@ -669,7 +669,16 @@ The aborted reply is the same shape as a manual-abort failure:
 
 The discriminator from a user-issued abort is `:reason` — `:user` (manual `:rf.http/managed-abort`) or `:actor-destroyed` (this contract). Callers that branch on `:reason` recover that distinction; callers that don't see one uniform "aborted" outcome. (The third reason value, `:request-id-superseded`, never lands on a reply dispatch — per [§`:request-id` (internal)](#request-id-internal) supersede suppresses the prior request's reply and emits only to the trace bus.)
 
-The reply lands at the originating handler exactly as any other reply does (per [§Reply addressing](#reply-addressing)). For requests issued by a spawned actor whose handler the destroy already unregistered, the dispatch is a no-op — the actor's snapshot is gone and there is no event handler to receive the reply. The trace event still fires; the abort is still observable through instrumentation.
+#### Obsolete target — stale suppression
+
+When the request's reply target is **obsolete** — its event-id names the destroyed actor itself (the [machine-shape wrapper](#machine-shape-wrapper)'s `[self-id [:rf.http/failed]]` default, or any request whose reply addresses its own actor) — dispatching it would address a now-dead actor. Per [Managed-Effects §Cancellation](Managed-Effects.md#cancellation) (`:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery), the abort lowers to the canonical uniform-reply-envelope **stale-suppression** outcome instead of a live `:cancelled`/failure reply:
+
+1. the app reply target **MUST NOT run** (no dispatch to the dead actor);
+2. the reply outcome is `:status :stale` / `:work/status :suppressed`, carrying `:stale/reason :rf.http/actor-destroyed-target-obsolete`;
+3. a `:rf.http/stale-suppressed` reply-envelope trace records the carried correlation joined to `:work/id` (`:recovery :actor-destroyed-target-obsolete`) — the same canonical stale row a [supersession](#request-id-internal) emits;
+4. the `:rf.http/aborted` trace still fires (the abort is observable); only the app **reply delivery** is suppressed.
+
+This replaces the earlier accidental no-op (a dispatch to an unregistered handler that silently dropped): the suppression is now an explicit, data-shaped `:status :stale` outcome that tooling and conformance pin, exactly as supersession already does. Explicit `:user` aborts always stay live `:cancelled`.
 
 #### Multiple in-flight requests per actor
 
@@ -692,6 +701,8 @@ Apps that want HTTP requests tied to the lifetime of a state-machine state shoul
 #### Trace event
 
 `:rf.http/aborted-on-actor-destroy` (per [Spec 009 §Trace events](009-Instrumentation.md)) fires once per cancelled request. `:tags` carry `:request-id`, `:actor-id`, and `:url`.
+
+When the request's reply target was **obsolete** (it addressed the destroyed actor — see [§Obsolete target — stale suppression](#obsolete-target--stale-suppression)), a `:rf.http/stale-suppressed` reply-envelope row ALSO fires (`:stale/reason :rf.http/actor-destroyed-target-obsolete`, `:recovery :actor-destroyed-target-obsolete`), carrying the canonical `:status :stale` / `:work/status :suppressed` facts joined to `:work/id` — the same canonical stale row supersession emits.
 
 #### Cross-references
 
