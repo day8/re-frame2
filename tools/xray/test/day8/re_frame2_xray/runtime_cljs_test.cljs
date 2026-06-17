@@ -723,7 +723,7 @@
 
 (deftest egress-value-redacts-sensitive-on-the-safe-default-path
   (testing "`egress-value` with no opts (the SHORT path) redacts a
-            schema-declared sensitive slot — the off-box defaults are
+            frame-declared sensitive slot — the off-box defaults are
             baked in so a forwarder author never re-derives the opts"
     (seed-sensitive-schema!)
     (let [out (runtime/egress-value {:auth {:username "ada" :password "shh"}})]
@@ -918,8 +918,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; (11b) PATH-SCOPED get-app-db threads the absolute :path into the egress
-;;       walker so a scoped slice elides against schema-declared
-;;       sensitive / large paths (rf2-a96xq).
+;;       walker so a scoped slice elides against the frame-owned
+;;       sensitive / large app-db declarations (rf2-a96xq).
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Before the fix the scoped read called `egress-value` WITHOUT the
@@ -941,7 +941,7 @@
       {:large {:app-db [[:blob :payload]]}})))
 
 (deftest get-app-db-path-scoped-redacts-sensitive-leaf-by-default
-  (testing "a PATH-scoped get-app-db over a schema-declared sensitive
+  (testing "a PATH-scoped get-app-db over a frame-declared sensitive
             leaf redacts by default — the absolute :path is threaded into
             the egress walker so the [:auth :password] declaration
             matches the scoped slice (rf2-a96xq: fail-closed)"
@@ -981,7 +981,7 @@
           ":include-sensitive? true ⇒ the raw leaf is revealed at the scoped path"))))
 
 (deftest get-app-db-path-scoped-elides-large-leaf-by-default
-  (testing "a PATH-scoped get-app-db over a schema-declared :large? leaf
+  (testing "a PATH-scoped get-app-db over a frame-declared :large leaf
             emits the :rf.size/large-elided marker by default, and reveals
             the raw value only on {:include-large? true} (rf2-a96xq:
             symmetric size minimisation on the scoped path)"
@@ -1061,7 +1061,7 @@
 
 (deftest get-app-db-diff-redacts-sensitive-slices
   (testing "`get-app-db-diff` routes each changed-path slice through
-            egress-value — a schema-declared sensitive slot that changed
+            egress-value — a frame-declared sensitive slot that changed
             redacts in the :changed bucket (rf2-uv2q2 privacy)"
     (let [epoch-id (record-epoch-via-reset!
                      {:auth {:username "ada" :password "old-pw"}}
@@ -1092,7 +1092,7 @@
             through-wire-elision invariant with no exceptions"
     (seed-sensitive-schema!)
     ;; Register an event whose registration-metadata carries a
-    ;; value-bearing slot at the schema-declared sensitive path. We use
+    ;; value-bearing slot at the frame-declared sensitive path. We use
     ;; the registrar directly (not the `reg-event` macro, which emits its
     ;; own metadata and would not let us plant the slot) so the meta map
     ;; itself carries `{:auth {:password ...}}`. `egress-value` walks the
@@ -1120,7 +1120,7 @@
 
 (defn- register-handler-with-sourcey-coord!
   "Register an event whose registration metadata carries a `:source-coord`
-  whose value sits at the schema-declared sensitive path. We use the
+  whose value sits at the frame-declared sensitive path. We use the
   registrar directly (not the `reg-event` macro, which emits its own
   metadata) so the `:source-coord` slot we plant survives to
   `rf/handler-meta` verbatim. `egress-value` walks the source-coord value

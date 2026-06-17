@@ -443,7 +443,7 @@
 ;; `:rf.xray.palette.fx/snapshot-app-db` fx, which reads the focused
 ;; frame's app-db and ships it to TWO off-box sinks: `console.log` and
 ;; `navigator.clipboard.writeText`. Pre-rf2-mxzgg it shipped the RAW
-;; `(rf/app-db-value tf)` — a schema-declared sensitive slot
+;; `(rf/app-db-value tf)` — a frame-declared sensitive slot
 ;; (`{:auth {:password "shh"}}`) crossed both sinks unredacted. The fix
 ;; routes the value through `runtime/egress-value` (the same fail-closed
 ;; projection `get-app-db` uses) FIRST, so the off-box payload carries
@@ -542,7 +542,7 @@
       (let [payload (first @(:console sinks))]
         (is (some? payload) "the console.log sink received a payload")
         (is (= :rf/redacted (get-in payload [:auth :password]))
-            "console payload redacts the schema-declared sensitive slot")
+            "console payload redacts the frame-declared sensitive slot")
         (is (not= "hunter2" (get-in payload [:auth :password]))
             "the raw secret never crosses the console off-box sink")
         (is (= "ada" (get-in payload [:auth :username]))
@@ -558,8 +558,8 @@
 
 (deftest snapshot-app-db-size-elides-large-slot-on-both-off-box-sinks
   ;; rf2-mxzgg — size minimisation rides the same safe-egress default
-  ;; (polarity parity with the runtime accessors): a schema-declared
-  ;; `:large?` slot is replaced with the `:rf.size/large-elided` marker.
+  ;; (polarity parity with the runtime accessors): a frame-declared
+  ;; `:large` slot is replaced with the `:rf.size/large-elided` marker.
   (setup!)
   (let [sinks (capture-snapshot-sinks!)]
     (try
@@ -578,7 +578,7 @@
       (let [payload (first @(:console sinks))]
         (is (some? payload) "the console.log sink received a payload")
         (is (contains? (get-in payload [:blob :payload]) :rf.size/large-elided)
-            "console payload size-elides the schema-declared large slot")
+            "console payload size-elides the frame-declared large slot")
         (is (not= {:big "value"} (get-in payload [:blob :payload]))
             "the raw large value never crosses the console off-box sink"))
       (finally ((:restore sinks))))))

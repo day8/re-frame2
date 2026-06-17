@@ -425,7 +425,7 @@
     captured))
 
 (deftest copy-value-redacts-sensitive-slot
-  (testing "rf2-uo0rc.2 — a copied value carrying a schema-declared
+  (testing "rf2-uo0rc.2 — a copied value carrying a frame-declared
             sensitive slot is REDACTED before it reaches the clipboard fx;
             the raw secret never crosses the off-box boundary"
     (registry/register-xray-handlers!)
@@ -453,8 +453,8 @@
             "non-sensitive sibling survives the copy")))))
 
 (deftest copy-value-size-elides-large-slot
-  (testing "rf2-uo0rc.2 — a copied value carrying a schema-declared
-            :large? slot is size-elided before it reaches the clipboard fx"
+  (testing "rf2-uo0rc.2 — a copied value carrying a frame-declared
+            :large slot is size-elided before it reaches the clipboard fx"
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/default {})
     (frame/reg-frame :rf/xray {})

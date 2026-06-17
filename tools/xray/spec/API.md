@@ -822,8 +822,10 @@ panel-side trace collector + `snapshot-from-rings` honour via
 `config/suppress-sensitive?` (rf2-to36uj).
 
 `egress-value` also takes an optional `:path` — the **absolute** app-db
-path the value sits at. The framework's schema-declared sensitive / large
-declarations are keyed by absolute path, so a slice egress'd in isolation
+path the value sits at. The framework's frame-owned app-db sensitive / large
+declarations (the `:sensitive {:app-db …}` / `:large {:app-db …}` path maps
+declared on `reg-frame`, Spec 015 §Frame-owned durable classification) are
+keyed by absolute path, so a slice egress'd in isolation
 (a `:path`-scoped `get-app-db` read, or one changed-path slice from
 `get-app-db-diff`) MUST tell the walker where the slice lives or the
 declaration won't match and the raw leaf would cross the boundary
@@ -848,8 +850,8 @@ which writes the copied value to the system clipboard via the
 `:rf.xray.fx/copy-to-clipboard` fx — an off-box sink. The event routes the
 value through `egress-value` **before** the clipboard write, pinned to the
 **observed** frame (`[:focus :frame]`, falling back to `:target-frame`) so
-that frame's own schema declarations govern — a `{:sensitive? true}` slot
-copies as `:rf/redacted`, a `{:large? true}` blob as `:rf.size/large-elided`,
+that frame's own classification governs — a slot the frame declared
+`:sensitive` copies as `:rf/redacted`, a `:large` slot as `:rf.size/large-elided`,
 fail-closed (mirroring the snapshot's `with-frame` pinning, rf2-mxzgg).
 The sibling `:rf.xray/copy-path-to-clipboard` copies only the path vector
 (key names, no values), so it is not a value-egress site and is not
@@ -863,7 +865,7 @@ gate is reachable only through the runtime accessors.
 |---|---|---|---|
 | `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). Whole `:sensitive? true` events are default-SUPPRESSED before value-scrubbing — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj). |
 | `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`, each routed through `egress-record` → `projected-record`. `:include-sensitive?` / `:include-large?` opt the **app-db** partition's privacy / size posture back in; the frame-state `:rf.db/runtime` partition stays `:rf/redacted` unless a trusted-local caller also passes `:include-runtime-db? true` (rf2-5w06uu). |
-| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against schema-declared sensitive / large paths — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
+| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against the frame-owned `:sensitive` / `:large` app-db declarations — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
 | `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:added [{:path :value}] :removed [{:path :value}] :changed [{:path :before :after}]}}` | Projects the changed-paths slice diff between a named epoch's `:db-before` + `:db-after` via the canonical Editscript-A* engine (`diff.engine/project`). Only the changed paths' slices egress — each `:value` / `:before` / `:after` routed through `egress-value`, never two whole app-db snapshots (rf2-uv2q2). Heavier nested-diff projection lives MCP-side. |
 | `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <live-state-path> :snapshot {:state :data :tags …} :spec <registered-definition>}` | The LIVE FSM position — reads the machine's snapshot from the frame's **runtime-db partition** at `[:rf.runtime/machines :snapshots <machine-id>]` (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state; the same slot the Machine Inspector's `:rf.xray/machine-snapshots` sub + the framework resolver read). `:state` is the running state-path (a region→state map for a `:parallel` machine — Spec 005), NOT derived from the static spec; the registered definition is returned separately under `:spec`. A registered-but-not-yet-started machine has no live snapshot — `:state` / `:snapshot` are `nil` and `:reason` is `:not-yet-started` (still `:ok? true`). **Partition-aware off-box redaction (rf2-jj1xer · Mike ruling #14):** `:state` / `:snapshot` are RUNTIME-DB state, so they egress through `egress-runtime-db-value` and are REDACTED to `:rf/redacted` off-box by default; a trusted-local caller opts in with `:include-runtime-db? true` (the inner walk then honours per-slot sensitive / large declarations). `:spec` is a static registry value (not runtime-db), so it egresses through `egress-value` regardless of the runtime-db opt-in. |
 | `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |

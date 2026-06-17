@@ -141,14 +141,14 @@
 ;;
 ;; ## Why the egress runs inside `(rf/with-frame tf …)`
 ;;
-;; `egress-value` (→ `elide-wire-value`) resolves the schema-declared
-;; sensitive / large declarations from `frame/current-frame` when no
+;; `egress-value` (→ `elide-wire-value`) resolves the frame-owned
+;; sensitive / large app-db declarations from `frame/current-frame` when no
 ;; explicit `:frame` opt is passed. The snapshot reads the FOCUSED
 ;; frame's db (`tf`), which is NOT necessarily the frame the fx fires
 ;; in (the palette dispatches against `:rf/xray`). Pinning the current
 ;; frame to `tf` for the egress makes the walker match `tf`'s OWN
 ;; declarations — so a host frame's `[:auth :token]` redacts against
-;; the host frame's schema, not the (empty) Xray-frame declarations.
+;; the host frame's classification, not the (empty) Xray-frame declarations.
 ;; Fail-closed: a frame with no declarations still emits the raw value
 ;; only when that frame declared nothing sensitive, exactly as the
 ;; per-frame contract intends.

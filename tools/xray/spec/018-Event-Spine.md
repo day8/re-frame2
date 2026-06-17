@@ -1027,7 +1027,7 @@ The category table below is retained as the canonical **"what counts as an issue
 |---|---|---|
 | **JS exceptions** | uncaught errors; React lifecycle exceptions; promise rejections at handler scope | red; full stack-trace in the Epoch panel's "Exception Thrown" block |
 | **Schema violations** | Malli registration on app-db / event-args / sub-output | yellow; offending path + expected vs actual in the Epoch EFFECT HANDLERS step |
-| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before marking applied · per-marking-site mark-misses (an `add-marks` / `set-marks` path pointing to nothing — typo detection) | magenta; marker-aware so the warning itself doesn't leak the value |
+| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before classification applied · per-declaration classification-misses (a frame `:sensitive {:app-db …}` / registration `:sensitive` path pointing at nothing — typo detection) | magenta; marker-aware so the warning itself doesn't leak the value |
 | **Hydration mismatches** | SSR-only; mismatched server/client tree | yellow; node path + server vs client text |
 | **Perf-budget overruns** | cascades exceeding configured perf budget | orange; actual vs budget + cascade-id |
 | **App console errors/warns** | host app's `console.error` / `console.warn` calls (captured via hook) | dim grey (advisory); raw text |
@@ -1669,7 +1669,7 @@ Xray CONSUMES the contract specified in [spec/015-Data-Classification](../../../
 
 | Sentinel | Xray renders | Drillable? | Hover tooltip discloses | Click affordance |
 |---|---|---|---|---|
-| `:rf/redacted` (bare) | `[● REDACTED 1]` magenta | NO | Path of redaction · mark source (`add-marks` / `set-marks` / event-handler / sub / fx / cofx / machine / flow) · local count | One-way disclosure of STRUCTURE only (path + source). **NO "reveal value" button.** **NO fetch handle.** The value is GONE at the source. |
+| `:rf/redacted` (bare) | `[● REDACTED 1]` magenta | NO | Path of redaction · mark owner (frame / event-handler / sub / fx / cofx / machine / flow / resource) · local count | One-way disclosure of STRUCTURE only (path + owner). **NO "reveal value" button.** **NO fetch handle.** The value is GONE at the source. |
 | `:rf/redacted {:bytes N}` | `[● REDACTED · N bytes]` magenta | NO | Same as above + size | Same as above; size disclosed (helps debug "is the redacted thing big enough to be the problem?") |
 | `:rf.size/large-elided {:path [...] :bytes N :type <kw> :reason :schema :hint "…" :handle [:rf.elision/at <path>]}` | `[● ELIDED · N bytes]` yellow | YES | Path · mark source · byte size · `:hint` text · `:type` (`:map`/`:vector`/`:set`/`:string`/`:scalar`) | Popover with `:hint` text + **"Fetch full value" button**. Fetch routes via `get-path` per [Tool-Pair.md](../../../spec/Tool-Pair.md) (round-trips the marker's `:handle`). Size-warned via confirm modal when bytes > threshold (default 100KB). |
 
@@ -1723,21 +1723,23 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 
 - **No "reveal redacted value" button.** Ever. The only path to seeing sensitive payloads is the host-level opt-in `(xray-config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})` — the EP-0015 trusted-local per-`(tool, frame)` reveal grain, a deliberate code-level act gating FUTURE events. The walker drops the value before the trace bus buffers it; the value is unrecoverable at render time. Drop-and-forget is the contract.
 - **No fetch button for `:rf/redacted`.** Distinguishes from `:rf.size/large-elided`. The two sentinels MUST have different affordances.
-- **No schema-based marking** (rejected per [spec/015](../../../spec/015-Data-Classification.md)). Xray renders sentinels from the seven first-class marking sites only.
 
-### The seven first-class marking sites (framework contract; Xray consumes)
+### The owner-classification model (framework contract; Xray consumes)
 
-Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md):
+Per [spec/015-Data-Classification §The ownership split](../../../spec/015-Data-Classification.md) — classification is attached to whoever owns the data shape. This **supersedes** the earlier "seven first-class marking sites" framing and the public `add-marks` / `set-marks` app-db surface. Xray consumes the resulting sentinels; it renders them identically regardless of owner.
 
-1. **Event handler** (`reg-event`) — `{:sensitive [paths]}` on the registration map.
-2. **App-db** (per frame) — `(rf/add-marks <frame-id> {path mark, ...})` (additive merge) or `(rf/set-marks <frame-id> {path mark, ...})` (replace wholesale).
-3. **Subscription** — output marking via `{:sensitive [paths]}` or whole-output `{:sensitive? true/false}` override. Default = propagate from sensitive input paths.
+1. **Frame** (`reg-frame`) — durable frame-wide facts classified by the frame's `:sensitive {:app-db …}` / `:large {:app-db …}` path maps (and `:sensitive {:http {…}}` carriers). This is the durable app-db classification path; schema-attached app-db classification and the imperative `add-marks` / `set-marks` surface are removed.
+2. **Event handler** (`reg-event`) — `{:sensitive [paths]}` on the registration map (event-arg transient payloads).
+3. **Subscription** — output classification via `{:sensitive [paths]}` and the closed `:rf.egress/output-sensitivity` declassification claim (`:rf.egress/inherit` default · `:rf.egress/sensitive` force-mark · `:rf.egress/public` declassify). Sensitivity propagates from sensitive input paths unless declassified.
 4. **Effect** (`reg-fx`) — input marking on the fx-args.
 5. **Coeffect** (`reg-cofx`) — injection marking.
-6. **State machine** (`reg-machine`) — `:data` slot path marking.
-7. **Flow** (`reg-flow`) — output marking + propagation override.
+6. **State machine** (`reg-machine`) — schema-first `:data` slot props (`:sensitive?` / `:large?` on the `:data-schema`; EP-0005 composition, not the frame path-map mechanism).
+7. **Flow** (`reg-flow`) — output marking + the same `:rf.egress/output-sensitivity` declassification claim subs honour.
+8. **Resource / mutation** (`reg-resource` / `reg-mutation`) — durable runtime-subsystem state classified by per-slot `:sensitive?` / `:large?` props on the `:data-schema` / `:params-schema` (the shared EP-0005 schema mechanism).
 
-Xray's renderer is the same regardless of which site marked the value — it sees the sentinel and renders per the table above. The mark site is disclosed in the hover tooltip so the user can trace "where did this redaction come from?" without revealing the value itself.
+Schemas describe **shape**, not durable app-db egress policy: a `reg-app-schema` `{:sensitive? true}` slot prop is **not** a route into app-db classification (Spec 015 §Schemas describe shape). Per-slot schema props are the classification surface only for the owners whose natural declaration is a schema (machines, resources, HTTP bodies).
+
+Xray's renderer is the same regardless of which owner marked the value — it sees the sentinel and renders per the table above. The mark owner is disclosed in the hover tooltip so the user can trace "where did this redaction come from?" without revealing the value itself.
 
 ---
 
