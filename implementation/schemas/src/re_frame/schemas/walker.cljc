@@ -18,13 +18,18 @@
   These extractors NO LONGER populate the frame's app-db egress registry
   under `[:rf.runtime/elision :declarations]` /
   `[:rf.runtime/elision :sensitive-declarations]`. App-db egress
-  classification is **frame-owned** (`reg-frame` `:sensitive` /
-  `:large {:app-db …}` plus the imperative `add-marks` / `set-marks`
-  surface) — schemas describe **shape**, not durable app-db egress
-  policy, and the old `re-frame.elision/populate-{,sensitive-}from-schemas!`
-  bridge + its `:elision/populate-from-schemas!` late-bind seam are
-  REMOVED (see `re-frame.schemas` §schema-walker hooks; Spec-Schemas
-  §`:rf/runtime-db` `:rf.runtime/elision`).
+  classification is **frame-owned** — declared on `reg-frame` via
+  `:sensitive {:app-db …}` / `:large {:app-db …}`, the single durable
+  authoring surface (Spec 015 §Frame-owned durable classification). The
+  former public `add-marks` / `set-marks` app-db path-mark API is REMOVED
+  from the façade (Spec 015 §3 / Privacy.md §Removed surfaces); the
+  underlying mark fns survive ONLY as internal / test / generated-code
+  plumbing, not as a public authoring route. Schemas describe **shape**,
+  not durable app-db egress policy, and the old
+  `re-frame.elision/populate-{,sensitive-}from-schemas!` bridge + its
+  `:elision/populate-from-schemas!` late-bind seam are REMOVED (see
+  `re-frame.schemas` §schema-walker hooks; Spec-Schemas §`:rf/runtime-db`
+  `:rf.runtime/elision`).
 
   The extractors survive for their **owner-local** schema-prop consumers,
   which read the `{path declaration}` map directly (NOT via the elision
@@ -98,8 +103,8 @@
   > the validation redaction now consults ONLY the per-slot schema
   > declaration. Registering an opaque value and adding handler-meta
   > `:sensitive?` does NOT redact; the supported route is registering the
-  > vector form (or the path-mark / data-classification surface where it
-  > applies).
+  > vector form (or frame-owned data classification — `reg-frame`
+  > `:sensitive {:app-db …}` — for durable app-db egress, EP-0015).
 
   Example — vector form vs registry ref:
 
