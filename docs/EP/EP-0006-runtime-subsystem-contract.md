@@ -17,8 +17,9 @@ Type: standards-track
 > closed. One implementation item — the conformance drift test — remains unbuilt
 > and is tracked in [Implementation errata](#implementation-errata) (the EP-0005
 > final-with-errata pattern: decisions-final does not assert build-complete). The
-> single deferred *decision* (the work-ledger multi-writer authority of [Open
-> Issues](#open-issues)) is recorded honestly as a future-EP question on which the
+> single deferred *implementation* question (the work-ledger multi-writer
+> authority of [Open Issues](#open-issues) — a future-EP question, not a live
+> decision blocking the contract) is recorded honestly as one on which the
 > shipped `spec/016-Resources.md` currently diverges from this EP's recommendation
 > — it does not block the contract.
 

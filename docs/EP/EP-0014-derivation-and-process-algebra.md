@@ -220,12 +220,13 @@ mental model.
   into `app-db`, including the drain-integration sequencing this EP's
   `:after-event` policy summarizes.
 - [EP-0010](EP-0010-causal-world-inputs.md) (final),
-  [EP-0011](EP-0011-uniform-async-reply-envelope.md) (accepted), and
-  [EP-0012](EP-0012-path-optics-and-canonical-forms.md) (accepted) are
+  [EP-0011](EP-0011-uniform-async-reply-envelope.md) (final), and
+  [EP-0012](EP-0012-path-optics-and-canonical-forms.md) (final) are
   companions: causal world inputs, async replies, and canonical path/identity
   forms make the algebra more precise, but this EP can stand without them.
   Canonical node/fact identity uses EP-0012's rules directly.
-- [EP-0013](EP-0013-app-values-and-runtime-realms.md) (accepted, 2026-06-11)
+- [EP-0013](EP-0013-app-values-and-runtime-realms.md) (accepted 2026-06-11,
+  since superseded by [EP-0023](EP-0023-image-loaded-frames.md))
   is the natural future home for algebra declarations: the normalized node
   this EP defines is exactly the per-fact/per-process row an app value
   carries, so the algebra view moves from registrar-derived metadata to a

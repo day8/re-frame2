@@ -1099,8 +1099,10 @@ The guide should avoid teaching internals first. It should not start with
 
 ## Recommendation
 
-Adopt the direction, but keep this EP in proposal while the open issues are
-worked through. The central move is sound: **frame-owned durable policy,
-registration-owned transient policy, centralized projection, projected sinks**.
-The details should be thrashed out here rather than spread across findings
-notes, API tables, and piecemeal bead descriptions.
+**Adopted and graduated to `final`** (ruling 2026-06-11; see the header
+blockquote and [§Open Issues](#open-issues) for the twelve dispositions). The
+central move proved sound: **frame-owned durable policy, registration-owned
+transient policy, centralized projection, projected sinks**. The open issues
+were thrashed out here — inline in §Open Issues — rather than spread across
+findings notes, API tables, and piecemeal bead descriptions, and the normative
+contract now lives in its spec homes (which govern).

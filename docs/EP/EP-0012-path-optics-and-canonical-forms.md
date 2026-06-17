@@ -39,6 +39,11 @@ Type: standards-track
 > Normative home after acceptance: `spec/Conventions.md`, with cross-references
 > from routing, schemas, flows, resources, runtime-subsystems, and any future
 > derivation/process specification.
+>
+> **Guide impact:** none yet (EP-0009 graduation rule). The `rf.path/*` /
+> `rf.identity/*` helpers are internal-first (Open Issue 1 disposition) and not a
+> public author surface, so no human-facing guide change ships with this EP; a
+> guide entry is added only if/when an op graduates to public API.
 
 ## Abstract
 

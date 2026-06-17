@@ -214,6 +214,11 @@ This EP is largely independent but shares one path with another proposal.
   badge conditional on schema-absence: declared → authoritative (badge off); absent →
   inferred (badge on, exactly today's behaviour). The `:machine-data-inferred?` prop
   is the seam this EP toggles; nothing 5tz9p built is discarded.
+- **Catalogued by [EP-0007](EP-0007-one-name-per-fact.md) (One Name Per Fact).**
+  This EP's `:schema` → `:data-schema` rename (the
+  qualify-where-a-sibling-makes-`:schema`-ambiguous precedent) is recorded in
+  EP-0007's schema-family table as the canonical example; EP-0007 credits this
+  EP and adds no renames beyond it.
 
 ## Specification
 
