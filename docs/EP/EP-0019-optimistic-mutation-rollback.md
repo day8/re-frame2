@@ -1,18 +1,33 @@
 # EP-0019: Optimistic Mutation Rollback For Resources
 
-Status: proposal
+Status: final
 Type: standards-track
 
-> This EP proposes the optimistic-mutation surface deferred by
+> This EP defines the optimistic-mutation surface deferred by
 > [EP-0016](EP-0016-resource-mutation-completion.md) (issue 9, ruled
 > 2026-06-11): a write applies a recorded optimistic patch to the resource
 > cache *before* the server confirms, and the runtime deterministically
 > **commits**, **rolls back**, or **reconciles** that patch when the reply
-> settles, fails, or is superseded. Its normative home on acceptance is
+> settles, fails, or is superseded. Its normative home is
 > [`spec/016-Resources.md`](../../spec/016-Resources.md); this document is the
-> design record behind that amendment. It is **design-first** — nothing here
-> binds until the operator rules, and no spec/implementation change ships
-> before that ruling.
+> rationale record behind that amendment.
+>
+> **Graduated `proposal → final` 2026-06-17 (Mike, operator graduation; bead
+> `rf2-pyahbf`).** The seven open issues are ruled (see [§Open Issues](#open-issues)
+> and the [§Recommendation](#recommendation)) and the recommended cut shipped: a
+> registration-level **`:optimistic`** forward plan with a runtime-recorded
+> snapshot inverse + per-entry revision token, the deterministic
+> **commit / rollback / reconcile** settle protocol keyed on the work-id +
+> generation acceptance verdict, **`:on-conflict :invalidate`** as the default,
+> **`:optimistic-tags`** for the cross-view-consistency demand, and the reserved
+> trace/instance slots filled with the three new `:rf.mutation/*` ops. The
+> implementation landed and was dogfooded across
+> `implementation/resources/{mutation_events,mutation_registry,mutation_runtime,ssr,state}.cljc`
+> (revision token, optimistic apply, settle/rollback/reconcile, Xray view,
+> realworld driver). A Linearlite-class dogfood driver (`rf2-tideyl`) is a
+> post-graduation enhancement, **not** a graduation blocker. `final` asserts the
+> **decisions are settled** and the normative home governs — where this EP and the
+> spec differ, the spec governs.
 
 ## Abstract
 
@@ -187,10 +202,12 @@ them wrong ships a cache-coherence footgun.
 
 ## Specification
 
-> Normative-voiced text is permitted at `proposal` — it makes graduation a
-> move, not a rewrite — but it binds nothing until accepted.
+> The normative contract lives in
+> [`spec/016-Resources.md`](../../spec/016-Resources.md); the text below is the
+> design record behind that amendment. Where this EP and the spec differ, the
+> spec governs.
 
-This proposal has **four decisions** and **three riders**.
+This EP has **four decisions** and **three riders**.
 
 ### Decision 1: the optimistic plan is a registration-level forward plan
 
@@ -636,8 +653,10 @@ Proposed sequence (not a one-PR requirement):
 
 ## Open Issues
 
-> Genuine design decisions for the operator to rule. An EP MUST NOT go
-> `accepted`/`final` with these silently unresolved.
+> These were the genuine design decisions the operator ruled at graduation
+> (`proposal → final`, 2026-06-17). The recommendations below were adopted as the
+> shipped cut (Open Issue 5 carries its own load-bearing inline ruling, `byl7bk`,
+> 2026-06-15); they are kept verbatim as the record of what was ruled.
 
 1. **Author-written inverse vs runtime snapshot inverse.** This EP recommends
    the runtime snapshot-of-touched-entries inverse (truthful by construction,
@@ -748,16 +767,15 @@ This closes the most visible parity gap while keeping the resource cache a
 declarative, inspectable, fail-closed surface rather than an imperative
 optimistic-write engine.
 
-## Proposed Spec 016 changes (sketch — NOT applied)
+## Spec 016 changes (landed)
 
-> This is **proposal text** quoting what `spec/016-Resources.md` *would* say on
-> acceptance. The spec is hot-zone and this is design-first;
-> `spec/016-Resources.md` is **not edited** by this PR. The operator rules
-> acceptance before any spec change.
+> This records the `spec/016-Resources.md` amendment that graduated with this EP.
+> The normative text lives in the spec ([§Optimistic mutations](../../spec/016-Resources.md));
+> the quote below is the design record. Where the two differ, the spec governs.
 
-A new subsection **§Optimistic mutations** would land after
+A new subsection **§Optimistic mutations** landed after
 [§Map-form exact resource targets](../../spec/016-Resources.md), and the
-deferred-keys line would change. The proposed normative text:
+deferred-keys line changed. The normative text:
 
 > **§Optimistic mutations (`:optimistic`, `:optimistic-tags`, `:on-conflict`).**
 > A mutation MAY declare an optimistic plan applied to the resource cache
@@ -797,15 +815,11 @@ deferred-keys line would change. The proposed normative text:
 > `:reconciliation-refetches` slots are populated; all snapshots/trace values
 > pass through the EP-0015 egress projection.
 
-And the deferred-keys line (`spec/016-Resources.md` ~line 663) would change from:
-
-> **Deferred keys** (rejected / unused in v1): … and mutation-only keys
-> (`:invalidates`, `:optimistic`, `:rollback`).
-
-to remove `:optimistic` / `:rollback` from the deferred set (they become the
-landed registration keys `:optimistic` / `:optimistic-tags` / `:on-conflict`),
-and §Deferred slices would strike "optimistic rollback" from the later-slices
-list, pointing at this EP's normative §Optimistic mutations as its home.
+And the deferred-keys line (`spec/016-Resources.md`) changed: `:optimistic` /
+`:rollback` are removed from the deferred set (they are now the landed
+registration keys `:optimistic` / `:optimistic-tags` / `:on-conflict`), and
+§Deferred slices no longer lists "optimistic rollback" as a later slice — it
+points at the normative §Optimistic mutations as its home.
 
 ## Security, Privacy, And Observability
 
