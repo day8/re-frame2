@@ -1276,6 +1276,20 @@ jobs:
           npx shadow-cljs compile node-test
           node out/node-test.js
 
+      # Per-namespace test-isolation gate (rf2-32siq3.44). The consolidated
+      # node-test bundle shares ONE runtime, so a test ns whose fixture forgets
+      # to install its own substrate adapter is masked: it passes whenever a
+      # sibling left an adapter installed (suite ORDERING hides a
+      # self-incomplete fixture). This step re-runs the curated EP-0023
+      # image/frame runtime-construction namespaces EACH ALONE — a fixture
+      # leaning on bundle pollution goes red standalone. Reuses the bundle the
+      # step above just compiled (no --compile).
+      - name: Per-namespace test-isolation gate self-test
+        run: node scripts/check-per-ns-isolation.cjs --self-test
+
+      - name: Per-namespace test-isolation gate
+        run: node scripts/check-per-ns-isolation.cjs
+
   js-harness-self-tests:
     name: JS harness self-tests (quiet reporters + path policy)
     runs-on: ubuntu-latest

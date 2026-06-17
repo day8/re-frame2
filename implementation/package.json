@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "node scripts/dev-testbed.cjs",
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
+    "test:cljs-isolation": "shadow-cljs compile node-test && node scripts/check-per-ns-isolation.cjs",
     "test:security": "shadow-cljs compile node-test-security && node out/node-test-security.js",
     "test:testbed-support": "shadow-cljs compile node-test-testbed-support && node out/node-test-testbed-support.js",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
