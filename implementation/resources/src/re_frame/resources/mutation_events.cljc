@@ -1804,6 +1804,18 @@
                                          {:work-kind rreply/work-kind-mutation
                                           :completed-at completed-at})
         error      (:error reply)
+        ;; rf2-qsn30x (EP-0011 §Status taxonomy / §Work-status mapping): an
+        ;; `:rf.http/aborted` failure envelope is an intentional CANCELLATION,
+        ;; which `failure-reply` lowers to `:status :cancelled` /
+        ;; `:work/status :cancelled` (not `:error` / `:failed`). The accepted
+        ;; live path MUST settle the work-ledger row terminal `:cancelled`,
+        ;; agreeing with the reply's `:work/status` — settling it `:failed`
+        ;; while the reply says `:cancelled` violates the closed status
+        ;; taxonomy. A STALE abort still settles `:suppressed` (the nil-inst
+        ;; path below): stale validation wins over the natural cancellation
+        ;; status (Managed-Effects §Stale suppression). The canonical reply's
+        ;; `:status` drives the branch (the family's classifier).
+        aborted?   (= :cancelled (:status reply))
         inst       (live-instance-for-reply runtime-db frame-id payload)]
     (if (nil? inst)
       ;; STALE SUPPRESSION (mandatory): a superseded / cleared / cross-frame
@@ -1890,9 +1902,20 @@
                        rolled-summary (assoc :patch-summary rolled-summary))
             rdb'     (-> settle-db
                          (assoc-in (mstate/instance-path instance-id) inst')
+                         ;; rf2-qsn30x: the ledger row settles `:cancelled` for
+                         ;; an accepted abort (the reply lowered it to
+                         ;; `:status :cancelled`), else `:failed`. The outcome
+                         ;; summary mirrors the resource abort path
+                         ;; (`{:reason :aborted …}` carries no error envelope —
+                         ;; an abort is not a user-visible failure) so the
+                         ;; ledger status and the canonical reply `:work/status`
+                         ;; agree (Managed-Effects §Status taxonomy).
                          (work-ledger/update-record
                            work-id work-ledger/mark-terminal
-                           :failed {:error error}))
+                           (:work/status reply)
+                           (if aborted?
+                             {:reason :aborted :completed-at completed-at}
+                             {:error error})))
             ;; PHASE 6 — the continuation fires for ANY accepted terminal reply
             ;; (D1 delivery rule: keyed on acceptance, not a status
             ;; enumeration), so an accepted `:error` (and an accepted terminal
