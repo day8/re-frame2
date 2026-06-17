@@ -450,70 +450,6 @@
       (flush [])
       (close []))))
 
-;; ----------------------------------------------------------------------
-;; Test-output diagnostic projection boundary (EP-0015, rf2-j49rb3).
-;;
-;; This runner is the SHARED test-output sink for the whole repo's suites,
-;; including warning-heavy privacy suites. EP-0015 makes projection
-;; centralized at log / test-output boundaries: a sink replays
-;; already-projected records, never raw owner-local payloads. The buffered
-;; stderr ring is opaque bytes from ANY namespace, so the sink cannot
-;; path-classify it; what it CAN — and per EP-0015 MUST — do is be an
-;; explicit projection boundary that fails closed for owner-local payloads
-;; a producer wraps in the framework sensitive convention.
-;;
-;; The convention is value-free egress (the `re-frame.mcp-base.sensitive`
-;; rf2-el9sw rule, generalized to test output): a producer that has an
-;; owner-local payload it must NOT let reach a CI / test log wraps it in the
-;; `[rf-sensitive] … [/rf-sensitive]` sentinel. The sink redacts the wrapped
-;; payload to the `:rf/redacted` sentinel at replay — the PROJECTED evidence
-;; (the surrounding diagnostic text + the redaction marker) survives, the raw
-;; payload does not. Content with no marker is treated as already-projected
-;; and replayed verbatim (the upstream producer is responsible for projecting
-;; before it hits the wire, per EP-0015's "sinks receive projected records").
-
-;; The framework redaction sentinel (`re-frame.privacy/redacted-sentinel`),
-;; spelled as a literal here so this test-only artefact stays decoupled from
-;; core (it has NO dep on `implementation/core` — see deps.edn — and its own
-;; tests run UNDER this runner, so a core require would couple the sink to the
-;; framework runtime it is meant to observe). Kept in lockstep with
-;; `re-frame.privacy/redacted-sentinel` by convention.
-(def ^:private privacy-redacted :rf/redacted)
-
-(def ^:private sensitive-open  "[rf-sensitive]")
-(def ^:private sensitive-close "[/rf-sensitive]")
-
-(defn project-diagnostic
-  "Project one buffered test-output diagnostic string for replay (EP-0015,
-  rf2-j49rb3). Any payload wrapped in the `[rf-sensitive] … [/rf-sensitive]`
-  owner-local convention is redacted to the `:rf/redacted` sentinel so the
-  raw payload never reaches the replayed CI / test log; the projected
-  evidence around it survives. Idempotent and value-free on the redacted
-  span. Content with no marker passes through unchanged (already-projected
-  upstream). The single named test-output projection seam — a stricter sink
-  policy installs here."
-  [^String s]
-  (if (and s (.contains s sensitive-open))
-    (loop [acc (StringBuilder.) i 0]
-      (let [open (.indexOf s sensitive-open i)]
-        (if (neg? open)
-          (.toString (.append acc (.substring s i)))
-          (let [after-open (+ open (.length sensitive-open))
-                close      (.indexOf s sensitive-close after-open)]
-            (if (neg? close)
-              ;; Unterminated marker — fail closed: redact to end of string
-              ;; rather than risk leaking a payload whose terminator was
-              ;; trimmed off the ring or split across a flush.
-              (-> acc
-                  (.append (.substring s i open))
-                  (.append (str privacy-redacted))
-                  (.toString))
-              (recur (-> acc
-                         (.append (.substring s i open))
-                         (.append (str privacy-redacted)))
-                     (+ close (.length sensitive-close))))))))
-    s))
-
 (defn- install-summary-replay-hook!
   "Install a `clojure.test/report :summary` override that REPLAYS the
   buffered stderr (`sb`) to `real-err` when the run is RED, then delegates
@@ -531,7 +467,7 @@
   The replay goes to the REAL stderr (the `*err*` ring is still bound at
   this point, so we must NOT use `*err*`/`println` here or the replay
   would feed straight back into the buffer).  Each captured chunk is
-  written verbatim; a header marks it as a red-run replay so it is
+  written VERBATIM; a header marks it as a red-run replay so it is
   distinguishable from the reporter's own stdout, mirroring the CLJS
   replay's `[test-quiet]` prefix.  On green the buffer is simply dropped
   (never written)."
@@ -541,18 +477,12 @@
       (let [{:keys [fail error]} m]
         (when (and (pos? (+ (or fail 0) (or error 0)))
                    (pos? (.length sb)))
-          ;; EP-0015 (rf2-j49rb3): replay the buffered stderr through the
-          ;; test-output projection seam, never raw — an owner-local payload a
-          ;; producer wrapped in the `[rf-sensitive]` convention is redacted to
-          ;; the `:rf/redacted` sentinel here, so it does not reach the CI /
-          ;; test log; the projected diagnostic evidence around it survives.
-          (let [captured  (.toString sb)
-                projected (project-diagnostic captured)]
+          (let [captured (.toString sb)]
             (.write real-err
-                    (str "\n[test-quiet] buffered stderr (projected) replayed"
+                    (str "\n[test-quiet] buffered stderr replayed"
                          " because the run was RED:\n"))
-            (.write real-err projected)
-            (when-not (.endsWith projected "\n")
+            (.write real-err captured)
+            (when-not (.endsWith captured "\n")
               (.write real-err "\n"))
             (.flush real-err))))
       ;; Delegate to the prior :summary so the canonical

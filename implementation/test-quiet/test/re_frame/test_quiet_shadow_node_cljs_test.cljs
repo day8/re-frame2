@@ -521,38 +521,6 @@
             (str "a green run must emit ONLY the canonical summary lines;"
                  " got:\n" (str/join "\n" non-blank)))))))
 
-(deftest red-replay-projects-sensitive-owner-local-payload
-  (testing "EP-0015 (rf2-j49rb3): a buffered console.warn carrying an
-            owner-local payload wrapped in the `[rf-sensitive]` convention is
-            PROJECTED on red replay — the raw payload is redacted to the
-            `:rf/redacted` sentinel, while the surrounding diagnostic evidence
-            survives. The CLJS test-output sink is an explicit projection
-            boundary; it must not replay raw owner-local payloads."
-    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
-          {status :status stdout :stdout stderr :stderr err :error
-           timed-out? :timed-out?}
-          (spawn-runner [(str "--test=" red-ns)]
-                        {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})
-          combined (str stdout stderr)]
-      (is (nil? err)
-          (str "spawning the real runner must not error; got: " (pr-str err)))
-      (is (not timed-out?) "the armed fixture run must not time out")
-      (is (and (number? status) (not (zero? status)))
-          (str "the armed fixture is RED; must exit NONZERO; got " status
-               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      ;; PROJECTED EVIDENCE survives the red replay.
-      (is (str/includes? combined "PROJ-EVIDENCE-MARKER")
-          (str "the projected diagnostic evidence must survive the red replay;"
-               " got\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      (is (str/includes? combined ":rf/redacted")
-          (str "the redacted span must surface as the :rf/redacted sentinel;"
-               " got\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
-      ;; RAW OWNER-LOCAL PAYLOAD does NOT leak.
-      (is (not (str/includes? combined "SUPER-SECRET-TOKEN"))
-          (str "the raw owner-local payload must NOT reach the replayed CI /"
-               " test log (EP-0015 rf2-j49rb3); got\n--- stdout ---\n" stdout
-               "\n--- stderr ---\n" stderr)))))
-
 ;; ----------------------------------------------------------------------
 ;; Shared spawn timeout/output policy (rf2-8dfq5j.3).
 ;;

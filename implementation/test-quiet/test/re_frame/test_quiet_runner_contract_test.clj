@@ -779,45 +779,9 @@
               (str "the buffered stderr must be REPLAYED on a RED run"
                    " (rf2-nrk066); got\n--- stdout ---\n" out
                    "\n--- stderr ---\n" err))
-          (is (str/includes? err "buffered stderr (projected) replayed because the run was RED")
-              (str "the replay must be labelled (and marked PROJECTED — EP-0015"
-                   " rf2-j49rb3) so it is distinguishable from the reporter's"
-                   " own output; got stderr:\n" err)))))))
-
-(deftest red-replay-projects-sensitive-owner-local-payload
-  (testing "EP-0015 (rf2-j49rb3): a buffered diagnostic carrying an
-            owner-local payload wrapped in the `[rf-sensitive]` convention is
-            PROJECTED on red replay — the raw payload is redacted to the
-            `:rf/redacted` sentinel, while the surrounding diagnostic evidence
-            survives. The test-output sink is an explicit projection boundary;
-            it must not replay raw owner-local payloads to the CI / test log."
-    (with-fixture-dir
-      (fn [dir]
-        ;; A failing test whose stderr diagnostic embeds a secret wrapped in
-        ;; the owner-local sensitive convention. The sink must redact the
-        ;; wrapped span and keep the structural evidence either side.
-        (write-fixture! dir "red_projected_fixture_test" "red-projected-fixture-test"
-                        (str "(deftest a-sensitive-warning-and-failing-test"
-                             " (binding [*out* *err*]"
-                             "   (println \"DRIFT-EVIDENCE-MARKER token=[rf-sensitive]SUPER-SECRET-TOKEN[/rf-sensitive] end\"))"
-                             " (is (= :exp :act)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
-          (is (= 1 exit)
-              (str "the sensitive-warning-and-failing suite is red; must exit 1;"
-                   " got " exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; PROJECTED EVIDENCE survives: the surrounding diagnostic text and
-          ;; the redaction sentinel reach the replayed stderr.
-          (is (str/includes? err "DRIFT-EVIDENCE-MARKER")
-              (str "the projected diagnostic evidence must survive the red"
-                   " replay; got stderr:\n" err))
-          (is (str/includes? err ":rf/redacted")
-              (str "the redacted span must surface as the :rf/redacted"
-                   " sentinel; got stderr:\n" err))
-          ;; RAW OWNER-LOCAL PAYLOAD does NOT leak to stdout OR stderr.
-          (is (not (str/includes? (str out err) "SUPER-SECRET-TOKEN"))
-              (str "the raw owner-local payload must NOT reach the replayed"
-                   " CI / test log (EP-0015 rf2-j49rb3); got"
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
+          (is (str/includes? err "buffered stderr replayed because the run was RED")
+              (str "the replay must be labelled so it is distinguishable from"
+                   " the reporter's own output; got stderr:\n" err)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Subprocess-harness pipe-deadlock regression — rf2-spzkgo.

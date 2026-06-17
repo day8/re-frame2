@@ -66,73 +66,22 @@
                (subvec buf' (- n warn-buffer-cap))
                buf')))))
 
-;; Test-output diagnostic projection boundary (EP-0015, rf2-j49rb3) — the
-;; CLJS-node counterpart of the JVM runner's `project-diagnostic`. This node
-;; runner is the shared CLJS test-output sink for warning-heavy privacy
-;; suites; EP-0015 makes it an explicit projection boundary that replays
-;; already-projected records, never raw owner-local payloads. The buffered
-;; `console.warn` args are opaque values from ANY namespace, so the sink
-;; cannot path-classify them; what it MUST do is fail closed for an
-;; owner-local payload a producer wraps in the framework sensitive
-;; convention. A string arg containing `[rf-sensitive] … [/rf-sensitive]`
-;; has the wrapped payload redacted to the `:rf/redacted` sentinel; a
-;; non-string arg that is itself marked sensitive is redacted wholesale.
-
-(def ^:private sensitive-open  "[rf-sensitive]")
-(def ^:private sensitive-close "[/rf-sensitive]")
-(def ^:private privacy-redacted
-  ;; `re-frame.privacy/redacted-sentinel`, spelled literally so this
-  ;; test-only ns stays decoupled from core (it requires no core ns and runs
-  ;; the core tests under itself). Kept in lockstep by convention.
-  :rf/redacted)
-
-(defn project-diagnostic
-  "Project one buffered `console.warn` arg for replay (EP-0015, rf2-j49rb3).
-  A string carrying the `[rf-sensitive] … [/rf-sensitive]` owner-local
-  convention has the wrapped payload (or the tail, if unterminated — fail
-  closed) redacted to the `:rf/redacted` sentinel; the projected evidence
-  around it survives. Non-string / non-marked args pass through (the
-  upstream producer projects before egress). The single named CLJS
-  test-output projection seam."
-  [arg]
-  (if (and (string? arg) (str/includes? arg sensitive-open))
-    (let [tail-redacted
-          ;; A bare opener with no closer fails closed: redact from the
-          ;; opener to end of string.
-          (loop [s arg]
-            (let [open (str/index-of s sensitive-open)]
-              (if (nil? open)
-                s
-                (let [after-open (+ open (count sensitive-open))
-                      close      (str/index-of s sensitive-close after-open)]
-                  (if (nil? close)
-                    (str (subs s 0 open) privacy-redacted)
-                    (recur (str (subs s 0 open)
-                                privacy-redacted
-                                (subs s (+ close (count sensitive-close))))))))))]
-      tail-redacted)
-    arg))
-
 (defn- replay-buffered-warnings!
   "Replay the buffered warnings to stderr, prefixed so they are
   distinguishable from the test reporter's own stdout output.  Called
   from the `:end-run-tests` reporter ONLY on a red run, restoring the
   diagnostic context the green-path quieting withheld.
 
-  EP-0015 (rf2-j49rb3): each buffered arg is replayed through the
-  `project-diagnostic` seam — never raw — so an owner-local payload a
-  producer wrapped in the `[rf-sensitive]` convention is redacted before it
-  reaches the CI / test log."
+  Each buffered arg is replayed VERBATIM."
   []
   (let [buffered @warn-buffer]
     (when (seq buffered)
       (binding [*print-fn* (fn [s] (js/process.stderr.write s))]
         (println (str "[test-quiet] " (count buffered)
                       " console.warn message(s) buffered during this run"
-                      " (projected, replayed because the run was RED):"))
+                      " (replayed because the run was RED):"))
         (doseq [args buffered]
-          (apply println "[test-quiet] console.warn:"
-                 (map project-diagnostic args)))))))
+          (apply println "[test-quiet] console.warn:" args))))))
 
 ;; The stub carries a `re-frame.test-quiet/silenced` marker property so it
 ;; is IDENTIFIABLE: a contract test can assert the live `console.warn` is

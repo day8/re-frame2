@@ -26,14 +26,7 @@
   (when armed?
     ;; A stray runtime warning of exactly the class the green-path stub
     ;; withholds. It must survive to the RED output via the buffer replay.
-    (js/console.warn "RED-WARN-FIXTURE-MARKER diagnostic context")
-    ;; EP-0015 (rf2-j49rb3): a diagnostic carrying an owner-local payload
-    ;; wrapped in the `[rf-sensitive]` convention. The red-replay projection
-    ;; seam must redact the wrapped span to the `:rf/redacted` sentinel — the
-    ;; surrounding evidence (`PROJ-EVIDENCE-MARKER`) survives, the raw payload
-    ;; (`SUPER-SECRET-TOKEN`) does NOT reach the CI / test log.
-    (js/console.warn
-      "PROJ-EVIDENCE-MARKER token=[rf-sensitive]SUPER-SECRET-TOKEN[/rf-sensitive] end"))
+    (js/console.warn "RED-WARN-FIXTURE-MARKER diagnostic context"))
   ;; GREEN unless armed: the consolidated whole-suite run keeps passing.
   (is (or (not armed?) (= :expected :actual))
       "armed fixture fails so the run is RED and the buffer replays"))
