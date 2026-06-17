@@ -228,12 +228,19 @@
   (reset! warned-unschema'd #{})
   nil)
 
-(defn- pr-str-bytes
+(defn ^:no-doc pr-str-bytes
+  "Return a byte-count for a value's printed representation. Used by the
+  `:rf.size/large-elided` marker payload. `^:no-doc` public so
+  `re-frame.marks` reuses it rather than re-inlining the same `pr-str`
+  byte-count a second time (rf2-ih437c)."
   [v]
   #?(:clj  (count (.getBytes ^String (pr-str v) "UTF-8"))
      :cljs (count (pr-str v))))
 
-(defn- value-type
+(defn ^:no-doc value-type
+  "Coarse value-type tag for the `:rf.size/large-elided` marker payload.
+  `^:no-doc` public so `re-frame.marks` reuses it rather than re-inlining
+  the same closed `cond` a second time (rf2-ih437c)."
   [v]
   (cond
     (map? v)    :map
@@ -259,7 +266,11 @@
     [:rf.elision/at path :as-of-epoch as-of-epoch]
     [:rf.elision/at path]))
 
-(defn- ->marker
+(defn ^:no-doc ->marker
+  "Build the `:rf.size/large-elided` marker map for value `v` at `path`.
+  `^:no-doc` public so `re-frame.marks/large-marker` builds the marker
+  here (with `{:reason :marks}`) rather than re-inlining the shape a
+  second time (rf2-ih437c)."
   [v path {:keys [hint as-of-epoch include-digests? reason]}]
   (let [body (cond-> {:path   (vec path)
                       :bytes  (pr-str-bytes v)

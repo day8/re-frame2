@@ -106,9 +106,16 @@
 
 ;; ---- cascade record -------------------------------------------------------
 
-(def ^:private empty-cascade
+(def ^:no-doc empty-cascade
   "Slot template for a cascade record. Per-cascade reduction starts here;
   every key the consumer can rely on lives in the template.
+
+  `^:no-doc` public so `re-frame.trace.tooling/cascade-bundle` folds the
+  per-frame ring's events with `absorb` over this same template rather
+  than re-inlining the slot set + the bucketing cond a second time
+  (rf2-ih437c). Both nss are dev-side and bundle-isolated from production
+  CLJS; this ns carries no requires, so the new tooling→projection edge
+  introduces no cycle and no production-bundle leak.
 
   `:event` is the dispatched event VECTOR (the convenient
   slim form most consumers need). `:dispatched` is the full
@@ -190,13 +197,20 @@
       [nil :ungrouped]
       [(cascade-frame frame-index ev) id])))
 
-(defn- absorb
+(defn ^:no-doc absorb
   "Fold one trace event into the per-cascade accumulator.
 
   The `:event` bucket lands the event VECTOR on `:event` (slim,
   consumers' common case) AND the full trace event on `:dispatched`
   (preserves top-level hoisted slots like `:rf.trace/call-site` per
-  rf2-twt7m Change 1)."
+  rf2-twt7m Change 1).
+
+  `^:no-doc` public so `re-frame.trace.tooling/cascade-bundle` reuses
+  this same fold (over `empty-cascade`) rather than re-inlining the
+  six-domino classification cond a third time (rf2-ih437c). Any extra
+  keys the caller seeds the accumulator with (e.g. tooling's
+  `:trace-events`) are preserved untouched — `absorb` only writes the
+  domino slots."
   [acc ev]
   (case (domino-bucket ev)
     :event   (assoc acc :event              (get-in ev [:tags :rf.event/v])

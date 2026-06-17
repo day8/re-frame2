@@ -788,28 +788,14 @@
 ;;      under `:value`/`:input-signals`, ...) — the projection is per-
 ;;      tag-shape.
 
-(defn- ->bytes
-  "Return a byte-count for a value's printed representation. Used by
-  the `:rf.size/large-elided` marker payload."
-  [v]
-  #?(:clj  (count (.getBytes ^String (pr-str v) "UTF-8"))
-     :cljs (count (pr-str v))))
-
-(defn- value-type
-  [v]
-  (cond
-    (map? v)    :map
-    (vector? v) :vector
-    (set? v)    :set
-    (string? v) :string
-    :else       :scalar))
-
 (defn large-marker
   "Build the `:rf.size/large-elided` marker for value `v` at `path`.
-  Mirror of `re-frame.elision/->marker`'s shape — inlined so this ns
-  carries no dependency on elision's privates. Carries `:reason
-  :marks` so consumers can discriminate per-registration marks
-  from schema-driven marks.
+  Delegates to `re-frame.elision/->marker` with `{:reason :marks}` so
+  the marker shape is built in ONE place — this ns already requires
+  `re-frame.elision`, so there is no extra dependency (the stale
+  \"carries no dependency on elision's privates\" rationale is gone,
+  rf2-ih437c). The `:reason :marks` tag lets consumers discriminate
+  per-registration marks from schema-driven marks.
 
   Public because the off-box epoch egress projector
   (`re-frame.epoch.tool-pair/projected-record`, rf2-at60h) reuses it to
@@ -818,13 +804,7 @@
   `:reason :marks` provenance the whole-output propagation table sets,
   built in ONE place rather than re-inlined a third time."
   [v path]
-  (let [p (vec path)]
-    {:rf.size/large-elided
-     {:path   p
-      :bytes  (->bytes v)
-      :type   (value-type v)
-      :reason :marks
-      :handle [:rf.elision/at p]}}))
+  (elision/->marker v path {:reason :marks}))
 
 (defn- walk-with-marks
   "Walk `v` and substitute sentinels at the declared paths. Paths in

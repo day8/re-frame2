@@ -188,15 +188,15 @@
            (contains? x :after)
            (contains? x :id))))
 
-(defn framework-default-interceptor?
-  "True when `x` is the framework's own appended handler-wrapping interceptor
-  value (stamped `:rf/default? true` — see `re-frame.events`). This is the ONE
-  inline interceptor value `resolve-chain` lets pass through a chain untouched:
-  it is framework machinery (the terminal `:before` that invokes the user
-  handler), not an application-authored chain entry, so the reference-only flip
-  (rf2-0adhqs.9) does not reject it."
-  [x]
-  (and (map? x) (true? (:rf/default? x))))
+;; `framework-default-interceptor?` (the `(map? x)`-guarded `:rf/default?`
+;; predicate) is the ONE inline interceptor value `resolve-chain` lets pass
+;; through a chain untouched: it is framework machinery (the terminal
+;; `:before` that invokes the user handler), not an application-authored
+;; chain entry, so the reference-only flip (rf2-0adhqs.9) does not reject
+;; it. The predicate lives in `re-frame.interceptor` (already required here)
+;; and is shared with that ns's `invoke-after` ctx-delta-capture gate —
+;; one copy, not two (rf2-ih437c). Call it as
+;; `interceptor/framework-default-interceptor?`.
 
 (defn interceptor-ref?
   "True when `x` is an interceptor REFERENCE (Spec 002 §Interceptor
@@ -437,7 +437,7 @@
   framework default) is `:rf.error/invalid-interceptor-ref`.
 
   The ONE inline value that passes through untouched is the framework's own
-  appended handler-wrapper (`:rf/default? true` — `framework-default-interceptor?`):
+  appended handler-wrapper (`:rf/default? true` — `interceptor/framework-default-interceptor?`):
   it is framework machinery, not an application-authored chain entry.
 
   `chain` is a sequential of refs (+ the framework default tail); returns a
@@ -464,7 +464,7 @@
               ;; The framework's own appended handler-wrapper (`:rf/default?
               ;; true`) — framework machinery, not an authored chain entry;
               ;; passes through untouched (the reference-only carve-out).
-              (framework-default-interceptor? entry) entry
+              (interceptor/framework-default-interceptor? entry) entry
               ;; A stale INLINE interceptor value — reference-only flip rejects
               ;; it LOUD (EP-0022, rf2-0adhqs.9): register it + reference by id.
               (interceptor-value? entry) (throw-inline-interceptor-removed! entry)
@@ -483,7 +483,7 @@
   resolve the ref, or to reject the inline value loudly)."
   [chain]
   (boolean (some (fn [entry]
-                   (and (not (framework-default-interceptor? entry))
+                   (and (not (interceptor/framework-default-interceptor? entry))
                         (or (interceptor-ref? entry)
                             (interceptor-value? entry))))
                  chain)))

@@ -61,7 +61,15 @@
 
   Per Spec 009 §Per-frame trace rings."
   (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as late-bind]
+            ;; rf2-ih437c: `cascade-bundle` reuses the six-domino fold
+            ;; (`absorb` over `empty-cascade`) from the projection ns
+            ;; rather than re-inlining the classification cond. Both nss
+            ;; are dev-side and bundle-isolated from production CLJS (the
+            ;; `trace-tooling` bundle-isolation entry pins tooling's
+            ;; absence from the counter bundle); projection carries no
+            ;; requires of its own, so this edge introduces no cycle.
+            [re-frame.trace.projection :as projection]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -381,64 +389,24 @@
 ;; Per Spec 009 §`trace-buffer` API — per-frame, cascade bundles by
 ;; default. `:flat true` opt returns raw trace events.
 
-(defn- effects-bucket?
-  [{:keys [op-type operation]}]
-  (and (= op-type :rf.fx) (not= operation :rf.fx/do-fx)))
-
-(defn- subs-bucket?
-  [{:keys [op-type]}]
-  (= op-type :rf.sub))
-
-(defn- renders-bucket?
-  [{:keys [op-type operation]}]
-  (and (= op-type :rf.view) (= operation :rf.view/render)))
-
-(defn- handler-marker?
-  [{:keys [op-type operation]}]
-  (and (= op-type :rf.event)
-       (or (= operation :rf.event/run-start)
-           (= operation :rf.event/run-end))))
-
-(defn- dispatched-marker?
-  [{:keys [op-type operation]}]
-  (and (= op-type :rf.event) (= operation :rf.event/dispatched)))
-
-(defn- fx-marker?
-  [{:keys [operation]}]
-  (= operation :rf.fx/do-fx))
-
 (defn- cascade-bundle
   "Project the events for one cascade into a Spec 009 cascade-bundle
-  (the `group-cascades` shape, per-cascade)."
-  [frame-id dispatch-id events]
-  (let [base {:dispatch-id  dispatch-id
-              :frame        frame-id
-              :trace-events events
-              :event        nil
-              :dispatched   nil
-              :handler      nil
-              :fx           nil
-              :effects      []
-              :subs         []
-              :renders      []
-              :other        []
-              :parent-dispatch-id nil}]
-    (reduce (fn [acc ev]
-              (cond
-                (dispatched-marker? ev)
-                (assoc acc
-                       :event              (get-in ev [:tags :rf.event/v])
-                       :dispatched         ev
-                       :parent-dispatch-id (get-in ev [:tags :rf.trace/parent-dispatch-id]))
+  (the `group-cascades` shape, per-cascade).
 
-                (handler-marker? ev) (assoc acc :handler ev)
-                (fx-marker? ev)      (assoc acc :fx ev)
-                (effects-bucket? ev) (update acc :effects conj ev)
-                (subs-bucket? ev)    (update acc :subs conj ev)
-                (renders-bucket? ev) (update acc :renders conj ev)
-                :else                (update acc :other conj ev)))
-            base
-            events)))
+  rf2-ih437c: folds with `re-frame.trace.projection/absorb` over
+  `projection/empty-cascade` — the canonical six-domino classification
+  + slot set — rather than re-inlining the bucketing cond + the six
+  `*-bucket?`/`*-marker?` predicates a second time. The seed map carries
+  the extra `:trace-events` slot the cascade-bundle wire shape needs;
+  `absorb` only writes the domino slots, so `:trace-events` (and the
+  pre-seeded `:dispatch-id` / `:frame`) survive the fold untouched."
+  [frame-id dispatch-id events]
+  (reduce projection/absorb
+          (assoc projection/empty-cascade
+                 :dispatch-id  dispatch-id
+                 :frame        frame-id
+                 :trace-events events)
+          events))
 
 (defn- match-cascade?
   "Filter a cascade bundle against the cascade-level filter keys."
