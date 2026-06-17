@@ -108,6 +108,26 @@
 ;; [Spec 014 §`:rf.http/managed`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)).
 ;; Adopt it as-is when your app starts talking to an HTTP backend:
 ;;
+;; The `(:rf/reply msg)` / `{:kind :success|:failure …}` payload this
+;; handler reads is managed-HTTP **public compatibility sugar** — NOT the
+;; framework-wide managed-async model. Every managed-HTTP completion
+;; lowers internally onto re-frame2's
+;; [uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/Managed-Effects.md#the-uniform-reply-envelope)
+;; (Managed-Effects property 9; rationale record
+;; [EP-0011](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0011-uniform-async-reply-envelope.md)):
+;; one canonical reply map with a single closed `:status`
+;; (`:ok` / `:error` / `:cancelled`; `:stale` is suppressed before app
+;; delivery and never reaches this handler), `:value` / `:error`,
+;; `:work/id`, and `:completed-at`. `:on-success` / `:on-failure` and the
+;; co-located `(:rf/reply msg)` form are sugar that lowers to the
+;; framework target `:rf/reply-to` and reshapes the canonical reply back
+;; into the `{:kind …}` payload below — so the event shape is preserved
+;; exactly. Do NOT read `{:kind …}` as the general async contract: any
+;; non-HTTP managed-async surface you build reports completion through the
+;; same envelope's `:status` / `:value` / `:error` / `:completed-at`
+;; directly, with mandatory stale suppression. See
+;; [Spec 014 §Lowering onto the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#lowering-onto-the-uniform-reply-envelope).
+;;
 ;;   1. Require `[re-frame.http-managed]` at app boot — that's the load-
 ;;      time side-effect that registers the `:rf.http/managed` fx and
 ;;      publishes the call-site helpers. Without it, dispatching the fx
@@ -139,7 +159,8 @@
     (fn [{:keys [db]} [_ msg]]
       (cond
         ;; Success branch — server returned `{"delta": N}` (decoded
-        ;; per :decode :auto).
+        ;; per :decode :auto; see the :decode classification note on the
+        ;; request below).
         (some-> msg :rf/reply :kind (= :success))
         {:db (-> db
                  (update :counter/value + (:delta (:value (:rf/reply msg))))
@@ -166,6 +187,16 @@
         :else
         {:db (assoc db :counter/status :loading :counter/error nil)
          :fx [[:rf.http/managed
+               ;; `:decode :auto` is the simple, non-sensitive case — fine
+               ;; for this public counter response. A real body that
+               ;; carries secrets (tokens, credentials, session material)
+               ;; or is large should use a `:decode` SCHEMA and classify
+               ;; per-slot with `:sensitive?` / `:large?` Malli props: the
+               ;; body is a transient payload owned by its request's
+               ;; `:decode` schema (NOT the frame). An unschematized body
+               ;; is whole-sensitive (fail-closed) — off-box traces/captures
+               ;; omit it unless classified projection is requested. See
+               ;; [Spec 015 §HTTP response bodies](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#http-response-bodies).
                {:request {:method :get :url "/api/counter"}
                 :decode  :auto
                 :retry   {:on           #{:rf.http/transport

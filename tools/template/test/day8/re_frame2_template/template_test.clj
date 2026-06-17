@@ -136,7 +136,8 @@
 
         ;; -- Best-practice surface in events.cljs + schema.cljs (rf2-48mij) --
         (let [events-text (slurp (io/file root "src/acme/my_app/events.cljs"))
-              schema-text (slurp (io/file root "src/acme/my_app/schema.cljs"))]
+              schema-text (slurp (io/file root "src/acme/my_app/schema.cljs"))
+              core-text   (slurp (io/file root "src/acme/my_app/core.cljs"))]
           (is (.contains events-text "register-listener!")
               "events.cljs registers an error-sink trace listener
                (errors-are-events-too best-practice)")
@@ -160,7 +161,59 @@
           (is (.contains schema-text "reg-app-schema")
               "schema.cljs registers a whole-app-db schema")
           (is (.contains schema-text "CounterDb")
-              "schema.cljs ships the CounterDb Malli schema"))
+              "schema.cljs ships the CounterDb Malli schema")
+
+          ;; -- EP-0011: HTTP exemplar names the uniform reply envelope
+          ;;    lowering + the compat-sugar distinction (rf2-rzsxrk) --
+          ;; The exemplar must say the (:rf/reply msg)/{:kind …} payload is
+          ;; managed-HTTP public compatibility SUGAR that lowers onto the
+          ;; framework-wide uniform reply envelope, and must name the
+          ;; canonical :status/:value/:work/id/:completed-at facts — so a
+          ;; future edit cannot re-teach the compat payload as the general
+          ;; managed-async model.
+          (is (.contains events-text "compatibility sugar")
+              "events.cljs HTTP exemplar marks the (:rf/reply msg)/{:kind …}
+               payload as managed-HTTP public compatibility sugar (EP-0011;
+               not the general async model — rf2-rzsxrk)")
+          (is (.contains events-text "uniform reply envelope")
+              "events.cljs HTTP exemplar names the framework-wide uniform
+               reply envelope the compat payload lowers onto (EP-0011 —
+               rf2-rzsxrk)")
+          (is (.contains events-text ":rf/reply-to")
+              "events.cljs HTTP exemplar names :rf/reply-to as the framework
+               target the :on-success/:on-failure sugar lowers to (EP-0011 —
+               rf2-rzsxrk)")
+          (is (.contains events-text ":completed-at")
+              "events.cljs HTTP exemplar names the canonical :completed-at
+               reply fact (EP-0011 — rf2-rzsxrk)")
+
+          ;; -- EP-0015: events.cljs decode-body classification guidance
+          ;;    (rf2-7i66d0) --
+          ;; The :decode :auto exemplar must say it is the simple
+          ;; non-sensitive case and point real bodies at a :decode SCHEMA
+          ;; with :sensitive? / :large? props + the unschematized
+          ;; fail-closed posture, so the scaffold cannot drift back to the
+          ;; pre-EP-0015 "decode :auto is the whole story" framing.
+          (is (.contains events-text ":sensitive?")
+              "events.cljs decode note names per-slot :sensitive? schema
+               props for sensitive HTTP response bodies (EP-0015 — rf2-7i66d0)")
+          (is (.contains events-text "fail-closed")
+              "events.cljs decode note states an unschematized HTTP body is
+               whole-sensitive / fail-closed (EP-0015 — rf2-7i66d0)")
+
+          ;; -- EP-0015: frame-owned classification pointer at the reg-frame
+          ;;    site + schema-is-shape-not-egress note (rf2-7i66d0) --
+          ;; core.cljs must point the user at frame-owned egress
+          ;; classification where it registers :rf/default, and schema.cljs
+          ;; must state that schemas validate shape, NOT durable app-db
+          ;; egress (the one-owner-one-route rule).
+          (is (.contains core-text ":sensitive")
+              "core.cljs points at frame-owned :sensitive egress
+               classification at the reg-frame site (EP-0015 — rf2-7i66d0)")
+          (is (.contains schema-text "does NOT classify durable app-db")
+              "schema.cljs states a schema validates shape and does NOT
+               classify durable app-db egress (frame owns that — EP-0015;
+               rf2-7i66d0)"))
 
         ;; -- package.json sanity --
         (let [pj-text (slurp (io/file root "package.json"))]
@@ -219,6 +272,71 @@
                 "README documents the naming-conventions rules")
             (is (.contains readme-text "spec/Conventions.md")
                 "README links to spec/Conventions.md for the normative catalogue"))
+
+          ;; -- README EP-0015 privacy/egress classification (rf2-7i66d0) --
+          ;; The README must carry a concise privacy/egress section that
+          ;; distinguishes app-db schemas (shape) from frame-owned durable
+          ;; classification (:sensitive / :large on reg-frame), and shows
+          ;; where sensitive/large app-db paths + frame-local HTTP carrier
+          ;; names are declared. Scope the assertions to that section so an
+          ;; honest mention elsewhere can't satisfy them weakly.
+          (let [readme-text (slurp (io/file root "README.md"))
+                priv-start  (.indexOf readme-text "### Privacy / egress classification")
+                priv-end    (let [i (.indexOf readme-text "\n### " (inc priv-start))]
+                              (if (neg? i) (count readme-text) i))
+                priv-sec    (subs readme-text (max 0 priv-start) priv-end)]
+            (is (not (neg? priv-start))
+                "README has a Privacy / egress classification section
+                 (EP-0015 — rf2-7i66d0)")
+            (is (.contains priv-sec "do NOT classify egress")
+                "README privacy section states app-db schemas validate shape
+                 and do NOT classify egress (EP-0015 — rf2-7i66d0)")
+            (is (.contains priv-sec "reg-frame")
+                "README privacy section shows classification declared on
+                 reg-frame (frame-owned durable classification — EP-0015;
+                 rf2-7i66d0)")
+            (is (and (.contains priv-sec ":sensitive")
+                     (.contains priv-sec ":large"))
+                "README privacy section names :sensitive and :large
+                 frame-owned classification keys (EP-0015 — rf2-7i66d0)")
+            (is (.contains priv-sec "spec/015-Data-Classification.md")
+                "README privacy section links Spec 015 for the normative
+                 classification model (EP-0015 — rf2-7i66d0)"))
+
+          ;; -- README EP-0011 HTTP reply-envelope lowering (rf2-rzsxrk) --
+          ;; The README HTTP section must name the lowering: the {:kind …}
+          ;; payload is managed-HTTP compatibility sugar over the uniform
+          ;; reply envelope, mapping HTTP outcomes onto canonical :status
+          ;; values (:ok/:error/:cancelled; :stale suppressed). Scope to the
+          ;; HTTP section.
+          (let [readme-text (slurp (io/file root "README.md"))
+                http-start  (.indexOf readme-text "### HTTP")
+                http-end    (let [i (.indexOf readme-text "\n### " (inc http-start))]
+                              (if (neg? i) (count readme-text) i))
+                http-sec    (subs readme-text (max 0 http-start) http-end)]
+            (is (not (neg? http-start))
+                "README has an HTTP section")
+            (is (.contains http-sec "compatibility sugar")
+                "README HTTP section marks the {:kind …} payload as
+                 managed-HTTP public compatibility sugar (EP-0011 —
+                 rf2-rzsxrk)")
+            (is (.contains http-sec "uniform reply envelope")
+                "README HTTP section names the uniform reply envelope the
+                 compat payload lowers onto (EP-0011 — rf2-rzsxrk)")
+            (is (and (.contains http-sec ":ok")
+                     (.contains http-sec ":cancelled")
+                     (.contains http-sec ":stale"))
+                "README HTTP section maps HTTP outcomes onto the canonical
+                 :status values incl. :stale suppression (EP-0011 —
+                 rf2-rzsxrk)")
+            (is (.contains http-sec "Managed-Effects.md")
+                "README HTTP section links Managed-Effects.md for the uniform
+                 reply envelope contract (EP-0011 — rf2-rzsxrk)")
+            ;; EP-0015 HTTP-body classification also lives in the HTTP
+            ;; section — the :decode :auto / schema-prop posture.
+            (is (.contains http-sec ":sensitive?")
+                "README HTTP section names :decode-schema :sensitive? props
+                 for sensitive response bodies (EP-0015 — rf2-7i66d0)"))
 
           ;; -- README substrate-invariant badges (rf2-sufwn) --
           (let [readme-text (slurp (io/file root "README.md"))]

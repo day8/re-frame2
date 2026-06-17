@@ -437,12 +437,108 @@ Schema validation elides automatically under `:advanced`
 `goog.DEBUG=false` builds — registrations stay in source but cost
 nothing in production hot paths.
 
+### Privacy / egress classification — declare it on the frame
+
+re-frame2 makes runtime state highly observable: one trace stream feeds
+Xray (default-on in dev — see above), Story (ships in release if you opt
+in), the dev error sink (logs to the console), and any off-box monitor
+or export you wire later. That observability is a productivity feature
+**and** a privacy surface — an auth token, a session id, a partner
+credential, or a multi-megabyte upload can cross a framework-mediated
+observation boundary and land in a record that is shown in a panel,
+handed to an LLM tool, or shipped off-box. The classification model
+([Spec 015 §The three-layer model](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md))
+exists so the framework can redact / elide those values at egress.
+
+**App-db schemas validate shape; they do NOT classify egress.** The
+`schema.cljs` schema above says what app-db *looks like*; it says nothing
+about which paths are sensitive or large. Egress classification for
+**durable app-db paths** is owned by the **frame**, declared on
+`reg-frame` — never re-attached to a schema. (Spec 015 deliberately keeps
+one route per fact: frame config owns durable app-db classification;
+schemas own shape — see
+[§Schemas describe shape, not durable app-db egress policy](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy).)
+
+The starter counter has nothing sensitive, so its `reg-frame` config is
+the empty `{}`. As soon as you add auth/API data to app-db — say an
+`[:auth]` slice with a token, or a `[:documents]` slice that holds a
+large upload — declare it on the frame where the counter registers
+`:rf/default` in `core.cljs`:
+
+```clojure
+;; core.cljs — replace (rf/reg-frame :rf/default {}) with the
+;; classification config once your app-db carries sensitive/large paths.
+(rf/reg-frame :rf/default
+  {;; Durable app-db paths whose VALUES must never reach an observation
+   ;; surface. They project to :rf/redacted at every egress boundary.
+   :sensitive {:app-db [[:auth :token]
+                        [:auth :refresh-token]]
+               ;; Frame-local HTTP carrier names (headers / query params)
+               ;; that carry secret material on this app's requests.
+               :http   {:headers      ["Authorization"]
+                        :query-params ["api_key"]}}
+   ;; Durable app-db paths too large to ship whole — they project to
+   ;; :rf.size/large-elided (sensitive wins over large).
+   :large     {:app-db [[:documents :upload]]}})
+```
+
+Real values still flow through events → handlers → app-db → subs → views
+unchanged — projection runs **only** at the observation boundary, and the
+whole dev trace stream rides the `goog.DEBUG` gate, so there is no
+happy-path runtime cost.
+
+For **HTTP response bodies**, classification rides the request's
+`:decode` schema, not the frame (the body is a transient payload owned by
+its request) — see the HTTP section below.
+
 ### HTTP — closed failure-category set and a single `:on-failure` branch
 
 `events.cljs` ships a commented-out `:rf.http/managed` handler showing
 the canonical call shape per
 [Spec 014 §`:rf.http/managed`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md).
 Uncomment and adapt when your app starts talking to a backend.
+
+**The `(:rf/reply msg)` / `{:kind :success|:failure …}` payload in the
+example is managed-HTTP public compatibility sugar — not the
+framework-wide managed-async model.** Every managed-HTTP completion
+lowers internally onto the framework's
+[uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/Managed-Effects.md#the-uniform-reply-envelope)
+(Managed-Effects property 9; the rationale record is
+[EP-0011](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0011-uniform-async-reply-envelope.md)):
+one canonical reply map with a single **closed** `:status`, `:value` /
+`:error`, `:work/id`, and `:completed-at`. The HTTP outcomes map onto it
+as:
+
+| HTTP compat `:kind` | Envelope `:status` | Carries |
+|---|---|---|
+| `:success` | `:ok` | `:value` (decoded body), `:work/id`, `:completed-at` |
+| `:failure` (any `:rf.http/*`) | `:error` | `:error` map with `:kind`, `:work/status` (`:failed` / `:timed-out`) |
+| abort | `:cancelled` | `:cancelled? true`, `:cancel/reason`, `:rf.http/aborted` under `:error` |
+| superseded / late | `:stale` | **never delivered to your app target** — stale replies are suppressed before dispatch |
+
+`:rf.http/managed` accepts `:on-success` / `:on-failure` (and the
+co-located `(:rf/reply msg)` form) as sugar that lowers to the framework
+target `:rf/reply-to`; both reshape the canonical reply back into the
+public `{:kind …}` payload, so the event shape in the exemplar is exactly
+what your handler sees. Full lowering contract:
+[Spec 014 §Lowering onto the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#lowering-onto-the-uniform-reply-envelope).
+**Do not read the `{:kind …}` payload as the general async model** — any
+non-HTTP managed-async surface you build (machines, resources, timers)
+reports completion through the same envelope's `:status` / `:value` /
+`:error` / `:completed-at` directly, with mandatory stale suppression.
+
+**Response-body classification — `:decode :auto` is the simple,
+non-sensitive case.** The exemplar decodes with `:decode :auto`, which is
+fine for a public counter response. A real response body that carries
+secrets (login / refresh tokens, partner credentials, opaque session
+material) or is large should use a **`:decode` schema** and classify
+per-slot with `:sensitive?` / `:large?` Malli props — the body is a
+transient payload owned by its request's `:decode` schema (not the frame;
+see the Privacy section above). An **unschematized body is
+whole-sensitive (fail-closed)**: off-box production traces and captures
+omit it entirely unless a classified projection is explicitly requested.
+See
+[Spec 015 §HTTP response bodies](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#http-response-bodies).
 
 Two distinctive postures land in the example:
 
