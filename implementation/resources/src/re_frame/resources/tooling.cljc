@@ -38,8 +38,10 @@
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.scope-registry :as scope-registry]
+            [re-frame.resources.ssr :as ssr]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
             [re-frame.resources.work-ledger :as work-ledger]))
@@ -368,6 +370,74 @@
 ;; the live owners, status, in-flight work-ledger links, and host-transient
 ;; in-flight handle address are the live lifecycle state.
 
+;; ---- EP-0015 tool-egress projection (rf2-0t0l3w) -------------------------
+;;
+;; `resource-cache-algebra-view` is a TOOL-facing egress boundary (Xray,
+;; re-frame2-pair-mcp, conformance fixtures). EP-0015 treats resource entries,
+;; work-ledger rows, scopes, params, and owner/cause summaries as EGRESS
+;; RECORDS, and requires projected payloads at tool boundaries (Spec 015 §10;
+;; Derivations §Resources expose process nodes — the live-resource identity
+;; case where scope/params are embedded in the node KEY / `:id` / `:output` /
+;; `:inputs` / `:work-ledger`, which a generic value-path walk cannot reach).
+;;
+;; The projection reuses the SAME resource OWNER classification the SSR /
+;; durable-egress path uses — never a tooling-private elider:
+;;   - `classification/whole-entry-disposition-for` resolves the coarse
+;;     `:sensitive?` / `:large?` root-prop claim PLUS the named-scope-resolver
+;;     derived-sensitivity inheritance against the frame (so a `{:from-db}`
+;;     scope reading a frame-sensitive `:db` input redacts even when the owner
+;;     did not declare `:sensitive?`);
+;;   - `ssr/project-scoped-key` then projects the scoped key per that
+;;     disposition — `:redact` / `:omit` replace scope + params with opaque
+;;     content-addressed `{:rf/redacted <digest>}` tokens (distinct values
+;;     stay distinct, so graph connectivity by projected key is preserved),
+;;     while `:serialize` applies the per-slot `:params-schema` marks and
+;;     otherwise rides verbatim (non-sensitive identity is preserved).
+;; The resource-id (position 1 of the 3-tuple) always survives, so a tool still
+;; sees WHICH resource each node names and edges still join nodes by the same
+;; projected key.
+
+(defn- project-key-for-egress
+  "Project a `scoped-key` for TOOL egress against the resource owner spec +
+  the `frame-id` classification (rf2-0t0l3w). Returns `[projected-key
+  disposition]`. `:redact` / `:omit` replace scope + params with opaque
+  tokens; `:serialize` projects per-slot `:params-schema` marks (a no-op when
+  none) — the resource-id always survives. Pure."
+  [scoped-key frame-id]
+  (let [resource-id (second scoped-key)
+        spec        (registry/resource-meta resource-id)
+        disposition (classification/whole-entry-disposition-for spec frame-id)]
+    [(ssr/project-scoped-key scoped-key disposition spec) disposition]))
+
+(defn- project-work-id
+  "Project the scoped key embedded in a resource work-id
+  `[:rf.work/resource <scoped-key> <generation>]` for tool egress
+  (rf2-0t0l3w). A work-id of another shape rides unchanged. Pure."
+  [work-id frame-id]
+  (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
+    (assoc work-id 1 (first (project-key-for-egress (nth work-id 1) frame-id)))
+    work-id))
+
+(defn- live-work-ledger-link
+  "Build the in-flight `:work-ledger` + `:host-transient` slots for a live node,
+  PROJECTING the work-id's embedded scoped key + the record's `:resource/key`
+  for tool egress (rf2-0t0l3w) so neither leaks the raw scope/params. Returns
+  the node `acc` with both slots assoc'd."
+  [acc runtime-db work-id frame-id]
+  (let [record  (work-ledger/get-record runtime-db work-id)
+        wid'    (project-work-id work-id frame-id)
+        summary (select-keys record
+                             [:work/id :work/kind :status
+                              :resource/key :generation
+                              :transport :owners :causes])
+        rec'    (cond-> (assoc summary :work/id wid')
+                  (contains? summary :resource/key)
+                  (update :resource/key
+                          #(first (project-key-for-egress % frame-id))))]
+    (assoc acc
+           :work-ledger    {:work/id wid' :record rec'}
+           :host-transient [[:rf.http/in-flight wid']])))
+
 (defn- live-node-for
   "Build the LIVE process node for one concrete cache entry. `scoped-key` is
   `[cache-scope resource-id canonical-params]` — the entry's canonical live
@@ -377,17 +447,26 @@
   `:scoped-resource-key` kind + the entry's `:active-owners`), the entry `:status`,
   and — when an attempt is in flight — the work-ledger record summary +
   the host-transient in-flight handle address (Derivations §Output —
-  `:host-transient` in-flight work)."
-  [runtime-db scoped-key entry static-node]
-  (let [[scope resource-id params] scoped-key
-        work-id  (:current-work entry)
-        record   (when work-id (work-ledger/get-record runtime-db work-id))]
-    (cond-> {:id            scoped-key
+  `:host-transient` in-flight work).
+
+  rf2-0t0l3w: the scoped key is PROJECTED for tool egress (`project-key-for-egress`)
+  before it rides ANY identity position — the `:id`, the realized `[:scope …]`
+  / `[:param …]` inputs, the `:output` runtime-path tail, the in-flight
+  work-ledger record's `:resource/key`, and the host-transient handle address.
+  A `:sensitive?` / `:large?` / derived-sensitive resource therefore never
+  egresses its raw scope/params here (the value-path walk cannot reach them);
+  a plain resource rides verbatim."
+  [runtime-db scoped-key frame-id entry static-node]
+  (let [[proj-key _disp]           (project-key-for-egress scoped-key frame-id)
+        [proj-scope _ proj-params] proj-key
+        resource-id (second scoped-key)
+        work-id  (:current-work entry)]
+    (cond-> {:id            proj-key
              :kind          resource-superkind
              :refinement    resource-refined-kind
              :source-form   {:kind :reg-resource :id resource-id}
-             :inputs        [[:scope scope] [:param params]]
-             :output        [:runtime (state/entry-path scoped-key)]
+             :inputs        [[:scope proj-scope] [:param proj-params]]
+             :output        [:runtime (state/entry-path proj-key)]
              :storage       resource-storage
              :authority     (:authority static-node)
              :evaluation    resource-evaluation
@@ -400,14 +479,11 @@
       ;; serializable summary — the in-flight identity, owners, causes,
       ;; transport, status) AND names the host-transient in-flight handle
       ;; address (the abortable handle lives OUTSIDE durable frame-state, in
-      ;; the `[frame-id work-id]` side table — Derivations §Output).
+      ;; the `[frame-id work-id]` side table — Derivations §Output). rf2-0t0l3w:
+      ;; both are PROJECTED for tool egress (the record's `:resource/key` + the
+      ;; work-id's embedded scoped key).
       (some? work-id)
-      (assoc :work-ledger {:work/id work-id
-                           :record  (select-keys record
-                                                  [:work/id :work/kind :status
-                                                   :resource/key :generation
-                                                   :transport :owners :causes])}
-             :host-transient [[:rf.http/in-flight work-id]])
+      (live-work-ledger-link runtime-db work-id frame-id)
       ;; carry the static node's source coords / schema / doc / derive token
       ;; through to the live node (the same resource registration backs both).
       (contains? static-node :source) (assoc :source (:source static-node))
@@ -474,12 +550,20 @@
       ;; `assoc` one CEDN-distinct entry over the other (a list-params and a
       ;; vector-params entry are Clojure-= as vectors), reporting ONE node for
       ;; TWO live entries (rf2-ka2nkx).
-      (fn [acc k-id entry]
+      (fn [acc _k-id entry]
         (let [scoped-key  (:resource/key entry)
               resource-id (second scoped-key)
-              static-node (resource-algebra-view resource-id)]
-          (assoc acc k-id
-                 (live-node-for runtime-db scoped-key entry static-node))))
+              static-node (resource-algebra-view resource-id)
+              node        (live-node-for runtime-db scoped-key frame-id
+                                         entry static-node)]
+          ;; rf2-0t0l3w: re-key the returned map on the PROJECTED key's byte
+          ;; `key-id` (the node's `:id` is the projected scoped key) so the map
+          ;; key, the `:id`, and every other identity position agree and carry
+          ;; no raw secret. A non-sensitive resource projects to the SAME key,
+          ;; so its byte key-id is unchanged; a `:redact` / `:omit` resource's
+          ;; opaque content-addressed tokens stay distinct per distinct value,
+          ;; so two CEDN-distinct entries never collapse onto one map key.
+          (assoc acc (state/key-id (:id node)) node)))
       {}
       (or entries {}))))
 
