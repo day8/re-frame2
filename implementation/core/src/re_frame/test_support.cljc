@@ -97,6 +97,7 @@
     timer-semantics tests — those should keep their sleep and annotate
     that intent locally (the sleep IS the contract under test)."
   (:require [re-frame.registrar :as registrar]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             ;; The flows / schemas / machines / routing / http-managed /
             ;; epoch artefacts ship in separate Maven coordinates and are
@@ -747,14 +748,12 @@
   :rf.error/poll-until-timeout` discriminator (per Spec 009) works on
   either runtime."
   [label elapsed-ms]
-  (ex-info ":rf.error/poll-until-timeout"
-           {:rf.error/id :rf.error/poll-until-timeout
-            :where       'rf/poll-until
-            :recovery    :no-recovery
-            :reason      (str "poll-until timed out"
-                              (when label (str " — " label)))
-            :elapsed-ms  elapsed-ms
-            :label       label}))
+  (error/thrown-ex-info :rf.error/poll-until-timeout
+                        'rf/poll-until
+                        (str "poll-until timed out"
+                             (when label (str " — " label)))
+                        {:extra {:elapsed-ms elapsed-ms
+                                 :label      label}}))
 
 #?(:clj
    (defn poll-until

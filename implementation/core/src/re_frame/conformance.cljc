@@ -37,7 +37,8 @@
 
   Builtins: :inc :dec :+ :- :* :/ :identity :conj :assoc :dissoc
             :item-amount :count"
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -97,12 +98,12 @@
                                                     :recovery :no-recovery}))
                    :else          (count x)))
     :item-amount (fn [item] (* (:qty item) (:price item)))
-    (throw (ex-info ":rf.error/conformance-unknown-fn-builtin"
-                    {:rf.error/id :rf.error/conformance-unknown-fn-builtin
-                     :where    'rf/conformance-eval
-                     :recovery :no-recovery
-                     :reason   (str "unknown :fn builtin " k)
-                     :builtin  k}))))
+    (error/throw-error!
+      :rf.error/conformance-unknown-fn-builtin
+      'rf/conformance-eval
+      (str "unknown :fn builtin " k)
+      {:recovery :no-recovery
+       :extra    {:builtin k}})))
 
 ;; ---- value resolver -------------------------------------------------------
 
@@ -298,14 +299,14 @@
 
               :noop acc
 
-              (throw (ex-info ":rf.error/conformance-unknown-before-op"
-                              {:rf.error/id :rf.error/conformance-unknown-before-op
-                               :where    'rf/conformance-eval
-                               :recovery :no-recovery
-                               :reason   "unknown :before DSL op"
-                               :op       step
-                               :allowed  #{:assoc-in-request
-                                           :dispatch :noop}})))))
+              (error/throw-error!
+                :rf.error/conformance-unknown-before-op
+                'rf/conformance-eval
+                "unknown :before DSL op"
+                {:recovery :no-recovery
+                 :extra    {:op      step
+                            :allowed #{:assoc-in-request
+                                       :dispatch :noop}}}))))
         chain-ctx
         steps))))
 
@@ -441,12 +442,12 @@
     :reduce-input ctx
     :db-get    ctx
 
-    (throw (ex-info ":rf.error/conformance-unknown-dsl-op"
-                    {:rf.error/id :rf.error/conformance-unknown-dsl-op
-                     :where    'rf/conformance-eval
-                     :recovery :no-recovery
-                     :reason   "unknown DSL op"
-                     :op       step}))))
+    (error/throw-error!
+      :rf.error/conformance-unknown-dsl-op
+      'rf/conformance-eval
+      "unknown DSL op"
+      {:recovery :no-recovery
+       :extra    {:op step}})))
 
 (defn realise-event-db-handler
   "DSL → an event-db handler fn (db, event) → new-db.

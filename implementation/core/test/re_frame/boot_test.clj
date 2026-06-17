@@ -225,9 +225,9 @@
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
           "rf/init! with nil raises")
-      (is (= ":rf.error/no-adapter-specified"
-             (some-> thrown ex-message))
-          "ex-message carries the :rf.error/no-adapter-specified tag"))
+      (is (= :rf.error/no-adapter-specified
+             (:rf.error/id (ex-data thrown)))
+          "ex-data carries the :rf.error/no-adapter-specified tag"))
     (is (nil? (adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
@@ -239,8 +239,8 @@
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
           "rf/init! with a keyword raises — keyword form is not supported")
-      (is (= ":rf.error/no-adapter-specified"
-             (some-> thrown ex-message))
+      (is (= :rf.error/no-adapter-specified
+             (:rf.error/id (ex-data thrown)))
           "the thrown exception carries the :rf.error/no-adapter-specified tag")
       (let [data (ex-data thrown)]
         (is (= :reagent (:received data))

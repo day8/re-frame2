@@ -62,7 +62,8 @@
   whole `(reg-event-X :id {:doc \"…\"} …)` form-source under
   `goog.DEBUG=false` (the elision-probe `:probe/cs-event` sentinel
   covers it); the strip here pins the *handler-meta* absence."
-  (:require [re-frame.interop       :as interop]
+  (:require [re-frame.error         :as error]
+            [re-frame.interop       :as interop]
             [re-frame.late-bind     :as late-bind]
             [re-frame.source-coords :as source-coords]
             [re-frame.source-store  :as source-store]))
@@ -489,13 +490,13 @@
   surface — `(rf2-6w7zn)`."
   [kind id metadata]
   (when-not (valid-kind? kind)
-    (throw (ex-info ":rf.error/unknown-registry-kind"
-                    {:rf.error/id :rf.error/unknown-registry-kind
-                     :where       'rf/register-handler
-                     :recovery    :fix-registration
-                     :reason      (str "unknown registry kind " kind " — not one of the registered registry kinds")
-                     :kind        kind
-                     :id          id})))
+    (error/throw-error!
+      :rf.error/unknown-registry-kind
+      'rf/register-handler
+      (str "unknown registry kind " kind " — not one of the registered registry kinds")
+      {:recovery :fix-registration
+       :extra    {:kind kind
+                  :id   id}}))
   ;; Always-on error-coord parallel registry (rf2-3un2g §Production
   ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
   ;; carries the captured coord-map (slim in CLJS prod — no `:column`).

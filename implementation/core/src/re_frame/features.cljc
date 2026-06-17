@@ -51,7 +51,8 @@
   (via `late-bind/require-fn!`); every artefact-missing error in the
   framework carries the same copy-pasteable require/coordinate this
   table holds."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -184,28 +185,28 @@
   (let [entry (get feature-registry feature)]
     (cond
       (nil? entry)
-      (throw (ex-info ":rf.error/unknown-feature"
-                      {:rf.error/id :rf.error/unknown-feature
-                       :where       'rf/require-feature!
-                       :feature     feature
-                       :known       (vec (sort (keys feature-registry)))
-                       :recovery    :no-recovery
-                       :reason      (str feature " is not a known optional feature. "
-                                         "Known features: "
-                                         (vec (sort (keys feature-registry))) ".")}))
+      (error/throw-error!
+        :rf.error/unknown-feature
+        'rf/require-feature!
+        (str feature " is not a known optional feature. "
+             "Known features: "
+             (vec (sort (keys feature-registry))) ".")
+        {:recovery :no-recovery
+         :extra    {:feature feature
+                    :known   (vec (sort (keys feature-registry)))}})
 
       (feature-loaded? feature)
       true
 
       :else
       (let [{:keys [maven require]} entry]
-        (throw (ex-info ":rf.error/feature-not-loaded"
-                        {:rf.error/id :rf.error/feature-not-loaded
-                         :where       'rf/require-feature!
-                         :feature     feature
-                         :maven       maven
-                         :require-ns  require
-                         :recovery    :no-recovery
-                         :reason      (str "The " feature " feature's implementation artefact "
-                                           "is not on the classpath. Add " maven
-                                           " to deps and (require '" require ") at app boot.")}))))))
+        (error/throw-error!
+          :rf.error/feature-not-loaded
+          'rf/require-feature!
+          (str "The " feature " feature's implementation artefact "
+               "is not on the classpath. Add " maven
+               " to deps and (require '" require ") at app boot.")
+          {:recovery :no-recovery
+           :extra    {:feature    feature
+                      :maven      maven
+                      :require-ns require}})))))

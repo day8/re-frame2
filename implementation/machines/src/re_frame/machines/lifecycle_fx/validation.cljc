@@ -25,7 +25,8 @@
   `walk-state-nodes` yields `[state-key state-node]` pairs for every
   node under `:states`, recursing through `:states` maps; used by the
   top-level dispatch."
-  (:require [re-frame.machines.grammar :as grammar]
+  (:require [re-frame.error :as error]
+            [re-frame.machines.grammar :as grammar]
             [re-frame.machines.parallel :as parallel]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -54,12 +55,8 @@
   `:guard`)."
   ([error-kw reason] (validation-error error-kw reason nil))
   ([error-kw reason extras]
-   (ex-info (str error-kw)
-            (merge {:rf.error/id error-kw
-                    :where       'rf/reg-machine
-                    :recovery    :fix-registration
-                    :reason      reason}
-                   extras))))
+   (error/thrown-ex-info error-kw 'rf/reg-machine reason
+                         {:recovery :fix-registration :extra extras})))
 
 (defn- ref-resolves?
   "Mirror of the runtime resolver `transition/chase-ref` (rf2-ylpnn): a

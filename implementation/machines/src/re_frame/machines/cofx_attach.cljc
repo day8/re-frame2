@@ -59,6 +59,7 @@
   surface is re-frame2's own (EP-0017 §Rationale — Why consumer attachment
   for machines)."
   (:require [re-frame.cofx :as cofx]
+            [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.machines.grammar :as grammar]
             [re-frame.registrar :as registrar]
@@ -113,23 +114,21 @@
   §Consumer attachment §Inline callbacks cannot declare requirements +
   Spec 009 §Error catalogue."
   [where detail]
-  (throw (ex-info
-           ":rf.error/machine-cofx-requires-inline"
-           (merge {:rf.error/id :rf.error/machine-cofx-requires-inline
-                   :where       'rf/reg-machine
-                   :recovery    :no-recovery
-                   :reason
-                   (str ":rf.cofx/requires may be declared ONLY on a NAMED "
-                        ":guards / :actions entry map (the "
-                        "`{:rf.cofx/requires [...] :fn (fn [...] ...)}` form) "
-                        "— never on an inline callback. A fact-consuming "
-                        "guard / action must be a named entry so the declared "
-                        "diet sits with the code that can be checked against "
-                        "it (Spec 005 §Consumer attachment). Move the inline "
-                        "fn into the machine's :guards / :actions map and "
-                        "declare :rf.cofx/requires on its entry. Found at: "
-                        where ".")}
-                  detail))))
+  (error/throw-error!
+    :rf.error/machine-cofx-requires-inline
+    'rf/reg-machine
+    (str ":rf.cofx/requires may be declared ONLY on a NAMED "
+         ":guards / :actions entry map (the "
+         "`{:rf.cofx/requires [...] :fn (fn [...] ...)}` form) "
+         "— never on an inline callback. A fact-consuming "
+         "guard / action must be a named entry so the declared "
+         "diet sits with the code that can be checked against "
+         "it (Spec 005 §Consumer attachment). Move the inline "
+         "fn into the machine's :guards / :actions map and "
+         "declare :rf.cofx/requires on its entry. Found at: "
+         where ".")
+    {:recovery :no-recovery
+     :extra    detail}))
 
 (defn- check-no-inline-requires!
   "Reject `:rf.cofx/requires` anywhere it cannot be honoured. `v` is a

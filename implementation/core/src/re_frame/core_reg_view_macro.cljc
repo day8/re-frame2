@@ -16,7 +16,8 @@
 
   The expander helpers stay plain CLJ fns so CLJS test files can also
   exercise them JVM-side."
-  (:require [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as error]
+            [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -114,19 +115,18 @@
                              :rf/id
                              :file :line :column :source :end-line :end-column)]
        (when (nil? parsed)
-         (throw (ex-info
-                  ":rf.error/reg-view-bad-args"
-                  {:rf.error/id    :rf.error/reg-view-bad-args
-                   :where          'rf/reg-view
-                   :recovery       :fix-registration
-                   :reason         (str "reg-view's second argument must be an args vector "
-                                        "(defn-shape: (reg-view sym [args] body)). Got "
-                                        (describe-reg-view-bad-second-arg (first more))
-                                        ". For runtime registration, use "
-                                        "(re-frame.core/reg-view* :id render-fn).")
-                   :sym            sym
-                   :got            (first more)
-                   :args-after-sym (vec more)})))
+         (error/throw-error!
+           :rf.error/reg-view-bad-args
+           'rf/reg-view
+           (str "reg-view's second argument must be an args vector "
+                "(defn-shape: (reg-view sym [args] body)). Got "
+                (describe-reg-view-bad-second-arg (first more))
+                ". For runtime registration, use "
+                "(re-frame.core/reg-view* :id render-fn).")
+           {:recovery :fix-registration
+            :extra    {:sym            sym
+                       :got            (first more)
+                       :args-after-sym (vec more)}}))
        (let [{:keys [docstring args body]} parsed
              form-tag (reagent-slim-form-tag body)
              def-form (if docstring
@@ -234,15 +234,14 @@
      [frame-id body]
      (cond
        (vector? frame-id)
-       (throw (ex-info
-                ":rf.error/with-frame-vector-form"
-                {:rf.error/id :rf.error/with-frame-vector-form
-                 :where       'rf/with-frame
-                 :recovery    :use-with-new-frame
-                 :reason      (str "with-frame pins to an existing frame-id (keyword). "
-                                   "Got a vector — did you mean `with-new-frame`, "
-                                   "which evals, binds, runs, and destroys?")
-                 :got         frame-id}))
+       (error/throw-error!
+         :rf.error/with-frame-vector-form
+         'rf/with-frame
+         (str "with-frame pins to an existing frame-id (keyword). "
+              "Got a vector — did you mean `with-new-frame`, "
+              "which evals, binds, runs, and destroys?")
+         {:recovery :use-with-new-frame
+          :extra    {:got frame-id}})
 
        :else
        `(binding [re-frame.frame/*current-frame* ~frame-id]
@@ -266,39 +265,36 @@
        ;; Common mistake: passed a keyword instead of `[sym expr]`. The
        ;; caller meant `with-frame` (pin form). Reject loudly.
        (keyword? bindings)
-       (throw (ex-info
-                ":rf.error/with-new-frame-keyword-form"
-                {:rf.error/id :rf.error/with-new-frame-keyword-form
-                 :where       'rf/with-new-frame
-                 :recovery    :use-with-frame
-                 :reason      (str "with-new-frame evals, binds, runs, and destroys. "
-                                   "Got a keyword — did you mean `with-frame`, "
-                                   "which pins to an existing frame-id?")
-                 :got         bindings}))
+       (error/throw-error!
+         :rf.error/with-new-frame-keyword-form
+         'rf/with-new-frame
+         (str "with-new-frame evals, binds, runs, and destroys. "
+              "Got a keyword — did you mean `with-frame`, "
+              "which pins to an existing frame-id?")
+         {:recovery :use-with-frame
+          :extra    {:got bindings}})
 
        ;; Vector but wrong arity — almost certainly a typo of the
        ;; binding form (e.g. `[]` or `[f x y]`). Reject at compile time —
        ;; per Spec 002 §with-frame.
        (vector? bindings)
-       (throw (ex-info
-                ":rf.error/with-new-frame-bad-binding"
-                {:rf.error/id :rf.error/with-new-frame-bad-binding
-                 :where       'rf/with-new-frame
-                 :recovery    :fix-registration
-                 :reason      (str "with-new-frame's binding must be [sym expr]. "
-                                   "Got " (count bindings) " element"
-                                   (when-not (= 1 (count bindings)) "s") ".")
-                 :got         bindings
-                 :count       (count bindings)}))
+       (error/throw-error!
+         :rf.error/with-new-frame-bad-binding
+         'rf/with-new-frame
+         (str "with-new-frame's binding must be [sym expr]. "
+              "Got " (count bindings) " element"
+              (when-not (= 1 (count bindings)) "s") ".")
+         {:recovery :fix-registration
+          :extra    {:got   bindings
+                     :count (count bindings)}})
 
        :else
-       (throw (ex-info
-                ":rf.error/with-new-frame-bad-binding"
-                {:rf.error/id :rf.error/with-new-frame-bad-binding
-                 :where       'rf/with-new-frame
-                 :recovery    :fix-registration
-                 :reason      "with-new-frame's binding must be a 2-element vector [sym expr]."
-                 :got         bindings})))))
+       (error/throw-error!
+         :rf.error/with-new-frame-bad-binding
+         'rf/with-new-frame
+         "with-new-frame's binding must be a 2-element vector [sym expr]."
+         {:recovery :fix-registration
+          :extra    {:got bindings}}))))
 
 #?(:clj
    (defn expand-frame-bound-fn

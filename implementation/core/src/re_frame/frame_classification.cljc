@@ -97,6 +97,7 @@
   (`:my-app.sinks/datadog`) are NOT framework-claimed."
   (:require [clojure.string :as str]
             [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.path :as path]
@@ -123,13 +124,12 @@
   and MAY carry `:rf.error/cause` (the inner `:rf.error/id` of a wrapped
   path error — kept distinct so it never clobbers this error's own id)."
   [frame-id reason extras]
-  (ex-info (str :rf.error/bad-frame-classification)
-           (merge {:rf.error/id :rf.error/bad-frame-classification
-                   :where       'rf/reg-frame
-                   :recovery    :fix-frame-classification
-                   :frame       frame-id
-                   :reason      reason}
-                  extras)))
+  (error/thrown-ex-info
+    :rf.error/bad-frame-classification
+    'rf/reg-frame
+    reason
+    {:recovery :fix-frame-classification
+     :extra    (merge {:frame frame-id} extras)}))
 
 ;; ---- path validation (EP-0012 :rf/path) ----------------------------------
 ;;

@@ -36,7 +36,8 @@
   Overflow throws `:rf.error/id :rf.error/malformed-json` with
   `:cause :too-many-keys` — the `:rf.http/managed` cascade classifies
   this as `:rf.http/decode-failure`."
-  #?(:clj  (:require [cheshire.core :as cheshire])))
+  (:require [re-frame.error :as error]
+            #?(:clj [cheshire.core :as cheshire])))
 
 ;; rf2-b45uc — reflection warnings ON. This ns carries the other
 ;; non-trivial JVM interop in the http surface (Cheshire's
@@ -71,13 +72,13 @@
   Carries `:rf.error/id :rf.error/malformed-json` + `:cause :too-many-keys`
   + the configured `:limit`."
   [max-keys]
-  (ex-info ":rf.error/malformed-json"
-           {:rf.error/id :rf.error/malformed-json
-            :where       'rf.http/json-parse
-            :recovery    :no-recovery
-            :reason      (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
-            :cause       :too-many-keys
-            :limit       max-keys}))
+  (error/thrown-ex-info
+    :rf.error/malformed-json
+    'rf.http/json-parse
+    (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
+    {:recovery :no-recovery
+     :extra    {:cause :too-many-keys
+                :limit max-keys}}))
 
 (defn json-parse
   "JSON string → Clojure data with keyword keys for object keys. JVM

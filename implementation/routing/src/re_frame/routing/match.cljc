@@ -12,7 +12,8 @@
 
   Per the rf2-icrxv cohesion-split audit (Phase-2 Option C): PATTERN
   seam — template compile + match-against."
-  (:require [re-frame.routing.url :as url]))
+  (:require [re-frame.error :as error]
+            [re-frame.routing.url :as url]))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -58,14 +59,14 @@
   ;; the pattern at registration), :recovery + :reason complete the
   ;; required slots. Per-site :route-id / :pattern / :index merge on top.
   [route-id pattern reason index]
-  (throw (ex-info ":rf.error/invalid-route-pattern"
-                  (cond-> {:rf.error/id :rf.error/invalid-route-pattern
-                           :where       'rf/reg-route
-                           :recovery    :no-recovery
-                           :reason      reason
-                           :route-id    route-id
-                           :pattern     pattern}
-                    (some? index) (assoc :index index)))))
+  (error/throw-error!
+    :rf.error/invalid-route-pattern
+    'rf/reg-route
+    reason
+    {:recovery :no-recovery
+     :extra    (cond-> {:route-id route-id
+                        :pattern  pattern}
+                 (some? index) (assoc :index index))}))
 
 (defn- valid-route-name? [s]
   (boolean (and (seq s) (re-matches route-name-re s))))

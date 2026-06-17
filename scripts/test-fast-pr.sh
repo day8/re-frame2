@@ -169,6 +169,21 @@ run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py
 run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py --verbose" \
   python "$repo_root/scripts/check_retired_spellings.py" --verbose
 
+# Thrown-error human-message corpus gate (rf2-6bb3pg, Spec 009 §The thrown-error
+# shape / rf2-vvixub): a framework `(ex-info …)` whose MESSAGE is a bare
+# `:rf.*` discriminator keyword is the keyword-only shape rf2-vvixub abolished —
+# a CI failure, not a doc note. Replaces the curated allow-list conformance
+# test (thrown_error_message_conformance_cljs_test) with a CORPUS sweep so a
+# new/never-converted keyword-only throw-site cannot ride back in invisibly.
+# Self-test first (proves it FIRES on each bare-keyword shape + stays GREEN on
+# the conformant counterparts), then the live scan asserts framework source is
+# clean.  See scripts/check_thrown_error_messages.py.
+run "thrown-error message gate self-test" "python scripts/check_thrown_error_messages.py --self-test" \
+  python "$repo_root/scripts/check_thrown_error_messages.py" --self-test
+
+run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_messages.py --verbose" \
+  python "$repo_root/scripts/check_thrown_error_messages.py" --verbose
+
 # EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151): a
 # direct ambient host read (clock / RNG / browser fact) written into a DURABLE
 # frame-state field inside a durable-write namespace (resource reducers,

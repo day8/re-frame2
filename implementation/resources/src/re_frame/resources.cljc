@@ -50,6 +50,7 @@
   install. The `:rf.resource/*` event handlers carry the behaviour;
   loading this namespace registers the whole family."
   (:require [re-frame.cofx :as cofx]
+            [re-frame.error :as error]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
@@ -217,18 +218,18 @@
   lookup returns `nil` only for a genuinely absent entry."
   [{:keys [frame] :as opts}]
   (when (nil? frame)
-    (throw (ex-info ":rf.error/no-frame-context"
-                    {:rf.error/id :rf.error/no-frame-context
-                     :where       'rf/resource-state
-                     :recovery    :pass-frame
-                     :reason      (str "resource-state requires an explicit :frame "
-                                       "introspection target. A frameless call would "
-                                       "pass nil through to the runtime-db lookup and "
-                                       "return nil — indistinguishable from a genuinely "
-                                       "absent entry. Pass {:resource … :scope … "
-                                       ":params … :frame <frame-id>}. Per Spec 016 "
-                                       "§Introspection / EP-0002.")
-                     :opts        (dissoc opts :frame)})))
+    (error/throw-error!
+      :rf.error/no-frame-context
+      'rf/resource-state
+      (str "resource-state requires an explicit :frame "
+           "introspection target. A frameless call would "
+           "pass nil through to the runtime-db lookup and "
+           "return nil — indistinguishable from a genuinely "
+           "absent entry. Pass {:resource … :scope … "
+           ":params … :frame <frame-id>}. Per Spec 016 "
+           "§Introspection / EP-0002.")
+      {:recovery :pass-frame
+       :extra    {:opts (dissoc opts :frame)}}))
   (let [;; EP-0016 D3 slice 3: a `{:from-db <id>}` scope on the introspection
         ;; target resolves against the frame's app-db value (the same db the
         ;; reactive sub resolves against), so `resource-state` and a live
@@ -272,18 +273,18 @@
   explicit frame lookup returns `nil` only for a genuinely absent instance."
   [{:keys [instance frame] :as opts}]
   (when (nil? frame)
-    (throw (ex-info ":rf.error/no-frame-context"
-                    {:rf.error/id :rf.error/no-frame-context
-                     :where       'rf/mutation-state
-                     :recovery    :pass-frame
-                     :reason      (str "mutation-state requires an explicit :frame "
-                                       "introspection target. A frameless call would "
-                                       "pass nil through to the runtime-db lookup and "
-                                       "return nil — indistinguishable from a genuinely "
-                                       "absent instance. Pass {:instance … "
-                                       ":frame <frame-id>}. Per EP-0003 §Mutations / "
-                                       "EP-0002.")
-                     :opts        (dissoc opts :frame)})))
+    (error/throw-error!
+      :rf.error/no-frame-context
+      'rf/mutation-state
+      (str "mutation-state requires an explicit :frame "
+           "introspection target. A frameless call would "
+           "pass nil through to the runtime-db lookup and "
+           "return nil — indistinguishable from a genuinely "
+           "absent instance. Pass {:instance … "
+           ":frame <frame-id>}. Per EP-0003 §Mutations / "
+           "EP-0002.")
+      {:recovery :pass-frame
+       :extra    {:opts (dissoc opts :frame)}}))
   (let [runtime-db (frame/frame-runtime-db-value frame)]
     (get-in runtime-db (mstate/instance-path instance))))
 

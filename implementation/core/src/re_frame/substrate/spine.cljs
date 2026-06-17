@@ -809,9 +809,11 @@
       ;; ex-data is captured by SSR/static-export error handlers and
       ;; host logs before the record projector can classify it, and a
       ;; hiccup tree can carry app-owned sensitive/large values.
-      (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                      {:reason              "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
-                       :render-tree/summary (rf-error/diag-value-summary render-tree)})))))
+      (rf-error/throw-error!
+        :rf.error/no-hiccup-emitter-bound
+        'rf/render-to-string
+        "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
+        {:extra {:render-tree/summary (rf-error/diag-value-summary render-tree)}}))))
 
 ;; ---- context provider — substrate-agnostic CORE ---------------------------
 ;;

@@ -28,7 +28,8 @@
   File naming uses the flat dash-form (per Conventions; rf2-2vbm):
   CLJS `goog.provide` for `re-frame.core` overwrites its parent
   object, which would wipe a previously-loaded `re-frame.core.X`."
-  (:require [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as error]
+            [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -173,12 +174,12 @@
      [sym]
      (let [v (ns-resolve (find-ns 're-frame.core) sym)]
        (when (nil? v)
-         (throw (ex-info ":rf.error/defreg-macro-bad-delegate"
-                         {:rf.error/id :rf.error/defreg-macro-bad-delegate
-                          :where       'defreg-macro
-                          :recovery    :fix-registration
-                          :reason      (str "defreg-macro cannot resolve delegate symbol " sym " in re-frame.core")
-                          :sym         sym})))
+         (error/throw-error!
+           :rf.error/defreg-macro-bad-delegate
+           'defreg-macro
+           (str "defreg-macro cannot resolve delegate symbol " sym " in re-frame.core")
+           {:recovery :fix-registration
+            :extra    {:sym sym}}))
        (symbol (str (.ns ^clojure.lang.Var v))
                (str (.sym ^clojure.lang.Var v))))))
 

@@ -64,6 +64,7 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.identity :as identity]
+            [re-frame.error :as error]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -103,28 +104,28 @@
 
 (defn- throw-invalid-interceptor!
   [id descriptor reason]
-  (throw (ex-info ":rf.error/invalid-interceptor"
-                  {:rf.error/id :rf.error/invalid-interceptor
-                   :where       'rf/reg-interceptor
-                   :id          id
-                   :recovery    :fix-registration
-                   :reason      reason
-                   :got         descriptor
-                   :expected    "one of {:before f} / {:after f} / {:before f :after g} / {:factory f}"})))
+  (error/throw-error!
+    :rf.error/invalid-interceptor
+    'rf/reg-interceptor
+    reason
+    {:recovery :fix-registration
+     :extra    {:id       id
+                :got      descriptor
+                :expected "one of {:before f} / {:after f} / {:before f :after g} / {:factory f}"}}))
 
 (defn- throw-interceptor-id-mismatch!
   [id descriptor value-id]
-  (throw (ex-info ":rf.error/invalid-interceptor"
-                  {:rf.error/id :rf.error/invalid-interceptor
-                   :where       'rf/reg-interceptor
-                   :id          id
-                   :recovery    :fix-registration
-                   :reason      (str "reg-interceptor for `" id "` received an interceptor "
-                                     "VALUE carrying `:id " value-id "`, which does NOT match "
-                                     "the positional registration id `" id "`. The migration "
-                                     "boundary requires the value's `:id` (when present) to "
-                                     "match the registration id.")
-                   :got         descriptor})))
+  (error/throw-error!
+    :rf.error/invalid-interceptor
+    'rf/reg-interceptor
+    (str "reg-interceptor for `" id "` received an interceptor "
+         "VALUE carrying `:id " value-id "`, which does NOT match "
+         "the positional registration id `" id "`. The migration "
+         "boundary requires the value's `:id` (when present) to "
+         "match the registration id.")
+    {:recovery :fix-registration
+     :extra    {:id  id
+                :got descriptor}}))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -282,39 +283,39 @@
 
 (defn- throw-unregistered-interceptor!
   [ref id]
-  (throw (ex-info ":rf.error/unregistered-interceptor"
-                  {:rf.error/id :rf.error/unregistered-interceptor
-                   :where       'rf/resolve-interceptor-ref
-                   :ref         ref
-                   :id          id
-                   :recovery    :fix-registration
-                   :reason      (str "interceptor reference `" (pr-str ref) "` names id `"
-                                     id "`, which is not registered. Register it with "
-                                     "`reg-interceptor` before referencing it from an "
-                                     "event/frame `:interceptors` chain.")})))
+  (error/throw-error!
+    :rf.error/unregistered-interceptor
+    'rf/resolve-interceptor-ref
+    (str "interceptor reference `" (pr-str ref) "` names id `"
+         id "`, which is not registered. Register it with "
+         "`reg-interceptor` before referencing it from an "
+         "event/frame `:interceptors` chain.")
+    {:recovery :fix-registration
+     :extra    {:ref ref
+                :id  id}}))
 
 (defn- throw-factory-arity!
   [ref id reason]
-  (throw (ex-info ":rf.error/interceptor-factory-arity"
-                  {:rf.error/id :rf.error/interceptor-factory-arity
-                   :where       'rf/resolve-interceptor-ref
-                   :ref         ref
-                   :id          id
-                   :recovery    :fix-registration
-                   :reason      reason})))
+  (error/throw-error!
+    :rf.error/interceptor-factory-arity
+    'rf/resolve-interceptor-ref
+    reason
+    {:recovery :fix-registration
+     :extra    {:ref ref
+                :id  id}}))
 
 (defn- throw-invalid-ref!
   [ref]
-  (throw (ex-info ":rf.error/invalid-interceptor-ref"
-                  {:rf.error/id :rf.error/invalid-interceptor-ref
-                   :where       'rf/resolve-interceptor-ref
-                   :ref         ref
-                   :recovery    :fix-registration
-                   :reason      (str "interceptor chain entry `" (pr-str ref) "` is neither a "
-                                     "keyword id nor an `[id arg]` 2-vector reference. "
-                                     "Interceptor chains are reference-only (EP-0022): register "
-                                     "the interceptor with `reg-interceptor` and reference it by id.")
-                   :expected    "a keyword id or an [id arg] vector"})))
+  (error/throw-error!
+    :rf.error/invalid-interceptor-ref
+    'rf/resolve-interceptor-ref
+    (str "interceptor chain entry `" (pr-str ref) "` is neither a "
+         "keyword id nor an `[id arg]` 2-vector reference. "
+         "Interceptor chains are reference-only (EP-0022): register "
+         "the interceptor with `reg-interceptor` and reference it by id.")
+    {:recovery :fix-registration
+     :extra    {:ref      ref
+                :expected "a keyword id or an [id arg] vector"}}))
 
 (defn- throw-inline-interceptor-removed!
   "Raise `:rf.error/inline-interceptor-removed` (ex-info) for an INLINE
@@ -327,18 +328,18 @@
   registered with `reg-interceptor` and referenced by id. Loud-fail at chain
   assembly rather than a silent no-op (Conventions §No silent swallow)."
   [entry]
-  (throw (ex-info ":rf.error/inline-interceptor-removed"
-                  {:rf.error/id :rf.error/inline-interceptor-removed
-                   :where       'rf/resolve-chain
-                   :entry       entry
-                   :recovery    :fix-registration
-                   :reason      (str "an event/frame `:interceptors` chain carried an INLINE "
-                                     "interceptor value `" (pr-str entry) "`. Interceptor "
-                                     "chains are reference-only (EP-0022): register the "
-                                     "interceptor with `reg-interceptor` and reference it by id "
-                                     "— a bare keyword `:my/ic` or an `[id arg]` 2-vector "
-                                     "(e.g. `[:rf.interceptor/path [:cart]]`).")
-                   :expected    "a keyword id or an [id arg] vector reference"})))
+  (error/throw-error!
+    :rf.error/inline-interceptor-removed
+    'rf/resolve-chain
+    (str "an event/frame `:interceptors` chain carried an INLINE "
+         "interceptor value `" (pr-str entry) "`. Interceptor "
+         "chains are reference-only (EP-0022): register the "
+         "interceptor with `reg-interceptor` and reference it by id "
+         "— a bare keyword `:my/ic` or an `[id arg]` 2-vector "
+         "(e.g. `[:rf.interceptor/path [:cart]]`).")
+    {:recovery :fix-registration
+     :extra    {:entry    entry
+                :expected "a keyword id or an [id arg] vector reference"}}))
 
 (defn- resolve-factory
   "Resolve a parameterized `[id arg]` ref against its registered `:factory`

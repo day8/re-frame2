@@ -179,7 +179,7 @@
     (let [thrown (try (render-to-string [:div] {}) nil
                       (catch :default e e))]
       (is (some? thrown) "render-to-string threw post-dispose")
-      (is (= ":rf.error/no-hiccup-emitter-bound" (.-message thrown))
+      (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
           "the emitter slot was cleared by dispose-adapter!"))))
 
 (defn assert-clear-warn-idempotent-post-dispose
@@ -1008,8 +1008,8 @@
           thrown (try (render-to-string tree {}) nil
                       (catch :default e e))]
       (is (some? thrown) "render-to-string threw when no emitter was installed")
-      (is (= ":rf.error/no-hiccup-emitter-bound" (.-message thrown))
-          "ex-message names the error keyword")
+      (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
+          ":rf.error/id names the canonical error discriminator")
       (let [data (ex-data thrown)]
         (is (some? data) "the thrown value carries ex-data")
         (is (string? (:reason data)) ":reason key is a string")

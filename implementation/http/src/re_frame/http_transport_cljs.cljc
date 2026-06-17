@@ -19,6 +19,7 @@
   `:cljs` reader branch). Keeping the conditionals local to the adapter is
   the rf2-hp772l contract: the shared loop carries no CLJS interop."
   (:require [clojure.string         :as str]
+            [re-frame.error         :as error]
             [re-frame.http-decode   :as decode]
             [re-frame.http-encoding :as encoding]
             [re-frame.http-privacy  :as privacy]
@@ -244,24 +245,25 @@
                                       (fn []
                                         (try (.abort internal-controller "timeout")
                                              (catch :default _ nil))
-                                        (reject (ex-info ":rf.error/http-timeout"
-                                                         {:rf.error/id      :rf.error/http-timeout
-                                                          :where            ':rf.http/managed
-                                                          :recovery         :no-recovery
-                                                          :reason           (str "the request exceeded its " timeout-ms "ms timeout and was aborted")
-                                                          ;; co-stamp the registry-hook signal the
-                                                          ;; downstream classifier branches on
-                                                          :rf.http/timeout? true
-                                                          ;; rf2-6ecc6 — a MEASURED wall-clock delta
-                                                          ;; (whole ms, monotonic where available),
-                                                          ;; not the synthetic `timeout-ms` constant.
-                                                          ;; The setTimeout fires at ~`timeout-ms`, so
-                                                          ;; this is `>= :limit-ms` by the scheduling
-                                                          ;; margin — the SAME semantics the JVM path
-                                                          ;; reports via `System/nanoTime`, closing the
-                                                          ;; prior cross-host `:elapsed-ms` divergence.
-                                                          :elapsed-ms       (js/Math.round (- (now-ms) started-ms))
-                                                          :limit-ms         timeout-ms})))
+                                        (reject (error/thrown-ex-info
+                                                  :rf.error/http-timeout
+                                                  ':rf.http/managed
+                                                  (str "the request exceeded its " timeout-ms "ms timeout and was aborted")
+                                                  {:recovery :no-recovery
+                                                   :extra
+                                                   {;; co-stamp the registry-hook signal the
+                                                    ;; downstream classifier branches on
+                                                    :rf.http/timeout? true
+                                                    ;; rf2-6ecc6 — a MEASURED wall-clock delta
+                                                    ;; (whole ms, monotonic where available),
+                                                    ;; not the synthetic `timeout-ms` constant.
+                                                    ;; The setTimeout fires at ~`timeout-ms`, so
+                                                    ;; this is `>= :limit-ms` by the scheduling
+                                                    ;; margin — the SAME semantics the JVM path
+                                                    ;; reports via `System/nanoTime`, closing the
+                                                    ;; prior cross-host `:elapsed-ms` divergence.
+                                                    :elapsed-ms       (js/Math.round (- (now-ms) started-ms))
+                                                    :limit-ms         timeout-ms}})))
                                       timeout-ms)))))
            promise
            (-> (js/Promise.race #js [attempt-promise timeout-promise])

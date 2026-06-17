@@ -84,15 +84,16 @@
     ;; the raw tree — this throw escapes through React's render path into
     ;; error boundaries / host logs, and the hiccup can carry app-owned
     ;; sensitive/large values that path-based projection cannot recover.
-    (throw (ex-info ":rf.error/as-element-fn-unregistered"
-             {:rf.error/id    :rf.error/as-element-fn-unregistered
-              :where          'reagent2.impl.component/->react-element
-              :recovery       :no-recovery
-              :reason         (str "reagent2.impl.template/as-element was not"
-                                   " registered before render. Require"
-                                   " reagent2.impl.template (or reagent2.core)"
-                                   " so its ns-load wires the as-element seam.")
-              :hiccup/summary (diag/value-summary hiccup)}))))
+    (let [reason (str "reagent2.impl.template/as-element was not"
+                      " registered before render. Require"
+                      " reagent2.impl.template (or reagent2.core)"
+                      " so its ns-load wires the as-element seam.")]
+      (throw (ex-info (str reason " [:rf.error/as-element-fn-unregistered]")
+               {:rf.error/id    :rf.error/as-element-fn-unregistered
+                :where          'reagent2.impl.component/->react-element
+                :recovery       :no-recovery
+                :reason         reason
+                :hiccup/summary (diag/value-summary hiccup)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dynamic var: in-flight component instance
@@ -138,18 +139,19 @@
   [spec]
   (let [unsupported (vec (remove cap-keys (keys spec)))]
     (when (seq unsupported)
-      (throw
-        (ex-info ":rf.error/create-class-key-unsupported"
-          {:rf.error/id    :rf.error/create-class-key-unsupported
-           :where          'reagent2.core/create-class
-           :recovery       :no-recovery
-           :reason         (str "create-class accepts a 7-key cap. "
-                                "Unsupported: " (pr-str unsupported) ". "
-                                "Migrate to the supported keys, restructure "
-                                "via :on-create / :on-destroy events, or "
-                                "switch to the bridge adapter day8/re-frame2-reagent.")
-           :keys           unsupported
-           :supported-keys cap-keys}))))
+      (let [reason (str "create-class accepts a 7-key cap. "
+                        "Unsupported: " (pr-str unsupported) ". "
+                        "Migrate to the supported keys, restructure "
+                        "via :on-create / :on-destroy events, or "
+                        "switch to the bridge adapter day8/re-frame2-reagent.")]
+        (throw
+          (ex-info (str reason " [:rf.error/create-class-key-unsupported]")
+            {:rf.error/id    :rf.error/create-class-key-unsupported
+             :where          'reagent2.core/create-class
+             :recovery       :no-recovery
+             :reason         reason
+             :keys           unsupported
+             :supported-keys cap-keys})))))
   spec)
 
 ;; ---------------------------------------------------------------------------
@@ -526,7 +528,7 @@
                       ;; never carry the whole spec map. A spec can carry
                       ;; app-owned closures/data; the throw is captured by
                       ;; host logs before path-based projection runs.
-                      (throw (ex-info ":rf.error/create-class-missing-render"
+                      (throw (ex-info "create-class spec is missing the required :reagent-render fn. [:rf.error/create-class-missing-render]"
                                {:rf.error/id  :rf.error/create-class-missing-render
                                 :where        'reagent2.core/create-class
                                 :recovery     :no-recovery

@@ -33,6 +33,7 @@
   This is the only disposal algorithm — there are no pluggable lifecycle
   policies, no deferred-grace timer, no batched dispose."
   (:require [re-frame.registrar :as registrar]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.live-frame :as live-frame]
             [re-frame.substrate.adapter :as adapter]
@@ -106,14 +107,13 @@
         meta  (if meta? (first args) {})
         rest-args (if meta? (next args) args)
         bad!  (fn [reason received]
-                (throw (ex-info
-                         ":rf.error/reg-sub-bad-args"
-                         {:rf.error/id :rf.error/reg-sub-bad-args
-                          :where       'rf/reg-sub
-                          :recovery    :fix-registration
-                          :reason      reason
-                          :id          id
-                          :received    received})))]
+                (error/throw-error!
+                  :rf.error/reg-sub-bad-args
+                  'rf/reg-sub
+                  reason
+                  {:recovery :fix-registration
+                   :extra    {:id       id
+                              :received received}}))]
     (loop [chain []
            remaining rest-args]
       (cond
@@ -381,11 +381,11 @@
   reactive cache path and the pure `compute-sub` path."
   [input-return]
   (let [bad! (fn [reason]
-               (throw (ex-info
-                        ":rf.error/sub-input-fn-bad-return"
-                        {:rf.error/id :rf.error/sub-input-fn-bad-return
-                         :returned    input-return
-                         :reason      reason})))]
+               (error/throw-error!
+                 :rf.error/sub-input-fn-bad-return
+                 'rf/subscribe
+                 reason
+                 {:extra {:returned input-return}}))]
     (cond
       (not (vector? input-return))
       (bad! (str "input-fn must return a vector of query vectors; got "

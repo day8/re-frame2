@@ -94,8 +94,6 @@
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "require-current-frame! throws outside any scope")
-      (is (= ":rf.error/no-frame-context" (some-> thrown ex-message))
-          "ex-message carries the :rf.error/no-frame-context tag")
       (let [data (ex-data thrown)]
         (is (= :rf.error/no-frame-context (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator")

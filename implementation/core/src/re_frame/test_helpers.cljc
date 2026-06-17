@@ -163,6 +163,7 @@
     `cljs.test/async`). Replaces incidental fixed-sleep waits when the
     post-condition is observable in view-state or app-db."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true]))
@@ -439,23 +440,19 @@
         (is (= 1 (:n (app-db-value :rf/default)))))"
   [node event-key & args]
   (when-not (vector? node)
-    (throw (ex-info ":rf.error/invoke-handler-bad-node"
-                    {:rf.error/id :rf.error/invoke-handler-bad-node
-                     :where     'rf/invoke-handler
-                     :recovery  :no-recovery
-                     :reason    "invoke-handler's node must be a hiccup vector"
-                     :node      node
-                     :event-key event-key})))
+    (error/throw-error! :rf.error/invoke-handler-bad-node
+                        'rf/invoke-handler
+                        "invoke-handler's node must be a hiccup vector"
+                        {:extra {:node      node
+                                 :event-key event-key}}))
   (let [h (extract-handler node event-key)]
     (when-not (fn? h)
-      (throw (ex-info ":rf.error/invoke-handler-missing"
-                      {:rf.error/id :rf.error/invoke-handler-missing
-                       :where     'rf/invoke-handler
-                       :recovery  :no-recovery
-                       :reason    (str "invoke-handler found no handler fn under " event-key)
-                       :node      node
-                       :event-key event-key
-                       :handler   h})))
+      (error/throw-error! :rf.error/invoke-handler-missing
+                          'rf/invoke-handler
+                          (str "invoke-handler found no handler fn under " event-key)
+                          {:extra {:node      node
+                                   :event-key event-key
+                                   :handler   h}}))
     (apply h args)))
 
 ;; ---------------------------------------------------------------------------
@@ -606,15 +603,13 @@
   []
   (if-let [view *current-root-view*]
     (apply view *current-root-view-args*)
-    (throw (ex-info
-             ":rf.error/no-root-view"
-             {:rf.error/id :rf.error/no-root-view
-              :where    'rf/expect-text
-              :recovery :no-recovery
-              :reason   (str "expect-text / wait-until called outside a "
-                             "`with-app-fixture` body, OR the fixture did not "
-                             "supply :root-view. Pass an explicit tree as the "
-                             "first arg, or set :root-view in the fixture opts.")}))))
+    (error/throw-error!
+      :rf.error/no-root-view
+      'rf/expect-text
+      (str "expect-text / wait-until called outside a "
+           "`with-app-fixture` body, OR the fixture did not "
+           "supply :root-view. Pass an explicit tree as the "
+           "first arg, or set :root-view in the fixture opts."))))
 
 (defn- coerce-testid-string
   "Allow testids supplied as keywords (`:counter-display`) at the call
@@ -626,13 +621,11 @@
     (keyword? testid) (name testid)
     (string?  testid) testid
     :else
-    (throw (ex-info ":rf.error/testid-bad-arg"
-                    {:rf.error/id :rf.error/testid-bad-arg
-                     :where    'rf/find-by-testid
-                     :recovery :no-recovery
-                     :reason   (str "testid must be a keyword or string, got "
-                                    (pr-str testid))
-                     :testid   testid}))))
+    (error/throw-error! :rf.error/testid-bad-arg
+                        'rf/find-by-testid
+                        (str "testid must be a keyword or string, got "
+                             (pr-str testid))
+                        {:extra {:testid testid}})))
 
 (defn expect-text
   "Assert that the hiccup node carrying `:data-testid testid` has
@@ -699,14 +692,12 @@
   the canonical `:rf.error/id :rf.error/wait-until-timeout` discriminator
   (per Spec 009) regardless of runtime."
   [label elapsed-ms]
-  (ex-info ":rf.error/wait-until-timeout"
-           {:rf.error/id :rf.error/wait-until-timeout
-            :where       'rf/wait-until
-            :recovery    :no-recovery
-            :reason      (str "wait-until timed out"
-                              (when label (str " — " label)))
-            :elapsed-ms  elapsed-ms
-            :label       label}))
+  (error/thrown-ex-info :rf.error/wait-until-timeout
+                        'rf/wait-until
+                        (str "wait-until timed out"
+                             (when label (str " — " label)))
+                        {:extra {:elapsed-ms elapsed-ms
+                                 :label      label}}))
 
 #?(:clj
    (defn- jvm-wait-until-pred

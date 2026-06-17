@@ -18,7 +18,8 @@
   registrars read as one family; the params-validation + (optional) scope
   resolution reuse the resource registry's pluggable late-bound Malli
   validator and canonicalization."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.classification :as classification]
             [re-frame.resources.mutation-runtime :as mstate]
@@ -49,12 +50,12 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-mutation` validation failure."
   [error-id where reason extra]
-  (ex-info (str error-id)
-           (merge {:rf.error/id error-id
-                   :where       where
-                   :recovery    :fix-registration
-                   :reason      reason}
-                  extra)))
+  (error/thrown-ex-info
+    error-id
+    where
+    reason
+    {:recovery :fix-registration
+     :extra    extra}))
 
 (defn- validate-mutation-spec!
   "Fail loudly at the authoring boundary when a mutation spec omits the
