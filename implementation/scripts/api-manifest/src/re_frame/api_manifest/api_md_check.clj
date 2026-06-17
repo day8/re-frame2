@@ -329,6 +329,71 @@
               {:kind :reg-cofx-contract :facet label}))
           reg-cofx-required-phrases)))
 
+;; ---------------------------------------------------------------------------
+;; EP-0015 :rf.egress/* closed-enum pin (rf2-1zjkn8).
+;;
+;; The var-resolution reconcile above is blind to the EP-0015 KEYWORD
+;; vocabulary, and the keyword-drift guard (projection/ep0015-…) only catches
+;; RETIRED profile spellings reappearing. It cannot catch the CLOSED enum
+;; silently SHRINKING — a member dropped from its owner row in
+;; spec/Conventions.md would let docs/spec regress with the gate green. This
+;; positive pin asserts every closed `:rf.egress/*` member is present on the
+;; owner row, the same shape as the reg-cofx contract pin: pin the small,
+;; settled, closed set's PRESENCE (a member that vanished has drifted).
+;; ---------------------------------------------------------------------------
+
+(def ^:private conventions-md-file
+  (delay (io/file gen/repo-root "spec" "Conventions.md")))
+
+(def ^:private egress-closed-enum
+  "The closed EP-0015 `:rf.egress/*` vocabulary the owner row
+   (spec/Conventions.md `:rf.egress/*` reserved-namespace row) MUST carry: the
+   six-member projection-profile enum (EP-0015 issue 3) plus the
+   `:rf.egress/output-sensitivity` declassification key and its closed
+   three-value set (EP-0015 issue 9). A member missing from the row is enum
+   drift (the closed set silently shrank)."
+  [":rf.egress/off-box-observability"
+   ":rf.egress/off-box-tool"
+   ":rf.egress/local-redacted"
+   ":rf.egress/local-raw"
+   ":rf.egress/ssr-hydration"
+   ":rf.egress/public-error"
+   ":rf.egress/output-sensitivity"
+   ":rf.egress/inherit"
+   ":rf.egress/sensitive"
+   ":rf.egress/public"])
+
+(defn- egress-enum-row-text
+  "The full raw text of the spec/Conventions.md `:rf.egress/*` reserved-
+   namespace row (the `| ... |` table line whose first cell is
+   `` `:rf.egress/*` ``), or nil if absent. The whole pipe-delimited line is
+   returned so the pin asserts every closed member is named on the one row."
+  []
+  (with-open [r (io/reader @conventions-md-file)]
+    (->> (line-seq r)
+         (some (fn [line]
+                 (when (re-find #"^\s*\|\s*`:rf\.egress/\*`\s*\|" line) line))))))
+
+(defn egress-enum-problems
+  "Pure closed-enum pin (rf2-1zjkn8 — extracted so the EP-0015 `:rf.egress/*`
+   enum contract is unit-testable with a synthetic row). Given the raw
+   `:rf.egress/*` owner row line (or nil), return the seq of problem maps for
+   any missing closed member, plus a guard problem when the row is absent.
+
+   INTENTIONALLY positive (require each closed member's presence) rather than
+   a denylist — the closed set is small and settled, so pinning its presence
+   is the sound drift gate: a row that lost a member has drifted."
+  [row-line]
+  (if (nil? row-line)
+    [{:kind :egress-row-missing
+      :detail (str "spec/Conventions.md has no `:rf.egress/*` reserved-namespace "
+                   "row — the EP-0015 closed projection-profile enum is "
+                   "unaccounted for")}]
+    (keep (fn [member]
+            (when-not (str/includes? row-line member)
+              {:kind :egress-member-missing :member member}))
+          egress-closed-enum)))
+
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -356,13 +421,24 @@
         ;; cannot see the row's signature/contract prose drift back to the
         ;; stale v1 ctx-transform shape. Pin the load-bearing EP-0017 phrases.
         cofx-probs (reg-cofx-contract-problems (reg-cofx-row-text))
+        api-md-lines (with-open [r (io/reader @api-md-file)]
+                       (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r))))
         ;; EP-0017 keyword-drift guard (rf2-tawage): the var-row reconcile is
         ;; blind to stale `:rf.world/inputs` keyword vocabulary creeping into
         ;; API.md prose outside an explicit retirement/rename mention.
-        kw-probs   (projection/ep0017-keyword-drift-problems
-                     "spec/API.md"
-                     (with-open [r (io/reader @api-md-file)]
-                       (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))]
+        ;; EP-0011 (rf2-uhew69) + EP-0015 (rf2-1zjkn8) add the reply-envelope
+        ;; (`:stale-key` / bare `:work-id`) and egress-profile (retired
+        ;; `:rf.egress/on-box-*` / `trusted-local-*`) keyword guards over the
+        ;; same API.md prose, all on the same retirement-marker discipline.
+        kw-probs   (concat
+                     (projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
+                     (projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)
+                     (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))
+        ;; EP-0015 closed-enum pin (rf2-1zjkn8): the keyword-drift guard above
+        ;; only catches RETIRED spellings reappearing — it cannot see the
+        ;; closed `:rf.egress/*` enum silently SHRINK on its owner row in
+        ;; spec/Conventions.md. Pin every closed member's presence positively.
+        egress-probs (egress-enum-problems (egress-enum-row-text))]
     (cond
       ;; Vacuity-floor violation: extraction collapsed — refuse a green.
       floor
@@ -388,11 +464,24 @@
 
       (seq kw-probs)
       (do (binding [*out* *err*]
-            (println "DRIFT: spec/API.md reintroduced stale EP-0017 keyword vocabulary.")
-            (println ":rf.world/inputs was renamed to the flat :rf.cofx map (no alias);")
-            (println "a mention must be an explicit retirement/rename reference. Problems:")
-            (doseq [{:keys [file line detail]} kw-probs]
-              (println (format "  %s:%d  %s" file line detail))))
+            (println "DRIFT: spec/API.md reintroduced stale keyword vocabulary.")
+            (println "A retired keyword (EP-0017 :rf.world/inputs, EP-0011 :stale-key /")
+            (println ":work-id, or EP-0015 retired :rf.egress/* profile form) appears outside")
+            (println "an explicit retirement/rename reference. Problems:")
+            (doseq [{:keys [file line raw detail]} kw-probs]
+              (println (format "  %s:%d  `%s`  %s" file line raw detail))))
+          false)
+
+      (seq egress-probs)
+      (do (binding [*out* *err*]
+            (println "DRIFT: spec/Conventions.md `:rf.egress/*` row lost a closed-enum member.")
+            (println "The closed EP-0015 projection-profile enum (six profiles +")
+            (println ":rf.egress/output-sensitivity + its three-value set) must be named in")
+            (println "full on the owner row. Missing:")
+            (doseq [{:keys [kind member detail]} egress-probs]
+              (case kind
+                :egress-row-missing    (println (str "  " detail))
+                :egress-member-missing (println (format "  MISSING closed member: %s" member)))))
           false)
 
       (empty? problems)

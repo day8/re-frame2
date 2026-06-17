@@ -95,10 +95,12 @@
         var-problems (reconcile {:references   references
                                  :core-vars    core-vars
                                  :scoped-allow scoped-allow})
-        ;; EP-0017 keyword-drift guard (rf2-tawage): the var-resolution
-        ;; reconcile above cannot see stale `:rf.world/inputs` keyword
-        ;; vocabulary creeping back into teaching prose. Fold the keyword
-        ;; scan in so a reintroduction goes RED here too.
+        ;; Keyword-drift guards (rf2-tawage / rf2-uhew69 / rf2-1zjkn8): the
+        ;; var-resolution reconcile above cannot see stale EP-0017
+        ;; `:rf.world/inputs`, EP-0011 reply-envelope (`:stale-key` / bare
+        ;; `:work-id`), or EP-0015 egress-profile keyword vocabulary creeping
+        ;; back into teaching prose. Fold the keyword scan in so a
+        ;; reintroduction goes RED here too.
         kw-problems  (proj/keyword-drift-problems-over-files files)
         problems     (concat var-problems kw-problems)]
     (proj/report-with-floor! "docs/guide/" (count references) min-references problems)))

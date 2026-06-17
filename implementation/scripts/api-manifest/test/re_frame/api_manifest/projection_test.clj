@@ -110,3 +110,89 @@
       (is (pos? (count guide-files)))
       (is (empty? (proj/keyword-drift-problems-over-files guide-files))
           "live drift: a docs/guide file reintroduced stale :rf.world/inputs"))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0011 reply-envelope vocabulary-drift guard (rf2-uhew69).
+;;
+;; EP-0011 settled the namespaced `:work/id` as the one attempt identity and
+;; retired the near-duplicate `:stale-key` and bare hyphenated `:work-id`
+;; spellings ([EP-0007] one-name-per-fact). The guard flags a retired spelling
+;; reintroduced WITHOUT a same-line retirement/correlation marker.
+;; ---------------------------------------------------------------------------
+
+(deftest ep0011-flags-fresh-stale-key
+  (testing "a fresh :stale-key mention with no retirement marker is flagged"
+    (let [probs (proj/ep0011-reply-vocab-drift-problems
+                  "spec/API.md"
+                  [[7 "Suppress on a `:stale-key` `[:resource k gen]` head."]])]
+      (is (= 1 (count probs)))
+      (is (= ":stale-key" (:raw (first probs))))
+      (is (re-find #":work/id" (:detail (first probs)))))))
+
+(deftest ep0011-flags-fresh-bare-work-id
+  (testing "a fresh bare :work-id (hyphen) mention with no marker is flagged"
+    (let [probs (proj/ep0011-reply-vocab-drift-problems
+                  "docs/guide/x.md"
+                  [[3 "The reply map carries a `:work-id` attempt identity."]])]
+      (is (= 1 (count probs)))
+      (is (= ":work-id" (:raw (first probs)))))))
+
+(deftest ep0011-canonical-work-id-not-flagged
+  (testing "the canonical namespaced :work/id is NOT a bare :work-id match"
+    (is (empty? (proj/ep0011-reply-vocab-drift-problems
+                  "x.md"
+                  [[1 "The attempt identity is `:work/id` (one attempt, one id)."]])))))
+
+(deftest ep0011-allows-retirement-mentions
+  (testing "a retired spelling on a line that names :work/id or the EP-0007
+            rule, or sits in an :rf.observe/:correlation context, is approved"
+    (is (empty? (proj/ep0011-reply-vocab-drift-problems
+                  "spec/Managed-Effects.md"
+                  [[1 "Stale suppression keys on :work/id; the separate :stale-key is dropped."]
+                   [2 "No :stale-key-style synonym (EP-0007: one-name-per-fact)."]
+                   [3 ":correlation {:work-id \"w-77\" :dispatch-id \"d-91\"}"]
+                   [4 "The unqualified :work-id is retired in favour of :work/id."]])))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 egress-profile vocabulary-drift guard (rf2-1zjkn8).
+;;
+;; EP-0015 renamed two early `:rf.egress/*` profile spellings; the retired
+;; keyword forms must not reappear as live vocabulary outside a rename mention.
+;; ---------------------------------------------------------------------------
+
+(deftest ep0015-flags-retired-profile-form
+  (testing "a fresh retired :rf.egress/on-box-hidden-sensitive form is flagged"
+    (let [probs (proj/ep0015-privacy-vocab-drift-problems
+                  "docs/guide/x.md"
+                  [[9 "Set the profile to :rf.egress/on-box-hidden-sensitive for dev."]])]
+      (is (= 1 (count probs)))
+      (is (= ":rf.egress/on-box-hidden-sensitive" (:raw (first probs))))
+      (is (re-find #":rf.egress/local-redacted" (:detail (first probs))))))
+  (testing "the retired :rf.egress/trusted-local-raw form is flagged too"
+    (is (= 1 (count (proj/ep0015-privacy-vocab-drift-problems
+                      "skills/x.md"
+                      [[1 "Use :rf.egress/trusted-local-raw for the operator."]]))))))
+
+(deftest ep0015-allows-rename-mentions
+  (testing "a retired form on a line naming the replacement or 'renamed' is OK"
+    (is (empty? (proj/ep0015-privacy-vocab-drift-problems
+                  "spec/API.md"
+                  [[1 ":rf.egress/on-box-hidden-sensitive was renamed to :rf.egress/local-redacted."]
+                   [2 "The earlier :rf.egress/trusted-local-raw spelling is retired."]])))))
+
+(deftest ep0015-current-egress-names-not-flagged
+  (testing "the current :rf.egress/local-redacted / local-raw names are NOT drift,
+            and the bare English adjectives on-box / trusted-local are not either"
+    (is (empty? (proj/ep0015-privacy-vocab-drift-problems
+                  "x.md"
+                  [[1 "Local dev defaults to :rf.egress/local-redacted; raw is :rf.egress/local-raw."]
+                   [2 "A trusted-local operator on-box may opt into raw."]])))))
+
+(deftest keyword-drift-over-files-folds-all-three-guards-clean-on-live
+  (testing "the live docs/guide surface carries no EP-0011/EP-0015 stale
+            vocabulary either (the folded driver stays clean). docs/guide has
+            no migration-skill exclusion, so the whole tree must be clean."
+    (let [guide (proj/markdown-files (proj/repo-file "docs" "guide"))]
+      (is (pos? (count guide)))
+      (is (empty? (proj/keyword-drift-problems-over-files guide))
+          "live drift: a docs/guide file reintroduced stale reply/egress vocabulary"))))
