@@ -290,6 +290,32 @@
       (register! :cofx id meta))
     id))
 
+;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;;
+;; An image's inline `:registrations` `:reg-cofx` entry carries the raw
+;; value-returning supplier fn under `:impl`. For the inline cofx to be
+;; DELIVERED through a frame-targeted cascade, the assembled generation's
+;; resolver descriptor must carry the SAME runnable slots `reg-cofx` installs
+;; — `:handler-fn` (the supplier) + the `:recordable?` / `:provided?` grade
+;; flags delivery reads. Closes the EP-0023 §Image Fragments "same runtime
+;; descriptor shape" contract for cofx. Published via late-bind (image-assembly
+;; cannot static-require this ns).
+
+(defn lower-inline-cofx
+  "Lower an inline `:reg-cofx` descriptor's raw supplier fn into the runnable
+  cofx slots `reg-cofx` installs (`:handler-fn` + the `:recordable?` /
+  `:provided?` grade flags read at delivery). `meta` is the inline entry's
+  metadata map (its `:recordable?` / `:provided?` grade is read here, mirroring
+  `reg-cofx`); `impl` is the raw value-returning supplier (nil for a provided
+  recordable fact). Returns ONLY the runnable slots so image-assembly merges
+  them onto the descriptor, preserving `:impl` + provenance."
+  [meta impl]
+  {:handler-fn  impl
+   :recordable? (boolean (:recordable? meta))
+   :provided?   (boolean (:provided? meta))})
+
+(late-bind/set-fn! :image/lower-inline-cofx lower-inline-cofx)
+
 ;; ---- :rf.cofx/requires parsing (Spec 001 §The declaration key) ------------
 ;;
 ;; `:rf.cofx/requires` is a vector of registered coeffect ids; a

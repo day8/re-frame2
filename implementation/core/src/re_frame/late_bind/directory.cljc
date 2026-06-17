@@ -97,6 +97,30 @@
     :producer-ns 're-frame.router
     :description "Process an event synchronously, bypassing the drain queue."}
 
+   ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) -------------------
+   ;; `re-frame.image-assembly` lowers an image's inline `:registrations` fn
+   ;; bodies (`:impl`) into the runnable descriptor shape per kind so they route
+   ;; through dispatch identically to a `:include-ns`-selected registration
+   ;; (EP-0023 §Image Fragments — "the same runtime descriptor shape"). Each
+   ;; kind's ns publishes its lowering; image-assembly cannot static-require any
+   ;; of them (subs requires live-frame requires image-assembly → cycle).
+   {:key         :image/lower-inline-event
+    :producer-ns 're-frame.events
+    :design-bead "rf2-ffc6s0"
+    :description "Lower an inline :reg-event descriptor's :impl fn body into the runnable event-handler slots (:handler-fn + the :interceptors chain carrying the :rf/event-handler wrapper) so an image's inline event routes through a frame-targeted dispatch. Consumed by re-frame.image-assembly during assembly."}
+   {:key         :image/lower-inline-sub
+    :producer-ns 're-frame.subs
+    :design-bead "rf2-ffc6s0"
+    :description "Lower an inline :reg-sub descriptor's :impl computation fn into the runnable layer-1 (:input-kind :db) sub slots (:handler-fn + :input-kind + :input-signals) so an image's inline sub computes through a frame-targeted subscribe. Consumed by re-frame.image-assembly during assembly."}
+   {:key         :image/lower-inline-fx
+    :producer-ns 're-frame.fx
+    :design-bead "rf2-ffc6s0"
+    :description "Lower an inline :reg-fx descriptor's :impl fn body into the runnable fx slot (:handler-fn) so an image's inline fx runs when an event handler emits it. Consumed by re-frame.image-assembly during assembly."}
+   {:key         :image/lower-inline-cofx
+    :producer-ns 're-frame.cofx
+    :design-bead "rf2-ffc6s0"
+    :description "Lower an inline :reg-cofx descriptor's :impl supplier fn into the runnable cofx slots (:handler-fn + the :recordable? / :provided? grade flags) so an image's inline cofx is delivered through a frame-targeted cascade. Consumed by re-frame.image-assembly during assembly."}
+
    ;; ---- re-frame.subs --------------------------------------------------------
    {:key         :subs/subscribe-once
     :producer-ns 're-frame.subs

@@ -380,6 +380,87 @@
               "event-first opts form still routes the object target byte-identically"))))))
 
 ;; ===========================================================================
+;; 8b. INLINE :registrations FN-BODY ROUTES THROUGH DISPATCH (rf2-ffc6s0)
+;;     — the EP-0023 gap: an image built from inline `:registrations` with a
+;;     REAL fn body must wire that handler into the dispatch / subscribe /
+;;     fx / cofx path identically to a `:include-ns`-selected registration.
+;;     Before the fix the inline body lowered ONLY to `:impl` (inert data),
+;;     so a frame-targeted dispatch resolved the descriptor but ran nothing
+;;     (`registrar/handler` reads `:handler-fn`, an event needs `:interceptors`).
+;;     EP-0023 §Image Fragments: "Both paths should lower to the same runtime
+;;     descriptor shape."
+;; ===========================================================================
+
+(deftest inline-registrations-event-fn-body-runs-through-dispatch
+  (testing "an image built from INLINE :registrations with a REAL event fn body
+            runs that handler END-TO-END under a frame-targeted dispatch — the
+            inline body lowers to the same runnable descriptor shape a
+            :include-ns-selected handler carries (rf2-ffc6s0)"
+    (rf/reg-frame :inline/main {:doc "inline-image counter frame"})
+    ;; A GLOBAL handler the cascade would (wrongly) run if it resolved through
+    ;; the global registrar — present so the assertion proves the IMAGE ran.
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
+    (let [img (image/image
+                {:id :inline/counter
+                 :registrations
+                 {:reg-event [[:counter/inc {:doc "Increment via inline body."}
+                               (fn [{:keys [db]} _]
+                                 {:db (assoc db :written-by :inline :hit true)})]]}})]
+      ;; No explicit pool needed — inline descriptors are selected because the
+      ;; image was supplied, not from the source store.
+      (lf/make-frame {:id :inline/main :images [img]} [])
+      (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
+      (let [db (rf/app-db-value :inline/main)]
+        (is (true? (:hit db))
+            "the INLINE fn body actually executed — app-db mutated")
+        (is (= :inline (:written-by db))
+            "the inline body ran, not the global handler"))
+      (is (nil? registrar/*generation*)
+          "the generation binding did NOT leak past the cascade"))))
+
+(deftest inline-registrations-sub-fn-body-runs-through-subscribe
+  (testing "an image built from INLINE :registrations with a REAL layer-1 sub
+            fn body computes that sub END-TO-END under a frame-targeted
+            subscribe (rf2-ffc6s0)"
+    (rf/reg-frame :inline/main {:doc "inline-image counter frame"})
+    (rf/reg-sub :counter/value (fn [_db _] :global))
+    (let [img (image/image
+                {:id :inline/counter
+                 :registrations
+                 {:reg-event [[:counter/inc {}
+                               (fn [{:keys [db]} _]
+                                 {:db (update db :count (fnil inc 0))})]]
+                  :reg-sub   [[:counter/value {:doc "Current counter value."}
+                               (fn [db _] (:count db 0))]]}})]
+      (lf/make-frame {:id :inline/main :images [img] :initial-db {:count 0}} [])
+      (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
+      (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
+      (is (= 2 @(rf/subscribe :inline/main [:counter/value]))
+          "the INLINE sub body computed over the frame's own app-db, not the
+           global sub")
+      (is (nil? registrar/*generation*)
+          "the generation binding did NOT leak past the build"))))
+
+(deftest inline-registrations-fx-fn-body-runs-through-cascade
+  (testing "an image built from INLINE :registrations with a REAL fx fn body
+            runs that effect END-TO-END when an inline event handler emits it
+            (rf2-ffc6s0)"
+    (rf/reg-frame :inline/main {:doc "inline-image fx frame"})
+    (let [fired (atom [])
+          img (image/image
+                {:id :inline/fx
+                 :registrations
+                 {:reg-event [[:do/it {}
+                               (fn [_ _] {:fx [[:my/side-effect {:n 7}]]})]]
+                  :reg-fx    [[:my/side-effect {}
+                               (fn [_ctx args] (swap! fired conj args))]]}})]
+      (lf/make-frame {:id :inline/main :images [img]} [])
+      (rf/dispatch-sync [:do/it] {:frame :inline/main})
+      (is (= [{:n 7}] @fired)
+          "the INLINE fx handler ran — its fn body executed with the emitted args"))))
+
+;; ===========================================================================
 ;; 9. rf/reload-images! ON THE FACADE (EP-0023 collapse slice 2, rf2-32siq3.32)
 ;;    — the public hot-reload export swaps a frame's whole image composition
 ;;    while PRESERVING FRAME MEMORY (app-db continues; only the generation moves)

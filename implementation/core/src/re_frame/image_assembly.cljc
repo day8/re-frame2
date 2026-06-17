@@ -136,6 +136,7 @@
   (:require [re-frame.image       :as image]
             [re-frame.source-store :as source-store]
             [re-frame.registrar   :as registrar]
+            [re-frame.late-bind   :as late-bind]
             [re-frame.error       :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -369,6 +370,68 @@
                     descriptors
                     (image/select-descriptors image descriptors))))
         images))
+
+;; ---- inline-registration lowering (EP-0023 §Image Fragments, rf2-ffc6s0) ---
+;;
+;; An inline `:registrations` entry lowers (in the pure `re-frame.image` slice)
+;; to a descriptor carrying its raw fn BODY under `:impl` — inert data with NO
+;; runnable slots. A registered descriptor, by contrast, carries the RUNNABLE
+;; shape `register!` stored (`:handler-fn` + the per-kind discriminators: an
+;; event's `:interceptors` wrapper chain, a sub's `:input-kind` / `:input-signals`).
+;; So a generation built from inline `:registrations` resolved the descriptor
+;; but ran NOTHING — the cascade reads `registrar/handler` (`:handler-fn`) and
+;; an event needs `:interceptors`, neither of which an `:impl`-only descriptor
+;; carries (rf2-ffc6s0). EP-0023 §Image Fragments is explicit: "Both paths
+;; should lower to the same runtime descriptor shape."
+;;
+;; This step closes that gap: for each SELECTED descriptor that is inline
+;; (`:rf.provenance/inline`) and carries a real fn body (`:impl`), call the
+;; kind's late-bound lowering (`:image/lower-inline-<kind>`, published by
+;; `re-frame.events` / `.subs` / `.fx` / `.cofx`) with the inline `:metadata` +
+;; `:impl`, and MERGE the returned runnable slots onto the descriptor. `:impl`,
+;; the provenance coordinate, `:kind` / `:id`, and `:metadata` are PRESERVED so
+;; replacement-winner coordinates, dedupe, and introspection are unchanged; the
+;; merge only ADDS the runnable slots a registered descriptor of the same kind
+;; would carry.
+;;
+;; Late-bound (not a static require) because `image-assembly` is required by
+;; `re-frame.live-frame`, which `re-frame.subs` requires — a static require of
+;; the lowering producers would cycle. The lowering producers are core spine
+;; namespaces loaded at boot, so the hook is always published by the time any
+;; image is assembled (a `make-frame` happens at runtime, well after boot); a
+;; metadata-only inline entry (no `:impl`) and every registered descriptor pass
+;; through untouched.
+
+(defn lower-inline-descriptor
+  "Lower ONE selected descriptor into its runnable shape when it is an inline
+  descriptor carrying a real fn body (EP-0023 §Image Fragments, rf2-ffc6s0).
+  An inline descriptor (`:rf.provenance/inline`) with an `:impl` fn is merged
+  with the runnable slots its kind's late-bound lowering produces (the same
+  slots `register!` stores for a `reg-*` of that kind) — preserving `:impl`,
+  provenance, `:kind` / `:id`, and `:metadata`. A non-inline descriptor (a
+  registered or standard one), a metadata-only inline entry (no `:impl`), or a
+  kind with no published lowering hook returns UNCHANGED. Pure modulo the
+  late-bind lookup."
+  [descriptor]
+  (if (and (:rf.provenance/inline descriptor)
+           (contains? descriptor :impl))
+    (if-let [lower (late-bind/get-fn
+                     (keyword "image" (str "lower-inline-" (name (:kind descriptor)))))]
+      ;; Merge runnable slots UNDER the descriptor's own keys (the descriptor
+      ;; wins on any shared key — :impl / provenance / :kind / :id stay put;
+      ;; the lowering only contributes :handler-fn + the per-kind runtime slots).
+      (merge (lower (:metadata descriptor) (:impl descriptor)) descriptor)
+      descriptor)
+    descriptor))
+
+(defn lower-inline-descriptors
+  "Map `lower-inline-descriptor` over `descriptors` — lowering every selected
+  inline descriptor with a real fn body into its runnable shape before
+  validation + sealing (EP-0023 §Image Fragments, rf2-ffc6s0). Registered /
+  standard / metadata-only descriptors pass through untouched. Order
+  preserved (it never decides a collision winner downstream)."
+  [descriptors]
+  (mapv lower-inline-descriptor descriptors))
 
 ;; ===========================================================================
 ;; Validation — every point is FAIL-LOUD via re-frame.error/throw-error!
@@ -922,7 +985,15 @@
   (let [;; A representative image id for diagnostics (the first that carries
         ;; one); collision/winner errors also name exact coordinates.
         image-id (some :rf.image/id images)
-        selected (select-for-images images descriptors)
+        ;; Lower every selected INLINE descriptor's `:impl` fn body into its
+        ;; runnable shape (`:handler-fn` + per-kind runtime slots) so the
+        ;; sealed resolver's inline entries route through dispatch / subscribe
+        ;; identically to a `:include-ns`-selected registered descriptor
+        ;; (EP-0023 §Image Fragments — "the same runtime descriptor shape",
+        ;; rf2-ffc6s0). Registered / standard / metadata-only entries are
+        ;; unchanged; `:impl` + provenance are preserved for collision /
+        ;; replacement / dedupe (all unchanged downstream).
+        selected (lower-inline-descriptors (select-for-images images descriptors))
         standard (standard-descriptors)
         all-ds   (into (vec selected) standard)
         [rep rep-std] (replace-maps image-id images)]
