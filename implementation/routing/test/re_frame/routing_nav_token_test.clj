@@ -5,6 +5,7 @@
   error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.reply :as reply]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -535,6 +536,241 @@
                                   (:operation %))
                               @traces)))
           "exactly one suppression — B's fresh completion applied cleanly"))))
+
+;; ---- rf2-ph1grf — the documented path captures a COMPLETE route work-id -----
+;;
+;; EP-0011 / Managed-Effects §Work-id correlation: the route-loader work-id is
+;; `[:rf.work/route route-id nav-token loader-id]` — one attempt, one COMPLETE
+;; `:work/id`. Before the fix the documented `:rf.route/nav-token`-only capture
+;; path threaded just the nav-token, so a stale completion was traced as
+;; `[:rf.work/route nil nav-token loader-id]` — the route attempt identity was
+;; lost even though the route id was known at scheduling time. The fix adds the
+;; companion `:rf.route/route-id` cofx so the documented capture grabs BOTH
+;; facts together; this test drives the documented cofx path end-to-end and
+;; asserts the stale trace carries the FULL (non-nil-route) tuple.
+
+(deftest nav-token+route-id-cofx-yields-complete-route-work-id
+  (testing "rf2-ph1grf — a loader that declares the framework :rf.route/nav-token
+            + :rf.route/route-id cofx captures both facts; the documented
+            :rf.route/with-nav-token completion's stale trace carries the
+            COMPLETE [:rf.work/route route-id nav-token loader-id] tuple
+            (pre-fix: route-id was nil)"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
+    ;; The async completion threads BOTH captured facts through the framework fx.
+    (rf/reg-event :article/completed
+                     (fn [_ctx [_ {:keys [captured-token captured-route-id id payload]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:do        [:dispatch [:article/loaded id payload]]
+                               :nav-token captured-token
+                               :route-id  captured-route-id}]]}))
+
+    (let [traces   (atom [])
+          captured (atom {})]
+      (rf/register-listener! ::ph1grf (fn [ev] (swap! traces conj ev)))
+      ;; The :on-match-reached loader declares BOTH framework cofx and captures
+      ;; the live nav-token + route-id together (the documented step-2 shape).
+      (rf/reg-event :article/load
+                       {:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}
+                       (fn [{:rf.route/keys [nav-token route-id]} [_ id]]
+                         (swap! captured assoc id {:token nav-token :route-id route-id})
+                         {}))
+
+      ;; 1. Navigate to A; the loader captures A's nav-token + route-id.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:article/load "A"])
+      ;; 2. Supersede with B BEFORE A's response lands.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+
+      (is (= :route/article (:route-id (@captured "A")))
+          "the :rf.route/route-id cofx injected the live route id (pre-fix: no such cofx)")
+      (is (some? (:token (@captured "A"))) "the nav-token cofx injected the live token")
+
+      ;; 3. A's stale completion threads BOTH captured facts → suppressed.
+      (rf/dispatch-sync [:article/completed
+                         {:captured-token   (:token (@captured "A"))
+                          :captured-route-id (:route-id (@captured "A"))
+                          :id               "A"
+                          :payload          "A-payload"}])
+      (rf/unregister-listener! ::ph1grf)
+
+      (let [stale (some (fn [ev]
+                          (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
+                        @traces)]
+        (is (some? stale) "A's stale completion produced a suppression trace")
+        (let [wid (-> stale :tags :work/id)]
+          (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
+              "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")
+          (is (not (nil? (second wid)))
+              "rf2-ph1grf — the route-id component is non-nil (the documented path
+               cannot emit a nil-route route work-id)"))))))
+
+;; ---- rf2-2avo53 — lower with-nav-token continuations through :rf/reply-to ----
+;;
+;; EP-0011 / Managed-Effects property 9: nav-token threading is public sugar
+;; that MUST lower internally to the uniform :rf/reply-to target + reply
+;; completion shape. Before the fix the production :rf.route/with-nav-token
+;; handler ran an ad-hoc :do fx entry directly on the live branch (never
+;; touching the reply envelope) and passed NO target into route-reply/suppress
+;; on the stale branch — so production routing never normalized/completed a
+;; reply target with re-frame.reply/complete and could not honor the authorized
+;; :dispatch-stale? target path outside the pure unit helper. These tests drive
+;; the new canonical :rf/reply-to surface through the production fx.
+
+(deftest with-nav-token-fx-reply-to-completes-live-through-shared-substrate
+  (testing "rf2-2avo53 — a LIVE :rf.route/with-nav-token completion named by the
+            canonical :rf/reply-to target is completed through the shared
+            re-frame.reply/complete: the :status :ok reply map is APPENDED to
+            the target event and dispatched (the production lowering)"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    ;; The reply target — receives the reply map appended as the final argument.
+    (rf/reg-event :article/load-replied
+                     (fn [{:keys [db]} [_ {:keys [id]} reply]]
+                       {:db (assoc db :replied {:id id :reply reply})}))
+    ;; The async completion names the continuation via :rf/reply-to + a :value.
+    (rf/reg-event :article/completed
+                     (fn [_ctx [_ {:keys [carried-token carried-route-id id value]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:rf/reply-to [:article/load-replied {:id id}]
+                               :nav-token   carried-token
+                               :route-id    carried-route-id
+                               :value       value}]]}))
+
+    (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+    (let [token (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/routing :current :nav-token])]
+      ;; A's completion is LIVE (token still current) → the target is completed
+      ;; with the :status :ok reply map appended.
+      (rf/dispatch-sync [:article/completed
+                         {:carried-token    token
+                          :carried-route-id :route/article
+                          :id               "A"
+                          :value            {:title "Welcome"}}])
+      (let [{:keys [id reply]} (:replied (rf/app-db-value :rf/default))]
+        (is (= "A" id) "the target event ran with its leading args intact")
+        (is (map? reply) "the reply map was appended as the final argument")
+        (is (= :ok (:status reply)) "the live reply is :status :ok")
+        (is (= :completed (:work/status reply)))
+        (is (= :route (:work/kind reply)))
+        (is (= {:title "Welcome"} (:value reply)) "the loader :value rides the reply (EP-0007)")
+        (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
+               (:work/id reply))
+            "the live reply carries the complete route work-id (loader-id = target event-id)")
+        (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply")))))
+
+(deftest with-nav-token-fx-reply-to-suppresses-stale-app-target
+  (testing "rf2-2avo53 — a STALE :rf.route/with-nav-token completion named by an
+            app :rf/reply-to target is SUPPRESSED: the target does NOT run (no
+            app-db write) and the stale-suppressed trace fires joined to :work/id"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-event :article/load-replied
+                     (fn [{:keys [db]} [_ {:keys [id]} reply]]
+                       {:db (assoc db :replied {:id id :reply reply})}))
+    (rf/reg-event :article/completed
+                     (fn [_ctx [_ {:keys [carried-token carried-route-id id]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:rf/reply-to [:article/load-replied {:id id}]
+                               :nav-token   carried-token
+                               :route-id    carried-route-id}]]}))
+
+    (let [traces (atom [])]
+      (rf/register-listener! ::stale-reply-to (fn [ev] (swap! traces conj ev)))
+      ;; Land on A (nav-1), supersede with B (nav-2).
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+      ;; A's stale completion → suppressed; the app target MUST NOT run.
+      (rf/dispatch-sync [:article/completed
+                         {:carried-token    "nav-1"
+                          :carried-route-id :route/article
+                          :id               "A"}])
+      (rf/unregister-listener! ::stale-reply-to)
+
+      (is (nil? (:replied (rf/app-db-value :rf/default)))
+          "the app :rf/reply-to target was suppressed — no app-db write on a stale completion")
+      (let [stale (some (fn [ev]
+                          (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
+                        @traces)]
+        (is (some? stale) "a stale-suppressed trace fired for the suppressed reply-to completion")
+        (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
+               (-> stale :tags :work/id))
+            "the suppression is joined to the route :work/id (loader-id = target event-id)")
+        (is (= :stale (-> stale :tags :rf.reply/status)))
+        (is (= :suppressed (-> stale :tags :rf.reply/work-status)))))))
+
+(deftest with-nav-token-fx-reply-to-honours-stale-delivery-authority
+  (testing "rf2-2avo53 — the AUTHORIZED :dispatch-stale? path works at the
+            production routing surface: a framework/tool target carrying the
+            stale-delivery capability + :dispatch-stale? true RECEIVES the
+            stale reply; an APP target asking for it without authority FAILS LOUD"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    ;; A framework/tool reply target that records the (stale) reply it receives.
+    (rf/reg-event :tool/observe-stale
+                     (fn [{:keys [db]} [_ marker reply]]
+                       {:db (assoc db :tool-saw {:marker marker :reply reply})}))
+    ;; Completion threading an authorized framework/tool target through the fx.
+    (rf/reg-event :tool/completed
+                     (fn [_ctx [_ {:keys [carried-token target]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:rf/reply-to target
+                               :nav-token   carried-token
+                               :route-id    :route/article}]]}))
+    ;; Completion threading an UNAUTHORIZED app target that sets :dispatch-stale?.
+    (rf/reg-event :app/completed
+                     (fn [_ctx [_ {:keys [carried-token]}]]
+                       {:fx [[:rf.route/with-nav-token
+                              {:rf/reply-to {:event [:tool/observe-stale :app]
+                                             :dispatch-stale? true}
+                               :nav-token   carried-token
+                               :route-id    :route/article}]]}))
+
+    (let [traces (atom [])]
+      (rf/register-listener! ::stale-authority (fn [ev] (swap! traces conj ev)))
+      ;; Land on A (nav-1), supersede with B (nav-2) so both completions are stale.
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+
+      (testing "a framework/tool-authorised :dispatch-stale? target RECEIVES the stale reply"
+        ;; with-stale-authority stamps the namespaced-private capability marker;
+        ;; only framework/tool code can reach it.
+        (let [authed (reply/with-stale-authority
+                       {:event [:tool/observe-stale :tool] :dispatch-stale? true})]
+          (rf/dispatch-sync [:tool/completed {:carried-token "nav-1" :target authed}])
+          (let [{:keys [marker reply]} (:tool-saw (rf/app-db-value :rf/default))]
+            (is (= :tool marker) "the framework/tool target ran (stale delivery authorised)")
+            (is (= :stale (:status reply)) "it received the :status :stale reply")
+            (is (true? (:stale? reply)))
+            (is (= [:rf.work/route :route/article "nav-1" :tool/observe-stale]
+                   (:work/id reply))
+                "the stale reply carries the route work-id"))))
+
+      (testing "an APP target setting :dispatch-stale? true WITHOUT authority FAILS LOUD"
+        ;; The shared substrate throws :rf.reply/unauthorized-stale-delivery; the
+        ;; router TRAPS the fx-handler throw (Spec 009/011 — production-survivable,
+        ;; fanned out as :rf.error/fx-handler-exception, not propagated). The
+        ;; load-bearing facts: the unauthorised app target does NOT receive a
+        ;; stale delivery, and the throw surfaces on the error stream.
+        (rf/dispatch-sync [:app/completed {:carried-token "nav-1"}])
+        (is (not= :app (:marker (:tool-saw (rf/app-db-value :rf/default))))
+            "the unauthorised app target did NOT receive a stale delivery")
+        (rf/unregister-listener! ::stale-authority)
+        (let [err (some (fn [ev]
+                          (when (and (= :rf.error/fx-handler-exception (:operation ev))
+                                     (= :rf.route/with-nav-token (-> ev :tags :rf.fx/id)))
+                            ev))
+                        @traces)]
+          (is (some? err)
+              "the unauthorised stale delivery surfaced as a trapped fx-handler exception
+               (:rf.reply/unauthorized-stale-delivery — an app target cannot grant itself
+               stale delivery at the routing surface)"))))))
 
 ;; ============================================================================
 ;; rf2-25i7r7 — finding 3: route failure semantics across multiple :on-match

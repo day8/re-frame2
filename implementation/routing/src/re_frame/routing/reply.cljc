@@ -128,6 +128,64 @@
   navigation epoch moved on. Named once (EP-0007)."
   :rf.route/nav-token-stale)
 
+;; ---------------------------------------------------------------------------
+;; Live completion (rf2-2avo53). When the carried nav-token is STILL current,
+;; the route-loader completion is a LIVE reply (`:status :ok` — `:partial` is
+;; not a route-loader case; HTTP decode lands `:ok`/`:error` and the route
+;; gate runs on top). The route wrapper lowers the live continuation onto the
+;; uniform reply envelope: it builds the data-only reply map and `complete`s
+;; the `:rf/reply-to` target through the shared `re-frame.reply/complete` — the
+;; same pure functor the EP-0011 mapping law is stated over — so the reply map
+;; is appended as the final argument of the target event and the target's
+;; accumulated `::post` transform is applied. The route surface therefore
+;; exercises `re-frame.reply/complete` at the ACTUAL navigation wrapper, not
+;; only in the pure unit helper.
+;; ---------------------------------------------------------------------------
+
+(defn live-reply
+  "Build the LIVE `:status :ok` route-loader reply map for a completion whose
+  carried nav-token is still current (Managed-Effects §The reply map / §Status
+  taxonomy). Carries the route `:work/id` + `:work/kind :route`, the loader's
+  decoded result `:value` (the reply-result spelling EVERYWHERE — EP-0007;
+  `nil` for a loader that produced no payload — `:ok` REQUIRES `:value`
+  present, so it rides even when nil rather than being omitted), the carried
+  frame stamp, and the causal `:completed-at` (EP-0010 — the reply token's
+  reading, never a fresh ambient clock read). Frame / completed-at are omitted
+  when absent.
+
+  `ctx` is `{:route-id … :nav-token <carried> :loader-id … :frame …
+  :completed-at …}` — the same identity-fact map `suppress` consumes, so a live
+  and a stale completion correlate by the identical `:work/id`."
+  ([ctx] (live-reply ctx nil))
+  ([{:keys [frame completed-at] :as ctx} value]
+   (cond-> {:status      :ok
+            ;; `:ok` REQUIRES `:value` present (Managed-Effects §Status
+            ;; taxonomy / `validate-reply`); a successful load with no payload
+            ;; rides `:value nil` rather than omitting the slot.
+            :value       value
+            :work/id     (work-id ctx)
+            :work/kind   :route
+            :work/status :completed}
+     (some? frame)        (assoc :rf.frame/id frame)
+     (some? completed-at) (assoc :completed-at completed-at))))
+
+(defn complete-live
+  "Complete the `:rf/reply-to` `target` for a LIVE route-loader completion:
+  build the `:status :ok` reply map (`live-reply`) and append it to the
+  target's event via the shared `re-frame.reply/complete` — the pure functor
+  the EP-0011 mapping law (`complete (map-target f t) == f (complete t)`) is
+  stated over. Returns the dispatchable completed event vector (the target
+  event with the reply map appended, then the target's `::post` transform
+  applied), or nil when `target` is nil (no continuation).
+
+  This is the production lowering the route wrapper drives on the live branch
+  (rf2-2avo53): the route surface normalizes + completes a `:rf/reply-to`
+  target through the shared substrate, rather than running an ad-hoc `:do` fx
+  entry that never touches the reply envelope."
+  ([ctx target] (complete-live ctx target nil))
+  ([ctx target value]
+   (reply/complete target (live-reply ctx value))))
+
 (defn suppress
   "Produce the stale-suppression outcome for a route-loader completion
   whose carried nav-token has been superseded — WITHOUT dispatching the

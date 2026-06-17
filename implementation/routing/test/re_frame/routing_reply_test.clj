@@ -134,6 +134,64 @@
                                        {:event [:t] :dispatch-stale? true}))
         "an APP route target setting :dispatch-stale? true without framework authority FAILS LOUD")))
 
+;; ---- rf2-2avo53 — live completion through the shared substrate -------------
+
+(deftest live-reply-builds-status-ok-with-route-work-id
+  (testing "live-reply builds the :status :ok route-loader reply joined to the
+            complete route :work/id, carrying :value / frame / completed-at"
+    (let [reply (route-reply/live-reply {:route-id     :route/article
+                                         :nav-token    "nav-1"
+                                         :loader-id    :article/load-replied
+                                         :frame        :rf/default
+                                         :completed-at 1717000000000}
+                                        {:title "Welcome"})]
+      (is (reply/valid-reply? reply) "conforms to the reply-map contract")
+      (is (= :ok (:status reply)))
+      (is (= :completed (:work/status reply)))
+      (is (= :route (:work/kind reply)))
+      (is (= {:title "Welcome"} (:value reply)) "the loader result is :value (EP-0007)")
+      (is (= [:rf.work/route :route/article "nav-1" :article/load-replied] (:work/id reply))
+          "the complete route work-id rides the live reply")
+      (is (= :rf/default (:rf.frame/id reply)))
+      (is (= 1717000000000 (:completed-at reply))))
+    (testing "frame / completed-at are omitted when absent; :value rides as nil
+              for a successful load with no payload (:ok REQUIRES :value present)"
+      (let [reply (route-reply/live-reply {:route-id  :route/article
+                                           :nav-token "nav-1"
+                                           :loader-id :article/load-replied})]
+        (is (reply/valid-reply? reply) ":ok with :value nil is valid")
+        (is (contains? reply :value) ":value rides even when nil (:ok requires it)")
+        (is (nil? (:value reply)))
+        (is (not (contains? reply :completed-at)))
+        (is (not (contains? reply :rf.frame/id)))))))
+
+(deftest complete-live-appends-reply-via-shared-complete
+  (testing "complete-live appends the :status :ok reply map to the target event
+            through the shared re-frame.reply/complete — the production lowering"
+    (let [ctx    {:route-id :route/article :nav-token "nav-1"
+                  :loader-id :article/load-replied :frame :rf/default}
+          target [:article/load-replied {:id "A"}]
+          ev     (route-reply/complete-live ctx target {:title "Welcome"})]
+      (is (= :article/load-replied (first ev)) "the target event id leads")
+      (is (= {:id "A"} (second ev)) "the target's leading args are intact")
+      (let [reply (last ev)]
+        (is (map? reply) "the reply map is the appended final argument")
+        (is (= :ok (:status reply)))
+        (is (= {:title "Welcome"} (:value reply))))
+      (is (= ev (reply/complete target (route-reply/live-reply ctx {:title "Welcome"})))
+          "complete-live IS re-frame.reply/complete over live-reply — no bespoke path"))
+    (testing "the EP-0011 functor law holds at the route surface: complete-live
+              composes with re-frame.reply/map-target"
+      (let [ctx    {:route-id :r :nav-token "n" :loader-id :l}
+            target [:article/load-replied {:id "A"}]
+            f      (fn [event] [:wrapped event])
+            reply  (route-reply/live-reply ctx {:title "Welcome"})]
+        (is (= (reply/complete (reply/map-target f target) reply)
+               (f (reply/complete target reply)))
+            "complete(map-target(f, t), reply) == f(complete(t, reply))")))
+    (testing "a nil target yields nil — no continuation to complete"
+      (is (nil? (route-reply/complete-live {:nav-token "n"} nil {:title "x"}))))))
+
 ;; ---- §Tracing -------------------------------------------------------------
 
 (deftest trace-reply-routes-wire-slots-through-shared-walker
