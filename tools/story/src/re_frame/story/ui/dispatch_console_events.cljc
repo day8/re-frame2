@@ -28,6 +28,28 @@
                                             JVM corpus where the
                                             framework registrar may
                                             not be populated).
+  - `(registered-event-meta)`            — the full `{event-id meta}`
+                                            registrations map (CLJS,
+                                            live registrar). The metadata
+                                            carries the authored
+                                            `:rf.cofx/requires` declaration
+                                            (EP-0017) the console surfaces.
+  - `(cofx-requires-for meta)` /
+    `(cofx-requires-for registry-snapshot event-id)` — the normalised
+                                            vector of required coeffect ids
+                                            an event declares via
+                                            `:rf.cofx/requires`. Pure
+                                            data → data; the autocomplete /
+                                            requirement-hint reads it.
+
+  ## Why expose the metadata, not just ids (rf2-wpy6eu)
+
+  EP-0017 makes a handler's `:rf.cofx/requires` declaration part of its
+  dispatch contract: a provided recordable fact must be supplied under
+  the flat `:rf.cofx` dispatch opt. The console can only HELP the user
+  satisfy that contract if it can SEE the declaration — so the query
+  surface exposes the registration metadata (not just the id set the
+  autocomplete needs).
 
   ## Elision
 
@@ -48,3 +70,53 @@
       :clj  #{}))
   ([registry-snapshot]
    (set (keys (or registry-snapshot {})))))
+
+(defn registered-event-meta
+  "Return the full `{event-id meta}` registrations map for the `:event`
+  kind. CLJS-only — queries the live framework registrar; the JVM arm
+  returns `{}` (tests pass a snapshot directly to `cofx-requires-for`).
+
+  The metadata maps carry each event's authored `:rf.cofx/requires`
+  declaration (EP-0017), the slot the Dispatch Console surfaces so the
+  user can satisfy a provided-recordable-cofx contract. Read once per
+  selection / keystroke — same posture as `registered-event-ids` (a
+  plain query fn, not a `reg-sub`)."
+  []
+  #?(:cljs (registrar/registrations :event)
+     :clj  {}))
+
+(defn- normalise-requires
+  "Normalise an authored `:rf.cofx/requires` declaration into a vector of
+  coeffect id keywords. EP-0017 allows each entry to be a bare id keyword
+  OR an `[id arg]` pair (a parameterized supplier); we surface the ID in
+  both cases so the console shows WHICH facts the handler consumes. A nil
+  / empty / non-vector declaration yields `[]`. Pure data → data — mirrors
+  `re-frame.cofx/parse-requires`'s id projection without re-validating
+  (the registrar already validated at registration time)."
+  [requires]
+  (if-not (vector? requires)
+    []
+    (into []
+          (keep (fn [entry]
+                  (cond
+                    (keyword? entry) entry
+                    (and (vector? entry) (keyword? (first entry))) (first entry)
+                    :else nil)))
+          requires)))
+
+(defn cofx-requires-for
+  "Return the vector of coeffect-id keywords an event declares via
+  `:rf.cofx/requires` (EP-0017). Two arities:
+
+  - 1-arity: take a single event's `meta` map directly and read its
+    `:rf.cofx/requires`. Pure data → data.
+  - 2-arity: take a `{event-id meta}` snapshot map + an `event-id`, look
+    the event up, and read its requirement. Pure data → data; used by the
+    panel (passing the live `registered-event-meta` snapshot) and tests.
+
+  An unknown id, an event with no declaration, or a nil snapshot yields
+  `[]`. Parameterized entries (`[id arg]`) surface their id."
+  ([meta]
+   (normalise-requires (:rf.cofx/requires meta)))
+  ([registry-snapshot event-id]
+   (normalise-requires (get-in (or registry-snapshot {}) [event-id :rf.cofx/requires]))))
