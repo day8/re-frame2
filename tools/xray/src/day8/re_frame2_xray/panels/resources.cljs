@@ -272,7 +272,27 @@
      (when (:refresh-error row)
        [:span {:data-testid (str testid "-refresh-error")
                :style {:color (:warning tokens)}}
-        "refresh-error " (get-in row [:refresh-error :preview])])]))
+        "refresh-error " (get-in row [:refresh-error :preview])])
+     ;; EP-0021 — the infinite-feed surface (R1/R2/R3): page count, the
+     ;; runtime-owned cursor / terminal flag, and the THIRD error channel
+     ;; (`:page-error` — a load-more failure that kept the feed). Rendered only
+     ;; for an `:infinite?` entry. Per Xray spec 024 §Panel sections (§2 Live
+     ;; instances — the infinite-feed surface).
+     (when (:infinite? row)
+       [:<>
+        [:span {:data-testid (str testid "-pages")
+                :style {:color (:text-tertiary tokens)}}
+         "pages " (:page-count row)]
+        (if (:terminal? row)
+          [:span {:data-testid (str testid "-terminal")
+                  :style {:color (:text-tertiary tokens)}} "terminal"]
+          [:<>
+           [:span {:style {:color (:text-tertiary tokens)}} "cursor"]
+           (summary-chip (:cursor row) (str testid "-cursor"))])
+        (when (:page-error row)
+          [:span {:data-testid (str testid "-page-error")
+                  :style {:color (:error tokens)}}
+           "page-error " (get-in row [:page-error :preview])])])]))
 
 (defn- instances-section [rows]
   (section
@@ -317,6 +337,16 @@
         "deadline " (:deadline-at row)])
      (when (:attempt row)
        [:span {:style {:color (:text-tertiary tokens)}} "attempt " (:attempt row)])
+     ;; EP-0021 — an infinite-feed work record's page index. A LIVE positive
+     ;; index is a load-more APPEND in flight (`:fetching-next?`); index 0 is a
+     ;; page-0 first-load / whole-feed refetch. Per Spec 016 §Causal event —
+     ;; load-more (R2). Absent (nil) for a non-infinite work record.
+     (when (integer? (:page-index row))
+       [:span {:data-testid (str testid "-page-index")
+               :style {:color (:text-tertiary tokens)}}
+        (if (and (not (:terminal? row)) (pos? (:page-index row)))
+          (str "load-more p" (:page-index row))
+          (str "page " (:page-index row)))])
      (when (seq (:owners row))
        [:span {:style {:color (:text-tertiary tokens)}}
         "owners " (count (:owners row))])

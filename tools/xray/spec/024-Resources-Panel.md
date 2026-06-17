@@ -210,12 +210,29 @@ stacked sections:
    `:stale-at` / `:invalidated-at`, generation, attempt, request id,
    current work id, active owners, owner count, tags, GC eligibility.
    `:stale?` / `:has-data?` are **derived** here (Spec 016 §Status
-   semantics — never stored facts).
+   semantics — never stored facts). **The infinite-feed surface (EP-0021,
+   R1/R2/R3):** an `:infinite?` entry additionally carries `:page-count`
+   (the accumulated page-vector length), the runtime-owned `:cursor`
+   (the `:next-page-param` — egress-projected, since a cursor can carry
+   record ids), `:terminal?` (the derived `:has-next-page?` complement —
+   `nil` cursor is the single terminal), and `:page-error` (the THIRD
+   error channel — a load-more failure that KEPT the feed, summarized,
+   distinct from `:error` / `:refresh-error`). All are **pure functions
+   of the durable entry**. The `:fetching-next?` distinction (a load-more
+   in flight vs a whole-feed `:fetching?` refresh) is NOT a pure function
+   of the entry — both leave the feed at `:fetching` (no 6th FSM state);
+   the distinguishing durable fact is the in-flight work record's
+   **`:page-index`** (a positive tail index = a load-more APPEND), surfaced
+   on the §3 work-ledger row, where the panel reads it.
 3. **Work ledger** (per frame) — per work record: work id (the single
    attempt identity — one durable `:work/id` per record, no separate
    stale-suppression synonym; Spec 016 §Ledger row retention), kind, linked
    resource key, generation, status (+ terminal flag), owners, causes
-   (summarized), cancellable?, deadline, attempt, transport,
+   (summarized), cancellable?, deadline, attempt, transport, **`:page-index`**
+   (EP-0021 — an infinite-feed work record's page index: `0` for a page-0
+   first-load / whole-feed refetch, a positive tail index for a load-more
+   APPEND; a LIVE positive-index row is the durable fact behind the
+   `:fetching-next?` derived sub; `nil` for a non-infinite record),
    outcome. **Raw host handles** (AbortControllers, timeout handles,
    promises) are structurally inaccessible — they live in side tables
    outside durable frame-state. Non-terminal (live) rows lead; the
@@ -403,6 +420,10 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 | `:rf.resource/succeeded` | success | `events.cljc` (reply landed, entry `:loaded`) |
 | `:rf.resource/failed` | failure | `events.cljc` (first-load failure → `:error`) |
 | `:rf.resource/refresh-failed` | failure | `events.cljc` (background-refresh failure, data kept) |
+| `:rf.resource/load-more` | lifecycle | `events.cljc` (EP-0021 — a load-more issued the next-page fetch; an APPEND at a positive page index; carries `:page-param` `:page-index` `:page-count`) |
+| `:rf.resource/page-appended` | success | `events.cljc` (EP-0021 — a load-more page fetch succeeded and was appended; carries `:page-index` `:page-count` `:next-page-param` `:terminal?`) |
+| `:rf.resource/page-failed` | failure | `events.cljc` (EP-0021 — a load-more page fetch FAILED — the THIRD error channel; the feed is KEPT at `:loaded` and records `:page-error`; distinct from first-load `:failed` / background `:refresh-failed`) |
+| `:rf.resource/load-more-skipped` | dedupe | `events.cljc` (EP-0021 — a load-more no-op; carries `:reason` `:no-feed` / `:no-next-page` (terminal) / `:in-flight` (joined a live page fetch); no new work, like a `:cache-hit`) |
 | `:rf.resource/invalidated` | invalidation | `events.cljc` (tag invalidation) |
 | `:rf.resource/refetch-decision` | lifecycle | `events.cljc` (per-entry refetch decision) |
 | `:rf.resource/revalidate-scan` | lifecycle | `events.cljc` (focus/reconnect scan summary) |
