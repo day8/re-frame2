@@ -252,7 +252,7 @@
     :description "Validate the app-db snapshot against the registered app-db schema."}
    {:key         :schemas/validate-cofx!
     :producer-ns 're-frame.schemas
-    :description "Validate a cofx map against the registered cofx schema."}
+    :description "DEMOTED (EP-0017): the dev-only injection-time cofx-validation hook. NOT the live runtime cofx schema-validation path — that is `re-frame.cofx/validate-recordable-value!` (`:rf.error/cofx-value-invalid`, a production hard error). No runtime consumer reaches this hook; it survives only for the elision probe / direct-call shape tests, pending the Spec 010 step-2 normative rewrite."}
    {:key         :schemas/validate-fx!
     :producer-ns 're-frame.schemas
     :design-bead "rf2-xp2o3"

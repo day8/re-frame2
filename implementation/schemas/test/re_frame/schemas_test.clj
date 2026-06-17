@@ -369,77 +369,112 @@
         (is (= 1 (count violations))
             "exactly one trace from the malformed compute-sub call")))))
 
-;; ---- rf2-7leq — cofx validation ------------------------------------------
+;; ---- EP-0017 recordable-cofx `:schema` validation ------------------------
 ;;
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation at injection time
-;; is RETIRED with `inject-cofx` and DEFERRED to slice B (per Spec 009
-;; §`:rf.error/cofx-value-invalid` — "the `:schema` validation step is
-;; slice-B-built"). The two deftests below pinned the old inject-cofx-interceptor
-;; validation path; they are `#_`-disabled until slice B wires recordable-value
-;; `:schema` validation. The `validate-cofx!` DIRECT-call shape test
-;; (`cofx-validation-direct-call-shape`, below) still runs — the validator fn is
-;; unchanged; only its injection-time wiring moved to slice B.
+;; EP-0017 RETIRED the ctx-mutating `inject-cofx` injection-time validation
+;; (the old `:rf.error/schema-validation-failure :where :cofx` shape, with
+;; `inject-cofx`). The LIVE cofx schema-validation contract is the
+;; recordable-value path: a recordable coeffect declared on the handler's
+;; `:rf.cofx/requires` is delivered FLAT into the coeffects map, and its value
+;; (supplied / replayed / generated) is validated against the `reg-cofx`
+;; registration's `:schema` by `re-frame.cofx/validate-recordable-value!`. A
+;; malformed value emits `:rf.error/cofx-value-invalid` (a PRODUCTION hard
+;; error — an out-of-contract durable value is corrupt causal state) and THROWS
+;; during context assembly, so the handler is NOT invoked (recovery
+;; `:no-recovery`). The deftests below replace the disabled `inject-cofx`
+;; tests this file used to carry; the schemas conformance fixture
+;; `schema-cofx-validates.edn` exercises the same path through the corpus
+;; runner.
 
-#_(deftest cofx-validation-fires-and-skips-handler
-  (testing "Per Spec 010 §step 2 (rf2-7leq): a cofx whose injected value
-            fails its :schema emits :rf.error/schema-validation-failure
-            :where :cofx and the handler is NOT invoked"
-    (rf/reg-cofx :app-version/bad
-      {:schema :string}
-      (fn [ctx]
-        (assoc-in ctx [:coeffects :app-version/bad] 42)))
+(deftest recordable-cofx-value-invalid-fires-and-skips-handler
+  (testing "EP-0017 (replaces rf2-7leq): a recordable cofx whose supplied
+            value fails its `reg-cofx` `:schema` emits
+            :rf.error/cofx-value-invalid and the handler is NOT invoked"
+    ;; PROVIDED recordable fact — its value rides the dispatch token's
+    ;; `:rf.cofx` map (no supplier). The handler declares it via
+    ;; `:rf.cofx/requires`; delivery validates the supplied value against
+    ;; `:schema`, fails (42 is not a :string), and THROWS before the handler.
+    (rf/reg-cofx :app-version/v
+      {:recordable? true :provided? true :schema :string})
     (let [calls (atom 0)]
       (rf/reg-event :cap/seed
-        {:interceptors [(rf/inject-cofx :app-version/bad)]}
+        {:rf.cofx/requires [:app-version/v]}
         (fn [_cofx _]
           (swap! calls inc)
           {:db {:app-version "should-not-stash"}}))
       (let [traces (atom [])]
         (rf/register-listener! ::cf (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:cap/seed])
+        ;; The recordable-value failure throws out of dispatch-sync (a hard
+        ;; error in dev AND prod); the trace fires BEFORE the throw.
+        (try
+          (rf/dispatch-sync [:cap/seed] {:rf.cofx {:app-version/v 42}})
+          (catch clojure.lang.ExceptionInfo _))
         (rf/unregister-listener! ::cf)
         (is (= 0 @calls)
-            "handler was skipped because the cofx :schema failed")
-        (let [violations (filter #(= :rf.error/schema-validation-failure
+            "handler was skipped because the recordable cofx :schema failed")
+        (let [violations (filter #(= :rf.error/cofx-value-invalid
                                      (:operation %))
                                  @traces)]
           (is (= 1 (count violations)))
           (let [v (first violations)]
-            (is (= :cofx (-> v :tags :where)))
+            (is (= :app-version/v (-> v :tags :rf.cofx/id)))
             (is (= :cap/seed (-> v :tags :failing-id)))
-            (is (= :app-version/bad (-> v :tags :rf.cofx/id)))
-            (is (= :app-version/bad (-> v :tags :schema-id)))
-            ;; rf2-9cm27 — the :frame tag must ride the trace so the
-            ;; violation lands in the per-frame epoch :trace-events
-            ;; (epoch/capture buffers only frame-tagged traces). The
-            ;; dispatch ran on :rf/default.
-            (is (= :rf/default (-> v :tags :frame))
-                ":frame tag carries the in-flight cascade's frame")
+            (is (= 42 (-> v :tags :value)))
+            ;; :recovery is hoisted to the top-level trace event
+            ;; (Spec 009 §Core fields hoist contract), not under :tags.
             (is (= :no-recovery (:recovery v)))))))))
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B.
-#_(deftest cofx-validation-passes-when-conforming
-  (testing "well-typed cofx values flow through to the handler — no trace, handler runs"
+(deftest recordable-cofx-value-valid-flows-to-handler
+  (testing "a conforming recordable cofx value flows through to the handler —
+            no :rf.error/cofx-value-invalid trace, handler runs"
     (rf/reg-cofx :app-version/well
-      {:schema :string}
-      (fn [ctx]
-        (assoc-in ctx [:coeffects :app-version/well] "1.4.5")))
+      {:recordable? true :provided? true :schema :string})
     (let [seen-version (atom nil)]
       (rf/reg-event :cap/seed-good
-        {:interceptors [(rf/inject-cofx :app-version/well)]}
-        (fn [cofx _]
-          (reset! seen-version (:app-version/well cofx))
+        {:rf.cofx/requires [:app-version/well]}
+        (fn [{:keys [app-version/well]} _]
+          (reset! seen-version well)
           {}))
       (let [traces (atom [])]
         (rf/register-listener! ::cf2 (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:cap/seed-good])
+        (rf/dispatch-sync [:cap/seed-good] {:rf.cofx {:app-version/well "1.4.5"}})
         (rf/unregister-listener! ::cf2)
         (is (= "1.4.5" @seen-version)
-            "handler ran and saw the well-typed cofx value")
-        (is (empty? (filter #(= :rf.error/schema-validation-failure
-                                (:operation %))
+            "handler ran and saw the well-typed recordable cofx value")
+        (is (empty? (filter #(= :rf.error/cofx-value-invalid (:operation %))
                             @traces))
-            "no schema-validation-failure trace fires for a conforming cofx")))))
+            "no cofx-value-invalid trace fires for a conforming value")))))
+
+(deftest recordable-cofx-value-invalid-redacts-sensitive-value
+  (testing "EP-0017 / rf2-hdi6wr — a recordable cofx whose :schema marks a slot
+            {:sensitive? true} redacts the value-bearing slots through the
+            shared `redact-validation-tags` seam: the trace's :value scrubs to
+            :rf/redacted and :sensitive? true is stamped (never the raw secret)"
+    ;; The cofx value is a map with a sensitive `:token` leaf; the failing
+    ;; value (an :int where a :string is required) must not egress verbatim.
+    (rf/reg-cofx :auth/creds
+      {:recordable? true :provided? true
+       :schema [:map [:token {:sensitive? true} :string]]})
+    (rf/reg-event :cap/seed-secret
+      {:rf.cofx/requires [:auth/creds]}
+      (fn [_ _] {}))
+    (let [traces (atom [])]
+      (rf/register-listener! ::cfs (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:cap/seed-secret]
+                          {:rf.cofx {:auth/creds {:token 42}}})
+        (catch clojure.lang.ExceptionInfo _))
+      (rf/unregister-listener! ::cfs)
+      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
+                             @traces))]
+        (is (some? v) "the recordable-cofx violation fired")
+        ;; :sensitive? is hoisted to the top-level trace event (Spec 009),
+        ;; not under :tags.
+        (is (true? (:sensitive? v))
+            ":sensitive? true is stamped (the schema marked a slot sensitive)")
+        (is (= :rf/redacted (-> v :tags :value))
+            "the value-bearing :value slot scrubbed to :rf/redacted — the raw
+             {:token 42} never egressed off-box")))))
 
 ;; ---- rf2-xp2o3 — fx-args validation (Spec 010 step 5) --------------------
 
@@ -569,46 +604,50 @@
           (is (not (contains? (:tags v) :frame))
               "direct 4-arity call emits no :frame (runtime callers supply it)"))))))
 
-;; ---- rf2-9cm27: cofx / fx / sub validation traces carry :frame -----------
+;; ---- rf2-9cm27: fx / sub validation traces carry :frame ------------------
 ;;
-;; CORRECTNESS. validate-cofx! / validate-fx! / validate-sub! must stamp a
-;; :frame tag on their :rf.error/schema-validation-failure trace — exactly
-;; like validate-event! (rf2-lo28u) and validate-app-schema! already do.
-;; re-frame.epoch.capture/capture-event! buffers a trace into the in-flight
-;; cascade ONLY when the trace's tags carry the cascade's :frame; an
-;; untagged violation reaches the global trace stream but is SILENTLY
-;; DROPPED from the per-frame epoch :trace-events, so the Xray Issues /
-;; Schema-timeline lens (which reads :trace-events) is blind to it.
+;; CORRECTNESS. validate-fx! / validate-sub! must stamp a :frame tag on their
+;; :rf.error/schema-validation-failure trace — exactly like validate-event!
+;; (rf2-lo28u) and validate-app-schema! already do. (The cofx surface carries
+;; :frame on the EP-0017 recordable path's :rf.error/cofx-value-invalid trace —
+;; see recordable-cofx-value-invalid-attributes-named-frame below — not on a
+;; :where :cofx trace; the injection-time validate-cofx! path was retired with
+;; `inject-cofx`.) re-frame.epoch.capture/capture-event! buffers a trace into
+;; the in-flight cascade ONLY when the trace's tags carry the cascade's
+;; :frame; an untagged violation reaches the global trace stream but is
+;; SILENTLY DROPPED from the per-frame epoch :trace-events, so the Xray Issues
+;; / Schema-timeline lens (which reads :trace-events) is blind to it.
 ;;
-;; The :rf/default-frame assertions on the three end-to-end tests above
-;; (cofx-validation-fires-and-skips-handler /
-;;  fx-args-validation-fires-and-skips-only-the-offending-fx /
+;; The :rf/default-frame assertions on the end-to-end tests above
+;; (fx-args-validation-fires-and-skips-only-the-offending-fx /
 ;;  sub-return-validation-fires-and-replaces-with-default) prove the tag
 ;; lands. These tests prove the tag carries the ACTUAL in-flight frame, not
 ;; a hardcoded default — a NAMED frame's dispatch / reaction must attribute
 ;; the violation to that frame (mirrors
 ;; schema-fires-only-on-the-frame-it-registers-against for :where :app-db).
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B.
-#_(deftest cofx-validation-frame-tag-attributes-named-frame
-  (testing "rf2-9cm27 — a cofx validation failure on a NAMED frame stamps
-            that frame's id on the trace (not :rf/default), so the epoch
+(deftest recordable-cofx-value-invalid-attributes-named-frame
+  (testing "EP-0017 (replaces rf2-9cm27 cofx case) — a recordable-cofx
+            :schema failure on a NAMED frame stamps that frame's id on the
+            :rf.error/cofx-value-invalid trace (not :rf/default), so the epoch
             capture buffers it into the right per-frame cascade."
     (rf/reg-frame :test/cofx-frame {})
     (rf/reg-cofx :probe/cofx
-      {:schema :string}
-      (fn [ctx] (assoc-in ctx [:coeffects :probe/cofx] 42)))   ;; int, not string
+      {:recordable? true :provided? true :schema :string})
     (rf/reg-event :probe/cofx-seed
-      {:interceptors [(rf/inject-cofx :probe/cofx)]}
+      {:rf.cofx/requires [:probe/cofx]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::cf-frame (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:probe/cofx-seed] {:frame :test/cofx-frame})
+      (try
+        (rf/dispatch-sync [:probe/cofx-seed]
+                          {:frame :test/cofx-frame
+                           :rf.cofx {:probe/cofx 42}})   ;; int, not string
+        (catch clojure.lang.ExceptionInfo _))
       (rf/unregister-listener! ::cf-frame)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
-        (is (some? v) "the cofx violation fired")
-        (is (= :cofx (-> v :tags :where)))
+        (is (some? v) "the recordable-cofx violation fired")
         (is (= :test/cofx-frame (-> v :tags :frame))
             ":frame tag carries the named in-flight cascade frame")))))
 
@@ -695,6 +734,13 @@
           (is (= :no-recovery (:recovery v))))))))
 
 (deftest cofx-validation-direct-call-shape
+  ;; NB `validate-cofx!` is DEMOTED (EP-0017) — NOT the live runtime cofx
+  ;; schema path (that is `re-frame.cofx/validate-recordable-value!` →
+  ;; `:rf.error/cofx-value-invalid`, covered by
+  ;; recordable-cofx-value-invalid-* above). This pins only the demoted fn's
+  ;; pure-shape contract (return value + trace tags) so a refactor of the
+  ;; shared `run-validation` core can't silently break it while the fn / its
+  ;; hook publication survive pending the Spec 010 step-2 rewrite.
   (testing "rf2-rbbmt — validate-cofx! returns true on pass, false on
             fail, true on the no-:schema soft-pass arm; emits the
             canonical :where :cofx trace with the locked tag shape"

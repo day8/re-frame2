@@ -1098,12 +1098,26 @@
      true)))
 
 (defn validate-cofx!
-  "Per Spec 010 §Validation order step 2 — after a cofx injects its
-  value into the merged context, validate that value against any
-  :schema on the cofx's metadata. Failures emit
-  `:rf.error/schema-validation-failure :where :cofx`; the caller
-  skips the handler (recovery: `:no-recovery`). Returns true/false
-  per the `run-validation` contract.
+  "DEMOTED (EP-0017): this is NOT the live runtime cofx schema-validation
+  contract. EP-0017 retired the ctx-mutating `inject-cofx` injection-time
+  validation; the live path is the recordable-value check in
+  `re-frame.cofx/validate-recordable-value!`, a PRODUCTION hard error that
+  emits `:rf.error/cofx-value-invalid` and THROWS (not the dev-only
+  `:rf.error/schema-validation-failure :where :cofx` trace this fn emits). No
+  runtime caller reaches the `:schemas/validate-cofx!` late-bind hook anymore;
+  the only callers are the elision probe and this artefact's direct-call shape
+  unit tests. The fn (and its hook publication) survive pending the Spec 010
+  §Validation order step-2 normative rewrite (tracked separately) — Spec 010
+  still documents step 2 as `:where :cofx`, so deleting the fn now would invert
+  the divergence. Once Spec 010 drops the injection-time step this fn and its
+  hook can be removed outright.
+
+  Historical contract (the shape the direct-call tests still pin): after a cofx
+  injected its value into the merged context, validate that value against any
+  `:schema` on the cofx's metadata; failures emit
+  `:rf.error/schema-validation-failure :where :cofx`; the caller skipped the
+  handler (recovery: `:no-recovery`). Returns true/false per the
+  `run-validation` contract.
 
   The optional 5-arity `frame` (rf2-9cm27) stamps a `:frame` tag onto
   the failure trace — the in-flight cascade's frame. Without it the

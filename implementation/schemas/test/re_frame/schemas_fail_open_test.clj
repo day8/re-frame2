@@ -98,29 +98,41 @@
         (is (= 0 @calls) "handler skipped")
         (is (= 1 (count (malformed-traces traces))) "one malformed-schema trace fired")))))
 
-;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation at injection time
-;; is retired with `inject-cofx` and deferred to slice B. `#_`-disabled until
-;; slice B wires recordable-value `:schema` validation.
-#_(deftest cofx-malformed-schema-fails-closed
-  (testing "rf2-a5kzs (finding 2) — a malformed cofx :schema does not run the
-            handler via throw-as-pass; the handler is skipped and a
-            malformed-schema trace fires."
+(defn- cofx-value-invalid-traces [traces]
+  (filter #(= :rf.error/cofx-value-invalid (:operation %)) traces))
+
+;; EP-0017 (replaces the disabled rf2-oa2dun inject-cofx test): the LIVE cofx
+;; schema path is the recordable-value check
+;; (`re-frame.cofx/validate-recordable-value!`), which also FAILS CLOSED on a
+;; malformed schema — the validator throw is caught as a plain `false`, so the
+;; path emits `:rf.error/cofx-value-invalid` and THROWS rather than coercing
+;; the throw to a pass. (Unlike the meta-bearing `run-validation` surfaces, the
+;; recordable path does not raise the distinct `:rf.error/malformed-schema`
+;; trace — it folds a malformed-schema throw into the same cofx-value-invalid
+;; hard error, since either way an out-of-contract value must not reach the
+;; durable ledger.)
+(deftest recordable-cofx-malformed-schema-fails-closed
+  (testing "EP-0017 / rf2-a5kzs (finding 2) — a malformed recordable-cofx
+            :schema does NOT run the handler via throw-as-pass; the validator
+            throw is caught as false, :rf.error/cofx-value-invalid fires, and
+            the handler is skipped (the recordable-value throw pre-empts it)."
     (rf/reg-cofx :cf/malformed
-      {:schema [:vector]}
-      (fn [ctx] (assoc-in ctx [:coeffects :cf/malformed] :whatever)))
+      {:recordable? true :provided? true
+       :schema [:vector]})                          ;; childless — Malli throws at validate-time
     (let [calls (atom 0)]
       (rf/reg-event :use/malformed-cofx
-        {:interceptors [(rf/inject-cofx :cf/malformed)]}
+        {:rf.cofx/requires [:cf/malformed]}
         (fn [_ _] (swap! calls inc) {}))
-      (let [traces (capture #(rf/dispatch-sync [:use/malformed-cofx]))]
-        (is (= 0 @calls) "handler skipped — cofx malformed-schema is no longer a silent pass")
-        (let [mal (malformed-traces traces)]
-          (is (= 1 (count mal)))
-          (is (= :cofx (-> (first mal) :tags :where)))
-          ;; rf2-mxs7a — cofx malformed-schema skips the handler
-          ;; (:no-recovery), matching the legitimate-failure path.
-          ;; `:recovery` hoists to the top-level envelope.
-          (is (= :no-recovery (:recovery (first mal)))))))))
+      (let [traces (capture
+                     #(try
+                        (rf/dispatch-sync [:use/malformed-cofx]
+                                          {:rf.cofx {:cf/malformed :whatever}})
+                        (catch clojure.lang.ExceptionInfo _)))]
+        (is (= 0 @calls)
+            "handler skipped — recordable-cofx malformed-schema fails closed")
+        (let [inv (cofx-value-invalid-traces traces)]
+          (is (= 1 (count inv)) "exactly one cofx-value-invalid trace fired")
+          (is (= :no-recovery (:recovery (first inv)))))))))
 
 (deftest fx-malformed-schema-fails-closed-skipping-only-offender
   (testing "rf2-a5kzs (finding 2) — a malformed fx :schema skips ONLY the
