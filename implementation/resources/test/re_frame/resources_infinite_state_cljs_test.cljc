@@ -16,6 +16,14 @@
       returns to :loaded;
     - `entry-page-failed` is the THIRD error channel (keeps the feed,
       records :page-error);
+    - `entry-replace-page` refreshes a page IN PLACE (R6 window-preserving
+      refetch settle) — incl. the structural-sharing identical-value branch
+      and the delegate-to-append-past-tail branch;
+    - `refetch-keep-count` is the pure R6 keep-count policy (the 4 disjoint
+      branches + the window clamp edges);
+    - `entry-refetch-reset` truncates the accumulation to the kept window at
+      refetch-issue (the keep-all no-op default + the truncation opt-ins +
+      the guard arms);
     - `resolve-page->items` lifts the R3 accessor.
 
   The load-more EVENT (wave 3) + subs (wave 4) are out of scope."
@@ -221,3 +229,224 @@
     (is (nil? (state/page-param-for-spec {:initial-page-param nil}))))
   (testing "an :initial-page-param override is honoured"
     (is (= "p0" (state/page-param-for-spec {:initial-page-param "p0"})))))
+
+;; ---- entry-replace-page (R6 window-preserving in-place replace) ------------
+;;
+;; The settle a window-preserving refetch's replacement page-0 performs: the
+;; feed never collapses; page 0 is refreshed in place and the tail is kept. The
+;; event tests only ever replace page-0 with a DIFFERENT value, so the
+;; structural-sharing branch (identical refetch keeps the OLD value identical)
+;; and the delegate-to-append branch (index past the tail) are pinned here.
+
+(defn- accumulated-3
+  "A loaded 3-page infinite entry [p0 p1 p2] with cursors c1/c2/c3 and one
+  param per page ([nil c1 c2]). Built via the same pure appends the event
+  layer drives, so the structural-sharing assertions ride a realistic shape."
+  []
+  (-> (state/empty-infinite-entry :feed/timeline)
+      (state/entry-append-page {:page (page [:a] "c1") :page-param nil
+                                :next-page-param-fn next-cursor
+                                :loaded-at 1000 :stale-at 2000})
+      (state/entry-append-page {:page (page [:b] "c2") :page-param "c1"
+                                :next-page-param-fn next-cursor
+                                :loaded-at 1100 :stale-at 2100})
+      (state/entry-append-page {:page (page [:c] "c3") :page-param "c2"
+                                :next-page-param-fn next-cursor
+                                :loaded-at 1200 :stale-at 2200})))
+
+(deftest replace-page-in-place-preserves-window
+  (testing "replacing page-0 of a 3-page feed refreshes index 0 in place +
+            keeps the accumulated tail (window-preserving R6 settle)"
+    (let [e0 (accumulated-3)
+          e1 (state/entry-replace-page
+               e0 {:page (page [:a*] "c1") :page-param nil :page-index 0
+                   :next-page-param-fn next-cursor
+                   :loaded-at 9000 :stale-at 9999})]
+      (is (= 3 (state/page-count e1)) "feed NOT grown — replace, not append")
+      (is (= (page [:a*] "c1") (nth (:data e1) 0)) "page-0 replaced with the fresh value")
+      (is (= (page [:b] "c2") (nth (:data e1) 1)) "tail page-1 preserved")
+      (is (= (page [:c] "c3") (nth (:data e1) 2)) "tail page-2 preserved")
+      (is (= [nil "c1" "c2"] (:page-params e1)) "page-0 param replaced in step; tail params kept")
+      (is (= :loaded (:status e1)))
+      (is (= 9000 (:loaded-at e1)) ":loaded-at re-stamped")
+      (is (= 9999 (:stale-at e1)) ":stale-at re-stamped")
+      (is (nil? (:current-work e1)) ":current-work cleared")
+      (is (> (:revision e1) (:revision e0))
+          "authoritative durable write bumps revision UNCONDITIONALLY (EP-0019)"))))
+
+(deftest replace-page-structural-sharing-identical-value
+  (testing "a refetch that returns an = page-0 keeps the OLD page value identical
+            (identical?) so downstream stays quiet — only a different value is new"
+    (let [e0       (accumulated-3)
+          old-page (nth (:data e0) 0)
+          ;; a freshly-decoded, structurally-EQUAL but NOT identical page-0
+          fresh    (page [:a] "c1")]
+      (is (= old-page fresh) "the fresh page is value-equal to the old page-0")
+      (is (not (identical? old-page fresh)) "but it is a distinct object (a fresh decode)")
+      (let [e1 (state/entry-replace-page
+                 e0 {:page fresh :page-param nil :page-index 0
+                     :next-page-param-fn next-cursor
+                     :loaded-at 9000 :stale-at 9999})]
+        (is (identical? old-page (nth (:data e1) 0))
+            "structural sharing — the OLD page-0 object is retained, not the fresh decode")
+        (is (identical? (nth (:data e0) 1) (nth (:data e1) 1))
+            "untouched tail pages are shared by identity")
+        (is (> (:revision e1) (:revision e0))
+            "revision still bumps — the durable write happened even though the value shared"))))
+  (testing "a DIFFERENT page-0 value is taken as-is (no spurious sharing)"
+    (let [e0    (accumulated-3)
+          fresh (page [:a*] "c1")
+          e1    (state/entry-replace-page
+                  e0 {:page fresh :page-param nil :page-index 0
+                      :next-page-param-fn next-cursor
+                      :loaded-at 9000 :stale-at 9999})]
+      (is (identical? fresh (nth (:data e1) 0))
+          "a value-distinct page is stored as the fresh object"))))
+
+(deftest replace-page-recomputes-cursor-from-replaced-tail
+  (testing "replacing the LAST page re-derives :next-page-param from the new tail"
+    (let [e0 (accumulated-3)
+          ;; replace the terminal page-2 with one whose next-cursor differs
+          e1 (state/entry-replace-page
+               e0 {:page (page [:c*] "c3*") :page-param "c2" :page-index 2
+                   :next-page-param-fn next-cursor
+                   :loaded-at 9000 :stale-at 9999})]
+      (is (= "c3*" (:next-page-param e1)) "cursor recomputed from the replaced last page")
+      (is (= 3 (state/page-count e1))))))
+
+(deftest replace-page-clears-error-channels
+  (testing "an in-place replace clears :page-error / :refresh-error (a fresh authoritative write)"
+    (let [e0     (-> (accumulated-3)
+                     (state/entry-page-failed {:error {:kind :rf.http/server :status 503}}))
+          e1     (state/entry-replace-page
+                   e0 {:page (page [:a*] "c1") :page-param nil :page-index 0
+                       :next-page-param-fn next-cursor
+                       :loaded-at 9000 :stale-at 9999})]
+      (is (some? (:page-error e0)) "the prior failure recorded a page-error")
+      (is (nil? (:page-error e1)) "the replace cleared it")
+      (is (nil? (:refresh-error e1)))
+      (is (nil? (:invalidated-at e1))))))
+
+(deftest replace-page-past-tail-delegates-to-append
+  (testing "a replace at page-index >= page-count is an APPEND (replacement past the
+            tail — e.g. a window-preserving refetch of a feed emptied to page 0)"
+    (let [e0 (-> (state/empty-infinite-entry :feed/timeline)
+                 (state/entry-append-page {:page (page [:a] "c1") :page-param nil
+                                           :next-page-param-fn next-cursor
+                                           :loaded-at 1 :stale-at 2}))
+          ;; page-index 1 == page-count (1) → delegates to entry-append-page
+          e1 (state/entry-replace-page
+               e0 {:page (page [:b] "c2") :page-param "c1" :page-index 1
+                   :next-page-param-fn next-cursor
+                   :loaded-at 3 :stale-at 4})]
+      (is (= 2 (state/page-count e1)) "the page was APPENDED (feed grew), not replaced")
+      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e1)))
+      (is (= [nil "c1"] (:page-params e1)) "params appended in step")
+      (is (= "c2" (:next-page-param e1)) "cursor advanced from the appended tail")))
+  (testing "a replace into an EMPTY feed at index 0 appends page-0"
+    (let [e0 (state/empty-infinite-entry :feed/timeline)
+          e1 (state/entry-replace-page
+               e0 {:page (page [:a] "c1") :page-param nil :page-index 0
+                   :next-page-param-fn next-cursor
+                   :loaded-at 1 :stale-at 2})]
+      (is (= 1 (state/page-count e1)) "index 0 == count 0 → append page-0")
+      (is (= [(page [:a] "c1")] (:data e1))))))
+
+(deftest replace-page-nil-entry-noop
+  (testing "replace on a nil entry returns nil unchanged (no feed to replace into)"
+    (is (nil? (state/entry-replace-page nil {:page (page [:a] "c1") :page-index 0
+                                             :next-page-param-fn next-cursor
+                                             :loaded-at 1 :stale-at 2})))))
+
+;; ---- refetch-keep-count (R6 — the 4 disjoint branches + clamp edges) -------
+
+(deftest refetch-keep-count-empty-feed
+  (testing "an empty feed (page-count 0) keeps 0 — nothing to preserve"
+    (is (= 0 (state/refetch-keep-count nil 0)))
+    (is (= 0 (state/refetch-keep-count {:refetch-all-pages? true} 0)))
+    (is (= 0 (state/refetch-keep-count {:refetch-window 5} 0))
+        "window over an empty feed is still 0 (zero-page short-circuits first)")))
+
+(deftest refetch-keep-count-default-preserves-window
+  (testing "the ruled DEFAULT (no policy / empty policy) keeps EVERY accumulated page"
+    (is (= 3 (state/refetch-keep-count nil 3)))
+    (is (= 3 (state/refetch-keep-count {} 3)))
+    (is (= 1 (state/refetch-keep-count {} 1)))))
+
+(deftest refetch-keep-count-all-pages-opt-in
+  (testing ":refetch-all-pages? true keeps ONLY page 0 (re-accumulate from scratch)"
+    (is (= 1 (state/refetch-keep-count {:refetch-all-pages? true} 3)))
+    (is (= 1 (state/refetch-keep-count {:refetch-all-pages? true} 1)))
+    (testing "all-pages? wins over a co-present :refetch-window (cond order)"
+      (is (= 1 (state/refetch-keep-count {:refetch-all-pages? true :refetch-window 2} 3))))))
+
+(deftest refetch-keep-count-window-clamps
+  (testing ":refetch-window n bounds the kept window to the first n pages"
+    (is (= 2 (state/refetch-keep-count {:refetch-window 2} 3)) "in-range window kept verbatim"))
+  (testing "CLAMP HIGH — a window beyond the page count never invents pages"
+    (is (= 3 (state/refetch-keep-count {:refetch-window 5} 3))
+        "window > page-count clamps DOWN to page-count")
+    (is (= 3 (state/refetch-keep-count {:refetch-window 3} 3)) "window == page-count is exact"))
+  (testing "CLAMP LOW — a refetch always keeps at least page 0"
+    (is (= 1 (state/refetch-keep-count {:refetch-window 1} 3)) "window 1 keeps exactly page 0")
+    (is (= 1 (state/refetch-keep-count {:refetch-window 0} 3)) "window 0 clamps UP to 1")
+    (is (= 1 (state/refetch-keep-count {:refetch-window -4} 3)) "a negative window clamps UP to 1")))
+
+;; ---- entry-refetch-reset (R6 — guard arms + truncation in step) ------------
+
+(deftest refetch-reset-default-is-noop
+  (testing "the window-preserving DEFAULT keeps every page — a pure no-op
+            (the accumulated pages stay visible during the in-flight refetch)"
+    (let [e0 (accumulated-3)
+          e1 (state/entry-refetch-reset
+               e0 {:next-page-param-fn next-cursor :prev-page-param-fn prev-cursor
+                   :refetch-policy nil})]
+      (is (identical? e0 e1) "no policy → keep-all → the SAME entry object (true no-op)")
+      (is (= 3 (state/page-count e1))))
+    (testing "an explicit empty policy is also keep-all (a no-op)"
+      (let [e0 (accumulated-3)]
+        (is (identical? e0 (state/entry-refetch-reset
+                             e0 {:next-page-param-fn next-cursor :refetch-policy {}})))))))
+
+(deftest refetch-reset-window-truncates-tail-and-params
+  (testing ":refetch-window 2 truncates a 3-page feed to its first 2 pages +
+            truncates :page-params in step + recomputes the cursor from the tail"
+    (let [e0 (accumulated-3)
+          e1 (state/entry-refetch-reset
+               e0 {:next-page-param-fn next-cursor :prev-page-param-fn prev-cursor
+                   :refetch-policy {:refetch-window 2}})]
+      (is (= 2 (state/page-count e1)) "tail dropped to the kept window")
+      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e1)))
+      (is (= [nil "c1"] (:page-params e1)) ":page-params truncated in step")
+      (is (= "c2" (:next-page-param e1)) "cursor recomputed from the kept tail's edge")
+      (is (identical? (nth (:data e0) 0) (nth (:data e1) 0))
+          "kept leading pages are shared by identity (only the dropped tail changes)")
+      (testing "the reset does NOT touch :status / :current-work / :revision
+                (entry-start-load already transitioned the entry)"
+        (is (= (:status e0) (:status e1)))
+        (is (= (:current-work e0) (:current-work e1)))
+        (is (= (:revision e0) (:revision e1)) "revision NOT bumped by the reset")))))
+
+(deftest refetch-reset-all-pages-truncates-to-page-0
+  (testing ":refetch-all-pages? truncates a 3-page feed to page 0 only"
+    (let [e1 (state/entry-refetch-reset
+               (accumulated-3)
+               {:next-page-param-fn next-cursor :prev-page-param-fn prev-cursor
+                :refetch-policy {:refetch-all-pages? true}})]
+      (is (= 1 (state/page-count e1)) "kept only page 0")
+      (is (= [(page [:a] "c1")] (:data e1)))
+      (is (= [nil] (:page-params e1)))
+      (is (= "c1" (:next-page-param e1)) "cursor recomputed from page 0's tail"))))
+
+(deftest refetch-reset-guard-arms
+  (testing "a nil entry is returned unchanged"
+    (is (nil? (state/entry-refetch-reset nil {:refetch-policy {:refetch-window 1}}))))
+  (testing "a non-infinite (ordinary) entry is returned unchanged (guard arm)"
+    (let [plain (state/empty-entry :res/plain)]
+      (is (identical? plain (state/entry-refetch-reset
+                              plain {:refetch-policy {:refetch-window 1}})))))
+  (testing "an empty (no-pages) infinite entry is returned unchanged (guard arm)"
+    (let [empty-feed (state/empty-infinite-entry :feed/timeline)]
+      (is (= 0 (state/page-count empty-feed)))
+      (is (identical? empty-feed (state/entry-refetch-reset
+                                   empty-feed {:refetch-policy {:refetch-all-pages? true}}))))))
