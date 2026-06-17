@@ -15,7 +15,8 @@
   `:rf.runtime/work-ledger`. Both are reserved runtime-db keys (per
   [Conventions §Reserved runtime-db keys]) — allocated lazily, per-frame
   isolated, never an app-db location."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.identity :as identity]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -372,24 +373,24 @@
   `:rf.error/non-edn-identity` cause rides `:rf.error/cause` for diagnosis."
   [value where kind resource-id]
   (when-not (serializable-edn? value)
-    (throw (ex-info ":rf.error/resource-non-edn-params"
-                    {:rf.error/id :rf.error/resource-non-edn-params
-                     :where       where
-                     :recovery    :fix-params
-                     :reason      (str "resource " resource-id " " (name kind)
-                                       " is not a portable CEDN-1 EDN identity — "
-                                       "host / opaque values (functions, promises, "
-                                       "dates, DOM nodes, AbortControllers, JS "
-                                       "objects) and non-portable numbers (floats, "
-                                       "ratios, decimals, NaN/infinities, integers "
-                                       "outside the safe range) are rejected at the "
-                                       "cache-key boundary. Put every value that "
-                                       "affects remote identity in params as plain "
-                                       "portable EDN. Per Spec 016 §Resource "
-                                       "identity / Conventions §Canonical EDN identity.")
-                     :resource-id resource-id
-                     :kind        kind
-                     :value       (pr-str value)})))
+    (error/throw-error!
+      :rf.error/resource-non-edn-params
+      where
+      (str "resource " resource-id " " (name kind)
+           " is not a portable CEDN-1 EDN identity — "
+           "host / opaque values (functions, promises, "
+           "dates, DOM nodes, AbortControllers, JS "
+           "objects) and non-portable numbers (floats, "
+           "ratios, decimals, NaN/infinities, integers "
+           "outside the safe range) are rejected at the "
+           "cache-key boundary. Put every value that "
+           "affects remote identity in params as plain "
+           "portable EDN. Per Spec 016 §Resource "
+           "identity / Conventions §Canonical EDN identity.")
+      {:recovery :fix-params
+       :extra    {:resource-id resource-id
+                  :kind        kind
+                  :value       (pr-str value)}}))
   value)
 
 ;; ---- concrete-scope validation (Spec 016 §Scope resolution) ---------------
@@ -462,19 +463,19 @@
   [scope where resource-id]
   (when (and (vector? scope)
              (contains? reserved-concrete-scopes (first scope)))
-    (throw (ex-info ":rf.error/resource-invalid-scope"
-                    {:rf.error/id :rf.error/resource-invalid-scope
-                     :where       where
-                     :recovery    :fix-scope
-                     :reason      (str "resource " resource-id " was reached with a "
-                                       "scope " (pr-str scope) " — a reserved "
-                                       ":rf.scope/* concrete scope wrapped in a "
-                                       "vector. The global scope IS the bare keyword "
-                                       ":rf.scope/global; supply it bare, not as the "
-                                       "singleton [:rf.scope/global]. Per Spec 016 "
-                                       "§Scope resolution.")
-                     :resource-id resource-id
-                     :scope       scope})))
+    (error/throw-error!
+      :rf.error/resource-invalid-scope
+      where
+      (str "resource " resource-id " was reached with a "
+           "scope " (pr-str scope) " — a reserved "
+           ":rf.scope/* concrete scope wrapped in a "
+           "vector. The global scope IS the bare keyword "
+           ":rf.scope/global; supply it bare, not as the "
+           "singleton [:rf.scope/global]. Per Spec 016 "
+           "§Scope resolution.")
+      {:recovery :fix-scope
+       :extra    {:resource-id resource-id
+                  :scope       scope}}))
   scope)
 
 (defn reject-reserved-scope-typo!
@@ -488,23 +489,23 @@
   unchanged when it conforms."
   [scope where resource-id]
   (when (reserved-scope-typo? scope)
-    (throw (ex-info ":rf.error/resource-invalid-scope"
-                    {:rf.error/id :rf.error/resource-invalid-scope
-                     :where       where
-                     :recovery    :fix-scope
-                     :reason      (str "resource " resource-id " was reached with a "
-                                       "scope " (pr-str scope) " in the framework-"
-                                       "reserved :rf.scope/* namespace that is not a "
-                                       "valid concrete scope. The only concrete "
-                                       "reserved scope is :rf.scope/global; "
-                                       ":rf.scope/from-caller is a registration "
-                                       "policy (the use site supplies the concrete "
-                                       "scope), and any other :rf.scope/* keyword is "
-                                       "a typo. A framework-namespace typo MUST fail "
-                                       "closed rather than become a silent wrong "
-                                       "cache scope. Per Spec 016 §Scope resolution.")
-                     :resource-id resource-id
-                     :scope       scope})))
+    (error/throw-error!
+      :rf.error/resource-invalid-scope
+      where
+      (str "resource " resource-id " was reached with a "
+           "scope " (pr-str scope) " in the framework-"
+           "reserved :rf.scope/* namespace that is not a "
+           "valid concrete scope. The only concrete "
+           "reserved scope is :rf.scope/global; "
+           ":rf.scope/from-caller is a registration "
+           "policy (the use site supplies the concrete "
+           "scope), and any other :rf.scope/* keyword is "
+           "a typo. A framework-namespace typo MUST fail "
+           "closed rather than become a silent wrong "
+           "cache scope. Per Spec 016 §Scope resolution.")
+      {:recovery :fix-scope
+       :extra    {:resource-id resource-id
+                  :scope       scope}}))
   scope)
 
 (defn canonicalize-scope
