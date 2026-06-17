@@ -1,12 +1,13 @@
 # EP-0020: Active-Owner Polling For Resource Revalidation
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> **ACCEPTED AND LANDED (rf2-byl7bk.2).** This EP added *interval revalidation*
-> (polling) to Spec 016 Resources, on the recommended cut: resource-level
-> `:poll-interval-ms`, an unconditional active-owner tick (Open Question 3 →
-> (a)), default-pause-when-hidden with `:poll-when-hidden?` reserved (OQ 2), the
+> **Graduated `accepted → final` 2026-06-17 (Mike, operator graduation; bead
+> `rf2-7mj7mt`).** This EP added *interval revalidation* (polling) to Spec 016
+> Resources, on the recommended cut: resource-level `:poll-interval-ms`, an
+> unconditional active-owner tick (Open Question 3 → (a)),
+> default-pause-when-hidden with `:poll-when-hidden?` reserved (OQ 2), the
 > `:poll` cause (OQ 8) and `:poll-interval-ms` spelling (OQ 7); data-derived
 > intervals (OQ 4), poll-failure back-off (OQ 5), and the per-use route/ensure
 > override (OQ 6) are reserved to future consumer-driven work; the adapter
@@ -14,13 +15,15 @@ Type: standards-track
 > normative contract lives in [`spec/016-Resources.md` §Polling](../../spec/016-Resources.md#polling)
 > (a sibling of §Stale and GC scheduling), with the `:poll-interval-ms`
 > spec-key, the `:poll` cause, and the `:rf.resource/poll-scheduled` /
-> `:rf.resource/poll-fired` trace ops. The reference implementation reuses the
-> landed advisory-timer side-table (`re-frame.resources.timers`, the new `:poll`
-> kind) and the focus/reconnect scan-and-refetch core
-> (`re-frame.resources.events`, the `entry-revalidation-in-flight?` coalescing
-> gate). The §Specification section below is the design-time sketch; the spec is
-> the authority. Tracking bead: `rf2-byl7bk.2` (the resource-management parity
-> tranche epic `rf2-byl7bk`).
+> `:rf.resource/poll-fired` trace ops. The implementation + tests landed: the
+> advisory-timer side-table (`re-frame.resources.timers`, the new `:poll` kind),
+> the focus/reconnect scan-and-refetch core (`re-frame.resources.events`, the
+> `entry-revalidation-in-flight?` coalescing gate), and the polling conformance
+> suite (`resources_polling_cljs_test.cljc`). The §Specification section below is
+> the design record; where it and the spec differ, the spec governs. `final`
+> asserts the **decisions are settled** and the normative home governs. Tracking
+> beads: `rf2-byl7bk.2` (the resource-management parity tranche epic
+> `rf2-byl7bk`) and the graduation bead `rf2-7mj7mt`.
 
 ## Abstract
 
@@ -176,12 +179,12 @@ concept. A poll is "while a live cause keeps this entry alive, keep it fresh."
   should be shaped as a declared derivation (inputs → output), not an anonymous
   closure over the entry.
 
-## Specification (proposal sketch — NOT a spec edit)
+## Specification (design record — the spec governs)
 
-> This is the **proposed** Spec 016 amendment, written as the text that would
-> graduate into a new **§Polling** section sibling to §Stale and GC scheduling.
-> It is presented here for review; `spec/016-Resources.md` is unchanged by this
-> PR.
+> This is the design record behind the Spec 016 amendment that graduated with
+> this EP: the **§Polling** section sibling to §Stale and GC scheduling, in
+> [`spec/016-Resources.md`](../../spec/016-Resources.md#polling). Where this
+> record and the spec differ, the spec governs.
 
 ### Decision 1: `:poll-interval-ms` resource policy
 
@@ -436,8 +439,10 @@ discipline):
 
 ## Open Issues
 
-These are the genuine design decisions for Mike to rule. Each carries a
-recommendation; none is implemented.
+These were the genuine design decisions Mike ruled at graduation
+(`accepted → final`). Each carries its recommendation, **all adopted as the
+shipped cut** (see the header blockquote and the [§Recommendation](#recommendation));
+they are kept verbatim as the record of what was ruled.
 
 1. **Owner ergonomics for a "just polling" read with no natural owner.** A
    dashboard widget that polls but is not route-owned or machine-owned needs
