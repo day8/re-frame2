@@ -17,6 +17,7 @@
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.test-support :as ts]))
 
 ;; rf2-i3qc0 / rf2-09iktm — the canonical reset-runtime fixture is
@@ -846,6 +847,127 @@
         (handler {:uri "/b" :request-method :get})
         (is (= ["/a" "/b"] @observed)
             "each request's handler saw its own URI — no slot bleed")))))
+
+;; ===========================================================================
+;; rf2-kzns7l — :on-create accepts a (fn [request] event-vector) form
+;;
+;; Additive convenience: alongside the event-VECTOR :on-create, a 1-arity fn
+;; may DERIVE the on-create event vector from the Ring request. It is called
+;; once per request (before the drain) and its result must be an event vector.
+;; This is the ergonomic, replay-safe way to fold a request-derived fact into
+;; the boot event's PAYLOAD (the recordable causal boundary — Spec 011
+;; §Durable request-derived facts), NOT the removed positional-conj helper.
+;; ===========================================================================
+
+(defn- extract-user
+  "Stand-in for a host's auth middleware: sanitise a request cookie into a
+  wire-safe derived fact. Models the Spec 011 §Authentication / sessions
+  pattern (cookie → `{:user … :authed? …}`, never the raw cookie)."
+  [request]
+  (let [cookie (get-in request [:headers "cookie"] "")]
+    (if (str/includes? cookie "session=")
+      {:user "alice" :authed? true}
+      {:user nil :authed? false})))
+
+(deftest on-create-fn-form-derives-event-from-request
+  (testing "a (fn [request] event-vector) :on-create bakes a request-derived
+            fact into the boot event payload — the durable-fact boundary"
+    (let [seeded (atom ::not-seeded)]
+      ;; The boot handler reads the PAYLOAD (the recordable leaf), not an
+      ;; ambient cofx — the replay-safe shape.
+      (rf/reg-event :auth/server-init
+        {:platforms #{:server}}
+        (fn [{:keys [db]} [_ session]]
+          (reset! seeded session)
+          {:db (assoc db :auth session)}))
+
+      (rf/reg-view* :pages/blank-auth (fn [] [:div]))
+
+      (let [handler (ssr-ring/ssr-handler
+                      ;; The fn form: derive the event vector from the request.
+                      {:on-create (fn [req]
+                                    [:auth/server-init (extract-user req)])
+                       :root-view [:pages/blank-auth]
+                       :payload :rf.ssr.payload/whole-app-db})
+            response (handler {:uri            "/dashboard"
+                               :request-method :get
+                               :headers        {"cookie" "session=abc123"}})]
+        (is (= 200 (:status response)))
+        (is (= {:user "alice" :authed? true} @seeded)
+            "the on-create fn derived the event vector from the request and the
+             boot handler saw the sanitised fact off the event payload")))))
+
+(deftest on-create-fn-form-invoked-once-per-request-with-own-request
+  (testing "the :on-create fn is called once per request, each with its own
+            request map (no slot bleed across requests)"
+    (let [calls (atom [])]
+      (rf/reg-event :init/noted
+        {:platforms #{:server}}
+        (fn [{:keys [db]} [_ uri]]
+          {:db (assoc db :uri uri)}))
+      (rf/reg-view* :pages/blank-once (fn [] [:div]))
+
+      (let [handler (ssr-ring/ssr-handler
+                      {:on-create (fn [req]
+                                    (swap! calls conj (:uri req))
+                                    [:init/noted (:uri req)])
+                       :root-view [:pages/blank-once]
+                       :payload :rf.ssr.payload/whole-app-db})]
+        (handler {:uri "/p" :request-method :get})
+        (handler {:uri "/q" :request-method :get})
+        (is (= ["/p" "/q"] @calls)
+            "the fn fired exactly once per request, each with that request's URI")))))
+
+(deftest on-create-vector-form-still-works
+  (testing "the original event-VECTOR :on-create form is preserved verbatim"
+    (let [seen (atom false)]
+      (rf/reg-event :init/plain
+        {:platforms #{:server}}
+        (fn [{:keys [db]} _] (reset! seen true) {:db db}))
+      (rf/reg-view* :pages/blank-plain (fn [] [:div]))
+
+      (let [handler  (ssr-ring/ssr-handler
+                       {:on-create [:init/plain]
+                        :root-view [:pages/blank-plain]
+                        :payload :rf.ssr.payload/whole-app-db})
+            response (handler {:uri "/x" :request-method :get})]
+        (is (= 200 (:status response)))
+        (is (true? @seen)
+            "the vector form dispatched the boot event unchanged")))))
+
+(deftest on-create-fn-returning-non-vector-fails-closed
+  (testing "an :on-create fn whose result is NOT an event vector throws
+            :rf.error/invalid-on-create inside setup — routed to on-error 500"
+    (rf/reg-view* :pages/blank-bad (fn [] [:div]))
+    (let [handler  (ssr-ring/ssr-handler
+                     ;; Returns a map, not an event vector — programmer error.
+                     {:on-create (fn [_req] {:not "a vector"})
+                      :root-view [:pages/blank-bad]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/x" :request-method :get})]
+      (is (= 500 (:status response))
+          "the setup failure surfaces the locked default-on-error 500")
+      (is (map? response)
+          "the handler returned a Ring response — the throw was contained"))))
+
+(deftest on-create-resolve-fn-unit-contract
+  (testing "lifecycle/resolve-on-create! — vector passthrough, fn resolution,
+            and the two invalid-shape throws (unit)"
+    (let [req {:uri "/u" :headers {}}]
+      ;; Vector passes through verbatim.
+      (is (= [:e 1] (lifecycle/resolve-on-create! [:e 1] req)))
+      ;; A 1-arity fn is called with the request; its vector result is returned.
+      (is (= [:derived "/u"]
+             (lifecycle/resolve-on-create!
+               (fn [r] [:derived (:uri r)]) req)))
+      ;; A fn returning a non-vector throws invalid-on-create.
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"on-create fn must return an event vector"
+                            (lifecycle/resolve-on-create! (fn [_] {:nope true}) req)))
+      ;; A non-vector, non-fn value throws invalid-on-create.
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"on-create must be an event vector OR a"
+                            (lifecycle/resolve-on-create! '(:list-not-vector) req))))))
 
 ;; ===========================================================================
 ;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
@@ -2414,19 +2536,20 @@
             \"Internal error\" string).
 
             Drive the transport-failure path with a non-vector
-            `:on-create` — `validate-on-create!` throws inside
+            `:on-create` — `resolve-on-create!` throws inside
             `setup-request-frame!`'s try/catch, which surfaces the
             short-circuit on-error response. This path is the
             framework's last-resort net for setup-frame failures
             the projector can't see."
     (let [custom-body "<!DOCTYPE html><html><body>Service offline</body></html>"
           handler     (ssr-ring/ssr-handler
-                        ;; Non-vector :on-create passes the truthy
-                        ;; presence check at handler construction
-                        ;; (`validate-required-opts!`) but fails the
-                        ;; vector? check inside `validate-on-create!`,
-                        ;; which runs inside the per-request setup
-                        ;; try/catch — exactly the on-error path.
+                        ;; A list :on-create (neither a vector nor a
+                        ;; 1-arity fn) passes the truthy presence check
+                        ;; at handler construction (`validate-required-opts!`)
+                        ;; but fails the shape check inside
+                        ;; `resolve-on-create!`, which runs inside the
+                        ;; per-request setup try/catch — exactly the
+                        ;; on-error path.
                         {:on-create '(:rf/server-init)
                          :root-view [:div]
                          :payload [:x]
@@ -2492,7 +2615,7 @@
             escape as a raw container 500 with leaked internals.
 
             Setup failure is driven by a non-vector :on-create
-            (`validate-on-create!` throws inside `setup-request-frame!`,
+            (`resolve-on-create!` throws inside `setup-request-frame!`,
             which runs OUTSIDE the handler body's try/catch). The
             caller's :on-error then throws — exercising the one
             :on-error call site that the handler body's catch does not

@@ -321,20 +321,64 @@
       :html-attrs html-attrs
       :body-attrs body-attrs}]))
 
-(defn validate-on-create!
-  "Validate the caller's :on-create event vector and return it verbatim.
-  `:on-create` is required (per `validate-required-opts!`), so a
-  non-vector here is a programmer error — surface it as an ex-info
-  rather than letting `reg-frame` produce an obscure failure
-  downstream. Audit rf2-cegm7 A3 / rf2-j54ee."
-  [on-create]
-  (if (vector? on-create)
+(defn resolve-on-create!
+  "Resolve the caller's `:on-create` opt to the event vector dispatched at
+  per-request frame creation, given the live Ring `request`. Two accepted
+  forms (rf2-kzns7l):
+
+    1. an event VECTOR — passed through verbatim (the original contract).
+    2. a `(fn [request] event-vector)` — a 1-arity fn DERIVING the event
+       vector from the Ring request. Called EXACTLY ONCE here, before
+       `reg-frame`, with the request the host has already populated into
+       the per-request slot. The result MUST itself be an event vector,
+       validated the same way.
+
+  The fn form is the replay-safe way to fold a request-derived fact into
+  the boot event's PAYLOAD — the recordable causal boundary (Spec 011
+  §Request storage substrate, the durable request-derived-fact pattern):
+
+      :on-create (fn [req] [:auth/server-init {:user (extract-user req)}])
+
+  This is purely ADDITIVE. It is NOT a revival of the removed
+  `on-create-with-request` positional-conj helper (audit rf2-cegm7 A2 /
+  rf2-j54ee): that silently appended the WHOLE request to the caller's
+  vector (`[:rf/server-init]` → `[:rf/server-init {ring-request}]`),
+  putting the request in the wrong arg slot. Here the caller OWNS the
+  shape of the resulting event vector — only the extracted, sanitised
+  fact rides it. The ambient `:rf.server/request` cofx remains the
+  canonical surface for NON-durable request reads and is unaffected.
+
+  `:on-create` is required (per `validate-required-opts!`), which a fn
+  satisfies as a truthy value — so the form check happens here, inside
+  the per-request setup try/catch. A value that is neither a vector nor a
+  1-arity fn (or a fn whose result is not a vector) is a programmer
+  error: surface it as `:rf.error/invalid-on-create` rather than letting
+  `reg-frame` produce an obscure failure downstream."
+  [on-create request]
+  (cond
+    (vector? on-create)
     on-create
+
+    (fn? on-create)
+    (let [derived (on-create request)]
+      (if (vector? derived)
+        derived
+        (error/throw-error!
+          :rf.error/invalid-on-create
+          'rf.ssr/ssr-handler
+          (str ":on-create fn must return an event vector; the (fn [request] ...) "
+               "form derives the on-create event from the Ring request and its "
+               "result must be a vector.")
+          {:recovery :return-an-event-vector-from-the-on-create-fn
+           :extra    {:returned derived}})))
+
+    :else
     (error/throw-error!
       :rf.error/invalid-on-create
       'rf.ssr/ssr-handler
-      ":on-create must be a vector (an event vector); pass an event vector as :on-create."
-      {:recovery :supply-an-event-vector
+      (str ":on-create must be an event vector OR a (fn [request] event-vector); "
+           "pass one of those as :on-create.")
+      {:recovery :supply-an-event-vector-or-a-fn-of-the-request
        :extra    {:received on-create}})))
 
 (defn validate-required-opts!

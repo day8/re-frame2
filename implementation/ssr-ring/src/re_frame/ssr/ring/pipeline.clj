@@ -184,11 +184,17 @@
       (rf/reg-frame frame-id
         (cond-> {:doc       "ssr-ring per-request frame"
                  :platform  :server
-                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: pass :on-create
-                 ;; verbatim. Handlers read the request via the
-                 ;; `:rf.server/request` cofx — the spec-documented
-                 ;; canonical surface.
-                 :on-create (lifecycle/validate-on-create! on-create)}
+                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: an event-VECTOR
+                 ;; `:on-create` passes through verbatim — handlers read
+                 ;; the request via the `:rf.server/request` cofx (the
+                 ;; spec-documented canonical surface for NON-durable
+                 ;; reads). rf2-kzns7l (additive): a `(fn [request]
+                 ;; event-vector)` `:on-create` is resolved HERE — the
+                 ;; request slot is already populated (set-request! above),
+                 ;; so the fn derives the event vector from the live Ring
+                 ;; request, baking a request-derived fact into the boot
+                 ;; event's PAYLOAD (the replay-safe recordable boundary).
+                 :on-create (lifecycle/resolve-on-create! on-create request)}
           fx-overrides (assoc :fx-overrides fx-overrides)
           ssr          (assoc :ssr           ssr)))
       {:frame-id frame-id}

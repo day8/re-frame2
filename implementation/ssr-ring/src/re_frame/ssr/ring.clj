@@ -207,12 +207,22 @@
 
   Required opts:
 
-    :on-create   — the event vector dispatched at frame creation. Read
-                   the Ring request map from handlers by declaring
+    :on-create   — the event dispatched at frame creation, in EITHER form:
+                     • an event VECTOR (e.g. `[:rf/server-init]`), OR
+                     • a `(fn [request] event-vector)` deriving the event
+                       from the Ring request (rf2-kzns7l). The fn is called
+                       once per request, before the drain; its result must
+                       be an event vector. Use it to fold a request-derived
+                       fact into the boot event's PAYLOAD — the replay-safe
+                       recordable boundary, e.g.
+                       `(fn [req] [:auth/server-init {:user (extract-user req)}])`
+                       (Spec 011 §Request storage substrate, durable
+                       request-derived-fact pattern).
+                   For NON-durable request reads inside a handler, declare
                    `:rf.cofx/requires [:rf.server/request]` on the
                    registration (EP-0017 — `inject-cofx` is removed) — Spec
-                   011 §Request storage substrate (rf2-afxhv) names the cofx
-                   as the canonical read surface.
+                   011 §Request storage substrate (rf2-afxhv) names that cofx
+                   as the canonical ambient read surface.
     :root-view   — either a hiccup vector (e.g. `[:app/root]`) OR a
                    0-arity fn returning hiccup. Rendered against the
                    per-request frame after the drain settles.
