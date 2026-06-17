@@ -293,6 +293,18 @@
                nav-token/nav-token-cofx-meta
                nav-token/nav-token-cofx)
 
+;; :rf.route/route-id cofx — rf2-ph1grf. The capture-side companion to
+;; `:rf.route/nav-token`: delivers the live route id FLAT under
+;; `:rf.route/route-id` so an `:on-match`-reached loader declaring
+;; `:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]` captures BOTH
+;; facts the route-loader work-id `[:rf.work/route route-id nav-token
+;; loader-id]` needs at scheduling time — the documented stale-suppression path
+;; can no longer thread a nil route id into the work-id tuple. Owner-qualified
+;; to the routing subsystem root, like its sibling `:rf.route/nav-token`.
+(cofx/reg-cofx :rf.route/route-id
+               nav-token/route-id-cofx-meta
+               nav-token/route-id-cofx)
+
 ;; :rf.route/with-nav-token — Spec 012 §Navigation tokens — stale-result
 ;; suppression. The test-only `:rf.test/simulate-http-resolution` fixture
 ;; analogue is NOT wired here — it lives behind an explicit
