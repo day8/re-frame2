@@ -1170,64 +1170,103 @@
               bump-revision))))
     entry))
 
-(defn refetch-keep-count
-  "PURE: how many leading pages a `refetch` of an infinite feed KEEPS, given
-  the resource's optional `:refetch` policy (R6) and the feed's current
-  `page-count`. The ruled DEFAULT is window-preserving — keep EVERY
-  accumulated page (`page-count`), so a focus/reconnect/invalidation refetch
-  never collapses a loaded feed to page 0. The day-one opt-ins:
+(defn refetch-window-count
+  "PURE: how many LEADING pages a `refetch` of an infinite feed REFRESHES,
+  given the resource's optional `:refetch` policy (R6) and the feed's current
+  `page-count`. Spec 016 §Refetch (R6 — the opt-ins are a multi-page refresh
+  of the accumulation IN SEQUENCE, NOT a truncate-the-tail; rf2-byl7bk.3.3):
 
-    - `:refetch-all-pages? true` — do NOT preserve the window: keep ONLY page 0
-      (the replacement page-0 re-accumulates the feed from scratch, the
-      TanStack-parity \"refresh the whole thing\" intent; v1 re-fetches page 0
-      and the user re-loads forward rather than a synchronous N-page sweep);
-    - `:refetch-window n` — bound the kept window to the first `n` pages
-      (clamped to `[1, page-count]` — a refetch always keeps at least page 0,
-      and never invents pages beyond what is loaded).
+    - the ruled DEFAULT (no policy / no opt-in) refreshes the FIRST page only
+      (`1` for a non-empty feed): a focus/reconnect/invalidation refetch
+      replaces page 0 IN PLACE while the accumulated tail stays visible (never
+      collapses to page 0), the window-preserving default;
+    - `:refetch-all-pages? true` — refresh EVERY accumulated page param in
+      sequence (`page-count`, TanStack parity): each page is re-fetched and
+      replaced in place, the feed length is PRESERVED;
+    - `:refetch-window n` — refresh the bounded leading window of the first `n`
+      pages (clamped to `[1, page-count]` — at least page 0, never beyond what
+      is loaded).
 
-  Returns the keep-count (always ≥ 1 for a non-empty feed; 0 for an empty
-  feed). Per Spec 016 §Refetch and invalidation of an infinite feed (R6)."
+  Returns the refresh-window size (≥ 1 for a non-empty feed; 0 for an empty
+  feed). The accumulation is never truncated — this counts how much of it gets
+  refreshed, not how much survives. Per Spec 016 §Refetch and invalidation of
+  an infinite feed (R6)."
   [refetch-policy page-count]
   (let [{:keys [refetch-all-pages? refetch-window]} refetch-policy]
     (cond
       (zero? page-count)          0
-      refetch-all-pages?          1
+      refetch-all-pages?          page-count
       (integer? refetch-window)   (max 1 (min refetch-window page-count))
-      :else                       page-count)))
+      :else                       1)))
 
-(defn entry-refetch-reset
-  "PURE infinite-feed REFETCH reset transition (R6), applied at refetch-ISSUE
-  (before the replacement page-0 fetch starts): truncate the feed's
-  accumulation to the first `keep-count` pages per `refetch-keep-count`, so the
-  in-flight refetch refreshes exactly the intended window. The ruled DEFAULT
-  (window-preserving) keeps EVERY page — a pure no-op here — so the accumulated
-  pages stay visible during the refetch (the feed is `:fetching`, not collapsed
-  to page 0). The opt-ins (`:refetch-all-pages?` / `:refetch-window`) truncate
-  the tail.
+(defn refetch-sweep-tail
+  "PURE: the ordered SWEEP TAIL for a multi-page `refetch` — the
+  `[page-param page-index]` pairs the chained sweep must re-fetch AFTER the
+  issue-time page-0 replacement, in order. The issue-time refetch always
+  re-fetches page 0 in place (a single in-flight fetch — the existing path);
+  this returns the pages beyond page 0 within the refresh window
+  (`refetch-window-count`), which `page-succeeded-handler` then drives ONE AT A
+  TIME (each leg its own fresh generation + work-id; \"in sequence\" — the
+  single-work-id substrate is reused, no parallel fan).
 
-  The `:next-page-param` is RECOMPUTED from the (possibly truncated) tail so a
-  windowed refetch resumes load-more from the kept window's edge; `:page-params`
-  is truncated in step. `:data` / `:page-params` keep their leading pages by
-  identity (structural sharing — only the dropped tail changes). Does NOT touch
-  `:status` / `:current-work` / `:revision` (the caller's `entry-start-load`
-  already transitioned the entry to `:fetching` and recorded the work). A nil /
-  non-infinite / empty entry is returned unchanged. Per Spec 016 §Refetch and
-  invalidation of an infinite feed (R6)."
-  [entry {:keys [next-page-param-fn prev-page-param-fn refetch-policy]}]
+  The DEFAULT (window 1) yields an EMPTY tail — a plain refetch refreshes page
+  0 only and starts no sweep (the window-preserving default is unchanged).
+  `:refetch-all-pages?` yields pages `1 … page-count-1`; `:refetch-window n`
+  yields pages `1 … n-1`. Each pair reads the page's durable `:page-params`
+  entry (the param the original fetch used) so the replacement re-fetches the
+  same page. A nil / non-infinite / empty entry yields `[]`. Per Spec 016
+  §Refetch and invalidation of an infinite feed (R6)."
+  [entry refetch-policy]
   (if (and entry (infinite-entry? entry) (seq (:data entry)))
-    (let [pages      (:data entry)
-          keep-count (refetch-keep-count refetch-policy (count pages))]
-      (if (>= keep-count (count pages))
-        entry                                   ;; window-preserving — keep all
-        (let [pages'  (subvec pages 0 keep-count)
-              params' (subvec (or (:page-params entry) []) 0
-                              (min keep-count (count (:page-params entry))))]
-          (assoc entry
-                 :data            pages'
-                 :page-params     params'
-                 :next-page-param (next-param-for next-page-param-fn pages')
-                 :prev-page-param (prev-param-for prev-page-param-fn pages')))))
-    entry))
+    (let [page-count   (count (:data entry))
+          window       (refetch-window-count refetch-policy page-count)
+          page-params  (or (:page-params entry) [])]
+      ;; pages 1 … (window-1) — page 0 is the issue-time replacement, excluded.
+      (mapv (fn [i] [(get page-params i) i]) (range 1 window)))
+    []))
+
+(defn entry-begin-refetch-sweep
+  "PURE: arm a multi-page refetch SWEEP on the feed `entry` by recording the
+  ordered remaining `[page-param page-index]` pairs (`refetch-sweep-tail`) under
+  the durable `:refetch-sweep` cursor — the pages the chained sweep will
+  re-fetch after the issue-time page-0 replacement. An EMPTY tail (the
+  window-preserving default, or an empty feed) writes NO cursor and returns the
+  entry unchanged, so a plain refetch starts no sweep. Does NOT touch `:status`
+  / `:current-work` / `:revision` (the caller's `entry-start-load` already
+  transitioned the entry to `:fetching` for the page-0 leg). Per Spec 016
+  §Refetch and invalidation of an infinite feed (R6 — rf2-byl7bk.3.3)."
+  [entry refetch-policy]
+  (let [tail (refetch-sweep-tail entry refetch-policy)]
+    (if (seq tail)
+      (assoc entry :refetch-sweep (vec tail))
+      entry)))
+
+(defn next-refetch-sweep-leg
+  "PURE: the NEXT `[page-param page-index]` pair a feed's in-progress refetch
+  sweep must re-fetch, or nil when no sweep is armed / it is exhausted. Read by
+  `page-succeeded-handler` to chain the sweep one leg at a time. Per Spec 016
+  §Refetch (R6 — rf2-byl7bk.3.3)."
+  [entry]
+  (first (:refetch-sweep entry)))
+
+(defn entry-advance-refetch-sweep
+  "PURE: pop the head leg off a feed's `:refetch-sweep` cursor (the leg just
+  issued). When the cursor empties, REMOVE the `:refetch-sweep` key entirely
+  (the sweep is done). Does NOT touch `:status` / `:current-work` / `:data` —
+  the chained leg's own `entry-start-load` + page reply settle those. Per Spec
+  016 §Refetch (R6 — rf2-byl7bk.3.3)."
+  [entry]
+  (let [rest- (vec (rest (:refetch-sweep entry)))]
+    (if (seq rest-)
+      (assoc entry :refetch-sweep rest-)
+      (dissoc entry :refetch-sweep))))
+
+(defn clear-refetch-sweep
+  "PURE: drop any in-progress `:refetch-sweep` cursor (a failure / abort during
+  a sweep STOPS it rather than dangling a cursor). Per Spec 016 §Refetch (R6 —
+  rf2-byl7bk.3.3)."
+  [entry]
+  (dissoc entry :refetch-sweep))
 
 (defn resolve-page->items
   "PURE: resolve a feed's `:page->items` accessor (a keyword key or a

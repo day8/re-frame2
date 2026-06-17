@@ -288,23 +288,22 @@
       (is (= [{:id 0 :title "A"} {:id 1 :title "B"}] (:items vm)) "the retried page appended"))))
 
 ;; ============================================================================
-;; 5. A PAGE 0 failure with no data surfaces via :page-error (the FULL error
-;;    screen, split from the inline retry by :has-data?) — NOT the scalar :error
+;; 5. A PAGE 0 first-load failure with no data surfaces via the FIRST-LOAD
+;;    :error channel (the full error screen) — NOT :page-error (rf2-byl7bk.3.1)
 ;; ============================================================================
 
-(deftest page-0-failure-with-no-data-surfaces-via-page-error-not-scalar-error
-  (testing "examples/reagent/infinite_feed — a PAGE 0 failure with no prior data
-            surfaces via :page-error (an infinite feed's page fetches all lower
-            the same way, so page 0's failure is the SAME channel as a load-more
-            failure, keeping the feed :loaded; the scalar :error / :refresh-error
-            stay nil). The example's view splits the full error screen from the
-            inline retry by reading :has-data? alongside :page-error."
+(deftest page-0-first-load-failure-surfaces-via-scalar-error-channel
+  (testing "examples/reagent/infinite_feed — a PAGE 0 FIRST-load failure with no
+            prior data settles the first-load :error channel + :status :error
+            (Spec 016 reserves :error for first-load, :page-error for load-more
+            ONLY). The example's view shows the full error screen on :error; the
+            inline retry on :page-error — distinct axes."
     (rf/dispatch-sync [:rf.route/navigate :infinite-feed.app/timeline])
     (reply-failure! {:kind :rf.http/server :status 500})
     (let [vm (feed-state)]
-      (is (false? (:has-data? vm)) "no data loaded → the view shows the full error screen")
-      (is (= {:kind :rf.http/server :status 500} (:page-error vm))
-          "the page-0 failure surfaces via :page-error (a feed has one error axis)")
-      (is (nil? (:error vm)) "the scalar first-load :error channel is unused by a feed")
+      (is (false? (:has-data? vm)) "no data loaded")
+      (is (= {:kind :rf.http/server :status 500} (:error vm))
+          "the page-0 first-load failure surfaces via the first-load :error channel")
+      (is (nil? (:page-error vm)) "NOT the load-more :page-error channel (page 0 is not a load-more)")
       (is (nil? (:refresh-error vm)) "NOT the whole-feed :refresh-error channel either")
-      (is (= :loaded (:status (entry))) "the feed entry stays :loaded (never the scalar :error state)"))))
+      (is (= :error (:status (entry))) "the feed entry settles :status :error (first-load failure)"))))
