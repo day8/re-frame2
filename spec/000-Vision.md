@@ -541,7 +541,7 @@ The user-facing event shape is a vector. The internal dispatch envelope adds `:f
 
 ### `reg-frame` and `make-frame`
 
-Both ship: `reg-frame` is atomic (named, register-and-create, matches every other `reg-*`); `make-frame` (anonymous, gensym'd-keyword, register-and-create) covers per-instance widget/test/devcard cases. See [002 §Per-instance frames](002-Frames.md#per-instance-frames--anonymous-make-frame).
+Both ship: `reg-frame` is atomic (named, register-and-create, matches every other `reg-*`); `make-frame` is the EP-0023 **object constructor** (builds a live frame from an `:images` vector and returns the live frame object) covering per-instance widget/test/devcard cases. See [002 §Per-instance frames](002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md).
 
 ### Macro budget
 
