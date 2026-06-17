@@ -160,15 +160,26 @@
     (fn handler-app-send [{:keys [db]} [_ body]]
       {:db (assoc-in db [:messages :draft] "")
        :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
+  ;; EP-0017 (rf2-1g0ba6): the request-id is a DURABLE correlation fact (it
+  ;; is folded into the connection machine's :in-flight slot and the reply is
+  ;; matched against it), so it must be a FOLDED FACT from a recordable cofx,
+  ;; NOT an ambient `(random-uuid)` read inside the handler — replay would
+  ;; otherwise mint a fresh id and break the correlation. Mirrors the
+  ;; production `:ws.app/request-id` reg-cofx in
+  ;; examples/reagent/websocket/messages.cljs.
+  (rf/reg-cofx :ws.app/request-id
+    {:recordable? true
+     :doc "Replayable correlation id for an outbound request-reply (EP-0017)."}
+    (fn [] (random-uuid)))
   (rf/reg-event :ws.app/request
-    (fn handler-app-request [_ [_ body]]
-      (let [rid (random-uuid)]
-        {:fx [[:dispatch [:ws/connection
-                          [:ws/request {:request-id rid
-                                        :body       {:type :request
-                                                     :body body}
-                                        :reply      [:ws.app/request-reply]
-                                        :timeout-ms 5000}]]]]})))
+    {:rf.cofx/requires [:ws.app/request-id]}
+    (fn handler-app-request [{rid :ws.app/request-id} [_ body]]
+      {:fx [[:dispatch [:ws/connection
+                        [:ws/request {:request-id rid
+                                      :body       {:type :request
+                                                   :body body}
+                                      :reply      [:ws.app/request-reply]
+                                      :timeout-ms 5000}]]]]}))
   (rf/reg-event :ws.app/request-reply
     (fn handler-app-request-reply [{:keys [db]} [_ body]]
       {:db (assoc-in db [:messages :last-reply] body)}))
@@ -506,20 +517,48 @@
         ;; Issue a request. Sync-mode mock echoes immediately, so the
         ;; reply lands inside the dispatch-sync stack — :in-flight
         ;; goes empty AGAIN by the time we check.
-        (rf/dispatch-sync [:ws.app/request "hello"] {:frame f})
-        ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
-        ;; is app-db.
-        (let [db   (rf/app-db-value f)
-              snap (snapshot (rf/runtime-db-value f))]
-          (is (= {} (get-in snap [:data :in-flight]))
-              ":in-flight slot was cleared on reply")
-          (let [last-reply (get-in db [:messages :last-reply])]
-            (is (some? last-reply))
-            (is (= :reply (:type last-reply)))
-            (is (true?    (:ok last-reply)))
-            (is (= {:type :request :body "hello"}
-                   (:echo last-reply))
-                (str "echo body round-tripped, got " (:echo last-reply)))))))))
+        ;;
+        ;; EP-0017 (rf2-1g0ba6): the durable request-id is a recordable
+        ;; coeffect (`:ws.app/request-id`), not minted inside the handler.
+        ;; The supply-data testing posture provides the fact FLAT under
+        ;; `:rf.cofx` so the correlation id is deterministic in the test —
+        ;; replay would re-present the same id.
+        (let [req-id (random-uuid)]
+          (rf/dispatch-sync [:ws.app/request "hello"]
+                            {:frame f :rf.cofx {:ws.app/request-id req-id}})
+          ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
+          ;; is app-db.
+          (let [db   (rf/app-db-value f)
+                snap (snapshot (rf/runtime-db-value f))]
+            (is (= {} (get-in snap [:data :in-flight]))
+                ":in-flight slot was cleared on reply")
+            (let [last-reply (get-in db [:messages :last-reply])]
+              (is (some? last-reply))
+              (is (= :reply (:type last-reply)))
+              (is (true?    (:ok last-reply)))
+              (is (= req-id (:request-id last-reply))
+                  "the supplied recordable request-id round-tripped on the reply")
+              (is (= {:type :request :body "hello"}
+                     (:echo last-reply))
+                  (str "echo body round-tripped, got " (:echo last-reply))))))))))
+
+(defn- request-id-missing-under-strict-test []
+  ;; EP-0017 (rf2-1g0ba6): under a strict mint policy, the declared-absent
+  ;; generator-backed `:ws.app/request-id` recordable coeffect FAILS as
+  ;; `:rf.error/missing-required-cofx` rather than silently minting a fresh
+  ;; `(random-uuid)` — the supply-data-don't-stub posture. The per-call
+  ;; `:rf.cofx/mint-policy :strict` opt selects the policy without needing a
+  ;; `:preset :test` frame for this one assertion.
+  (with-new-frame [f (new-frame)]
+    (let [ex (try (rf/dispatch-sync [:ws.app/request "hello"]
+                                    {:frame f :rf.cofx/mint-policy :strict})
+                  nil
+                  (catch cljs.core/ExceptionInfo e e))]
+      (is (some? ex) "a strict-policy dispatch with no supplied id throws")
+      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
+          "the absent generator-backed request-id is missing-required under strict")
+      (is (= :ws.app/request-id (:rf.cofx/id (ex-data ex)))
+          "the error names the absent recordable request-id"))))
 
 (defn- server-push-test []
   (with-sync-mock!
@@ -622,6 +661,11 @@
 (deftest websocket-request-reply-correlation
   (testing "request-reply correlation — :in-flight slot fills then clears on reply"
     (request-reply-correlation-test)))
+
+(deftest websocket-request-id-missing-under-strict
+  (testing "EP-0017 — declared-absent recordable :ws.app/request-id fails
+            missing-required-cofx under strict, not a silent random-uuid"
+    (request-id-missing-under-strict-test)))
 
 (deftest websocket-server-push
   (testing "server-pushed events — manual push lands in [:messages :received]"
