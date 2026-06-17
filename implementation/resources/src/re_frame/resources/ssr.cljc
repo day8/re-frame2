@@ -59,6 +59,7 @@
   snapshot — Spec 016 §Restore and replay part 5) and need not ride. Per
   Spec 016 §Runtime-subsystem graduation clause 4."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
             [re-frame.resources.classification :as classification]
@@ -82,21 +83,24 @@
 (declare settle-entry-to-last-stable)
 
 ;; ---- shared clock ---------------------------------------------------------
-
-(defn now-ms
-  "Current epoch-ms — the server clock stamped on `loaded-at` / `stale-at`
-  and the live clock the client compares restored absolute timestamps
-  against to surface skew. Host-platform clock (JVM under SSR; the browser
-  on the client). Per Spec 016 §SSR and hydration (absolute timestamps).
-
-  Public (rf2-wshzsp) so the restore-reconcile suite can `with-redefs` it to a
-  sentinel and ADVERSARIALLY pin that restore reads it ONLY for the clock-skew
-  DIAGNOSTIC — never to freshen a DURABLE restored entry/instance timestamp
-  (EP-0010 §Restore/Replay: \"restored resource entries do not re-read the live
-  clock during install\")."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.now js/Date)))
+;;
+;; The WALL-clock epoch-ms read this slice uses — the server clock stamped on
+;; `loaded-at` / `stale-at`, and the live clock the client compares restored
+;; absolute timestamps against to surface skew — is the core
+;; `re-frame.interop/epoch-now-ms` (rf2-366u0g). It is byte-identical to the
+;; private `now-ms` this ns used to define (`System/currentTimeMillis` on the
+;; JVM, `js/Date.now` on CLJS) and is the canonical EP-0010 §Time wall-clock
+;; surface — NOT the perf clock `interop/now-ms` (`performance.now()` on CLJS,
+;; origin-relative, ~1e4), which is incomparable with `js/Date`-based freshness
+;; checks. These resources are durable freshness / skew readers, so the wall
+;; clock is correct.
+;;
+;; `interop/epoch-now-ms` is PUBLIC (rf2-wshzsp test seam preserved): the
+;; restore-reconcile suite `with-redefs`-stubs it to a sentinel and ADVERSARIALLY
+;; pins that restore reads it ONLY for the clock-skew DIAGNOSTIC — never to
+;; freshen a DURABLE restored entry / instance timestamp (EP-0010
+;; §Restore/Replay: "restored resource entries do not re-read the live clock
+;; during install").
 
 ;; ---- freshness classification (Spec 016 §Status semantics) ----------------
 ;;
@@ -244,6 +248,41 @@
     (let [[scope resource-id params] scoped-key]
       [(redact-key-component scope) resource-id (redact-key-component params)])))
 
+(defn disposition+project-key
+  "Resolve a scoped key's resource OWNER spec, compute its frame-aware
+  whole-entry disposition, and project the key accordingly — the shared
+  disposition+project-key pipeline (rf2-366u0g). Returns
+  `[projected-key disposition spec]`:
+
+    1. `spec`        ← `registry/resource-meta` of `scoped-key`'s resource-id;
+    2. `disposition` ← `classification/whole-entry-disposition-for spec frame-id`
+       (the coarse owner `:sensitive?` / `:large?` claim PLUS the named-scope-
+       resolver derived-sensitivity inheritance against the frame);
+    3. projected key ← `project-scoped-key scoped-key disposition spec`
+       (`:redact` / `:omit` replace scope + params with opaque content-addressed
+       `{:rf/redacted <digest>}` tokens; `:serialize` projects per-slot
+       `:params-schema` marks — the resource-id always survives).
+
+  The single home for the pipeline the SSR durable-egress projection
+  (`project-entry`), the TOOL-egress algebra view (`tooling/project-key-for-
+  egress`), and the off-box TRACE-egress projector
+  (`trace_egress/project-trace-scoped-key`, in its REGISTERED-owner branch —
+  it keeps its own nil-spec fail-closed-to-`:redact` + idempotent-token guards
+  as the OUTER wrapper) all reuse, so the owner classification + key projection
+  never drift between egress boundaries. Pure.
+
+  It lives HERE (not in `classification`) because the pipeline needs both
+  `project-scoped-key` (this ns) AND `registry/resource-meta` — and
+  `re-frame.resources.registry` already requires `classification`, so hosting
+  it in `classification` would introduce a require cycle. `ssr` already
+  requires both `classification` and `registry`, and the trace / tool egress
+  callers already require `ssr`."
+  [scoped-key frame-id]
+  (let [resource-id (second scoped-key)
+        spec        (registry/resource-meta resource-id)
+        disposition (classification/whole-entry-disposition-for spec frame-id)]
+    [(project-scoped-key scoped-key disposition spec) disposition spec]))
+
 (defn- project-entry
   "Project a single durable cache `entry` (under `scoped-key`) to its wire
   shape per its classification, against the SSR `frame-id` (so the shared
@@ -280,17 +319,23 @@
   [frame-id clock-ms entry]
   (let [scoped-key  (:resource/key entry)
         resource-id (second scoped-key)
-        ;; resolve the owner spec once: it carries BOTH the coarse root-prop
-        ;; disposition (`whole-entry-disposition`) and the per-slot
-        ;; `:data-schema` marks (`project-data` layer (a)) — EP-0015 §6.
-        spec        (registry/resource-meta resource-id)
-        ;; frame-aware disposition: the OWNER's coarse `:sensitive?` / `:large?`
-        ;; claim, PLUS the named-scope-resolver derived-sensitivity inheritance
-        ;; arm — a `{:from-db <id>}` scope resolver reading a frame-sensitive
-        ;; `:db` input upgrades the entry to `:redact` even when the owner did
-        ;; not declare `:sensitive?` (EP-0016 wave rf2-fi6tda.1; Spec 015
-        ;; §Derived sensitivity).
-        disposition (classification/whole-entry-disposition-for spec frame-id)
+        ;; The shared disposition+project-key pipeline (rf2-366u0g) resolves the
+        ;; owner spec ONCE, computes the frame-aware whole-entry disposition, and
+        ;; projects the scoped key in one call:
+        ;;   - the spec carries BOTH the coarse root-prop disposition AND the
+        ;;     per-slot `:data-schema` marks (`project-data` layer (a) — EP-0015
+        ;;     §6), needed below for the `:serialize` data projection;
+        ;;   - the disposition is the OWNER's coarse `:sensitive?` / `:large?`
+        ;;     claim PLUS the named-scope-resolver derived-sensitivity inheritance
+        ;;     arm (a `{:from-db <id>}` resolver reading a frame-sensitive `:db`
+        ;;     input upgrades to `:redact` even when the owner did not declare
+        ;;     `:sensitive?` — EP-0016 wave rf2-fi6tda.1; Spec 015 §Derived
+        ;;     sensitivity);
+        ;;   - `projected-key` is the in-entry `:resource/key` copy projected the
+        ;;     SAME way as the wire MAP key (rf2-9e0tyq) — a `:redact` / `:omit`
+        ;;     resource redacts its scope + params to opaque content-addressed
+        ;;     tokens, so the raw identity never rides in EITHER carrier.
+        [projected-key disposition spec] (disposition+project-key scoped-key frame-id)
         stale?      (entry-stale? entry clock-ms)
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
@@ -337,14 +382,13 @@
         ;; survive the round-trip (Spec 016 §Restore and replay part 2 — a
         ;; non-terminal attempt is dangling on install).
         wire-entry  (dissoc wire-entry :current-work)
-        ;; rf2-9e0tyq — the in-entry `:resource/key` copy is PROJECTED the same
-        ;; way as the wire MAP key (`project-scoped-key`): a `:redact` / `:omit`
-        ;; resource redacts its scope + params to opaque content-addressed
-        ;; tokens here too, so the raw identity never rides in EITHER carrier.
-        ;; The client's `recompute-indexes` keys index members on the byte
-        ;; `key-id` of this projected `:resource/key`, matching the wire map key.
-        wire-entry  (assoc wire-entry :resource/key
-                           (project-scoped-key scoped-key disposition spec))
+        ;; rf2-9e0tyq — the in-entry `:resource/key` copy is the SAME projected
+        ;; key computed above (`disposition+project-key`), matching the wire MAP
+        ;; key: a `:redact` / `:omit` resource redacts its scope + params to
+        ;; opaque content-addressed tokens here too, so the raw identity never
+        ;; rides in EITHER carrier. The client's `recompute-indexes` keys index
+        ;; members on the byte `key-id` of this projected `:resource/key`.
+        wire-entry  (assoc wire-entry :resource/key projected-key)
         meta'       (assoc base
                            :disposition (case disposition
                                           :serialize :serialized
@@ -394,7 +438,7 @@
         entries   (:entries resources)]
     (if (seq entries)
       (let [frame-id (frame/resolve-current-frame)
-            clock-ms (now-ms)
+            clock-ms (interop/epoch-now-ms)
             ;; rf2-9e0tyq — the projected wire entries are RE-KEYED on the byte
             ;; `key-id` of each entry's PROJECTED `:resource/key` (the wire
             ;; entry's own `:resource/key`, set by `project-entry`), so the
@@ -642,7 +686,7 @@
   record). The drain reads the LIVE frame each tick (`frame-runtime-db-value`)
   so a reply that lands mid-pump is observed."
   [frame-id {:keys [pump! deadline-ms clock-fn tick-ms]}]
-  (let [clock-fn (or clock-fn now-ms)
+  (let [clock-fn (or clock-fn interop/epoch-now-ms)
         rdb0     (frame/frame-runtime-db-value frame-id)
         blocking (current-blocking-keys rdb0)]
     (if (empty? blocking)
@@ -867,7 +911,7 @@
          entries   (:entries resources)]
      (if-not (seq entries)
        runtime-db
-       (let [clock-ms (now-ms)
+       (let [clock-ms (interop/epoch-now-ms)
              ;; reconcile each entry: orphan SSR owners + clear current-work +
              ;; settle a non-terminal entry to last-stable (rf2-bg6qah).
              ;; Hydration passes nil live-nav-token — there is no client
@@ -1260,7 +1304,7 @@
     epoch's `:committed-at` (the committing token's `:rf.cofx`
     `:rf/time-ms`, replay-stable per EP-0010 §Time). It is the source of the
     DURABLE `:settled-at` stamped on a PENDING mutation instance dangled on
-    restore — NOT the live install clock (`now-ms`). Per EP-0010 §Restore/Replay
+    restore — NOT the live install clock (`interop/epoch-now-ms`). Per EP-0010 §Restore/Replay
     a durable frame-state field MUST come from a causal input, never an ambient
     world read at install. nil on the pure-unit 1-/2-arity (no token / no real
     restore epoch), where it falls back to the live clock — those paths install
@@ -1285,7 +1329,7 @@
          live-nav-token (get-in runtime-db routing-current-nav-token-path)]
      (if-not (or (seq entries) (seq ledger) (seq mutations))
        runtime-db
-       (let [clock-ms (now-ms)
+       (let [clock-ms (interop/epoch-now-ms)
              ;; reconcile each entry: orphan SSR owners + STALE-NAV route
              ;; owners (part 4) + clear current-work (part 2) + settle a
              ;; mid-flight status to last-stable (restore-specific — the wire
@@ -1321,7 +1365,7 @@
              ;; come from the restore's CAUSAL time (`restore-time-ms` — the
              ;; restored epoch's `:committed-at`, itself the committing token's
              ;; `:rf.cofx` `:rf/time-ms`), NOT the ambient `clock-ms`
-             ;; (`now-ms`) read above. Sourcing it from the live install clock
+             ;; (`interop/epoch-now-ms`) read above. Sourcing it from the live install clock
              ;; would make the durable stamp non-replayable (the exact shape the
              ;; EP's restore clause warns against: a durable write fed by an
              ;; ambient read at install). `clock-ms` legitimately feeds ONLY the
@@ -1530,7 +1574,7 @@
 
   `frame-id` (3-arity) is the explicit hydration target the trace rows are
   tagged with; the 1-/2-arity overloads omit it (a frame-agnostic decision)."
-  ([runtime-db] (hydrate-refetch-plan runtime-db (now-ms) nil))
+  ([runtime-db] (hydrate-refetch-plan runtime-db (interop/epoch-now-ms) nil))
   ([runtime-db clock-ms] (hydrate-refetch-plan runtime-db clock-ms nil))
   ([runtime-db clock-ms frame-id]
    (let [entries (get-in runtime-db [state/resources-key :entries])
@@ -1628,4 +1672,4 @@
   the server projected under their own scoped keys)."
   [frame-id]
   (let [rdb (frame/swap-runtime-db! frame-id hydrate-runtime-db frame-id)]
-    (hydrate-refetch-plan (or rdb {}) (now-ms) frame-id)))
+    (hydrate-refetch-plan (or rdb {}) (interop/epoch-now-ms) frame-id)))

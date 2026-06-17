@@ -89,41 +89,21 @@
 ;; clock is read at a durable write site, so this ns no longer defines a
 ;; `now-ms` helper (the remaining timer DELAYS are advisory host transients
 ;; computed from the durable absolute timestamps).
-
-(defn- stale-at-for
-  "Compute `:stale-at` for a patched / populated resource entry from
-  `loaded-at` + the resource's `:stale-after-ms` policy, or nil. Mirrors the
-  resource read path so a patched entry ages exactly as a fetched one."
-  [resource-spec loaded-at]
-  (when-let [ms (:stale-after-ms resource-spec)]
-    (+ loaded-at ms)))
-
-(defn- positive-or-nil
-  "Return `ms` when it is a positive number, else nil (a non-positive /
-  absent policy never arms a timer). Mirrors `events/positive-or-nil` so a
-  patched / populated entry arms exactly the timers a fetched one would."
-  [ms]
-  (when (and (number? ms) (pos? ms)) ms))
-
-(defn- server-frame?
-  "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
-  `:server`). Reads ONLY the FRAME's platform — NOT the host-wide
-  `active-platform` default (which is `:server` on the JVM, so a JVM
-  client-mode unit test must still arm timers). Mirrors
-  `events/server-frame?`. Per Spec 016 §Stale and GC scheduling (no
-  wall-clock background timers under SSR)."
-  [frame-id]
-  (= :server (:platform (frame/frame-meta frame-id))))
+;;
+;; The pure stale / timer helpers a patched / populated entry reads
+;; (`stale-at-for` / `positive-or-nil` / `server-frame?`) live in `state.cljc`
+;; — shared byte-for-byte with the read path so a patched entry ages exactly as
+;; a fetched one and arms exactly the timers a fetched one would (rf2-366u0g).
 
 (defn- timer-delays
   "The advisory stale / GC timer delays for a patched / populated entry from
   the resource spec's `:stale-after-ms` / `:gc-after-ms` policy, or nil when
   the resource declares neither (so no `:rf.resource/schedule-timers` fx is
   emitted for that key). Mirrors the read path's
-  `positive-or-nil`-guarded delay derivation."
+  `state/positive-or-nil`-guarded delay derivation."
   [resource-spec]
-  (let [stale-delay-ms (positive-or-nil (:stale-after-ms resource-spec))
-        gc-delay-ms    (positive-or-nil (:gc-after-ms resource-spec))]
+  (let [stale-delay-ms (state/positive-or-nil (:stale-after-ms resource-spec))
+        gc-delay-ms    (state/positive-or-nil (:gc-after-ms resource-spec))]
     (when (or stale-delay-ms gc-delay-ms)
       {:stale-delay-ms stale-delay-ms :gc-delay-ms gc-delay-ms})))
 
@@ -213,7 +193,7 @@
           (let [entry (get-in db' (state/entry-path scoped-key))]
             (if (and entry (state/has-data? entry))
               (let [rspec    (registry/resource-meta (:resource/id entry))
-                    stale-at (stale-at-for rspec clock-ms)
+                    stale-at (state/stale-at-for rspec clock-ms)
                     entry'   (mstate/patch-entry entry patch-fn result
                                                  {:clock-ms clock-ms :stale-at stale-at})
                     delays   (timer-delays rspec)]
@@ -253,7 +233,7 @@
         (fn [[db' ks policies nils sk] scoped-key value]
           (let [[_scope resource-id rparams] scoped-key
                 rspec    (registry/resource-meta resource-id)
-                stale-at (stale-at-for rspec clock-ms)
+                stale-at (state/stale-at-for rspec clock-ms)
                 tags-fn  (:tags rspec)
                 tags     (when tags-fn (set (tags-fn rparams value)))
                 entry    (get-in db' (state/entry-path scoped-key))
@@ -532,7 +512,7 @@
                      (update-in db' (state/entries-path) dissoc (state/key-id scoped-key))
                      (let [[_scope resource-id _p] scoped-key
                            rspec    (registry/resource-meta resource-id)
-                           stale-at (stale-at-for rspec clock-ms)
+                           stale-at (state/stale-at-for rspec clock-ms)
                            tags-fn  (:tags rspec)
                            ;; a freshly-seeded entry needs its resource's tags
                            ;; (so a later invalidation can reach it). An existing
@@ -1602,24 +1582,11 @@
 ;; of the same decoded result — the reply-map spelling is `:value`, kh9jz6 /
 ;; EP-0007). A direct-dispatch test may inline :result / :error on arg 2.
 
-(defn- reply-success-result
-  "Extract the decoded mutation result from a managed-HTTP success reply
-  (`{:kind :success :value <data>}` appended as arg 3). Falls back to an
-  inline `:result` on the verification payload (the direct-dispatch test
-  shape)."
-  [verification-payload http-result]
-  (if (contains? http-result :value)
-    (:value http-result)
-    (:result verification-payload)))
-
-(defn- reply-failure-error
-  "Extract the failure envelope from a managed-HTTP failure reply
-  (`{:kind :failure :failure <envelope>}` appended as arg 3). Falls back to
-  an inline `:error` on the verification payload."
-  [verification-payload http-result]
-  (if (contains? http-result :failure)
-    (:failure http-result)
-    (:error verification-payload)))
+;; The transport-payload extractors a reply handler lifts from arg 3 live in
+;; `re-frame.resources.reply` (`transport-success-value` /
+;; `transport-failure-envelope`) — shared with the resource read path, which
+;; differs only by the inline durable-layer fallback key (`:result` here for a
+;; mutation instance, `:data` for a resource entry — rf2-366u0g).
 
 (defn succeeded-handler
   "`:rf.mutation.internal/succeeded` — a mutation write succeeded. Verifies
@@ -1661,7 +1628,7 @@
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. The internal mutation reply
         ;; target receives it directly; the decoded result is `:value`.
-        reply      (rreply/success-reply payload (reply-success-result payload http-result)
+        reply      (rreply/success-reply payload (rreply/transport-success-value payload http-result :result)
                                          {:work-kind rreply/work-kind-mutation
                                           :completed-at completed-at})
         result     (:value reply)
@@ -1831,7 +1798,7 @@
             ;; populated ownerless entry would carry a durable :stale-at /
             ;; :gc-after-ms policy but NO armed reaper. Per Spec 016 §Stale
             ;; and GC scheduling.
-            server?     (server-frame? frame-id)
+            server?     (state/server-frame? frame-id)
             timer-fx    (mapv (fn [[scoped-key {:keys [stale-delay-ms gc-delay-ms]}]]
                                 [:rf.resource/schedule-timers
                                  {:frame-id       frame-id
@@ -1968,7 +1935,7 @@
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. `:error` carries the closed
         ;; `:rf.http/*` envelope the instance `:error` also stores.
-        reply      (rreply/failure-reply payload (reply-failure-error payload http-result)
+        reply      (rreply/failure-reply payload (rreply/transport-failure-envelope payload http-result)
                                          {:work-kind rreply/work-kind-mutation
                                           :completed-at completed-at})
         error      (:error reply)

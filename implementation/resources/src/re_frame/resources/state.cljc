@@ -713,6 +713,48 @@
          (or (some? (:invalidated-at entry))
              (when-let [sa (:stale-at entry)] (>= clock-ms sa))))))
 
+;; ---- shared stale / timer helpers (Spec 016 §Stale and GC scheduling) ------
+;;
+;; The cache-entry `:stale-at` derivation, the timer-delay positivity guard, and
+;; the SSR/server-frame test are read identically by the READ path
+;; (`events.cljc` — first load / refresh / poll) and the MUTATION-success path
+;; (`mutation_events.cljc` — a patched / populated entry must age exactly as a
+;; fetched one). They are pinned here so a patched entry's staleness, the timer
+;; delay guard, and the no-wall-clock-background-timers-under-SSR rule never
+;; drift between the two writers (rf2-366u0g).
+
+(defn stale-at-for
+  "Compute an entry's `:stale-at` from `loaded-at` + the resource's
+  `:stale-after-ms` policy, or nil when the resource declares no staleness
+  policy (it never goes stale on a timer). The single home both the read path
+  (first load / refresh) and the mutation-success path (patch / populate) read
+  so a patched entry ages exactly as a fetched one. Per Spec 016 §Stale and GC
+  scheduling."
+  [spec loaded-at]
+  (when-let [ms (:stale-after-ms spec)]
+    (+ loaded-at ms)))
+
+(defn positive-or-nil
+  "Return `ms` when it is a positive number, else nil (a non-positive / absent
+  policy never arms a timer). Guards a timer delay derived from an absolute
+  timestamp comparison so a clock-skewed or already-elapsed deadline yields nil
+  rather than a negative wall-clock delay. The single guard both the read path
+  and the mutation-success path arm their stale / GC / poll timers through. Per
+  Spec 016 §Stale and GC scheduling."
+  [ms]
+  (when (and (number? ms) (pos? ms)) ms))
+
+(defn server-frame?
+  "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
+  `:server`, set by the `:ssr-server` preset). Reads ONLY the FRAME's platform
+  — NOT the host-wide `active-platform` default (which is `:server` on the JVM,
+  so a JVM client-mode unit test must still arm timers). The single home both
+  the read path and the mutation-success path consult before arming a
+  wall-clock background timer. Per Spec 016 §Stale and GC scheduling (no
+  wall-clock background timers under SSR)."
+  [frame-id]
+  (= :server (:platform (frame/frame-meta frame-id))))
+
 ;; ---- per-entry revision (EP-0019 §Decision 2 / byl7bk Open Issue 5) --------
 ;;
 ;; `:revision` is the per-entry WRITE identity the optimistic-rollback settle

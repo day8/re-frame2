@@ -67,8 +67,7 @@
   The redaction is the off-box DEFAULT; the trusted-local `:include-sensitive?`
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
   switch the app-db / HTTP-body / scope-resolved redactions honour)."
-  (:require [re-frame.resources.classification :as classification]
-            [re-frame.resources.registry :as registry]
+  (:require [re-frame.resources.registry :as registry]
             [re-frame.resources.ssr :as ssr]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -97,15 +96,22 @@
     (and (redacted-token? (nth scoped-key 0)) (redacted-token? (nth scoped-key 2)))
     [scoped-key true]
 
+    ;; fail closed — owner unreadable, redact scope + params, keep the id. This
+    ;; nil-spec fail-closed-to-`:redact` (and the idempotent-token guard above)
+    ;; is the OUTER wrapper the trace-egress family keeps around the shared
+    ;; disposition+project-key pipeline (rf2-366u0g): tooling / SSR egress treat
+    ;; an unregistered owner as `:serialize` (the algebra read), but a TRACE row
+    ;; whose owner we cannot read is not provably safe.
+    (nil? (registry/resource-meta (second scoped-key)))
+    [(ssr/project-scoped-key scoped-key :redact nil) true]
+
+    ;; REGISTERED owner — the shared pipeline computes the disposition + projects
+    ;; the key exactly as the SSR durable-egress + tool-egress paths do. `:redact`
+    ;; / `:omit` redacts the scope+params; `:serialize` rides verbatim — so the
+    ;; sensitivity flag is `(not= :serialize disposition)`.
     :else
-    (let [resource-id (second scoped-key)
-          spec        (registry/resource-meta resource-id)]
-      (if (nil? spec)
-        ;; fail closed — owner unreadable, redact scope + params, keep the id
-        [(ssr/project-scoped-key scoped-key :redact nil) true]
-        (let [disposition (classification/whole-entry-disposition-for spec frame-id)]
-          [(ssr/project-scoped-key scoped-key disposition spec)
-           (not= :serialize disposition)])))))
+    (let [[projected-key disposition _spec] (ssr/disposition+project-key scoped-key frame-id)]
+      [projected-key (not= :serialize disposition)])))
 
 (def ^:private scoped-key-slot
   "Tag slots on a resource / mutation trace row that carry a SINGLE scoped-key

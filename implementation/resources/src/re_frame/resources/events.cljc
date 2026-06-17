@@ -88,34 +88,14 @@
 ;; private host-clock helper here: a handler reading the live host clock for a
 ;; freshness DECISION would be non-replayable (a replay under a later clock
 ;; could take a different branch). Passive view / SSR re-derivation reads
-;; (`subs.cljc`, `ssr.cljc`) keep their own ambient `now-ms` — those are reads,
+;; (`subs.cljc`, `ssr.cljc`) keep their own ambient clock — those are reads,
 ;; not handler decisions (EP §Restore endorses lazy on-read freshness for the
 ;; VIEW layer).
-
-(defn- stale-at-for
-  "Compute `:stale-at` from `loaded-at` + the resource's `:stale-after-ms`
-  policy, or nil when the resource declares no staleness policy (it never
-  goes stale on a timer). Per Spec 016 §Stale and GC scheduling."
-  [spec loaded-at]
-  (when-let [ms (:stale-after-ms spec)]
-    (+ loaded-at ms)))
-
-(defn- positive-or-nil
-  "Return `ms` when it is a positive number, else nil (a non-positive /
-  absent policy never arms a timer). Guards a timer delay derived from an
-  absolute timestamp comparison so a clock-skewed or already-elapsed deadline
-  yields nil rather than a negative wall-clock delay."
-  [ms]
-  (when (and (number? ms) (pos? ms)) ms))
-
-(defn- server-frame?
-  "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
-  `:server`, set by the `:ssr-server` preset). Reads ONLY the FRAME's
-  platform — NOT the host-wide `active-platform` default (which is `:server`
-  on the JVM, so a JVM client-mode unit test must still arm timers). Per Spec
-  016 §Stale and GC scheduling (no wall-clock background timers under SSR)."
-  [frame-id]
-  (= :server (:platform (frame/frame-meta frame-id))))
+;;
+;; The pure stale / timer helpers this ns reads (`stale-at-for` /
+;; `positive-or-nil` / `server-frame?`) live in `state.cljc` — shared
+;; byte-for-byte with the mutation-success path so a patched / populated entry
+;; ages exactly as a fetched one (rf2-366u0g).
 
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
@@ -700,7 +680,7 @@
         owned?     (seq (:active-owners entry))
         in-flight? (and entry (entry-revalidation-in-flight? runtime-db entry))
         ;; the resource's declared interval — the re-arm delay (cancel-then-arm)
-        interval   (positive-or-nil
+        interval   (state/positive-or-nil
                      (:poll-interval-ms (registry/resource-meta (:resource/id entry))))
         decision   (cond
                      (nil? entry)     :no-entry
@@ -736,7 +716,7 @@
                   :stale-delay-ms nil
                   :gc-delay-ms    nil
                   :poll-delay-ms  interval
-                  :server?        (server-frame? frame-id)}]))))))
+                  :server?        (state/server-frame? frame-id)}]))))))
 
 ;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
@@ -1407,27 +1387,11 @@
 ;; shape so the runtime-slice tests keep exercising the entry semantics
 ;; deterministically.
 
-(defn- reply-success-data
-  "Extract the decoded success data from a managed-HTTP success reply. The
-  transport appends `{:kind :success :value <decoded-data>}` as `http-result`
-  (arg 3); read its `:value`. Falls back to an inline `:data` on the
-  verification payload (the direct-dispatch test shape)."
-  [verification-payload http-result]
-  (if (contains? http-result :value)
-    (:value http-result)
-    (:data verification-payload)))
-
-(defn- reply-failure-error
-  "Extract the failure envelope from a managed-HTTP failure reply. The
-  transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as
-  `http-result` (arg 3); read its `:failure` (the closed `:rf.http/*`
-  failure shape, the same envelope `:error` / `:refresh-error` carry — Spec
-  016 §Status semantics). Falls back to an inline `:error` on the
-  verification payload (the direct-dispatch test shape)."
-  [verification-payload http-result]
-  (if (contains? http-result :failure)
-    (:failure http-result)
-    (:error verification-payload)))
+;; The transport-payload extractors a reply handler lifts from arg 3 live in
+;; `re-frame.resources.reply` (`transport-success-value` /
+;; `transport-failure-envelope`) — shared with the mutation write path, which
+;; differs only by the inline durable-layer fallback key (`:data` here for a
+;; resource entry, `:result` for a mutation instance — rf2-366u0g).
 
 (def ^:private http-aborted-kind
   "The managed-HTTP failure `:kind` for an intentional abort/cancellation
@@ -1468,11 +1432,12 @@
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
   transport appends `{:kind :success :value <decoded-data>}` as the last arg
   (Spec 014 §Reply addressing); the decoded data is read from there
-  (`reply-success-data`) and re-lifted into the canonical `:value`."
+  (`rreply/transport-success-value` with the `:data` durable-layer fallback)
+  and re-lifted into the canonical `:value`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
-        value      (reply-success-data payload http-result)
+        value      (rreply/transport-success-value payload http-result :data)
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps + EP-0017 declared-only delivery
         ;; (rf2-601ife): the reply is a CAUSAL TOKEN. The host completion time
@@ -1524,7 +1489,7 @@
             ;; `:stale-at` is computed from it + the resource's
             ;; `:stale-after-ms` policy — never an ambient clock read here.
             loaded-at (:completed-at reply)
-            stale-at  (stale-at-for spec loaded-at)
+            stale-at  (state/stale-at-for spec loaded-at)
             ;; arm the advisory stale / GC timers from the resource's policy
             ;; (Spec 016 §Stale and GC scheduling). The DELAYS are relative
             ;; from now (the durable absolute :stale-at / :loaded-at remain the
@@ -1532,8 +1497,8 @@
             ;; an advisory nudge). A resource declaring no :stale-after-ms /
             ;; :gc-after-ms arms neither. nil when this resource arms no timers
             ;; (no schedule-timers fx emitted).
-            stale-delay-ms (positive-or-nil (:stale-after-ms spec))
-            gc-delay-ms    (positive-or-nil (:gc-after-ms spec))
+            stale-delay-ms (state/positive-or-nil (:stale-after-ms spec))
+            gc-delay-ms    (state/positive-or-nil (:gc-after-ms spec))
             tags-fn   (:tags spec)
             ;; tags are produced from the params + decoded data; the canonical
             ;; params are the third element of the scoped key
@@ -1550,7 +1515,7 @@
             ;; tick. A resource declaring no `:poll-interval-ms` (or one whose
             ;; entry is owner-free at settle) arms no poll timer.
             poll-delay-ms (when (seq (:active-owners entry'))
-                            (positive-or-nil (:poll-interval-ms spec)))
+                            (state/positive-or-nil (:poll-interval-ms spec)))
             ;; on a successful load the tag index for this key is REPLACED
             ;; with the new tags (old tags removed); recompute is the simple,
             ;; correct way to keep both indexes consistent. The work row
@@ -1595,7 +1560,7 @@
                         :stale-delay-ms stale-delay-ms
                         :gc-delay-ms    gc-delay-ms
                         :poll-delay-ms  poll-delay-ms
-                        :server?        (server-frame? frame-id)}]]))))))
+                        :server?        (state/server-frame? frame-id)}]]))))))
 
 (defn- entry-abort-settled
   "Settle a LIVE entry whose current attempt was ABORTED (a cancellation, NOT
@@ -1640,15 +1605,15 @@
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
   transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as the
   last arg (Spec 014 §Reply addressing); the failure envelope is read from
-  there (`reply-failure-error`) and re-lifted into the canonical reply map
-  (`rreply/failure-reply` — `:status :error` with the envelope under
+  there (`rreply/transport-failure-envelope`) and re-lifted into the canonical
+  reply map (`rreply/failure-reply` — `:status :error` with the envelope under
   `:error`, or `:status :cancelled` for an `:rf.http/aborted` envelope; per
   Managed-Effects §Status taxonomy / EP-0011 §Resource Reply And Work
   Ledger)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
-        error      (reply-failure-error payload http-result)
+        error      (rreply/transport-failure-envelope payload http-result)
         ;; EP-0017 declared-only delivery + EP-0010 §Managed Effects And Reply
         ;; Tokens (rf2-rl27r2): a FAILED / CANCELLED completion is still a
         ;; managed-async completion with a reply token, so its causal completion
@@ -1947,7 +1912,7 @@
             ;; resource's own :gc-after-ms (positive-guarded — a resource with
             ;; no GC policy never armed one, so it never reaches this branch).
             gc-delay (when (not= :no-entry reason)
-                       (positive-or-nil (:gc-after-ms (registry/resource-meta (:resource/id entry)))))]
+                       (state/positive-or-nil (:gc-after-ms (registry/resource-meta (:resource/id entry)))))]
         (trace/emit! :rf.event :rf.resource/gc-skipped
                      {:rf.frame/id frame-id :resource/key resource-key
                       :reason reason
@@ -1961,7 +1926,7 @@
                         ;; nil disarms that kind in schedule-timers-handler)
                         :stale-delay-ms nil
                         :gc-delay-ms    gc-delay
-                        :server?        (server-frame? frame-id)}]]))))))
+                        :server?        (state/server-frame? frame-id)}]]))))))
 
 (defn stale-suppressed-handler
   "`:rf.resource.internal/stale-suppressed` — a late reply carrying a
