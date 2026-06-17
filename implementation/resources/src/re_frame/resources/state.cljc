@@ -1245,6 +1245,55 @@
     (fn? page->items)      page->items
     :else                  nil))
 
+(defn merge-pages->items
+  "PURE infinite-feed MERGE projection (EP-0021 R3): flatten the accumulated
+  page vector `pages` into the single merged item list — the headline
+  `:rf.resource/items` read. The flatten rule is LOUD, not magic:
+
+    - a page that is ALREADY A VECTOR flattens by identity (its elements ARE
+      the items — no accessor needed);
+    - a page that is non-vector / enveloped (e.g. `{:items […] :page-info …}`)
+      flattens via the resource's REQUIRED `:page->items` accessor;
+    - a non-vector page with NO `:page->items` accessor is a loud
+      `:rf.error/infinite-missing-page-accessor` error — the runtime-detected
+      counterpart the wave-2 registry validation deferred to this merge site
+      (the registry cannot inspect a page shape at registration time; only the
+      merge sees a concrete page). The framework NEVER guesses `:items` /
+      `:data`.
+
+  `resolved-accessor` is the already-resolved `:page->items` fn (via
+  `resolve-page->items`) or nil. `resource-id` / `where` name the offending
+  feed + the public sub surface for the error diagnostic. Returns a VECTOR of
+  the concatenated items (`(into [] (mapcat …) pages)`); an empty / nil page
+  vector yields `[]`. Per Spec 016 §Subscription contract — the merged list
+  and page metadata (R3)."
+  [pages resolved-accessor resource-id where]
+  (into []
+        (mapcat
+          (fn [page]
+            (cond
+              ;; an already-vector page IS its items (identity flatten)
+              (vector? page)         page
+              ;; a declared accessor lifts a non-vector / enveloped page
+              (some? resolved-accessor) (resolved-accessor page)
+              ;; loud over guessing (R3): a non-vector page + no accessor
+              :else
+              (error/throw-error!
+                :rf.error/infinite-missing-page-accessor
+                where
+                (str "infinite resource " resource-id " accumulated a non-vector "
+                     "page but declares no :page->items accessor — the merged "
+                     ":rf.resource/items list cannot flatten it. Declare "
+                     ":page->items (a keyword key or a (fn [page] → items)) on the "
+                     "reg-resource; the framework does NOT guess :items / :data. "
+                     "Per Spec 016 §Subscription contract (R3).")
+                {:recovery :fix-registration
+                 :extra    {:resource-id resource-id
+                            :page-shape  (cond (map? page) :map
+                                               (seq? page) :seq
+                                               :else       (type page))}}))))
+        (or pages [])))
+
 ;; ---- reverse-index recompute (Spec 016 §Restore and replay part 5) --------
 ;;
 ;; `:tag-index` and `:owner-index` are DERIVED projections of the entries'

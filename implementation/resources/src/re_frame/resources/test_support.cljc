@@ -74,6 +74,11 @@
   ;; host-side transient dev state; clearing it lets each test observe the
   ;; one-shot warning freshly without a prior test's emission masking it.
   (subs/reset-scope-mismatch-warnings!)
+  ;; and the framework-owned `:rf.resource/items` merge memo (EP-0021 R3) —
+  ;; host-side transient derivation cache (the infinite-feed merged-list
+  ;; projection), not runtime-db; cleared so a prior test's feed merge cannot
+  ;; be served for a later test's `=`-equal page vector.
+  (subs/reset-merge-memo!)
   ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set
   ;; (rf2-byl7bk.4) — the mutation-settlement complement of the sub-side
   ;; warning; likewise host-side transient dev state, cleared so each test

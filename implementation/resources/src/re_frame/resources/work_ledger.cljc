@@ -217,22 +217,39 @@
   - `:cause`       — the initiating cause (nil-safe; folded into `:causes`)
   - `:cancellable?`— best-effort cancel hint (default true)
   - `:started-at`  — epoch-ms
-  - `:deadline-at` — epoch-ms or nil"
+  - `:deadline-at` — epoch-ms or nil
+  - `:page-index`  — EP-0021 R1/R2: the 0-based PAGE the attempt is fetching for
+                     an INFINITE feed (the durable \"page-fetch work evidence\"
+                     R1 names). A page-0 fetch (a first ensure / a
+                     window-preserving refetch's replacement page) is `0`; a
+                     `:rf.resource/load-more` APPEND is the positive index past
+                     the accumulated tail. Absent (nil) for an ordinary
+                     (non-infinite) resource / mutation attempt. The
+                     `:rf.resource/fetching-next?` sub reads it to distinguish a
+                     load-more in flight (positive index) from a whole-feed
+                     `:fetching?` refresh (page-0). Plain EDN — it rides SSR /
+                     restore with the rest of the row."
   [{:keys [work-id frame-id generation transport
-           owner cause cancellable? started-at deadline-at]
+           owner cause cancellable? started-at deadline-at page-index]
     resource-key :resource/key}]
-  {:work/id      work-id
-   :work/kind    work-kind-resource
-   :work/frame   frame-id
-   :resource/key resource-key
-   :generation   generation
-   :transport    transport
-   :status       :running
-   :owners       (if owner #{owner} #{})
-   :causes       (if cause [cause] [])
-   :cancellable? (if (some? cancellable?) cancellable? true)
-   :started-at   started-at
-   :deadline-at  deadline-at})
+  (cond-> {:work/id      work-id
+           :work/kind    work-kind-resource
+           :work/frame   frame-id
+           :resource/key resource-key
+           :generation   generation
+           :transport    transport
+           :status       :running
+           :owners       (if owner #{owner} #{})
+           :causes       (if cause [cause] [])
+           :cancellable? (if (some? cancellable?) cancellable? true)
+           :started-at   started-at
+           :deadline-at  deadline-at}
+    ;; EP-0021 — record the page index for an infinite-feed page fetch so
+    ;; `:fetching-next?` is derivable from the durable row (a load-more =
+    ;; a positive index; a page-0 fetch / refetch = 0). Omitted entirely for
+    ;; a non-infinite attempt (page-index nil) — the row shape is unchanged
+    ;; for every ordinary resource / mutation.
+    (some? page-index) (assoc :page-index page-index)))
 
 ;; ---- durable reply-target (rf2-6kdcs9) ------------------------------------
 ;;
