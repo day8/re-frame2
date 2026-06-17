@@ -773,17 +773,39 @@
   raw-tape convenience that projects then delegates here.
 
   `epoch-tape` is still needed for the `:outcome` check (a per-epoch slot,
-  not one of the projected vectors); `violations` / `effects` are the
-  projected `schema-violations` / `effects` outputs; `consumed-selectors`
-  is the set of violation selectors the run's `:rf.assert/schema-error`
-  expectations exactly consumed (subtracted from the violation signal so an
-  EXPECTED schema failure does not trip the floor)."
-  [epoch-tape violations effects consumed-selectors]
-  (let [unconsumed (remove #(contains? consumed-selectors (:selector %)) violations)]
-    (boolean
-      (or (seq unconsumed)
-          (some failed-outcome? epoch-tape)
-          (some error-effect? effects)))))
+  not one of the projected vectors); `effects` are the projected `effects`
+  output.
+
+  TWO schema-consumption modes (spec/017 §Schema rule step 4 requires EXACT
+  MULTISET consumption — any violation left UNCONSUMED fails the run):
+
+  - 4-arity `[epoch-tape violations effects consumed-selectors]` — the
+    convenience SET path. `violations` is the full projected
+    `schema-violations` vector; `consumed-selectors` is a SET of selectors to
+    excuse. This collapses duplicate selectors (a selector in the set excuses
+    EVERY same-selector violation), so it is only correct when at most one
+    violation exists per selector OR every same-selector violation is
+    expected. `tape-shows-failure?` delegates here for the public set-keyed
+    API.
+
+  - 5-arity `[epoch-tape unconsumed-violations effects _ :unconsumed]` — the
+    MULTISET path. The caller passes the matcher's already-computed
+    `:unconsumed` violation vector (`result/match-schema-expectations`, an
+    EXACT multiset pairing: N expectations of a selector consume exactly N of
+    that selector's violations). The floor's schema signal is simply
+    `(seq unconsumed-violations)` — no set-subtraction, so N>1 same-selector
+    violations partially consumed by M<N expectations correctly leave (N−M)
+    unconsumed and trip the floor. The `run-result` assembly uses this path
+    so a partially-consumed schema violation is NOT falsely excused
+    (rf2-5mrnwx)."
+  ([epoch-tape violations effects consumed-selectors]
+   (let [unconsumed (remove #(contains? consumed-selectors (:selector %)) violations)]
+     (evidence-shows-failure? epoch-tape unconsumed effects nil :unconsumed)))
+  ([epoch-tape unconsumed-violations effects _ _unconsumed-marker]
+   (boolean
+     (or (seq unconsumed-violations)
+         (some failed-outcome? epoch-tape)
+         (some error-effect? effects)))))
 
 (defn tape-shows-failure?
   "True iff the retained `epoch-tape` carries evidence that the run did NOT

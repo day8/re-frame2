@@ -738,8 +738,28 @@
         ;; + effects `project-evidence` already derived, not a re-walk of the
         ;; raw tape (the tape is still needed for the per-epoch `:outcome`
         ;; signal). One tape, one projection.
+        ;;
+        ;; The schema-violation floor signal is the matcher's MULTISET
+        ;; `:unconsumed` (the EXACT pairing: N expectations of a selector
+        ;; consume exactly N same-selector violations) — NOT a set-subtraction
+        ;; over `consumed-selectors`. A set collapses duplicate selectors, so
+        ;; M<N expectations of a selector with N violations would falsely
+        ;; excuse ALL N — a partially-consumed schema violation reading green
+        ;; (rf2-5mrnwx false-green). Threading the matcher's already-correct
+        ;; `:unconsumed` (pinned by result_test, pair-expectations) reuses the
+        ;; verified pairing rather than re-deriving, so the floor trips on the
+        ;; (N−M) genuinely-unconsumed violations.
+        ;;
+        ;; The caller-supplied `consumed-selectors` escape hatch still excuses
+        ;; its selectors from the floor: those are pre-computed excuses that
+        ;; never went through the matcher, so they are subtracted (set-keyed,
+        ;; as documented) from the matcher's multiset `:unconsumed`. The UNION
+        ;; surfaced as the result's `:consumed-selectors` is unchanged.
+        unconsumed     (cond->> (:unconsumed schema-match)
+                         (seq consumed-selectors)
+                         (remove #(contains? consumed-selectors (:selector %))))
         tape-red?      (evidence/evidence-shows-failure?
-                         tape violations (:effects evidence-slots) consumed)
+                         tape unconsumed (:effects evidence-slots) nil :unconsumed)
         ;; The agreement floor escalates ONLY a would-be pass — a real
         ;; :fail / :error / :cannot-run already outranks it (the floor never
         ;; downgrades a higher verdict).

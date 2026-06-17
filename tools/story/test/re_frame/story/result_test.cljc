@@ -310,6 +310,36 @@
                [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
       (is (= :fail (:status r)))))
 
+  (testing "rf2-5mrnwx — TWO same-selector violations PARTIALLY consumed by ONE
+            expectation FAILS the run (the floor reads the matcher's MULTISET
+            :unconsumed, not a set-subtraction that would falsely excuse both)"
+    ;; The exact false-green repro from the bead: 2× :event :x schema
+    ;; violations + 1× [:rf.assert/schema-error {:where :event :event :x}]
+    ;; expectation. The set-keyed floor dropped BOTH violations (selector held
+    ;; once) and reported :pass; the multiset floor leaves the 2nd unconsumed.
+    (let [r (result/run-result
+              {:epoch-tape [(schema-epoch :event :x) (schema-epoch :event :x)]
+               :schema-expectations
+               [[:rf.assert/schema-error {:where :event :event :x}]]})]
+      (is (= :fail (:status r))
+          "one of two same-selector violations is UNCONSUMED → the floor fails the run")
+      (is (= 2 (count (:schema-violations r))) "both violations stay projected")
+      ;; the single expectation still PASSES its own assertion (it consumed one
+      ;; violation); it is the floor — not the assertion — that fails the run.
+      (is (= :pass (:status (first (filter #(= :rf.assert/schema-error (:assertion %))
+                                           (:assertions r)))))
+          "the matched expectation's record is :pass; the floor escalates the run")))
+
+  (testing "rf2-5mrnwx — TWO same-selector violations FULLY consumed by TWO
+            expectations PASSES (multiset balance: N expectations, N violations)"
+    (let [r (result/run-result
+              {:epoch-tape [(schema-epoch :event :x) (schema-epoch :event :x)]
+               :schema-expectations
+               [[:rf.assert/schema-error {:where :event :event :x}]
+                [:rf.assert/schema-error {:where :event :event :x}]]})]
+      (is (= :pass (:status r))
+          "both violations exactly consumed → the floor does not trip")))
+
   (testing "final app-db ROLLBACK does not hide the violation — the tape retains
             it even when the epoch outcome is :ok and app-db is clean"
     (let [tape [(epoch {:db-after {:clean true}        ; rolled-back, acceptable db
