@@ -19,8 +19,7 @@
   fresh registrar. The `:rf.test/simulate-http-resolution` fixture event
   (`re-frame.routing.test-support`) and `re-frame.ssr`'s ns-load
   registrations are re-seated the same way."
-  (:require [clojure.string :as str]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
@@ -117,12 +116,3 @@
                      {:reason :stub-explainer :value value}))]
     (schemas/set-schema-fns! {:validate validate :explain explain})
     (fn [] (schemas/restore-schema-fns! snap))))
-
-(defn over-cap-url
-  "Build a `/search?...` URL one unique query-key OVER
-  `routing/default-max-decoded-keys` — the smallest URL that trips the
-  keyword-interning DoS guard's throw (rf2-3k3o7 / rf2-6t1xb)."
-  []
-  (let [n (inc routing/default-max-decoded-keys)
-        q (str/join "&" (map #(str "k" % "=v") (range n)))]
-    (str "/search?" q)))

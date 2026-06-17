@@ -7,11 +7,8 @@
   from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.routing :as routing]
-            [re-frame.routing.egress :as egress]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]
-            [re-frame.routing.registry :as registry]))
+            [re-frame.routing-test-support :as rts]))
 
 (use-fixtures :each rts/reset-runtime)
 
@@ -652,90 +649,6 @@
     (is (= :idle (get-in (rf/runtime-db-value :rf/default)
                          [:rf.runtime/routing :current :transition]))
         "route with no :on-match — transition stays :idle")))
-
-(deftest url-change-over-cap-url-fails-closed-not-found
-  (testing "rf2-6t1xb: an over-cap URL arriving via `:rf.route/transitioned`
-            routes to :rf.route/not-found with `:reason :too-many-keys`
-            and does NOT throw out of the event drain"
-    (rf/reg-route :route/search {:path "/search"})
-    (rf/reg-route :rf.route/not-found {:path "/404"})
-    (let [pushed (atom [])
-          url    (rts/over-cap-url)]
-      (rf/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ u] (swap! pushed conj u)))
-      ;; The whole point: this dispatch must NOT throw out of the drain.
-      (is (= ::ok
-             (try (rf/dispatch-sync [:rf.route/transitioned url]) ::ok
-                  (catch Throwable _ ::threw)))
-          "the over-cap URL drains cleanly — no throw escapes the handler
-           (pre-fix this propagated :rf.error/route-too-many-keys)")
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:route-id slice))
-            "over-cap URL fails closed to :rf.route/not-found")
-        (is (= url (:url (:params slice)))
-            ":params carries the REQUESTED (over-cap) url — preserved per rf2-0zr2o")
-        (is (= :too-many-keys (:reason (:params slice)))
-            ":reason :too-many-keys discriminates the DoS-cap miss from a
-             bare miss / :malformed-url / :validation"))
-      ;; URL-driven path emits no push (URL already changed via popstate).
-      (is (empty? @pushed)
-          "URL-driven not-found emits no push — address bar already shows
-           the requested url (unchanged from the bare-miss path)"))))
-
-(deftest navigate-url-form-over-cap-url-fails-closed-not-found
-  (testing "rf2-6t1xb: an over-cap `{:url ...}` target via
-            `:rf.route/navigate` routes to :rf.route/not-found with
-            `:reason :too-many-keys`, pushes the REQUESTED url verbatim
-            (rf2-0zr2o parity), and does NOT throw out of the drain"
-    (rf/reg-route :route/search {:path "/search"})
-    (rf/reg-route :rf.route/not-found {:path "/404"})
-    (let [pushed (atom [])
-          traces (atom [])
-          url    (rts/over-cap-url)]
-      (rf/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ u] (swap! pushed conj u)))
-      (rf/register-listener! ::navigate-over-cap-trace
-                             (fn [ev] (swap! traces conj ev)))
-      (is (= ::ok
-             (try (rf/dispatch-sync [:rf.route/navigate {:url url}]) ::ok
-                  (catch Throwable _ ::threw)))
-          "the over-cap {:url ...} target drains cleanly — no throw escapes
-           (pre-fix this propagated :rf.error/route-too-many-keys)")
-      (rf/unregister-listener! ::navigate-over-cap-trace)
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:route-id slice))
-            "over-cap URL-string target fails closed to :rf.route/not-found")
-        (is (= url (:url (:params slice)))
-            ":params carries the REQUESTED (over-cap) url — preserved per rf2-0zr2o")
-        (is (= :too-many-keys (:reason (:params slice)))
-            ":reason :too-many-keys discriminates the DoS-cap miss")
-        (is (some? (:nav-token slice))
-            "a fresh nav-token is allocated for the not-found navigation"))
-      (is (= [url] @pushed)
-          ":rf.nav/push-url pushed the REQUESTED (over-cap) url VERBATIM —
-           NOT the not-found route's /404 (rf2-0zr2o address-bar parity)")
-      ;; rf2-2zyvj: the SAME hostile-URL signal the URL-driven path emits
-      ;; (`:rf.route/transitioned` over-cap → :rf.warning/malformed-url) MUST also fire on
-      ;; the programmatic `{:url ...}` fail-closed path, or the over-cap
-      ;; navigate attack is invisible to the security dashboards / SSR
-      ;; error-projections the DoS cap feeds (spec/012 §Keyword-interning
-      ;; cap). Assert the TRACE — not just the slice `:reason` — so the
-      ;; telemetry-symmetry gap with url_change regression-trips.
-      ;; EP-0015 (rf2-n1f4rh): the trace's `:url` is now egress-PROJECTED —
-      ;; the query KEYS (the DoS-cap signal the dashboard needs) are preserved
-      ;; while the carrier VALUES are redacted. The slice/push above keep the
-      ;; RAW url (in-process); only this off-box trace slot is scrubbed.
-      (is (some (fn [ev]
-                  (and (= :rf.warning/malformed-url (:operation ev))
-                       (= (egress/redact-url-carriers url) (-> ev :tags :url))
-                       (= :too-many-keys (-> ev :tags :reason))))
-                @traces)
-          ":rf.warning/malformed-url trace fires on the navigate fail-closed
-           over-cap path, carrying the egress-projected URL (keys kept, values
-           redacted) + :reason :too-many-keys — symmetric with the URL-driven
-           path (url_change.cljc) and EP-0015-projected (rf2-n1f4rh)"))))
 
 ;; ---- T6: :on-match dispatches AND :transition :loading observable ----
 

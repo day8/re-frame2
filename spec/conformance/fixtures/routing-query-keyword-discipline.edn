@@ -20,8 +20,12 @@
 ;;      gate the string->keyword intern.
 ;;
 ;; Together these close the "burn permanent JVM keyword slots from
-;; user-controlled URLs" surface -- the symmetric guarantee `:rf.http`
-;; gives via `:rf.http/max-decoded-keys` (rf2-wu1n5).
+;; user-controlled URLs" surface AT THE SOURCE: a hostile URL of N-unique
+;; undeclared keys interns zero keywords, so the routing side needs no
+;; per-URL key cap (rf2-x0ngkv removed the redundant `default-max-decoded-
+;; keys` ceiling). This differs from `:rf.http`, which genuinely
+;; keywordizes JSON object keys against a schema and so carries an
+;; explicit `:rf.http/max-decoded-keys` cap (rf2-wu1n5).
 
 {:fixture/id           :routing/query-keyword-discipline
  :fixture/spec-version "1.0"

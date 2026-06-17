@@ -8,7 +8,6 @@
     - `reg-route` / `clear-route` (registry mutation);
     - `match-url` (URL → slice) and `route-url` (slice → URL);
     - query-coercion / fragment-decode / param-validation helpers;
-    - `default-max-decoded-keys` keyword-interning DoS guard;
     - `reset-counters!` test-time helper.
 
   Internal namespace; the public facade is `re-frame.routing` —
@@ -298,23 +297,6 @@
   nil)
 
 ;; ---- match + coerce ------------------------------------------------------
-
-(def ^:const default-max-decoded-keys
-  "Default cap on the number of unique query-string keys a single URL
-  may carry through `match-url`. Per rf2-3k3o7 — a defensive ceiling
-  against the keyword-interning DoS surface on long-running JVMs,
-  symmetric with `:rf.http/max-decoded-keys` (rf2-wu1n5). JVM keywords
-  intern into a process-global, never-GC'd table; a hostile partner
-  URL stream with N-unique query keys per request burns N permanent
-  slots. 10000 is generous enough not to false-positive on legitimate
-  large URLs, finite enough to bound an attacker-controlled payload.
-
-  This is a single global constant. The cap is enforced inside
-  `match-url`'s query-parse, which runs route-agnostically (the raw
-  query map is built once, before any route is matched), so there is no
-  per-route override hook — Spec 012 §Keyword-interning cap names only
-  the global `default-max-decoded-keys`."
-  10000)
 
 (def ^:private coercible-scalar-type-forms
   "The bare Malli scalar type keywords `coerce-by-type-form` knows how
@@ -643,9 +625,10 @@
   `:query-retain` are promoted to keyword keys; unknown keys retain
   their **string** form. The route's declared vocabulary defines the
   keyword universe; the framework refuses to extend the process-global
-  keyword table on behalf of URL keys the route did not name. The cap
-  on `default-max-decoded-keys` is a second-line defence that bounds
-  the raw-query map size before this fn even sees it.
+  keyword table on behalf of URL keys the route did not name. This
+  selective keywording IS the keyword-interning DoS closure — a hostile
+  URL of N-unique undeclared keys interns ZERO keywords, so no
+  raw-query-size cap is needed (rf2-x0ngkv).
 
   A route declaring NO vocabulary keeps EVERY URL key as a string
   (rf2-5ifai) — the value-side rf2-3k3o7 enum gate's key-side mirror:
@@ -845,23 +828,12 @@
     (when-not (= ::malformed-fragment fragment)
       (let [[path0 query-str] (clojure.string/split url-no-frag #"\?" 2)
             path              (normalize-match-path path0)
-            ;; rf2-3k3o7: parse query as a **string-keyed** raw map and
-            ;; enforce a per-URL cap on the number of unique keys. The cap
-            ;; defends against the same accident-class as rf2-wu1n5 (unbounded
-            ;; JVM keyword-table growth on long-running SSR processes
-            ;; consuming attacker-influenced URL streams). Overflow throws
-            ;; `:rf.error/route-too-many-keys` with `:limit` ex-data so the
-            ;; caller can route the failure. rf2-6t1xb: the nav entry points
-            ;; (`url-change-fx`, `navigate`) wrap match-url in
-            ;; `match-url-fail-closed`, which catches this throw and treats
-            ;; the URL as a route-miss → `:rf.route/not-found` with
-            ;; `:reason :too-many-keys` (the fail-closed contract). Direct
-            ;; `match-url` callers still see the throw.
-            ;;
-            ;; Note: the cap counts unique decoded query keys, not raw pair
-            ;; count. Repeated keys keep last-wins semantics and do not trip
-            ;; the DoS guard unless the unique-key set itself exceeds the
-            ;; configured ceiling.
+            ;; rf2-3k3o7: parse query as a **string-keyed** raw map. The
+            ;; keyword-interning DoS is closed downstream by `coerce-query`,
+            ;; which promotes ONLY the route's declared query vocabulary to
+            ;; keyword keys and passes undeclared keys through as strings —
+            ;; a hostile URL of N-unique undeclared keys interns ZERO
+            ;; keywords. No raw-query-size cap is needed (rf2-x0ngkv).
             raw-query-delayed
             (delay
               (when query-str
@@ -873,10 +845,9 @@
                       ;; splits to an empty `""` token; decoding it would
                       ;; inject a spurious `{"" ""}` key into the slice's
                       ;; :query — junk that breaks identical-route-target?
-                      ;; no-op detection, counts toward the keyword-interning
-                      ;; cap, and never round-trips through route-url. Per
-                      ;; Spec 012 §Query strings and fragments §`+` is a
-                      ;; literal (rf2-9a9ix finding 2).
+                      ;; no-op detection and never round-trips through
+                      ;; route-url. Per Spec 012 §Query strings and fragments
+                      ;; §`+` is a literal (rf2-9a9ix finding 2).
                       (if (clojure.string/blank? pair)
                         acc
                         (let [[k v] (clojure.string/split pair #"=" 2)
@@ -893,16 +864,7 @@
                               vstr  (if v (url/safe-url-decode v) "")]
                           (if (or (nil? kstr) (nil? vstr))
                             (reduced ::malformed-query)
-                            (let [acc' (assoc acc kstr vstr)]
-                              (when (> (count acc') default-max-decoded-keys)
-                                (throw (route-error
-                                         :rf.error/route-too-many-keys
-                                         'rf/match-url
-                                         (str "the query string exceeded the per-call unique-key cap (" default-max-decoded-keys ") — a keyword-interning DoS guard; the URL is treated as a route-miss")
-                                         {:url   url
-                                          :limit default-max-decoded-keys
-                                          :count (count acc')})))
-                              acc')))))
+                            (assoc acc kstr vstr)))))
                     (array-map)
                     pairs))))]
         ;; Iterate the pre-sorted table; the first pattern that matches is
@@ -1005,27 +967,17 @@
   programmatic nav entry points (`url-change-fx`, `navigate`). Returns
   `{:match <match-or-nil> :throw-reason <keyword-or-nil>}`.
 
-  `match-url` itself THROWS on the `:rf.error/route-too-many-keys`
-  keyword-interning DoS guard (rf2-3k3o7): a URL whose unique decoded
-  query-key count exceeds `default-max-decoded-keys`. The guard's intent
-  (registry.cljc §default-max-decoded-keys, the inline comment at the
-  throw site) is that such a URL `is treated as a route-miss` — a clean
-  fail-closed to `:rf.route/not-found`, NOT a crash. But the throw, left
-  unhandled at the nav entry points, escapes the event handler and
-  CRASHES the event drain (rf2-6t1xb) — converting a memory-pressure DoS
-  into a worse drain-crash DoS.
-
-  This wrapper catches the throw (and, defensively, ANY throw out of
-  `match-url`) and turns it into a NIL match plus a `:throw-reason`
-  discriminator, so the caller routes to `:rf.route/not-found` exactly
-  as it does for a bare miss — the fail-closed path the guard promises.
+  A generic navigation-resilience guard: any unexpected throw out of
+  `match-url` must not escape the nav event handler and crash the event
+  drain (rf2-6t1xb). This wrapper catches ANY throw, turns it into a NIL
+  match plus a `:throw-reason` discriminator, and lets the caller route
+  to `:rf.route/not-found` exactly as it does for a bare miss.
   `:throw-reason` becomes the `:reason` slot on the not-found slice's
   `:params` (alongside the existing `:malformed-url` / `:validation`
   discriminators), so per-route error UIs and SSR projections can branch
   on the cause:
 
-   - `:too-many-keys`  — the `:rf.error/route-too-many-keys` cap throw;
-   - `:match-error`    — any other (unexpected) throw out of match-url.
+   - `:match-error`    — any unexpected throw out of match-url.
 
   Note: malformed %-encoding does NOT throw — `match-url` already fails
   it closed to nil (`malformed-url?` then discriminates `:reason
@@ -1033,12 +985,9 @@
   [url]
   (try
     {:match (match-url url) :throw-reason nil}
-    (catch #?(:clj Throwable :cljs :default) ex
+    (catch #?(:clj Throwable :cljs :default) _ex
       {:match        nil
-       :throw-reason (if (= :rf.error/route-too-many-keys
-                            (:rf.error/id (ex-data ex)))
-                       :too-many-keys
-                       :match-error)})))
+       :throw-reason :match-error})))
 
 ;; ---- route-url param-segment emission ------------------------------------
 ;; `route-url`'s pattern walk hits a `:name` / `*name` segment in two

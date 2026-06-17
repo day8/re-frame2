@@ -50,7 +50,7 @@
   (testing "a bare stringified :rf.error/… keyword is flagged (the OLD shape)"
     (is (true? (error/keyword-only-message? ":rf.error/no-adapter-installed")))
     (is (true? (error/keyword-only-message? ":rf.error/flow-bad-id")))
-    (is (true? (error/keyword-only-message? ":rf.error/route-too-many-keys"))))
+    (is (true? (error/keyword-only-message? ":rf.error/route-url-validation"))))
   (testing "a human sentence carrying the token is NOT flagged (the NEW shape)"
     (is (false? (error/keyword-only-message?
                   "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot. [:rf.error/no-adapter-installed]")))
@@ -184,11 +184,11 @@
   ;; routing.registry route-error — the routing exemplar. Build directly
   ;; (route-error is the canonical helper every routing throw routes through).
   (let [e (routing-registry/route-error
-            :rf.error/route-too-many-keys
-            'rf/match-url
-            "the decoded URL declared more keys than the interning cap allows"
+            :rf.error/route-url-validation
+            'rf/route-url
+            "the route slice failed the route's declared :params / :query schema"
             {:limit 64 :count 99})]
-    (is (= :rf.error/route-too-many-keys (:rf.error/id (ex-data e))))
+    (is (= :rf.error/route-url-validation (:rf.error/id (ex-data e))))
     (is (= 64 (:limit (ex-data e))) "per-site :extras slots merge on top")
     (is (not (error/keyword-only-message? (ex-message e)))
         "route-error message is NOT a bare keyword (rule 1)")

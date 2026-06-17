@@ -87,7 +87,6 @@
 (def route-url                  registry/route-url)
 (def malformed-url?             registry/malformed-url?)
 (def reset-counters!            registry/reset-counters!)
-(def default-max-decoded-keys   registry/default-max-decoded-keys)
 
 ;; Scroll (rf2-1hncp2: host-side transient cache, not runtime-db)
 (def scroll-positions-cap       scroll/scroll-positions-cap)

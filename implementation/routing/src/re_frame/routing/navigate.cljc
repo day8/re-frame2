@@ -188,14 +188,13 @@
              :external-url-target? true}
 
             (and (map? target) (:url target))
-            ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
-            ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7). Left
-            ;; unhandled here the throw escapes the `:rf.route/navigate`
-            ;; handler and CRASHES the event drain. `match-url-fail-closed`
-            ;; catches it (and any other match-url throw) → NIL match +
-            ;; `:throw-reason`, so an over-capped `{:url ...}` target fails
-            ;; closed to `:rf.route/not-found` — the same fail-closed path
-            ;; as a bare miss, mirroring the URL-driven entry point.
+            ;; rf2-6t1xb: any unexpected throw out of `match-url`, left
+            ;; unhandled here, escapes the `:rf.route/navigate` handler and
+            ;; CRASHES the event drain. `match-url-fail-closed` catches it
+            ;; → NIL match + `:throw-reason` (`:match-error`), so a throwing
+            ;; `{:url ...}` target fails closed to `:rf.route/not-found` —
+            ;; the same fail-closed path as a bare miss, mirroring the
+            ;; URL-driven entry point.
             (let [{:keys [match throw-reason]}
                   (registry/match-url-fail-closed (:url target))]
               ;; Spec 012 §Target form — URL-string (escape hatch): an
@@ -211,8 +210,8 @@
               ;;
               ;; rf2-6t1xb: on a throw (or any miss) `:params` carries the
               ;; requested url; a throw also stamps the `:reason`
-              ;; discriminator (`:too-many-keys` / `:match-error`),
-              ;; uniform with the URL-driven not-found slice.
+              ;; discriminator (`:match-error`), uniform with the URL-driven
+              ;; not-found slice.
               {:route-id         (or (:route-id match) :rf.route/not-found)
                ;; rf2-u8qe7y: the not-found fallback `:params` shape +
                ;; `:reason` vocabulary is shared with the URL-driven path
@@ -229,9 +228,9 @@
                ;; requested URL out of this `{:url ...}` branch so the
                ;; commit body below can emit `:rf.warning/malformed-url`,
                ;; symmetric with the URL-driven path (url_change.cljc:190).
-               ;; Without this the over-cap / match-error navigate target
-               ;; fails closed SILENTLY — invisible to the security
-               ;; dashboards / SSR projections the DoS cap feeds.
+               ;; Without this the match-error navigate target fails closed
+               ;; SILENTLY — invisible to the security dashboards / SSR
+               ;; projections.
                :throw-reason     throw-reason
                :requested-url    (:url target)}))
           ;; rf2-zmcq6 / rf2-u8qe7y: normalize an explicit empty-string
@@ -462,21 +461,19 @@
                                      :url              url})]
               ;; rf2-2zyvj / rf2-u8qe7y: the fail-closed warning telemetry is
               ;; shared pre-commit policy with the URL-driven path
-              ;; (`plan/fallback-telemetry-intents`). A `match-url` THROW on
-              ;; the `{:url ...}` target form (the DoS-cap `:too-many-keys`,
-              ;; rf2-3k3o7, or a `:match-error`) surfaces
-              ;; `:rf.warning/malformed-url`; an unmatched URL-string target
-              ;; that resolved to `:rf.route/not-found` with no such route
-              ;; registered surfaces `:rf.warning/no-not-found-route`
+              ;; (`plan/fallback-telemetry-intents`). An unexpected `match-url`
+              ;; THROW on the `{:url ...}` target form (`:match-error`)
+              ;; surfaces `:rf.warning/malformed-url`; an unmatched URL-string
+              ;; target that resolved to `:rf.route/not-found` with no such
+              ;; route registered surfaces `:rf.warning/no-not-found-route`
               ;; (rf2-0zr2o). Both entry points build the SAME intent list,
-              ;; so the over-cap attack is visible regardless of WHICH of the
-              ;; three nav events the hostile URL arrived on — before the seam
-              ;; the programmatic path once failed closed SILENTLY. The
-              ;; navigate path has no `:malformed?` branch (`match-url-fail-
-              ;; closed` only THROWS for the `{:url}` form — no %-decode scan),
-              ;; so it passes `:malformed? false`. `requested-url` equals
-              ;; `unmatched-url` when both are present (both derive from
-              ;; `(:url target)`).
+              ;; so a throwing URL is visible regardless of WHICH of the three
+              ;; nav events it arrived on — before the seam the programmatic
+              ;; path once failed closed SILENTLY. The navigate path has no
+              ;; `:malformed?` branch (`match-url-fail-closed` only THROWS for
+              ;; the `{:url}` form — no %-decode scan), so it passes
+              ;; `:malformed? false`. `requested-url` equals `unmatched-url`
+              ;; when both are present (both derive from `(:url target)`).
               (plan/emit-intents!
                 (plan/fallback-telemetry-intents
                   {:throw-reason  throw-reason

@@ -294,7 +294,6 @@
   {:namespace "re-frame.routing", :var "clear-route", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "counter-snapshot", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "current-url", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.routing", :var "default-max-decoded-keys", :tier :implementation, :kind :var, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "frame-scroll-cache", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "lookup-scroll-position", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "malformed-url?", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
