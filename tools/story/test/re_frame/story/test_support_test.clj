@@ -220,7 +220,9 @@
             (reset! restores the default; it does not simulate a runtime
             reveal → redact narrowing)."
     (let [fired (atom 0)]
-      (config/register-toggle-off-callback! ::probe #(swap! fired inc))
+      ;; rf2-6z4znr — toggle-off callbacks now take the narrowed frame-id
+      ;; (nil on a session-pin narrow).
+      (config/register-toggle-off-callback! ::probe (fn [_frame-id] (swap! fired inc)))
       ;; widen to raw via the public surface, then reset-all!
       (config/set-egress-profile! :rf.egress/local-raw)
       (config/reset-all!)

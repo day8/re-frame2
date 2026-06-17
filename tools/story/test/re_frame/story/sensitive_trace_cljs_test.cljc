@@ -39,15 +39,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn reset-config! [f]
-  ;; Always restore the profile to the redacting default before AND after
-  ;; every test so a failing test can't poison the next one.
-  (config/set-egress-profile! config/default-egress-profile)
-  (config/reset-suppressed-count!)
+  ;; Always restore the session-pin to the redacting default AND clear every
+  ;; per-frame override (rf2-6z4znr) before AND after every test so a failing
+  ;; test can't poison the next one.
+  (config/reset-all!)
   (try
     (f)
     (finally
-      (config/set-egress-profile! config/default-egress-profile)
-      (config/reset-suppressed-count!))))
+      (config/reset-all!))))
 
 (use-fixtures :each reset-config!)
 
@@ -356,6 +355,48 @@
       (is (zero? (config/suppressed-count :story.recorder/sens))))
     (recorder/clear!)))
 
+(deftest recorder-listener-frame-scoped-reveal-rf2-6z4znr
+  (testing "revealing the RECORDED frame captures verbatim; revealing a sibling does NOT"
+    (reset! @#'config/frame-egress-profiles {})
+    (config/set-session-egress-profile! config/default-egress-profile)
+    ;; reveal a DIFFERENT frame — the recording frame stays redacted
+    (config/set-frame-egress-profile! :story.recorder/sibling :rf.egress/local-raw)
+    (recorder/clear!)
+    (recorder/start-recording! :story.recorder/sens 0)
+    (let [listen @#'recorder/trace-listener]
+      (listen (sensitive-dispatch-event :story.recorder/sens [:auth/login {:password "x"}]))
+      (is (= [[:rf/redacted]] (recorder/recorded-events))
+          "the recording frame was NOT revealed (only a sibling was) — still redacted"))
+    (recorder/clear!)
+    ;; now reveal the recording frame itself
+    (config/set-frame-egress-profile! :story.recorder/sens :rf.egress/local-raw)
+    (recorder/start-recording! :story.recorder/sens 0)
+    (let [listen @#'recorder/trace-listener]
+      (listen (sensitive-dispatch-event :story.recorder/sens [:auth/login {:password "x"}]))
+      (is (= [[:auth/login {:password "x"}]] (recorder/recorded-events))
+          "revealing the recording frame captures verbatim"))
+    (recorder/clear!)
+    (reset! @#'config/frame-egress-profiles {})))
+
+(deftest play-listener-frame-scoped-reveal-rf2-6z4znr
+  (testing "revealing frame A's gate does NOT open frame B's play listener"
+    (reset! @#'config/frame-egress-profiles {})
+    (config/set-session-egress-profile! config/default-egress-profile)
+    (config/set-frame-egress-profile! :story.play/a :rf.egress/local-raw)
+    (let [build @#'play/listener-for-frame]
+      ;; frame A revealed — sensitive exception captured
+      (let [listen (build :story.play/a)]
+        (swap! play/pending-exceptions assoc :story.play/a [])
+        (listen (handler-exception-event :story.play/a true))
+        (is (= 1 (count (pending-for :story.play/a))) "A revealed → captured"))
+      ;; frame B NOT revealed — sensitive exception dropped at the gate
+      (let [listen (build :story.play/b)]
+        (swap! play/pending-exceptions assoc :story.play/b [])
+        (listen (handler-exception-event :story.play/b true))
+        (is (empty? (pending-for :story.play/b)) "B not revealed → dropped")
+        (is (pos? (config/suppressed-count :story.play/b)))))
+    (reset! @#'config/frame-egress-profiles {})))
+
 (deftest recorder-listener-still-captures-non-sensitive
   (testing "regression: ordinary events still land in the recorder under default settings"
     (recorder/clear!)
@@ -380,10 +421,12 @@
 ;; `re-frame.story-ui-cljs-test`.
 
 (deftest narrowing-profile-runs-toggle-off-callbacks-rf2-lqmje
-  (testing "reveal → redact transition invokes registered callbacks"
+  (testing "session-pin reveal → redact transition invokes registered callbacks (with nil frame-id)"
     (let [called?  (atom false)
           token-id ::scrub-callback-test]
-      (config/register-toggle-off-callback! token-id #(reset! called? true))
+      ;; rf2-6z4znr — callbacks now receive the narrowed frame-id; a
+      ;; session-pin narrow passes nil (scrub-all signal).
+      (config/register-toggle-off-callback! token-id (fn [_frame-id] (reset! called? true)))
       (try
         (config/set-egress-profile! :rf.egress/local-raw)
         (is (false? @called?)
@@ -398,7 +441,7 @@
   (testing "reveal → reveal and redact → redact are no-ops for the callbacks"
     (let [calls    (atom 0)
           token-id ::scrub-callback-no-transition]
-      (config/register-toggle-off-callback! token-id #(swap! calls inc))
+      (config/register-toggle-off-callback! token-id (fn [_frame-id] (swap! calls inc)))
       (try
         (config/set-egress-profile! :rf.egress/local-redacted) ; default → redact, no transition
         (is (= 0 @calls))
@@ -418,9 +461,9 @@
           token-bad     ::scrub-callback-bad
           token-good    ::scrub-callback-good]
       (config/register-toggle-off-callback!
-        token-bad (fn [] (throw (ex-info "boom" {}))))
+        token-bad (fn [_frame-id] (throw (ex-info "boom" {}))))
       (config/register-toggle-off-callback!
-        token-good (fn [] (reset! other-called? true)))
+        token-good (fn [_frame-id] (reset! other-called? true)))
       (try
         (config/set-egress-profile! :rf.egress/local-raw)
         (config/set-egress-profile! :rf.egress/local-redacted)
@@ -429,3 +472,80 @@
         (finally
           (config/unregister-toggle-off-callback! token-bad)
           (config/unregister-toggle-off-callback! token-good))))))
+
+;; ---------------------------------------------------------------------------
+;; Per-(tool,frame) egress visibility (EP-0015 issue 7, rf2-6z4znr)
+;; ---------------------------------------------------------------------------
+;;
+;; The acceptance core: frame A can be local-raw while frame B stays
+;; local-redacted, across every Story listener seam; narrowing one frame
+;; scrubs only that frame; a frameless / unknown event fails closed.
+
+(defn- clear-frame-overrides! []
+  (reset! @#'config/frame-egress-profiles {})
+  (config/set-session-egress-profile! config/default-egress-profile))
+
+(deftest frame-egress-isolation-reveal-one-not-the-other
+  (testing "revealing frame A to local-raw does NOT reveal frame B"
+    (clear-frame-overrides!)
+    (let [a :story.iso/a
+          b :story.iso/b]
+      (config/set-frame-egress-profile! a :rf.egress/local-raw)
+      (is (true?  (config/include-sensitive? a)) "frame A revealed")
+      (is (false? (config/include-sensitive? b)) "frame B still redacted")
+      ;; a sensitive event targeting A passes; the same shape on B suppresses
+      (is (false? (config/suppress-sensitive? (sensitive-dispatch-event a [:auth/login]) a)))
+      (is (true?  (config/suppress-sensitive? (sensitive-dispatch-event b [:auth/login]) b)))
+      ;; resolved from the event itself (single-arg arity) — same result
+      (is (false? (config/suppress-sensitive? (sensitive-dispatch-event a [:auth/login]))))
+      (is (true?  (config/suppress-sensitive? (sensitive-dispatch-event b [:auth/login]))))
+      (clear-frame-overrides!))))
+
+(deftest frameless-event-fails-closed
+  (testing "a sensitive event with no resolvable frame fails closed even while a sibling is raw"
+    (clear-frame-overrides!)
+    (config/set-frame-egress-profile! :story.iso/a :rf.egress/local-raw)
+    (is (false? (config/include-sensitive? nil)) "unknown frame resolves to the redacting default")
+    (is (true? (config/suppress-sensitive? {:sensitive? true :tags {}}))
+        "a frameless sensitive event is suppressed")
+    (is (true? (config/suppress-sensitive? {:sensitive? true :tags {:frame :story.iso/never-revealed}}))
+        "an unrevealed-frame sensitive event is suppressed")
+    (clear-frame-overrides!)))
+
+(deftest narrowing-one-frame-scrubs-only-that-frame
+  (testing "set-frame-egress-profile! reveal → redact fires callbacks with THAT frame-id only"
+    (clear-frame-overrides!)
+    (let [scrubbed (atom [])
+          token    ::per-frame-scrub
+          a        :story.iso/a
+          b        :story.iso/b]
+      (config/register-toggle-off-callback! token (fn [frame-id] (swap! scrubbed conj frame-id)))
+      (try
+        (config/set-frame-egress-profile! a :rf.egress/local-raw)
+        (config/set-frame-egress-profile! b :rf.egress/local-raw)
+        (is (= [] @scrubbed) "revealing fires nothing")
+        (config/set-frame-egress-profile! a :rf.egress/local-redacted)
+        (is (= [a] @scrubbed) "narrowing A scrubbed A only")
+        (is (true? (config/include-sensitive? b)) "B is still revealed — untouched")
+        (config/set-frame-egress-profile! b :rf.egress/local-redacted)
+        (is (= [a b] @scrubbed) "narrowing B then scrubbed B")
+        (finally
+          (config/unregister-toggle-off-callback! token)
+          (clear-frame-overrides!))))))
+
+(deftest per-frame-override-wins-over-session-pin
+  (testing "a per-frame override beats the session-pin in both directions"
+    (clear-frame-overrides!)
+    ;; pin the session to raw (tool UX); a frame can still be narrowed below it
+    (config/set-session-egress-profile! :rf.egress/local-raw)
+    (is (true? (config/include-sensitive? :story.iso/inherits)) "no override → inherits the raw pin")
+    (config/set-frame-egress-profile! :story.iso/locked :rf.egress/local-redacted)
+    ;; local-redacted is the default → no override entry is stored, so it
+    ;; inherits the raw pin too (a frame cannot be pinned BELOW the session
+    ;; default by storing the default; redaction-below-pin is out of scope —
+    ;; the pin is the floor for unoverridden frames). Reveal direction:
+    (config/set-session-egress-profile! config/default-egress-profile)
+    (config/set-frame-egress-profile! :story.iso/raised :rf.egress/local-raw)
+    (is (true?  (config/include-sensitive? :story.iso/raised)) "explicit reveal wins over the redacting pin")
+    (is (false? (config/include-sensitive? :story.iso/other)) "an unoverridden frame stays at the redacting pin")
+    (clear-frame-overrides!)))

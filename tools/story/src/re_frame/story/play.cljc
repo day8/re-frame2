@@ -152,7 +152,10 @@
   (fn [ev]
     (when (= frame-id (frame-of ev))
       (cond
-        (config/suppress-sensitive? ev)
+        ;; rf2-6z4znr — resolve the suppress decision against THIS frame's
+        ;; egress profile (the listener is already frame-scoped). Revealing a
+        ;; sibling frame never opens this frame's gate.
+        (config/suppress-sensitive? ev frame-id)
         (config/note-suppressed! frame-id)
 
         (story-error/pipeline-exception-event? frame-id ev)

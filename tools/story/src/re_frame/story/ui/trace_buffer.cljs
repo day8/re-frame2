@@ -72,28 +72,40 @@
    (config/reset-suppressed-count! variant-id)
    nil))
 
-;; ---- retroactive scrub on egress-profile narrowing (rf2-lqmje) ----------
+;; ---- retroactive scrub on egress-profile narrowing (rf2-lqmje / rf2-6z4znr)
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015 rf2-3t26eh):
-;; narrowing the local-render egress profile from a sensitive-revealing
-;; boundary (`:rf.egress/local-raw`) back to the redacting default clears
-;; every per-variant trace buffer. Each Story trace listener only gates at
-;; ingest via `config/suppress-sensitive?`, so without this hook a
-;; sensitive cascade buffered while the raw profile was active would
-;; remain visible in every variant's downstream surface after the user
-;; expected privacy to be restored.
+;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015 issue 7): narrowing a
+;; FRAME's local-render egress profile from a sensitive-revealing boundary
+;; (`:rf.egress/local-raw`) back to the redacting default clears THAT frame's
+;; trace buffer; narrowing the session-pin clears every (non-overridden)
+;; buffer. Each Story trace listener only gates at ingest via
+;; `config/suppress-sensitive?`, so without this hook a sensitive cascade
+;; buffered while the raw profile was active would remain visible in that
+;; frame's downstream surface after the operator expected privacy restored.
 ;;
-;; The clear cascades through `clear-buffer!` (zero-arg form):
-;;   - resets every per-variant ratom to `[]` (consumers re-render empty),
-;;   - calls `config/reset-suppressed-count!` so each variant's
-;;     `[● REDACTED]` hint drops in lockstep with the buffer.
+;; The callback receives the narrowed `frame-id` (EP-0015 issue 7 —
+;; frame-scoped scrub). A specific frame-id clears only that variant's
+;; buffer; a `nil` frame-id (the session-pin narrow signal) clears EVERY
+;; buffer. The clear cascades through `clear-buffer!`:
+;;   - resets the targeted (or every) per-variant ratom to `[]`,
+;;   - calls `config/reset-suppressed-count!` so the `[● REDACTED]` hint
+;;     drops in lockstep with the buffer.
 ;;
 ;; The hook registers at load time, gated on `config/enabled?` —
 ;; production builds (`enabled?` false via `:closure-defines`) elide
 ;; Story entirely, including the registration form.
 
+(defn- scrub-on-toggle-off!
+  "Frame-scoped toggle-off scrub (rf2-6z4znr). `frame-id` nil → clear every
+  buffer (session-pin narrowing); a specific frame-id → clear only that
+  variant's buffer."
+  [frame-id]
+  (if (some? frame-id)
+    (clear-buffer! frame-id)
+    (clear-buffer!)))
+
 (when config/enabled?
-  (config/register-toggle-off-callback! ::clear-on-toggle-off clear-buffer!))
+  (config/register-toggle-off-callback! ::clear-on-toggle-off scrub-on-toggle-off!))
 
 (defn drop-buffer!
   "Remove the buffer entry entirely. Called from shell unmount.
@@ -148,7 +160,10 @@
       (trace-tooling/register-listener! id
         (fn [ev]
           (when (variant-event? variant-id ev)
-            (if (config/suppress-sensitive? ev)
+            ;; rf2-6z4znr — the listener is per-variant; resolve the suppress
+            ;; decision against THIS variant's frame so revealing a sibling
+            ;; variant never opens this buffer's gate.
+            (if (config/suppress-sensitive? ev variant-id)
               (config/note-suppressed! variant-id)
               (append! variant-id ev)))))
       id)))
