@@ -39,8 +39,8 @@
    [[:fx [[:http {:method :get
                   :url    "/api/articles"
                   :on-success [:rf.route/with-nav-token
-                               {:do        [:dispatch [:article/loaded "captured-id" "payload"]]
-                                :nav-token [:get [:rf.runtime/routing :current :nav-token]]}]}]]]]
+                               {:rf/reply-to [:article/loaded "captured-id" "payload"]
+                                :nav-token   [:get [:rf.runtime/routing :current :nav-token]]}]}]]]]
 
    :article/loaded
    ;; The receiving handler runs ONLY if the :nav-token cofx-validator passed.

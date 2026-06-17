@@ -137,7 +137,7 @@ The full `:rf/route` slice is `{:id :params :query :transition :error}`. The sta
 | `[:rf.nav/push-url url-string]` | URL string | `:client` | Push a new URL onto the browser history. |
 | `[:rf.nav/replace-url url-string]` | URL string | `:client` | Replace the current URL without adding a history entry. |
 | `[:rf.nav/scroll scroll-spec]` | scroll-spec map | `:client` | Restore or set scroll position. |
-| `[:rf.route/with-nav-token {:do <fx-entry> :nav-token <token>}]` | universal | universal | Wrap an fx with a navigation token. If the token has been superseded by a later navigation, the wrapped fx is suppressed and `:rf.route.nav-token/stale-suppressed` fires. |
+| `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | universal | universal | Name an async-completion continuation by its canonical `:rf/reply-to` reply target and guard it with a navigation token. On match the target is completed with the `:status :ok` reply map; if the token has been superseded by a later navigation, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. |
 
 The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Guide ch.19 — Navigation tokens](../guide/concepts/routing.md).
 
