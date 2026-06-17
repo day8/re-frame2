@@ -15,8 +15,11 @@
   output. The live runtime call sits behind the nREPL eval boundary
   and is covered by the stdio-roundtrip harness; this layer pins the
   cursor contract."
-  (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame2-pair-mcp.tools.cursor :as cursor]))
+  (:require [cljs.test :refer-macros [deftest is testing async]]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.cursor :as cursor]
+            [re-frame2-pair-mcp.tools.watch-epochs :as we]))
 
 (def default-limit cursor/default-limit)
 
@@ -401,3 +404,125 @@
     (is (not (contains? all-ids "epoch-104")))
     (is (= 50 (count all-ids))
         "Page 1 + page 2 = original 50 records, no admission of fresh ones")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-mb17rj — watch-epochs carries the sticky :pred in the continuation
+;; cursor.
+;;
+;; THE BUG: `watch-epochs`'s first-call `:next-cursor` encoded :after-id /
+;; :frame but NOT the predicate, and the host derived the filter ONLY from
+;; the `:pred` arg. An agent paginating via the documented opaque-cursor
+;; flow (pass back JUST `:cursor`, no `:pred`) kept the sticky frame but
+;; LOST the predicate → page 2+ ran `epoch-matches?` with `{}` = MATCH-ALL,
+;; returning every epoch after the watermark unfiltered, with an envelope
+;; identical to a correctly-filtered page so the agent couldn't detect it.
+;;
+;; These pins exercise BOTH ends of the round-trip:
+;;   1. The first-call `:next-cursor` actually carries the predicate.
+;;   2. A page-2 call with ONLY `:cursor` (no `:pred` arg) still emits a
+;;      filtering `epoch-matches?` form — the sticky pred from the cursor,
+;;      NOT the match-all `{}`.
+;; ---------------------------------------------------------------------------
+
+(defn- with-form-capture!
+  "Install a `nrepl/cljs-eval-value` stub that answers the runtime
+  preload-probe with `true` and the real epoch form with `canned`,
+  capturing the NON-probe (epoch) form-strings into `forms-atom`.
+  Restores the original in `.finally`. Mirrors the substr-matching
+  installer in `watch_epochs_test`; here we additionally need the form
+  string, not just the value. The probe form is identified by the
+  `__re_frame2_pair_runtime` marker so it is neither captured nor
+  answered with the matches map (which `runtime-preloaded?` would read
+  as a failed probe)."
+  [forms-atom canned body-fn]
+  (let [orig  nrepl/cljs-eval-value
+        probe? (fn [form-str]
+                 (and (string? form-str)
+                      (re-find #"__re_frame2_pair_runtime" form-str)))
+        answer (fn [form-str]
+                 (if (probe? form-str)
+                   true
+                   (do (swap! forms-atom conj form-str)
+                       canned)))
+        stub  (fn
+                ([_conn _build-id form-str]
+                 (js/Promise.resolve (answer form-str)))
+                ([_conn _build-id form-str _opts]
+                 (js/Promise.resolve (answer form-str))))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(deftest watch-epochs-next-cursor-carries-pred
+  (testing "first-call :next-cursor round-trips the :pred so page 2 can resume filtered"
+    (async done
+      (let [forms (atom [])
+            ;; Runtime form output: a page with a :next-id so a
+            ;; continuation cursor is minted.
+            canned {:matches       [{:epoch-id :e1}]
+                    :id-aged-out?  false
+                    :requested-id  nil
+                    :head-id       :e2
+                    :next-id       :e1
+                    :history-count 5
+                    :since-count   5
+                    :remaining     4}]
+        (-> (with-form-capture! forms canned
+              (fn []
+                (-> (we/watch-epochs-tool
+                      nil
+                      (tu/args->js {:pred #js {:event-id ":ev/login"} :limit 1}))
+                    (.then (fn [result]
+                             (let [edn         (tu/extract-edn result)
+                                   next-cursor (:next-cursor edn)
+                                   decoded     (cursor/decode-cursor next-cursor)]
+                               (is (some? next-cursor) "a continuation cursor was minted")
+                               ;; `js->clj :keywordize-keys true` keywordizes
+                               ;; the KEYS only — the pred VALUE rides as the
+                               ;; JSON string it arrived as (the runtime side
+                               ;; coerces). The cursor round-trips it verbatim.
+                               (is (= {:event-id ":ev/login"} (:pred decoded))
+                                   "the cursor carries the first-call predicate verbatim")
+                               (is (= :e1 (:after-id decoded)))
+                               (done))))))))))))
+
+(deftest watch-epochs-page-2-with-only-cursor-still-filters
+  (testing "page-2 call with ONLY :cursor (no :pred arg) emits a filtering epoch-matches? form, NOT match-all"
+    (async done
+      (let [forms (atom [])
+            ;; A cursor as it would have been minted on page 1, carrying
+            ;; the sticky predicate (and frame/after-id). This is exactly
+            ;; what the agent passes back verbatim.
+            page-1-cursor (cursor/encode-cursor
+                            {:v 1 :after-id :e1 :ms nil :until-ms nil
+                             :frame :rf/default
+                             :pred {:event-id :ev/login}})
+            canned {:matches       []
+                    :id-aged-out?  false
+                    :requested-id  :e1
+                    :head-id       :e9
+                    :next-id       nil
+                    :history-count 9
+                    :since-count   4
+                    :remaining     0}]
+        (-> (with-form-capture! forms canned
+              (fn []
+                ;; The continuation call passes ONLY :cursor — no :pred,
+                ;; no :frame, no :since-id. The documented opaque-cursor
+                ;; flow.
+                (-> (we/watch-epochs-tool nil (tu/args->js {:cursor page-1-cursor}))
+                    (.then (fn [_result]
+                             (let [form-str (first @forms)]
+                               (is (some? form-str) "a runtime form was emitted")
+                               ;; THE REGRESSION ASSERTION: the emitted
+                               ;; epoch-matches? call carries the sticky
+                               ;; predicate from the cursor.
+                               (is (re-find #"epoch-matches\? \{:event-id :ev/login\}"
+                                            form-str)
+                                   "page-2 form filters by the sticky pred from the cursor")
+                               ;; And NOT the match-all empty map — the
+                               ;; pre-fix behaviour.
+                               (is (not (re-find #"epoch-matches\? \{\}" form-str))
+                                   "page-2 form must NOT degrade to match-all {}")
+                               (done))))))))))))

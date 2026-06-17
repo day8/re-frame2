@@ -181,7 +181,18 @@
         ;; :elided-large counts upstream-pre-elided markers per
         ;; Spec 009 §Indicator field (rf2-8cntr) — shared by
         ;; `trace-window` and `watch-epochs`.
-        elided         (base-elision/count-elided-markers deduped)]
+        ;;
+        ;; rf2-mb17rj — count the markers over the PRE-dedup payload
+        ;; (`encoded`), not `deduped`. `dedup-value` pools N identical
+        ;; `:rf.size/large-elided` maps into ONE structural-sharing
+        ;; cache entry, so walking `deduped` undercounts (1 instead of
+        ;; N). The marker SET is identical pre/post dedup — dedup only
+        ;; re-shapes structural references; it never drops a marker —
+        ;; so counting pre-dedup is exact and the markers still ride the
+        ;; wire intact. Mirrors the `:snapshot-map` arm, which already
+        ;; sidesteps this by using the server `:server-elided` count
+        ;; taken before dedup.
+        elided         (base-elision/count-elided-markers encoded)]
     {:value      deduped
      :indicators {:dropped dropped
                   :elided  elided
