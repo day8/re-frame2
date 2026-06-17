@@ -453,6 +453,101 @@
     (let [ev (dispatched-with-cofx [:counter/inc] {})]
       (is (nil? (proj/recordable-cofx-row [ev]))))))
 
+;; ---- generated recordable coeffects (EP-0017 slice B.7 · spec/009 §277) --
+;;
+;; A generator-backed recordable supplier runs at PROCESSING-START when its
+;; declared fact is absent from the enqueue token; it mints the value, writes
+;; it back into the in-flight `:rf.cofx` record, and emits `:rf.cofx/generated`
+;; carrying `{:rf.cofx/id <fact-name> :rf.cofx/value <produced-value>}`. The
+;; enqueue-time `:rf.event/dispatched` `:rf.cofx` map predates generation, so
+;; the lens must read the generated fact from the trace op (the post-generation
+;; source of truth), summarize/redact its value, and mark its provenance.
+
+(defn- generated-cofx-ev
+  "A `:rf.cofx/generated` trace event (spec/009 §277) carrying the produced
+  recordable fact under `:tags`."
+  ([id value] (generated-cofx-ev id value nil))
+  ([id value arg]
+   (ev :rf.cofx :rf.cofx/generated
+       (cond-> {:rf.cofx/id id :rf.cofx/value value :frame :rf/default}
+         (some? arg) (assoc :rf.cofx/arg arg)))))
+
+(deftest generated-cofx-rows-unit-test
+  (testing "EP-0017 slice B.7 — generated rows project from :rf.cofx/generated
+            ops, value summarized, :generated? true, sorted by fact name"
+    (let [events [(generated-cofx-ev :session/id "sess-7")
+                  (generated-cofx-ev :request/nonce {:n 42})]
+          rows   (proj/generated-cofx-rows events)
+          by-key (into {} (map (juxt :key identity) rows))]
+      (is (= [:request/nonce :session/id] (mapv :key rows)) "sorted by fact name")
+      (is (every? :generated? rows) "every generated row marked :generated?")
+      ;; values summarized (redact-by-default), never raw
+      (is (= "string" (:type (:value (by-key :session/id)))))
+      (is (map? (:value (by-key :request/nonce))))
+      (is (= "map" (:type (:value (by-key :request/nonce)))))))
+  (testing "EP-0017 — declared filter applies to generated rows too"
+    (let [events [(generated-cofx-ev :session/id "sess-7")
+                  (generated-cofx-ev :other/x 1)]]
+      (is (= [:session/id] (mapv :key (proj/generated-cofx-rows events #{:session/id}))))))
+  (testing "no :rf.cofx/generated op → empty"
+    (is (= [] (proj/generated-cofx-rows [(dispatched-with-cofx [:e] {:a/x 1})])))))
+
+(deftest recordable-cofx-row-surfaces-generated-test
+  (testing "EP-0017 slice B.7 — a generated recordable fact (minted at
+            processing-start, absent from the enqueue token) surfaces in
+            RECORDABLE COEFFECTS, read from the :rf.cofx/generated op, marked
+            :generated? true, value summarized"
+    (let [disp (dispatched-with-cofx [:auth/login] {:rf/time-ms 1781078400123
+                                                    :counter/delta {:roll 4}})
+          gen  (generated-cofx-ev :session/id "sess-7")
+          r    (proj/recordable-cofx-row [disp gen])
+          by-key (into {} (map (juxt :key identity) (:inputs r)))]
+      (is (= :recordable-cofx (:step r)))
+      (is (= 1781078400123 (:time-ms r)) ":rf/time-ms still verbatim")
+      ;; supplied leaf present, NOT marked generated
+      (is (contains? by-key :counter/delta))
+      (is (not (:generated? (by-key :counter/delta))))
+      ;; generated leaf present, marked generated, value summarized
+      (is (contains? by-key :session/id) "generated fact surfaces")
+      (is (true? (:generated? (by-key :session/id))) "provenance marked")
+      (is (= "string" (:type (:value (by-key :session/id))))
+          "generated value summarized, never raw")))
+  (testing "EP-0017 — a generated fact surfaces even when the enqueue token
+            carried NO :rf.cofx map at all (only the dispatched event)"
+    (let [disp (dispatched-ev [:auth/login] :ui)
+          gen  (generated-cofx-ev :session/id "sess-7")
+          r    (proj/recordable-cofx-row [disp gen])]
+      (is (some? r) "the step renders off the generated op alone")
+      (is (= [:session/id] (mapv :key (:inputs r))))
+      (is (true? (:generated? (first (:inputs r)))))))
+  (testing "EP-0017 no-duplicate case — when a value is SUPPLIED/replayed on
+            the token (the generator did NOT run, but a stray generated op for
+            the same key exists), the supplied row wins and the key is NOT
+            duplicated"
+    (let [disp (dispatched-with-cofx [:auth/login] {:session/id "supplied-9"})
+          gen  (generated-cofx-ev :session/id "would-have-generated")
+          r    (proj/recordable-cofx-row [disp gen])
+          rows (filter #(= :session/id (:key %)) (:inputs r))]
+      (is (= 1 (count rows)) "exactly one :session/id row — no duplicate")
+      (is (not (:generated? (first rows))) "the supplied row wins")))
+  (testing "EP-0017 — the declared-recordable filter applies to generated facts
+            end-to-end through `project`"
+    (let [disp (dispatched-with-cofx [:auth/login] {:counter/delta 1 :app/extra 2})
+          gen  (generated-cofx-ev :session/id "sess-7")
+          rec  (record [disp gen])
+          steps (proj/project rec
+                              {:resolve-event-recordables
+                               (fn [event-id]
+                                 (when (= :auth/login event-id)
+                                   #{:counter/delta :session/id}))})
+          rcofx (some #(when (= :recordable-cofx (:step %)) %) steps)
+          by-key (into {} (map (juxt :key identity) (:inputs rcofx)))]
+      (is (some? rcofx))
+      (is (contains? by-key :counter/delta) "declared supplied leaf")
+      (is (contains? by-key :session/id) "declared generated leaf")
+      (is (true? (:generated? (by-key :session/id))))
+      (is (not (contains? by-key :app/extra)) "undeclared token leaf filtered out"))))
+
 (deftest project-places-recordable-cofx-after-dispatch-test
   (testing "rf2-9fyn40 · EP-0017 — `project` slots the RECORDABLE COEFFECTS
             step RIGHT AFTER DISPATCH SITE (before the ambient COEFFECTS), and

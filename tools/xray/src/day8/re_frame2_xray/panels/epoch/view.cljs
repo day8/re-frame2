@@ -431,6 +431,20 @@
   {:color       text-tertiary-colour
    :white-space "nowrap"})
 
+;; Provenance marker for a recordable fact whose value was MINTED by a
+;; generator at processing-start (EP-0017 slice B.7) rather than supplied on
+;; the dispatch token. Distinguishes generated-vs-supplied provenance so the
+;; operator can tell a replayable generated coeffect apart from a token-borne
+;; one.
+(def ^:private recordable-cofx-generated-badge-style
+  {:color         accent-colour
+   :font-size     "9px"
+   :font-weight   600
+   :letter-spacing "0.04em"
+   :text-transform "uppercase"
+   :white-space   "nowrap"
+   :align-self    "center"})
+
 (def ^:private recordable-cofx-time-value-style
   {:color      text-primary-colour
    :min-width  0
@@ -2550,14 +2564,22 @@
    ;; value-bearing leaves — each rendered as a privacy summary chip
    ;; (redact-by-default). The leaf id rides verbatim (owner-qualified
    ;; vocabulary, not PII); only the VALUE is summarized.
-   (for [[idx {:keys [key value]}] (map-indexed vector inputs)]
+   (for [[idx {:keys [key value generated?]}] (map-indexed vector inputs)]
      ^{:key (str "recordable-cofx-" idx)}
      [:div {:data-testid (str "rf-xray-epoch-recordable-cofx-row-" (name key))
             :data-recordable-cofx-key (name key)
+            :data-recordable-cofx-generated (str (boolean generated?))
             :style recordable-cofx-row-style}
       [:span {:data-testid (str "rf-xray-epoch-recordable-cofx-key-" (name key))
               :style recordable-cofx-key-style}
        (fmt/ns-keyword key)]
+      ;; provenance: a generated fact was minted at processing-start
+      ;; (EP-0017 slice B.7), distinct from a token-supplied / replayed leaf.
+      (when generated?
+        [:span {:data-testid (str "rf-xray-epoch-recordable-cofx-generated-" (name key))
+                :style recordable-cofx-generated-badge-style
+                :title "minted by a generator at processing-start (EP-0017)"}
+         "generated"])
       (recordable-cofx-summary-view
         value
         (str "rf-xray-epoch-recordable-cofx-value-" (name key)))])])
