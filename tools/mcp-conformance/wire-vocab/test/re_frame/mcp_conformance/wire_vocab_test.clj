@@ -93,6 +93,15 @@
             [de-dupe.core    :as dd]
             [malli.core      :as m]
             [malli.error     :as me]
+            ;; rf2-hvn83u — the canonical framework wire-elision walker +
+            ;; the frame-owned classification install path (EP-0015 §8),
+            ;; so the `:rf.size/large-elided` gate drives the REAL emitter
+            ;; LIVE over a frame-declared `:large` slot (not a fixture).
+            [re-frame.core   :as rf]
+            [re-frame.elision :as elision]
+            [re-frame.frame  :as frame]
+            [re-frame.frame-classification :as frame-class]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.overflow :as mcp-overflow]
             [re-frame.mcp-conformance.fixtures :as fx]
@@ -344,7 +353,7 @@
   (testing "ElisionMarker rejects an extra sibling top-level key"
     (is (not (m/validate ElisionMarker
                          {:rf.size/large-elided {:path [:a] :bytes 1 :type :map
-                                                 :reason :schema :hint nil
+                                                 :reason :frame :hint nil
                                                  :handle [:rf.elision/at [:a]]}
                           :sneaky :key}))))
   (testing "CacheHit rejects an extra sibling top-level key"
@@ -565,10 +574,23 @@
 ;;                           (`mcp-base/overflow.cljc/overflow-payload`)
 ;;                           is additionally exercised live below since
 ;;                           it too is JVM-reachable.
+;;   - :rf.size/large-elided — LIVE here (rf2-hvn83u). Emitter is the
+;;                           framework wire-elision walker
+;;                           (`re-frame.elision/elide-wire-value`, `.cljc`,
+;;                           on the JVM classpath via the `:test` alias's
+;;                           core `:local/root`). Driven below over a
+;;                           frame-declared `:large` slot; the emitted
+;;                           marker is validated against the canonical
+;;                           `ElisionMarker` schema. This gate is exactly
+;;                           what was MISSING when the pre-EP-0015
+;;                           `:reason :schema` pin sat stale — the fixture
+;;                           +grep layers never observed the real emitter,
+;;                           so a `:frame`-emitting runtime validating
+;;                           against a `:schema`-only schema went unseen.
 ;;   - :rf.mcp/summary     — FIXTURE+grep only. Emitter is re-frame2-pair-mcp
 ;;     :rf.mcp/dedup-table   CLJS (`tools/*.cljs`) with no JVM-reachable
 ;;     :rf.mcp/cache-hit     counterpart; a pure-JVM live probe is
-;;     :rf.size/large-elided impossible. Their bodies are pure data
+;;                           impossible. Their bodies are pure data
 ;;                           transforms already unit-tested in mcp-base /
 ;;                           re-frame2-pair-mcp; a live SDK probe for each
 ;;                           is tracked as future work (it requires the
@@ -629,6 +651,91 @@
     (is (m/validate Overflow marker)
         (str "Live-built overflow marker failed Overflow validation:\n"
              (me/humanize (m/explain Overflow marker))))))
+
+;; ---------------------------------------------------------------------------
+;; :rf.size/large-elided — live-emission gate (rf2-hvn83u).
+;;
+;; The load-bearing gate that catches the exact drift this bead fixed: the
+;; canonical schema had `:reason [:enum :schema]` while the runtime emits
+;; `:frame`/`:marks` (EP-0015 §8 — the large declaration is FRAME-OWNED,
+;; not schema-owned). With only a fixture (authored to match the stale
+;; schema) and a source-text grep (literal key only), the schema validated
+;; an IMPOSSIBLE shape and a real `:frame` marker would have FAILED — yet
+;; every gate stayed green. This gate drives the REAL walker
+;; (`re-frame.elision/elide-wire-value`) over a frame-declared `:large`
+;; slot and validates the emitted marker against the canonical
+;; `ElisionMarker` schema, so a `:reason`-enum (or any body-shape) drift
+;; between runtime and schema now turns this gate red.
+;;
+;; Self-contained runtime setup: this artefact's other tests are pure
+;; data and carry no `use-fixtures`, so the gate stands up + tears down
+;; its own minimal frame runtime (mirroring
+;; `implementation/core/test/re_frame/elision_test.clj`'s `reset-runtime`
+;; + `install-class!`).
+
+(defn- elision-live-marker
+  "Drive `re-frame.elision/elide-wire-value` LIVE over a frame-declared
+  `:large` `app-db` slot and return the emitted `:rf.size/large-elided`
+  marker map. `large` is a vector of `:rf/path` vectors installed through
+  the frame-owned classification path (EP-0015 §8). `v` is the wire value
+  walked under the `:rf/default` frame scope."
+  [large v]
+  (reset! frame/frames {})
+  (rf/init! plain-atom/adapter)
+  (require 're-frame.elision :reload)
+  (elision/clear-warning-cache!)
+  (elision/configure! {:rf.size/threshold-bytes 16384})
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (frame-class/install!
+      :rf/default
+      (frame-class/validate+extract :rf/default {:large {:app-db (vec large)}}))
+    (elision/elide-wire-value v)))
+
+(deftest elision-marker-emitted-live-by-canonical-walker
+  ;; Drive the REAL walker over a frame-declared `:large` slot and assert
+  ;; the emitted marker (a) is the canonical single-key wrapper and (b)
+  ;; validates against the `ElisionMarker` schema — the gate that would
+  ;; have caught the `:reason :schema` → `:frame` drift.
+  (let [out    (elision-live-marker
+                 [[:user :uploaded-pdf]]
+                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
+        marker (get-in out [:user :uploaded-pdf])]
+    (testing "the walker substitutes a :rf.size/large-elided marker at the declared slot"
+      (is (elision/marker? marker)
+          (str "elide-wire-value MUST substitute a :rf.size/large-elided "
+               "marker at a frame-declared :large slot. Got: " (pr-str marker))))
+    (testing "the live-emitted marker validates against the canonical ElisionMarker schema"
+      (is (m/validate ElisionMarker marker)
+          (str "Live-emitted elision marker failed ElisionMarker validation "
+               "— the canonical schema has drifted from the runtime emitter "
+               "(this is exactly the rf2-hvn83u :reason :schema vs :frame "
+               "drift the fixture+grep layers missed):\n"
+               (me/humanize (m/explain ElisionMarker marker)))))
+    (testing "the live :reason is the frame-owned provenance (EP-0015 §8), NOT the retired :schema"
+      (is (= :frame (get-in marker [:rf.size/large-elided :reason]))
+          (str "A frame-declared :large slot MUST emit :reason :frame "
+               "(EP-0015 §8). Got: "
+               (pr-str (get-in marker [:rf.size/large-elided :reason])))))
+    (testing "the marker carries the absolute declared path"
+      (is (= [:user :uploaded-pdf]
+             (get-in marker [:rf.size/large-elided :path]))))))
+
+(deftest elision-marker-schema-rejects-retired-schema-reason
+  ;; Contrapositive: the corrected `ElisionMarker` schema MUST REJECT the
+  ;; pre-EP-0015 `:reason :schema` shape. This pins that the fix is not
+  ;; merely additive — the impossible runtime shape the old gate uniquely
+  ;; validated is now explicitly out of contract, so a regression that
+  ;; widened `:reason` back to `:schema` turns this gate red.
+  (is (not (m/validate ElisionMarker
+                       {:rf.size/large-elided
+                        {:path   [:user :uploaded-pdf]
+                         :bytes  102400
+                         :type   :string
+                         :reason :schema
+                         :hint   nil
+                         :handle [:rf.elision/at [:user :uploaded-pdf]]}}))
+      ":reason :schema is the retired pre-EP-0015 shape and MUST NOT validate"))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text vocabulary pin. The literal marker key MUST appear in
@@ -1063,20 +1170,21 @@
                  {:path [:user :pdf]
                   :bytes 102400
                   :type :string
-                  :reason :schema
+                  :reason :frame
                   :hint "User PDF; fetch via get-path."
                   :handle [:rf.elision/at [:user :pdf]]}}
                 :elided-large 1}
                ;; story-mcp emission (rf2-koq5m): `run-variant` /
-               ;; `preview-variant` elide schema-`:large?` / over-threshold
-               ;; `:app-db` leaves and count the `:rf.size/large-elided`
-               ;; markers via `egress/count-elided` (→ mcp-base
-               ;; `count-elided-markers`).
+               ;; `preview-variant` elide frame-declared `:large` /
+               ;; over-threshold `:app-db` leaves (the declaration is
+               ;; frame-owned post EP-0015 §8 — `:reason :frame`) and
+               ;; count the `:rf.size/large-elided` markers via
+               ;; `egress/count-elided` (→ mcp-base `count-elided-markers`).
                :story-mcp-run-variant
                {:status :pass :frame :story.button/primary
                 :app-db {:blob {:rf.size/large-elided
                                 {:path [:blob] :bytes 102400 :type :string
-                                 :reason :schema :hint nil
+                                 :reason :frame :hint nil
                                  :handle [:rf.elision/at [:blob]]}}}
                 :elided-large 1}}}])
 

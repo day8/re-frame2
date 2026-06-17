@@ -97,5 +97,21 @@
                        ;; transitive story/implementation tree it pulls is
                        ;; the cost of validating the real builder.
                        day8/re-frame2-story-mcp
-                       {:local/root "../../story-mcp"}}
+                       {:local/root "../../story-mcp"}
+                       ;; rf2-hvn83u — the canonical wire-elision walker
+                       ;; (`re-frame.elision/elide-wire-value`) so the
+                       ;; `:rf.size/large-elided` gate can drive the REAL
+                       ;; emitter LIVE over a frame-declared `:large` slot
+                       ;; and validate the emitted marker against the
+                       ;; `ElisionMarker` schema. Without this gate the
+                       ;; marker was FIXTURE+grep only — exactly why the
+                       ;; pre-EP-0015 `:reason :schema` pin sat stale and
+                       ;; VACUOUS (the canonical schema validated only the
+                       ;; impossible `:schema` shape while the runtime
+                       ;; emitted `:frame`/`:marks`). `:local/root` to core
+                       ;; (not the transitive story-mcp pull) makes the
+                       ;; classpath dependency intentional, mirroring the
+                       ;; diff-encode + de-dupe live-emission gates.
+                       day8/re-frame2
+                       {:local/root "../../../implementation/core"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

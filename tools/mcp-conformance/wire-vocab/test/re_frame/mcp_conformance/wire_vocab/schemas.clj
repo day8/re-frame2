@@ -281,7 +281,7 @@
    [:path    [:vector :any]]
    [:bytes   :int]
    [:type    [:enum :map :vector :set :scalar :string]]
-   [:reason  [:enum :schema]]
+   [:reason  [:enum :frame :marks]]
    [:hint    [:maybe :string]]
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]
    [:digest  {:optional true} :string]])
@@ -593,29 +593,41 @@
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
-    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits today. Two
-    ;; fixtures below represent two distinct emission shapes —
-    ;; schema/string vs schema/map-with-digest (the schema-driven
-    ;; nomination path is the only nomination path post Path-D /
-    ;; rf2-w3n5u).
+    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits today. The
+    ;; `:reason` slot carries the declaration provenance per EP-0015 §8
+    ;; (rf2-d2r3um): the large declaration is now FRAME-OWNED (`:source
+    ;; :frame` — `re-frame.frame-classification/install!`), so `:reason`
+    ;; is `:frame` for a frame-declared slot, or `:marks` for an
+    ;; imperative `add-marks`/`set-marks` declaration (`re-frame.marks`).
+    ;; The pre-EP-0015 `:schema` nomination path is gone. Three fixtures
+    ;; below cover both `:reason` variants × two body shapes
+    ;; (string-with-hint / map-with-digest / set-via-marks).
     :servers  #{:re-frame2-pair-mcp}
-    :fixtures {:re-frame2-pair-mcp-schema-string
+    :fixtures {:re-frame2-pair-mcp-frame-string
                {:rf.size/large-elided
                 {:path   [:user :uploaded-pdf]
                  :bytes  102400
                  :type   :string
-                 :reason :schema
+                 :reason :frame
                  :hint   "User-uploaded PDF; fetch via get-path."
                  :handle [:rf.elision/at [:user :uploaded-pdf]]}}
-               :re-frame2-pair-mcp-schema-with-digest
+               :re-frame2-pair-mcp-frame-with-digest
                {:rf.size/large-elided
                 {:path   [:cofx :db]
                  :bytes  524288
                  :type   :map
-                 :reason :schema
+                 :reason :frame
                  :hint   nil
                  :handle [:rf.elision/at [:cofx :db]]
-                 :digest "sha256:deadbeefcafef00d"}}}}
+                 :digest "sha256:deadbeefcafef00d"}}
+               :re-frame2-pair-mcp-marks-set
+               {:rf.size/large-elided
+                {:path   [:scratch :payload]
+                 :bytes  262144
+                 :type   :set
+                 :reason :marks
+                 :hint   "Imperatively marked via set-marks; fetch via get-path."
+                 :handle [:rf.elision/at [:scratch :payload]]}}}}
 
    {:key      :rf.mcp/cache-hit
     :schema   CacheHit

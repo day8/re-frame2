@@ -2437,7 +2437,7 @@ The walker substitutes large values with a single normative marker shape:
    :bytes  5242880                             ;; pr-str byte count, exact when known
    :type   :string                             ;; one of :map :vector :set :scalar :string
    :digest "sha256:abc123..."                  ;; hex digest, optional (gated on :include-digests?)
-   :reason :schema
+   :reason :frame                              ;; declaration provenance — :frame (frame-declared :large) or :marks (imperative add-marks/set-marks)
    :hint   "Upload preview blob"               ;; copied verbatim from the declaration's :hint slot
    :handle [:rf.elision/at [:user :uploaded-pdf]]}}  ;; EDN form passable to get-path
 ```
@@ -2447,7 +2447,7 @@ The shape is captured normatively at [Spec-Schemas §`:rf/elision-marker`](Spec-
 - **`:path`** — REQUIRED. The **absolute** path inside the snapshot slice (NOT relative to the elision site). An agent that asked for `:path [:user]` and got a marker back at the `:uploaded-pdf` slot sees `:path [:user :uploaded-pdf]`. The handle is copy-pasteable without rebasing.
 - **`:bytes`** — REQUIRED. The `pr-str` byte count of the elided value. Lets an agent decide "fetch anyway" (small enough for this turn) vs "skip" (over the per-turn budget).
 - **`:type`** — REQUIRED. One of `:map`, `:vector`, `:set`, `:scalar`, `:string`. Tells the agent which access pattern to use — a `:vector` is paginatable via `get-path` with an index range; a `:string` of 5MB is not.
-- **`:reason`** — REQUIRED. Always `:schema`; schema metadata is the canonical size-elision declaration source.
+- **`:reason`** — REQUIRED. The declaration **provenance**, one of the closed enum `[:frame :marks]` (normative at [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)). Per EP-0015 §8 (*Schemas Describe Shape, Not Public Egress Policy*) the durable size-elision declaration is **frame-owned** — `(rf/reg-frame :app {:large {:app-db [[…]]}})` installs it under `:source :frame` (`re-frame.frame-classification`), so a frame-declared slot emits `:reason :frame`. An imperatively-declared slot (`re-frame.marks` `add-marks` / `set-marks`) emits `:reason :marks`. The pre-EP-0015 `:schema` value is retired: a `reg-app-schema` `{:large? true}` slot prop is no longer a route into the elision registry.
 - **`:hint`** — REQUIRED (may be `nil`). A free-form short string copied verbatim from the Malli slot's `{:hint "..."}` metadata.
 - **`:handle`** — REQUIRED. An EDN vector of shape `[:rf.elision/at <path>]` (or `[:rf.elision/at <path> :as-of-epoch <epoch-id>]` when the marker rides inside a past-epoch payload — see §Composition below). The handle is **a normal EDN vector**, not a tagged literal — agents pattern-match on the leading `:rf.elision/at` keyword without needing a reader hook. The path inside the handle is the same as the marker's `:path` field. Passing the handle to the existing re-frame2-pair-mcp `get-path` tool fetches the literal elided value, subject to that tool's own cap check (a `:rf.mcp/overflow` is the failure mode if the literal is over-cap).
 - **`:digest`** — OPTIONAL. A `sha256:<hex>` content digest, computed only when `:rf.size/include-digests?` is true on the call. Default off because the digest forces a full walk of the elided value, which negates the elision's cost-saving. When enabled (debug builds, integrity-check workflows), callers compare digests across turns to detect change-without-fetch.
