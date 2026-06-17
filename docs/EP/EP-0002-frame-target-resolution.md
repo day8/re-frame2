@@ -1045,9 +1045,10 @@ Update skills:
 
 Update:
 
-- `docs/guide/18-frames.md`;
-- `docs/guide/09*`, `14*`, `16*`, `19*`, `23*`, `25*` where they teach
-  default frame convenience;
+- `docs/guide/concepts/frames.md`;
+- the topical `docs/guide/concepts/*` pages and
+  `docs/guide/25-from-re-frame-v1.md` where they teach default frame
+  convenience;
 - `docs/xray/api/mount-control.md`;
 - `docs/xray/api/config-keys.md`, `docs/xray/api/reference.md`, and
   `docs/xray/api/runtime-seam.md`;
@@ -1328,8 +1329,8 @@ Implementation must reconcile `:rf.error/no-frame-context`,
 The EP overrides a stated design goal:
 
 - `spec/002-Frames.md:21`: frame plurality is invisible to single-frame apps;
-- `docs/guide/18-frames.md:51,82`: most users never type `frame` and
-  `:rf/default` costs nothing.
+- `docs/guide/concepts/frames.md` §"A default frame would hide cross-frame
+  leaks": most users never type `frame` and `:rf/default` costs nothing.
 
 This revocation should be explicit. The strongest principled support is
 `spec/Principles.md` low-hidden-context guidance and `spec/AI-Audit.md`, which
@@ -1432,8 +1433,9 @@ Tooling surfaces to enumerate:
 
 Docs and skills to update beyond the obvious specs:
 
-- `docs/guide/18-frames.md`;
-- `docs/guide/09*`, `14*`, `16*`, `19*`, `23*`, `25*`;
+- `docs/guide/concepts/frames.md`;
+- the topical `docs/guide/concepts/*` pages and
+  `docs/guide/25-from-re-frame-v1.md`;
 - `docs/api/01-core.md`, `04-machines.md`, `05-flows.md`, `07-http.md`,
   `09-ssr.md`, `13-lifecycle.md`, and `14-adapters.md`;
 - `docs/xray/api/mount-control.md`;
