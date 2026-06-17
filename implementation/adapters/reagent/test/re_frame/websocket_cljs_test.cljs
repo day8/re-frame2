@@ -506,6 +506,36 @@
 ;; REQUEST/REPLY + SERVER PUSH + SUBSCRIPTIONS
 ;; ============================================================================
 
+;; ----------------------------------------------------------------------------
+;; APP-LEVEL request/reply boundary (rf2-eygytk)
+;;
+;; This request/reply path uses the Pattern-WebSocket APP-LEVEL correlation
+;; shape — a per-message `:request-id`, a registered `:reply` event target,
+;; and an `:in-flight` correlation map on the connection machine's `:data`
+;; — and it is INTENTIONALLY OUTSIDE the EP-0011 uniform reply envelope.
+;;
+;; Why this is not a divergent second vocabulary: [Managed-Effects §The
+;; uniform reply envelope] (the EP-0011 normative home) rules property 9
+;; (the uniform async-reply envelope) to apply to framework-SHIPPED managed
+;; async surfaces (HTTP, resources/mutations, machine async work, route
+;; loaders, timers). re-frame2 deliberately does NOT ship a managed
+;; WebSocket (Mike-ruled) — there is no `:rf.ws/*` fx, no reserved
+;; `:rf.ws/*` namespace, and no framework contract. [Pattern-WebSocket] is
+;; the canonical worked example of an APP/LIBRARY-built long-lived
+;; connection, and it explicitly recommends THIS correlation shape:
+;; "Treat individual messages over an open WebSocket as Pattern-AsyncEffect
+;; interactions when they are request-reply (correlation-id keyed)" and
+;; "Pattern-WebSocket's `:in-flight` map is the worked example of that
+;; [correlation] step." Pattern-AsyncEffect leaves correlation to the
+;; caller; it is NOT property 9. So `:request-id`/`:reply`/`:in-flight` is
+;; the SPEC-BLESSED app convention here, not a competing reply envelope.
+;;
+;; The assertions below pin the boundary explicitly so this scaffold stops
+;; teaching a second reply vocabulary by silent omission: the reply is the
+;; app's own message body, and it carries NONE of the EP-0011 reply-map
+;; vocabulary (`:rf/reply-to`, `:status`, `:work/id`, `:work/kind`,
+;; `:completed-at`). If a future ruling folds this into the uniform
+;; envelope, these assertions are the canary that flips.
 (defn- request-reply-correlation-test []
   (with-sync-mock!
     (fn []
@@ -531,7 +561,7 @@
           (let [db   (rf/app-db-value f)
                 snap (snapshot (rf/runtime-db-value f))]
             (is (= {} (get-in snap [:data :in-flight]))
-                ":in-flight slot was cleared on reply")
+                ":in-flight slot was cleared on reply (app-level correlation)")
             (let [last-reply (get-in db [:messages :last-reply])]
               (is (some? last-reply))
               (is (= :reply (:type last-reply)))
@@ -540,7 +570,24 @@
                   "the supplied recordable request-id round-tripped on the reply")
               (is (= {:type :request :body "hello"}
                      (:echo last-reply))
-                  (str "echo body round-tripped, got " (:echo last-reply))))))))))
+                  (str "echo body round-tripped, got " (:echo last-reply)))
+              ;; rf2-eygytk: assert the APP-LEVEL boundary — the reply is the
+              ;; app's own body and carries NONE of the EP-0011 uniform
+              ;; reply-envelope vocabulary. This path is Pattern-WebSocket
+              ;; app/library convention, NOT a framework-shipped managed
+              ;; async surface (property 9 is exempt for WebSocket). The
+              ;; wire `:request-id` above is app-level protocol correlation,
+              ;; not the EP-0011 `:work/id`.
+              (is (not (contains? last-reply :rf/reply-to))
+                  "app-level reply carries no EP-0011 :rf/reply-to target")
+              (is (not (contains? last-reply :status))
+                  "app-level reply carries no EP-0011 :status taxonomy member")
+              (is (not (contains? last-reply :work/id))
+                  "app-level reply carries no EP-0011 :work/id correlation")
+              (is (not (contains? last-reply :work/kind))
+                  "app-level reply carries no EP-0011 :work/kind")
+              (is (not (contains? last-reply :completed-at))
+                  "app-level reply carries no EP-0011 :completed-at metadata"))))))))
 
 (defn- request-id-missing-under-strict-test []
   ;; EP-0017 (rf2-1g0ba6): under a strict mint policy, the declared-absent
