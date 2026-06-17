@@ -229,21 +229,32 @@
                       ctx-delta-segments)]
     (when (seq slots) slots)))
 
-(defn- framework-default-interceptor?
-  "True iff `interceptor` is a framework-installed scaffolding interceptor
-  whose ctx-delta should NOT be captured for the Xray AFTER INTERCEPTORS
-  surface — they are not user-meaningful interceptors. Mirrors the
-  filter the Xray panel applies on the registration-time list (`:rf/
-  default? true`, the substrate-side marker).
+(defn ^:no-doc framework-default-interceptor?
+  "True iff `x` is a framework-installed scaffolding interceptor VALUE —
+  the framework's own appended handler-wrapper, stamped `:rf/default?
+  true` (see `re-frame.events/register-event!`). Two callers share this
+  one predicate (rf2-ih437c):
+
+    - `invoke-after` (this ns) skips its ctx-delta capture for these —
+      they are framework machinery, not user-meaningful interceptors on
+      the Xray AFTER INTERCEPTORS surface.
+    - `re-frame.interceptor-registry/resolve-chain` lets this ONE inline
+      value pass through a chain untouched (the reference-only flip,
+      rf2-0adhqs.9, rejects every other inline value). `interceptor-
+      registry` already `:require`s this ns, so it calls here rather than
+      keeping a second copy.
 
   EP-0017 removed `inject-cofx`; no interceptor carries `:rf/cofx-id`
   anymore (coeffect delivery moved to context assembly), so the old
   `:rf/cofx-id` skip-clause was permanently dead and has been removed
-  (rf2-oky3gt) — the predicate is now the `:rf/default?` check alone.
+  (rf2-oky3gt) — the predicate is the `:rf/default?` check alone.
 
-  Pure predicate; no allocation when the interceptor carries no flag."
-  [interceptor]
-  (true? (:rf/default? interceptor)))
+  The `(map? x)` guard makes the predicate total over a chain entry of
+  ANY shape (the registry calls it on raw chain entries that may be
+  references, not only resolved maps); pure, no allocation when `x`
+  carries no flag."
+  [x]
+  (and (map? x) (true? (:rf/default? x))))
 
 (defn- invoke-after [context interceptor]
   (if-let [f (:after interceptor)]
