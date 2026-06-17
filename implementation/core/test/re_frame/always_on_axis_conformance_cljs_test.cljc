@@ -345,3 +345,46 @@
         ":error-emit/dispatch-on-error hook is published")
     (is (some? (late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
         ":error-emit/dispatch-frame-teardown-report hook is published")))
+
+;; ===========================================================================
+;; rf2-2bzwr7 — the corpus-wide listener facade exports are CLASSIFIED as
+;; ADVANCED non-off-box-raw integration APIs, NOT off-box shipper surfaces.
+;;
+;; EP-0015 §9 makes the frame-owned `:observability` sink + `project-egress`
+;; the normal off-box egress path; the corpus-wide listener registries deliver
+;; an UNPROJECTED record (raw owner-local data can leave a frame) and so must
+;; not present themselves as the off-box shipper API. This is the
+;; REGRESSION/LINT coverage the bead asks for: a facade `:doc` that re-points
+;; off-box shippers at the raw global listener path goes RED here. The match is
+;; on the FACADE var metadata so it tracks the actual exported surface, not a
+;; copy of the prose.
+;; ===========================================================================
+
+#?(:clj
+   (deftest corpus-wide-listener-facade-docs-classified-advanced-not-off-box
+     (testing "rf2-2bzwr7 / EP-0015 §9 — the `register-error-listener!` and
+               `register-event-listener!` facade exports document themselves as
+               ADVANCED corpus-wide integration hooks that point off-box
+               shippers at the frame-owned `:observability` sink, and do NOT
+               present as the off-box shipper API (raw owner-local data can
+               leave a frame through the unprojected corpus listener)."
+       (doseq [v [#'rf/register-error-listener! #'rf/register-event-listener!]]
+         (let [doc (:doc (meta v))]
+           (is (string? doc) (str v " carries a docstring"))
+           ;; POSITIVE: classified advanced + cross-frame, and points at the
+           ;; frame-owned sink as the normal off-box path.
+           (is (re-find #"(?i)advanced" doc)
+               (str v ": docstring classifies the listener as ADVANCED"))
+           (is (re-find #":observability" doc)
+               (str v ": docstring points off-box shippers at the frame-owned "
+                    ":observability sink (EP-0015 §9)"))
+           (is (re-find #"(?i)EP-0015" doc)
+               (str v ": docstring cites EP-0015 (the frame-owned egress model)"))
+           ;; NEGATIVE: the prior off-box-shipper framing — naming Sentry /
+           ;; Honeybadger / Rollbar as THE consumers of THIS surface, or
+           ;; calling it "for off-box observability shippers" — must be gone.
+           ;; The frame sink is the off-box surface; this listener is the
+           ;; advanced fallback only.
+           (is (not (re-find #"(?i)for off-box observability shippers" doc))
+               (str v ": docstring no longer pitches the raw listener AS the "
+                    "off-box shipper API (EP-0015 §9 — the frame sink is)")))))))
