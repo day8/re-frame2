@@ -188,21 +188,19 @@
 
 ;; Validation entry points (Spec 010 §Validation order).
 ;; Per rf2-s2jgz the family is named on the kind axis —
-;; validate-event! / validate-cofx! / validate-fx! / validate-sub! /
+;; validate-event! / validate-fx! / validate-sub! /
 ;; validate-app-schema!. The earlier validate-app-db! /
 ;; validate-sub-return! names were renamed for symmetry.
 ;;
-;; `validate-cofx!` is DEMOTED (EP-0017): it is NOT the live runtime cofx
-;; schema-validation path. EP-0017 retired the ctx-mutating `inject-cofx`
-;; injection-time validation; the live cofx schema contract is
+;; The injection-time `validate-cofx!` fn was RETIRED per rf2-nkf4l3.
+;; EP-0017 removed the ctx-mutating `inject-cofx` injection point its
+;; `:where :cofx` trace described; the live cofx schema contract is
 ;; `re-frame.cofx/validate-recordable-value!` (a production hard error →
-;; `:rf.error/cofx-value-invalid`), not the dev-only
-;; `:rf.error/schema-validation-failure :where :cofx` this fn emits. No runtime
-;; caller reaches `:schemas/validate-cofx!`; it survives for the elision probe
-;; / direct-call shape tests pending the Spec 010 step-2 normative rewrite.
+;; `:rf.error/cofx-value-invalid`), not a dev-only
+;; `:rf.error/schema-validation-failure :where :cofx`. See Spec 010
+;; §Validation order step 2.
 (def validate-app-schema! validate/validate-app-schema!)
 (def validate-event!      validate/validate-event!)
-(def validate-cofx!       validate/validate-cofx!)   ;; DEMOTED — see note above
 (def validate-fx!         validate/validate-fx!)
 (def validate-sub!        validate/validate-sub!)
 
@@ -234,15 +232,15 @@
 ;; regex — matching the convention of every other artefact's
 ;; publication block (flows / machines / routing / http / ssr).
 
-;; Validation hot-path hooks (consumed by router / cofx / subs / epoch).
-;; NB `:schemas/validate-cofx!` is DEMOTED (EP-0017) — no runtime consumer
-;; reaches it (the live cofx schema path is `re-frame.cofx/validate-recordable-
-;; value!` → `:rf.error/cofx-value-invalid`); the publication survives for the
-;; elision probe / direct-call shape tests pending the Spec 010 step-2 rewrite.
+;; Validation hot-path hooks (consumed by router / subs / epoch).
+;; NB there is no `:schemas/validate-cofx!` hook — the injection-time cofx
+;; validator was retired per rf2-nkf4l3 (EP-0017). The live cofx schema path
+;; is `re-frame.cofx/validate-recordable-value!` →
+;; `:rf.error/cofx-value-invalid`, which routes redaction through the
+;; `:schemas/redact-validation-tags` hook below.
 (late-bind/set-fn! :schemas/validate-app-schema! validate-app-schema!)
 (late-bind/set-fn! :schemas/validate-event!      validate-event!)
 (late-bind/set-fn! :schemas/validate-sub!        validate-sub!)
-(late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
 (late-bind/set-fn! :schemas/validate-fx!         validate-fx!)
 (late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
 ;; Frame-destroy cleanup hook (consumed by frame/destroy-frame!,

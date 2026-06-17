@@ -896,7 +896,6 @@
   ["re-frame.schemas" "validate-event!"]           {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "redact-validation-tags"]    {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-fx!"]              {:tier :implementation :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-cofx!"]            {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-sub!"]             {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-with-registered-fn"] {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "explain-with-registered-fn"]  {:tier :implementation :owner "010" :status "v1"}

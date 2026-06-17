@@ -1,11 +1,10 @@
 (ns re-frame.schemas.validate
   "Validation entry points (Spec 010 §Validation order steps 1-6).
 
-  Owns the five dev-time validate-*! fns the framework calls at the
+  Owns the four dev-time validate-*! fns the framework calls at the
   locked validation sites:
 
     - validate-event!        — pre-handler (event vector vs handler :schema)
-    - validate-cofx!         — post-injection (cofx value vs cofx :schema)
     - validate-fx!           — pre-fx-handler (fx args vs fx :schema)
     - validate-app-schema!   — post-handler-commit (frame's app-schemas)
     - validate-sub!          — post-sub-recompute (return value vs sub :schema)
@@ -13,17 +12,22 @@
   The metadata key is `:schema` (canonical per rf2-ieu0i).
 
   Per rf2-s2jgz (audit-of-audits #20) the family is named on the
-  kind axis — validate-event!, validate-cofx!, validate-fx!,
+  kind axis — validate-event!, validate-fx!,
   validate-sub! and validate-app-schema!. The earlier
   validate-app-db! / validate-sub-return! names were renamed for
-  symmetry with their siblings.
+  symmetry with their siblings. The cofx surface used to live here
+  too (validate-cofx!) but was retired per rf2-nkf4l3 — EP-0017 made
+  the live cofx schema check the recordable-value contract in
+  `re-frame.cofx/validate-recordable-value!` (a production hard error
+  emitting `:rf.error/cofx-value-invalid`), not a dev-only
+  `:rf.error/schema-validation-failure :where :cofx` trace.
 
   Also owns the production-side boundary-validation seam
   (`validate-with-registered-fn` / `explain-with-registered-fn`) that
   the boundary-validation interceptor (`re-frame.spec`, rf2-r2uh)
   reaches via the schemas-side late-bind hook.
 
-  Per rf2-s7s6j the four meta-bearing validate-*! fns (event / cofx /
+  Per rf2-s7s6j the three meta-bearing validate-*! fns (event /
   fx / sub) share a single core via the private
   `run-validation` primitive — each public fn is a thin wrapper that
   contributes only its registration-meta source, its checked value,
@@ -235,7 +239,7 @@
 ;; the trace so Xray routing + the MCP egress gate see it).
 ;;
 ;; The app-db path is the ONLY surface that narrows a slot (`:value` to the
-;; failing leaf); every meta-bearing surface (event / cofx / fx / sub) carries
+;; failing leaf); every meta-bearing surface (event / fx / sub) carries
 ;; the WHOLE checked value in EVERY value-bearing slot, so its whole decision
 ;; is the root check. The off-namespace seam `redact-validation-tags` is
 ;; already whole-only (the coarse root check; rf2-me69cb=(a)) and is unchanged.
@@ -263,7 +267,7 @@
 
   This is the WHOLE-PAYLOAD redactor: it treats EVERY value-bearing slot as
   carrying the whole checked value, so it is the correct shape for the
-  meta-bearing surfaces (event / cofx / fx / sub via `run-validation`, where
+  meta-bearing surfaces (event / fx / sub via `run-validation`, where
   no slot is leaf-narrowed) and for the off-namespace seam
   `redact-validation-tags` (already coarse + root-checked, rf2-me69cb=(a)). The
   app-db hot path, which DOES narrow `:value` to the failing leaf, uses
@@ -474,10 +478,10 @@
   isolation closes (the validator never proved sensitivity, so we cannot
   redact path-targeted; omitting the value is fail-closed).
 
-  Per rf2-a5kzs the SAME emit now serves the four meta-bearing surfaces
-  (event / cofx / fx / sub) via `run-validation`: a malformed `:schema`
-  on a handler / cofx / fx / sub registration makes the validator throw
-  identically, and the runtime call-sites (`router` / `cofx` / `fx` /
+  Per rf2-a5kzs the SAME emit now serves the three meta-bearing surfaces
+  (event / fx / sub) via `run-validation`: a malformed `:schema`
+  on a handler / fx / sub registration makes the validator throw
+  identically, and the runtime call-sites (`router` / `fx` /
   `subs`) coerce that throw to a validation PASS via their defensive
   `(catch … true)` — the same fail-open class. Those surfaces stamp the
   structural slots they carry (`:where`, the surface id, `:frame`) plus
@@ -491,7 +495,7 @@
   fails on a structurally degenerate schema) can never abort failure-trace
   construction. A propagated explainer throw would unwind PAST the
   legitimate `false` return, and the runtime call-sites
-  (`router` / `cofx` / `fx` / `subs`, and `validate-app-schema!`'s router
+  (`router` / `fx` / `subs`, and `validate-app-schema!`'s router
   caller) coerce that throw to a validation PASS via their defensive
   `(catch … true)` — turning a real validation FAILURE into a silent
   catch-as-pass (for app-db: the swallowed-backstop returns true / no
@@ -528,24 +532,24 @@
       [:malformed ex])))
 
 (defn- run-validation
-  "Shared core of the four meta-bearing validate-*! fns (event / cofx /
+  "Shared core of the three meta-bearing validate-*! fns (event /
   fx / sub). Performs the registered-validator deref, the
   `:schema`-on-meta lookup, the validate / explain calls, the
   sensitivity decision, and the trace emit. Returns true on pass / no
   schema / no validator; false on a logged failure.
 
   Parameters:
-    - `reg-meta`     the registration metadata (handler / cofx / sub /
+    - `reg-meta`     the registration metadata (handler / sub /
                      fx) — its `:schema` slot, if any, is the schema.
-    - `value`        the value being checked (event vector, cofx
-                     value, sub return value, fx args).
+    - `value`        the value being checked (event vector, sub
+                     return value, fx args).
     - `walk-schema?` boolean — when true AND the validator fails,
                      consult the schema's per-slot `:sensitive?` walker
-                     before emitting. Per rf2-a5kzs (finding 1) all four
+                     before emitting. Per rf2-a5kzs (finding 1) all three
                      meta-bearing surfaces now pass `true`: an event vector
                      isn't itself `:map`-shaped but its `:cat`/`:catn` payload
                      commonly is (a login schema marks `:password` sensitive),
-                     and cofx / fx / sub-return validate a map value directly.
+                     and fx / sub-return validate a map value directly.
                      Per rf2-3qam7b the decision here is the WHOLE-schema
                      `schema-has-sensitive?` (NOT the leaf-precise
                      `schema-sensitive-at?`): every value-bearing slot on these
@@ -584,7 +588,7 @@
   Per rf2-1o6ax the registered validator-fn is deref'd ONCE at the
   gate and invoked directly — `validator/run-validator` would deref
   the same atom a second time on every pass, which is wasted work
-  on a path that runs per-event / per-cofx / per-fx / per-sub-return.
+  on a path that runs per-event / per-fx / per-sub-return.
 
   Per rf2-nijom this primitive no longer carries an `extra-redact`
   escape hatch — the canonical redacted slots
@@ -634,7 +638,7 @@
                      ;; Per rf2-mxs7a — preserve the surface-specific
                      ;; recovery the caller's build-base-tags supplied
                      ;; (validate-fx! → :skipped, validate-sub! →
-                     ;; :replaced-with-default; event/cofx →
+                     ;; :replaced-with-default; event →
                      ;; :no-recovery). The runtime applies that local
                      ;; fallback even on a malformed schema (fx.cljc
                      ;; skips the offending fx; subs/memo.cljc returns
@@ -653,10 +657,10 @@
                 ;; this false and become a catch-as-pass at the call-site.
                 explanation (safe-explain schema value)
                 ;; PER-SLOT DECISION SCOPING (rf2-3qam7b). The meta-bearing
-                ;; surfaces (event / cofx / fx / sub) carry the WHOLE checked
+                ;; surfaces (event / fx / sub) carry the WHOLE checked
                 ;; value in EVERY value-bearing slot — `:value` / `:received` /
                 ;; `:explain` / `:explain-humanized` / `:rf.fx/args` /
-                ;; `:rf.sub/query-v` are all the whole event-vector / cofx /
+                ;; `:rf.sub/query-v` are all the whole event-vector /
                 ;; fx-args / sub-return value (nothing here is narrowed to the
                 ;; failing leaf the way the app-db path narrows `:value`). So
                 ;; the redaction decision MUST be scoped to the WHOLE schema
@@ -739,8 +743,8 @@
              (per Spec 010 §Per-step recovery row 4 / rf2-wkxng /
              rf2-6m0se).
 
-  Structurally distinct from the four meta-bearing validate-*! fns
-  (event / cofx / fx / sub): walks N schemas via doseq, has no
+  Structurally distinct from the three meta-bearing validate-*! fns
+  (event / fx / sub): walks N schemas via doseq, has no
   single `:schema`-on-meta lookup, and emits a trace per failure (rather
   than at-most-one). Returns a single boolean conjoining every entry's
   result so the caller can decide rollback deterministically — but
@@ -1097,59 +1101,13 @@
            frame (assoc :frame frame))))
      true)))
 
-(defn validate-cofx!
-  "DEMOTED (EP-0017): this is NOT the live runtime cofx schema-validation
-  contract. EP-0017 retired the ctx-mutating `inject-cofx` injection-time
-  validation; the live path is the recordable-value check in
-  `re-frame.cofx/validate-recordable-value!`, a PRODUCTION hard error that
-  emits `:rf.error/cofx-value-invalid` and THROWS (not the dev-only
-  `:rf.error/schema-validation-failure :where :cofx` trace this fn emits). No
-  runtime caller reaches the `:schemas/validate-cofx!` late-bind hook anymore;
-  the only callers are the elision probe and this artefact's direct-call shape
-  unit tests. The fn (and its hook publication) survive pending the Spec 010
-  §Validation order step-2 normative rewrite (tracked separately) — Spec 010
-  still documents step 2 as `:where :cofx`, so deleting the fn now would invert
-  the divergence. Once Spec 010 drops the injection-time step this fn and its
-  hook can be removed outright.
-
-  Historical contract (the shape the direct-call tests still pin): after a cofx
-  injected its value into the merged context, validate that value against any
-  `:schema` on the cofx's metadata; failures emit
-  `:rf.error/schema-validation-failure :where :cofx`; the caller skipped the
-  handler (recovery: `:no-recovery`). Returns true/false per the
-  `run-validation` contract.
-
-  The optional 5-arity `frame` (rf2-9cm27) stamps a `:frame` tag onto
-  the failure trace — the in-flight cascade's frame. Without it the
-  trace carries no `:frame`, so `re-frame.epoch.capture/capture-event!`
-  silently DROPS the violation from the epoch's `:trace-events` (it
-  buffers a trace into the in-flight cascade ONLY when the trace's tags
-  carry the cascade's `:frame`), leaving the Xray Schema-timeline lens
-  blind to it. Mirrors `validate-event!`'s `:frame` fix (rf2-lo28u). The
-  4-arity stays for direct (non-runtime) callers (the elision probe,
-  unit tests)."
-  ([cofx-id event-id value cofx-meta] (validate-cofx! cofx-id event-id value cofx-meta nil))
-  ([cofx-id event-id value cofx-meta frame]
-   (if interop/debug-enabled?
-     (run-validation
-       cofx-meta
-       value
-       true   ;; consult schema's per-slot `:sensitive?` walker on fail
-       (fn [schema explanation]
-         (cond-> {:where      :cofx
-                  :rf.cofx/id cofx-id
-                  :event-id   event-id
-                  :failing-id event-id
-                  :schema-id  cofx-id
-                  :received   value
-                  :value      value
-                  :explain    explanation
-                  :reason     (reason-string "Coeffect " cofx-id
-                                             " injected value failed schema "
-                                             schema value)
-                  :recovery   :no-recovery}
-           frame (assoc :frame frame))))
-     true)))
+;; NB the injection-time `validate-cofx!` fn was RETIRED per rf2-nkf4l3.
+;; EP-0017 removed the ctx-mutating `inject-cofx` injection point this fn's
+;; `:where :cofx` trace described; the live cofx schema contract is the
+;; recordable-value check in `re-frame.cofx/validate-recordable-value!` — a
+;; PRODUCTION hard error emitting `:rf.error/cofx-value-invalid` (and throwing),
+;; not a dev-only `:rf.error/schema-validation-failure :where :cofx` trace. See
+;; Spec 010 §Validation order step 2 and §Per-step recovery row 2.
 
 (defn validate-fx!
   "Per Spec 010 §Validation order step 5 — before an fx handler runs,
@@ -1277,12 +1235,15 @@
   framework-side validation-failure emit site through, so the
   `:sensitive?` redaction logic lives in a single place rather than
   being re-derived ad-hoc per surface. The dev-time hot-path emits
-  (`validate-event!` / `-cofx!` / `-fx!` / `-sub!` / `validate-app-schema!`)
+  (`validate-event!` / `-fx!` / `-sub!` / `validate-app-schema!`)
   reach the SAME `redact-tags` core directly via `run-validation`; the
   off-namespace emit sites — the production boundary interceptor
   (`re-frame.spec`), machine `:data` validation
   (`re-frame.machines.data-validation`), the `:sub-override` validation
-  path (`re-frame.subs`), and flow-output validation (`re-frame.flows`)
+  path (`re-frame.subs`), flow-output validation (`re-frame.flows`), and
+  the EP-0017 recordable-coeffect `:rf.error/cofx-value-invalid` emit
+  (`re-frame.cofx` — the live cofx schema surface; the injection-time
+  `validate-cofx!` was retired per rf2-nkf4l3)
   — reach it through the `:schemas/redact-validation-tags` late-bind
   hook and fall through verbatim when the hook is unbound (schemas
   artefact absent → no schema to redact against).

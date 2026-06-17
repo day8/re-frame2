@@ -1,20 +1,22 @@
 (ns re-frame.schemas-fail-open-test
   "JVM tests for the validator-throw / explainer-throw fail-OPEN closure on
-  the four meta-bearing validate-*! surfaces and the production boundary
+  the three meta-bearing validate-*! surfaces and the production boundary
   seam (rf2-a5kzs findings 2 + 3).
 
   ## Finding 2 — malformed-schema fail-open
 
-  `run-validation` (the shared core of validate-event! / validate-cofx! /
+  `run-validation` (the shared core of validate-event! /
   validate-fx! / validate-sub!) used to invoke the registered validator
   DIRECTLY. Malli validates schema FORMS lazily — a childless `[:vector]`
   / unknown op registers fine, then makes the validator THROW on the first
   validate call. That throw propagated out of validate-*! and the runtime
-  call-sites (`router` / `cofx` / `fx` / `subs`) coerced it to a validation
-  PASS via their defensive `(catch … true)`: the event/cofx handler ran, the
+  call-sites (`router` / `fx` / `subs`) coerced it to a validation
+  PASS via their defensive `(catch … true)`: the event handler ran, the
   fx handler ran, the sub returned its invalid value — all with no trace and
   no recovery. Same fail-open class already closed for app-db schemas
-  (rf2-ss06u.3).
+  (rf2-ss06u.3). (The cofx surface's malformed-schema fail-closed now rides
+  the EP-0017 `:rf.error/cofx-value-invalid` recordable path; the
+  injection-time `validate-cofx!` was retired per rf2-nkf4l3.)
 
   The fix isolates the throw inside `run-validation` (via
   `validate-entry-result`), emits a distinct `:rf.error/malformed-schema`

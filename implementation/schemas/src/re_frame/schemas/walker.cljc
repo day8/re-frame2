@@ -403,8 +403,10 @@
             schema-validation error traces.
 
             Used by the validation emit-sites (`validate-app-schema!` and
-            the per-step `validate-event!` / `validate-cofx!` /
-            `validate-sub!` helpers) to decide whether the failing slot's
+            the per-step `validate-event!` / `validate-fx!` /
+            `validate-sub!` helpers, plus the EP-0017 recordable-cofx
+            `:rf.error/cofx-value-invalid` path via
+            `redact-validation-tags`) to decide whether the failing slot's
             value MUST be redacted before the trace event ships.
 
             Memoised by `(schema, base-path)` (rf2-y29nf): the failure-

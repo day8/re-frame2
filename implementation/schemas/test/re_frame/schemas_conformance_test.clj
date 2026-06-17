@@ -2,8 +2,9 @@
   "Per rf2-2l08g (audit rf2-x8x4p §TE5). Drives every
   `spec/conformance/fixtures/schema-*.edn` fixture (plus
   `error-schema-failure.edn`) through the live runtime — `reg-app-schema`,
-  `validate-app-schema!`, the `:schemas/validate-event!` / `:schemas/validate-cofx!` /
-  `:schemas/validate-sub!` late-bind hooks, and the
+  `validate-app-schema!`, the `:schemas/validate-event!` /
+  `:schemas/validate-sub!` late-bind hooks, the EP-0017 recordable-cofx
+  `:rf.error/cofx-value-invalid` path, and the
   `:rf.error/schema-validation-failure` trace contract — and asserts
   the conformance-corpus's recorded outcome against what the artefact
   actually produces.

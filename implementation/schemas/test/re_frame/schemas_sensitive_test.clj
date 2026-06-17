@@ -32,9 +32,12 @@
        (slot-level props, container-level props, nested, dispatch-
        bearing combinators).
     2. **Redaction substitution** — direct invocation of
-       `validate-app-schema!` / `validate-event!` / `validate-cofx!` /
+       `validate-app-schema!` / `validate-event!` /
        `validate-sub!` against a `:sensitive?`-bearing schema
-       fires a trace with the redaction shape pinned.
+       fires a trace with the redaction shape pinned. (The cofx surface's
+       redaction now rides the EP-0017 `:rf.error/cofx-value-invalid` path
+       in the core artefact — the injection-time `validate-cofx!` was
+       retired per rf2-nkf4l3.)
     3. **Backward-compat** — non-sensitive validation failures emit
        unchanged (`:value`, `:explain` ride verbatim; no top-level
        `:sensitive?` stamp on the event)."

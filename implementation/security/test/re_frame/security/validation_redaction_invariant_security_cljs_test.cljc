@@ -228,15 +228,12 @@
       (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
-(deftest cofx-validation-redacts-sensitive
-  (testing ":where :cofx (validate-cofx!) redacts the sensitive injected value"
-    (let [trace (capture-failure
-                  #(schemas/validate-cofx!
-                     :rf.cofx/secret :some/event failing-sensitive-value
-                     {:schema sensitive-map-schema}))]
-      (assert-no-leak ":where :cofx" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted"))))
+;; NB the :where :cofx redaction test was REMOVED per rf2-nkf4l3 — the
+;; injection-time validate-cofx! it exercised was retired (EP-0017). The live
+;; cofx schema surface (`re-frame.cofx/validate-recordable-value!` →
+;; `:rf.error/cofx-value-invalid`) routes its value-bearing slots through the
+;; same `redact-validation-tags` seam; its redaction is covered by the core
+;; artefact's cofx satisfaction tests.
 
 (deftest fx-validation-redacts-sensitive
   (testing ":where :fx-args (validate-fx!) redacts the sensitive fx args (incl.
@@ -311,16 +308,10 @@
       (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
-(deftest cofx-validation-redacts-conforming-sensitive-sibling
-  (testing "rf2-3qam7b — :where :cofx: a CONFORMING sensitive :jwt rides next to
-            a non-sensitive failing :count; the whole cofx value redacts"
-    (let [trace (capture-failure
-                  #(schemas/validate-cofx!
-                     :rf.cofx/ctx :some/event failing-sibling-value
-                     {:schema sibling-sensitive-map-schema}))]
-      (assert-no-leak ":where :cofx (conforming sibling)" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted"))))
+;; NB the :where :cofx conforming-sibling test was REMOVED per rf2-nkf4l3 —
+;; the injection-time validate-cofx! was retired (EP-0017). The whole-payload
+;; conforming-sibling invariant is still covered for the event / fx / sub /
+;; app-db / machine-data surfaces below + above.
 
 (deftest fx-validation-redacts-conforming-sensitive-sibling
   (testing "rf2-3qam7b — :where :fx-args: a CONFORMING sensitive :jwt rides next
@@ -750,9 +741,6 @@
          ;; event wraps it under a :cat (the rf2-a5kzs#1 shape).
          (capture-failure
            #(schemas/validate-event! :gen/id event-value {:schema event-schema}))
-         ;; :where :cofx
-         (capture-failure
-           #(schemas/validate-cofx! :gen/cofx :gen/ev value {:schema schema}))
          ;; :where :fx-args
          (capture-failure
            #(schemas/validate-fx! :gen/fx :gen/ev value {:schema schema}))
