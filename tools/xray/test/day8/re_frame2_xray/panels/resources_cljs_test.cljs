@@ -305,6 +305,77 @@
           (is (re-find #":realworld/save-article" (node-text row))
               "the mutation id surfaced"))))))
 
+;; ---- (3a) EP-0011 live-work + stale-races render ------------------------
+;;
+;; The uniform reply-envelope reads (`reply/live-work` / `races-by-work-id` /
+;; `stale-tally-by-kind`) are computed in the composite data sub; the Panel
+;; must RENDER them — "what is still running?" (live work + active-effects
+;; tally) and the cross-family stale-races view. Silent-by-default: a settled
+;; app (no live work, no suppression) renders neither section.
+
+(def ep0011-live-work-id
+  [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4])
+
+(def ep0011-buffer
+  [;; the live resource work's latest reply-envelope trace phase (issued) —
+   ;; live-work joins the running ledger row to THIS by :work/id.
+   {:id 70 :op-type :rf.resource :operation :rf.resource/work-started
+    :tags {:work/id ep0011-live-work-id :work/kind :resource}}
+   ;; a cross-family HTTP supersession stale-suppressed row — drives the
+   ;; stale-races view + the per-kind suppression tally.
+   {:id 71 :op-type :rf.http :operation :rf.http/stale-suppressed
+    :tags {:work/id [:rf.work/http :search 1 1] :work/kind :http
+           :rf.reply/status :stale :rf.reply/work-status :suppressed
+           :rf.reply/stale-reason :rf.http/request-id-superseded
+           :rf.reply/carried {:work/id [:rf.work/http :search 1 1]}
+           :rf.reply/current {:work/id [:rf.work/http :search 2 1]}}}])
+
+(deftest ep0011-live-work-and-stale-races-render
+  (testing "the EP-0011 'what is still running?' live-work + active-effects
+            tally and the cross-family stale-races view render from the work
+            ledger + trace buffer"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-overrides!)
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0011-buffer] {:frame :rf/xray})
+      (let [tree (resources/Panel)]
+        ;; "what is still running?" section + the live resource row, joined
+        ;; to its latest trace phase (issued via :rf.resource/work-started).
+        (is (some? (find-by-testid tree "rf-xray-resources-live-work-caption"))
+            "live-work section rendered")
+        (let [row (find-by-testid
+                    tree (str "rf-xray-resources-live-work-row-" (hash ep0011-live-work-id)))]
+          (is (some? row) "the live resource work row rendered")
+          (is (re-find #"resource" (node-text row)) "work-kind surfaced")
+          (is (re-find #"issued" (node-text row)) "latest trace phase joined + surfaced"))
+        ;; the active-effects / suppression tally headline (per kind).
+        (is (some? (find-by-testid tree "rf-xray-resources-stale-tally-http"))
+            "per-kind suppression tally rendered")
+        ;; the cross-family stale-races view — the suppressed HTTP arc.
+        (is (some? (find-by-testid tree "rf-xray-resources-stale-races-caption"))
+            "stale-races section rendered")
+        (let [arc (find-by-testid
+                    tree (str "rf-xray-resources-stale-race-row-"
+                              (hash [:rf.work/http :search 1 1])))]
+          (is (some? arc) "the suppressed HTTP attempt arc rendered")
+          (is (re-find #"stale" (node-text arc)) "terminal :stale status surfaced")
+          (is (re-find #"http" (node-text arc)) "work-kind surfaced")))))
+  (testing "silent-by-default — a settled app (no live work, no suppression)
+            renders NEITHER the live-work NOR the stale-races section"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-registered-resources-override-for-test resource-regs]
+                        {:frame :rf/xray})
+      ;; no live ledger, no trace buffer
+      (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test {}]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer []] {:frame :rf/xray})
+      (let [tree (resources/Panel)]
+        (is (nil? (find-by-testid tree "rf-xray-resources-live-work-caption"))
+            "no live-work section when nothing is running / suppressed")
+        (is (nil? (find-by-testid tree "rf-xray-resources-stale-races-caption"))
+            "no stale-races section when no arc was suppressed")))))
+
 ;; ---- (3b) EP-0019 optimistic mutation lifecycle render ------------------
 
 (def ep0019-buffer
