@@ -1576,15 +1576,20 @@
   {:target           :browser
    :output-dir       "out/story-static/counter-with-stories"
    :asset-path       "."
-   ;; rf2-5dphw — the build-env project-root define rides alongside the
-   ;; static-mode? define here (see :examples/two-frame-isolation for the
-   ;; mechanism). In a published static export the open-in-editor chip is
-   ;; effectively dev-only, so the slot is harmless; seeding it keeps the
-   ;; static entry structurally identical to the dev entry.
+   ;; Static-export self-containment: the static build does NOT seed the
+   ;; `re-frame.testbed.config/repo-root` goog-define from
+   ;; `RF2_TESTBED_PROJECT_ROOT`. That env-derived define is for DEV testbeds
+   ;; (it powers the open-in-editor chip's absolute-path resolution under
+   ;; `shadow-cljs watch`). Inlining it into an `:advanced` static bundle
+   ;; would bake the BUILD machine's checkout root (often a `C:/Users/<name>/`
+   ;; home path) into a publishable artifact as a string constant. The
+   ;; published export is dev-tool-free, so only `static-mode? true` rides
+   ;; here; the open-in-editor project-root stays nil (and the framework
+   ;; guard in `re-frame.story.config/set-project-root!` fails closed under
+   ;; static mode regardless). A downstream consumer that genuinely wants a
+   ;; deep-link-to-editor static site opts in explicitly in their own entry.
    :compiler-options {:closure-defines
-                      {re-frame.story.config/static-mode? true
-                       re-frame.testbed.config/repo-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+                      {re-frame.story.config/static-mode? true}}
    :modules          {:main {:init-fn counter-with-stories.story-static/run}}}
 
   ;; Pattern-WebSocket worked example (rf2-yf97). Canonical worked

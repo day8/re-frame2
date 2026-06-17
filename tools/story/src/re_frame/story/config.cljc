@@ -288,13 +288,78 @@
   project-root
   (atom nil))
 
+;; ---- static-export project-root posture (rf2: static-export self-containment)
+;;
+;; The project-root is a DEV-time affordance: it turns a classpath-relative
+;; source-coord into an absolute on-disk path so the open-in-editor chip can
+;; launch the author's editor (`vscode://file/<root>/<file>...`). On a
+;; PUBLISHED static export (`story:build`, `static-mode?` true) that absolute
+;; path is (a) useless — a custom `editor://` URI does not resolve from a
+;; published HTML page — and (b) a leak — it bakes the BUILD machine's
+;; checkout root (often `C:/Users/<name>/...`) into a publicly-served bundle
+;; and into every rendered open-chip `href`.
+;;
+;; So in static mode the project-root is FAIL-CLOSED: `set-project-root!`
+;; ignores it (the slot stays nil; open-in-editor degrades to the same no-op
+;; the spec already documents for a missing root) UNLESS a host has made the
+;; explicit, static-export-aware opt-in below. The opt-in is DISTINCT from the
+;; dev testbed root helper (`re-frame.testbed.config/resolve-project-root`):
+;; that helper exists to wire dev testbeds, and a static export passing its
+;; result is exactly the accidental-leak case this guard closes. A host that
+;; genuinely wants a "published site that links back into the author's editor"
+;; (e.g. an internal docs deploy) flips this opt-in deliberately.
+;;
+;; This is a runtime guard. The static build ALSO drops the `RF2_TESTBED_
+;; PROJECT_ROOT` → `repo-root` goog-define seed (see implementation/
+;; shadow-cljs.edn :story-static/*), so no ambient checkout STRING is inlined
+;; into the advanced bundle in the first place; this guard is the framework-
+;; level defence that protects every downstream static export regardless of
+;; what its entry-point's `configure!` passes.
+
+(defonce
+  ^{:doc "Atom: has a host explicitly opted in to an absolute project-root in
+         static-export mode? Default `false` (fail-closed). When false,
+         `set-project-root!` ignores any project-root under
+         `static-mode?` so a published bundle never bakes a build-machine
+         checkout path into its open-in-editor URIs. A host that wants a
+         published site to deep-link back into its own editor sets this true
+         via `set-allow-static-project-root!` BEFORE `configure!`."}
+  allow-static-project-root?
+  (atom false))
+
+(defn set-allow-static-project-root!
+  "Opt a static-export build IN to an absolute project-root (rf2 static-export
+  self-containment). Default is OFF — in `static-mode?` the open-in-editor
+  project-root is fail-closed so a published bundle ships no build-machine
+  checkout path. Call this (with `true`) BEFORE `configure!` only when the
+  published site is meant to deep-link back into the author's editor and the
+  baked absolute root is acceptable. Has no effect outside static mode
+  (the dev project-root path is unguarded). `nil` resets to off."
+  [allow?]
+  (reset! allow-static-project-root? (boolean allow?))
+  nil)
+
+(defn allow-static-project-root?*
+  "Return whether the static-export project-root opt-in is on."
+  []
+  @allow-static-project-root?)
+
 (defn set-project-root!
   "Replace the project-root prefix. Accepts a string (the on-disk root,
   typically the directory above the classpath source-paths, joined to
   source-coords via `/`), or `nil` (clears the prefix). Story's
-  `configure!` calls this."
+  `configure!` calls this.
+
+  Fail-closed in static-export mode: under `static-mode?` a non-nil
+  project-root is IGNORED (the slot stays nil) unless the host has opted in
+  via `set-allow-static-project-root!`. This stops a published `story:build`
+  bundle from baking the build machine's checkout root into its
+  open-in-editor URIs (rf2 static-export self-containment). Dev builds
+  (`static-mode?` false) are unaffected."
   [p]
-  (reset! project-root (when (and (string? p) (seq p)) p))
+  (let [suppress? (and static-mode? (not @allow-static-project-root?))]
+    (reset! project-root
+            (when (and (not suppress?) (string? p) (seq p)) p)))
   nil)
 
 (defn get-project-root
@@ -738,14 +803,15 @@
   any other config mutation) in one test cannot leak into the next.
 
   Resets, in declaration order:
-  - `global-args`           → `{}`     (Layer 1 of args resolution)
-  - `global-decorators`     → `[]`
-  - `editor`                → `:vscode`
-  - `project-root`          → `nil`
-  - `frame-egress-profiles` → `{}`     (per-(tool,frame) overrides cleared —
-                                        reset directly, no toggle-off fire)
-  - `session-egress-profile`→ `:rf.egress/local-redacted`
-  - `suppressed-counters`   → `{}`
+  - `global-args`                 → `{}`     (Layer 1 of args resolution)
+  - `global-decorators`           → `[]`
+  - `editor`                      → `:vscode`
+  - `project-root`                → `nil`
+  - `allow-static-project-root?`  → `false`  (fail-closed static opt-in)
+  - `frame-egress-profiles`       → `{}`     (per-(tool,frame) overrides cleared —
+                                              reset directly, no toggle-off fire)
+  - `session-egress-profile`      → `:rf.egress/local-redacted`
+  - `suppressed-counters`         → `{}`
 
   Deliberately leaves `toggle-off-callbacks` intact — those are
   load-time module registrations, not per-test state (per rf2-6ez1u)."
@@ -754,6 +820,7 @@
   (reset! global-decorators [])
   (reset! editor :vscode)
   (reset! project-root nil)
+  (reset! allow-static-project-root? false)
   (reset! frame-egress-profiles {})
   (reset! session-egress-profile default-egress-profile)
   (reset! suppressed-counters {})

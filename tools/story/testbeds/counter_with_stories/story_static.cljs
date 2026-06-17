@@ -29,10 +29,7 @@
             ;; Source the stories ns so all `reg-*` calls fire on namespace
             ;; load. The variant bodies reference views / events / subs by
             ;; id; the stories ns transitively requires them.
-            [counter-with-stories.stories]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
-            ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config]))
+            [counter-with-stories.stories]))
 
 (defn ^:export run
   "Mount the Story shell at `#app`. Idempotent on hot-reload (which
@@ -45,22 +42,21 @@
   ;; stories ns, whose first `reg-*` call auto-installed the canonical
   ;; vocabulary per rf2-p1ydc (audit D-2 / rf2-y8gag).
   ;; Story global configuration — pinned defaults a published docs site
-  ;; can ship with. Locale defaults to :en; the editor preference
-  ;; doesn't matter because the open-in-editor affordance is dev-only
-  ;; (file:// hrefs in a published site are not actionable).
+  ;; can ship with. Locale defaults to :en.
   ;;
-  ;; rf2-r1uod — `:project-root` is plumbed here for parity with
-  ;; the dev-flavoured `core.cljs` entry. In a published static build
-  ;; the open-in-editor chip is effectively dev-only (custom URI
-  ;; schemes don't resolve from a published HTML page), so the slot
-  ;; is harmless in this entry; mirroring the dev entry's wiring
-  ;; keeps the two `run` fns structurally identical and makes future
-  ;; "live-on-static" experiments (e.g. a published site that links
-  ;; back into the author's editor) trivial.
-  ;; rf2-5dphw — project-root derived from the build env (see
-  ;; `re-frame.testbed.config`), not a hardcoded personal path.
-  (story/configure! {:rf.story/global-args  {:locale :en}
-                     :rf.story/project-root (testbed-config/resolve-project-root "tools/story/testbeds")})
+  ;; NO `:rf.story/project-root` here. The project-root is a DEV-time
+  ;; affordance — it builds an absolute on-disk `editor://` URI for the
+  ;; open-in-editor chip, which (a) doesn't resolve from a published HTML
+  ;; page and (b) would bake the BUILD machine's checkout root into a
+  ;; publicly-served bundle. A static export must be self-contained, so it
+  ;; does NOT inherit the dev testbed root helper
+  ;; (`re-frame.testbed.config/resolve-project-root`, which is for dev
+  ;; testbeds) — and the framework guard in `re-frame.story.config/
+  ;; set-project-root!` fails closed in `static-mode?` regardless. A
+  ;; downstream "published site that links back into the author's editor"
+  ;; opts in explicitly via `config/set-allow-static-project-root!` +
+  ;; passing a root; this canonical export does not.
+  (story/configure! {:rf.story/global-args {:locale :en}})
   ;; Seed the live-app's :count slot so any embedded `counter-card`
   ;; view that renders under the variant canvas starts from a
   ;; deterministic value rather than `nil`.

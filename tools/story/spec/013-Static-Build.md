@@ -72,6 +72,57 @@ custom downstream build mirroring its `:closure-defines`) sets it to
 `true`. On the JVM the flag is a plain `const` def of `false` so JVM
 tests always operate against the dev-flavoured branch.
 
+### Self-containment: no ambient project-root
+
+A published export must be **self-contained** — it carries no path,
+token, or state derived from the machine that built it. The
+open-in-editor project-root is the one dev-time affordance that could
+otherwise leak such a path:
+
+- The dev testbeds resolve their open-in-editor project-root from the
+  build environment (`re-frame.testbed.config/resolve-project-root`,
+  seeded by the `RF2_TESTBED_PROJECT_ROOT` env var via a
+  `re-frame.testbed.config/repo-root` goog-define). That root is an
+  absolute checkout path — frequently a `C:/Users/<name>/…` home path.
+- A `vscode://`/`cursor://`/`idea://` URI does **not** resolve from a
+  published HTML page anyway, so the affordance is dev-only on a static
+  site.
+
+So the static export is fail-closed on this slot, at two layers:
+
+1. **Build:** the `:story-static/*` build does **not** seed
+   `re-frame.testbed.config/repo-root` from `RF2_TESTBED_PROJECT_ROOT`.
+   Its only `:closure-define` is `static-mode? true`. The `:advanced`
+   compiler inlines goog-define string constants, so omitting the seed
+   keeps the build-machine checkout path out of the bundle string-table
+   entirely. The static entry-point ns
+   (`counter_with_stories/story_static.cljs`) correspondingly passes no
+   `:rf.story/project-root` to `configure!`.
+2. **Runtime:** `re-frame.story.config/set-project-root!` is fail-closed
+   under `static-mode?` — a passed root is ignored (the slot stays
+   `nil`; open-in-editor degrades to the documented missing-root no-op)
+   unless the host has explicitly opted in via
+   `re-frame.story.config/set-allow-static-project-root!`. This is the
+   framework-level guard that protects **every** downstream static
+   export regardless of what its entry-point's `configure!` passes.
+
+A host that genuinely wants a published site to deep-link back into the
+author's editor (an internal docs deploy where the baked absolute root
+is acceptable) flips the opt-in deliberately:
+
+```clojure
+(re-frame.story.config/set-allow-static-project-root! true)   ; before configure!
+(story/configure! {:rf.story/project-root "/abs/checkout/root"})
+```
+
+The opt-in is **distinct** from the dev testbed root helper — passing
+`resolve-project-root`'s result into a static export is exactly the
+accidental-leak case the guard closes.
+
+The sanity test (`npm run test:story-static`, below) builds with a
+sentinel `RF2_TESTBED_PROJECT_ROOT` and asserts the sentinel appears in
+neither `main.js`, `manifest.json`, nor `index.html`.
+
 ## Build target
 
 A new shadow-cljs build, mirroring the per-example pattern under
@@ -170,8 +221,11 @@ npm run test:story-static
 Driven by [`implementation/scripts/check-story-static.cjs`](../../../implementation/scripts/check-story-static.cjs).
 The script:
 
-1. Runs `story-build.cjs` (compile + stage + manifest).
-2. Asserts `index.html`, `main.js`, `manifest.json` are all present.
+1. Runs `story-build.cjs` (compile + stage + manifest) **with a sentinel
+   `RF2_TESTBED_PROJECT_ROOT`** in the build environment.
+2. Asserts `index.html`, `main.js`, `manifest.json` are all present, and
+   that the sentinel checkout path leaked into **none** of them
+   (static-export self-containment — see §Self-containment above).
 3. Spawns `http-server` over the output directory on port 8040.
 4. Drives headless Chromium against `http://127.0.0.1:8040/` and
    verifies:

@@ -195,3 +195,64 @@
            (story/variants-of :story.static.seed)))
     (is (= [[:probe/init]]
            (:events (story/variant->edn :story.static.seed/probe))))))
+
+;; ===========================================================================
+;; STATIC-EXPORT SELF-CONTAINMENT — open-in-editor project-root fails closed
+;; ===========================================================================
+;;
+;; A published `story:build` export must not bake the build machine's
+;; checkout root (a `C:/Users/<name>/...`-style absolute path) into its
+;; open-in-editor URIs. The project-root is a DEV-time affordance; under
+;; `static-mode?` `config/set-project-root!` fails closed — a passed root is
+;; ignored (the slot stays nil) unless a host explicitly opts in via
+;; `config/set-allow-static-project-root!`. The dev path (static-mode? false)
+;; is unaffected. This is the compile-level counterpart to the release-mode
+;; sentinel-leak check in `npm run test:story-static`.
+
+(def ^:private sentinel-root
+  "A sentinel absolute checkout root that must NEVER survive into the
+  static-export project-root slot. Shaped like a real build-machine home
+  path so the assertion is meaningful."
+  "C:/Users/leak-sentinel/code/my-app")
+
+(deftest static-mode-suppresses-project-root-by-default
+  (testing "under static-mode?, a passed project-root is ignored — the
+            open-in-editor slot stays nil so no build-machine checkout path
+            leaks into a published bundle's editor URIs"
+    (config/reset-all!)
+    (with-redefs [config/static-mode? true]
+      (config/set-project-root! sentinel-root)
+      (is (nil? (config/get-project-root))
+          "static mode fails closed — the sentinel root is not retained"))
+    (config/reset-all!)))
+
+(deftest static-mode-opt-in-restores-project-root
+  (testing "a host that explicitly opts in via set-allow-static-project-root!
+            keeps the root in static mode — the escape hatch for a published
+            site that deep-links back into the author's editor"
+    (config/reset-all!)
+    (with-redefs [config/static-mode? true]
+      (config/set-allow-static-project-root! true)
+      (config/set-project-root! sentinel-root)
+      (is (= sentinel-root (config/get-project-root))
+          "with the explicit opt-in the root is retained even in static mode"))
+    (config/reset-all!)))
+
+(deftest dev-mode-project-root-unaffected
+  (testing "with static-mode? false (the dev build) the project-root is set
+            verbatim — the guard narrows ONLY static exports, never dev"
+    (config/reset-all!)
+    (is (false? config/static-mode?) "node-test build is dev-flavoured")
+    (config/set-project-root! sentinel-root)
+    (is (= sentinel-root (config/get-project-root))
+        "dev builds keep the root — open-in-editor resolves absolute paths")
+    (config/reset-all!)))
+
+(deftest reset-all-clears-static-opt-in
+  (testing "config/reset-all! restores the static project-root opt-in to its
+            fail-closed default so a test that flips it cannot leak into the
+            next test"
+    (config/set-allow-static-project-root! true)
+    (config/reset-all!)
+    (is (false? (config/allow-static-project-root?*))
+        "opt-in is back to fail-closed after reset-all!")))
