@@ -1712,8 +1712,9 @@
 (deftest boundary-interceptor-sets-skip-handler-on-context
   (testing "Per Spec 010 §Per-step recovery step 1 — the boundary
             interceptor's :before sets :rf/skip-handler? on the context
-            when validation fails, so the handler-as-interceptor
-            (events.cljc :rf/db-handler / :rf/fx-handler) short-circuits.
+            when validation fails, so the handler-as-interceptor (the single
+            EP-0018 framework wrapper events.cljc :rf/event-handler)
+            short-circuits.
 
             The recovery is identical to the dev-mode step-1 path
             (validate-event! returning false), so the runtime's existing

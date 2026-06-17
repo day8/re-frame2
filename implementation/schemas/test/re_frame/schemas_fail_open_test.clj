@@ -63,7 +63,7 @@
 
 (deftest event-malformed-schema-fails-closed
   (testing "rf2-a5kzs (finding 2) — a childless [:vector] :schema on a
-            reg-event-* handler does NOT throw-as-pass: the handler is
+            reg-event handler does NOT throw-as-pass: the handler is
             skipped and a :rf.error/malformed-schema trace fires."
     (let [calls (atom 0)]
       (rf/reg-event :ev/malformed
@@ -88,7 +88,7 @@
             (is (not (contains? (:tags m) :value)))))))))
 
 (deftest event-unknown-op-schema-fails-closed
-  (testing "rf2-a5kzs (finding 2) — an unknown-op :schema on a reg-event-*
+  (testing "rf2-a5kzs (finding 2) — an unknown-op :schema on a reg-event
             handler also fails closed with a distinct trace, no throw."
     (let [calls (atom 0)]
       (rf/reg-event :ev/unknown
