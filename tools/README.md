@@ -151,7 +151,7 @@ wired into the build, and consumers can use it today.
   [`tools/testbed-support/README.md`](./testbed-support/README.md).
 
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
-  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): eleven
+  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): thirteen
   namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
   `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
   default-suppress filter), `elision` (`:rf.size/large-elided`
@@ -161,9 +161,11 @@ wired into the build, and consumers can use it today.
   rf2-qeous), `overflow` (overflow-marker payload shape, rf2-rvyzy),
   `cap` (wire-boundary token-budget cap pipeline, rf2-eyelu), `cursor`
   (shared cursor-pagination machinery, rf2-ee38b.19), `envelope`
-  (indicator-field `with-indicators` splice, rf2-ee38b.19), and
+  (indicator-field `with-indicators` splice, rf2-ee38b.19),
   `descriptor-manifest` (tool-descriptor manifest generator +
-  drift-check, rf2-sofwv). Pure `.cljc` with zero runtime deps beyond
+  drift-check, rf2-sofwv), `egress` (EP-0015 profile-adoption egress
+  filter, rf2-qus09h), and `dedup` (cross-MCP dedup-envelope, lifted
+  rf2-ttspi7). Pure `.cljc` with zero runtime deps beyond
   `org.clojure/clojure`. Per rf2-vw4sq. See
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
 
