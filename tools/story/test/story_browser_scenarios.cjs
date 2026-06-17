@@ -264,9 +264,18 @@ module.exports = {
 
     await scenario(page, 'share-url-hydrates-variant-modes-and-props', async () => {
       await primeHelpDismissed(page);
+      // rf2-j0hwf switched the `overrides=` wire form from the legacy
+      // `key:value` token to a single pr-str-printed EDN map
+      // (`{:label "Shared Label"}`), percent-encoded as one token. This URL
+      // carries that current form: `URLSearchParams.get("overrides")` decodes
+      // `%7B%3Alabel%20%22Shared%20Label%22%7D` back to `{:label "Shared Label"}`,
+      // which `share/parse-overrides-param*` reads as a map and keeps (the
+      // `:label` key is declared by `:story.counter/loaded`). The pre-rf2-j0hwf
+      // `label:"Shared Label"` token no longer parses as EDN and was being
+      // classified `:dropped`, tripping the degraded-mode banner.
       await gotoStory(
         page,
-        '/counter-with-stories/?variant=story.counter%2Floaded&modes=Mode.app%2Fdark&overrides=label%3A%22Shared%20Label%22#/stories',
+        '/counter-with-stories/?variant=story.counter%2Floaded&modes=Mode.app%2Fdark&overrides=%7B%3Alabel%20%22Shared%20Label%22%7D#/stories',
       );
 
       await waitForCanvas(page, ':story.counter/loaded');
