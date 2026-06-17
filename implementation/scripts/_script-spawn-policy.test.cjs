@@ -49,6 +49,13 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
+// Shared stripComments (EXECUTABLE-source-only matching) + loopbackBindRe
+// factory + framework-free test harness (rf2-j552l2).
+const {
+  stripComments,
+  loopbackBindRe,
+  createPolicyTestSuite,
+} = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = __dirname;
 // rf2-y9o5e3 — the executable browser-gate launchers under
@@ -66,55 +73,7 @@ const EXAMPLES_SCRIPTS_DIR = path.resolve(
   'scripts',
 );
 
-const tests = [];
-function test(name, fn) {
-  tests.push({ name, fn });
-}
-
-// Strip line- and block-comments so the policy assertions match only
-// EXECUTABLE source, not the explanatory comments that necessarily
-// quote the very strings we forbid (`shell: true`, `npx.cmd`, ...).
-// Deliberately simple: this is a residue gate over our own first-party
-// scripts, not a general-purpose JS parser. String literals are left
-// intact so a real `shell: true` hidden in a literal would still trip.
-function stripComments(src) {
-  let out = '';
-  let i = 0;
-  const n = src.length;
-  let inLine = false;
-  let inBlock = false;
-  let inStr = false;
-  let strQuote = '';
-  while (i < n) {
-    const c = src[i];
-    const c2 = src[i + 1];
-    if (inLine) {
-      if (c === '\n') { inLine = false; out += c; }
-      i += 1;
-      continue;
-    }
-    if (inBlock) {
-      if (c === '*' && c2 === '/') { inBlock = false; i += 2; continue; }
-      i += 1;
-      continue;
-    }
-    if (inStr) {
-      out += c;
-      if (c === '\\') { out += c2 == null ? '' : c2; i += 2; continue; }
-      if (c === strQuote) { inStr = false; strQuote = ''; }
-      i += 1;
-      continue;
-    }
-    if (c === '/' && c2 === '/') { inLine = true; i += 2; continue; }
-    if (c === '/' && c2 === '*') { inBlock = true; i += 2; continue; }
-    if (c === '"' || c === "'" || c === '`') {
-      inStr = true; strQuote = c; out += c; i += 1; continue;
-    }
-    out += c;
-    i += 1;
-  }
-  return out;
-}
+const { test, run } = createPolicyTestSuite('script-spawn-policy');
 
 // Every `.cjs` launcher in a scanned scripts dir (excludes the test
 // suites and the lib/ helpers — the harness lib carries its own
@@ -252,8 +211,7 @@ for (const base of EXAMPLES_LAUNCHERS) {
 // regex matches the http-server bin token followed (within a short
 // window) by the `'-a', '127.0.0.1'` pair. NB `[\s\S]{0,80}?` not `[^]`
 // (the JS-regex `[^]`-any-char gotcha).
-const LOOPBACK_BIND_RE =
-  /HTTP_SERVER_BIN,[\s\S]{0,80}?['"]-a['"]\s*,\s*['"]127\.0\.0\.1['"]/;
+const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
 const IMPL_LOOPBACK_LAUNCHERS = [
   'serve-and-run-browser-tests.cjs',
   'check-story-static.cjs',
@@ -339,20 +297,4 @@ test('stripComments removes comment text but preserves code', () => {
   assert.equal(stripComments('const s = "keep // me";'), 'const s = "keep // me";');
 });
 
-let failed = 0;
-for (const { name, fn } of tests) {
-  try {
-    fn();
-  } catch (err) {
-    failed += 1;
-    console.error(`FAIL ${name}`);
-    console.error(err && err.stack ? err.stack : err);
-  }
-}
-
-if (failed > 0) {
-  console.error(`script-spawn-policy tests: ${failed} failed.`);
-  process.exit(1);
-}
-
-console.log(`script-spawn-policy tests: ${tests.length} passed.`);
+run();

@@ -32,7 +32,8 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle, countMatches } = require('./lib/read-release-bundle.cjs');
+const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -85,22 +86,19 @@ function checkBundle(label, bundlePath, mustContain) {
   report.detail(`[perf-bundle] ${label}: ${bundlePath}`);
   report.detail(`              bundle size: ${blob.length} chars`);
 
-  let ok = true;
-  let passedCount = 0;
-  for (const { source, sentinel } of PERF_SENTINELS) {
-    const present = blob.includes(sentinel);
-    const expected = mustContain ? 'PRESENT' : 'ABSENT';
-    const actual   = present     ? 'PRESENT' : 'ABSENT';
-    const passed   = present === mustContain;
-    const tag      = passed ? 'OK' : 'FAIL';
-    report.detail(`              [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
-    if (passed) passedCount += 1;
-    if (!passed) ok = false;
-  }
+  const { ok, passed } = assertSentinelSet(blob, PERF_SENTINELS, {
+    mustContain,
+    emit: (line) => report.detail(line),
+    formatLine: ({ source, sentinel, present, tag }) => {
+      const expected = mustContain ? 'PRESENT' : 'ABSENT';
+      const actual   = present     ? 'PRESENT' : 'ABSENT';
+      return `              [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`;
+    },
+  });
   return {
     ok,
     checked: PERF_SENTINELS.length,
-    passed: passedCount,
+    passed,
     bytes: blob.length,
     bundlePath,
     missing: false,
@@ -109,12 +107,15 @@ function checkBundle(label, bundlePath, mustContain) {
 
 // Count `performance.mark|performance.measure|re-frame.performance` for
 // the report. The PR body wants the raw count number for both bundles,
-// per the bead's bundle-grep contract.
+// per the bead's bundle-grep contract. The actual global-match count is
+// delegated to the shared `countMatches` (lib/read-release-bundle.cjs —
+// it resets the /g RegExp's lastIndex defensively); this wrapper keeps
+// the patterns-array → alternation construction and the null-blob → null
+// distinction the report's missing-bundle diagnostic relies on (the
+// shared primitive maps null → 0).
 function countOccurrences(blob, patterns) {
   if (blob == null) return null;
-  const re = new RegExp(patterns.join('|'), 'g');
-  const m  = blob.match(re);
-  return m ? m.length : 0;
+  return countMatches(blob, new RegExp(patterns.join('|'), 'g'));
 }
 
 // ----- main ------------------------------------------------------------------

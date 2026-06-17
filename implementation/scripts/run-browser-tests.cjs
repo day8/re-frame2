@@ -29,15 +29,15 @@ const {
   parseFailureCounts,
   summaryPartsFromText,
 } = require('./lib/browser-test-report.cjs');
+// `sleep` is the shared poll primitive — verbatim the same
+// `setTimeout`-backed Promise this runner used to define inline
+// (rf2-j552l2 dedup; exported from lib/local-browser-harness.cjs).
+const { sleep } = require('./lib/local-browser-harness.cjs');
 
 const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || '120000', 10);
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // rf2-mwx08: capture the `ran` + `failErr` lines as an ATOMIC pair from
 // a single source. summaryPartsFromText now only ever yields a non-null

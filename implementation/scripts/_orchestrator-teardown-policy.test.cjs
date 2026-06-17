@@ -52,6 +52,9 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
+// Shared stripComments (EXECUTABLE-source-only matching) + framework-free
+// test harness (rf2-j552l2).
+const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const IMPL_SCRIPTS_DIR = __dirname;
 const EXAMPLES_SCRIPTS_DIR = path.resolve(
@@ -62,10 +65,7 @@ const EXAMPLES_SCRIPTS_DIR = path.resolve(
   'scripts',
 );
 
-const tests = [];
-function test(name, fn) {
-  tests.push({ name, fn });
-}
+const { test, run } = createPolicyTestSuite('orchestrator-teardown-policy');
 
 // The full inventory of `serve-and-run-*.cjs` orchestrators across the two
 // scripts dirs. Every one is launched by an `npm run test:*` entry-point
@@ -90,50 +90,6 @@ function orchestratorFiles() {
     ...serveAndRunFilesIn(IMPL_SCRIPTS_DIR),
     ...serveAndRunFilesIn(EXAMPLES_SCRIPTS_DIR),
   ];
-}
-
-// Strip line- and block-comments so the policy assertions match only
-// EXECUTABLE source, not the explanatory comments that necessarily name
-// the very symbols we require/forbid. String literals are left intact.
-// Mirrors the stripComments in _script-spawn-policy.test.cjs (deliberately
-// simple — a residue gate over our own first-party scripts, not a parser).
-function stripComments(src) {
-  let out = '';
-  let i = 0;
-  const n = src.length;
-  let inLine = false;
-  let inBlock = false;
-  let inStr = false;
-  let strQuote = '';
-  while (i < n) {
-    const c = src[i];
-    const c2 = src[i + 1];
-    if (inLine) {
-      if (c === '\n') { inLine = false; out += c; }
-      i += 1;
-      continue;
-    }
-    if (inBlock) {
-      if (c === '*' && c2 === '/') { inBlock = false; i += 2; continue; }
-      i += 1;
-      continue;
-    }
-    if (inStr) {
-      out += c;
-      if (c === '\\') { out += c2 == null ? '' : c2; i += 2; continue; }
-      if (c === strQuote) { inStr = false; strQuote = ''; }
-      i += 1;
-      continue;
-    }
-    if (c === '/' && c2 === '/') { inLine = true; i += 2; continue; }
-    if (c === '/' && c2 === '*') { inBlock = true; i += 2; continue; }
-    if (c === '"' || c === "'" || c === '`') {
-      inStr = true; strQuote = c; out += c; i += 1; continue;
-    }
-    out += c;
-    i += 1;
-  }
-  return out;
 }
 
 const CREATE_CLEANUP_RE = /\bcreateHarnessCleanup\b/;
@@ -268,20 +224,4 @@ test('stripComments removes comment text but preserves code (rf2-c3hffe)', () =>
   );
 });
 
-let failed = 0;
-for (const { name, fn } of tests) {
-  try {
-    fn();
-  } catch (err) {
-    failed += 1;
-    console.error(`FAIL ${name}`);
-    console.error(err && err.stack ? err.stack : err);
-  }
-}
-
-if (failed > 0) {
-  console.error(`orchestrator-teardown-policy tests: ${failed} failed.`);
-  process.exit(1);
-}
-
-console.log(`orchestrator-teardown-policy tests: ${tests.length} passed.`);
+run();

@@ -28,9 +28,9 @@ function isValidExplicitPort(port) {
 // free" WITHOUT touching net.listen — port 0 would otherwise bind an
 // ephemeral port (a false "free" for an unusable advertised port), and
 // negative / overflow values would throw ERR_SOCKET_BAD_PORT instead of
-// the controlled fall-through. (rf2-84gzw / rf2-0u8kz — shared with
-// serve-and-run-browser-tests and check-story-static, which carry their
-// own copies for now.)
+// the controlled fall-through. (rf2-84gzw / rf2-0u8kz — the shared
+// resolveServePort below routes serve-and-run-browser-tests and
+// check-story-static through this single implementation.)
 function isPortFree(port) {
   if (!isValidExplicitPort(port)) return Promise.resolve(false);
   return new Promise((resolve) => {

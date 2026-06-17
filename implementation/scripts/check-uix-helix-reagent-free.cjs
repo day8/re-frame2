@@ -36,7 +36,8 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { classifyReleaseBundle, countSubstring } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
+const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -67,9 +68,10 @@ const REAGENT_SENTINELS = [
 
 // ----- helpers ---------------------------------------------------------------
 //
-// Bundle reading + the countSubstring grep primitive are shared with the
-// sibling check-* scripts via scripts/lib/read-release-bundle.cjs
-// (rf2-jkake.15).
+// Bundle reading is shared with the sibling check-* scripts via
+// scripts/lib/read-release-bundle.cjs (rf2-jkake.15); the per-sentinel
+// present/absent scan loop + tally is the shared assertSentinelSet
+// (scripts/lib/sentinel-scan.cjs, rf2-j552l2).
 
 function checkBundle(label, bundlePath, mustContain) {
   const { status, blob } = classifyReleaseBundle(bundlePath);
@@ -91,23 +93,20 @@ function checkBundle(label, bundlePath, mustContain) {
   report.detail(`  ${label}: ${bundlePath}`);
   report.detail(`    bundle size: ${blob.length} chars`);
 
-  let ok = true;
-  let passedCount = 0;
-  for (const { source, sentinel } of REAGENT_SENTINELS) {
-    const hits     = countSubstring(blob, sentinel);
-    const present  = hits > 0;
-    const expected = mustContain ? 'PRESENT (>=1)' : 'ABSENT (0)';
-    const actual   = present     ? `PRESENT (${hits})` : 'ABSENT (0)';
-    const passed   = present === mustContain;
-    const tag      = passed ? 'OK' : 'FAIL';
-    report.detail(`    [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
-    if (passed) passedCount += 1;
-    if (!passed) ok = false;
-  }
+  const { ok, passed } = assertSentinelSet(blob, REAGENT_SENTINELS, {
+    mustContain,
+    count: true,
+    emit: (line) => report.detail(line),
+    formatLine: ({ source, sentinel, present, hits, tag }) => {
+      const expected = mustContain ? 'PRESENT (>=1)' : 'ABSENT (0)';
+      const actual   = present     ? `PRESENT (${hits})` : 'ABSENT (0)';
+      return `    [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`;
+    },
+  });
   return {
     ok,
     checked: REAGENT_SENTINELS.length,
-    passed: passedCount,
+    passed,
     bytes: blob.length,
     bundlePath,
     missing: false,
