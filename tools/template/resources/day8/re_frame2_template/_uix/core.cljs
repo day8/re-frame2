@@ -27,6 +27,19 @@
   ;; `with-frame :rf/default` scope, and wraps the render in the UIx
   ;; `frame-provider` so the `use-subscribe` / `frame-handle` reads inside the
   ;; view tree resolve to `:rf/default`.
+  ;;
+  ;; The empty `{}` config is also where frame-owned EGRESS CLASSIFICATION
+  ;; lives (Spec 015 §The three-layer model). app-db SCHEMAS validate shape;
+  ;; they do NOT classify durable app-db egress — the frame does. Once your
+  ;; app-db carries sensitive paths (an `[:auth]` token) or large blobs,
+  ;; declare them here so the framework redacts/elides at every observation
+  ;; boundary (Xray, Story, error sink, off-box export):
+  ;;   (rf/reg-frame :rf/default
+  ;;     {:sensitive {:app-db [[:auth :token]]
+  ;;                  :http   {:headers ["Authorization"]}}
+  ;;      :large     {:app-db [[:documents :upload]]}})
+  ;; See README §Privacy / egress classification. HTTP response BODIES are
+  ;; classified on the request's `:decode` schema instead — see events.cljs.
   (rf/reg-frame :rf/default {})
   (rf/with-frame :rf/default
     (schema/register-schema!)

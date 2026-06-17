@@ -24,7 +24,15 @@
    Schemas validate **in dev** (and on JVM unless production-hardened);
    the validation check elides automatically under `:advanced`
    `goog.DEBUG=false` builds — schema attachments stay in source but
-   cost nothing in production hot paths."
+   cost nothing in production hot paths.
+
+   A schema validates **shape**; it does NOT classify durable app-db
+   egress. Whether an app-db path is sensitive or large — and therefore
+   redacted/elided at observation boundaries (Xray, Story, traces,
+   off-box export) — is FRAME-owned policy declared on `reg-frame`, not
+   re-attached here (Spec 015 §Schemas describe shape, not durable app-db
+   egress policy: one owner, one route). See `core.cljs` (where the frame
+   is registered) and README §Privacy / egress classification."
   (:require [re-frame.core :as rf]))
 
 ;; --- Whole-app-db schema ---------------------------------------------------
