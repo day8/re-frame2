@@ -85,7 +85,7 @@
       (is (= :app/main (:frame-id back)))
       (is (= idle-loading-success (:definition back)))
       (is (= {:state :loading} (:snapshot back)))
-      (is (= "1" (:rf.machines-viz.share/v env)))
+      (is (= "2" (:rf.machines-viz.share/v env)))
       (is (number? (:rf.machines-viz.share/created env))))))
 
 (deftest round-trip-parallel
@@ -468,13 +468,40 @@
 (deftest unknown-version-rejected
   (testing "a payload tagged with a newer version throws :unknown-version"
     (let [future-url (envelope->url
-                       {:rf.machines-viz.share/v       "2"
+                       {:rf.machines-viz.share/v       "3"
                         :rf.machines-viz.share/chart   chart-state
                         :rf.machines-viz.share/created 0})
           d (try (share/decode-share-url future-url)
                  (catch :default e (ex-data e)))]
       (is (= :unknown-version (:reason d)))
-      (is (= "2" (:payload-version d))))))
+      (is (= "3" (:payload-version d))))))
+
+(deftest frame-id-is-optional
+  (testing "a ChartState with no :frame-id encodes + round-trips (v2 / EP-0023)"
+    (let [cs   (dissoc chart-state :frame-id)
+          url  (share/encode-share-url cs)
+          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
+      (is (not (contains? back :frame-id))
+          "no fabricated :frame-id rides the payload when none was supplied")
+      (is (= :auth/login-flow (:machine-id back)))
+      (is (= idle-loading-success (:definition back)))
+      (is (= {:state :loading} (:snapshot back))))))
+
+(deftest frame-id-when-present-must-be-keyword
+  (testing "a non-keyword :frame-id is rejected at encode with :invalid-chart-state"
+    (let [d (try (share/encode-share-url (assoc chart-state :frame-id "not-a-keyword"))
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))))))
+
+(deftest decoded-frame-id-absent-still-decodes
+  (testing "a forged v2 payload omitting :frame-id decodes cleanly (optional)"
+    (let [url  (envelope->url
+                 {:rf.machines-viz.share/v       "2"
+                  :rf.machines-viz.share/chart   (dissoc chart-state :frame-id)
+                  :rf.machines-viz.share/created 0})
+          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
+      (is (not (contains? back :frame-id)))
+      (is (= :auth/login-flow (:machine-id back))))))
 
 (deftest missing-envelope-rejected
   (testing "a payload missing the envelope keys throws :missing-envelope"

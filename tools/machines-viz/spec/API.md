@@ -1650,7 +1650,7 @@ encoder:
 
 ```clojure
 (share/decode-share-url url)
-;; => {:rf.machines-viz.share/v "1"
+;; => {:rf.machines-viz.share/v "2"
 ;;     :rf.machines-viz.share/chart {:machine-id :auth/login-flow ...}
 ;;     :rf.machines-viz.share/created 1736000000000}
 ;; or throws :rf.machines-viz.share/decode-failed with :reason
@@ -1700,7 +1700,7 @@ nothing else. Two classes of data are structurally excluded:
 ```clojure
 (def ShareEnvelope
   [:map
-   [:rf.machines-viz.share/v      :string]   ;; encoding version, "1" at v1.0
+   [:rf.machines-viz.share/v      :string]   ;; encoding version, "2" (was "1" pre-EP-0023)
    [:rf.machines-viz.share/chart  ChartState]
    [:rf.machines-viz.share/created :int]])   ;; wall-clock ms at encode time
 
@@ -1719,7 +1719,8 @@ nothing else. Two classes of data are structurally excluded:
 (def ChartState
   [:map
    [:machine-id  keyword?]              ;; the registered machine's id
-   [:frame-id    keyword?]              ;; the registered machine's frame
+   [:frame-id   {:optional true}        ;; OPTIONAL frame-target id (v2 / EP-0023) — payload provenance only
+    keyword?]                           ;; the process-local live-frame id captured at share time; omit when unknown
    [:definition  MachineDefinition]     ;; the topology (states, transitions, guards, actions, :spawn, :spawn-all, :after)
    [:snapshot   {:optional true}        ;; the current-state configuration at share time — state CONFIGURATION only; no runtime data
     [:map {:closed true}
@@ -1750,9 +1751,22 @@ the three arms, with `:invalid-chart-state`. The viewer page mounts `MachineChar
 `:current-state` set to the snapshot's `:state` configuration (there is
 no runtime `:data` to render); the chart highlights every active leaf
 without any data-driven affordance.
-(`:frame-id` is a payload provenance field — the registered machine's
-frame at share time — not a `MachineChart` prop: the viewer hands the
-chart the `:definition` directly rather than resolving a frame.)
+(`:frame-id` is an **optional** payload-provenance field — an EP-0023
+**frame-target id**, i.e. the process-local id of the live frame the
+machine was registered against, captured at share time and decoupled
+from any (realm, frame) pairing. It is **not** a `MachineChart` prop:
+the viewer hands the chart the `:definition` directly rather than
+resolving a frame, so the viewer never reads `:frame-id` at all. A
+machine topology + active-state configuration is shareable without
+naming a live frame, so `:frame-id` is omitted when the sharer does not
+know it — a presentation-only chart (e.g. one shared straight off the
+rendered DOM seam) shares cleanly rather than fabricating a provenance
+id. `:frame-id` became optional in encoding **v2** (it was required and
+documented in pre-EP-0023 (realm, frame) terms in v1); making it
+optional is a v1→v2 share-schema change, gated behind the
+`:rf.machines-viz.share/v` bump so a v2 payload omitting `:frame-id`
+handed to a v1 decoder is refused with `:unknown-version` rather than
+silently mis-decoded — CI-enforced per the encoding-version contract.)
 
 `:source-coords` is **not a top-level key** of `ChartState`. Source
 coords live only in the operator-side `(rf/machine-meta machine-id)`

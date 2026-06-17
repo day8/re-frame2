@@ -108,9 +108,11 @@ What does the host pass to `MachineChart` to render a chart?
   would need a live frame + a registered machine) and tied one
   presentation component to the runtime's subscription plane. The
   `:frame-id` prop never shipped on the chart (it survives only as
-  share-envelope *payload provenance*, [`API.md`](./API.md)
-  §ShareEnvelope — the registered machine's frame at share time, not a
-  `MachineChart` prop).
+  **optional** share-envelope *payload provenance*, [`API.md`](./API.md)
+  §ShareEnvelope — an EP-0023 frame-target id, i.e. the process-local id
+  of the live frame the machine was registered against at share time,
+  decoupled from any (realm, frame) pairing, and not a `MachineChart`
+  prop).
 - **Pass the snapshot directly.** The host derefs the runtime-db slot
   `[:rf.runtime/machines :snapshots <id>]` and passes the snapshot to the chart.
   Rejected — the chart loses access to the topology (states,

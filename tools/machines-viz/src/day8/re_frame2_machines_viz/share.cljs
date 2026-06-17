@@ -60,8 +60,15 @@
 (def current-version
   "The encoding version emitted by this build, and the newest version
   the decoder accepts. Bumping the payload schema bumps this; older
-  decoders refuse newer payloads with `:unknown-version`."
-  "1")
+  decoders refuse newer payloads with `:unknown-version`.
+
+  v2 (EP-0023): `:frame-id` became OPTIONAL — a machine topology +
+  active-state configuration is shareable as pure data without naming a
+  live frame. v1 always carried a required `:frame-id`; a v2 payload may
+  omit it, so a v2 share-URL handed to a v1 decoder is correctly refused
+  with `:unknown-version` (the version-bump guard) rather than silently
+  mis-decoding."
+  "2")
 
 (def default-host
   "The canonical hosted viewer instance. Per Lock #7 this is a
@@ -254,9 +261,18 @@
 ;;
 ;; ChartState:
 ;;   {:machine-id keyword?
-;;    :frame-id   keyword?
+;;    :frame-id   keyword?                          ;; OPTIONAL frame-target id (v2 / EP-0023)
 ;;    :definition <MachineDefinition>
 ;;    :snapshot   {:state <state-configuration>}}  ;; OPTIONAL, {:closed true}, :state only
+;;
+;; `:frame-id` (when present) is an EP-0023 frame-target id — the
+;; process-local id of the live frame the machine was registered against,
+;; captured at share time purely as payload PROVENANCE. It is decoupled
+;; from any (realm, frame) pairing (the pre-EP-0023 model), and the viewer
+;; never resolves a frame from it (it hands the chart the `:definition`
+;; directly). A topology/snapshot is shareable without naming a live frame,
+;; so `:frame-id` is OPTIONAL (v2): a presentation-only chart that does not
+;; know its frame shares cleanly without fabricating one.
 ;;
 ;; The `:snapshot` `:state` is a STATE CONFIGURATION — one of the three
 ;; Spec 005 §Snapshot-shape arms that `MachineChart` `:current-state`
@@ -336,13 +352,16 @@
 
 (defn- valid-core-chart-state?
   "Validate the load-bearing ChartState slots (`:machine-id`,
-  `:frame-id`, `:definition`). `:snapshot` is NOT checked here — see
-  `valid-chart-state?` for the whole-shape check used at BOTH encode and
-  decode time."
+  `:definition`). `:frame-id` is OPTIONAL (v2 / EP-0023) — when present
+  it must be a keyword (a frame-target id), but a topology/snapshot is
+  shareable without naming a live frame. `:snapshot` is NOT checked here
+  — see `valid-chart-state?` for the whole-shape check used at BOTH
+  encode and decode time."
   [cs]
   (and (map? cs)
        (keyword? (:machine-id cs))
-       (keyword? (:frame-id cs))
+       (or (not (contains? cs :frame-id))
+           (keyword? (:frame-id cs)))
        (valid-definition? (:definition cs))))
 
 (def ^:private chart-state-keys
@@ -358,7 +377,8 @@
   "Validate a fully-allowlisted ChartState shape. The top-level map is
   CLOSED over `chart-state-keys` — any extra top-level key (e.g. a
   hand-edited `:source-coords` / `:data` smuggled past the encoder)
-  fails validation. `:snapshot` is optional; when present it must be
+  fails validation. `:frame-id` is OPTIONAL (v2 / EP-0023); when present
+  it must be a keyword. `:snapshot` is optional; when present it must be
   `{:state <state-configuration>}` EXACTLY (closed; `:state` only).
   Used on BOTH sides so encode/decode stay symmetric — the encoder
   validates the allowlisted chart state with this same predicate before
@@ -388,8 +408,12 @@
   [chart-state]
   (let [{:keys [machine-id frame-id definition snapshot]} chart-state]
     (cond-> {:machine-id machine-id
-             :frame-id   frame-id
              :definition (-> definition strip-meta sanitise-definition)}
+      ;; :frame-id is OPTIONAL (v2 / EP-0023): include it only when the
+      ;; caller supplied one. A presentation-only chart that does not know
+      ;; its frame shares cleanly without fabricating a provenance id.
+      (some? frame-id)
+      (assoc :frame-id frame-id)
       ;; :snapshot is allowlisted to :state ONLY — runtime :data and any
       ;; other snapshot key are dropped here structurally even if the
       ;; caller passed a full snapshot. The :state VALUE (a flat keyword,
@@ -460,7 +484,10 @@
 
   ```clojure
   {:machine-id :auth/login-flow
-   :frame-id   :app/main
+   :frame-id   :app/main           ;; OPTIONAL (v2 / EP-0023) — a
+                                   ;; frame-target id captured as payload
+                                   ;; provenance; omit it for a topology
+                                   ;; that does not name a live frame
    :definition {:initial :idle :states {...}}
    :snapshot   {:state :loading}}   ;; optional; :state ONLY (a state
                                     ;; CONFIGURATION — flat keyword,
@@ -490,9 +517,10 @@
        ;; [:rf.machines-viz.share/encode-failed] token; the fine `:reason`
        ;; keyword stays the documented tool-classification slot (API.md).
        (let [msg (str "cannot encode a share-URL: the chart state does not "
-                      "validate against the share schema (a :machine-id, "
-                      ":frame-id, :definition, or :snapshot :state is missing "
-                      "or malformed). Pass a valid ChartState.")]
+                      "validate against the share schema (a :machine-id or "
+                      ":definition is missing/malformed, :frame-id (optional) "
+                      "is non-keyword, or :snapshot :state is malformed). Pass "
+                      "a valid ChartState.")]
          (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
                          {:rf.error/id :rf.machines-viz.share/encode-failed
                           :where       'machines-viz.share/encode-share-url
