@@ -328,16 +328,55 @@
           vec)
      [])))
 
+(defn generated-cofx-rows
+  "Project the `:rf.cofx/generated` trace events of an epoch into
+  privacy-summarized recordable rows (EP-0017 slice B.7 · spec/009 §277).
+
+  A generator-backed recordable supplier runs at PROCESSING-START when its
+  declared recordable fact is absent from the enqueue-time token, mints the
+  value, writes it back into the in-flight `:rf.cofx` record, and emits the
+  dev op `:rf.cofx/generated` carrying `{:rf.cofx/id <fact-name>
+  :rf.cofx/value <produced-value>}`. The enqueue-time `:rf.event/dispatched`
+  `:rf.cofx` map PREDATES generation, so it cannot carry the generated fact —
+  the post-generation source of truth is this trace op (and the
+  generation-augmented record router/restamps; spec/009 §277).
+
+  Each row carries `{:key <fact-name> :value <summary> :generated? true}` so
+  the lens renders the generated provenance distinctly from a supplied /
+  replayed leaf. PRIVACY: the value is `summarize`d (redact-by-default — the
+  same path `recordable-cofx-rows` uses; the op's `:rf.cofx/value` is itself
+  already projected through the substrate marks chokepoint). Sorted by fact
+  name for stable rendering. Empty when no `:rf.cofx/generated` op fired.
+
+  `declared-recordables` (optional) filters to the handler's declared
+  recordable id set, exactly like `recordable-cofx-rows` — a generated fact
+  is by construction a DECLARED recordable, so this is consistent."
+  ([events] (generated-cofx-rows events nil))
+  ([events declared-recordables]
+   (->> (filter-op events :rf.cofx/generated)
+        (keep (fn [ev]
+                (let [id (common/tag-of ev :rf.cofx/id)]
+                  (when (and (some? id)
+                             (or (nil? declared-recordables)
+                                 (contains? declared-recordables id)))
+                    {:key       id
+                     :value     (rh/summarize (common/tag-of ev :rf.cofx/value))
+                     :generated? true}))))
+        (sort-by (comp str :key))
+        vec)))
+
 (defn recordable-cofx-row
   "Build the RECORDABLE COEFFECTS step from the epoch's
-  `:rf.event/dispatched` trace (rf2-9fyn40 · EP-0010 · EP-0017 §9). Reads
-  the flat recordable-coeffect map off `[:tags :rf.cofx]` (the
-  substrate-canonical slot `router/emit-dispatched-trace!` stamps per
-  rf2-alc1lf; `common/tag-of` is the canonical reader). Returns nil when
-  the epoch carries no dispatched trace OR no `:rf.cofx` map (older runtimes
-  / fixtures / the production-elided arm) — the step is silent-by-default,
-  like the ambient COEFFECT step, so a vanilla cascade with no surfaced
-  recordable coeffects renders no section.
+  `:rf.event/dispatched` trace (rf2-9fyn40 · EP-0010 · EP-0017 §9) PLUS the
+  post-generation `:rf.cofx/generated` trace ops (EP-0017 slice B.7 ·
+  spec/009 §277). Reads the flat recordable-coeffect map off
+  `[:tags :rf.cofx]` (the substrate-canonical slot
+  `router/emit-dispatched-trace!` stamps per rf2-alc1lf; `common/tag-of` is
+  the canonical reader). Returns nil when the epoch carries NEITHER a
+  `:rf.cofx` map NOR any `:rf.cofx/generated` op (older runtimes / fixtures /
+  the production-elided arm) — the step is silent-by-default, like the
+  ambient COEFFECT step, so a vanilla cascade with no surfaced recordable
+  coeffects renders no section.
 
   The row carries:
 
@@ -345,7 +384,8 @@
        :badge     :RECORDABLE-COFX
        :time-ms   <epoch-ms or nil>   ; ALWAYS-SAFE, surfaced verbatim
        :inputs    [{:key :counter/delta     :value <summary>}
-                   {:key :rf.route/location :value <summary>} …]}  ; SUMMARIZED
+                   {:key :rf.route/location :value <summary>}
+                   {:key :session/id :value <summary> :generated? true} …]} ; SUMMARIZED
 
   These are the handler's DECLARED RECORDABLE LEAVES (EP-0017 §9). PRIVACY:
   `:rf/time-ms` rides verbatim (always safe per Open Issue 4); every other
@@ -353,6 +393,20 @@
   `reply_envelope.cljc` uses). A map carrying ONLY `:rf/time-ms` still
   produces a row (the time fact is worth surfacing on its own); a map with
   no `:rf/time-ms` AND no other leaves (empty map) produces nil.
+
+  ## Generated recordables (EP-0017 slice B.7 · spec/009 §277)
+
+  When a declared recordable fact is ABSENT from the enqueue token, its
+  generator runs at processing-start, mints the value, writes it back into
+  the in-flight `:rf.cofx` record, and emits `:rf.cofx/generated`. The
+  enqueue-time `:rf.cofx` map predates that step, so the generated fact is
+  read from the `:rf.cofx/generated` op (the post-generation source of
+  truth) and merged in as `{:generated? true}`. A generated leaf whose key
+  ALREADY appears among the dispatched leaves (a supplied / replayed value
+  the generator did not re-mint) is NOT duplicated — the supplied row wins
+  (the supplied/replayed path renders the value the handler actually
+  consumed; the generator does not run in that case, so a duplicate would be
+  a spurious second row).
 
   ## Declared-recordable filtering (rf2-n9v5ga)
 
@@ -368,15 +422,24 @@
   show-all fallback holds (see `recordable-cofx-rows`)."
   ([events] (recordable-cofx-row events nil))
   ([events declared-recordables]
-   (when-let [ev (find-op events :rf.event/dispatched)]
-     (when-let [cofx (common/tag-of ev :rf.cofx)]
-       (when (and (map? cofx) (seq cofx))
-         (let [time-ms (get cofx time-ms-key)
-               inputs  (recordable-cofx-rows cofx declared-recordables)]
-           (cond-> {:step  :recordable-cofx
-                    :badge :RECORDABLE-COFX}
-             (some? time-ms) (assoc :time-ms time-ms)
-             (seq inputs)    (assoc :inputs inputs))))))))
+   (let [ev             (find-op events :rf.event/dispatched)
+         cofx           (when ev (common/tag-of ev :rf.cofx))
+         have-cofx?     (and (map? cofx) (seq cofx))
+         time-ms        (when have-cofx? (get cofx time-ms-key))
+         supplied       (when have-cofx?
+                          (recordable-cofx-rows cofx declared-recordables))
+         supplied-keys  (into #{} (map :key) supplied)
+         ;; generated facts ride the post-generation trace op, NOT the
+         ;; enqueue token. De-dup against the supplied leaves so a
+         ;; supplied/replayed value (the generator did not run) renders ONCE.
+         generated      (->> (generated-cofx-rows events declared-recordables)
+                             (remove #(contains? supplied-keys (:key %))))
+         inputs         (vec (concat supplied generated))]
+     (when (or have-cofx? (seq generated))
+       (cond-> {:step  :recordable-cofx
+                :badge :RECORDABLE-COFX}
+         (some? time-ms) (assoc :time-ms time-ms)
+         (seq inputs)    (assoc :inputs inputs))))))
 
 ;; ---- COEFFECT rows (the ambient grade — EP-0017 §1) ----------------------
 ;;
