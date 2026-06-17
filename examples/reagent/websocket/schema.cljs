@@ -2,22 +2,20 @@
   "Malli schemas for the WebSocket example (Pattern-WebSocket worked
    example).
 
-   Three slices are described:
+   Two slices are described:
 
    - The `:ws/connection` machine's `:data` map. Pattern-WebSocket §The
      connection state machine — the canonical fields used by the
      connection lifecycle: `:url`, `:auth-token`, retry counters,
      `:socket-id` (the address of the currently-live socket actor),
      `:subscriptions`, the offline send `:queue`, and the request-reply
-     `:in-flight` map.
+     `:in-flight` map. Attached as the `:ws/connection` machine's
+     `:data-schema` (see `connection.cljs`) — the snapshot-`:data`
+     validation surface, symmetric with the boot/login siblings.
 
    - The `:messages` slice in app-db. The running app records every
      received message in `[:messages :received]` so the UI can list
-     them; the form draft lives at `[:messages :draft]`.
-
-   - The `:ws/connection` snapshot itself — its state-keyword union
-     enumerates the canonical connection lifecycle states and the
-     `:active` parent's leaves."
+     them; the form draft lives at `[:messages :draft]`."
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
@@ -63,33 +61,6 @@
    [:rf/self-id     {:optional true} :any]
    [:rf/parent-id   {:optional true} :any]
    [:rf/invoke-id  {:optional true} :any]])
-
-;; ============================================================================
-;; CONNECTION MACHINE SNAPSHOT SHAPE
-;; ============================================================================
-;;
-;; The :state slot is a hierarchical leaf path (vector form), or `:disconnected`
-;; / `:reconnecting` / `:failed` at the top level. Per Spec 005
-;; §Hierarchical compound states the runtime normalises to a vector
-;; whenever the active config is nested; we describe both shapes.
-
-(def ConnectionState
-  [:or
-   [:enum :disconnected :reconnecting :failed]
-   ;; :active / :connecting   →   [:active :connecting]
-   ;; :active / :authenticating → [:active :authenticating]
-   ;; :active / :connected    →   [:active :connected]
-   [:vector :keyword]])
-
-(def ConnectionSnapshot
-  "Snapshot shape for the `:ws/connection` machine — a hierarchical
-   machine with `:active` (compound) parenting `:connecting`,
-   `:authenticating`, and `:connected`."
-  [:map
-   [:state ConnectionState]
-   [:data  ConnectionData]
-   ;; :tags is elided when empty; describe it as optional + a set.
-   [:tags  {:optional true} [:set :keyword]]])
 
 ;; ============================================================================
 ;; APP-DB SLICES

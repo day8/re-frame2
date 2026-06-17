@@ -389,7 +389,6 @@
 ;; ============================================================================
 
 (rf/reg-sub :auth/user  (fn [db _] (get-in db [:auth :user])))
-(rf/reg-sub :auth/token (fn [db _] (get-in db [:auth :token])))
 
 (rf/reg-sub :auth/flow-state
   :<- [:rf/machine :auth/flow]

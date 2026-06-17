@@ -27,7 +27,6 @@
    transition exits the state and the desugared :exit fires the
    per-child destroy)."
   (:require [re-frame.core :as rf]
-            [re-frame.subs :as subs]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/reg-machine
@@ -409,18 +408,6 @@
 (rf/reg-sub :work/running?
   :<- [:work/flow-state]
   (fn [state _] (= state :working)))
-
-;; EP-0001 (rf2-vzld77): the machine spawn-registry is durable runtime-db
-;; state, so this advanced/test-only read uses `reg-runtime-sub` (the `db`-
-;; position arg is the runtime-db partition value).
-(subs/reg-runtime-sub :work/spawn-registry-children
-  {:doc "Read the runtime-owned :children map under the parent's
-         :spawn-all slot. Used by the headless tests to assert
-         the spawn cascade fired. Returns nil when no :spawn-all
-         is active (i.e. before :start or after the cascade has
-         torn it down)."}
-  (fn sub-work-spawn-registry-children [rt _]
-    (get-in rt [:rf.runtime/machines :spawned :work/flow [:working] :children])))
 
 ;; ============================================================================
 ;; INITIALISATION

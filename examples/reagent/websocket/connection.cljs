@@ -51,7 +51,7 @@
             [re-frame.late-bind]
             [re-frame.machines]
             [re-frame.fx]
-            [websocket.schema]))
+            [websocket.schema :as schema]))
 
 ;; ============================================================================
 ;; CONNECTION MACHINE — :ws/connection
@@ -63,10 +63,18 @@
 ;; drive.
 
 (def connection-machine
-  "Spec for the `:ws/connection` machine. Held in a `def` so the handler
-   can be re-built via `make-machine-handler` from inside the
-   `register-all!` re-registration helper."
+  "Spec for the `:ws/connection` machine. Held in a `def` so the spec is
+   readable side-by-side with `spec/Pattern-WebSocket.md` and so the
+   `:data-schema` (attached on `reg-machine` below) can reference it."
     {:initial :disconnected
+
+     ;; Spec 010 §Machine data schema — `:data-schema` validates the
+     ;; snapshot's `:data` SLOT (not the whole `{:state … :data …}`
+     ;; snapshot) at the `:where :machine-data` boundary. The runtime
+     ;; owns the surrounding snapshot, so this is the snapshot-`:data`
+     ;; validation surface, symmetric with the boot/login siblings
+     ;; (EP-0001, Mike ruling #11 — app-schemas validate app-db only).
+     :data-schema schema/ConnectionData
 
      ;; Pattern-WebSocket §Worked example — the connection machine's
      ;; `:data` carries everything that must survive across reconnects.
