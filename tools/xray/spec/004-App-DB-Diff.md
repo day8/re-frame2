@@ -262,29 +262,54 @@ there.
 
 A vector/list `:-` removal flows through the off-path
 `:vector-removals` channel (a removed before-index has no stable
-after-side path — the survivors shift up). **Multiple `:-` edits at one
-sequential are recovered by replaying the edit-indices against the
-progressively-shrinking before-sequence**, because Editscript applies
-`:-` edits *sequentially*: each `:-` at edit-index `i` removes the
-element *currently* at index `i` after all prior `:-` at this parent.
-A contiguous tail deletion therefore repeats the same edit-index (`[1 2
-3] → [1]` ⇒ `[[1] :-] [[1] :-]`) and a scattered deletion uses
-post-shift indices (`[:a :b :c :d] → [:a :c]` ⇒ `[[1] :-] [[2] :-]`).
-Resolving each `:-` against the *original* before-vector independently
-(the pre-fix approach) read the wrong element for every edit after the
-first — reporting one before-value repeatedly and dropping the rest.
-The replay recovers the true before-index + before-value for every
-removed element regardless of contiguity or multiplicity.
+after-side path — the survivors shift up). The removals channel **and**
+the `:same-shifted` shift channel both derive from **one unified replay
+of the `:+` and `:-` edits in edit-script order** against a single
+evolving slot vector (`replay-vector-edits`, rf2-3eplfk), because
+Editscript applies `:+`/`:-` edits *sequentially* against an evolving
+sequence: each `:-` at edit-index `i` removes the element *currently* at
+index `i` *after* every prior `:+` insert **and** `:-` delete at this
+parent has shifted the sequence. A `:-`'s edit-index is therefore a
+position relative to the sequence as it stands at that edit — **not** a
+pristine before-index.
 
-The `:same-shifted` **shift-suffix projection uses the same replay**
-(rf2-1njv97): the `(was N)` before-index of a surviving element is the
-original index left in the survivor list once the `:-` edits have been
-replayed (and the `:+` insert-markers spliced in), *not* an arithmetic
-`after-index − inserts + deletes` count. Treating the post-shift `:-`
+The slot vector starts as `(range before-len)`. Each `:+` splices an
+insert-marker at its (current) index; each `:-` records and removes
+whatever slot currently sits at its index. The final slots align 1:1
+with the after-vector (a survivor's original before-index or an
+insert-marker); the recorded removals carry the true before-index for
+every dropped element. `:r` (replace) edits stay *out* of the replay —
+a replace is length- and order-preserving, so it never shifts a
+subsequent index or adds/removes a slot — and their after-indices are
+skipped from the shift output (they classify as `:modified`).
+
+> **Why the unified `:+`/`:-` replay (rf2-3eplfk).** An earlier
+> implementation replayed **only** the `:-` edits against pristine
+> `(range before-len)`, ignoring interleaved `:+` inserts. That is
+> correct for delete-only (no inserts shift the indices) and insert-only
+> (no deletes) scripts — which is why those cases passed — but **wrong**
+> for a *mixed* insert+delete script: the `:-` index had already been
+> shifted by a prior `:+`, so deleting against pristine indices read the
+> wrong slot. Symptoms: mis-attributed removal (`[:a :b :c] → [:X :a :c]`
+> ⇒ `[[0] :+ :X] [[2] :-]` reported `:c` removed when `:b` was, and
+> marked the surviving `:c` `:same-shifted`); a surviving element struck
+> (`[:a :b :c :d] → [:X :a :d]` struck the surviving `:d`); a **dropped**
+> removal (an out-of-range `:-` whose true index sat past `before-len`
+> because a prior `:+` grew the sequence was silently skipped —
+> `[:a :b :c :d] → [:a :X :b :c]` ⇒ `[[1] :+ :X] [[4] :-]` lost `:d`'s
+> removal and emitted a phantom shift). Same wrong-before/after class as
+> the scar history rf2-1njv97 / rf2-yucxn / rf2-vu42n, with the
+> mixed-edit case uncovered. The unified walk removes the actual slot at
+> each `:-`'s post-shift index and derives the `(was N)` shift suffix
+> from the *same* slots, so the two channels can never disagree.
+
+The `:same-shifted` `(was N)` before-index of a surviving element is the
+original index left in that slot once the unified replay finishes — *not*
+a deletes-then-splice-inserts reconstruction and *not* an arithmetic
+`after-index − inserts + deletes` count. (Treating the post-shift `:-`
 edit-indices as before-indices over-counted deletes for scattered /
-multi-element removals (`[:a :b :c :d] → [:a :c]` reported the surviving
-`:c` as `(was 3)` instead of `(was 2)`); the single-delete case lined up
-only by coincidence.
+multi-element removals — `[:a :b :c :d] → [:a :c]` reported the surviving
+`:c` as `(was 3)` instead of `(was 2)` — rf2-1njv97.)
 
 > **Renderer note (rf2-vu42n, fixed).** The inline vector / list / seq
 > body renderer **consumes** this `:vector-removals` channel (plus the

@@ -1079,3 +1079,129 @@
       (is (= :children (engine/op-at p [:a :b :c])))
       (is (= #{} (:wholly-changed-roots p))))))
 
+;; ---- rf2-3eplfk — MIXED insert+delete edit scripts ---------------------
+;;
+;; P1 correctness defect: Editscript applies `:+`/`:-` SEQUENTIALLY against
+;; an EVOLVING sequence, so a `:-`'s edit-index is a position AFTER prior
+;; `:+` inserts shifted it. The pre-fix engine replayed ONLY the `:-` edits
+;; against pristine `(range before-len)`, IGNORING interleaved inserts —
+;; correct for delete-only / insert-only (why those tests passed) but WRONG
+;; for mixed scripts. The fix replays BOTH `:+` and `:-` in edit-script
+;; order against ONE evolving survivor vector; the removals channel AND the
+;; shift channel both derive from that single walk.
+;;
+;; Each repro below was verified on the JVM against Editscript 0.6.5; the
+;; edit script each produces is noted, with the WRONG pre-fix output and the
+;; CORRECT post-fix output. Same wrong-before/after class as the scar
+;; history rf2-1njv97 / rf2-yucxn / rf2-vu42n, mixed-edit case uncovered.
+
+(deftest eplfk-insert-before-delete-mis-attributed-removal
+  (testing "rf2-3eplfk repro 1 — `[:a :b :c] → [:X :a :c]` ⇒
+            `[[0] :+ :X] [[2] :-]`. The `:-` at edit-index 2 hits the
+            EVOLVING sequence `[X a b c]`, removing `:b` (before-idx 1).
+            Pre-fix replayed `[2]` against `(range 3)` → removed `:c`
+            (before-idx 2) AND marked the surviving `:c` `:same-shifted`.
+            Correct: `:b` removed; `:X` added at 0; `:a` shifted (was 0);
+            `:c` UNMOVED (after-idx 2 = before-idx 2, no suffix)."
+    (let [p (engine/project [:a :b :c] [:X :a :c])]
+      ;; removal is :b (before-idx 1), NOT :c
+      (is (= [{:before-index 1 :before-value :b}]
+             (get-in p [:vector-removals []]))
+          "must report :b removed, not :c")
+      ;; after-index 0 = :X added
+      (is (= :added (engine/op-at p [0])))
+      (is (= :X (:after (engine/entry-at p [0]))))
+      ;; after-index 1 = :a, shifted from before-idx 0
+      (is (= :same-shifted (engine/op-at p [1])))
+      (is (= 0 (engine/shifted-was-index p [1])))
+      ;; after-index 2 = :c, UNMOVED (before-idx 2) — no :same-shifted, no
+      ;; phantom suffix. Pre-fix wrongly tagged this slot.
+      (is (= :same (engine/op-at p [2]))
+          "surviving :c is unmoved — must NOT be struck or shifted")
+      (is (nil? (engine/shifted-was-index p [2]))))))
+
+(deftest eplfk-insert-before-double-delete-survivor-struck
+  (testing "rf2-3eplfk repro 2 — `[:a :b :c :d] → [:X :a :d]` ⇒
+            `[[0] :+ :X] [[2] :-] [[2] :-]`. Against the evolving sequence
+            the two `:-` at edit-index 2 remove `:b` then `:c`. Pre-fix
+            replayed `[2] [2]` against `(range 4)` → removed `:c` then `:d`,
+            STRIKING the surviving `:d`. Correct: `:b` + `:c` removed; `:d`
+            survives at after-idx 2, shifted from before-idx 3."
+    (let [p (engine/project [:a :b :c :d] [:X :a :d])]
+      (is (= [{:before-index 1 :before-value :b}
+              {:before-index 2 :before-value :c}]
+             (get-in p [:vector-removals []]))
+          "must report :b and :c removed, not :c and :d")
+      (is (= :added (engine/op-at p [0])))
+      (is (= :X (:after (engine/entry-at p [0]))))
+      (is (= :same-shifted (engine/op-at p [1])))
+      (is (= 0 (engine/shifted-was-index p [1])))
+      ;; :d survives — it is NOT in the removals, and carries (was 3)
+      (is (= :same-shifted (engine/op-at p [2]))
+          "surviving :d must not be struck")
+      (is (= 3 (engine/shifted-was-index p [2]))))))
+
+(deftest eplfk-insert-then-tail-delete-dropped-removal
+  (testing "rf2-3eplfk repro 3 — `[:a :b :c :d] → [:a :X :b :c]` ⇒
+            `[[1] :+ :X] [[4] :-]`. The `:-` at edit-index 4 hits the
+            evolving sequence `[a X b c d]` (length 5), removing `:d`
+            (before-idx 3). Pre-fix replayed `[4]` against `(range 4)` →
+            index 4 OUT OF RANGE → removal SILENTLY DROPPED, and the
+            phantom shift walk mis-aligned the survivors. Correct: `:d`
+            removed; `:X` added at 1; `:b`/`:c` shifted."
+    (let [p (engine/project [:a :b :c :d] [:a :X :b :c])]
+      ;; the removal must NOT be dropped
+      (is (= [{:before-index 3 :before-value :d}]
+             (get-in p [:vector-removals []]))
+          ":d's removal must not be dropped (was out-of-range pre-fix)")
+      ;; after-index 0 = :a unmoved
+      (is (= :same (engine/op-at p [0])))
+      (is (nil? (engine/shifted-was-index p [0])))
+      ;; after-index 1 = :X added
+      (is (= :added (engine/op-at p [1])))
+      (is (= :X (:after (engine/entry-at p [1]))))
+      ;; after-index 2 = :b, shifted from before-idx 1
+      (is (= :same-shifted (engine/op-at p [2])))
+      (is (= 1 (engine/shifted-was-index p [2])))
+      ;; after-index 3 = :c, shifted from before-idx 2
+      (is (= :same-shifted (engine/op-at p [3])))
+      (is (= 2 (engine/shifted-was-index p [3])))
+      ;; no phantom shift entry beyond the after-vector length
+      (is (nil? (engine/shifted-was-index p [4]))))))
+
+(deftest eplfk-double-insert-then-mid-delete-dropped-removal
+  (testing "rf2-3eplfk repro 4 — `[:a :b :c :d] → [:X :Y :a :b :d]` ⇒
+            `[[0] :+ :X] [[1] :+ :Y] [[4] :-]`. After both inserts the
+            evolving sequence is `[X Y a b c d]`; the `:-` at edit-index 4
+            removes `:c` (before-idx 2). Pre-fix replayed `[4]` against
+            `(range 4)` → index 4 OUT OF RANGE → `:c`'s removal DROPPED.
+            Correct: `:c` removed; `:X`/`:Y` added; `:a`/`:b`/`:d` shifted."
+    (let [p (engine/project [:a :b :c :d] [:X :Y :a :b :d])]
+      (is (= [{:before-index 2 :before-value :c}]
+             (get-in p [:vector-removals []]))
+          ":c's removal must not be dropped")
+      (is (= :added (engine/op-at p [0])))
+      (is (= :X (:after (engine/entry-at p [0]))))
+      (is (= :added (engine/op-at p [1])))
+      (is (= :Y (:after (engine/entry-at p [1]))))
+      ;; after-index 2 = :a (was 0), 3 = :b (was 1), 4 = :d (was 3)
+      (is (= :same-shifted (engine/op-at p [2])))
+      (is (= 0 (engine/shifted-was-index p [2])))
+      (is (= :same-shifted (engine/op-at p [3])))
+      (is (= 1 (engine/shifted-was-index p [3])))
+      (is (= :same-shifted (engine/op-at p [4])))
+      (is (= 3 (engine/shifted-was-index p [4]))))))
+
+(deftest eplfk-mixed-edit-in-nested-vector-parent
+  (testing "rf2-3eplfk — the mixed insert+delete fix holds at a NESTED
+            vector parent (keyed by parent path, not just root). `{:xs
+            [:a :b :c]} → {:xs [:X :a :c]}` mirrors repro 1 under `[:xs]`."
+    (let [p (engine/project {:xs [:a :b :c]} {:xs [:X :a :c]})]
+      (is (= [{:before-index 1 :before-value :b}]
+             (get-in p [:vector-removals [:xs]])))
+      (is (= :added (engine/op-at p [:xs 0])))
+      (is (= :same-shifted (engine/op-at p [:xs 1])))
+      (is (= 0 (engine/shifted-was-index p [:xs 1])))
+      (is (= :same (engine/op-at p [:xs 2])))
+      (is (nil? (engine/shifted-was-index p [:xs 2]))))))
+

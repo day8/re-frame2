@@ -393,135 +393,123 @@
 ;;
 ;; This is a per-vector linear walk, O(N + edits-per-vector). Pure.
 
-(defn- replay-vector-deletes
-  "Replay Editscript's `:-` edits against a live `survivors` list of
-  ORIGINAL before-indices and return `{:removed :survivors}`.
+(defn- replay-vector-edits
+  "rf2-3eplfk — UNIFIED replay of an Editscript edit script at ONE
+  vector/list parent. Replays the `:+` (insert) and `:-` (delete) edits in
+  EDIT-SCRIPT ORDER against a single evolving slot vector and returns
+  `{:removed :slots}` — the one source of truth for BOTH the removals
+  channel (`resolve-vector-removals`) and the shift channel
+  (`shift-suffixes-for-vector`).
 
-  Editscript applies `:-` edits SEQUENTIALLY against a progressively-
-  shrinking sequence: each `:-` at edit-index `i` removes the element
-  CURRENTLY occupying index `i`, AFTER all prior `:-` at this parent have
-  already been applied. A contiguous tail deletion therefore repeats the
-  SAME edit-index (`[1 2 3] → [1]` ⇒ `[[1] :-] [[1] :-]`), and a scattered
-  deletion uses post-shift indices (`[:a :b :c :d] → [:a :c]` ⇒ `[[1] :-]
-  [[2] :-]`). These are NOT stable before-indices.
+  ## Why a unified `:+`/`:-` replay (the bug this fixes)
 
-  `survivors` starts as `(range before-len)`. For each delete edit-index
-  `i` in Editscript order we record `survivors[i]` into `:removed` (in
-  removal order) then splice it out, so what remains in `:survivors` are
-  the before-indices of all surviving elements in after-order. An out-of-
-  range edit-index (should not happen for well-formed Editscript output)
-  is skipped rather than crashing the projection. Pure.
+  Editscript applies `:+`/`:-` edits SEQUENTIALLY against an EVOLVING
+  sequence: a `:-` at edit-index `i` removes whatever element CURRENTLY
+  occupies index `i`, AFTER every prior `:+` insert AND `:-` delete at this
+  parent has already shifted the sequence. So a `:-`'s edit-index is a
+  position relative to the sequence AS IT STANDS at that edit — NOT a
+  pristine before-index.
 
-  Used by both `shift-suffixes-for-vector` (`:survivors`) and
-  `resolve-vector-removals` (`:removed`)."
-  [before-len delete-idxs]
-  (loop [survivors  (vec (range before-len))
-         [i & more] delete-idxs
-         removed    []]
-    (if (nil? i)
-      {:removed removed :survivors survivors}
-      (if (and (>= i 0) (< i (count survivors)))
-        (recur (into (subvec survivors 0 i)
-                     (subvec survivors (inc i)))
-               more
-               (conj removed (nth survivors i)))
-        ;; Defensive: a malformed out-of-range edit-index is skipped
-        ;; rather than crashing the projection.
-        (recur survivors more removed)))))
+  The pre-fix code (rf2-lkehao's `replay-vector-deletes`) replayed ONLY the
+  `:-` edits against `(range before-len)`, IGNORING the interleaved `:+`
+  inserts. For a delete-only script that is correct (no inserts shift the
+  indices). But for a MIXED insert+delete script it reads the WRONG slot —
+  every symptom in rf2-3eplfk (mis-attributed removal, surviving element
+  struck, DROPPED out-of-range removal, phantom shift) traces to deleting
+  against pristine indices when prior inserts had already shifted them.
+  Example `[:a :b :c :d] → [:a :X :b :c]` ⇒ `[[1] :+ :X] [[4] :-]`: against
+  `(range 4)` the `[4] :-` is out-of-range and silently dropped; against the
+  evolving sequence (length 5 after the insert) index 4 correctly removes
+  before-index 3 (`:d`).
+
+  ## The walk
+
+  `slots` starts as `(range before-len)` — every before-index in order.
+  For each edit in script order:
+    - `:+` at index `i` splices an `::insert` marker at the CURRENT index
+      `i` (clamped to the current length). The marker carries no
+      before-index — it is the `:added` element occupying that after-slot.
+    - `:-` at index `i` removes whatever slot currently sits at `i`; if that
+      slot is a real before-index it is recorded into `:removed` (in removal
+      order). An `::insert` removed before it is finalised (Editscript would
+      not normally emit this) is dropped without recording.
+  `:r` edits are NOT passed here: a replace is length- and order-preserving,
+  so it never shifts a subsequent `:+`/`:-` index and never removes/adds a
+  slot — it stays out of the replay and is handled at classification time
+  (`:modified`).
+
+  The final `:slots` aligns 1:1 with the AFTER-vector by index: each entry
+  is either an original before-index (a survivor) or `::insert` (a `:+`
+  slot). `:removed` is the before-indices removed, in removal order. Out-of-
+  range edit-indices (should not happen for well-formed Editscript output)
+  are skipped defensively rather than crashing the projection. Pure."
+  [before-len ordered-edits]
+  (loop [slots         (vec (range before-len))
+         [edit & more] ordered-edits
+         removed       []]
+    (if (nil? edit)
+      {:removed removed :slots slots}
+      (let [op (second edit)
+            i  (peek (first edit))]
+        (case op
+          :+ (let [i (min (max i 0) (count slots))]
+               (recur (into (conj (subvec slots 0 i) ::insert)
+                            (subvec slots i))
+                      more
+                      removed))
+          :- (if (and (>= i 0) (< i (count slots)))
+               (let [slot (nth slots i)
+                     removed' (if (= ::insert slot)
+                                ;; defensive: an inserted marker removed
+                                ;; before finalisation contributes no
+                                ;; before-index. Not expected from
+                                ;; well-formed Editscript output.
+                                removed
+                                (conj removed slot))]
+                 (recur (into (subvec slots 0 i)
+                              (subvec slots (inc i)))
+                        more
+                        removed'))
+               ;; Defensive: a malformed out-of-range edit-index is skipped
+               ;; rather than crashing the projection.
+               (recur slots more removed))
+          ;; Any other op (shouldn't reach — only :+/:- are passed) is a
+          ;; no-op for the replay.
+          (recur slots more removed))))))
 
 (defn- shift-suffixes-for-vector
-  "Given an after-vector's length + the per-position edits Editscript
-  emitted at this vector's path, return a map
-  `{after-index was-before-index}` for every after-element whose
-  identity moved positionally (op `:same-shifted`).
+  "Given a vector parent's before-length, its unified replay `slots`
+  (from `replay-vector-edits` — `:+`/`:-` replayed in edit-script order),
+  and the `:r` after-indices at this parent, return a map
+  `{after-index was-before-index}` for every after-element whose identity
+  moved positionally (op `:same-shifted`).
 
-  The logic REPLAYS the edit script against a live `survivors` list of
-  ORIGINAL before-indices — the same technique `resolve-vector-removals`
-  (rf2-yucxn) uses for the removals channel. This is mandatory because
-  Editscript emits `:-` edits at POST-shift indices applied SEQUENTIALLY
-  against a shrinking vector — they are NOT stable before-indices. The
-  pre-fix `delete-idxs ≤ cursor` fixed-point (rf2-1njv97) mis-read those
-  post-shift indices as before-indices and over-counted deletes for any
-  scattered/multi-element removal (`[:a :b :c :d] → [:a :c]` reported the
-  surviving `:c` as `(was 3)` instead of `(was 2)`; the single-delete case
-  worked only by coincidence).
+  The `slots` vector aligns 1:1 with the after-vector: each entry is either
+  an original before-index (a survivor) or `::insert` (a `:+` slot). This is
+  the SAME unified walk that feeds the removals channel (rf2-3eplfk) — the
+  shift was-index is derived from it, NOT from a deletes-then-splice-inserts
+  reconstruction (the pre-fix two-step replayed deletes against pristine
+  `(range before-len)` then spliced inserts afterward, which mis-read every
+  `:-` whose edit-index a prior `:+` had shifted: e.g.
+  `[:a :b :c :d] → [:X :a :d]` struck the surviving `:d` and reported `:c`
+  removed; the unified walk removes the actual `:b`/`:c` and reports `:d`
+  `(was 3)` correctly).
 
-  Replay procedure:
-    1. `survivors` starts as `(range before-len)` — every before-index.
-    2. Apply each `:-` in Editscript order: edit-index `i` removes the
-       element CURRENTLY at `survivors[i]` (post-shift), shrinking the list.
-       What remains are the before-indices of all surviving elements, in
-       after-order.
-    3. Splice each `:+` (keyed by AFTER-index, ascending) into the survivor
-       list as a `nil` insert-marker, so the list aligns 1:1 with the
-       after-vector by index.
-  The resulting `slots` vector maps `after-index → original before-index`
-  (or `nil` for an inserted slot). Positions with edits (`:+` / `:r`) are
-  skipped from the output because they classify under :added / :modified,
-  not :same-shifted; an after-index whose before-index equals it (no move)
-  is likewise omitted."
-  [before-len edits-at-this-vector]
-  (let [;; `:+` edits are keyed by their AFTER-index; `:-` edits carry
-        ;; POST-shift edit-indices in Editscript order (NOT before-indices);
-        ;; `:r` edits sit at a shared, surviving index.
-        delete-edit-idxs (->> edits-at-this-vector
-                              (filter (fn [edit] (= :- (second edit))))
-                              (mapv (fn [edit] (peek (first edit)))))
-        insert-idxs      (->> edits-at-this-vector
-                              (filter (fn [edit] (= :+ (second edit))))
-                              (map (fn [edit] (peek (first edit))))
-                              (sort)
-                              vec)
-        replace-idxs     (->> edits-at-this-vector
-                              (filter (fn [edit] (= :r (second edit))))
-                              (map (fn [edit] (peek (first edit))))
-                              (into #{}))
-        ;; Step 1+2 — replay the `:-` deletes against the survivor list of
-        ;; original before-indices, removing the post-shift slot each time.
-        survivors-after-deletes
-        (:survivors (replay-vector-deletes before-len delete-edit-idxs))
-        ;; Step 3 — splice insert-markers (nil) at each `:+` after-index so
-        ;; the slot vector aligns position-for-position with the after-vector.
-        slots
-        (reduce (fn [acc after-idx]
-                  (let [after-idx (min after-idx (count acc))]
-                    (into (conj (subvec acc 0 after-idx) nil)
-                          (subvec acc after-idx))))
-                survivors-after-deletes
-                insert-idxs)
-        insert-set (set insert-idxs)]
-    ;; Emit `{after-index before-index}` only for surviving (non-edit) slots
-    ;; whose position actually moved.
-    (reduce-kv
-      (fn [acc after-idx before-idx]
-        (if (or (nil? before-idx)                  ; inserted slot → :added
-                (contains? insert-set after-idx)
-                (contains? replace-idxs after-idx) ; replaced slot → :modified
-                (= after-idx before-idx))          ; unmoved → no suffix
-          acc
-          (assoc acc after-idx before-idx)))
-      {}
-      (vec slots))))
-
-(defn- group-edits-by-vector-parent
-  "Group all edits by their parent path WHEN the parent is a vector.
-  Returns `{[parent-path] [edits...]}`. Map-key edits are filtered out
-  (their parents are maps; R6 doesn't apply)."
-  [edits after]
-  (reduce
-    (fn [acc [path _op _val :as edit]]
-      (if (empty? path)
+  An after-index whose slot is an `::insert` classifies under `:added`
+  (skipped here); an after-index in `replace-set` classifies under
+  `:modified` (skipped); a survivor whose before-index equals its after-
+  index has not moved (skipped). Everything else is a positional move →
+  `:same-shifted` with the survivor's before-index as `:was-index`."
+  [slots replace-set]
+  (reduce-kv
+    (fn [acc after-idx slot]
+      (if (or (= ::insert slot)                  ; inserted slot → :added
+              (contains? replace-set after-idx)  ; replaced slot → :modified
+              (= after-idx slot))                ; unmoved survivor → no suffix
         acc
-        (let [parent-path (vec (butlast path))
-              parent-val  (value-at after parent-path)
-              leaf-key    (peek path)]
-          (if (and (or (vector? parent-val)
-                       (sequential? parent-val))
-                   (integer? leaf-key))
-            (update acc parent-path (fnil conj []) edit)
-            acc))))
+        (assoc acc after-idx slot)))
     {}
-    edits))
+    (vec slots)))
 
 ;; =========================================================================
 ;; main projection
@@ -856,35 +844,34 @@
        vec))
 
 (defn- resolve-vector-removals
-  "rf2-yucxn — recover the true `{:before-index :before-value}` for every
-  `:-` edit Editscript emits at a single vector/list parent.
+  "rf2-yucxn / rf2-3eplfk — recover the true `{:before-index :before-value}`
+  for every element removed at a single vector/list parent.
 
-  Editscript applies `:-` edits SEQUENTIALLY against a progressively-
-  shrinking sequence: each `:-` at edit-index `i` removes the element
-  CURRENTLY occupying index `i`, AFTER all prior `:-` at this parent have
-  already been applied. A contiguous tail deletion therefore repeats the
-  SAME edit-index (`[1 2 3] → [1]` ⇒ `[[1] :-] [[1] :-]`), and a scattered
-  deletion uses post-shift indices (`[:a :b :c :d] → [:a :c]` ⇒ `[[1] :-]
-  [[2] :-]`). Resolving `(value-at before [parent i])` independently per
-  edit (the pre-fix approach) read the WRONG element for every edit after
-  the first — reporting one before-value repeatedly and dropping the
-  genuinely-removed tail elements.
+  `removed` is the vector of ORIGINAL before-indices removed at this parent,
+  as recorded by the UNIFIED `replay-vector-edits` walk (which replays
+  `:+`/`:-` in edit-script order — see that fn's docstring). `bvec` is the
+  parent's before-side sequence as a vector.
 
-  We replay the edits against a live mutable index map: `survivors` is the
-  vector of ORIGINAL before-indices still present; each `:-` at edit-index
-  `i` removes (and records) `survivors[i]`, then drops it from `survivors`.
-  The recorded original index resolves the before-value via `(nth bvec _)`.
+  ## Why the unified replay (rf2-3eplfk)
 
-  `edits` are the raw `:-` edits at THIS parent in Editscript order; `bvec`
-  is the parent's before-side sequence as a vector. Returns a vector of
-  `{:before-index :before-value}` in before-index order. Pure."
-  [edits bvec]
-  (let [edit-idxs (mapv (fn [e] (peek (first e))) edits)
-        recovered (:removed (replay-vector-deletes (count bvec) edit-idxs))]
-    (->> recovered
-         sort
-         (mapv (fn [orig] {:before-index orig
-                           :before-value (nth bvec orig)})))))
+  Editscript applies `:+`/`:-` edits SEQUENTIALLY against an EVOLVING
+  sequence: a `:-`'s edit-index is a position AFTER prior `:+` inserts have
+  shifted it. The pre-fix path (rf2-yucxn / rf2-lkehao) replayed ONLY the
+  `:-` edits against `(range before-len)`, IGNORING interleaved inserts —
+  correct for delete-only scripts but WRONG for mixed insert+delete (it
+  read the wrong slot, and silently DROPPED an out-of-range `:-` whose true
+  index sat past `before-len` because a prior `:+` had grown the sequence).
+  Recording before-indices from the one unified walk fixes both. (The even
+  earlier per-edit `(value-at before [parent i])` resolution read one
+  before-value repeatedly and dropped the rest.)
+
+  Returns a vector of `{:before-index :before-value}` in before-index
+  order. Pure."
+  [removed bvec]
+  (->> removed
+       sort
+       (mapv (fn [orig] {:before-index orig
+                         :before-value (nth bvec orig)}))))
 
 (defn project
   "Compute the diff projection for `(before, after)`. Returns a map per
@@ -905,34 +892,88 @@
           ;; occupying that slot. We therefore route vector deletions
           ;; into a separate `:vector-removals` channel and leave the
           ;; after-path leaf classifications to the shift walker.
+          ;;
+          ;; A vector PARENT is recognised from EITHER side (rf2-3eplfk):
+          ;; a `:-`'s parent is a sequential in `before`, a `:+`'s parent
+          ;; is a sequential in `after`. For an in-place edit (no parent
+          ;; type-change) both agree; we accept either so a single grouping
+          ;; captures the whole edit script per vector parent.
+          seq-coll?
+          (fn [v]
+            (or (vector? v)
+                (and (sequential? v) (not (map? v)) (not (set? v)))))
           vector-parent?
           (fn [path]
             (when (seq path)
-              (let [parent (value-at before (vec (butlast path)))]
-                (or (vector? parent)
-                    (and (sequential? parent) (not (map? parent)) (not (set? parent)))))))
-          ;; Split raw edits into vector-`:-` deletions (per parent) and
-          ;; everything else. The deletions are grouped by parent path IN
-          ;; EDIT ORDER so `resolve-vector-removals` can replay them against
-          ;; the live before-sequence (rf2-yucxn — a single post-shift
-          ;; before-index resolution per edit was wrong for multi-element
-          ;; / scattered deletions).
-          [vec-del-edits other-edits]
+              (let [pp (vec (butlast path))]
+                (or (seq-coll? (value-at before pp))
+                    (seq-coll? (value-at after pp))))))
+          ;; rf2-3eplfk — UNIFIED grouping. Collect, per vector parent, the
+          ;; ordered `:+`/`:-` edits (in edit-script order) for the single
+          ;; `replay-vector-edits` walk, plus the set of `:r` after-indices
+          ;; (replaces are length-/order-preserving so they sit OUT of the
+          ;; replay, but their after-indices are skipped from the shift
+          ;; output). Vector `:-` deletions are also peeled OUT of the
+          ;; per-leaf classification stream into `other-edits` (their after-
+          ;; path identity is unstable — see the channel rationale above);
+          ;; `:+`/`:r` stay in `other-edits` for their `:added`/`:modified`
+          ;; leaf ops.
+          {:keys [vec-groups other-edits]}
           (reduce
-            (fn [[dels oth] [path op _value :as edit]]
-              (if (and (= op :-) (vector-parent? path))
-                [(update dels (vec (butlast path)) (fnil conj []) edit) oth]
-                [dels (conj oth edit)]))
-            [{} []]
+            (fn [acc [path op _value :as edit]]
+              (let [parent-path (vec (butlast path))
+                    leaf-key    (peek path)
+                    vparent?    (and (integer? leaf-key)
+                                     (vector-parent? path))]
+                (cond
+                  ;; vector `:-` — feeds the unified replay; NOT a per-leaf op.
+                  (and vparent? (= op :-))
+                  (-> acc
+                      (update-in [:vec-groups parent-path :ordered] (fnil conj []) edit))
+
+                  ;; vector `:+` — feeds the unified replay AND stays in
+                  ;; other-edits for its `:added` leaf expansion.
+                  (and vparent? (= op :+))
+                  (-> acc
+                      (update-in [:vec-groups parent-path :ordered] (fnil conj []) edit)
+                      (update :other-edits conj edit))
+
+                  ;; vector `:r` — record its after-index for the shift
+                  ;; skip-set; stays in other-edits for its `:modified` op.
+                  (and vparent? (= op :r))
+                  (-> acc
+                      (update-in [:vec-groups parent-path :replace-idxs] (fnil conj #{}) leaf-key)
+                      (update :other-edits conj edit))
+
+                  :else
+                  (update acc :other-edits conj edit))))
+            {:vec-groups {} :other-edits []}
             raw)
+          ;; rf2-3eplfk — ONE `replay-vector-edits` walk per vector parent
+          ;; produces BOTH the removals (`:removed`) and the shift slots
+          ;; (`:slots`). Both downstream channels derive from this single
+          ;; evolving-survivor walk so they can never disagree about which
+          ;; slot a `:-` removed (the scar history rf2-1njv97/yucxn/vu42n
+          ;; was two replays that diverged on mixed insert+delete scripts).
+          vec-replays
+          (reduce-kv
+            (fn [acc parent-path {:keys [ordered]}]
+              (let [before-val (value-at before parent-path)
+                    before-len (if (seq-coll? before-val) (count before-val) 0)]
+                (assoc acc parent-path
+                       (replay-vector-edits before-len (or ordered [])))))
+            {}
+            vec-groups)
           vector-removals
           (reduce-kv
-            (fn [acc parent-path edits]
-              (let [bvec (vec (value-at before parent-path))]
-                (assoc acc parent-path
-                       (resolve-vector-removals edits bvec))))
+            (fn [acc parent-path {:keys [removed]}]
+              (if (seq removed)
+                (let [bvec (vec (value-at before parent-path))]
+                  (assoc acc parent-path
+                         (resolve-vector-removals removed bvec)))
+                acc))
             {}
-            vec-del-edits)
+            vec-replays)
           ;; Step 1 — expand each non-vector-deletion raw edit into
           ;; per-leaf ops at every path the operator can navigate to in
           ;; the AFTER tree.
@@ -976,31 +1017,24 @@
                 acc))
             {}
             per-leaf)
-          ;; Step 3 — R6 vector shift suffixes. For each vector-typed
-          ;; parent that received +/- edits, compute the (after-index →
-          ;; before-index) map and emit `:same-shifted` ops for any
-          ;; after-index whose identity moved.
-          edits-by-vec-parent
-          (group-edits-by-vector-parent raw after)
+          ;; Step 3 — R6 vector shift suffixes. Derived from the SAME unified
+          ;; `replay-vector-edits` slots that fed the removals channel
+          ;; (rf2-3eplfk) — `:same-shifted` for any surviving after-index
+          ;; whose before-index moved. The `:r` after-indices (collected in
+          ;; the unified grouping) are skipped because they classify as
+          ;; `:modified`, not `:same-shifted`.
           shift-suffix
-          (reduce
-            (fn [acc [parent-path edits]]
-              (let [;; The shift replay reconstructs survivor before-indices
-                    ;; from the BEFORE-side length (rf2-1njv97); the after
-                    ;; length is recoverable from the slot vector itself.
-                    before-val (value-at before parent-path)
-                    before-len (cond
-                                 (vector? before-val)     (count before-val)
-                                 (sequential? before-val) (count before-val)
-                                 :else 0)
-                    shifts (shift-suffixes-for-vector before-len edits)]
+          (reduce-kv
+            (fn [acc parent-path {:keys [slots]}]
+              (let [replace-set (get-in vec-groups [parent-path :replace-idxs] #{})
+                    shifts      (shift-suffixes-for-vector slots replace-set)]
                 (reduce-kv
                   (fn [acc' after-idx before-idx]
                     (assoc acc' (conj (vec parent-path) after-idx) before-idx))
                   acc
                   shifts)))
             {}
-            edits-by-vec-parent)
+            vec-replays)
           ;; Inject :same-shifted ops where applicable. We DO NOT clobber
           ;; an existing :added/:modified op — only annotate idle (so far
           ;; absent from path-ops, meaning identical-value) slots whose
