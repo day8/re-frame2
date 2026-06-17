@@ -13,7 +13,6 @@
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-projector :as error-projector]
             [re-frame.ssr.response :as response]
             [re-frame.trace :as trace]))
@@ -35,18 +34,11 @@
 ;; the recoverable-degradation members — same `non-projection-eligible-error?`
 ;; gate that governs the wire (promotion changes what SHIPPERS see, never
 ;; what the WIRE does).
-
-(defn emit-always-on-error!
-  "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
-  error-emit registry (surface #4), via the `:error-emit/dispatch-error-
-  record` late-bind hook. `record` is the union shape `{:error <kw> :frame
-  <id-or-nil> :time <ms> + flat category keys}`. A no-op when the
-  `error-emit` producer hasn't loaded (the hook is nil) — the dev
-  `trace/emit-error!` companion still fires. Returns nil."
-  [record]
-  (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
-    (dispatch-error-record! record))
-  nil)
+;;
+;; The `emit-always-on-error!` helper itself is SINGLE-SOURCED in
+;; `re-frame.ssr.error-projector` (rf2-50e82k — this ns already :requires
+;; it for the projector); call sites here go through
+;; `error-projector/emit-always-on-error!`.
 
 (defn- candidate-frame-for-error
   "Select the frame to project against for a trace-event: the frame named
@@ -310,7 +302,7 @@
       ;; drops BOTH buffered duplicates, so the wire status is driven solely
       ;; by the DIRECT `apply-error-projection!` call (no double-stamp, no
       ;; re-project on a later flush). Union record shape.
-      (emit-always-on-error!
+      (error-projector/emit-always-on-error!
         {:error :rf.error/ssr-render-failed
          :frame frame-id
          :time  (interop/now-ms)
