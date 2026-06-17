@@ -289,10 +289,23 @@
   identity — see `timer-work-id`), so a stale `:after` completion joins into
   the uniform work/reply rows by the same key HTTP / resources / routing use.
 
+  rf2-hawtjr — the reply now also threads the CAUSAL completion timestamp
+  (`:completed-at`) when the timer-firing dispatch supplied one. The
+  synthetic `:after`-elapsed dispatch is a causal token carrying the
+  router-stamped `:rf/time-ms` (EP-0010 / the fresh fire-time read); a
+  stale `:after` completion can mutate machine snapshot data is not the
+  case here (the transition is suppressed), but Managed-Effects §Causal
+  completion metadata / §Tracing want completion time to ride the reply
+  wherever the firing token has it, so the suppressed-timer trace can be
+  correlated in real time with the firing dispatch. Omitted (not
+  nil-filled) when absent — an unscripted / no-cofx fire path carries no
+  `:completed-at` (Managed-Effects §The reply map).
+
   `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
   `:state`, `:delay`, `:decl-path`, `:scheduled-epoch`, `:current-epoch`,
-  `:frame`."
-  [{:keys [actor-id state delay decl-path scheduled-epoch current-epoch frame]}]
+  `:frame`, optional `:completed-at`."
+  [{:keys [actor-id state delay decl-path scheduled-epoch current-epoch frame
+           completed-at]}]
   (cond-> {:status       :stale
            :stale?       true
            :stale/reason :rf.machine.timer/after-epoch-mismatch
@@ -304,7 +317,8 @@
                                   :carried (after-suppression-gate decl-path scheduled-epoch)
                                   :current (after-suppression-gate decl-path current-epoch)}
                            (some? actor-id) (assoc :actor-id actor-id))}
-    (some? frame) (assoc :rf.frame/id frame)))
+    (some? frame)        (assoc :rf.frame/id frame)
+    (some? completed-at) (assoc :completed-at completed-at)))
 
 (defn after-fired-reply
   "Build the canonical reply for a machine `:after` timer that FIRED (live —
@@ -327,10 +341,23 @@
   `:work/status` inside the closed `work-statuses` vocabulary. Pass
   `:guard-suppressed? true` for that case.
 
+  rf2-hawtjr — the reply now also threads the CAUSAL completion timestamp
+  (`:completed-at`) when the timer-firing dispatch supplied one. The
+  synthetic `:after`-elapsed dispatch is a causal token carrying the
+  router-stamped `:rf/time-ms` (EP-0010 / the fresh fire-time read), and a
+  fired `:after` timer's transition can mutate machine snapshot `:data`
+  (its `:action`), so per Managed-Effects §Causal completion metadata the
+  completion time MUST ride the reply when it affects durable state. The
+  finishing dispatch's `:rf/time-ms` (the same token the timer-fired
+  guard / action read off `:rf.cofx`) is threaded in by the caller.
+  Omitted (not nil-filled) when absent — an unscripted / no-cofx fire path
+  carries no `:completed-at` (Managed-Effects §The reply map).
+
   `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
   `:state`, `:delay`, `:decl-path`, `:epoch`, `:frame`, optional
-  `:guard-suppressed?`."
-  [{:keys [actor-id state delay decl-path epoch frame guard-suppressed?]}]
+  `:guard-suppressed?`, optional `:completed-at`."
+  [{:keys [actor-id state delay decl-path epoch frame guard-suppressed?
+           completed-at]}]
   (cond-> {:status      :ok
            ;; A timer carries no payload — its effect is the transition it
            ;; triggers, not a value. The reply-map contract requires a `:value`
@@ -347,7 +374,8 @@
                                  :gate  (after-suppression-gate decl-path epoch)}
                           (some? actor-id) (assoc :actor-id actor-id)
                           guard-suppressed?  (assoc :guard-suppressed? true))}
-    (some? frame) (assoc :rf.frame/id frame)))
+    (some? frame)        (assoc :rf.frame/id frame)
+    (some? completed-at) (assoc :completed-at completed-at)))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace summaries (Managed-Effects §Tracing). Data-only summaries of the

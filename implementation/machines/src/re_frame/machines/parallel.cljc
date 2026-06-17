@@ -1140,7 +1140,12 @@
   (let [match (transition/root-after-match machine event snapshot)]
     ;; Trace the firing / staleness / guard-suppression BEFORE applying, so
     ;; listeners observe events in occurrence order (single-machine parity).
-    (transition/emit-pick-traces! (:rf/frame machine) match)
+    ;; rf2-hawtjr — thread the causal completion timestamp (the firing
+    ;; dispatch's router-stamped `:rf/time-ms` off `:rf.cofx`) so the
+    ;; parallel-root `:after` completion carries `:completed-at` like the
+    ;; single-machine path.
+    (transition/emit-pick-traces! (:rf/frame machine) match
+                                  (get-in machine [:rf/cofx :rf/time-ms]))
     (cond
       (or (nil? match) (:stale? match) (:guard-suppressed? match))
       (result/ok snapshot [])
