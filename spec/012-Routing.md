@@ -171,9 +171,9 @@ When more than one registered route can match the same URL, `match-url` MUST res
 Ranking rules, evaluated in order. The first rule that distinguishes the candidates wins; later rules are only consulted on ties.
 
 1. **More static segments beat fewer.** Count the literal (non-param, non-splat) segments in each candidate's `:path`. Higher count wins. `/users/me` (2 statics) beats `/users/:id` (1 static) for `/users/me`.
-2. **Among equally-static-counted matches, longer paths beat shorter.** Total segment count breaks the tie on equal static-count. `/users/:id/edit` beats `/users/:id` for `/users/abc/edit`.
-3. **Named params beat rest params.** A `:name` segment is more specific than a `*name` splat. `/files/:name` beats `/files/*rest` for `/files/x`.
-4. **Rest params beat catch-all/not-found.** A `*rest` segment is more specific than a top-level catch-all `/*` (or a registered `:rf.route/not-found`). `/files/*rest` beats `/*` for `/files/x/y`.
+2. **The bare catch-all `/*` is demoted below every other matching route.** The bare top-level catch-all (`/*`, an unnamed splat with no other segments) is the universal least-specific fallback — above only `:rf.route/not-found`. Any other route that matches the same URL wins. This demotion is consulted **before** total-length (rule 3), because the catch-all also matches the root URL `/` (the splat captures the literal `/`), and a registered home route `{:path "/"}` has segment-length 0 while `/*` has length 1 — without the early demotion the catch-all would out-length the root and shadow it. The discriminator is therefore lifted ahead of total-length so `/` (and every other concrete route) wins over `/*`. `/` beats `/*` for `/`; `/files/*rest` (a *named* rest param, not the bare catch-all) beats `/*` for `/files/x/y`. A registered `:rf.route/not-found` is the only route below the bare catch-all.
+3. **Among equally-static-counted, non-catch-all matches, longer paths beat shorter.** Total segment count breaks the tie on equal static-count. `/users/:id/edit` beats `/users/:id` for `/users/abc/edit`.
+4. **Named params beat rest params.** A `:name` segment is more specific than a `*name` splat. `/files/:name` beats `/files/*rest` for `/files/x`.
 5. **Exact routes beat optional-group routes.** A pattern with no `{...}?` group is more specific than a pattern that matches the same URL only by virtue of an optional group. `/about` beats `/{:base}?/about` for `/about`.
 6. **Registration order is the final tiebreak only if every structural score is equal.** When two routes are *structurally indistinguishable* (same statics, same length, same params/splats, same optional groups), the route registered first wins. This case is **discouraged** — implementations MUST emit a `:rf.warning/route-shadowed-by-equal-score` warning at registration time when a new route is added and an existing route has an equal structural score on the same URL family. Tooling and AI scaffolds use the warning to flag potential conflicts.
 
@@ -189,10 +189,16 @@ The cascade is **structural** — the score is computable from each pattern's pa
         has-optional?  (some optional-group? segments)
         is-catch-all?  (= pattern "/*")]
     ;; Higher score = more specific. Tuple compares lexicographically.
+    ;; The catch-all demotion (rule 2) is lifted ahead of total-length
+    ;; (rule 3): the bare `/*` also matches the root URL `/`, and a home
+    ;; route `{:path "/"}` has total-length 0 while `/*` has length 1, so
+    ;; if total-length came first the catch-all would out-length the root
+    ;; and shadow it. Putting the catch-all discriminator before length
+    ;; makes `/` (and every concrete route) win over `/*`.
     [static-count                 ;; rule 1
-     total-length                 ;; rule 2
-     (if has-splat? 0 1)          ;; rule 3 — named params beat splats
-     (if is-catch-all? 0 1)       ;; rule 4 — rest beats catch-all
+     (if is-catch-all? 0 1)       ;; rule 2 — bare catch-all demoted below all
+     total-length                 ;; rule 3 — among non-catch-all, longer wins
+     (if has-splat? 0 1)          ;; rule 4 — named params beat splats
      (if has-optional? 0 1)       ;; rule 5 — exact beats optional-group
      ;; rule 6 — registration order — applied externally as a stable sort
      ]))

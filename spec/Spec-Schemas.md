@@ -3085,9 +3085,9 @@ The structural-rank tuple `match-url` computes for each registered route, per [0
   ;; A vector of integers, lexicographically comparable. Higher = more specific.
   ;; The registrar's stable-sort by registration time provides rule 6.
   [:tuple :int                                                            ;; rule 1 — static-segment count
-          :int                                                            ;; rule 2 — total segment count
-          [:enum 0 1]                                                     ;; rule 3 — splat? 0 = has splat; 1 = no splat (named params win)
-          [:enum 0 1]                                                     ;; rule 4 — catch-all? 0 = is "/*"; 1 = otherwise
+          [:enum 0 1]                                                     ;; rule 2 — catch-all? 0 = is bare "/*" (demoted below all); 1 = otherwise
+          :int                                                            ;; rule 3 — total segment count (among non-catch-all routes)
+          [:enum 0 1]                                                     ;; rule 4 — splat? 0 = has splat; 1 = no splat (named params win)
           [:enum 0 1]])                                                   ;; rule 5 — has optional group? 0 = yes; 1 = no
 ```
 
