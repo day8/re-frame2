@@ -57,10 +57,18 @@
   ;; opts in explicitly via `config/set-allow-static-project-root!` +
   ;; passing a root; this canonical export does not.
   (story/configure! {:rf.story/global-args {:locale :en}})
-  ;; Seed the live-app's :count slot so any embedded `counter-card`
-  ;; view that renders under the variant canvas starts from a
-  ;; deterministic value rather than `nil`.
-  (rf/dispatch-sync [:counter/initialise 5])
+  ;; NO shell-level `(rf/dispatch-sync [:counter/initialise 5])` here.
+  ;; A bare global dispatch carries no frame context, and per EP-0002 the
+  ;; runtime never synthesises a `:rf/default` frame — so the router throws
+  ;; `:rf.error/no-frame-context` at `build-envelope`, which under `:advanced`
+  ;; minified to the `jj` pageerror that aborted the mount and left the shell
+  ;; unrendered (rf2-oki92v). The seed was also redundant: every counter
+  ;; variant renders inside its OWN isolated variant frame and seeds its
+  ;; `:count` slot via that variant's `:setup [[:counter/initialise N]]`
+  ;; (stories.cljs). There is no shell-level live-counter view to seed — this
+  ;; entry mounts only the Story shell — so the dispatch had no legitimate
+  ;; target. Frames are isolated contexts; the static shell holds no app-db
+  ;; of its own to seed.
   ;; Mount the Story shell directly onto `#app`. No hash routing — this
   ;; ns is the static-export entry only, the SPA lives in core.cljs.
   (story/mount-shell! (js/document.getElementById "app")))
