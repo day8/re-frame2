@@ -416,6 +416,60 @@
         (keep (fn [[_input-name [_source rf-path]]] rf-path))
         (or inputs {})))
 
+;; ---- off-box trace egress projection of scope-resolution rows (rf2-84l82t) -
+;;
+;; The `:rf.resource/scope-resolved` trace row carries the resolver's resolved
+;; `:input-values` (the concrete db reads — e.g. `{:username "jake"}`) and the
+;; derived `:scope` (e.g. `[:rf.scope/session {:username "jake"}]`). These are
+;; owner-local, identity-bearing values the CENTRAL trace egress pipeline only
+;; knows as generic tag slots — a value-path walk cannot classify a resolver's
+;; `:input-values` once they have been copied into trace tags (EP-0015; the
+;; resource trace family is an egress record set). So the resource family owns
+;; an egress projector for the row, the SSR/tool-projection analogue, consumed
+;; off-box through a late-bound hook (epoch tool-pair); on-box listeners keep
+;; the raw evidence (the row is dev observability — the leak is at off-box /
+;; epoch / MCP egress, not the local listener).
+
+(defn scope-resolver-egress-sensitive?
+  "FAIL-CLOSED off-box egress classification for a `:rf.resource/scope-resolved`
+  row's resolver `scope-id` (rf2-84l82t). A db-reading resolver MAY read a
+  frame-sensitive path the off-box walk cannot prove safe (the row carries the
+  resolved VALUES, not the path provenance), so the conservative posture
+  mirrors `re-frame.resources.classification/resolver-derived-sensitive?`'s
+  fail-closed footing: the resolved `:input-values` / `:scope` are egress-
+  sensitive UNLESS the resolver explicitly DECLASSIFIES via
+  `:output-sensitivity :rf.egress/public` (the standing audit surface — the
+  resolver asserts its derived scope is safe to surface raw). A resolver that
+  is not registered (no spec to read) is sensitive (fail-closed). Pure."
+  [scope-id]
+  (let [spec (scope-resolver-meta scope-id)]
+    (not (= :rf.egress/public (:output-sensitivity spec)))))
+
+(defn project-scope-resolved-egress
+  "Project a `:rf.resource/scope-resolved` trace row's `tags` for OFF-BOX
+  egress (rf2-84l82t). When the row's resolver
+  (`scope-resolver-egress-sensitive?`) is egress-sensitive (the fail-closed
+  default for any db-reading resolver not explicitly declassified), the
+  resolved `:input-values` (the raw db reads) and `:scope` (the derived
+  identity tuple, which embeds those reads) are replaced by the `:rf/redacted`
+  sentinel and the row is stamped `:sensitive? true`. The STRUCTURAL slots —
+  `:resource-id` (the resolver id), `:kind`, the declared input NAMES
+  (`:inputs`), `:whole-db?`, `:resolved-nil?` — ride verbatim (they carry no
+  user value and a tool needs them to attribute the resolution). An explicitly
+  declassified (`:rf.egress/public`) resolver rides verbatim. Idempotent
+  (`:rf/redacted` re-redacts to itself); a non-map `tags` rides unchanged.
+  Pure. The on-box listener path never calls this — the raw evidence stays for
+  dev tooling; this is the OFF-BOX egress projector."
+  [tags]
+  (if-not (map? tags)
+    tags
+    (if (scope-resolver-egress-sensitive? (:resource-id tags))
+      (-> tags
+          (assoc :input-values :rf/redacted
+                 :scope        :rf/redacted
+                 :sensitive?   true))
+      tags)))
+
 ;; ---- the pure resolve helper (Spec 016 §`clear-scope` … coeffect db) ------
 
 (defn resolve-scope*-pure
@@ -450,10 +504,17 @@
 
   Emits `:rf.resource/scope-resolved` carrying the resolver id, the declared
   input NAMES, the resolved input VALUES, and the resolved scope (or
-  `:resolved-nil? true`) — the values flow through the trace pipeline's
-  egress/marks projection (Spec 015 / EP-0015) for off-box safety. Tooling
-  reads the declared inputs to avoid unnecessary whole-db re-resolution and
-  to mark the whole-db-sugar cost (EP-0015 disposition 8). PASSIVE reads
+  `:resolved-nil? true`). The resolved `:input-values` / `:scope` are
+  owner-local identity-bearing values the generic value-path trace egress walk
+  cannot classify, so the resource family owns their OFF-BOX egress projector
+  (`project-scope-resolved-egress`, published as
+  `:resources/project-scope-resolved-egress` and consulted by the epoch
+  tool-pair): fail-closed redaction for any db-reading resolver not explicitly
+  declassified (rf2-84l82t / EP-0015). The on-box listener keeps the raw
+  evidence (the leak is at off-box / epoch / MCP egress, not the local
+  listener). Tooling reads the declared inputs to avoid unnecessary whole-db
+  re-resolution and to mark the whole-db-sugar cost (EP-0015 disposition 8).
+  PASSIVE reads
   advertised as pure (`resolve-resource-scope`, subscription resolution) MUST
   call `resolve-scope*-pure` instead — they do not emit observability state
   during a read (rf2-ru73k6 F3)."
