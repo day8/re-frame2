@@ -69,7 +69,7 @@ Story core returns **marks-as-data**: the registered bodies and
 per-frame snapshots travel unchanged across the read primitives
 above, with `:sensitive` / `:large` declarations carried alongside as
 declarative metadata. The wire-elision substitution to `:rf/redacted`
-/ `:rf/large` happens at the **MCP jar's egress boundary**, NOT in
+/ `:rf.size/large-elided` happens at the **MCP jar's egress boundary**, NOT in
 Story core — every tool-response payload the MCP jar emits is passed
 through `re-frame.elision/elide-wire-value` before it crosses the
 JSON-RPC wire (per

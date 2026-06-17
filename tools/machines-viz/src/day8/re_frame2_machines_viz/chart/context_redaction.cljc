@@ -28,9 +28,9 @@
   local-redacted display map BEFORE it reaches the DOM:
 
     - a key declared **sensitive** projects to the sentinel `:rf/redacted`;
-    - a **large** value projects to `:rf/large {:bytes N}` (size
-      diagnostic preserved; NO content head — a head fragment would leak
-      into the export);
+    - a **large** value projects to the canonical `:rf.size/large-elided`
+      marker (size diagnostic preserved; NO content head — a head fragment
+      would leak into the export);
     - sensitive WINS over large (the EP-0015 ordering);
     - everything else passes through unchanged.
 
@@ -109,6 +109,38 @@
   [v]
   (count (pr-str v)))
 
+(defn- value-type
+  "Coarse type tag for the `:rf.size/large-elided` marker payload.
+  Mirrors `re-frame.marks/value-type` (inlined — this ns carries no
+  dependency on the core runtime graph)."
+  [v]
+  (cond
+    (map? v)    :map
+    (vector? v) :vector
+    (set? v)    :set
+    (string? v) :string
+    :else       :scalar))
+
+(defn- large-marker
+  "Build the canonical content-FREE `:rf.size/large-elided` marker for a
+  large context VALUE `v` at single-key path `[k]`. Mirrors the SHAPE of
+  `re-frame.marks/large-marker` (a single-key map `{:rf.size/large-elided
+  {…}}`) so the projected map is recognised by every consumer of the
+  framework's large-elision vocabulary (e.g. xray's `large-sentinel?`,
+  mcp-base's `count-elided-markers`) — inlined because machines-viz is
+  intentionally JVM-portable / plain-data and cannot `:require` the core
+  elision namespace.
+
+  Content-free: carries only the size diagnostic (`:bytes`/`:type`) and
+  provenance (`:path`/`:reason`), never a content head, preserving the
+  export-safety property."
+  [k v]
+  {:rf.size/large-elided
+   {:path   [k]
+    :bytes  (printed-size v)
+    :type   (value-type v)
+    :reason :schema}})
+
 ;; ---------------------------------------------------------------------------
 ;; Projection
 
@@ -117,7 +149,7 @@
 
     - sensitive (key ∈ `sensitive`)  → `:rf/redacted`
     - large (key ∈ `large`, OR printed size > `large-char-cap`)
-                                      → `:rf/large {:bytes N}` (no head)
+                                      → `:rf.size/large-elided` marker (no head)
     - otherwise                       → `v` unchanged
 
   Sensitive WINS over large (EP-0015). Returns the value to render."
@@ -127,7 +159,7 @@
     (contains? sensitive k) :rf/redacted
     (or (contains? large k)
         (> (printed-size v) large-char-cap))
-    [:rf/large {:bytes (printed-size v)}]
+    (large-marker k v)
     :else v))
 
 (defn redact-context
@@ -147,14 +179,15 @@
 
 (defn display-string
   "The display TEXT the band paints for a (possibly redacted) value `v`.
-  `:rf/redacted` and the `:rf/large` rich form render as stable,
-  content-FREE sentinels so they read clearly in the chart AND in any
-  serialised export. Everything else renders via `pr-str` (the prior
-  behaviour)."
+  `:rf/redacted` and the canonical `:rf.size/large-elided` marker render
+  as stable, content-FREE sentinels so they read clearly in the chart AND
+  in any serialised export. Everything else renders via `pr-str` (the
+  prior behaviour)."
   [v]
   (cond
     (= :rf/redacted v) "🔒 :rf/redacted"
-    (and (vector? v) (= :rf/large (first v)) (map? (second v)))
-    (let [bytes (:bytes (second v))]
-      (str "… :rf/large" (when bytes (str " {:bytes " bytes "}"))))
+    (and (map? v) (contains? v :rf.size/large-elided))
+    (let [bytes (:bytes (:rf.size/large-elided v))]
+      (str "… :rf.size/large-elided"
+           (when bytes (str " {:bytes " bytes "}"))))
     :else (pr-str v)))

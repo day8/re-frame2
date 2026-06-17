@@ -45,19 +45,22 @@
     (is (= :rf/redacted (r/redact-value :tok "hunter2" {:sensitive #{:tok}})))))
 
 (deftest redact-value-large-becomes-elided-no-head
-  (testing "a large key elides to :rf/large {:bytes N} with NO content head"
+  (testing "a large key elides to the canonical :rf.size/large-elided marker with NO content head"
     (let [big (apply str (repeat 50 "x"))
           out (r/redact-value :blob big {:large #{:blob}})]
-      (is (vector? out))
-      (is (= :rf/large (first out)))
-      (is (number? (:bytes (second out))))
-      (is (not (contains? (second out) :head)) "no content head leaks"))))
+      (is (map? out))
+      (is (contains? out :rf.size/large-elided))
+      (let [body (:rf.size/large-elided out)]
+        (is (number? (:bytes body)))
+        (is (= [:blob] (:path body)) "path is the single context key")
+        (is (= :string (:type body)))
+        (is (not (contains? body :head)) "no content head leaks")))))
 
 (deftest redact-value-large-heuristic-fires-for-unmarked-big-value
   (testing "an unmarked value over the char cap is still elided as large"
     (let [big (apply str (repeat 1000 "y"))
           out (r/redact-value :unmarked big {})]
-      (is (= :rf/large (first out)) "defensive size guard fires"))))
+      (is (contains? out :rf.size/large-elided) "defensive size guard fires"))))
 
 (deftest redact-value-sensitive-wins-over-large
   (testing "a key that is BOTH sensitive and large redacts as sensitive"
@@ -93,9 +96,10 @@
       (is (str/includes? s ":rf/redacted")))))
 
 (deftest display-string-large-shows-size-not-content
-  (testing ":rf/large renders size only, never the content"
-    (let [s (r/display-string [:rf/large {:bytes 4096}])]
-      (is (str/includes? s ":rf/large"))
+  (testing ":rf.size/large-elided renders size only, never the content"
+    (let [s (r/display-string {:rf.size/large-elided {:bytes 4096 :path [:blob]
+                                                      :type :string :reason :schema}})]
+      (is (str/includes? s ":rf.size/large-elided"))
       (is (str/includes? s "4096"))
       (is (not (str/includes? s "xxxx")) "no content head"))))
 
