@@ -1146,3 +1146,34 @@
   See also: `reg-event`."
   ([] (registrar/clear-kind! :event))
   ([id] (registrar/unregister! :event id)))
+
+;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;;
+;; An image's inline `:registrations` `:reg-event` entry carries the raw
+;; handler fn under `:impl` (image lowering is the pure `re-frame.image`
+;; slice, which has no access to the event wrapper). For the inline handler
+;; to RUN through a frame-targeted dispatch, the assembled image generation's
+;; resolver descriptor must carry the SAME runnable slots `register-event!`
+;; installs — `:handler-fn` + the `:interceptors` chain whose tail is the
+;; `:rf/event-handler` wrapper. This lowering closes the EP-0023 §Image
+;; Fragments contract: "Both paths should lower to the same runtime descriptor
+;; shape." Published via late-bind (image-assembly cannot static-require this
+;; ns — `subs` requires `live-frame` which requires `image-assembly`, so the
+;; whole inline-lowering family rides the same forward-reference seam).
+
+(defn lower-inline-event
+  "Lower an inline `:reg-event` descriptor's raw fn body into the runnable
+  event-handler slots (`:handler-fn` + the `:interceptors` chain carrying the
+  `:rf/event-handler` wrapper) — the same shape `register-event!` stores and
+  `event-handler-meta` produces. `_meta` is the inline entry's metadata map
+  (unused for events: the descriptor already carries the inline `:metadata`,
+  and the only event-meta slot affecting the runnable chain — author-declared
+  `:interceptors` references — is an advanced inline shape out of this slice's
+  scope); `impl` is the raw handler fn. Returns ONLY the two runnable slots
+  (`{:handler-fn … :interceptors …}`) so image-assembly merges them onto the
+  descriptor, preserving `:impl` + provenance for replacement-winner
+  coordinates and dedupe."
+  [_meta impl]
+  (event-handler-meta impl))
+
+(late-bind/set-fn! :image/lower-inline-event lower-inline-event)

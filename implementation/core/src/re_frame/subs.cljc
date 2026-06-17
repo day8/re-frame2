@@ -1493,6 +1493,37 @@
 
 (late-bind/set-fn! :subs/subscribe-once subscribe-once)
 
+;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;;
+;; An image's inline `:registrations` `:reg-sub` entry carries the raw
+;; computation fn under `:impl`. For the inline sub to COMPUTE through a
+;; frame-targeted subscribe, the assembled generation's resolver descriptor
+;; must carry the SAME runnable slots `reg-sub` installs — `:handler-fn` +
+;; the `:input-kind` / `:input-signals` discriminators the sub-cache reads.
+;; The inline tuple `[id metadata body]` carries exactly ONE body fn and no
+;; `:<-` chain, so the lowered shape is the layer-1 app-db reader (`:input-kind
+;; :db`), the only sub shape expressible inline (a `:<-` static / parametric
+;; sub needs the chain / two-fn form `reg-sub` parses, which the inline tuple
+;; cannot carry). Closes the EP-0023 §Image Fragments "same runtime descriptor
+;; shape" contract for subs. Published via late-bind (image-assembly cannot
+;; static-require this ns — subs requires live-frame requires image-assembly).
+
+(defn lower-inline-sub
+  "Lower an inline `:reg-sub` descriptor's raw computation fn into the runnable
+  layer-1 (`:input-kind :db`) sub slots `reg-sub` installs (`:handler-fn` +
+  `:input-kind :db` + empty `:input-signals`). `_meta` is the inline entry's
+  metadata map (unused — the descriptor already carries the inline `:metadata`,
+  and an inline tuple cannot express the `:<-` chain that would change the
+  input kind); `impl` is the raw `(fn [db query-v] …)` computation. Returns
+  ONLY the runnable slots so image-assembly merges them onto the descriptor,
+  preserving `:impl` + provenance."
+  [_meta impl]
+  {:handler-fn    impl
+   :input-kind    :db
+   :input-signals []})
+
+(late-bind/set-fn! :image/lower-inline-sub lower-inline-sub)
+
 ;; ---- JVM-side convenience aliases (rf2-bmzq0) ----------------------------
 ;;
 ;; On the JVM we preserve the legacy `re-frame.subs/<name>` shape for

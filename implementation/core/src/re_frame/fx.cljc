@@ -110,6 +110,28 @@
   ([] (registrar/clear-kind! :fx))
   ([id] (registrar/unregister! :fx id)))
 
+;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;;
+;; An image's inline `:registrations` `:reg-fx` entry carries the raw effect
+;; handler fn under `:impl`. For the inline fx to RUN when an event handler
+;; emits it through a frame-targeted cascade, the assembled generation's
+;; resolver descriptor must carry the SAME runnable slot `reg-fx` installs —
+;; `:handler-fn` (the fx-walker reads it via `registrar/handler :fx`). Closes
+;; the EP-0023 §Image Fragments "same runtime descriptor shape" contract for
+;; fx. Published via late-bind (image-assembly cannot static-require this ns).
+
+(defn lower-inline-fx
+  "Lower an inline `:reg-fx` descriptor's raw fn body into the runnable fx slot
+  `reg-fx` installs (`:handler-fn`). `_meta` is the inline entry's metadata map
+  (unused — the descriptor already carries the inline `:metadata`; the runtime
+  `:platforms` predicate reads that map directly); `impl` is the raw
+  `(fn [ctx args] …)` handler. Returns ONLY the runnable slot so image-assembly
+  merges it onto the descriptor, preserving `:impl` + provenance."
+  [_meta impl]
+  {:handler-fn impl})
+
+(late-bind/set-fn! :image/lower-inline-fx lower-inline-fx)
+
 ;; ---- the platform predicate -----------------------------------------------
 
 (defn runs-on-platform?
