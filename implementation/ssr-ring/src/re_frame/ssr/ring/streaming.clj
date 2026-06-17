@@ -672,8 +672,11 @@
   `:error-view` / `:emit-hash?` / `:version` / `:schema-digest` /
   `:content-type` plus the four trusted shell-hook opts (`:head` /
   `:body-end` / `:script-src` / `:app-element-id`, honoured by
-  `default-streaming-prefix` / `default-streaming-suffix`) — with ONE
-  exception (rf2-oq4m5):
+  `default-streaming-prefix` / `default-streaming-suffix`). `:on-create`
+  accepts BOTH forms `ssr-handler` does — an event vector OR a
+  `(fn [request] event-vector)` deriving the boot event from the Ring
+  request (rf2-kzns7l; both flow through the shared
+  `pipeline/setup-request-frame!`). One exception (rf2-oq4m5):
 
     `:html-shell` is NOT supported by the streaming path and is REJECTED
     at handler-construction time (`:rf.error/ssr-streaming-unsupported-opt`).
