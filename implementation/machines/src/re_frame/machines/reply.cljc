@@ -227,6 +227,106 @@
       (some? completed-at) (assoc :completed-at completed-at))))
 
 ;; ---------------------------------------------------------------------------
+;; `:spawn-all` join-child completion (Managed-Effects §The reply map /
+;; §Status taxonomy / §Stale suppression; EP-0011 §Machine Completion).
+;;
+;; rf2-d63qtp — single `:spawn` finality lowers through `success-reply` /
+;; `error-reply` / `stale-spawn-reply`; the `:spawn-all` join-child
+;; completion (a child dispatching `[parent [:on-child-done child-id …]]` /
+;; `:on-child-error` into the parent's join) previously folded into join
+;; state + emitted join traces with NO canonical reply map, `:work/id`, or
+;; `:rf.reply/*` facts. These helpers give the join-child path the SAME
+;; uniform reply vocabulary the single-`:spawn` path already carries — the
+;; PUBLIC join protocol (the parent dispatch, the resolution events, the
+;; cancel-on-decision cascade) is unchanged; this is INTERNAL trace-stream
+;; lowering only, so a join child's done / failed / late completion
+;; classifies the same way HTTP / resources / single-`:spawn` do.
+;;
+;; A join child's work-id reuses the machine head keyed on the child's
+;; SPAWNED instance id (the `<type>#<n>` actor address in the join-state
+;; `:children` map) and the parent's `invoke-id` (the `:spawn-all`-bearing
+;; node's declaring path) as the work-bearing path — one child attempt, one
+;; `:work/id`, per EP-0007.
+;; ---------------------------------------------------------------------------
+
+(defn join-child-reply
+  "Build the canonical reply map for a `:spawn-all` join-child completion
+  that folded into the join (EP-0011 §Machine Completion; Managed-Effects
+  §Status taxonomy). `kind` is `:done` (a `:on-child-done` arrival —
+  `:status :ok` / `:work/status :completed`) or `:failed` (a
+  `:on-child-error` arrival — `:status :error` / `:work/status :failed`).
+
+  The work-id is `[:rf.work/machine spawned-id parent-invoke-id
+  generation]` — the child's SPAWNED instance address (the `<type>#<n>`
+  actor id in the join-state `:children` map) keyed on the parent's
+  `:spawn-all`-bearing declaring path; one child attempt has one `:work/id`.
+  `:work/kind :machine`.
+
+  `ctx` keys: `:parent-id` (the join-owning parent INSTANCE), `:invoke-id`
+  (the `:spawn-all`-bearing declaring path — the work-bearing path),
+  `:child-id` (the logical child id off the arriving event), `:spawned-id`
+  (the child's spawned instance address from `:children`), `:frame`,
+  optional `:completed-at` (the firing dispatch's causal `:rf/time-ms`).
+  `child-extra` is the child's forwarded payload (the terminal `:data`
+  slice / error reason), carried under `:value` for a `:done` reply and
+  wrapped as a family `:error` map for a `:failed` reply so the closed
+  reply-map schema's value/error conventions hold. Optional facts are
+  omitted (not nil-filled) when absent."
+  [{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind child-extra]
+  (let [base (cond-> {:work/id   (spawn-work-id spawned-id invoke-id)
+                      :work/kind :machine
+                      :correlation
+                      (cond-> {}
+                        (some? parent-id)  (assoc :parent-id parent-id)
+                        (some? invoke-id)  (assoc :invoke-id (vec invoke-id))
+                        (some? child-id)   (assoc :child-id child-id)
+                        (some? spawned-id) (assoc :spawned-id spawned-id))}
+               (some? frame)        (assoc :rf.frame/id frame)
+               (some? completed-at) (assoc :completed-at completed-at))]
+    (if (= kind :failed)
+      (assoc base
+             :status      :error
+             :work/status :failed
+             :error       (let [e child-extra]
+                            (if (and (map? e) (some? (:kind e)))
+                              e
+                              {:kind :rf.machine/spawn-all-child-error :value e})))
+      (assoc base
+             :status      :ok
+             :work/status :completed
+             :value       child-extra))))
+
+(defn stale-join-child-reply
+  "Build the `:status :stale` reply for a `:spawn-all` join-child
+  completion that arrived AFTER the join already resolved (the
+  post-resolution late-completion branch). Per Managed-Effects §Stale
+  suppression the late completion MUST NOT mutate the join (the join is
+  latched `:resolved?`); this reply carries NO `:value` and represents the
+  drop the reply-envelope way — `:stale/reason
+  :rf.machine.spawn-all/join-resolved`, `:work/status :suppressed`.
+
+  Work-id matches `join-child-reply`'s so the suppressed late completion
+  joins the same uniform work/reply row as the child's earlier (decisive
+  or non-decisive) fold. `ctx` keys mirror `join-child-reply`'s; `kind`
+  (`:done` / `:failed`) rides under `:correlation` as the would-be fold
+  kind. Optional facts omitted when absent."
+  [{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind]
+  (cond-> {:status       :stale
+           :stale?       true
+           :stale/reason :rf.machine.spawn-all/join-resolved
+           :work/id      (spawn-work-id spawned-id invoke-id)
+           :work/kind    :machine
+           :work/status  :suppressed
+           :correlation  (cond-> {}
+                           (some? parent-id)  (assoc :parent-id parent-id)
+                           (some? invoke-id)  (assoc :invoke-id (vec invoke-id))
+                           (some? child-id)   (assoc :child-id child-id)
+                           (some? spawned-id) (assoc :spawned-id spawned-id)
+                           (some? kind)       (assoc :kind kind))}
+    (some? frame)        (assoc :rf.frame/id frame)
+    (some? completed-at) (assoc :completed-at completed-at)))
+
+;; ---------------------------------------------------------------------------
 ;; `:after` timer — the existing specialized stale-gated reply instance
 ;; (EP-0011 §Timer Reply; Managed-Effects §Stale suppression). The declaring
 ;; path + per-path `:rf/after-epoch` ARE the data-only suppression gate.
