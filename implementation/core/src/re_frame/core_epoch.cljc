@@ -184,17 +184,17 @@
   ([frame-id frame-state] :delegate))
 
 (defwrapper projected-record
-  "Project an `:rf/epoch-record` for off-box egress. Per Security.md
-  §Epoch privacy posture and rf2-mrsck: the single normative
+  "Project an `:rf/epoch-record` for off-box egress (EP-0015 §15). Per
+  Security.md §Epoch privacy posture and rf2-mrsck: the single normative
   projection emission site for off-box epoch egress, parallel to
-  `elide-wire-value` for direct reads. Routes the four payload-bearing
-  slots (`:db-before`, `:db-after`, `:trigger-event`, `:trace-events`)
-  through the wire-elision walker against the record's frame, with
-  off-box defaults (`:include-sensitive? false`, `:include-large?
-  false`); bookkeeping slots (`:epoch-id`, `:frame`, `:committed-at`,
-  `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
-  `:rf.epoch/sensitive?`) and the cheap structured projections
-  (`:sub-runs` / `:renders` / `:effects`) pass through unchanged.
+  `elide-wire-value` for direct reads. Routes each payload-bearing slot
+  (`:frame-state-before` / `:frame-state-after`, `:db-before`, `:db-after`,
+  `:trigger-event`, `:trace-events`, the structured `:sub-runs` / `:effects`
+  value slots) through `project-egress` against the record's frame under the
+  named `:rf.egress/profile` boundary (EP-0015 §10); bookkeeping slots
+  (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:outcome`,
+  `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`) and the
+  value-free `:renders` projection pass through unchanged.
 
   Tools that egress epoch records over a process boundary (Xray-MCP
   `watch-epochs`, story / pair recorders, hosted forwarders) MUST
@@ -205,20 +205,53 @@
   (returns `nil`) when the `day8/re-frame2-epoch` artefact is not on
   the classpath. Late-bound via `:epoch/projected-record`.
 
-  The 2-arity accepts a trusted-local egress `opts` map (rf2-5w06uu —
-  `{:include-sensitive? :include-large? :include-runtime-db?}`, all
-  defaulting `false`): `:include-sensitive?` / `:include-large?` opt the
-  APP-DB partition's privacy / size posture back in across every payload
-  slot; they do NOT lift the frame-state `:rf.db/runtime` partition
-  boundary, which stays `:rf/redacted` unless `:include-runtime-db? true`
-  is also passed. The 1-arity is the safe, fully-redacted off-box path."
+  ## Egress profile (the primary selector) + advanced opts
+
+  The 2-arity accepts an egress `opts` map. The PRIMARY public selector is the
+  named egress boundary — `:rf.egress/profile` — which answers *\"which
+  boundary is this?\"* against the shared closed `:rf.egress/*` enum
+  (`re-frame.projection/profiles`), NOT a combination of booleans:
+
+      {:rf.egress/profile <profile>}   ;; default :rf.egress/off-box-observability
+
+  The two off-box boundaries an epoch consumer selects:
+
+    - `:rf.egress/off-box-observability` (DEFAULT) — hosted monitoring / log
+      shippers / Story / pair recorders. Redact sensitive, elide large, omit
+      structural digests. The bare 1-arity is this safe, fully-redacted path.
+    - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide
+      defaults, plus `:rf.size/include-digests?` so a large owner-local slot
+      egresses as a marker carrying the structural indicators a tool needs.
+
+  An unknown profile is rejected against the closed enum (a typo is a loud
+  error, never a silent permissive walk).
+
+  The legacy unqualified `:include-*` keys remain as ADVANCED per-call
+  overrides composed OVER the selected profile (the `:rf.size/*` floor the
+  profile resolves; the override wins) — NOT the primary boundary selector:
+  `:include-sensitive?` / `:include-large?` opt the APP-DB partition's privacy
+  / size posture back in across every payload slot (the trusted-local
+  `local-raw` direction); they do NOT lift the frame-state `:rf.db/runtime`
+  partition boundary, which stays `:rf/redacted` unless `:include-runtime-db?
+  true` is also passed (`:include-fx-args?` / `:include-event-args?` likewise
+  opt the `:effects` `:args` / `:trigger-event` args back in). All default
+  `false`.
+
+  ## `:redact-fn` is an advanced PROJECTION-side hook (EP-0015 §15, issue 6)
+
+  After the frame/profile projection lands, any app-installed
+  `(rf/configure! :epoch-history {:redact-fn …})` runs over the ALREADY-PROJECTED
+  egress copy as the rare advanced escape for material the frame/profile
+  projection cannot prove. It is projection-side ONLY — the on-box ring stays
+  raw (post-EP-0010 causal replay material), so the hook can never affect
+  `restore-epoch!` fidelity; storage-side epoch mutation was removed."
   {:hook :epoch/projected-record :artefact epoch-artefact :on-absent :nil}
   ([record] :delegate)
   ([record opts] :delegate))
 
 (defwrapper projected-history
-  "Convenience: return the projected vector of records for a frame.
-  Equivalent to `(mapv projected-record (epoch-history frame-id))`.
+  "Convenience: return the projected vector of records for a frame (EP-0015 §15).
+  Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
   Tools that egress the whole ring (an MCP `watch-epochs` initial
   snapshot, a recorder dumping the full session) call this once
   rather than walking the raw ring and re-wrapping each record. Empty
@@ -226,8 +259,10 @@
   disabled, or when the `day8/re-frame2-epoch` artefact is not on the
   classpath. Late-bound via `:epoch/projected-history`.
 
-  The 2-arity threads a trusted-local egress `opts` map (rf2-5w06uu) to
-  every record; the 1-arity is the safe, fully-redacted off-box path."
+  The 2-arity threads the egress `opts` map (see `projected-record`) to every
+  record — the named `:rf.egress/profile` boundary (default
+  `:rf.egress/off-box-observability`) plus the advanced `:include-*` overrides;
+  the 1-arity is the safe, fully-redacted off-box-observability path."
   {:hook :epoch/projected-history :artefact epoch-artefact :on-absent :empty-vec}
   ([frame-id] :delegate)
   ([frame-id opts] :delegate))
