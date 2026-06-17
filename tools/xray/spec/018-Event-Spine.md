@@ -743,6 +743,21 @@ sections that read top-to-bottom as the developer scans.
      vocabulary fracture EP-0017 closes; the recorded map *is* the
      recordable GRADE of coeffect. The ambient grade keeps its own COEFFECTS
      section (§3 below); the two grades sit side by side.
+   - **Generated recordables** (EP-0017 slice B.7 · spec/009 §277) — a
+     declared recordable fact whose value is minted by a **generator** at
+     processing-start (when the fact is absent from the enqueue token) is
+     written back into the in-flight `:rf.cofx` record and emits
+     `:rf.cofx/generated`. The enqueue-time `:rf.event/dispatched` `:rf.cofx`
+     map **predates** generation, so the generated fact is read from the
+     `:rf.cofx/generated` trace ops (the post-generation source of truth)
+     and merged into the section, marked with a **`generated`** provenance
+     badge so the operator can tell a replayable generated coeffect apart
+     from a token-supplied one. A generated leaf whose key **already**
+     appears among the supplied leaves (a supplied/replayed value — the
+     generator did not run) is **not duplicated**: the supplied row wins.
+     The generated value summarizes/redacts through the same path as a
+     supplied leaf. The section renders off the generated ops even when the
+     enqueue token carried no `:rf.cofx` map at all.
    - **PRIVACY** (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11;
      EP-0017 §9 restates per leaf): `:rf/time-ms` is **ALWAYS safe to
      surface** (a wall-clock fact, never PII) and renders **verbatim**.
@@ -830,9 +845,11 @@ sections that read top-to-bottom as the developer scans.
 
 - **No call-site captured** — DISPATCH SITE shows
   `"source coord unavailable"`; no open chip rendered.
-- **No `:rf.cofx` map** — RECORDABLE COEFFECTS section ABSENT entirely
-  (silent-by-default — older runtimes, the production-elided emit arm, or
-  fixtures that synthesise an epoch without the `:rf.cofx` tag).
+- **No `:rf.cofx` map AND no `:rf.cofx/generated` op** — RECORDABLE
+  COEFFECTS section ABSENT entirely (silent-by-default — older runtimes, the
+  production-elided emit arm, or fixtures that synthesise an epoch without
+  the `:rf.cofx` tag). A `:rf.cofx/generated` op alone (no enqueue
+  `:rf.cofx` map) still renders the section with the generated row(s).
 - **`:rf.cofx` map carries only `:rf/time-ms`** — RECORDABLE COEFFECTS
   renders the single `time-ms <ms>` row (the time fact is worth surfacing
   on its own).
