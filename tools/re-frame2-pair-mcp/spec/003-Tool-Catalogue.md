@@ -1338,6 +1338,29 @@ experimenter compose realistic conditions ("what would happen if the
 http call resolved to this response?") without losing the dry-run's
 roll-back guarantee.
 
+### Composes with `cofx` — scripted recordable coeffects (rf2-3q7gep · EP-0017)
+
+EP-0017 makes `:rf.cofx` a first-class dispatch edge for exact
+recordable facts (`:rf/time-ms`, provided boundary facts, and
+app/subsystem recordable facts; see the `dispatch` §"Reproducible
+dispatch — `cofx`" section above for the full model).
+Like `dispatch`, `dispatch-dry-run` accepts an optional `cofx`
+EDN-map arg threaded into the simulated dispatch opts under the flat
+`:rf.cofx` key. The router PRESERVES the supplied map verbatim (filling
+only `:rf/time-ms` when absent), so a dry-run of a time-dependent or
+provided-cofx event runs against the EXACT causal token the operator
+intends to test — rather than the dry-run stamping a fresh `:rf/time-ms`
+or failing `:rf.error/missing-required-cofx` for a provided fact that a
+real `dispatch`/`replay` would supply. `:db-state-after-simulation`
+becomes deterministic for the scripted token.
+
+The arg uses the SAME `args/parse-cofx` gate as `dispatch`: a non-map
+/ unreadable value returns `:reason :invalid-cofx`; a non-integer
+`:rf/time-ms` returns `:reason :invalid-cofx-time-ms` — both short-
+circuit to an `isError` BEFORE the eval, the dry-run never lands. (The
+strict-replay `replay` gesture is a `dispatch`-only affordance; dry-run
+exposes the live scripted-coeffect path only.)
+
 ### Privacy: an AI-facing read surface (rf2-z7roa)
 
 Dry-run mutates nothing, but it IS an off-box read surface: the
@@ -1383,7 +1406,10 @@ wire payload.
 **Args**: `event` (string, required — EDN-encoded event vector),
 `frame` (string, e.g. `":foo"`; defaults to the operating frame),
 `fx-overrides` (object — user-supplied overrides composed on top of
-the dry-run recorder set), `elision` (boolean, default `true` —
+the dry-run recorder set), `cofx` (string — EDN map of scripted
+recordable coeffects threaded into the simulated dispatch as
+`:rf.cofx`, e.g. `"{:rf/time-ms 1781078400123}"`; see §Composes with
+`cofx`), `elision` (boolean, default `true` —
 applies the elision walker to `:db-state-after-simulation` +
 `:would-fire-effects[*].args`; honoured as `false` only under
 `--allow-sensitive-reads`), `include-sensitive` (boolean, default

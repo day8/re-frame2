@@ -93,7 +93,22 @@
   recorder fires only for fx the caller did NOT pre-stub. This lets
   the experimenter compose realistic conditions (e.g. 'what would
   happen if the http call resolved to this stub response?') without
-  losing the dry-run's roll-back guarantee."
+  losing the dry-run's roll-back guarantee.
+
+  ## Accepts scripted recordable coeffects (rf2-3q7gep · EP-0017)
+
+  EP-0017 makes `:rf.cofx` a first-class dispatch edge for exact
+  recordable facts (`:rf/time-ms`, provided boundary facts, and
+  app/subsystem recordable facts). Identical to `dispatch`, the caller
+  MAY pass a `cofx` EDN-map arg threaded into the runtime opts under the
+  flat `:rf.cofx` key. The router PRESERVES it verbatim (filling only
+  `:rf/time-ms` when absent), so a dry-run of a time-dependent or
+  provided-cofx event runs against the EXACT causal token the operator
+  intends to test — not a freshly-stamped time, and not a
+  `:rf.error/missing-required-cofx` failure for a provided fact a real
+  dispatch/replay would supply. A malformed `cofx` (non-map / unreadable
+  / non-integer `:rf/time-ms`) short-circuits to an honest isError before
+  the eval, the same `args/parse-cofx` gate `dispatch` carries."
   (:require [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -114,7 +129,7 @@
     (cond
       (or (nil? trimmed) (str/blank? trimmed))
       [:err {:ok? false :reason :missing-event
-             :hint "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [fx-overrides {...}]}"}]
+             :hint "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [fx-overrides {...}] [cofx '{:rf/time-ms ...}']}"}]
 
       :else
       (let [parsed (try
@@ -236,6 +251,20 @@
         ;; recording stub and fire the real effect). See `parse-fx-overrides`.
         fx-r         (args/parse-fx-overrides (wire/arg raw-args :fx-overrides))
         fx-overrides (when (= :ok (first fx-r)) (second fx-r))
+        ;; rf2-3q7gep · EP-0017 — caller-scripted recordable coeffects, the
+        ;; same data-not-source gate `dispatch` already carries. The agent
+        ;; supplies `cofx "{:rf/time-ms …}"` (EDN data, parsed by the SHARED
+        ;; `args/parse-cofx`) so a dry-run of a time-dependent or
+        ;; provided-cofx event runs against the EXACT causal token the
+        ;; operator intends to test — rather than the dry-run stamping a
+        ;; fresh `:rf/time-ms` or failing `:rf.error/missing-required-cofx`
+        ;; for a provided fact a real dispatch/replay would supply. The map
+        ;; is PRESERVED verbatim (the router fills only `:rf/time-ms` when
+        ;; absent), so the simulated state is REPRODUCIBLE. A malformed value
+        ;; short-circuits to an honest isError below rather than threading a
+        ;; value the runtime's `:rf/dispatch-opts` validation would reject.
+        cofx-r       (args/parse-cofx (wire/arg raw-args :cofx))
+        cofx         (when (= :ok (first cofx-r)) (second cofx-r))
         ;; rf2-z7roa — dry-run is an AI-facing READ surface (it returns
         ;; the would-be app-db + recorded fx args). Gate its egress on
         ;; the SAME `--allow-sensitive-reads` posture as snapshot /
@@ -283,6 +312,13 @@
       (= :err (first fx-r))
       (js/Promise.resolve (wire/err-text (second fx-r)))
 
+      ;; rf2-3q7gep · EP-0017 — a malformed `cofx` map (non-map / unreadable
+      ;; / non-integer :rf/time-ms) short-circuits to an honest isError
+      ;; before the dispatch eval, the same gate `dispatch` applies, rather
+      ;; than threading a value the runtime would reject deep in the eval.
+      (= :err (first cofx-r))
+      (js/Promise.resolve (wire/err-text (second cofx-r)))
+
       (= :err tag)
       (js/Promise.resolve (wire/err-text payload))
 
@@ -290,7 +326,16 @@
       (let [event-vec payload
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
-                        fx-overrides (assoc :fx-overrides fx-overrides))
+                        fx-overrides (assoc :fx-overrides fx-overrides)
+                        ;; rf2-3q7gep · EP-0017 — thread the scripted
+                        ;; recordable coeffects under the flat `:rf.cofx`
+                        ;; opts key the router reads, exactly as `dispatch`
+                        ;; does. The map is `pr-str`'d as an EDN literal by
+                        ;; the arg-emit path, like `:fx-overrides`; the
+                        ;; router preserves it verbatim (filling only
+                        ;; `:rf/time-ms` when absent) so the simulated state
+                        ;; is reproducible.
+                        cofx         (assoc :rf.cofx cofx))
             ;; The runtime returns the structured dry-run envelope. We
             ;; transform it server-side in two composed stages (the walker
             ;; reaches the live elision registry only app-side):
