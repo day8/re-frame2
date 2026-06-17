@@ -16,9 +16,9 @@
 
   HTML escape helpers (`escape-html`, `escape-attr`, `attr-string`) live
   in `re-frame.ssr.html-helpers` — shared with the head/meta emitter per
-  rf2-x7g10. Public-surface aliases are re-exported below so consumers
-  who `:require [re-frame.ssr.emit :as emit]` keep seeing them at
-  `emit/escape-html` / `emit/escape-attr` / `emit/attr-string`.
+  rf2-x7g10. `attr-string` is re-exported below so consumers who
+  `:require [re-frame.ssr.emit :as emit]` keep seeing it at
+  `emit/attr-string`; the emitter calls `html/escape-html` directly.
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
@@ -32,13 +32,13 @@
 
 ;; ---- shared HTML helpers (rf2-x7g10) --------------------------------------
 ;;
-;; Re-export the helpers so callers that `:require [re-frame.ssr.emit :as
-;; emit]` still resolve `emit/escape-html` etc. The producing ns is
+;; Re-export `attr-string` so callers that `:require [re-frame.ssr.emit :as
+;; emit]` still resolve `emit/attr-string`. The producing ns is
 ;; `re-frame.ssr.html-helpers` (shared with `re-frame.ssr.head.emit`); the
-;; entity-escape rules live there once.
+;; entity-escape rules live there once. `escape-html` / `escape-attr` are
+;; consumed directly via the `html/` alias — they have no `emit/`-qualified
+;; consumers (rf2-1i3yea).
 
-(def escape-html html/escape-html)
-(def escape-attr html/escape-attr)
 (def attr-string html/attr-string)
 
 ;; Per HTML5 spec, these elements are void — they self-close and have no
@@ -347,7 +347,7 @@
   ([el root-attrs]
    (cond
      (nil? el)         ""
-     (string? el)      (escape-html el)
+     (string? el)      (html/escape-html el)
      (number? el)      (str el)
      (boolean? el)     ""
      (vector? el)
@@ -495,7 +495,7 @@
          :else (str el)))
 
      (sequential? el) (emit-children el)
-     :else (escape-html el))))
+     :else (html/escape-html el))))
 
 (defn render-to-string
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML

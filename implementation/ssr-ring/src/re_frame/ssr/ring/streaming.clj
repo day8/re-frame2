@@ -44,7 +44,7 @@
   rf2-3hhv5): it swaps each `<template>` fallback for its resolved subtree
   in-place and merges the per-subtree `data-rf2-suspense-hydrate` delta as
   chunks arrive, reconciling against the final `__rf_payload`
-  (`:replace-app-db`) when it lands."
+  (`:replace-frame-state`) when it lands."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]

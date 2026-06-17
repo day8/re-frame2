@@ -46,7 +46,7 @@
       speculative state.
 
   When the final `__rf_payload` lands, the bootstrap (`ssr/hydrate!`)
-  dispatches `:rf/hydrate` with `:replace-app-db` semantics — the
+  dispatches `:rf/hydrate` with `:replace-frame-state` semantics — the
   deltas were speculative, the final payload is the correctness lock.
   `install!` reconciles by disconnecting its observer once it sees the
   final-payload node, so no stray delta can race the canonical state.

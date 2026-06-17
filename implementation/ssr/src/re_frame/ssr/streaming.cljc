@@ -44,7 +44,7 @@
 
   - `build-final-payload` — after every continuation has drained,
     constructs the canonical `:rf/hydration-payload`. The client
-    `:rf/hydrate`s against this with `:replace-app-db` semantics — the
+    `:rf/hydrate`s against this with `:replace-frame-state` semantics — the
     final payload wins, deltas were speculative.
 
   All three are pure-ish helper fns; the host adapter (`ssr-ring/streaming`)
@@ -629,7 +629,7 @@
 (defn build-final-payload
   "After every continuation has drained, construct the canonical
   `:rf/hydration-payload` for the `__rf_payload` final chunk. The
-  client `:rf/hydrate`s against this with `:replace-app-db` semantics
+  client `:rf/hydrate`s against this with `:replace-frame-state` semantics
   — the final payload wins, deltas were speculative.
 
   Mirrors `re-frame.ssr.ring.payload/build-payload`'s shape so the
