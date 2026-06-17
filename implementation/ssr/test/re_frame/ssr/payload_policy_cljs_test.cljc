@@ -8,7 +8,8 @@
   back-compat shim):
 
     - `apply-policy` returns a `select-keys` slice when the caller
-      passes `:payload [<kws>]` (vector → allowlist).
+      passes `:payload [<kws>]` (a non-empty SEQUENTIAL of keywords —
+      vector / list / lazy-seq → allowlist).
     - `apply-policy` returns the whole `app-db` verbatim when the
       caller passes `:payload :rf.ssr.payload/whole-app-db` (keyword →
       whole-app-db opt-in).
@@ -22,7 +23,7 @@
   The two-opt surface's precedence rule (allowlist wins over whole-app-db)
   and silent-ignore branch are GONE: one opt holds exactly one value, so
   there is nothing to arbitrate — the allowlist-vs-whole choice is the
-  value's SHAPE (vector vs keyword).
+  value's SHAPE (sequential collection vs keyword).
 
   These tests run on both JVM and Node — the policy logic is
   platform-neutral .cljc."
@@ -74,34 +75,30 @@
       (is (= {:public/articles [:a :b :c]} slice)
           "vector allowlist produces the expected slice"))))
 
-(deftest apply-policy-list-payload-fails-closed
-  (testing "rf2-d8vs9x — a LIST / seq :payload is NOT an accepted allowlist
-            spelling (the contract is shape-selected: a vector is the
-            allowlist, a keyword is the whole-app-db opt-in). The prior
-            guard accepted any `sequential?` coll, which silently admitted
-            lists and seqs — two spellings for one security-boundary
-            policy. A list now falls into the missing-policy bucket
-            (fail-closed), not the allowlist branch."
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy
-            sample-app-db
-            {:payload '(:public/articles)}))
-        "a list allowlist fails closed")
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/apply-policy
-            sample-app-db
-            {:payload (seq [:public/articles :public/user-id])}))
-        "a lazy seq allowlist fails closed too")
-    (testing "construction-time arm agrees — a list :payload fails closed"
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #":rf\.error/ssr-missing-payload-policy"
-            (payload-policy/validate-policy-opts!
-              {:on-create [:init] :payload '(:public/articles)}))))))
+(deftest apply-policy-list-payload-is-a-valid-allowlist
+  (testing "a LIST / lazy-seq of keywords IS an accepted allowlist spelling —
+            the policy selector is COLLECTION-vs-KEYWORD, not
+            vector-vs-keyword. A sequential of keywords can never be confused
+            with the :rf.ssr.payload/whole-app-db keyword opt-in, so a
+            computed (keep ...) / (filterv ...) / (mapv ...) result (a list
+            or lazy-seq) projects the same slice a vector does. Vectors stay
+            the documented canonical spelling; the (every? keyword?) element
+            guard and the empty-allowlist fail-closed are unchanged."
+    (let [slice (payload-policy/apply-policy
+                  sample-app-db
+                  {:payload '(:public/articles)})]
+      (is (= {:public/articles [:a :b :c]} slice)
+          "a list allowlist projects the expected slice"))
+    (let [slice (payload-policy/apply-policy
+                  sample-app-db
+                  {:payload (seq [:public/articles :public/user-id])})]
+      (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
+          "a lazy seq allowlist projects the expected slice"))
+    (testing "construction-time arm agrees — a list :payload validates OK"
+      (is (= {:on-create [:init] :payload '(:public/articles)}
+             (payload-policy/validate-policy-opts!
+               {:on-create [:init] :payload '(:public/articles)}))
+          "validate-policy-opts! returns opts unchanged for a list allowlist"))))
 
 (deftest apply-policy-set-payload-fails-closed
   (testing "a SET :payload is not a vector → fails closed (the contract
@@ -137,6 +134,18 @@
             {:payload [:public/articles "public/user-id"]}))
         "a MIXED allowlist (one keyword, one string) is still malformed —
          every entry must be a keyword")))
+
+(deftest apply-policy-rejects-string-list-allowlist-entries
+  (testing "the (every? keyword?) footgun-catcher applies to LISTS too — a
+            list `'(\"public/articles\")` string-typo is malformed, not
+            silently a missing-policy: widening the outer shape to sequential
+            must not let a list typo slip into the generic bucket"
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-malformed-payload-allowlist"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload '("public/articles")})))))
 
 (deftest apply-policy-rejects-nil-allowlist-entries
   (testing "rf2-hzttr finding 2 — a stray `nil` element is malformed"
