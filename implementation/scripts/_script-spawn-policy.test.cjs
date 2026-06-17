@@ -94,7 +94,15 @@ function gateScriptFiles() {
   return [...cjsFilesIn(SCRIPTS_DIR), ...cjsFilesIn(EXAMPLES_SCRIPTS_DIR)];
 }
 
-const SHELL_OPT_RE = /\bshell\s*:\s*(true|isWin)\b/;
+// Any `shell:` option whose RHS is NOT the literal `false` is a
+// violation. The earlier `(true|isWin)` enumeration only caught the two
+// forms the audit happened to see, so a future `shell: process.platform
+// === 'win32'` / `shell: useShell` / `shell: 1` + a bare-name exe would
+// slip the rf2-33vvc command-hijack class. Forbid every truthy/dynamic
+// RHS; only `shell: false` (and absence of the option) is allowed
+// (rf2-8ng3e1). The `(?!false\b)` negative lookahead lets `false` pass
+// while rejecting any other non-whitespace RHS token.
+const SHELL_OPT_RE = /\bshell\s*:\s*(?!false\b)\S/;
 // A `.cmd`-suffixed npx literal — `'npx.cmd'` / `"npx.cmd"`. Always a
 // violation: the Windows `.cmd` shim only ever needs naming when you
 // spawn it directly under a shell, which every hardened form avoids.
@@ -106,12 +114,28 @@ const NPX_CMD_LITERAL_RE = /(['"])npx\.cmd\1/;
 const NPX_BARE_LITERAL_RE = /(['"])npx\1/;
 const TRUSTED_EXE_RE = /resolveTrustedExe/;
 const CROSS_SPAWN_RE = /cross-spawn|crossSpawn/;
+// The bare-'npx' exemption is name-whitelisted to the single blessed
+// launcher. The exemption was previously earned file-WIDE by any file
+// merely MENTIONING resolveTrustedExe + cross-spawn, so a file routing
+// ONE spawn through the blessed posture won a blanket bare-'npx' pass for
+// a SEPARATE, unrouted spawn elsewhere in the same file. Pinning the
+// exemption to the audited file (test-mcp-conformance.cjs, which routes
+// every spawn through resolveTrustedExe + crossSpawn.sync) closes that
+// cross-file slip: any other launcher that grows a bare 'npx' is now a
+// violation regardless of which helpers it imports (rf2-8ng3e1).
+const TRUSTED_RESOLUTION_FILES = new Set(['test-mcp-conformance.cjs']);
 
 for (const file of gateScriptFiles()) {
   const base = path.basename(file);
   const code = stripComments(fs.readFileSync(file, 'utf8'));
+  // The exemption is gated on the file NAME (the audited, whole-file-
+  // routed launcher) AND on it still carrying the trusted-resolution
+  // posture — so even the blessed file loses the pass if it ever drops
+  // resolveTrustedExe / cross-spawn (rf2-8ng3e1).
   const usesTrustedResolution =
-    TRUSTED_EXE_RE.test(code) && CROSS_SPAWN_RE.test(code);
+    TRUSTED_RESOLUTION_FILES.has(base) &&
+    TRUSTED_EXE_RE.test(code) &&
+    CROSS_SPAWN_RE.test(code);
 
   test(`${base}: no shell:true / shell:isWin spawn (rf2-wn4o1 / rf2-33vvc)`, () => {
     assert.doesNotMatch(
