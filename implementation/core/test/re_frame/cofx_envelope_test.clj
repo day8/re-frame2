@@ -272,6 +272,44 @@
     (is (nil? (recordable/safe-preview (atom 1)))
         "no preview for a non-recordable value (never the raw host object)")))
 
+(deftest jvm-instant-is-not-recordable-only-date-is
+  ;; rf2-3az1vn P2: a `java.util.Date` round-trips through pr-str / read-string
+  ;; (the EDN reader's default `#inst` reader returns a Date), so it stays
+  ;; recordable. A `java.time.Instant` does NOT round-trip — Clojure prints it
+  ;; with the `#inst` tag but `read-string` of that form throws
+  ;; `No reader function for tag inst` (no data-reader bound), and even with the
+  ;; default reader it would come back a Date, not an Instant. So an Instant is
+  ;; rejected as a host handle at the SOURCE coeffect (explain-non-recordable),
+  ;; not far away at replay / Xray / SSR time — and safe-preview never leaks it.
+  (testing "a java.util.Date (#inst literal) IS recordable and round-trips"
+    (let [d (java.util.Date. 1781078400123)]
+      (is (recordable/recordable-edn-value? d)
+          "a java.util.Date is recordable EDN data")
+      (is (nil? (recordable/explain-non-recordable d))
+          "no failing descriptor for a Date")
+      (is (= d (read-string (pr-str d)))
+          "a Date round-trips through pr-str / read-string unchanged")))
+  (testing "a java.time.Instant is NOT recordable — rejected at the source"
+    (let [inst (java.time.Instant/ofEpochMilli 1781078400123)]
+      (is (not (recordable/recordable-edn-value? inst))
+          "a java.time.Instant is NOT recordable EDN data")
+      (let [bad (recordable/explain-non-recordable inst)]
+        (is (some? bad) "explain-non-recordable returns a descriptor for an Instant")
+        (is (= [] (:path bad)) "the failing path is the root (the value itself)")
+        (is (re-find #"(?i)instant" (:bad-type bad))
+            "the bad-type names the Instant host class"))
+      (is (nil? (recordable/safe-preview inst))
+          "safe-preview refuses an Instant — no non-round-tripping preview leak")
+      (testing "the round-trip the predicate protects against actually fails"
+        (is (thrown? RuntimeException
+              (read-string (pr-str inst)))
+            "read-string of a printed Instant throws (No reader function for tag inst)"))))
+  (testing "an Instant BURIED in a collection is rejected (deep walk)"
+    (let [bad (recordable/explain-non-recordable
+                {:ok 1 :when {:at (java.time.Instant/ofEpochMilli 0)}})]
+      (is (some? bad) "the buried Instant is found")
+      (is (= [:when :at] (:path bad)) "the path locates the buried Instant"))))
+
 (deftest supplied-non-edn-cofx-value-is-cofx-value-invalid
   ;; THE adversarial acceptance leg: a non-EDN supplied cofx value throws
   ;; :rf.error/cofx-value-invalid; an EDN one passes.

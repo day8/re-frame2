@@ -347,3 +347,66 @@
         (is (= 1 (count collisions))
             "collision warning fires once and is then suppressed")))))
 
+;; =============================================================================
+;; F3 — collision warning is DECOUPLED from the handler-replaced dedup gate
+;;      (rf2-3az1vn P2)
+;;
+;; A kind with NO `:handler-fn` — `:frame` / `:route` / `:head` — replaces its
+;; slot WITHOUT rotating a handler fn. The B4 hot-reload dedup-by-shape table
+;; (`trace.tooling/dedup-allow?`) strips source-coords (`:ns`/`:file`/`:line`/
+;; `:column`) from the shape, so two cross-source registrations of such a kind
+;; with otherwise-identical metadata hash to the IDENTICAL shape →
+;; `dedup-allow? :rf.registry/handler-replaced` returns FALSE (an idempotent
+;; hot-reload re-emit). The prior code NESTED `maybe-emit-collision!` inside
+;; that `dedup-allow?` gate, so a GENUINE cross-source clash for these kinds
+;; never warned. The fix calls the collision check independently. The collision
+;; warning keys on PROVENANCE (not shape), so it must still fire.
+;; =============================================================================
+
+(defn- reg-no-handler-fn!
+  "Register a `kind` id carrying NO `:handler-fn` (a `:frame` / `:route` /
+  `:head`-shaped slot) with an explicit source-coord `provenance` envelope. The
+  residual metadata is identical across calls except for provenance, so the B4
+  shape table sees the SAME shape on re-register — exactly the case the old
+  nested-collision code dedup-suppressed."
+  [kind id provenance]
+  (registrar/register! kind id (merge (or provenance {}) {:doc "slot"})))
+
+(deftest collision-fires-for-no-handler-fn-kind-despite-shape-dedup
+  (testing "a :frame-kind cross-source reassignment WARNS even though its shape
+            is dedup-identical (no rotating :handler-fn) — collision is decoupled
+            from the handler-replaced dedup gate (rf2-3az1vn P2)"
+    (let [recorded (record-traces! ::no-fn-collision)]
+      ;; Two DIFFERENT authoring sites register the SAME :frame id. No handler-fn
+      ;; on either, identical residual metadata → identical dedup shape.
+      (reg-no-handler-fn! :frame :surface/main
+                          {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1})
+      (reg-no-handler-fn! :frame :surface/main
+                          {:ns 'feature.b :file "feature/b.cljc" :line 20 :column 1})
+      (let [replaced (filterv (fn [ev]
+                                (and (= :rf.registry (:op-type ev))
+                                     (= :rf.registry/handler-replaced (:operation ev))))
+                              @recorded)
+            collisions (warnings-of recorded :rf.warning/registration-collision)]
+        (is (empty? replaced)
+            "handler-replaced is dedup-SUPPRESSED — the shape is identical (no
+             handler-fn rotation); this is the gate that used to hide the collision")
+        (is (= 1 (count collisions))
+            "the collision warning STILL fires — it is decoupled from the dedup gate")
+        (let [t (:tags (first collisions))]
+          (is (= :frame (:kind t)))
+          (is (= :surface/main (:id t)))
+          (is (= 'feature.b (:ns (:source-coords t))))
+          (is (= 'feature.a (:ns (:previous-coords t)))))))))
+
+(deftest collision-still-silent-on-same-source-for-no-handler-fn-kind
+  (testing "a same-source re-eval of a no-handler-fn kind stays SILENT — the
+            decoupled collision check still keys on provenance, not shape"
+    (let [recorded (record-traces! ::no-fn-same-source)
+          coords   {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1}]
+      (reg-no-handler-fn! :frame :surface/hot coords)
+      (reg-no-handler-fn! :frame :surface/hot coords)
+      (is (empty? (warnings-of recorded :rf.warning/registration-collision))
+          "same (ns,file,line) re-eval is a hot reload — no collision even though
+           the collision check now runs unconditionally"))))
+

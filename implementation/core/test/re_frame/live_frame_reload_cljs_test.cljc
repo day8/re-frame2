@@ -219,11 +219,28 @@
 
 (deftest reload-a-direct-frame-object
   (testing "reload-images! accepts a direct frame OBJECT as the target; the
-            registry is untouched (a no-id frame never entered it) and the
-            reloaded copy is returned for the caller to hold"
+            reloaded copy is returned for the caller to hold AND the live-frame
+            registry slot keyed by the object's PRIVATE runnable-id is patched in
+            place to the reloaded object. A no-id frame contributes no PUBLIC id
+            (live-frame-ids stays empty), but it IS registered under a gensym
+            runnable-id — and dispatch/subscribe re-resolve the generation FROM
+            that slot, so it must carry the reloaded (v2) object, not the stale v1
+            one (rf2-3az1vn P1: the old (when (some? id) …) guard skipped this)"
     (let [frame    (lf/make-frame {:images [img]} pool-v1)
+          runnable (:rf.frame/runnable-id frame)
           reloaded (:rf.frame/frame (lf/reload-images! frame {:images [img]} pool-v2))]
-      (is (empty? (lf/live-frame-ids)) "registry stays empty for a no-id reload")
+      (is (empty? (lf/live-frame-ids))
+          "a no-id frame contributes no PUBLIC id — live-frame-ids stays empty")
+      (testing "the registry slot keyed by the gensym runnable-id now holds the
+                RELOADED object (the v2 image), not the stale v1 object"
+        (is (some? runnable) "a no-id object still carries a private runnable-id")
+        (is (identical? reloaded (lf/live-frame runnable))
+            "the runnable-id slot points at the reloaded object")
+        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
+                                       (lf/frame-generation (lf/live-frame runnable))
+                                       :event :counter/inc)))
+            "(live-frame runnable-id) resolves the v2 image — the registry slot
+             is no longer stale"))
       (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
                                      (lf/frame-generation reloaded) :event :counter/inc))))
       (testing "the original object is unchanged (immutable value; caller swaps
