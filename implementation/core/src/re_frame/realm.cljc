@@ -67,9 +67,10 @@
   it survives `:advanced` + `goog.DEBUG=false` builds intact (it carries no
   feature sentinels and no per-feature `:require`, so the bundle-isolation
   gate is unaffected)."
-  (:require [re-frame.error     :as error]
-            [re-frame.registrar :as registrar]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.error        :as error]
+            [re-frame.registrar    :as registrar]
+            [re-frame.source-store :as source-store]
+            [re-frame.late-bind    :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -98,6 +99,17 @@
 ;;                    default realm holds a REFERENCE to the existing
 ;;                    process-global `registrar/kind->id->metadata` atom, so
 ;;                    the registry shape + read/write API are unchanged.
+;;   :source-store    the realm's EP-0023 provenance source store — the
+;;                    `kind → id → provenance-ns → descriptor` table every
+;;                    `reg-*` ALSO writes through (alongside the resolver-map
+;;                    write). The default realm holds a REFERENCE to the
+;;                    process-global `source-store/kind->id->ns->descriptor`
+;;                    atom (the byte-identical single-realm path); a hermetic
+;;                    constructed realm gets its OWN fresh atom so its
+;;                    provenance descriptors never pollute the default store
+;;                    (rf2-9fn4is). `seat-into-realm!` binds
+;;                    `source-store/*source-store*` to this atom for the
+;;                    duration of seating, mirroring the `:registrar` binding.
 ;;   :adapter         the realm's adapter SELECTION (the installed adapter
 ;;                    spec map / capability); render roots own concrete
 ;;                    instances. Absent until `install-adapter!` seats one;
@@ -145,7 +157,9 @@
   `opts` may carry `:registrar` (the realm's `(kind, id) → descriptor`
   table — defaults to the process-global `registrar/kind->id->metadata` so a
   realm with no explicit registrar shares the surface existing specs call
-  \"global\"), `:adapter` (selection), and `:capabilities`. The frame set
+  \"global\"), `:source-store` (the realm's EP-0023 provenance source store —
+  defaults to the process-global `source-store/kind->id->ns->descriptor`,
+  rf2-9fn4is), `:adapter` (selection), and `:capabilities`. The frame set
   starts empty.
 
   Per Spec-Schemas §`:rf/realm` the realm is an open map; only `:rf.realm/id`
@@ -159,7 +173,16 @@
             ;; gets its own table; the registry API operates on whichever
             ;; atom the realm hands it (D2 work). In D1 only the default
             ;; realm exists at runtime, so this defaults to the global atom.
-            :registrar (get opts :registrar registrar/kind->id->metadata)}
+            :registrar (get opts :registrar registrar/kind->id->metadata)
+            ;; The source store mirrors the registrar's ownership (rf2-9fn4is):
+            ;; the default realm holds the process-global provenance store; a
+            ;; realm created with an explicit `:source-store` (a hermetic
+            ;; constructed realm) gets its own table so `reg-*`'s
+            ;; `record-descriptor!` write — keyed by `(active-source-store)`,
+            ;; which honors the `*source-store*` binding `seat-into-realm!`
+            ;; sets — lands in the realm's own store, not the default's.
+            :source-store (get opts :source-store
+                               source-store/kind->id->ns->descriptor)}
      (contains? opts :adapter)      (assoc :adapter      (:adapter opts))
      (contains? opts :capabilities) (assoc :capabilities (:capabilities opts)))))
 
@@ -280,6 +303,23 @@
   ([realm-map]
    (:registrar (or realm-map (default-realm)))))
 
+(defn source-store
+  "Return the EP-0023 provenance source-store atom a realm records descriptors
+  into — the `kind → id → provenance-ns → descriptor` table every `reg-*`
+  writes through alongside the resolver map. For the default realm this IS the
+  process-global `source-store/kind->id->ns->descriptor`, so the single-realm
+  path is byte-identical; a hermetic constructed realm holds its OWN atom so its
+  provenance descriptors stay isolated from the default store (rf2-9fn4is).
+  Accepts a realm map; nil resolves to the default realm's source store
+  (absence = default realm). A realm map constructed BEFORE this slot existed
+  (a never-disposed pre-fix default-realm record, or a hand-built test realm
+  map) falls back to the process-global store. INTERNAL — `seat-into-realm!`
+  binds `source-store/*source-store*` to this atom for the seating duration."
+  ([] (source-store (default-realm)))
+  ([realm-map]
+   (or (:source-store (or realm-map (default-realm)))
+       source-store/kind->id->ns->descriptor)))
+
 ;; ---- the public realm constructor (EP-0013 stage 9, rf2-swrf4k) ------------
 ;;
 ;; The PUBLIC realm CONSTRUCTOR — the LAST EP-0013 impl slice graduates the
@@ -392,8 +432,12 @@
          :extra    {:realm id}}))
     (let [;; Hermetic by default: a fresh OWN registrar atom unless the caller
           ;; shares one explicitly. This is the isolation the public realm
-          ;; constructor exists to provide.
-          realm-map (cond-> (make-realm id {:registrar (get opts :registrar (atom {}))})
+          ;; constructor exists to provide. A fresh OWN source store rides
+          ;; alongside (rf2-9fn4is) so the realm's EP-0023 provenance descriptors
+          ;; never pollute the process-default source store — the isolation the
+          ;; own-registrar gives the resolver map, extended to the source store.
+          realm-map (cond-> (make-realm id {:registrar    (get opts :registrar    (atom {}))
+                                            :source-store (get opts :source-store (atom {}))})
                       (contains? opts :adapter)      (assoc :adapter      (:adapter opts))
                       (contains? opts :capabilities) (assoc :capabilities (:capabilities opts)))]
       (register-realm! realm-map))))
