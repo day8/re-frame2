@@ -1,6 +1,6 @@
 # EP-0021: Infinite Resources And Load-More Feeds
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
 > This EP proposes a first-class **infinite resource** primitive for Spec 016:
@@ -8,12 +8,13 @@ Type: standards-track
 > accumulated by repeated `load-more` events, with a declarative
 > next/previous-page-param model, a merged-list + page-metadata subscription
 > contract, and refetch/invalidation/scope/GC semantics consistent with the
-> existing single-page resource. Its normative home after acceptance would be
+> existing single-page resource. Its normative home is
 > `spec/016-Resources.md` (the `:infinite` registration key reserved there
-> since EP-0003). **At `proposal` it binds nothing** — Mike rules acceptance,
-> and the open design questions (especially where accumulated pages live in
-> app-db/runtime-db shape and the exact subscription contract) before any
-> implementation.
+> since EP-0003). **Accepted** (Mike, 2026-06-17) — the seven open design
+> questions plus the `:request` signature are now ruled; see
+> [§Resolved Decisions](#resolved-decisions). The `spec/016` + `Spec-Schemas`
+> amendments and the runtime implementation follow as subsequent slices, so this
+> EP stays `accepted` (not `final`) until they land.
 
 ## Abstract
 
@@ -167,8 +168,9 @@ single-page reads; the infinite case is the conspicuous remaining hole.
 - **[EP-0015](EP-0015-frame-owned-egress-policy.md) (final).** Accumulated page
   data, page params (which may be cursors carrying ids), and the merged list all
   pass through the frame-owned egress projection; a feed's classification is
-  owned by its `:data-schema` / `:page-data-schema` exactly as a single
-  resource's data classification is.
+  owned by its **`:page-data-schema`, applied per page** on egress/SSR/tool
+  projection (Resolved Decision R5) — the accumulated `:data` is a framework
+  vector of pages and must not bypass per-page classification.
 
 ## Specification
 
@@ -182,9 +184,13 @@ events, and the subscription contract.
 
 An infinite resource is a resource registered with `:infinite true` plus a
 page-param derivation. It reuses every existing required resource key
-(`:params-schema`, `:scope`, `:request`) — the difference is that `:request` is
-parameterised by **`:page-param`** in addition to the feed params, and the
-registration declares how the next page param is derived.
+(`:params-schema`, `:scope`, `:request`) — the difference is that the
+**reserved `:request` context** (the second argument, `nil`/empty for
+non-infinite resources) now carries the resolved page context
+(`:rf.resource/page-param`, `:rf.resource/page-index`), and the registration
+declares how the next page param is derived. **No new `:request` arity is
+introduced** — the page context rides the already-reserved context slot (see
+[Resolved Decision R8](#resolved-decisions)).
 
 ```clojure
 (rf/reg-resource
@@ -199,9 +205,10 @@ registration declares how the next page param is derived.
    :scope           {:from-db :app/session}      ;; EP-0016 D3 named resolver
    :page-data-schema :app/timeline-page          ;; validates ONE page
 
-   ;; :request now also receives the resolved :page-param for THIS page.
+   ;; :request keeps its (params ctx) shape; the RESERVED ctx now carries the
+   ;; resolved page context for THIS page (nil/empty for non-infinite resources).
    :request
-   (fn [{:keys [filter]} {:keys [page-param]} _ctx]
+   (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
      {:request {:method :get
                 :url    "/api/timeline"
                 :params (cond-> {:filter filter :limit 20}
@@ -227,9 +234,11 @@ registration declares how the next page param is derived.
 
 Rules (proposed, MUST):
 
-- `:infinite true` makes `:next-page-param` **required** and the `:request` fn
-  **3-arity** (`(feed-params page-ctx ctx)`), where `page-ctx` carries at least
-  `:page-param` (nil for the first page) and `:page-index`.
+- `:infinite true` makes `:next-page-param` **required**. The `:request` fn keeps
+  its settled `(params ctx)` shape (Spec 016); for an infinite resource the
+  **reserved `ctx`** carries `:rf.resource/page-param` (nil for the first page)
+  and `:rf.resource/page-index`. Non-infinite requests still receive a nil/empty
+  ctx unchanged — **no new arity** (see [Resolved Decision R8](#resolved-decisions)).
 - The **first page** is fetched with `:page-param nil` (TanStack
   `initialPageParam` analogue; the framework default is nil, overridable via an
   optional `:initial-page-param`).
@@ -237,8 +246,9 @@ Rules (proposed, MUST):
   Returning `nil` is the canonical **terminal** signal (no more pages); the
   derived `:has-next-page?` is `(some? (:next-page-param …))`.
 - `:page-data-schema` validates **one page's** decoded value (the per-page
-  envelope), distinct from `:data-schema` (which, for an infinite resource,
-  describes the *accumulated* value if declared at all — see Open Question 5).
+  envelope) **and is the per-page egress/classification contract** applied per
+  page on SSR/tool projection (Resolved Decision R5). `:data-schema` is **not**
+  used for the accumulated vector.
 - `:tags` on an infinite resource tag the **feed identity** and SHOULD also be
   derivable per item so item-level invalidation can reach into the feed (Open
   Question 4).
@@ -286,13 +296,14 @@ This mirrors both references precisely:
    put session/tenant into the query key; re-frame2 keeps scope a separate,
    fail-closed leak boundary ([Spec 016 §Scope resolution](../../spec/016-Resources.md#scope-resolution)).
 
-### Part 3: durable cache shape (the open-question core — recommendation)
+### Part 3: durable cache shape (ruled — Resolved Decision R1)
 
-> This is the **load-bearing open decision** ([Open Issue 1](#open-issues)). The
-> recommendation below is one coherent answer; the alternatives the operator
-> rules between are enumerated there.
+> This was the **load-bearing decision** (Open Issue 1). It is now **ruled**
+> ([Resolved Decision R1](#resolved-decisions)): one resource entry per feed,
+> pages as an ordered vector inside it. The rejected alternatives (N per-page
+> entries; an app-db slice) are recorded in [§Open Issues](#open-issues).
 
-**Recommendation: one resource entry per feed, pages stored as an ordered vector
+**Ruled: one resource entry per feed, pages stored as an ordered vector
 inside it, in the existing `:rf.runtime/resources` partition.** The infinite feed
 reuses the single-resource entry shape (`implementation/resources/src/re_frame/resources/state.cljc`
 `empty-entry*`, around line 183) and refines `:data` to be the page sequence,
@@ -380,11 +391,12 @@ FSM interaction (proposed):
 load); it does not re-fetch the whole accumulation. `:rf.resource/refetch` is
 [§Refetch and invalidation](#refetch-and-invalidation-of-an-infinite-resource).
 
-### Part 5: subscription contract (the second open-question core)
+### Part 5: subscription contract (ruled — Resolved Decision R3)
 
-> Open Question 3. The recommendation below extends the `:rf.resource/*` family
-> with infinite-specific projections; the exact merged-list contract is the open
-> decision.
+> Open Question 3, now **ruled** ([Resolved Decision R3](#resolved-decisions)):
+> `:rf.resource/items` / `:rf.resource/pages` / `:rf.resource/infinite-state`
+> are framework-owned memoised subscriptions, and `:page->items` is **required**
+> for any non-vector/enveloped page (loud over guessing).
 
 The existing `:rf.resource/state` / `:data` / `status` / `loading?` / `fetching?`
 / `stale?` / `error` / `has-data?` family (`subs.cljc` `register-subs!`, around
@@ -437,11 +449,15 @@ pages array — most feed views want the flat list and TanStack users immediatel
 `:pages` available when boundaries matter), since the merge is a pure derivation
 the framework can own and memoise once.
 
-The flatten rule is per-resource: a feed whose page envelope is
-`{:items [...] :page-info {…}}` declares a `:page->items` accessor (default:
-identity for a page that *is* a vector, else the conventional `:items`/`:data`
-key — Open Question 3 settles the default). `:items` is then
-`(into [] (mapcat page->items) pages)`.
+The flatten rule is per-resource and **loud, not magic** (ruled — see
+[Resolved Decision R3](#resolved-decisions)): a page that *is already a vector*
+flattens by identity, but a feed whose page is non-vector/enveloped
+(e.g. `{:items [...] :page-info {…}}`) **MUST** declare a `:page->items`
+accessor — the framework does not guess `:items`/`:data`. `:items` is then
+`(into [] (mapcat page->items) pages)`. `:rf.resource/items`,
+`:rf.resource/pages`, and `:rf.resource/infinite-state` are framework-owned
+memoised subscriptions (the merge is a pure derivation the framework owns once),
+not ordinary app subs over `:pages`.
 
 ### Worked example — an infinite feed view
 
@@ -488,14 +504,17 @@ step. `:blocking?` blocks on page 0 only.
 This is a genuine semantic decision (folded into the spec sketch; flagged as
 Open Question 4 for the *item-reach* sub-decision).
 
-- **`:rf.resource/refetch` of a feed** re-fetches the accumulated window: the
-  proposed default is **refetch page 0 and discard the tail** (the feed resets to
-  its first page; the user scrolls again to re-accumulate) — this is TanStack's
-  default `refetch` behaviour for infinite queries (it refetches all pages, but
-  re-from-the-first-param; re-frame2's simpler default discards the tail, with an
-  opt-in `:refetch-all-pages?` to re-fetch every accumulated page param in
-  sequence, the TanStack-parity mode). The reset is safe because pages persist by
-  *accumulation*, not by being independently cached.
+- **`:rf.resource/refetch` of a feed** is governed by an explicit per-resource
+  `:refetch` policy. The **ruled default is conservative: preserve the visible
+  window** — the accumulated pages stay rendered until their replacement
+  succeeds, so a focus/reconnect/invalidation-driven refetch never collapses a
+  loaded feed back to page 0 (the failure mode of a hard discard-tail default).
+  Two opt-ins ship **from day one** (ruled — see
+  [Resolved Decision R6](#resolved-decisions)): `:refetch-all-pages?` re-fetches
+  every accumulated page param in sequence (TanStack-parity), and
+  `:refetch-window` bounds how much of the accumulation is refreshed. Pages
+  persist by *accumulation*, not by being independently cached, so the
+  window-preserving swap is coherent.
 - **Tag invalidation** (`:rf.resource/invalidate-tags`, and EP-0016 mutation
   `:invalidates`) marks the feed entry stale by its **feed tag** (`[:feed
   :recent]`) → the feed refetches per the refetch rule above on the next ensure.
@@ -615,14 +634,15 @@ guide-impact assessment.
 
 ## Open Issues
 
-> The genuine design decisions for the operator to rule. An EP MUST NOT go
-> `final` with these silently unresolved; each gets a `Resolved Decisions` row as
-> rulings land.
+> The genuine design decisions for the operator to rule. **All seven are now
+> ruled** (Mike, 2026-06-17), together with the `:request` signature; the
+> resolutions are recorded in [§Resolved Decisions](#resolved-decisions) below.
+> The questions are kept here for the record; the rows below are normative.
 
 1. **Where do accumulated pages live, and in what exact shape?** (the headline
-   decision.) The recommendation is **one resource entry in `:rf.runtime/resources`
-   whose `:data` is an ordered page vector** ([Part 3](#part-3-durable-cache-shape-the-open-question-core--recommendation)).
-   Alternatives: (a) **N independent per-page entries** (page in params, like
+   decision.) **Ruled (R1):** **one resource entry in `:rf.runtime/resources`
+   whose `:data` is an ordered page vector** ([Part 3](#part-3-durable-cache-shape-ruled--resolved-decision-r1)).
+   Alternatives, **rejected:** (a) **N independent per-page entries** (page in params, like
    numbered pagination) plus a small **feed index entry** that lists the ordered
    page keys — pages stay individually cacheable/GC-able and item-invalidation is
    per-page-entry, at the cost of a second indirection and merged-list reads
@@ -676,6 +696,31 @@ guide-impact assessment.
    consumer needs it, to keep the v1 surface minimal. Open: ship both directions
    or next-only for v1?
 
+## Resolved Decisions
+
+Ruled by Mike on 2026-06-17 (GO on EP-0021; adopting the converged mayor
+recommendation plus the Codex refinements). One row per Open Issue, plus the
+`:request` signature. These rows are normative; the body above has been
+reconciled to them.
+
+| # | Decision | Resolution |
+|---|----------|-----------|
+| **R1** | Where do accumulated pages live, and in what exact shape? (Open Issue 1) | **ONE scoped resource entry per feed** in `:rf.runtime/resources`; `:data` = the ordered page vector `[page-0 page-1 …]`, plus `:page-params`, `:next-page-param`, `:page-error`, and the page-fetch work evidence. **NOT** N per-page entries and **NOT** an app-db slice. One owner set / freshness clock / GC clock / SSR-restore unit / Xray row for the whole feed. |
+| **R2** | Page-level sub-status, or only the existing `:fetching`? (Open Issue 2) | **No 6th FSM state.** A load-more reuses the existing `:fetching` (refresh-class) transition; a derived **`:fetching-next?`** subscription distinguishes a load-more in flight from a whole-feed `:fetching?` refresh. The five-state FSM is untouched. |
+| **R3** | Merged-list contract: headline read + default flatten? (Open Issue 3) | Framework-owned, memoised subscriptions: **`:rf.resource/items`** (the merged flat list — the headline read), **`:rf.resource/pages`** (raw boundaries), **`:rf.resource/infinite-state`** (combined view-model), plus the page-metadata subs. **`:page->items` is REQUIRED** for any feed whose page is non-vector/enveloped — loud over guessing `:items`/`:data`. A page that is already a vector flattens by identity. |
+| **R4** | What does an item-inside-the-feed mutation do? (Open Issue 4) | A mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct, v1). In-place patching of one item inside the page vector is **deferred** to the optimistic/patch axis. |
+| **R5** | `:data-schema` vs `:page-data-schema`? (Open Issue 5) | **`:page-data-schema` validates one page** (the decode target) **and is the per-page egress/classification contract**: SSR and tool projection apply it **per page** so sensitive page fields are classified (the accumulated `:data` is a framework-owned vector and must not bypass classification). **`:data-schema` is not used** for the accumulated vector. |
+| **R6** | `refetch` default: discard-tail vs refetch-all-pages? (Open Issue 6) | **Conservative default: preserve the visible window** until the replacement succeeds (so focus/reconnect/invalidation refetch never collapses a loaded feed to page 0). `:refetch` is an explicit per-resource policy; **`:refetch-all-pages?` and `:refetch-window` ship as opt-ins from day one.** *(This supersedes the EP's earlier discard-tail default — adopting the Codex-flagged safer behaviour; the body's Part / Issue 6 text is reconciled to it.)* |
+| **R7** | Bidirectional (`:prev-page-param` / prepend) in v1 or deferred? (Open Issue 7) | **Next-direction `load-more` only for v1.** Define the `:next-page-param` / `:prev-page-param` derivation **mirror now** (free — same machinery), but **DEFER** the `:rf.resource/load-prev` prepend event until a consumer needs it. |
+| **R8** | `:request` signature — new 3-arity, or the reserved context? | Use the **reserved `:request` context as the page extension point**: `(request feed-params {:rf.resource/page-param p :rf.resource/page-index i})`. Non-infinite requests still receive a nil/empty ctx unchanged. **Do NOT add a new 3-arity.** |
+
+> **Subsequent slices.** This acceptance lands in the EP document only. The
+> `spec/016-Resources.md` model definition + the `spec/Spec-Schemas.md` closed
+> args-map schema, then the runtime implementation (state / registry / events /
+> subs / SSR-restore / Xray) and the guide rewrite, follow as later slices per
+> the [Bead Plan](#bead-plan--reference-implementation). EP-0021 stays
+> `accepted` (not `final`) until those land.
+
 ## Recommendation
 
 **Accept a first-class infinite resource** built on the existing resource
@@ -689,8 +734,10 @@ runtime-owned state advanced by a causal event (views stay passive), `nil` is th
 single terminal, and feed identity is fail-closed scoped separately from params.
 
 The cut is intentionally narrow: next-direction load-more, coarse feed-level
-invalidation, discard-tail refetch default, and the page-vector-in-one-entry
+invalidation, a window-preserving refetch default (with `:refetch-all-pages?` /
+`:refetch-window` opt-ins from day one), and the page-vector-in-one-entry
 shape — deferring in-place item patching (to the optimistic EP), normalized
 item stores, prepend, and streaming. The seven open issues — above all where the
-pages live (1) and the merged-list contract (3) — are the genuine rulings; the
-rest of the design follows from them.
+pages live (1) and the merged-list contract (3) — were the genuine rulings; all
+are now resolved in [§Resolved Decisions](#resolved-decisions), and the rest of
+the design follows from them.
