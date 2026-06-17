@@ -97,6 +97,86 @@
 ;; byte-for-byte with the mutation-success path so a patched / populated entry
 ;; ages exactly as a fetched one (rf2-366u0g).
 
+;; ---- infinite-feed page context + reply addressing (EP-0021 R8) -----------
+;;
+;; An infinite resource reuses the WHOLE load-causing path (`ensure-load`):
+;; identity, scope, generation, work-ledger row, dedupe, stale suppression,
+;; transport lowering. It differs in exactly two places (R1/R2/R8 — no new
+;; entry kind, no 6th FSM state):
+;;
+;;   1. the entry it seeds on a first load is `empty-infinite-entry` (the
+;;      `:data` page vector + page-param facts), not the scalar `empty-entry`;
+;;   2. the transport request carries the RESERVED page ctx
+;;      `{:rf.resource/page-param p :rf.resource/page-index i}` (R8 — the
+;;      already-reserved `ctx` slot, NOT a new 3-arity), and the reply is
+;;      addressed at the PAGE reply handlers (`:rf.resource.internal/page-*`)
+;;      so a page success APPENDS (`entry-append-page`) rather than overwriting
+;;      the whole value (`entry-succeeded`). The page-param + page-index ride
+;;      the reply `:reply-payload` so the append knows which param to record.
+;;
+;; Page-0 (a first `ensure`, or a `refetch`'s replacement page-0) uses
+;; `page-param-for-spec` (the framework default `nil`, overridable via
+;; `:initial-page-param`) at index 0; a `load-more` uses `next-param-for` over
+;; the accumulated pages at index `page-count`. The single home so the page-0
+;; fetch and the load-more fetch lower identically.
+
+(def page-reserved-ctx-param-key
+  "The RESERVED `:request` ctx key carrying the resolved page-param for an
+  infinite feed's THIS page (R8). The `:request` fn reads it via
+  `{:rf.resource/keys [page-param page-index]}`. Per Spec 016 §Registration —
+  :infinite (the reserved ctx is the page extension point)."
+  :rf.resource/page-param)
+
+(def page-reserved-ctx-index-key
+  "The RESERVED `:request` ctx key carrying the 0-based page index for an
+  infinite feed's THIS page (R8). Per Spec 016 §Registration — :infinite."
+  :rf.resource/page-index)
+
+(defn page-request-ctx
+  "Build the RESERVED `:request` ctx for an infinite feed page fetch (R8):
+  `{:rf.resource/page-param p :rf.resource/page-index i}`. The `:request` fn
+  reads `p` / `i` from this map's reserved keys; a non-infinite resource never
+  reaches here (it lowers with a nil ctx, unchanged). Per Spec 016
+  §Registration — :infinite / §Causal event — load-more."
+  [page-param page-index]
+  {page-reserved-ctx-param-key page-param
+   page-reserved-ctx-index-key page-index})
+
+(def page-succeeded-reply
+  "The framework-internal infinite-feed page-success reply event id
+  (`:rf.resource.internal/page-succeeded`). DISTINCT from
+  `:rf.resource.internal/succeeded` (the scalar whole-value settle): a page
+  success APPENDS the decoded page to the feed's page vector
+  (`entry-append-page`) rather than overwriting `:data`. User code MUST NOT
+  dispatch it. Per Spec 016 §Causal event — load-more."
+  :rf.resource.internal/page-succeeded)
+
+(def page-failed-reply
+  "The framework-internal infinite-feed page-failure reply event id
+  (`:rf.resource.internal/page-failed`). DISTINCT from
+  `:rf.resource.internal/failed`: a page (N>0 load-more) failure is the THIRD
+  error channel (`entry-page-failed` keeps the feed + records `:page-error`),
+  not a first-load `:error` / whole-feed `:refresh-error`. User code MUST NOT
+  dispatch it. Per Spec 016 §Causal event — load-more (the third error
+  channel)."
+  :rf.resource.internal/page-failed)
+
+(defn- infinite-page-reply-payload
+  "The verification payload for an infinite-feed page fetch — the SAME
+  stale-suppression identity the scalar reply carries (`:work/id` /
+  `:resource/key` / `:scope` / `:generation`; the `:rf.frame/id` is merged by
+  `build-managed-args`) PLUS the resolved `:rf.resource/page-param` and
+  `:rf.resource/page-index` so the page-success reply records the right param
+  in `:page-params` (the param is reply state, never re-derived at settle).
+  Per Spec 016 §Causal event — load-more."
+  [scoped-key scope generation work-id page-param page-index]
+  {:work/id                  work-id
+   :resource/key             scoped-key
+   :scope                    scope
+   :generation               generation
+   page-reserved-ctx-param-key page-param
+   page-reserved-ctx-index-key page-index})
+
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
 (defn- ensure-load
@@ -150,8 +230,15 @@
         ;; rf2-rplgkw: scope (resolve-scope-for-event → canonicalize-scope) +
         ;; cparams (validate+canonicalize-params) are ALREADY canonical.
         scoped-key (state/scoped-resource-key* scope resource cparams)
+        ;; EP-0021 R1: an infinite feed is the SAME durable entry whose `:data`
+        ;; is the ordered page vector — seed `empty-infinite-entry` (the page
+        ;; facts) on a first load, NOT the scalar `empty-entry`. A registered
+        ;; non-infinite resource seeds the scalar entry unchanged.
+        infinite?  (registry/infinite-resource? spec)
         entry      (or (get-in runtime-db (state/entry-path scoped-key))
-                       (state/empty-entry resource scoped-key))
+                       (if infinite?
+                         (state/empty-infinite-entry resource scoped-key)
+                         (state/empty-entry resource scoped-key)))
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
         ;; JOINABLE work (rf2-v4ygg5): an `ensure` may DEDUPE onto the prior
@@ -321,12 +408,46 @@
             ;; mints the same `:started-at` / `:deadline-at`.
             started-at time-ms
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
+            ;; EP-0021 R6 — a forced REFETCH of an infinite feed resets the
+            ;; accumulation per the resource's `:refetch` policy BEFORE the
+            ;; replacement page-0 starts. The ruled DEFAULT is window-preserving
+            ;; (keep the visible pages until the replacement page-0 succeeds —
+            ;; a focus/reconnect/invalidation refetch never collapses a loaded
+            ;; feed to page 0); the opt-ins `:refetch-all-pages?` /
+            ;; `:refetch-window` are R6 day-one knobs handled at the reply layer
+            ;; (the replacement page-0 success determines what is kept). On an
+            ;; ENSURE (not force-new) the entry is left as-is — a fresh ensure of
+            ;; an infinite feed first-loads page 0 (empty `:data`), and an ensure
+            ;; of an already-loaded feed never reaches the `:else` fresh-load
+            ;; branch (fresh-skip / dedupe handle it). Window-preserving is a
+            ;; pure no-op on `entry'` here (the page vector simply stays), so the
+            ;; reset is recorded on the entry only when an opt-in discards.
+            refetch-policy (when infinite? (:refetch spec))
             entry'     (cond-> (state/entry-start-load
                                  entry {:generation generation :work-id work-id
                                         :request-id request-id :owner owner})
                          ;; `:keep-previous?` projection pointer (a pointer
                          ;; only — never this key's data / tags).
-                         prev-key (assoc :previous-key prev-key))
+                         prev-key (assoc :previous-key prev-key)
+                         ;; EP-0021 R6 — a forced REFETCH of an infinite feed
+                         ;; resets the accumulation to the kept window per the
+                         ;; `:refetch` policy (window-preserving default = a
+                         ;; pure no-op; `:refetch-all-pages?` / `:refetch-window`
+                         ;; truncate the tail). An ensure (not force-new) leaves
+                         ;; the feed untouched (page-0 first load).
+                         (and infinite? force-new?)
+                         (state/entry-refetch-reset
+                           {:next-page-param-fn (:next-page-param spec)
+                            :prev-page-param-fn (:prev-page-param spec)
+                            :refetch-policy     refetch-policy}))
+            ;; EP-0021 R8 — the page context for THIS fetch. A first ensure /
+            ;; a refetch's replacement fetch a page-0 (`page-param-for-spec` —
+            ;; the framework `nil` default, overridable via `:initial-page-param`
+            ;; — at index 0). A non-infinite resource passes a nil ctx (R8 — the
+            ;; reserved ctx is empty for a non-infinite request, unchanged).
+            page-param (when infinite? (state/page-param-for-spec spec))
+            page-index 0
+            req-ctx    (when infinite? (page-request-ctx page-param page-index))
             ;; a forced refetch over an in-flight prior attempt SUPERSEDES it:
             ;; mark the old work record :superseded (terminal) and emit a
             ;; best-effort abort (opportunistic; stale suppression already
@@ -359,8 +480,24 @@
             ;; stamp the qualified :rf.frame/id + :work/id + :resource/key +
             ;; :scope + :generation so the reply handlers verify before
             ;; writing (stale suppression is the correctness boundary).
+            ;; EP-0021 R8 — the `:request` fn keeps its settled `(params ctx)`
+            ;; shape; an infinite feed's reserved `ctx` carries the resolved
+            ;; page context for THIS page, a non-infinite resource's ctx is
+            ;; nil (unchanged). NO new arity.
             http-args  (let [req-fn (:request spec)]
-                         (req-fn cparams nil))
+                         (req-fn cparams req-ctx))
+            ;; EP-0021 R1/R2 — an infinite page fetch is addressed at the PAGE
+            ;; reply handlers (`:rf.resource.internal/page-*`) so a page success
+            ;; APPENDS / REPLACES-IN-PLACE rather than overwriting the whole
+            ;; value; the reply payload carries the resolved `:page-param` /
+            ;; `:page-index` so the settle records the right param. A
+            ;; non-infinite resource keeps the scalar reply addressing.
+            reply-overrides (when infinite?
+                              {:on-success-id page-succeeded-reply
+                               :on-failure-id page-failed-reply
+                               :reply-payload (infinite-page-reply-payload
+                                                scoped-key scope generation
+                                                work-id page-param page-index)})
             ;; rf2-rrcfwk — guard the declared transport (registration-time
             ;; misconfig throw), then lower directly into the only
             ;; initial-scope transport. The one-arm dispatch indirection
@@ -369,14 +506,16 @@
             ;; lands (the guard becomes the dispatch).
             lower-fx   (do (transport/assert-managed-transport! transport-id where)
                            (transport-http/lower
-                             {:http-args    http-args
-                              :request-id   request-id
-                              :work-id      work-id
-                              :resource/key scoped-key
-                              :scope        scope
-                              :frame-id     frame-id
-                              :generation   generation
-                              :where        where}))]
+                             (merge
+                               {:http-args    http-args
+                                :request-id   request-id
+                                :work-id      work-id
+                                :resource/key scoped-key
+                                :scope        scope
+                                :frame-id     frame-id
+                                :generation   generation
+                                :where        where}
+                               reply-overrides)))]
         (trace/emit! :rf.event :rf.resource/work-started
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
@@ -427,6 +566,203 @@
   Payload: `{:resource :scope :params :cause}`."
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
+
+;; ---- load-more — the infinite-feed page-extension event (EP-0021 R2) ------
+;;
+;; A causal event that extends an infinite feed by ONE page. It reuses the
+;; WHOLE load-causing substrate — generation, work-ledger row, dedupe, stale
+;; suppression, transport lowering — and differs from `ensure`/`refetch` only
+;; in WHICH page it fetches: the NEXT page param derived from the accumulated
+;; tail (`next-param-for`), at index `page-count` (an APPEND), addressed at the
+;; PAGE reply handlers so the success appends rather than overwrites (R1/R2/R8).
+;;
+;; FSM (R2 — no 6th state): a `load-more` on a `:loaded` feed transitions to
+;; `:fetching` (the existing refresh-class transition — the feed has data, so
+;; `entry-start-load` chooses `:fetching` and the accumulated pages stay
+;; visible). The two SKIP paths fire no request:
+;;   - TERMINAL (`next-param-for` is nil — no more pages): a no-op that emits
+;;     `:rf.resource/load-more-skipped` `:reason :no-next-page`;
+;;   - IN-FLIGHT (a page fetch is already running): dedupe against the live
+;;     work, emit `:rf.resource/load-more-skipped` `:reason :in-flight`.
+;; A `load-more` on a feed that does not exist / is not yet loaded is also a
+;; no-op (`:reason :no-feed` — there is no tail to derive the next param from;
+;; the first page is `ensure`'s page-0, not a load-more).
+
+(defn- load-more-loaded
+  "Core of `:rf.resource/load-more` (EP-0021 R2). Resolves the feed's scoped
+  key (the FEED identity — the per-page param is NOT in the key, R1), reads the
+  live entry, and either SKIPS (terminal / in-flight / no-feed — no request) or
+  issues the NEXT page fetch (derived param at index `page-count`) through the
+  resource's `:request` with the reserved page ctx, recording a work-ledger row
+  and transitioning the feed to `:fetching` (pages stay visible). Reuses the
+  recorded generation allocation (replay-stable) and the page reply addressing
+  so the success appends via `entry-append-page` and a failure records
+  `:page-error` (`entry-page-failed`). Returns the reg-event effects map."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id
+    gen-allocation :rf.resource/generation-allocation
+    time-ms :rf/time-ms, app-db :db}
+   {:keys [resource owner cause] :as payload} {:keys [where]}]
+  (let [runtime-db (or rt {})
+        spec       (registry/require-resource-spec! resource where)
+        scope      (registry/resolve-scope-for-event
+                     resource spec {:payload-scope (:scope payload) :db app-db} where)
+        cparams    (registry/validate+canonicalize-params
+                     resource spec (state/params-present? payload) where)
+        scoped-key (state/scoped-resource-key* scope resource cparams)
+        entry      (get-in runtime-db (state/entry-path scoped-key))
+        prior-work (:current-work entry)
+        prior-record (when prior-work (work-ledger/get-record runtime-db prior-work))
+        prior-status (:status prior-record)
+        ;; a page fetch (or any fetch) is genuinely in flight when the linked
+        ;; work record is LIVE (`:queued` / `:running`) — the same `joinable?`
+        ;; liveness the `ensure` dedupe uses (rf2-v4ygg5). A doomed
+        ;; (`:abort-requested`) / terminal pointer is NOT in flight.
+        in-flight? (and (some? prior-record)
+                        (not (work-ledger/terminal? prior-status))
+                        (not= :abort-requested prior-status))
+        pages      (:data entry)
+        next-param (state/next-param-for (:next-page-param spec) pages)
+        terminal?  (state/terminal? next-param)
+        page-index (state/page-count entry)]
+    (cond
+      ;; ----- no feed: load-more before page 0 exists — no-op --------------
+      ;; The first page is `ensure`'s page-0, not a load-more; a load-more with
+      ;; no accumulated tail has no param to derive (`next-param-for` returns
+      ;; nil on an empty/absent page vector, so this also covers a not-yet-
+      ;; loaded feed). Fail-quiet (a trace), never a spurious request.
+      (or (nil? entry) (not (state/infinite-entry? entry)) (empty? pages))
+      (do
+        (trace/emit! :rf.event :rf.resource/load-more-skipped
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :reason :no-feed :owner owner :cause cause})
+        {:rf.db/runtime runtime-db})
+
+      ;; ----- terminal: no more pages — no-op (R2) -------------------------
+      terminal?
+      (do
+        (trace/emit! :rf.event :rf.resource/load-more-skipped
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :reason :no-next-page :page-count page-index
+                      :owner owner :cause cause})
+        {:rf.db/runtime runtime-db})
+
+      ;; ----- dedupe: a page fetch is already in flight — no-op (R2) -------
+      ;; A second load-more while one is running JOINS (no new generation, no
+      ;; second request), exactly as a duplicate `ensure` does. The owner /
+      ;; cause are folded onto the live work record so the in-flight page is
+      ;; attributed to the new caller too.
+      in-flight?
+      (let [rdb' (work-ledger/update-record
+                   runtime-db prior-work work-ledger/join-owner+cause owner cause)]
+        (trace/emit! :rf.event :rf.resource/load-more-skipped
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :reason :in-flight :work/id prior-work
+                      :page-count page-index :owner owner :cause cause})
+        {:rf.db/runtime rdb'})
+
+      ;; ----- issue the next page fetch (fresh generation, APPEND) ---------
+      :else
+      (let [generation (:generation gen-allocation)
+            work-id    (work-ledger/resource-work-id scoped-key generation)
+            request-id (work-ledger/managed-request-id frame-id work-id)
+            started-at time-ms
+            deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
+            transport-id (or (:transport spec) transport/default-transport)
+            ;; transition the FEED to its in-flight status. The feed has data,
+            ;; so `entry-start-load` chooses `:fetching` (the refresh-class
+            ;; transition — pages stay visible, no skeleton); it bumps the
+            ;; generation/attempt, records `:current-work` + `:request-id`, and
+            ;; attaches the owner. The page vector is UNTOUCHED (a load-more
+            ;; never collapses the feed). Per Spec 016 §Causal event — load-more.
+            entry'     (state/entry-start-load
+                         entry {:generation generation :work-id work-id
+                                :request-id request-id :owner owner})
+            record     (work-ledger/work-record
+                         {:work-id      work-id
+                          :frame-id     frame-id
+                          :resource/key scoped-key
+                          :generation   generation
+                          :transport    transport-id
+                          :owner        owner
+                          :cause        cause
+                          :started-at   started-at
+                          :deadline-at  deadline})
+            owner-newly-attached? (and (some? owner)
+                                       (not (contains? (:active-owners entry) owner)))
+            rdb'       (-> runtime-db
+                           (assoc-in (state/entry-path scoped-key) entry')
+                           (work-ledger/put-record work-id record)
+                           (cond->
+                             owner (update-in (state/owner-index-path)
+                                              update owner (fnil conj #{}) (state/key-id scoped-key))))
+            ;; R8 — the reserved page ctx for THIS (next) page: the derived
+            ;; param at index `page-count` (an append).
+            req-ctx    (page-request-ctx next-param page-index)
+            http-args  (let [req-fn (:request spec)]
+                         (req-fn cparams req-ctx))
+            lower-fx   (do (transport/assert-managed-transport! transport-id where)
+                           (transport-http/lower
+                             {:http-args    http-args
+                              :request-id   request-id
+                              :work-id      work-id
+                              :resource/key scoped-key
+                              :scope        scope
+                              :frame-id     frame-id
+                              :generation   generation
+                              :where        where
+                              ;; page reply addressing — a page success APPENDS
+                              ;; at this index; the payload carries the resolved
+                              ;; param so the settle records it in :page-params.
+                              :on-success-id page-succeeded-reply
+                              :on-failure-id page-failed-reply
+                              :reply-payload (infinite-page-reply-payload
+                                               scoped-key scope generation
+                                               work-id next-param page-index)}))]
+        (trace/emit! :rf.event :rf.resource/load-more
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :generation generation :work/id work-id
+                      :page-param next-param :page-index page-index
+                      :page-count page-index :owner owner :cause cause})
+        (trace/emit! :rf.event :rf.resource/work-started
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :generation generation :work/id work-id
+                      :status :running :owner owner :cause cause})
+        (trace/emit! :rf.event :rf.resource/fetch-started
+                     {:rf.frame/id frame-id :resource/key scoped-key
+                      :generation generation :work/id work-id
+                      :status (:status entry') :owner owner :cause cause})
+        (when owner-newly-attached?
+          (trace/emit! :rf.event :rf.resource/owner-attached
+                       {:rf.frame/id frame-id :resource/key scoped-key
+                        :generation generation :owner owner :cause cause
+                        :work/id work-id :joined-in-flight? false}))
+        {:rf.db/runtime rdb'
+         :fx [[:rf.resource/commit-generation {:value generation}]
+              [:rf.resource/record-work-handle
+               {:frame-id frame-id :work-id work-id
+                :transport transport-id :request-id request-id}]
+              lower-fx]}))))
+
+(defn load-more-handler
+  "`:rf.resource/load-more` — extend an infinite feed by one page (EP-0021
+  R2). Computes the next page param from the feed's accumulated tail (via the
+  resource's `:next-page-param`), issues the managed request for that page with
+  the reserved page ctx `{:rf.resource/page-param p :rf.resource/page-index i}`,
+  records a work-ledger row, and transitions the feed to `:fetching` (the
+  existing refresh-class transition — the accumulated pages stay visible).
+
+  A TERMINAL feed (`:next-page-param` nil) is a no-op (`:reason :no-next-page`);
+  a load-more while a page fetch is already in flight DEDUPES against the live
+  work (`:reason :in-flight`); a load-more before page 0 exists is a no-op
+  (`:reason :no-feed`). On success the page is APPENDED (`entry-append-page`)
+  via the `:rf.resource.internal/page-succeeded` reply; a failure records
+  `:page-error` (`entry-page-failed`) via `:rf.resource.internal/page-failed` —
+  the third error channel (the feed keeps its pages). Generation + work-id
+  stale suppression protect a late page reply exactly as for any fetch. Per
+  Spec 016 §Causal event — load-more. Payload:
+  `{:resource :scope :params :owner :cause}`."
+  [cofx [_event-id payload]]
+  (load-more-loaded cofx payload {:where 'rf.resource/load-more}))
 
 ;; ---- focus / reconnect revalidation (rf2-vtblcq) --------------------------
 ;;
@@ -1802,6 +2138,192 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
+        {:rf.db/runtime rdb'}))))
+
+;; ---- infinite-feed page reply handlers (EP-0021 R1/R2) --------------------
+;;
+;; A page fetch (a first ensure's page-0, a refetch's replacement page-0, or a
+;; load-more's next page) settles through these reply handlers — DISTINCT from
+;; the scalar `succeeded-handler` / `failed-handler` because a page success
+;; APPENDS / REPLACES-IN-PLACE a single page (`entry-replace-page`, which
+;; delegates to `entry-append-page` when the index is at the tail) rather than
+;; overwriting the whole `:data`, and a page failure is the THIRD error channel
+;; (`entry-page-failed` keeps the feed + records `:page-error`). They reuse the
+;; SAME verification + stale-suppression substrate (`live-entry-for-reply` /
+;; `stale-suppress-reply`) so a superseded / cross-frame / restored-dangling
+;; page reply can NEVER append to a newer (or another frame's) feed — the
+;; monotonic generation allocator guarantees a pre-supersession page reply's
+;; generation never matches the live feed.
+
+(defn page-succeeded-handler
+  "`:rf.resource.internal/page-succeeded` — an infinite-feed page fetch
+  succeeded (EP-0021 R1/R2). Re-lifts the transport's PUBLIC reply into the
+  canonical reply map, verifies frame + `:work/id` + generation against the
+  live feed entry, and on match APPENDS / REPLACES-IN-PLACE the decoded page at
+  the reply's `:rf.resource/page-index` (`entry-replace-page` — an append when
+  the index is at the tail, the load-more / page-0 case; an in-place replace for
+  a window-preserving refetch's page-0), recording the resolved
+  `:rf.resource/page-param` in `:page-params`, recomputing `:next-page-param` /
+  `:prev-page-param`, clearing `:page-error`, and returning the feed to
+  `:loaded` (structural sharing preserves every unchanged page). A stale /
+  superseded / cross-frame page reply is SUPPRESSED — it MUST NEVER mutate a
+  newer feed. Per Spec 016 §Causal event — load-more.
+
+  Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
+  transport appends `{:kind :success :value <decoded-page>}` as the last arg;
+  the decoded page is read from there (with the `:data` durable-layer fallback
+  for direct-dispatch tests) and appended."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+   [_event-id {work-id :work/id resource-key :resource/key
+               :keys [generation]
+               page-param :rf.resource/page-param
+               page-index :rf.resource/page-index :as payload} http-result]]
+  (let [runtime-db   (or rt {})
+        page         (rreply/transport-success-value payload http-result :data)
+        completed-at time-ms
+        reply        (rreply/success-reply payload page
+                                           {:work-kind rreply/work-kind-resource
+                                            :completed-at completed-at})
+        entry        (live-entry-for-reply runtime-db frame-id payload)]
+    (if (nil? entry)
+      ;; STALE SUPPRESSION (mandatory) — a superseded / vanished / cross-frame
+      ;; page reply never appends to a newer feed. Recorded `:status :stale` /
+      ;; `:work/status :suppressed` through the shared reply substrate, exactly
+      ;; as the scalar success path does.
+      (let [stale (stale-suppress-reply runtime-db resource-key payload
+                                        {:outcome :page-success})]
+        (emit-resource-stale-suppressed!
+          frame-id resource-key work-id generation :page-success stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed {:reason :stale-reply :outcome :page-success})})
+      (let [spec      (registry/resource-meta (:resource/id entry))
+            decoded   (:value reply)
+            loaded-at (:completed-at reply)
+            stale-at  (state/stale-at-for spec loaded-at)
+            stale-delay-ms (state/positive-or-nil (:stale-after-ms spec))
+            gc-delay-ms    (state/positive-or-nil (:gc-after-ms spec))
+            entry'    (state/entry-replace-page
+                        entry {:page decoded :page-param page-param
+                               :page-index page-index
+                               :next-page-param-fn (:next-page-param spec)
+                               :prev-page-param-fn (:prev-page-param spec)
+                               :loaded-at loaded-at :stale-at stale-at})
+            poll-delay-ms (when (seq (:active-owners entry'))
+                            (state/positive-or-nil (:poll-interval-ms spec)))
+            rdb'      (-> runtime-db
+                          (assoc-in (state/entry-path resource-key) entry')
+                          (work-ledger/update-record
+                            work-id work-ledger/mark-terminal
+                            :completed {:loaded-at loaded-at :page-index page-index})
+                          (work-ledger/prune-terminal-for-key resource-key)
+                          ;; route blocking: a route-owned blocking infinite feed
+                          ;; blocks on page 0 — drain the slot when page 0 lands.
+                          (route/drain-blocking resource-key entry' :success))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-completed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation :status :completed})
+        (trace/emit! :rf.event :rf.resource/page-appended
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :page-index page-index :page-count (state/page-count entry')
+                      :next-page-param (:next-page-param entry')
+                      :terminal? (state/terminal? (:next-page-param entry'))})
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms poll-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource/key   resource-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  poll-delay-ms
+                        :server?        (state/server-frame? frame-id)}]]))))))
+
+(defn page-failed-handler
+  "`:rf.resource.internal/page-failed` — an infinite-feed page fetch failed
+  (EP-0021 R2 — the THIRD error channel). Verifies frame + work-id +
+  generation; on match the feed returns to `:loaded`, KEEPS ALL accumulated
+  pages, and records `:page-error` (`entry-page-failed`) — distinct from a
+  first-load `:error` and a whole-feed `:refresh-error`, so a view shows
+  \"couldn't load more — retry\" without losing the feed. A stale / superseded /
+  cross-frame reply is SUPPRESSED. An ABORT (`:rf.http/aborted`) is a
+  cancellation, not a page error: the feed settles to `:loaded` (data kept)
+  with NO `:page-error` written, and the work row settles `:cancelled`.
+
+  Event shape: `[_ <verification-payload> <http-result>]` — the transport
+  appends `{:kind :failure :failure <:rf.http/* envelope>}` as the last arg."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
+  (let [runtime-db   (or rt {})
+        error        (rreply/transport-failure-envelope payload http-result)
+        completed-at time-ms
+        reply        (rreply/failure-reply payload error
+                                           {:work-kind rreply/work-kind-resource
+                                            :completed-at completed-at})
+        aborted?     (= :cancelled (:status reply))
+        entry        (live-entry-for-reply runtime-db frame-id payload)]
+    (cond
+      ;; STALE SUPPRESSION (mandatory) — stale wins over the natural status
+      ;; (a stale abort settles :suppressed, never an accepted :cancelled).
+      (nil? entry)
+      (let [stale (stale-suppress-reply runtime-db resource-key payload
+                                        {:outcome (if aborted? :aborted :page-failure)})]
+        (emit-resource-stale-suppressed!
+          frame-id resource-key work-id generation
+          (if aborted? :aborted :page-failure) stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed {:reason :stale-reply
+                                       :outcome (if aborted? :aborted :page-failure)
+                                       :completed-at completed-at})})
+
+      ;; ABORT — an intentional cancellation of the page fetch. The feed keeps
+      ;; its pages and returns to :loaded WITHOUT a :page-error (a cancellation
+      ;; is not a load-more failure). The work row settles terminal :cancelled.
+      aborted?
+      (let [entry' (assoc entry :status :loaded :current-work nil)
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :cancelled {:reason :aborted :completed-at completed-at})
+                       (route/drain-blocking resource-key entry' :success))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-abort-requested
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')})
+        {:rf.db/runtime rdb'})
+
+      ;; PAGE FAILURE — the third error channel: keep the feed, record
+      ;; :page-error, return to :loaded. (`route/drain-blocking … :failure`
+      ;; only flips a blocking FIRST-load — a feed that already has pages keeps
+      ;; :loaded, so the slot drains like a success; a blocking page-0 failure
+      ;; with no prior pages surfaces the route error via entry-page-failed
+      ;; keeping :status :loaded — but a blocking infinite route blocks on page
+      ;; 0, which on first failure has no data, so drain-blocking keys on the
+      ;; entry's :status. entry-page-failed always returns :loaded, so a route
+      ;; never errors on a load-more page failure — exactly the intent.)
+      :else
+      (let [entry' (state/entry-page-failed entry {:error error})
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :failed {:error error :completed-at completed-at})
+                       (route/drain-blocking resource-key entry' :success))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-completed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation :status :failed})
+        (trace/emit! :rf.event :rf.resource/page-failed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')
+                      :page-error error})
         {:rf.db/runtime rdb'}))))
 
 (defn stale-fired-handler
