@@ -540,14 +540,26 @@
   validates + installs them atomically as part of frame creation, BEFORE
   `:on-create`. Story does not fork the classification validation; a
   malformed declaration FAILS LOUDLY at `reg-frame` time."
-  [variant-id fx-overrides {:keys [sensitive large]}]
+  [variant-id fx-overrides {:keys [sensitive large image-ids]}]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")
            :preset     :story
            :rf/story?  true
            :rf/variant variant-id}
     (seq fx-overrides) (assoc :fx-overrides fx-overrides)
     (some? sensitive)  (assoc :sensitive sensitive)
-    (some? large)      (assoc :large large)))
+    (some? large)      (assoc :large large)
+    ;; EP-0023 §Stories — report the IMAGE ids this behaviour-variant frame
+    ;; resolves behaviour against, on frame-meta, so Test mode / MCP / Xray can
+    ;; surface which behaviour set ran (rf2-fpr0b5 item 4). The actual image
+    ;; GENERATION is attached to the live frame object by `rf/make-frame` in
+    ;; `allocate!`; this slot carries the authored ids for tooling read-back.
+    (seq image-ids)    (assoc :rf/images (vec image-ids))))
+
+(defn- image-id
+  "The id of an `rf/image` value — its `:rf.image/id` slot, or nil for an
+  anonymous image (valid for local stories per EP-0023 §Public API)."
+  [image]
+  (:rf.image/id image))
 
 (defn allocate!
   "Create the variant's frame, register fx-override stubs, run
@@ -586,12 +598,47 @@
           ;; the events-only classification (rf2-043cm) doesn't depend
           ;; on the file's declaration order.
           v-body         (registrar/handler-meta :variant variant-id)
+          ;; EP-0023 §Stories — the variant's behaviour-variant IMAGES (the
+          ;; `rf/image` registration-set values its frame resolves behaviour
+          ;; against). A vector of image VALUES; nil/empty for an ordinary
+          ;; state variant (which resolves against the shared default
+          ;; registrar). rf2-fpr0b5.
+          images         (:images v-body)
           ;; rf2-bsk1d9 — thread the variant's EP-0015 frame-owned
           ;; `:sensitive` / `:large` classification onto the reg-frame config.
-          config-map     (variant-frame-config variant-id fx-overrides
-                                                (select-keys v-body [:sensitive :large]))
+          ;; rf2-fpr0b5 — plus the image ids (for frame-meta tooling read-back).
+          config-map     (variant-frame-config
+                           variant-id fx-overrides
+                           (assoc (select-keys v-body [:sensitive :large])
+                                  :image-ids (keep image-id images)))
           events-only?   (loaders/events-only-variant? v-body decorator-stack)]
-      ;; Allocate the frame.
+      ;; EP-0023 §Stories / §Frame-derived live registration resolution
+      ;; (rf2-fpr0b5 item 1) — when the variant declares behaviour-variant
+      ;; `:images`, register a live frame OBJECT under the SAME id carrying the
+      ;; resolved, sealed image GENERATION. `process-event!`'s
+      ;; `call-with-frame-resolution` then routes the whole cascade
+      ;; (event-handler lookup, cofx, fx) for any `{:frame variant-id}`
+      ;; dispatch through THIS frame's image generation rather than the global
+      ;; registrar — so two variants reuse the SAME global id with DIFFERENT
+      ;; meanings ("behavior variant -> image", EP-0023 §Stories). Image-less
+      ;; variants skip this and resolve against the shared default registrar
+      ;; exactly as before (absence-is-default). The framework's `rf/image` /
+      ;; assembly own all validation — a malformed image or a zero-match
+      ;; `:include-ns` glob FAILS LOUDLY here at frame creation.
+      ;;
+      ;; ORDER: `make-frame` FIRST — it creates the backing runnable record
+      ;; (with an empty config) under `variant-id`. The `reg-frame` below then
+      ;; SURGICAL-UPDATES that record's config with the full Story config
+      ;; (preset / fx-overrides / classification / `:rf/images`) while
+      ;; preserving the freshly-made app-db. Doing `reg-frame` first then
+      ;; `make-frame` would let `make-frame`'s backing `reg-frame …{}` clobber
+      ;; the Story config back to empty. The live-frame OBJECT (carrying the
+      ;; generation) lives in a SEPARATE registry, untouched by `reg-frame`.
+      (when (seq images)
+        (rf/make-frame {:id variant-id :images (vec images)}))
+      ;; Allocate / configure the frame (the EP-0013 runnable record carrying
+      ;; app-db / sub-cache / queue). Surgical-update when `make-frame` already
+      ;; created the backing record above.
       (rf/reg-frame variant-id config-map)
       ;; rf2-043cm — drive the lifecycle by variant shape. Events-only
       ;; variants jump straight to :ready (no skeleton ever shows);
@@ -883,6 +930,15 @@
   (->> (rf/frame-ids)
        (filter variant-frame?)
        set))
+
+(defn variant-image-ids
+  "Return the vector of behaviour-variant IMAGE ids a variant frame resolves
+  behaviour against (EP-0023 §Stories, rf2-fpr0b5), or nil for an ordinary
+  state variant that resolves against the shared default registrar. Reads the
+  `:rf/images` slot `allocate!` stamps onto frame-meta. The companion read for
+  Test mode / MCP / Xray to surface WHICH behaviour set ran."
+  [frame-id]
+  (:rf/images (rf/frame-meta frame-id)))
 
 ;; ---- variant-body lookup convenience -------------------------------------
 

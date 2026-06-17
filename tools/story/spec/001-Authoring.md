@@ -396,12 +396,71 @@ no fn-slots):
  :platforms             #{:server :client}
  :substrates            #{:reagent :uix ...}
  :modes                 #{<mode-id> ...}         ; cell = (variant × mode)
+ :images                [(rf/image {...}) ...]   ; EP-0023 behaviour-variant images — see §Behaviour-variant images
  :xray-panel           <panel-kw>               ; (rf2-v1ach) default Xray panel for the RHS embed
  :xray                 {:open?  <bool>          ;   per-story Xray preset — see §Xray preset slot
                          :panel  <panel-kw>      ;   preset: auto-select this panel on mount
                          :filters {...}
                          :focus   {...}}}
 ```
+
+### `:images` — behaviour-variant images (EP-0023)
+
+`:images` is the variant's **behaviour-variant** surface, per
+[EP-0023 §Stories](../../../docs/EP/EP-0023-image-loaded-frames.md) — the
+graduated rule: **use another frame for a STATE variant; use another image
+for a BEHAVIOUR variant.** A state variant changes only its starting memory
+(`:setup` / `:db-seed` / `:args`) while resolving behaviour against the same
+registrations; a behaviour variant changes WHICH registrations its frame runs.
+
+Each entry is an **image VALUE** built by the framework constructor
+`re-frame.core/image` — an inert, PURE selected-registration-set value (see
+[spec/API.md §App values and composition](../../../spec/API.md) and
+EP-0023 §Image). An image selects registrations by provenance namespace
+(`:include-ns ["app.checkout.v2" "app.shared.**"]`), supplies inline
+`:registrations`, declares `:replace` winners for collisions, and carries an
+optional `:id`:
+
+```clojure
+(reg-variant :story.checkout/legacy-flow
+  {:doc    "Checkout under the v1 pricing rules."
+   :images [(rf/image {:id :checkout/v1 :include-ns ["app.checkout.v1"]})]
+   :setup  [[:checkout/init]]})
+
+(reg-variant :story.checkout/new-flow
+  {:doc    "SAME story, SAME events — but the v2 pricing image."
+   :images [(rf/image {:id :checkout/v2 :include-ns ["app.checkout.v2"]})]
+   :setup  [[:checkout/init]]})
+```
+
+Both variants dispatch the SAME event ids; the runtime resolves each
+variant's behaviour through ITS OWN image, so `:checkout/init` (and every
+sub / fx the cascade touches) means different things in the two frames —
+without the global-clobber anti-pattern (no process-wide `reg-event`
+mutation between runs). The runtime threads `:images` into `rf/make-frame`
+at frame allocation (a live frame object carrying the resolved, sealed image
+generation registered under the variant id); the framework's
+`call-with-frame-resolution` routes every `{:frame variant-id}` dispatch
+through that generation ([spec/002 Dispatch resolution chain](../../../spec/002-Frames.md)
+/ EP-0023 §Frame-derived live registration resolution).
+
+A variant with NO `:images` resolves against the shared default registrar
+exactly as before (absence-is-default) — the slot is opt-in and changes
+nothing for ordinary state variants.
+
+**Validation is the framework's.** Story does not fork image validation: a
+non-image entry, a zero-match `:include-ns` glob (a typo / forgotten require
+/ stale ns), or a malformed `:replace` map FAILS LOUDLY at frame creation
+(`:rf.error/invalid-image` / `:rf.error/image-zero-match` /
+`:rf.error/image-missing-reference`). The variant body schema admits
+`:images` as a loose vector; the rigorous shape is owned by `rf/image` and
+`re-frame.image-assembly/assemble` — one source of truth, mirroring the
+`:sensitive` / `:large` precedent.
+
+The resolved image ids are reported back: the run-result map carries an
+`:images` slot (when the variant declared images) and the variant frame-meta
+carries `:rf/images` (read via `re-frame.story.frames/variant-image-ids`), so
+Test mode / MCP / Xray can surface WHICH behaviour set ran.
 
 ### `:script` — the public phase-4 surface (rf2-5x1wt.11)
 

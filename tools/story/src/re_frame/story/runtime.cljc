@@ -678,13 +678,20 @@
                     :unmet               unmet
                     :app-db              (or app-db {})
                     :elapsed-ms          (- (interop/now-ms) start-ms)})]
-    (merge unified
-           {:frame           variant-id
-            :rendered-hiccup nil       ;; Stage 4 fills this in
-            :snapshot        snapshot
-            :decorators      decorator-stack
-            :effective-args  effective-args
-            :lifecycle       (loaders/current-state variant-id)})))
+    (cond-> (merge unified
+                   {:frame           variant-id
+                    :rendered-hiccup nil       ;; Stage 4 fills this in
+                    :snapshot        snapshot
+                    :decorators      decorator-stack
+                    :effective-args  effective-args
+                    :lifecycle       (loaders/current-state variant-id)})
+      ;; EP-0023 §Stories (rf2-fpr0b5 item 4) — surface the behaviour-variant
+      ;; IMAGE ids the run resolved behaviour against, so Test mode / MCP /
+      ;; Xray can show WHICH behaviour set ran. Present only for a behaviour
+      ;; variant (one that declared `:images`); omitted for an ordinary state
+      ;; variant resolving against the shared default registrar.
+      (seq (frames/variant-image-ids variant-id))
+      (assoc :images (frames/variant-image-ids variant-id)))))
 
 (defn- resolve-runner-selection
   "Normalize the run `opts` and SELECT the runner for `plan` (rf2-baah3 —
