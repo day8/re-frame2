@@ -127,8 +127,8 @@
 
 (deftest suppress-sensitive?-default-suppresses
   (testing "by default (:rf.egress/local-redacted) sensitive events are suppressed"
-    (is (= :rf.egress/local-redacted (config/get-egress-profile)))
-    (is (false? (config/include-sensitive?)))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile))
+    (is (false? (config/include-sensitive? nil)))
     (is (true?  (config/suppress-sensitive?
                   (sensitive-dispatch-event :v/x [:auth/login])))))
   (testing "non-sensitive events are never suppressed"
@@ -138,8 +138,8 @@
 (deftest suppress-sensitive?-opts-out-under-local-raw
   (testing "under :rf.egress/local-raw, sensitive events are NOT suppressed"
     (config/set-egress-profile! :rf.egress/local-raw)
-    (is (= :rf.egress/local-raw (config/get-egress-profile)))
-    (is (true? (config/include-sensitive?)))
+    (is (= :rf.egress/local-raw @config/session-egress-profile))
+    (is (true? (config/include-sensitive? nil)))
     (is (false? (config/suppress-sensitive?
                   (sensitive-dispatch-event :v/x [:auth/login])))))
   (testing "non-sensitive events remain unsuppressed regardless of profile"
@@ -149,19 +149,19 @@
 
 (deftest configure!-wires-egress-profile
   (testing "story/configure! routes :rf.story/egress-profile to the config atom"
-    (is (= :rf.egress/local-redacted (config/get-egress-profile)) "default is local-redacted")
+    (is (= :rf.egress/local-redacted @config/session-egress-profile) "default is local-redacted")
     (story/configure! {:rf.story/egress-profile :rf.egress/local-raw})
-    (is (= :rf.egress/local-raw (config/get-egress-profile))
+    (is (= :rf.egress/local-raw @config/session-egress-profile)
         "opt-in flips the profile to the trusted-local boundary")
-    (is (true? (config/include-sensitive?)))
+    (is (true? (config/include-sensitive? nil)))
     (story/configure! {:rf.story/egress-profile :rf.egress/local-redacted})
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "passing local-redacted narrows back")
-    (is (false? (config/include-sensitive?))))
+    (is (false? (config/include-sensitive? nil))))
   (testing "configure! without the key leaves the profile untouched"
     (config/set-egress-profile! :rf.egress/local-raw)
     (story/configure! {:rf.story/editor :cursor})
-    (is (= :rf.egress/local-raw (config/get-egress-profile))
+    (is (= :rf.egress/local-raw @config/session-egress-profile)
         "the unrelated key didn't reset the profile")))
 
 (deftest configure!-rejects-unknown-egress-profile
@@ -184,20 +184,20 @@
       (let [data (ex-data e)]
         (is (= :rf.error/unknown-egress-profile (:rf.error/id data)))
         (is (= 'rf.story/configure! (:where data)))))
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "the rejected call left the profile at the redacting default")))
 
 (deftest set-egress-profile!-fail-closed-defaults
   (testing "set-egress-profile! resets nil + non-member values to the fail-closed default"
     (config/set-egress-profile! :rf.egress/local-raw)
     (config/set-egress-profile! nil)
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "nil resets to the redacting default")
     (config/set-egress-profile! :rf.egress/local-raw)
     (config/set-egress-profile! :not-a-profile)
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "a non-member value coerces fail-closed (defence-in-depth)")
-    (is (false? (config/include-sensitive?)))))
+    (is (false? (config/include-sensitive? nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Suppressed-events counter

@@ -318,13 +318,8 @@
   (let [body-keys (cond-> []
                     doc     (conj [:doc (pr-str doc)])
                     extends (conj [:extends (pr-str extends)])
-                    true    (conj [:args (pr-args-map (or args {}))]))
-        body-str  (->> body-keys
-                       (map (fn [[k v]] (str k " " v)))
-                       (str/join "\n   "))]
-    (str "(" alias "/reg-variant "
-         (pr-str (or variant-id :story.saved/example))
-         "\n  {" body-str "})")))
+                    true    (conj [:args (pr-args-map (or args {}))]))]
+    (pred/reg-variant-form alias (or variant-id :story.saved/example) body-keys)))
 
 ;; ---------------------------------------------------------------------------
 ;; Default-id derivation + dialog state shape

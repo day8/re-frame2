@@ -201,14 +201,14 @@
     (config/add-global-decorator! [:some/global-decorator])
     ;; sanity: the mutations landed
     (is (= {:theme :dark} (config/get-global-args)))
-    (is (= :rf.egress/local-raw (config/get-egress-profile)))
+    (is (= :rf.egress/local-raw @config/session-egress-profile))
     ;; …then reset and assert the pristine load-time defaults.
     (config/reset-all!)
     (is (= {}      (config/get-global-args))      "global-args → {}")
     (is (= []      (config/get-global-decorators)) "global-decorators → []")
     (is (= :vscode (config/get-editor))           "editor → :vscode")
     (is (nil?      (config/get-project-root))     "project-root → nil")
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "egress-profile → :rf.egress/local-redacted")
     (is (= 0       (config/suppressed-count :some.variant/x))
         "suppressed-counters → {}")))
@@ -227,7 +227,7 @@
       (config/set-egress-profile! :rf.egress/local-raw)
       (config/reset-all!)
       (try
-        (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        (is (= :rf.egress/local-redacted @config/session-egress-profile)
             "the profile was restored to its redacting default")
         (is (zero? @fired)
             "reset-all! restored the profile without firing the toggle-off hook")
@@ -247,7 +247,7 @@
     (is (= {} (config/get-global-args))
         "global-args is the pristine {} default — no sibling test leaked a
          configure! into this one")
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "egress-profile is the pristine :rf.egress/local-redacted default")
     ;; A variant with NO args resolves to exactly the empty global layer.
     (story/reg-variant :story.cfg/probe-a {:tags #{:test}})
@@ -268,7 +268,7 @@
             (config/reset-all! ran in the fixture between them) (rf2-6ez1u)"
     (is (= {} (config/get-global-args))
         "config-isolation-a's leaked global-args did NOT survive the reset")
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+    (is (= :rf.egress/local-redacted @config/session-egress-profile)
         "config-isolation-a's egress-profile widening did NOT survive the reset")
     (story/reg-variant :story.cfg/probe-b {:tags #{:test}})
     (is (= {} (story/resolve-args :story.cfg/probe-b))

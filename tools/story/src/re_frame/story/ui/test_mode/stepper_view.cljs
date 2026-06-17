@@ -38,6 +38,7 @@
   variant frame) but not the variant's authoring shape — same posture
   as the Re-run button (spec/009)."
   (:require [reagent.core                                  :as r]
+            [re-frame.story.predicates                     :as pred]
             [re-frame.story.ui.test-mode.stepper-pure      :as pure]
             [re-frame.story.ui.test-mode.stepper-state     :as state]
             [re-frame.story.ui.test-mode.stepper-styles    :refer [styles]]))
@@ -51,12 +52,9 @@
   (case position
     :current "▶"
     :pending "○"
-    :done    (case outcome
-               :pass  "✓"
-               :fail  "✗"
-               :skip  "⊘"
-               :event "•"
-               "•")
+    ;; Done rows show the shared assertion-outcome glyph
+    ;; (`predicates/assertion-glyph`); :event + unknown fall to the bullet.
+    :done    (get pred/assertion-glyph outcome "•")
     "·"))
 
 (defn- outcome-style [{:keys [outcome]}]

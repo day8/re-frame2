@@ -71,6 +71,7 @@
             [re-frame.story.egress :as egress]
             [re-frame.story.malli-schema :as msu]
             [re-frame.story.plan :as plan]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.review-dialog :as review-dialog]
             [re-frame.story.share :as share]
@@ -307,9 +308,8 @@
                 vid
                 {:active-modes   (:active-modes shell)
                  :cell-overrides (get-in shell [:cell-overrides vid])})]
-      (str "(story/reg-variant " (pr-str vid) "\n"
-           "  {:extends " (pr-str vid) "\n"
-           "   :args " (pr-str eff) "})"))))
+      (pred/reg-variant-form "story" vid [[:extends (pr-str vid)]
+                                          [:args (pr-str eff)]]))))
 
 ;; ---- styling -------------------------------------------------------------
 

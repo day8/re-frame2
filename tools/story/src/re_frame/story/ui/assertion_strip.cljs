@@ -54,6 +54,7 @@
             [reagent.core :as r]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.author-expectations :as author]
+            [re-frame.story.predicates :as pred]
             [re-frame.story.ui.test-mode.pure :as tm-pure]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -269,10 +270,9 @@
    :skip (:glyph-skip styles)})
 
 (def status-glyph
-  "Status-glyph map. Public so tests can pin the shape."
-  {:pass "✓"
-   :fail "✗"
-   :skip "⊘"})
+  "Status-glyph map — the shared assertion-outcome vocabulary
+  (`predicates/assertion-glyph`). Public so tests can pin the shape."
+  pred/assertion-glyph)
 
 ;; ---- rendering ------------------------------------------------------------
 
