@@ -455,6 +455,27 @@
       (catch :default _ nil)))
   nil)
 
+(defn apply-cascades-retained!
+  "Write `n` (the cascades-retained count) through to the substrate's
+  per-frame trace ring via `(rf/configure! :trace-buffer
+  {:cascades-retained N})`. This caps how many cascades each frame's
+  trace ring retains. Mirrors `apply-epoch-history!`: the published
+  `re-frame.core/configure!` API late-binds through the hook table so
+  production builds that DCE the trace artefact silently no-op.
+
+  No-op when `n` is non-numeric or non-positive (a malformed persisted
+  payload survives into here as `nil`; the substrate ignores the slot
+  rather than resetting to default). Failures degrade silently — the
+  persisted value still lives in the settings atom and the next
+  configure call lands cleanly. The UI `:min 1` keeps the framework's
+  '0 disables retention' behaviour out of reach."
+  [n]
+  (when (and (number? n) (pos? n))
+    (try
+      (rf/configure! :trace-buffer {:cascades-retained (long n)})
+      (catch :default _ nil)))
+  nil)
+
 ;; ---- panel position -----------------------------------------------------
 
 (defn apply-panel-position!
@@ -629,6 +650,13 @@
     ;; `re-frame.core/configure!` returns nil so the call is a tap-only
     ;; no-op).
     (apply-epoch-history! (get-in s [:general :epoch-history]))
+    ;; rf2-5u03ig — restore the persisted cascades-retained count so the
+    ;; substrate's per-frame trace ring matches the user's saved capacity
+    ;; BEFORE the first dispatch settles into it. No-op-safe when the
+    ;; trace artefact isn't loaded (the late-bind hook in
+    ;; `re-frame.core/configure!` returns nil so the call is a tap-only
+    ;; no-op).
+    (apply-cascades-retained! (get-in s [:buffer :cascades-retained]))
     ;; Panel-position is intentionally NOT applied at boot — the
     ;; preload's auto-open already handles the default `:right-rail`
     ;; case, and reopening into the saved position would surprise a

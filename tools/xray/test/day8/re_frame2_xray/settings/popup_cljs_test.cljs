@@ -145,7 +145,16 @@
         ;; The dead `:buffer :retained-epochs` numeric input had no
         ;; substrate consumer and was removed in the rf2-pu9sb cleanup.
         (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-retained-epochs"))
-            "Dead `:buffer :retained-epochs` numeric input is gone")))))
+            "Dead `:buffer :retained-epochs` numeric input is gone")
+        ;; rf2-5u03ig — the `:buffer :app-db/inspector-collapse-threshold`
+        ;; numeric input had no runtime consumer (the inspector already
+        ;; auto-collapses on depth/width) and was removed. The
+        ;; `:cascades-retained` field stays — it now writes through to
+        ;; `(rf/configure! :trace-buffer ...)`.
+        (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-inspector-collapse"))
+            "Inert `:buffer :app-db/inspector-collapse-threshold` input is gone")
+        (is (find-by-testid rendered "rf-xray-settings-buffer-cascades-retained")
+            "Cascades-retained field stays (now wired to :trace-buffer)")))))
 
 ;; Filters tab removed (rf2-wknb3) — filter management lives in the
 ;; top-ribbon pill strip (`filters/pills.cljs`), the per-pill edit

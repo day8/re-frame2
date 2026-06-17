@@ -121,16 +121,18 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 3. Buffer tab — epoch-history slider + two numeric knobs
-  ;; + destructive Clear (rf2-ttnst; rf2-pu9sb consolidation).
+  ;; ----- 3. Buffer tab — cascades-retained knob + destructive Clear
+  ;; (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim).
   (story/reg-variant :story.xray.settings-popup/buffer
-    {:doc        "Settings popup open on Buffer tab. Epoch history
-                 slider (range 10–500, slot `:general :epoch-history`
-                 — relocated from General per rf2-pu9sb) plus two
-                 numeric inputs (cascades-retained,
-                 inspector-collapse-threshold) plus a destructive
-                 'Clear buffer now' button. Clicking Clear opens a
-                 confirmation modal (Cancel / Clear)."
+    {:doc        "Settings popup open on Buffer tab. A single
+                 `cascades-retained` numeric input (writes through to
+                 `(rf/configure! :trace-buffer {:cascades-retained N})`
+                 per rf2-5u03ig) plus a destructive 'Clear buffer now'
+                 button. Clicking Clear opens a confirmation modal
+                 (Cancel / Clear). The epoch-history slider lives in
+                 General (relocated back from Buffer 2026-05-27); the
+                 inert inspector-collapse-threshold input was removed
+                 (rf2-5u03ig)."
      :setup      (settings-setup
                    {:trace-buffer (fixtures/n-cascades 3)
                     :selected-tab :epoch

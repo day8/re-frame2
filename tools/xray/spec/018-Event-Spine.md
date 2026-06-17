@@ -960,7 +960,7 @@ when handler + downstream flow touch overlapping paths.
 
 **Path navigator:** breadcrumb above the diff (visible always). Click any path segment in the body → breadcrumb updates + scrolls. `Copy path` copies Clojure form (`[:cart :orders 0]`).
 
-**Full-tree disclosure:** `[Show full tree ▾]` expands an `inspect`-rendered full app-db tree below the changed slices. Same renderer (so classification sentinels render uniformly). Default-collapsed nested maps; expand carets per node. Slow for huge databases — the renderer handles virtualisation per node via `:app-db/inspector-collapse-threshold` (default 20 keys).
+**Full-tree disclosure:** `[Show full tree ▾]` expands an `inspect`-rendered full app-db tree below the changed slices. Same renderer (so classification sentinels render uniformly). Default-collapsed nested maps; expand carets per node. Slow for huge databases — the renderer auto-collapses per node via the inspector's depth/width heuristics (`:default-expanded-depth`, default 8; `:max-depth`, default 16; `:max-inline-width`, default 60) rather than a single branch-factor threshold.
 
 **Empty states:**
 - No changes this cascade: "No app-db changes this cascade. (Handler was effects-only or read-only.)"
@@ -1553,7 +1553,7 @@ renders. Tabs are equal-weight; **General** is the default-on-open.
 |---|---|
 | **General** (default) | Text-size slider · Panel-width slider · Panel-position radio (`:right-rail` / `:popout` / `:fullscreen`) · Density radio (`:cosy` / `:compact`; the `:comfy` tier was dropped per 015 §Density) · Auto-open-on-error checkbox · Long-keyword treatment threshold · **`── Power user ──` divider · "Show tool frames in picker" toggle** (OFF by default; reveals `:rf/xray` etc. in ribbon picker; only useful when debugging Xray itself) · `:use-system-colors?` HCM-override toggle (relocated from Theme per rf2-ou3pn — slot stays `:general :use-system-colors?`) |
 | **Keybindings** | Read-only chord table (every binding the global keydown listener captures) · `Handle keys?` master toggle. v1 ships READ-ONLY; the per-row chord editor + reset-to-defaults UI is the v1.1 follow-on. |
-| **Buffer** | `:general :epoch-history <int>` (slider, default 50, range 10–500; slot stays under `:general` per rf2-pu9sb — only the popup home moved into Buffer) · `:buffer/cascades-retained <int>` (default 50) · `:app-db/inspector-collapse-threshold <int>` (default 20) · "Clear buffer now" button (confirm modal) |
+| **Buffer** | `:buffer/cascades-retained <int>` (default 50; writes through to `(rf/configure! :trace-buffer {:cascades-retained N})` per rf2-5u03ig) · "Clear buffer now" button (confirm modal). The epoch-history slider was briefly relocated here per rf2-pu9sb but reverted back to General 2026-05-27; the inert `:app-db/inspector-collapse-threshold` input was removed per rf2-5u03ig. |
 | **Diff** | Hiccup-diff opt-in `:highlight-fn-ref-changes?` toggle (sub-output diff layout fixed unified; the app-db diff engine itself is Editscript A* per [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §9.1.5.1 with no user-tuneable knobs — the prior section-grouping engine was retired wholesale per rf2-7is22) |
 
 ### v1 ships
