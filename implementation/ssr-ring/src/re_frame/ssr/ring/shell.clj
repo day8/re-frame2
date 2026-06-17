@@ -20,78 +20,11 @@
   breakout precursor in a token position fails loud (rf2-rdxxa). Earlier
   drafts ran the whole-EDN `escape-script-body-string`, which corrupted
   such tokens into unreadable `\\u003c…` sequences. The streaming
-  delta path applies the same encoder.
-
-  Dev-mode CSP-host warning for `:body-end` (rf2-2n5gg, security audit
-  2026-05-14 §P3.4) — `:body-end` is the escape hatch for analytics /
-  third-party scripts the shell injects RAW. When the caller supplies
-  `:csp-script-src-allowlist` (set of allowed script-src hostnames)
-  AND `:body-end` contains a `<script src=\"…\">` whose host is not
-  in the allowlist, the shell emits `:rf.ssr/csp-allowlist-violation`
-  via `re-frame.trace/emit-error!`. The check is debug-gated
-  (`interop/debug-enabled?` short-circuits in production builds per
-  Spec 009 §Production-elision verification) so prod requests pay no
-  cost. Pure defence-in-depth: the script tag still reaches the wire
-  — the warning is the signal, not a block. Callers who don't
-  configure an allowlist see no behaviour change."
-  (:require [clojure.string :as str]
-            [re-frame.interop :as interop]
-            [re-frame.ssr.constants :as constants]
-            [re-frame.ssr.html-helpers :as html]
-            [re-frame.trace :as trace]))
+  delta path applies the same encoder."
+  (:require [re-frame.ssr.constants :as constants]
+            [re-frame.ssr.html-helpers :as html]))
 
 (set! *warn-on-reflection* true)
-
-;; ---- :body-end CSP-allowlist check (rf2-2n5gg) ----------------------------
-;;
-;; Match: any `<script ... src="..."...></script>` (single OR double-quoted
-;; src). Group 1 captures the src URL. Multi-script `:body-end` is common
-;; (analytics + chat + error reporter); the scanner iterates every match.
-
-(def ^:private script-src-pattern
-  #"(?i)<script\b[^>]*\bsrc\s*=\s*(?:\"([^\"]+)\"|'([^']+)')[^>]*>")
-
-(defn- ^:private script-src-host
-  "Extract the host portion of an absolute script src. Returns nil for
-  same-origin (relative) URLs — those can't violate a remote-host
-  allowlist by definition."
-  [src]
-  (try
-    (let [uri (java.net.URI. ^String src)
-          h   (.getHost uri)]
-      (when (and h (not (str/blank? h))) h))
-    (catch Exception _ nil)))
-
-(defn check-body-end-csp-hosts!
-  "When `body-end` is non-empty AND `allowlist` is a non-empty coll,
-  scan the raw HTML for `<script src=...>` references and emit
-  `:rf.ssr/csp-allowlist-violation` (via `trace/emit-error!`) for each
-  external host not in the allowlist. Pure defensive signalling — no
-  exception, no shell rewrite. Production builds elide the whole
-  check via `interop/debug-enabled?` (Spec 009 §Production builds)."
-  [body-end allowlist]
-  (when (and interop/debug-enabled?
-             body-end
-             (seq allowlist))
-    (let [allowed (set allowlist)
-          matcher (re-matcher script-src-pattern body-end)]
-      (loop []
-        (when (.find matcher)
-          (let [src  (or (.group matcher 1) (.group matcher 2))
-                host (script-src-host src)]
-            (when (and host (not (contains? allowed host)))
-              (trace/emit-error! :rf.ssr/csp-allowlist-violation
-                {:where     :ssr-ring/default-html-shell
-                 :src       src
-                 :host      host
-                 :allowlist allowed
-                 :message   (str ":body-end carries <script src> whose host "
-                                 (pr-str host)
-                                 " is not in :csp-script-src-allowlist "
-                                 (pr-str allowed)
-                                 " — defence-in-depth warning per "
-                                 "security audit 2026-05-14 §P3.4 / rf2-2n5gg")})))
-          (recur))))))
 
 ;; ---- shared <html> attribute bag (lang fallback) --------------------------
 
@@ -175,7 +108,7 @@
     opts — the caller's adapter opts (merged with any per-request
            overrides); standard keys :head / :html-attrs / :body-attrs
            / :body-end / :script-src / :app-element-id / :lang
-           / :csp-script-src-allowlist influence the envelope.
+           influence the envelope.
 
   Trusted-string contract — per Spec 011 §Trusted shell hook contract
   (rf2-o6ndb, attribute/content split rf2-7x0qk), the four shell opts
@@ -204,22 +137,12 @@
   (rejects non-string non-nil values with
   `:rf.error/ssr-trusted-shell-opt-invalid`); the content trust
   itself is the caller's. Audit rf2-asmj1 R12 / cluster rf2-sljs1 /
-  rf2-o6ndb.
-
-  Defence-in-depth — when `:csp-script-src-allowlist` is supplied (set
-  of allowed script-src hostnames), the shell scans `:body-end` for
-  `<script src=\"…\">` whose host is NOT in the allowlist and emits
-  `:rf.ssr/csp-allowlist-violation` via `re-frame.trace/emit-error!`.
-  The check is debug-gated (production builds elide it) and never
-  blocks emission — the warning is the signal. Per rf2-2n5gg /
-  security audit 2026-05-14 §P3.4."
+  rf2-o6ndb."
   [body-html payload-edn
-   {:keys [head html-attrs body-attrs body-end script-src app-element-id lang
-           csp-script-src-allowlist]
+   {:keys [head html-attrs body-attrs body-end script-src app-element-id lang]
     :or   {app-element-id  "app"
            script-src      "/main.js"
            lang            "en"}}]
-  (check-body-end-csp-hosts! body-end csp-script-src-allowlist)
   (let [attr-bag (html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
          "<html" (html/attr-string attr-bag) ">"
