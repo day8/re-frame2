@@ -195,23 +195,18 @@
     (is (m/validate CascadeBundle
                     (assoc re-frame2-pair-cascade-bundle-fixture
                            :dispatch-id :cart/checkout))
-        "a keyword cascade id (not :ungrouped) is application-shaped and accepted"))
-  (testing "cascade-bundle topics ship under :cascades; frameless under :events"
-    ;; Cascade-bundle topics: the progress payload's slot is :cascades.
-    (let [cascade-tick {:sub-id "sub-1"
-                        :cascades [re-frame2-pair-cascade-bundle-fixture]
-                        :dropped-events 0 :dropped-bytes 0}]
-      (is (vector? (:cascades cascade-tick))
-          ":cascades slot rides as a vector on cascade-bundle topics"))
-    ;; Frameless topic: the progress payload's slot is :events with
-    ;; single trace events (no cascade structure).
-    (let [frameless-tick {:sub-id "sub-2"
-                          :events [{:operation :rf.registry/registered
-                                    :op-type :rf.registry
-                                    :tags {}}]
-                          :dropped-events 0 :dropped-bytes 0}]
-      (is (vector? (:events frameless-tick))
-          ":events slot rides on the :frameless topic — flat trace events")
-      (is (not (contains? (first (:events frameless-tick))
-                          :rf.trace/dispatch-id))
-          "frameless events carry NO :rf.trace/dispatch-id tag"))))
+        "a keyword cascade id (not :ungrouped) is application-shaped and accepted")))
+
+;; rf2-hvn83u (LOW): the former "cascade-bundle topics ship under
+;; :cascades; frameless under :events" testing block was DROPPED — it
+;; asserted `vector?` / `not contains?` over locally hand-built literal
+;; maps (`cascade-tick` / `frameless-tick`), which is tautological: the
+;; values were constructed as vectors / without the key the assertion
+;; checked for, so the block could never fail and observed no real
+;; emitter. The genuine cascade-vs-frameless distinction is pinned by the
+;; two schema-rejection `testing` blocks above (`:ungrouped` rejected on a
+;; CascadeBundle and inside a CascadeBundleVector via the `not-ungrouped?`
+;; predicate). Tying the dropped tautology to a real progress-notification
+;; subscribe-emit projection would require the heavyweight live emitter
+;; and is out of scope for the fixture-drift fix; the schema gates carry
+;; the contract.
