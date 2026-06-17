@@ -55,6 +55,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.interceptor-registry :as icpt-reg]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.realm :as realm]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
@@ -65,16 +66,22 @@
 
 (defn- default-resolve-ref
   "Resolve an authored interceptor reference (a bare keyword or `[id arg]`
-  2-vector) to its registered descriptor metadata via
-  `(rf/handler-meta :interceptor id)` — the `:interceptor` registrar kind
-  reg-interceptor populates (EP-0022). Returns the metadata map (carrying
-  the `:rf/interceptor-descriptor` slot) or nil when the id is not
-  registered / the runtime can't answer. Pure-read, fail-soft: a browse
-  catalogue must never throw on an unregistered or hot-reloaded ref."
+  2-vector) to its registered descriptor metadata via the HOST app's
+  `:interceptor` registrar — the kind reg-interceptor populates (EP-0022).
+  Returns the metadata map (carrying the `:rf/interceptor-descriptor` slot) or
+  nil when the id is not registered / the runtime can't answer. Pure-read,
+  fail-soft: a browse catalogue must never throw on an unregistered or
+  hot-reloaded ref.
+
+  Read via `host-registry/handler-meta` (the generation-bypassing default-realm
+  form), NOT a bare `(rf/handler-meta :interceptor id)`: this runs inside the
+  interceptors `registry` sub COMPUTATION, and Xray seats in its OWN
+  image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
+  image generation — a bare read would resolve through Xray's OWN image and the
+  ref enrichment would lose the host app's interceptor descriptors. See
+  `day8.re-frame2-xray.host-registry`."
   [icpt-id]
-  (try
-    (rf/handler-meta :interceptor icpt-id)
-    (catch :default _ nil)))
+  (host-registry/handler-meta :interceptor icpt-id))
 
 (defn- classify-entry
   "Classify one `:interceptors` chain entry (EP-0022, Spec 002 §Interceptor
@@ -431,11 +438,18 @@
 ;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
 
 (defn- registry-value
-  "The event-chain registry off the public `(rf/registrations :event)`
-  surface — each entry carries its interceptor chain. Default-realm read;
-  the test seam overrides this map directly."
+  "The event-chain registry off the HOST app's `:event` registrar — each entry
+  carries its interceptor chain. The test seam overrides this map directly.
+
+  Read via `host-registry/registrations` (the generation-bypassing default-realm
+  form), NOT a bare `(rf/registrations :event)`: this runs inside the
+  `:rf.xray.static.interceptors/registry` sub COMPUTATION, and Xray seats in its
+  OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
+  Xray's image generation — a bare read would resolve through Xray's OWN image
+  and the interceptor browse would lose the host app's event chains. See
+  `day8.re-frame2-xray.host-registry`."
   []
-  (try (rf/registrations :event)
+  (try (host-registry/registrations :event)
        (catch :default _ {})))
 
 (defn- realm-pairs-value

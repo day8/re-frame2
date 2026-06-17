@@ -47,6 +47,7 @@
   `[rf/frame-provider {:frame :rf/xray}]` in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
@@ -296,9 +297,17 @@
 
 (defn- registered-flows-value
   "The registered flows regrouped into the per-frame
-  `{frame-id {flow-id flow-map}}` shape from `(rf/registrations :flow)`."
+  `{frame-id {flow-id flow-map}}` shape from the HOST app's `:flow` registrar.
+
+  Read via `host-registry/registrations` (the generation-bypassing default-realm
+  form), NOT a bare `(rf/registrations :flow)`: this runs inside the
+  `:rf.xray.static.flows/registered-flows` sub COMPUTATION, and Xray seats in
+  its OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
+  Xray's image generation — a bare read would resolve through Xray's OWN image
+  (no host `:flow` ids) and the panel would show an empty flow catalogue. See
+  `day8.re-frame2-xray.host-registry`."
   []
-  (try (registrations->by-frame (rf/registrations :flow))
+  (try (registrations->by-frame (host-registry/registrations :flow))
        (catch :default _ {})))
 
 ;; ---- registrations -------------------------------------------------------

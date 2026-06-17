@@ -32,6 +32,7 @@
   reads from it. The list is small (~16 entries) and the
   duplication cost is negligible compared to the cycle-break."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.panel-registry :as panel-registry]))
 
@@ -66,17 +67,25 @@
        (mapv (fn [{:keys [id label]}] {:id id :label label}))))
 
 (defn- handler-entries
-  "Flat seq of `{:id :kind :doc :file :line}` rows from the framework
+  "Flat seq of `{:id :kind :doc :file :line}` rows from the HOST app's
   registrar. Kinds covered: :event, :sub, :fx, :cofx — the four the
   user typically wants to jump to. The registrar query is dirt-cheap
   (transient walk over an in-memory map) so the cost lives in the
-  downstream fuzzy pass."
+  downstream fuzzy pass.
+
+  Read via `host-registry/registrations` (the generation-bypassing default-realm
+  form), NOT a bare `(rf/registrations kind)`: this runs inside the
+  `:rf.xray/palette-index` sub COMPUTATION, and Xray seats in its OWN
+  image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
+  image generation — a bare read would resolve through Xray's OWN image and list
+  only Xray's `:rf.xray/*` handlers instead of the host app's. See
+  `day8.re-frame2-xray.host-registry`."
   []
   (let [kinds [:event :sub :fx :cofx]]
     (->> kinds
          (mapcat
            (fn [kind]
-             (->> (rf/registrations kind)
+             (->> (host-registry/registrations kind)
                   (map (fn [[id meta]]
                          {:id   id
                           :kind kind
