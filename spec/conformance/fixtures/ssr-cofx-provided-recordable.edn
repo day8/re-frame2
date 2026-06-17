@@ -1,0 +1,67 @@
+;; Conformance fixture: ssr/cofx-provided-recordable
+;;
+;; rf2-sb47ni — EP-0017 PROVIDED recordable cofx through the SSR/hydration
+;; replay path. SSR is one of the host-integration paths Spec 002 calls out as
+;; a place where callers supply EXACT recordable facts via the dispatch token's
+;; flat `:rf.cofx`. This fixture pins the POSITIVE replay contract: a server
+;; init handler that DECLARES a provided recordable boundary fact
+;; (`:rf.cofx/requires`) receives the value the request boundary stamped onto
+;; the token under `:rf.cofx`, flat under the cofx-id.
+;;
+;; The cofx is registered `{:recordable? true :provided? true}` — a
+;; BOUNDARY-supplied fact with NO supplier (its value is the request-time
+;; replayed fact, not a generator output). The SSR conformance runner
+;; (rf2-sb47ni) registers a provided cofx without a supplier — exercising the
+;; EP-0017 recordable semantics rather than minting an ambient supplier for it
+;; (which post-#4104 `reg-cofx` would reject as
+;; `:rf.error/cofx-registration-invalid`).
+;;
+;; The companion `ssr-cofx-missing-required.edn` fixture pins the NEGATIVE
+;; contract (the same declaration with the fact ABSENT from the token →
+;; `:rf.error/missing-required-cofx`).
+
+{:fixture/id           :ssr/cofx-provided-recordable
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
+ :fixture/doc          "EP-0017 provided recordable cofx through the SSR token: a server handler declaring `:rf.cofx/requires [:ssr.cofx/request-time]` receives the value the request boundary stamped flat on the dispatch token's `:rf.cofx`. The provided fact has no supplier; its value rides the token, not a generator. The captured value must equal the stamped fact verbatim."
+
+ :fixture/registry
+ {:event {:ssr/capture-request-time
+          {:doc       "Server handler: capture the provided recordable request-time fact delivered flat from the token."
+           :platforms #{:server}}}
+  :sub   {:ssr/captured-time {:doc "Read the captured request-time fact."}}
+  :cofx  {:ssr.cofx/request-time
+          ;; A PROVIDED recordable boundary fact — no supplier. Its value is
+          ;; the exact recordable fact the SSR request boundary stamps onto
+          ;; the dispatch token under `:rf.cofx`. The runner registers it
+          ;; without a supplier (rf2-sb47ni).
+          {:recordable? true :provided? true
+           :doc "Provided recordable request-time fact; supplied on the token under :rf.cofx."}}}
+
+ :fixture/handlers
+ {:event {:ssr/capture-request-time
+          ;; Reading `[:cofx-key :ssr.cofx/request-time]` auto-wires the
+          ;; (registered, fully-qualified) provided id onto the handler's
+          ;; `:rf.cofx/requires` and forces the event-fx shape, so the full
+          ;; coeffect context (the flat-delivered provided fact) is reachable.
+          [[:set [:captured-time] [:cofx-key :ssr.cofx/request-time]]]}
+  :sub   {:ssr/captured-time [[:get [:captured-time]]]}}
+
+ :fixture/frame-config {:platform :server}
+
+ :fixture/dispatches
+ ;; The provided recordable fact rides FLAT on the dispatch token under
+ ;; `:rf.cofx` — exactly the EP-0017 host-integration shape SSR callers use to
+ ;; supply an exact replayed fact. `:rf/time-ms` is the framework-provided
+ ;; recordable fact every token carries; `:ssr.cofx/request-time` is the
+ ;; owner-qualified provided fact this handler declares.
+ [{:event  [:ssr/capture-request-time]
+   :rf.cofx {:rf/time-ms            1781078400123
+             :ssr.cofx/request-time 1781078400123}}]
+
+ :fixture/expect
+ {:final-app-db
+  {:captured-time 1781078400123}
+
+  :sub-values
+  {[:ssr/captured-time] 1781078400123}}}
