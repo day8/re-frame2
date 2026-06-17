@@ -67,6 +67,13 @@
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as resource-subs]
             [re-frame.resources.timers :as timers]
+            ;; rf2-8x0gfa (EP-0015): the OFF-BOX trace-row egress projector for
+            ;; the resource/mutation trace family's scoped-key slots. A
+            ;; production-reachable ns (NOT the bundle-isolated tooling sibling)
+            ;; so the `:resources/project-resource-trace-egress` hook below is
+            ;; published on BOTH runtimes whenever resources is loaded — the
+            ;; epoch tool-pair consults it on every off-box record projection.
+            [re-frame.resources.trace-egress :as trace-egress]
             [re-frame.resources.work-ledger :as work-ledger]
             ;; EP-0014 slice-4 (rf2-gn9juw): the JVM-only require of the
             ;; resources tooling sibling that backs the `resource-algebra-view`
@@ -596,4 +603,17 @@
    ;; resolver-owned values once copied into trace tags). Published so the
    ;; epoch artefact reaches it without a static :require on resources.
    :resources/project-scope-resolved-egress
-   scope-registry/project-scope-resolved-egress})
+   scope-registry/project-scope-resolved-egress
+   ;; rf2-8x0gfa (EP-0015): the family-level OFF-BOX trace egress projector for
+   ;; the rest of the resource/mutation trace family — projects the scoped-key
+   ;; slots (`:resource/key` / `:resource/keys` / `:matched` / `:removed` /
+   ;; `:keys` / `:exempt` / `:committed` / the rollback `:dispositions` + the
+   ;; `:restored` / `:conflicted` / `:refetched` key vectors) through the
+   ;; resource OWNER classification, fail-closed on an unregistered owner. The
+   ;; broader-family analogue of `:resources/project-scope-resolved-egress`;
+   ;; the epoch tool-pair consults it over `:rf.resource/*` + `:rf.mutation/*`
+   ;; rows (a generic value-path walk is structurally blind to owner-local
+   ;; scoped keys once copied into trace tags). Published so the epoch artefact
+   ;; reaches it without a static :require on resources.
+   :resources/project-resource-trace-egress
+   trace-egress/project-resource-trace-egress})
