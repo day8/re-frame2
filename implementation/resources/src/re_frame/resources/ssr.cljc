@@ -366,6 +366,14 @@
                       ;; UNCHANGED so the coarse owner classification (not
                       ;; frame-presence) governs serialize-vs-redact for a pure /
                       ;; test-harness projection outside a frame scope.
+                      ;;
+                      ;; rf2-byl7bk.3.2 / EP-0021 R5: for an INFINITE feed the
+                      ;; `:data` is the framework-owned VECTOR OF PAGES, so
+                      ;; `project-data` branches on `spec`'s `:infinite` marker
+                      ;; and applies the per-page `:page-data-schema` contract
+                      ;; PER PAGE (a sensitive / large page field redacts /
+                      ;; elides on every page) rather than treating the page
+                      ;; vector as one `:data-schema`-governed value.
                       :serialize
                       (assoc entry :data
                              (classification/project-data

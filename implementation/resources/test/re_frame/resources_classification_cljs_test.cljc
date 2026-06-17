@@ -413,6 +413,124 @@
           "no raw sensitive params value rides in the wire key"))))
 
 ;; ===========================================================================
+;; 4b. infinite-feed per-page :page-data-schema egress (rf2-byl7bk.3.2)
+;; ===========================================================================
+;;
+;; EP-0021 R5 / Spec 016 §Registration — :infinite: an infinite feed's
+;; `:data` is the framework-owned VECTOR OF PAGES, and its per-page
+;; egress/classification contract is `:page-data-schema` (NOT `:data-schema`,
+;; which is unused for the accumulated vector). SSR / tool / trace projection
+;; MUST apply `:page-data-schema` PER PAGE so a sensitive / large page field is
+;; classified before it crosses a boundary. Mirrors the load-more cursor egress
+;; fix (rf2-3tysyj) but on the page BODY.
+
+(defn- infinite-entry-with-pages
+  "Build a `:loaded` infinite-feed entry for `resource-id` carrying `pages` (a
+  vector of decoded page values) as its durable `:data` page vector. Mirrors
+  the `entry` helper but seeds the `:infinite?` marker + the page-params
+  alongside the page vector so the projection's infinite branch fires."
+  [resource-id pages]
+  (merge (state/empty-infinite-entry resource-id)
+         {:status      :loaded
+          :data        (vec pages)
+          :page-params (vec (repeat (count pages) nil))
+          :loaded-at   1000
+          :stale-at    9.0e15}))
+
+(deftest project-data-applies-page-data-schema-per-page-sensitive
+  (testing "rf2-byl7bk.3.2: an :infinite resource's :data is a VECTOR of pages;
+            the per-page :page-data-schema :sensitive? mark redacts that field
+            on EVERY page — the :data-schema is NOT used for the accumulated
+            vector (EP-0021 R5)"
+    (let [spec  {:infinite         true
+                 :page-data-schema [:map
+                                    [:token {:sensitive? true} :string]
+                                    [:title :string]]}
+          pages [{:token "tok-0" :title "page-0"}
+                 {:token "tok-1" :title "page-1"}]
+          projected (classification/project-data
+                      pages spec nil :rf.egress/ssr-hydration)]
+      (is (vector? projected) "the page-vector SHAPE is preserved")
+      (is (= 2 (count projected)) "every page is preserved")
+      (is (= privacy/redacted-sentinel (:token (nth projected 0)))
+          "page-0's owner-marked :token is redacted")
+      (is (= privacy/redacted-sentinel (:token (nth projected 1)))
+          "page-1's owner-marked :token is redacted")
+      (is (= "page-0" (:title (nth projected 0))) "page-0's unmarked sibling rides")
+      (is (= "page-1" (:title (nth projected 1))) "page-1's unmarked sibling rides")
+      (is (not (str/includes? (pr-str projected) "tok-0"))
+          "no raw page-0 sensitive value rides")
+      (is (not (str/includes? (pr-str projected) "tok-1"))
+          "no raw page-1 sensitive value rides"))))
+
+(deftest project-data-applies-page-data-schema-per-page-large
+  (testing "rf2-byl7bk.3.2: a per-page :page-data-schema :large? mark ELIDES
+            that field to the :rf.size/large-elided marker on every page"
+    (let [big   (apply str (repeat 500 "x"))
+          spec  {:infinite         true
+                 :page-data-schema [:map
+                                    [:body {:large? true} :string]
+                                    [:title :string]]}
+          pages [{:body big :title "p0"} {:body big :title "p1"}]
+          projected (classification/project-data
+                      pages spec nil :rf.egress/ssr-hydration)]
+      (is (contains? (:body (nth projected 0)) :rf.size/large-elided)
+          "page-0's large field is elided to the size marker")
+      (is (contains? (:body (nth projected 1)) :rf.size/large-elided)
+          "page-1's large field is elided to the size marker")
+      (is (not (str/includes? (pr-str projected) big))
+          "no raw large page value rides"))))
+
+(deftest project-data-infinite-ignores-data-schema
+  (testing "rf2-byl7bk.3.2: an :infinite resource's :data-schema is NOT used as
+            the accumulated-vector classifier (EP-0021 R5) — only
+            :page-data-schema governs the page bodies"
+    (let [spec  {:infinite    true
+                 ;; an accidental :data-schema on an infinite resource must not
+                 ;; classify the page vector itself.
+                 :data-schema [:map [:token {:sensitive? true} :string]]}
+          pages [{:token "tok-0"}]
+          projected (classification/project-data
+                      pages spec nil :rf.egress/ssr-hydration)]
+      ;; no :page-data-schema marks → pages ride verbatim; the :data-schema
+      ;; (which would match a single page map's :token) is deliberately ignored.
+      (is (= pages projected)
+          "the page vector rides verbatim — :data-schema is not consulted for it"))))
+
+(deftest ssr-infinite-feed-redacts-sensitive-page-field-per-page
+  (reg! :feed/timeline {:infinite         true
+                        :next-page-param  (fn [_last _all] nil)
+                        :page-data-schema [:map
+                                           [:author-email {:sensitive? true} :string]
+                                           [:body :string]]})
+  (testing "rf2-byl7bk.3.2 END-TO-END: an infinite feed whose :page-data-schema
+            marks a page field :sensitive? redacts that field on EVERY page
+            during SSR projection — the page body must not ship RAW across the
+            SSR/hydration + tool/trace AI boundary (the leak this fix closes)"
+    (let [k    (state/scoped-resource-key :rf.scope/global :feed/timeline {:slug "t"})
+          e    (infinite-entry-with-pages
+                 :feed/timeline
+                 [{:author-email "alice@example.com" :body "hello"}
+                  {:author-email "bob@example.com" :body "world"}])
+          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))
+          pages  (:data we)]
+      (is (= :serialize (classification/whole-entry-disposition
+                          (rf/resource-meta :feed/timeline)))
+          "no coarse claim → :serialize (the per-page schema is the surface)")
+      (is (vector? pages) "the page-vector shape is preserved on the wire")
+      (is (= 2 (count pages)) "every accumulated page rides")
+      (is (= privacy/redacted-sentinel (get-in pages [0 :author-email]))
+          "page-0's sensitive field is redacted on the wire")
+      (is (= privacy/redacted-sentinel (get-in pages [1 :author-email]))
+          "page-1's sensitive field is redacted on the wire")
+      (is (= "hello" (get-in pages [0 :body])) "page-0's unmarked field rides verbatim")
+      (is (= "world" (get-in pages [1 :body])) "page-1's unmarked field rides verbatim")
+      (is (not (str/includes? (pr-str we) "alice@example.com"))
+          "no raw page-0 sensitive value rides anywhere on the entry")
+      (is (not (str/includes? (pr-str we) "bob@example.com"))
+          "no raw page-1 sensitive value rides anywhere on the entry"))))
+
+;; ===========================================================================
 ;; 5. load-bearing Spec 016 rules preserved (the projection contract)
 ;; ===========================================================================
 

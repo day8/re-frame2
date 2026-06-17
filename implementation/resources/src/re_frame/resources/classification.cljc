@@ -281,6 +281,28 @@
   [spec]
   (schema-marks (:data-schema spec)))
 
+(defn infinite-spec?
+  "True iff `spec` declares an infinite feed (`:infinite true` — EP-0021 R1).
+  The classification-local predicate behind `project-data`'s per-page
+  (`:page-data-schema`) vs whole-value (`:data-schema`) branch. Mirrors
+  `re-frame.resources.registry/infinite-resource?` but is defined HERE (a bare
+  `(true? (:infinite spec))` read) because `registry` already requires
+  `classification` — requiring it back would cycle (Spec 016 §Registration —
+  :infinite)."
+  [spec]
+  (true? (:infinite spec)))
+
+(defn page-data-schema-marks
+  "The per-slot `:sensitive?` / `:large?` classification an infinite resource
+  `spec`'s `:page-data-schema` declares for ONE PAGE value, as
+  `{:sensitive {path decl} :large {path decl}}` rooted at the page root (`[]`).
+  The per-page egress/classification contract (EP-0021 R5) — applied per page
+  over the accumulated `:data` vector by `project-data`, NOT over the whole
+  framework-owned page vector. Empty maps when no `:page-data-schema` or no
+  marks. Pure (modulo the memoised shared walker)."
+  [spec]
+  (schema-marks (:page-data-schema spec)))
+
 (defn params-schema-marks
   "The per-slot `:sensitive?` / `:large?` classification a resource /
   mutation `spec`'s `:params-schema` declares for its PARAMS value, as
@@ -349,26 +371,74 @@
 ;; is the FINE-GRAINED complement for a `:serialize` entry with a large leaf.
 ;; ---------------------------------------------------------------------------
 
+(defn- project-value
+  "Project ONE owner-decoded `value` (a whole resource data value, or a SINGLE
+  page of an infinite feed) for egress against `frame-id` / `boundary-profile`,
+  applying the owner per-slot `marks` (`{:sensitive {path …} :large {path …}}`,
+  rooted at the value root) in the two composed layers:
+
+    (a) the owner `:sensitive?` / `:large?` per-slot marks project through the
+        shared `re-frame.marks/redact-with-paths` walker (sensitive →
+        `:rf/redacted`, large → `:rf.size/large-elided`, sensitive wins at a
+        co-marked slot) — frame-independent;
+    (b) the result is projected through the merged frame-owned
+        `re-frame.projection/project-egress` under `boundary-profile` when a
+        `frame-id` is present, so any path the FRAME classifies composes as
+        defense-in-depth. A nil `frame-id` skips layer (b) (the owner
+        classification is the authority — see `project-data`).
+
+  No marks AND no frame → `value` rides unchanged. Pure."
+  [value marks frame-id boundary-profile]
+  (let [{:keys [sensitive large]} marks
+        owner-projected (if (or (seq sensitive) (seq large))
+                          (marks/redact-with-paths value (keys sensitive) (keys large))
+                          value)]
+    (if frame-id
+      (projection/project-egress owner-projected
+                                 {:frame             frame-id
+                                  :rf.egress/profile boundary-profile})
+      owner-projected)))
+
 (defn project-data
   "Project a resource entry's / mutation instance's serialized DATA value for
   egress across `boundary-profile` (a `:rf.egress/*` profile, e.g.
   `:rf.egress/ssr-hydration` at the SSR boundary, `:rf.egress/off-box-tool`
   at a tool boundary) against `frame-id`'s classification and the resource
-  `spec`'s OWNER per-slot `:data-schema` marks (EP-0015 §6).
+  `spec`'s OWNER per-slot classification (EP-0015 §6 / EP-0021 R5).
 
-  Two composed layers, both shared primitives:
+  THE single classification entry point for resource data egress — it branches
+  on `spec`'s `:infinite` marker so the per-page (`:page-data-schema`) vs
+  whole-value (`:data-schema`) contract is decided in one place (rather than a
+  forked parallel projector):
 
-    (a) the resource-owned `:data-schema` `:sensitive?` AND `:large?` per-slot
-        marks (`data-schema-marks`) project through the shared
+  - **Ordinary resource** (`:infinite` absent / not true): `data` is the whole
+    decoded value. The resource-owned `:data-schema` `:sensitive?` / `:large?`
+    per-slot marks (`data-schema-marks`) project over it (layer (a)), then the
+    merged frame-owned `project-egress` composes any frame-classified path
+    (layer (b)) — the existing contract.
+
+  - **Infinite feed** (`:infinite true` — EP-0021 R1/R5): `data` is the
+    FRAMEWORK-OWNED VECTOR OF PAGES, and the per-page egress/classification
+    contract is `:page-data-schema` (`page-data-schema-marks`), applied PER PAGE
+    — each page is projected through the SAME two layers (owner marks + frame
+    `project-egress`), and the page-vector SHAPE is preserved. `:data-schema` is
+    NOT consulted for the accumulated vector (R5: the framework page vector must
+    not be classified as if it were one app-decoded value, and a sensitive /
+    large page field must not bypass per-page classification). A non-vector
+    `data` on an infinite entry (an empty / not-yet-loaded feed whose `:data`
+    is `[]`, or a nil) rides through the per-page mapping harmlessly.
+
+  Both branches compose two SHARED primitives (never a family-private elider):
+
+    (a) the owner per-slot `:sensitive?` AND `:large?` marks through the shared
         `re-frame.marks/redact-with-paths` walker — `:sensitive?` slots redact
         to the `:rf/redacted` sentinel, `:large?` slots elide to the
         `:rf.size/large-elided` marker (sensitive wins at a co-marked slot) —
         the OWNER's fine-grained declaration, firing regardless of frame app-db
         classification (the CO-EQUAL counterpart to `project-params`);
-    (b) the result is projected through the merged frame-owned
-        `re-frame.projection/project-egress` (over `elide-wire-value`) under
-        `boundary-profile`, so any path the FRAME classifies composes as
-        defense-in-depth.
+    (b) the merged frame-owned `re-frame.projection/project-egress` (over
+        `elide-wire-value`) under `boundary-profile`, so any path the FRAME
+        classifies composes as defense-in-depth.
 
   When `frame-id` is nil (a frameless / pure projection — a test harness or
   a tool with no resolvable frame), layer (b) is SKIPPED and the owner-projected
@@ -377,27 +447,24 @@
   redact / omit, so a frameless serialized entry must not be over-redacted to
   the frame walker's fail-closed sentinel merely because no frame scope is
   carried (that fail-closed posture is for app-db egress, not the
-  resource-owned decision) — but the OWNER's own `:data-schema` `:sensitive?` /
+  resource-owned decision) — but the OWNER's own per-slot `:sensitive?` /
   `:large?` marks STILL fire (layer (a) is frame-independent). `spec` nil / no
-  data-schema → layer (a) is a no-op. Pure."
+  governing schema → layer (a) is a no-op. Pure."
   [data spec frame-id boundary-profile]
-  (let [{:keys [sensitive large]} (data-schema-marks spec)
-        ;; layer (a): BOTH owner axes through the SAME shared frame-independent
-        ;; `re-frame.marks/redact-with-paths` walker the CO-EQUAL `project-params`
-        ;; uses (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`,
-        ;; sensitive wins over large at the same slot). A per-slot `:data-schema`
-        ;; `:large?` leaf is therefore ELIDED to the size marker on the wire
-        ;; rather than riding RAW — the fine-grained owner complement to the
-        ;; coarse whole-resource-large `:omit` (rf2-260yhk). No marks → `data`
-        ;; rides unchanged into layer (b).
-        owner-projected (if (or (seq sensitive) (seq large))
-                          (marks/redact-with-paths data (keys sensitive) (keys large))
-                          data)]
-    (if frame-id
-      (projection/project-egress owner-projected
-                                 {:frame             frame-id
-                                  :rf.egress/profile boundary-profile})
-      owner-projected)))
+  (if (infinite-spec? spec)
+    ;; INFINITE feed (EP-0021 R5): `data` is the framework-owned page VECTOR;
+    ;; apply the per-page `:page-data-schema` contract PER PAGE, preserving the
+    ;; vector shape. `:data-schema` is deliberately NOT consulted here.
+    (let [page-marks (page-data-schema-marks spec)]
+      (if (sequential? data)
+        (mapv (fn [page] (project-value page page-marks frame-id boundary-profile))
+              data)
+        ;; a non-vector / nil `:data` (empty / not-yet-loaded feed) — project it
+        ;; as a single value so a frame layer (b) still composes; per-page marks
+        ;; rooted at the page root no-op against a non-page shape.
+        (project-value data page-marks frame-id boundary-profile)))
+    ;; ORDINARY resource: the existing whole-value `:data-schema` contract.
+    (project-value data (data-schema-marks spec) frame-id boundary-profile)))
 
 ;; ---------------------------------------------------------------------------
 ;; Params projection — the CO-EQUAL fine-grained owner surface for the scoped
