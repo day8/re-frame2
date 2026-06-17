@@ -576,7 +576,9 @@
                      "2. Frame-targeted: {:event \"[:state/transition :paying]\" :frame \":checkout\"} -> dry-run against :checkout's app-db. "
                      "3. Schema violation: {:event \"[:cart/add {:bad :shape}]\"} -> {:ok? true :dry-run? true :cascade-summary {:outcome :error ...}} — the violation surfaces in cascade-summary; the rollback still fires. "
                      "4. No-op event: {:event \"[:noop]\"} -> {:ok? false :reason :no-new-epoch :hint \"...\"}. "
-                     "5. Sensitive slot redacted by default: {:event \"[:auth/login]\"} -> {... :would-fire-effects [{:fx-id :http :args :rf/redacted}] :db-state-after-simulation {:user {:token :rf/redacted}} :elision true}.")
+                     "5. Sensitive slot redacted by default: {:event \"[:auth/login]\"} -> {... :would-fire-effects [{:fx-id :http :args :rf/redacted}] :db-state-after-simulation {:user {:token :rf/redacted}} :elision true}. "
+                     "6. Reproducible dry-run (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :cofx \"{:rf/time-ms 1781078400123}\"} -> the simulated todo's :created-at reads the scripted 1781078400123 (not a fresh stamp), so :db-state-after-simulation is DETERMINISTIC. "
+                     "7. Bad cofx: {:event \"[:x]\" :cofx \"[:not :a :map]\"} -> {:ok? false :reason :invalid-cofx :hint \"cofx must be a MAP ...\"}.")
    :typicalTokens 800
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
@@ -590,6 +592,19 @@
                                                                "fx the caller did NOT pre-stub. Use this to compose realistic "
                                                                "conditions (canned http stub, navigation redirect, etc.) without "
                                                                "losing the dry-run's roll-back guarantee.")}
+                              :cofx {:type "string"
+                                     :description (str "Reproducible dry-run (rf2-3q7gep / EP-0017): an EDN MAP of scripted "
+                                                       "recordable coeffects threaded into the simulated dispatch as :rf.cofx, "
+                                                       "e.g. \"{:rf/time-ms 1781078400123}\" (and optionally owner-qualified app "
+                                                       "facts like :counter/delta). Identical posture to dispatch's :cofx: the "
+                                                       "router PRESERVES the supplied map verbatim (filling only :rf/time-ms when "
+                                                       "absent), so a dry-run of a time-dependent or provided-cofx event runs "
+                                                       "against the EXACT causal token you intend to test rather than a freshly "
+                                                       "stamped :rf/time-ms or a :rf.error/missing-required-cofx for a provided "
+                                                       "fact. :rf/time-ms must be an integer (epoch ms); a non-map / "
+                                                       "non-integer-:rf/time-ms / unreadable value returns :reason :invalid-cofx "
+                                                       "and does NOT simulate. Omit it for the ordinary live path (the runtime "
+                                                       "stamps :rf/time-ms).")}
                               :elision {:type "boolean"
                                         :description (str "Size elision of the :db-state-after-simulation egress slot "
                                                           "(the app-db-rooted slot). Default true (markers emitted). This is the "

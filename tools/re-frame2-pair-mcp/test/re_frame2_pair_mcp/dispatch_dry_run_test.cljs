@@ -190,6 +190,119 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-3q7gep · EP-0017 — scripted recordable coeffects. Identical posture
+;; to `dispatch`'s `cofx`: the agent supplies a `cofx "{:rf/time-ms …}"`
+;; EDN map (the shared `args/parse-cofx` gate), threaded into the simulated
+;; dispatch opts under the flat `:rf.cofx` key. The router preserves it
+;; verbatim, so a time-dependent / provided-cofx event dry-runs against the
+;; EXACT causal token rather than a fresh stamp or a missing-required-cofx
+;; failure. A malformed value short-circuits before the eval.
+;; ---------------------------------------------------------------------------
+
+(deftest cofx-threaded-into-opts-under-flat-key
+  ;; The headline rf2-3q7gep case: `cofx "{:rf/time-ms 1781078400123}"`
+  ;; must appear in the emitted runtime opts under the flat `:rf.cofx`
+  ;; key, as DATA (the exact integer time), so the router preserves it
+  ;; verbatim and the simulation is reproducible — NOT a freshly stamped
+  ;; :rf/time-ms.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:todo/add {:text \"buy milk\"}]"
+                                                  :cofx "{:rf/time-ms 1781078400123}"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [form (dispatch-form forms)]
+                     (is (str/includes? form ":rf.cofx")
+                         "cofx is threaded under the :rf.cofx opts key the router reads")
+                     (is (str/includes? form ":rf/time-ms 1781078400123")
+                         "the scripted :rf/time-ms rides as the EXACT integer — emitted under :rf.cofx, not omitted/freshly stamped"))
+                   (done)))))))
+
+(deftest cofx-supports-owner-qualified-recordable-facts
+  ;; Owner-qualified recordable facts (the app's :counter/delta, a
+  ;; subsystem's :rf.route/location) ride through verbatim so an agent can
+  ;; script the recorded causal token for the simulation too.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:todo/add {:text \"x\"}]"
+                                                  :cofx "{:rf/time-ms 1700000000000 :counter/delta 4 :rf.route/location {:path \"/todos\"}}"})))
+          (.then (fn [_]
+                   (let [form (dispatch-form forms)]
+                     (is (str/includes? form ":rf.cofx"))
+                     (is (str/includes? form ":rf/time-ms 1700000000000"))
+                     (is (str/includes? form ":counter/delta 4")
+                         "an app-owned recordable fact rides through verbatim")
+                     (is (str/includes? form ":rf.route/location")
+                         "a subsystem recordable fact rides through verbatim"))
+                   (done)))))))
+
+(deftest no-cofx-arg-omits-the-opts-key
+  ;; Absent `cofx` ⇒ no `:rf.cofx` key in the emitted opts (the ordinary
+  ;; live path — the runtime stamps :rf/time-ms itself). Guards against a
+  ;; stray nil-valued slot that would defeat the router's stamp.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:counter/inc]"})))
+          (.then (fn [_]
+                   (let [form (dispatch-form forms)]
+                     (is (not (str/includes? form ":rf.cofx"))
+                         "no :rf.cofx opt when the arg is absent"))
+                   (done)))))))
+
+(deftest cofx-non-map-rejected
+  ;; A vector / scalar is valid EDN but the wrong shape — reject with
+  ;; :invalid-cofx before the eval rather than thread it into the opts.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:counter/inc]"
+                                                  :cofx "[:not :a :map]"})))
+          (.then (fn [r]
+                   (is (err? r) "a non-map cofx ⇒ :isError")
+                   (is (= :invalid-cofx (:reason (read-result-text r))))
+                   (is (nil? (dispatch-form forms))
+                       "the dispatch-dry-run eval never fired — rejected up front")
+                   (done)))))))
+
+(deftest cofx-unreadable-rejected
+  ;; Unreadable EDN (mismatched brackets) ⇒ :invalid-cofx.
+  (async done
+    (-> (with-captured-eval! (atom []) (wrap {:ok? true} 0)
+          (fn []
+            (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                           #js {:event "[:counter/inc]"
+                                                :cofx "{:rf/time-ms 1"})))
+        (.then (fn [r]
+                 (is (err? r))
+                 (is (= :invalid-cofx (:reason (read-result-text r))))
+                 (done))))))
+
+(deftest cofx-non-integer-time-ms-rejected
+  ;; :rf/time-ms must be an integer (epoch ms). A string ⇒
+  ;; :invalid-cofx-time-ms, short-circuited before the eval.
+  (async done
+    (-> (with-captured-eval! (atom []) (wrap {:ok? true} 0)
+          (fn []
+            (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                           #js {:event "[:counter/inc]"
+                                                :cofx "{:rf/time-ms \"now\"}"})))
+        (.then (fn [r]
+                 (is (err? r) "a non-integer :rf/time-ms ⇒ :isError")
+                 (is (= :invalid-cofx-time-ms (:reason (read-result-text r))))
+                 (done))))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-z7roa — privacy gate. Gate OFF (default published posture) forces
 ;; the elision walker on AND forces sensitive slots to redact; the form
 ;; must carry the walker call + the safe opts. The runtime envelope's
