@@ -1362,6 +1362,60 @@
             trace-events)
       trace-events)))
 
+(defn- resource-family-op?
+  "Whether a trace op belongs to the resource / mutation egress-record family —
+  a `:rf.resource/*` or `:rf.mutation/*` keyword whose tags may embed
+  owner-local scoped keys (rf2-8x0gfa)."
+  [op]
+  (and (keyword? op)
+       (when-let [ns* (namespace op)]
+         (or (= "rf.resource" ns*) (= "rf.mutation" ns*)))))
+
+(defn- omit-off-box-resource-trace-keys
+  "Per rf2-8x0gfa (EP-0015): redact the owner-local SCOPED KEYS embedded in the
+  BROADER resource/mutation trace family's tag slots for off-box egress — the
+  family-level companion to `omit-off-box-resource-scope-values`. The
+  `:rf.resource/*` + `:rf.mutation/*` rows copy scoped keys into `:resource/key`
+  (single key), `:resource/keys` / `:matched` / `:removed` / `:keys` /
+  `:exempt` / `:committed` / `:restored` / `:conflicted` / `:refetched`
+  (key vectors), and the optimistic-rollback `:dispositions` (per-key maps) —
+  owner-local identity-bearing values the generic value-path egress walk cannot
+  classify once copied into trace tags.
+
+  The resource family owns the family-level egress projector, consulted here
+  through the late-bound `:resources/project-resource-trace-egress` hook the
+  resources artefact publishes: it projects each scoped key through the resource
+  OWNER classification (a `:sensitive?` / `:large?` / derived-sensitive owner
+  tokenizes scope + params; an unregistered owner FAILS CLOSED), preserving the
+  structural resource-id + every non-key tag, and stamps `:sensitive? true` on a
+  row whose key it redacted. Applied to EVERY resource/mutation-family row (the
+  slot vocabulary is operation-agnostic — `resource-family-op?`), so a new row
+  carrying a known slot is covered without enumerating its op.
+
+  The owner classification resolves against `frame-id` (the record's frame —
+  the named-scope-resolver derived-sensitivity inheritance reads it; a per-row
+  `:rf.frame/id` tag, when present, takes precedence so a cross-frame row
+  classifies against its own owner).
+
+  The redaction is the off-box default; the trusted-local `:include-sensitive?`
+  opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
+  HTTP-body / scope-resolved redactions honour). No-op when no resources
+  artefact is loaded (the hook is nil — an app with no resources emits no
+  resource/mutation rows anyway). Idempotent (an opaque token re-projects to
+  itself) and nil/non-sequential-preserving."
+  [trace-events frame-id {:keys [include-sensitive?]}]
+  (if (or include-sensitive? (not (sequential? trace-events)))
+    trace-events
+    (if-let [project (late-bind/get-fn :resources/project-resource-trace-egress)]
+      (mapv (fn [ev]
+              (if (and (map? ev)
+                       (resource-family-op? (:operation ev))
+                       (map? (:tags ev)))
+                (update ev :tags project (or (:rf.frame/id (:tags ev)) frame-id))
+                ev))
+            trace-events)
+      trace-events)))
+
 (defn- elide-trace-events-slot
   "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
@@ -1386,6 +1440,12 @@
         ;; on `:rf.resource/scope-resolved` rows (fail-closed; the generic
         ;; walk below cannot classify resolver-owned values copied into tags).
         (omit-off-box-resource-scope-values opts)
+        ;; rf2-8x0gfa — redact the owner-local SCOPED KEYS embedded in the
+        ;; broader `:rf.resource/*` / `:rf.mutation/*` trace family's tag slots
+        ;; (`:resource/key` / `:resource/keys` / `:matched` / `:removed` /
+        ;; rollback `:dispositions` / …) — the family-level companion to the
+        ;; scope-resolved projector above; same fail-closed off-box default.
+        (omit-off-box-resource-trace-keys frame-id opts)
         (projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row

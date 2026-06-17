@@ -1,0 +1,305 @@
+(ns re-frame.epoch-egress-resource-trace-test
+  "Coverage for the OFF-BOX egress redaction of the BROADER resource/mutation
+  trace family's scoped-key slots inside an epoch record's `:trace-events`
+  (rf2-8x0gfa, EP-0015).
+
+  The companion to `epoch_egress_resource_scope_test` (rf2-84l82t, which covers
+  the single `:rf.resource/scope-resolved` row). The rest of the
+  `:rf.resource/*` + `:rf.mutation/*` trace family copies owner-local SCOPED
+  KEYS (`[scope resource-id params]`, embedding the resource's scope + params)
+  into trace tags:
+
+    - `:resource/key`  — a single scoped-key vector (`:rf.resource/cache-hit`,
+      the timer rows, …);
+    - `:removed` / `:matched` / `:resource/keys` / … — vectors of scoped keys
+      (`:rf.mutation/succeeded`, `:rf.resource/invalidated`, …);
+    - `:dispositions`  — the `:rf.mutation/optimistic-rolled-back` per-key maps.
+
+  A generic value-path trace egress walk
+  (`re-frame.epoch.tool-pair/elide-trace-events-slot` → `project-egress`) is
+  structurally blind to a resolver-owned scoped key's embedded scope/params once
+  copied into trace tags. The resource family owns the family-level egress
+  projector (`re-frame.resources.trace-egress/project-resource-trace-egress`),
+  published as the late-bound `:resources/project-resource-trace-egress` hook the
+  epoch tool-pair consults from `omit-off-box-resource-trace-keys`. This test
+  proves the WIRING fires end-to-end across the three slot shapes the bead names
+  (`:resource/key`, `:removed`, rollback `:dispositions`) over the three
+  classification arms EP-0015 names — sensitive params, large params, and a
+  derived-sensitive `{:from-db}` scope — and that the trusted-local
+  `:include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
+
+  resources is a TEST-ONLY dep here (production epoch never deps resources; the
+  hook is nil-safe when absent — proven by the `epoch_egress_trace_events_test`
+  suite which runs without resources)."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.epoch :as epoch]
+            [re-frame.resources.state :as state]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            ;; load-bearing: publishes the :resources/* late-bind hooks,
+            ;; including :resources/project-resource-trace-egress.
+            [re-frame.resources]
+            [re-frame.schemas]))
+
+(def ^:private secret "topsecret-PII")
+(def ^:private big-params {:blob (apply str (repeat 5000 "x"))})
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn []
+                (rf/reg-frame :test/rt {})
+                ;; a :sensitive? resource — scope + params tokenize off-box.
+                (rf/reg-resource :secret/article
+                  {:scope         :rf.scope/global
+                   :sensitive?    true
+                   :params-schema [:map [:auth-token :string]]
+                   :request       (fn [_ _] {:request {:method :get :url "/x"}})})
+                ;; a :large? resource — same redaction shape off-box.
+                (rf/reg-resource :big/blob
+                  {:scope         :rf.scope/global
+                   :large?        true
+                   :params-schema [:map [:blob :string]]
+                   :request       (fn [_ _] {:request {:method :get :url "/y"}})})
+                ;; a derived-sensitive {:from-db} scope: the owner did NOT
+                ;; declare :sensitive?, but the resolver is explicitly
+                ;; :rf.egress/sensitive (force-mark), so the entry inherits
+                ;; :redact (defence-in-depth — Spec 015 §Derived sensitivity).
+                (rf/reg-resource-scope :rt/session
+                  {:inputs  {:username [:db [:auth :user :username]]}
+                   :rf.egress/output-sensitivity :rf.egress/sensitive
+                   :resolve (fn [{:keys [username]} _]
+                              (when username [:rf.scope/session {:username username}]))})
+                (rf/reg-resource :derived/profile
+                  {:scope         {:from-db :rt/session}
+                   :params-schema [:map [:slug :string]]
+                   :request       (fn [_ _] {:request {:method :get :url "/z"}})})
+                ;; a PLAIN resource — must ride verbatim (no over-redaction).
+                (rf/reg-resource :plain/article
+                  {:scope         :rf.scope/global
+                   :params-schema [:map [:slug :string]]
+                   :request       (fn [_ _] {:request {:method :get :url "/a"}})}))}))
+
+(defn- contains-secret? [v]
+  (boolean
+    (cond
+      (string? v)  (or (= v secret) (.contains ^String v "topsecret"))
+      (map? v)     (or (some contains-secret? (keys v)) (some contains-secret? (vals v)))
+      (coll? v)    (some contains-secret? v)
+      :else        false)))
+
+(defn- sk
+  "A concrete scoped key `[scope resource-id params]` (the canonical fact
+  identity the trace rows copy into their tags)."
+  [scope resource-id params]
+  (state/scoped-resource-key scope resource-id params))
+
+(defn- redacted-component? [c]
+  (and (map? c) (contains? c :rf/redacted)))
+
+(defn- event [operation tags]
+  {:op-type :rf.event :operation operation :tags tags})
+
+(defn- record-with [trace-events]
+  {:epoch-id      1
+   :frame         :test/rt
+   :committed-at  0
+   :event-id      :go
+   :trigger-event [:go]
+   :db-before     {}
+   :db-after      {}
+   :outcome       :ok
+   :trace-events  trace-events
+   :sub-runs      []
+   :renders       []
+   :effects       []})
+
+;; ---------------------------------------------------------------------------
+;; (1) :resource/key — a single scoped-key slot (sensitive params)
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-resource-key-slot-sensitive-params
+  (testing "rf2-8x0gfa — a :rf.resource/cache-hit row's :resource/key has its
+            sensitive scope + params tokenized off-box; the resource-id +
+            structural tags survive; no raw secret egresses"
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/cache-hit
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 1 :owner [:lease :l 1] :cause :ensure})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))
+          [pscope rid pparams] (:resource/key tags)]
+      (is (= :secret/article rid) "the resource-id (position 1) survives")
+      (is (redacted-component? pscope) "the scope is tokenized")
+      (is (redacted-component? pparams) "the params are tokenized")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural attribution tags ride verbatim"
+        (is (= [:lease :l 1] (:owner tags)))
+        (is (= :ensure (:cause tags)))
+        (is (= 1 (:generation tags))))
+      (testing "no raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+;; ---------------------------------------------------------------------------
+;; (2) :removed — a scoped-keys vector slot (large params)
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-removed-keys-vector-large-params
+  (testing "rf2-8x0gfa — a :rf.mutation/succeeded row's :removed vector has each
+            scoped key's LARGE params tokenized off-box; resource-id survives"
+    (let [k1        (sk :rf.scope/global :big/blob big-params)
+          record    (record-with
+                      [(event :rf.mutation/succeeded
+                              {:rf.frame/id :test/rt :mutation :m/del :instance 1
+                               :work/id [:rf.work/mutation :m/del 1]
+                               :removed [k1]})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          [pscope rid pparams] (first (:removed tags))]
+      (is (= :big/blob rid) "the resource-id survives")
+      (is (redacted-component? pparams) "the large params are tokenized")
+      (is (or (redacted-component? pscope) (= :rf.scope/global pscope))
+          "the global scope projects to a stable token / rides")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural attribution tags ride verbatim"
+        (is (= :m/del (:mutation tags)))
+        (is (= 1 (:instance tags))))
+      (testing "no raw 5KB blob survives"
+        (is (not (re-find #"xxxxxxxxxx" (pr-str projected))))))))
+
+;; ---------------------------------------------------------------------------
+;; (3) rollback :dispositions — per-key maps (derived-sensitive {:from-db} scope)
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-rollback-dispositions-derived-sensitive-scope
+  (testing "rf2-8x0gfa — a :rf.mutation/optimistic-rolled-back row's
+            :dispositions per-key maps have their derived-sensitive scope +
+            params tokenized off-box; the boolean disposition facts survive"
+    (let [;; the resolver derives [:rf.scope/session {:username secret}] — the
+          ;; entry inherits :redact even though the owner didn't declare it.
+          scoped-key (sk [:rf.scope/session {:username secret}]
+                         :derived/profile {:slug "me"})
+          record     (record-with
+                       [(event :rf.mutation/optimistic-rolled-back
+                               {:rf.frame/id :test/rt :mutation :m/upd :instance 2
+                                :on-conflict :invalidate
+                                :dispositions [{:resource/key scoped-key
+                                                :restored     true
+                                                :conflict     false}]})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))
+          row        (first (:dispositions tags))
+          [pscope rid pparams] (:resource/key row)]
+      (is (= :derived/profile rid) "the resource-id survives")
+      (is (redacted-component? pscope) "the derived-sensitive scope is tokenized")
+      (is (redacted-component? pparams) "the params are tokenized")
+      (testing "the boolean disposition facts ride verbatim"
+        (is (true? (:restored row)))
+        (is (false? (:conflict row))))
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "no raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+;; ---------------------------------------------------------------------------
+;; (3b) nested :patch-summary — recursive projection of nested scoped keys
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-redacts-nested-patch-summary-keys
+  (testing "rf2-8x0gfa — the :rf.mutation/succeeded :patch-summary nested map
+            has its :removed key vector AND its :rollback per-key disposition
+            maps projected recursively; no raw secret leaks through the nest"
+    (let [k-rem  (sk :rf.scope/global :secret/article {:auth-token secret})
+          k-roll (sk :rf.scope/global :secret/article {:auth-token (str secret "-2")})
+          record (record-with
+                   [(event :rf.mutation/succeeded
+                           {:rf.frame/id :test/rt :mutation :m/del :instance 1
+                            :patch-summary {:patched   []
+                                            :populated []
+                                            :removed   [k-rem]
+                                            :rollback  [{:resource/key k-roll
+                                                         :revision 3}]}})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))
+          ps        (:patch-summary tags)
+          [_ rid pparams]   (first (:removed ps))
+          roll-row  (first (:rollback ps))]
+      (is (= :secret/article rid) "nested :removed resource-id survives")
+      (is (redacted-component? pparams) "nested :removed params tokenized")
+      (is (= :secret/article (second (:resource/key roll-row)))
+          "nested :rollback resource-id survives")
+      (is (redacted-component? (nth (:resource/key roll-row) 2))
+          "nested :rollback params tokenized")
+      (is (= 3 (:revision roll-row)) "nested :rollback non-key facts ride verbatim")
+      (is (true? (:sensitive? tags)) "the row is stamped sensitive (nested leak caught)")
+      (is (not (contains-secret? projected)) "no raw secret survives the nest"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) plain resource rides verbatim — no over-redaction
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-keeps-plain-resource-key-verbatim
+  (testing "rf2-8x0gfa guard — a NON-sensitive resource's scoped key rides its
+            scope + params VERBATIM off-box; the row is NOT stamped sensitive"
+    (let [scoped-key (sk :rf.scope/global :plain/article {:slug "welcome"})
+          record     (record-with
+                       [(event :rf.resource/cache-hit
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 1 :cause :ensure})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (= scoped-key (:resource/key tags))
+          "the plain scoped key rides verbatim (no over-redaction)")
+      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
+
+;; ---------------------------------------------------------------------------
+;; (5) fail-closed on an UNREGISTERED owner
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-fails-closed-on-unregistered-owner
+  (testing "rf2-8x0gfa — a scoped key naming an UNREGISTERED resource owner (the
+            spec a value-path projector would trust is absent) FAILS CLOSED:
+            its scope + params are redacted even though no :sensitive? claim
+            exists to read"
+    (let [scoped-key (sk :rf.scope/global :gone/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/cache-hit
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 1 :cause :ensure})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))
+          [pscope rid pparams] (:resource/key tags)]
+      (is (= :gone/article rid) "the resource-id survives")
+      (is (redacted-component? pparams) "params redacted (fail-closed)")
+      (is (true? (:sensitive? tags)) "stamped sensitive (fail-closed)")
+      (is (not (contains-secret? projected)) "no raw secret egresses"))))
+
+;; ---------------------------------------------------------------------------
+;; (6) the trusted-local :include-sensitive? opt-in lifts the redaction
+;; ---------------------------------------------------------------------------
+
+(deftest trusted-local-include-sensitive-keeps-raw-keys
+  (testing "rf2-8x0gfa — the trusted-local :include-sensitive? opt-in keeps the
+            raw scoped key (the local-raw boundary), across :resource/key,
+            :removed, and rollback :dispositions"
+    (let [k-hit  (sk :rf.scope/global :secret/article {:auth-token secret})
+          k-rem  (sk :rf.scope/global :big/blob big-params)
+          k-disp (sk [:rf.scope/session {:username secret}]
+                     :derived/profile {:slug "me"})
+          record (record-with
+                   [(event :rf.resource/cache-hit
+                           {:rf.frame/id :test/rt :resource/key k-hit})
+                    (event :rf.mutation/succeeded
+                           {:rf.frame/id :test/rt :removed [k-rem]})
+                    (event :rf.mutation/optimistic-rolled-back
+                           {:rf.frame/id :test/rt
+                            :dispositions [{:resource/key k-disp :restored true}]})])
+          projected (epoch/projected-record record {:include-sensitive? true})
+          [hit succ roll] (:trace-events projected)]
+      (is (= k-hit (:resource/key (:tags hit)))
+          "raw :resource/key rides with :include-sensitive?")
+      (is (= [k-rem] (:removed (:tags succ)))
+          "raw :removed vector rides with :include-sensitive?")
+      (is (= k-disp (:resource/key (first (:dispositions (:tags roll)))))
+          "raw rollback :dispositions key rides with :include-sensitive?"))))
