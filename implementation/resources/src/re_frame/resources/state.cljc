@@ -930,6 +930,197 @@
              :data          nil
              :current-work  nil))))
 
+;; ---- infinite-feed entry refinement + transitions -------------------------
+;; ---- (Spec 016 §Infinite resources and load-more feeds, EP-0021 R1/R2/R8) -
+;;
+;; An infinite feed is NOT a new entry KIND (R1) — it is the SAME durable
+;; `:rf/resource-entry` whose `:data` is refined to be the ORDERED PAGE
+;; VECTOR (one element per accumulated page, in load order). There is no
+;; sixth FSM state (R2): a load-more reuses the existing `:fetching`
+;; refresh-class transition (`entry-start-load` / `next-status`), and a
+;; load-more reply settles through these pure transitions instead of the
+;; whole-value `entry-succeeded`. The infinite-only facts the entry carries
+;; ALONGSIDE the page vector:
+;;
+;;   :infinite?       true                    — the feed marker (R1)
+;;   :data            [<page-0> <page-1> …]    — the ordered page sequence
+;;   :page-params     [nil <param-1> …]        — one per page (page-0 = nil)
+;;   :next-page-param <param-or-nil>           — recomputed each load; nil = terminal
+;;   :prev-page-param <param-or-nil>           — bidirectional mirror (R7; load-prev deferred)
+;;   :page-error      <envelope-or-nil>        — the THIRD error channel (load-more failure)
+;;
+;; `:data` / `:page-params` / `:next-page-param` are the durable facts; the
+;; merged list, `:has-next-page?`, `:fetching-next?`, `:page-count`, etc. are
+;; DERIVED in the subs layer (wave 4), never stored. The load-more EVENT
+;; (wave 3) drives `entry-append-page` / `entry-page-failed` from the work
+;; ledger reply path; these are the pure transitions it calls.
+
+(defn infinite-entry?
+  "True iff `entry` is an infinite-feed entry (`:infinite?` set). The single
+  predicate the runtime / subs read so an infinite feed is distinguished from
+  an ordinary single-value entry without re-inspecting `:data`'s shape. Per
+  Spec 016 §Durable cache shape (R1)."
+  [entry]
+  (true? (:infinite? entry)))
+
+(def initial-page-param
+  "The framework default page-param for the FIRST page (page-0) of an infinite
+  feed — `nil` (the TanStack `initialPageParam` analogue). A resource may
+  override it with an optional `:initial-page-param` registration key. Per
+  Spec 016 §Causal event — load-more (the first page is fetched with
+  `:page-param nil`)."
+  nil)
+
+(defn page-param-for-spec
+  "The page-0 param for an infinite resource `spec`: the resource's optional
+  `:initial-page-param`, or the framework default (`nil`) when none is
+  declared. The single home so the load-more event (wave 3) and the first-load
+  page-0 fetch agree. Per Spec 016 §Causal event — load-more."
+  [spec]
+  (get spec :initial-page-param initial-page-param))
+
+(defn empty-infinite-entry
+  "Construct an empty `:idle` infinite-feed entry for `resource-id` (and the
+  scoped key). Refines `empty-entry` with the infinite facts: the `:infinite?`
+  marker, the page vector / page-params seeded EMPTY (no pages yet — page-0 is
+  the first load), and the `:next-page-param` / `:prev-page-param` /
+  `:page-error` channels nil. The page vector starts `[]` (an empty,
+  not-yet-loaded feed) rather than nil so `next-param-for` / `page-count`
+  reason about a vector from the first transition. Per Spec 016 §Durable cache
+  shape (R1)."
+  ([resource-id] (empty-infinite-entry resource-id nil))
+  ([resource-id scoped-key]
+   (assoc (empty-entry resource-id scoped-key)
+          :infinite?       true
+          :data            []
+          :page-params     []
+          :next-page-param nil
+          :prev-page-param nil
+          :page-error      nil)))
+
+(defn next-param-for
+  "PURE next-page-param derivation (R8): given the resource's `:next-page-param`
+  fn `(fn [last-page all-pages] → next-param | nil)` and the accumulated
+  `pages` vector, return the NEXT page param — or `nil`, the SINGLE canonical
+  terminal (\"no more pages\"). An empty `pages` (no page loaded yet) yields
+  `nil` (there is no last page to derive from — the page-0 param comes from
+  `page-param-for-spec`, not this fn). `next-page-param-fn` is invoked with the
+  LAST loaded page and ALL pages so far (TanStack `getNextPageParam(lastPage,
+  allPages)`). The derived `:has-next-page?` is `(some? next-param)`. Per Spec
+  016 §Registration — :infinite / §Causal event — load-more."
+  [next-page-param-fn pages]
+  (when (and next-page-param-fn (seq pages))
+    (next-page-param-fn (peek pages) pages)))
+
+(defn prev-param-for
+  "PURE prev-page-param derivation (R7 bidirectional MIRROR): given the
+  resource's optional `:prev-page-param` fn `(fn [first-page all-pages] →
+  prev-param | nil)` and the accumulated `pages`, return the PREV page param
+  (computed from the FIRST page) — or `nil`. The mirror is defined NOW (it is
+  free — the same machinery as `next-param-for`); the prepend EVENT
+  (`:rf.resource/load-prev`) is DEFERRED, so v1 never advances backward, but
+  `:has-prev-page?` is observable. Returns nil when no `:prev-page-param` fn is
+  declared or no page is loaded. Per Spec 016 §Causal event — load-more (R7)."
+  [prev-page-param-fn pages]
+  (when (and prev-page-param-fn (seq pages))
+    (prev-page-param-fn (first pages) pages)))
+
+(defn terminal?
+  "PURE: true iff a feed whose derived `next-param` is the single canonical
+  terminal `nil` has reached the end (no more pages). The complement of the
+  derived `:has-next-page?` (`(some? next-param)`). The single home so the
+  load-more event's no-op-on-terminal check and the subs `:has-next-page?`
+  projection agree on the terminal rule. Per Spec 016 §Registration — :infinite
+  (nil is the SINGLE terminal)."
+  [next-param]
+  (nil? next-param))
+
+(defn page-count
+  "PURE: the number of accumulated pages in an infinite feed `entry` (the
+  derived `:page-count`). Reads the `:data` page vector length; total over an
+  ordinary (nil `:data`) entry (0). Per Spec 016 §Subscription contract."
+  [entry]
+  (count (:data entry)))
+
+(defn entry-append-page
+  "PURE infinite-feed APPEND transition (R1/R2): append a freshly-fetched,
+  decoded `page` (with its resolved `page-param`) to the feed `entry`, advance
+  the cursor, and return the feed to `:loaded`. The single durable mutation a
+  successful load-more performs:
+
+    - APPEND `page` to the `:data` page vector (structural sharing keeps every
+      PRIOR page identical — only the appended page is new, Spec 016 §Durable
+      cache shape);
+    - APPEND `page-param` to `:page-params` (one per page; page-0's param is
+      whatever the page-0 fetch used — `page-param-for-spec`);
+    - RECOMPUTE `:next-page-param` from the new tail via `next-page-param-fn`
+      (`nil` = the terminal — `:has-next-page?` then derives false) and
+      `:prev-page-param` from the head via `prev-page-param-fn`;
+    - CLEAR `:page-error` (a successful load-more clears the prior load-more
+      failure, Spec 016 §Causal event — load-more);
+    - re-stamp `:loaded-at` / `:stale-at` and return to `:loaded` (the feed was
+      `:fetching` during the load-more — the accumulated pages stayed visible),
+      clear `:current-work`, and bump the per-entry `:revision` UNCONDITIONALLY
+      (this is an authoritative durable write — EP-0019 / byl7bk).
+
+  `opts`: `{:page …  :next-page-param-fn …  :prev-page-param-fn …  :page-param …
+            :loaded-at …  :stale-at …}` — `:page` is the decoded page to append.
+  A nil `entry` is returned unchanged (there is nothing to append to — a
+  missing feed entry). Per Spec 016 §Causal event — load-more (R2) / §Durable
+  cache shape (R1)."
+  [entry {:keys [page next-page-param-fn prev-page-param-fn page-param loaded-at stale-at]}]
+  (if entry
+    (let [pages' (conj (or (:data entry) []) page)]
+      (-> entry
+          (assoc :status          :loaded
+                 :data            pages'
+                 :page-params     (conj (or (:page-params entry) []) page-param)
+                 :next-page-param (next-param-for next-page-param-fn pages')
+                 :prev-page-param (prev-param-for prev-page-param-fn pages')
+                 :page-error      nil
+                 :refresh-error   nil
+                 :loaded-at       loaded-at
+                 :stale-at        stale-at
+                 :invalidated-at  nil
+                 :current-work    nil)
+          bump-revision))
+    entry))
+
+(defn entry-page-failed
+  "PURE infinite-feed LOAD-MORE FAILURE transition: a load-more page fetch
+  (page N>0) failed. UNLIKE a first-load failure (`entry-failed` → `:error`,
+  no data) and a whole-feed refresh failure (`entry-failed` → `:loaded`,
+  `:refresh-error`), a load-more failure is the THIRD error channel: the feed
+  returns to `:loaded`, KEEPS ALL accumulated pages (the page vector + cursor
+  are untouched), and records `:page-error` — so a view shows \"couldn't load
+  more — retry\" without losing the feed. `:page-error` is cleared by the next
+  successful load-more or whole-feed load. Clears `:current-work`. A nil entry
+  is returned unchanged. Per Spec 016 §Causal event — load-more (the third
+  error channel)."
+  [entry {:keys [error]}]
+  (if entry
+    (assoc entry
+           :status       :loaded
+           :page-error   error
+           :current-work nil)
+    entry))
+
+(defn resolve-page->items
+  "PURE: resolve a feed's `:page->items` accessor (a keyword key or a
+  `(fn [page] → seq-of-items)`) into a fn `(page → seq-of-items)`. A keyword is
+  lifted to its `get` accessor. When `page->items` is nil, returns nil — the
+  caller (the merge site, wave 4) then applies the IDENTITY-flatten rule for a
+  vector page and raises `:rf.error/infinite-missing-page-accessor` for a
+  non-vector page (R3, loud over guessing). The single home so the registry
+  shape-validation and the wave-4 merge agree on what shapes are accepted. Per
+  Spec 016 §Subscription contract (R3)."
+  [page->items]
+  (cond
+    (nil? page->items)     nil
+    (keyword? page->items) #(get % page->items)
+    (fn? page->items)      page->items
+    :else                  nil))
+
 ;; ---- reverse-index recompute (Spec 016 §Restore and replay part 5) --------
 ;;
 ;; `:tag-index` and `:owner-index` are DERIVED projections of the entries'
