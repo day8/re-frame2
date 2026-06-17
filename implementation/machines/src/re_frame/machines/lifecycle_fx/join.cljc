@@ -32,6 +32,7 @@
   (:require [re-frame.machines.parallel :as parallel]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.paths :as paths]
+            [re-frame.machines.reply :as m-reply]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
@@ -161,6 +162,42 @@
      :resolution-event resolution-event
      :join-event-kw    join-event-kw}))
 
+(defn- decisive-child-reply-facts
+  "rf2-d63qtp — build the reply-envelope facts for the DECISIVE child
+  completion that drove a `:spawn-all` join resolution, ready to ride
+  ADDITIVELY on the resolution trace (Managed-Effects §Tracing /
+  §Status taxonomy). The decisive child's completion IS the managed-async
+  completion that resolved the join, so it lowers through the shared
+  `join-child-reply` (`:status :ok` for the `:done`-side resolutions,
+  `:status :error` for the `:on-any-failed` resolution) — the same uniform
+  vocabulary the single-`:spawn` `:rf.machine/done` reply carries. Returns
+  a tag-map fragment `{:work/id … :rf.reply/status … …}` to merge into the
+  resolution trace, or `{}` when no decisive child is resolvable.
+
+  `kind` is the arriving child's fold kind (`:done` / `:failed`);
+  `child-extra` is its forwarded payload (the `:value` for a `:done`,
+  the error for a `:failed`)."
+  [frame-id parent-id invoke-id join-state'' child-id kind child-extra completed-at]
+  (let [spawned-id (get-in join-state'' [:children child-id])
+        reply      (m-reply/join-child-reply
+                     {:parent-id    parent-id
+                      :invoke-id    invoke-id
+                      :child-id     child-id
+                      :spawned-id   spawned-id
+                      :frame        frame-id
+                      :completed-at completed-at}
+                     kind child-extra)
+        summary    (m-reply/trace-reply reply {:frame frame-id})]
+    (cond-> {:work/id              (:work/id summary)
+             :work/kind            (:work/kind summary)
+             :rf.reply/status      (:status summary)
+             :rf.reply/work-id     (:work/id summary)
+             :rf.reply/work-status (:work/status summary)
+             :rf.reply/correlation (:correlation summary)}
+      (some? (:completed-at summary))
+      (assoc :completed-at          (:completed-at summary)
+             :rf.reply/completed-at (:completed-at summary)))))
+
 (defn- emit-resolution-traces!
   "Fire the post-resolution observability traces in order: any-failed,
   all-completed, or some-completed.
@@ -169,31 +206,48 @@
   (`re-frame.epoch.capture/capture-event!` silently drops events whose
   tags lack `:frame`). The caller threads `frame-id` (resolved from
   `(:rf/frame machine)` at the interceptor's entry) so the join
-  resolution traces reach the cascade's `:trace-events` slot."
-  [frame-id parent-id invoke-id spec join-state'' child-id child-extra
+  resolution traces reach the cascade's `:trace-events` slot.
+
+  rf2-d63qtp — the DECISIVE child completion that drove the resolution
+  lowers through the shared `join-child-reply`; its reply-envelope facts
+  (`:work/id`, `:rf.reply/status`, `:rf.reply/work-status`, the causal
+  `:completed-at`) ride ADDITIVELY on the resolution trace, so the
+  join-resolving child completion classifies the same way the
+  single-`:spawn` path does. The public resolution-trace shape
+  (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`) is
+  preserved."
+  [frame-id parent-id invoke-id spec join-state'' child-id child-extra completed-at
    {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
     (trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
-                 {:actor-id parent-id
-                  :invoke-id invoke-id
-                  :failed-id  child-id
-                  :reason     child-extra
-                  :failed     (:failed join-state'')
-                  :done       (:done   join-state'')
-                  :frame      frame-id}))
+                 (merge {:actor-id parent-id
+                         :invoke-id invoke-id
+                         :failed-id  child-id
+                         :reason     child-extra
+                         :failed     (:failed join-state'')
+                         :done       (:done   join-state'')
+                         :frame      frame-id}
+                        (decisive-child-reply-facts
+                          frame-id parent-id invoke-id join-state''
+                          child-id :failed child-extra completed-at))))
   (when success-fired?
-    (if (= :all (:join spec :all))
-      (trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
-                   {:actor-id parent-id
-                    :invoke-id invoke-id
-                    :done       (:done join-state'')
-                    :frame      frame-id})
-      (trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
-                   {:actor-id parent-id
-                    :invoke-id invoke-id
-                    :done       (:done join-state'')
-                    :join       (:join spec)
-                    :frame      frame-id}))))
+    (let [reply-facts (decisive-child-reply-facts
+                        frame-id parent-id invoke-id join-state''
+                        child-id :done child-extra completed-at)]
+      (if (= :all (:join spec :all))
+        (trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
+                     (merge {:actor-id parent-id
+                             :invoke-id invoke-id
+                             :done       (:done join-state'')
+                             :frame      frame-id}
+                            reply-facts))
+        (trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
+                     (merge {:actor-id parent-id
+                             :invoke-id invoke-id
+                             :done       (:done join-state'')
+                             :join       (:join spec)
+                             :frame      frame-id}
+                            reply-facts))))))
 
 (defn- build-resolution-fx
   "Build the fx vector to fire on resolution: per-survivor
@@ -276,7 +330,15 @@
         ;; AND used inline for the late-completion + bad-child-id error
         ;; traces — all of these are dropped by epoch-capture without
         ;; `:frame`.
-        frame-id (:rf/frame machine)]
+        frame-id (:rf/frame machine)
+        ;; rf2-d63qtp — the CAUSAL completion timestamp of the child's
+        ;; finishing dispatch (the router-stamped `:rf/time-ms` off the
+        ;; machine def's `:rf.cofx`, threaded by prepare-machine-ctx). Rides
+        ;; the reply-envelope join-child / late-completion facts the same way
+        ;; the single-`:spawn` `:rf.machine/done` reply carries it
+        ;; (Managed-Effects §Causal completion metadata). nil for a pure-fn /
+        ;; no-cofx caller — then omitted, not nil-filled.
+        completed-at (get-in machine [:rf/cofx :rf/time-ms])]
     (when match
       (let [{:keys [spec kind] invoke-id :invoke-id} match
             ;; Per Spec 005 §Spawn-and-join: child dispatches
@@ -301,14 +363,49 @@
 
           ;; Already resolved: ignore late-completion. Trace once for
           ;; observability so tools can correlate.
+          ;;
+          ;; rf2-d63qtp — the post-resolution late completion is a STALE
+          ;; suppression the reply-envelope way (Managed-Effects §Stale
+          ;; suppression): the join is latched `:resolved?`, so the late
+          ;; child fold MUST NOT mutate it (no app effect) — exactly the
+          ;; §Stale suppression contract. Build the canonical
+          ;; `stale-join-child-reply` (`:status :stale` / `:work/status
+          ;; :suppressed`, work-id keyed on the child's spawned instance)
+          ;; and ride its facts ADDITIVELY on the existing late-completion
+          ;; trace, so a suppressed late join-child completion classifies
+          ;; the same way the single-`:spawn` stale path + the `:after`
+          ;; stale-suppression trace do. The public trace shape
+          ;; (`:actor-id` / `:invoke-id` / `:child-id` / `:kind`) is
+          ;; preserved; the drop behaviour is unchanged (no-op fx).
           (:resolved? join-state)
-          (do (trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
-                           {:actor-id parent-id
-                            :invoke-id invoke-id
-                            :child-id   child-id
-                            :kind       kind
-                            :frame      frame-id})
-              {:rf.db/runtime runtime-db :fx []})
+          (let [spawned-id (get-in join-state [:children child-id])
+                stale-reply (m-reply/stale-join-child-reply
+                              {:parent-id    parent-id
+                               :invoke-id    invoke-id
+                               :child-id     child-id
+                               :spawned-id   spawned-id
+                               :frame        frame-id
+                               :completed-at completed-at}
+                              kind)
+                summary    (m-reply/trace-reply stale-reply {:frame frame-id})]
+            (trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
+                         (cond-> {:actor-id parent-id
+                                  :invoke-id invoke-id
+                                  :child-id   child-id
+                                  :kind       kind
+                                  :frame      frame-id
+                                  ;; reply-envelope vocabulary (Managed-Effects §9)
+                                  :work/id               (:work/id summary)
+                                  :work/kind             (:work/kind summary)
+                                  :rf.reply/status       (:status summary)
+                                  :rf.reply/work-id      (:work/id summary)
+                                  :rf.reply/work-status  (:work/status summary)
+                                  :rf.reply/stale-reason (:stale/reason summary)
+                                  :rf.reply/correlation  (:correlation summary)}
+                           (some? (:completed-at summary))
+                           (assoc :completed-at          (:completed-at summary)
+                                  :rf.reply/completed-at (:completed-at summary))))
+            {:rf.db/runtime runtime-db :fx []})
 
           ;; Forged / unknown child-id: the inbound `child-id` is NOT in
           ;; the seeded `:children` map. The accident class is a
@@ -339,7 +436,7 @@
                 resolution   (compute-resolution spec join-state' kind)
                 join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
             (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
-                                     child-id child-extra resolution)
+                                     child-id child-extra completed-at resolution)
             (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                           child-id child-extra resolution)]
               {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')
