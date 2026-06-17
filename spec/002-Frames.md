@@ -499,7 +499,7 @@ Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destro
 
 Atomic create-and-register. There is no way to obtain an unregistered frame; this matches the rest of re-frame's `reg-*` family and avoids orphan-frame states. The return value (the registered frame keyword) follows the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
-This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--anonymous-make-frame) — refer to the keys defined here; they do not re-define them.
+This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor) — refer to the keys defined here; they do not re-define them.
 
 `reg-frame` accepts a metadata map mirroring other registrations:
 
@@ -704,7 +704,7 @@ Use case: story / variant frames (per the post-v1 [007-Stories](007-Stories.md) 
 
 Server-side handler exceptions surface through the dedicated server error projection (per [011 §Server error projection](011-SSR.md#server-error-projection)) — driven by the registered error projector consuming the always-on error stream, not by any frame-config slot.
 
-The `:on-create` event is **user-supplied** rather than preset-defaulted. The standard pattern is `(rf/make-frame {:preset :ssr-server :on-create [:rf/server-init request]})` — the user owns the init event so the request payload can be threaded through (see [011-SSR](011-SSR.md)). The framework does not ship a `:rf/server-init` handler.
+The `:on-create` event is **user-supplied** rather than preset-defaulted. The standard pattern is `(rf/reg-frame :ssr/request {:preset :ssr-server :on-create [:rf/server-init request]})` — the user owns the init event so the request payload can be threaded through (see [011-SSR](011-SSR.md)). The framework does not ship a `:rf/server-init` handler. (`:preset` and `:on-create` are **record-config** keys: they ride `reg-frame` and the advanced record-config `re-frame.frame/make-frame`, not the EP-0023 object constructor `rf/make-frame`, which takes `:images` and fails loud on a record-only key — see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor).)
 
 Use case: per-request server-side render frame (per [011-SSR.md](011-SSR.md)).
 
@@ -732,37 +732,39 @@ The four above are the **closed v1 set**. Adding a fifth preset is a Spec-change
 
 This is a deliberate constraint — it prevents preset proliferation and makes the four presets canonical for AI scaffolding (an AI reading the spec sees the closed set and chooses from it).
 
-#### `:preset` works on `make-frame` too
+#### `:preset` is a record-config key
 
-Anonymous frames (per [§Per-instance frames](#per-instance-frames--anonymous-make-frame)) accept `:preset` in their opts map identically:
+`:preset` is a **record-config** key, so it rides `reg-frame` (the front-porch named path) and the advanced record-config `re-frame.frame/make-frame` (which gensyms a `:rf.frame/<gensym>` id) — applied with the same expansion algorithm and the same conflict-resolution rule:
 
 ```clojure
-(rf/make-frame {:preset :test
-                :on-create [:counter/init]})
-;; → :rf.frame/<gensym>  with the :test preset's expansion applied
+(re-frame.frame/make-frame {:preset :test
+                            :on-create [:counter/init]})
+;; → a record-config frame with the :test preset's expansion applied
 ```
 
-Symmetric with `reg-frame`; same expansion algorithm; same conflict-resolution rule.
+It is **not** an opt on the EP-0023 object constructor `rf/make-frame` (per [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)): that constructor builds from `:images` and raises `:rf.error/make-frame-record-only-key` on any record-only key, `:preset` included.
 
-### Per-instance frames — anonymous `make-frame`
+### Per-instance frames — `make-frame` (the EP-0023 object constructor)
 
-Some use cases need a frame *per mount* rather than a named singleton — devcards, modal stacks, multiple live instances of a `[counter-widget]`, dynamic tabs. The keyword-identity scheme would make per-mount unique IDs awkward without a helper, so re-frame2 ships `make-frame` alongside `reg-frame`:
+Some use cases need a frame *per mount* rather than a named singleton — devcards, modal stacks, multiple live instances of a `[counter-widget]`, dynamic tabs. For these, re-frame2 ships `make-frame` alongside `reg-frame`. Per [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md), `make-frame` is the **object constructor**: it builds a live frame from an `:images` vector and **returns the runnable live frame object** (not a gensym keyword). `dispatch` / `subscribe` / `destroy-frame!` accept the object directly (or its `:id`).
 
 ```clojure
-(rf/make-frame opts) → :rf.frame/123     ;; gensyms a unique keyword, registers, returns it
-(rf/destroy-frame! :rf.frame/123)         ;; same destroy as named frames
+(rf/make-frame {:images [counter-image]}) → #frame{…}   ;; returns the LIVE FRAME OBJECT
+(rf/destroy-frame! frame)                                ;; the object (or its :id) destroys it
 
-(rf/reg-event :counter/init (fn [_ _] {:db {:count 0}}))    ;; init event registered once
+(rf/reg-frame :counter {:on-create [:counter/init]})     ;; the front-porch named path is unchanged
 
 (defn counter-widget [label]
-  (r/with-let [f (rf/make-frame {:on-create [:counter/init]})]
+  (r/with-let [f (rf/make-frame {:images [counter-image] :initial-db {:count 0}})]
     [rf/frame-provider {:frame f}
      [counter-view label]]
     (finally
       (rf/destroy-frame! f))))
 ```
 
-`make-frame` shares the `reg-frame` code path; the only difference is the generated keyword (with a `:rf.frame/` namespace to avoid colliding with user-chosen names). The naming pun parallels `gensym` vs. explicit symbols. Lifecycle is the user's responsibility — pair `make-frame` with a `destroy-frame!` in `:finally` of `r/with-let` (or equivalent unmount hook).
+The opts map accepts `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the process-local live-frame registry, fail-loud on a duplicate id), `:initial-db` (seed app-db state), `:capabilities`, and `:adapter`. A frame created **without** an `:id` is a direct local reference that bypasses the registry — appropriate for local tests and harnesses where the frame is created, used, and discarded in one scope (per [EP-0023 §Frame](../docs/EP/EP-0023-image-loaded-frames.md): a registration id like `:counter/inc` can be reused across images; a live frame id cannot name two live registered frames at once).
+
+**Record-only config keys fail loud.** `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, and the like are **record-config** keys; passing one to the object constructor `rf/make-frame` raises `:rf.error/make-frame-record-only-key` rather than silently dropping it. That record-config surface (with the gensym-id behaviour the old per-instance helper had) lives on the advanced `re-frame.frame/make-frame`; the front-porch `reg-frame` carries it for named frames. Lifecycle is the caller's responsibility — pair `make-frame` with a `destroy-frame!` in `:finally` of `r/with-let` (or equivalent unmount hook). The canonical signature row is [API §Registration — `make-frame`](API.md#registration); the `image → frame → event stream` model it constructs is owned by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) and [§Frames reference realms](#frames-reference-realms).
 
 Tests use this pattern as their fixture lifecycle:
 
@@ -770,9 +772,9 @@ Tests use this pattern as their fixture lifecycle:
 (rf/reg-event :auth/init-idle (fn [_ _] {:db {:auth/state :idle}}))
 
 (deftest auth-flow
-  (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (let [f (rf/make-frame {:images [auth-image] :initial-db {:auth/state :idle}})]
     (try
-      (rf/dispatch-sync [:auth/login-pressed] {:frame f})
+      (rf/dispatch-sync f [:auth/login-pressed])
       (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))
       (finally
         (rf/destroy-frame! f)))))
@@ -1426,14 +1428,14 @@ Use case: REPL sessions, tests that share a fixture across multiple `deftest` bl
 #### `with-new-frame` — create, bind, use, destroy
 
 ```clojure
-(rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init]})]
+(rf/with-new-frame [f (rf/make-frame {:images [auth-image]})]
   (rf/dispatch-sync [:auth/login])
   (is (= :authenticated (get-in (rf/app-db-value f) [:auth :state]))))
 ```
 
-Used when the frame's lifetime is exactly the body. The macro evaluates `expr`, binds the resulting frame keyword to `sym`, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception).
+Used when the frame's lifetime is exactly the body. The macro evaluates `expr`, binds the resulting frame (the EP-0023 `make-frame` returns the live frame object) to `sym`, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception).
 
-The expression may be `(make-frame opts)`, `(reg-frame :id opts)` (returns the keyword), or any expression returning a frame keyword. The macro destroys whatever was bound on exit.
+The expression may be `(make-frame opts)` (returns a frame object), `(reg-frame :id opts)` (returns the keyword), or any expression returning a frame object or frame keyword. The macro destroys whatever was bound on exit.
 
 `with-new-frame` rejects a keyword argument at compile time (`:rf.error/with-new-frame-keyword-form`) — pass a `[sym expr]` vector. If you only want to pin to an existing frame-id, reach for `with-frame`.
 
@@ -2329,7 +2331,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
 | The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context | [§View ergonomics](#view-ergonomics-the-hard-part), [011-SSR.md](011-SSR.md) |
 | Plain Reagent fns can't read the surrounding `frame-provider`'s frame; an ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; supersedes the old warn-once) | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-the-footgun-is-now-a-loud-error) |
-| Per-instance frames via anonymous `make-frame` for per-mount lifecycles | [§Per-instance frames — anonymous `make-frame`](#per-instance-frames--anonymous-make-frame) |
+| Per-instance frames via the EP-0023 object constructor `make-frame` for per-mount lifecycles | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`; frame-level `:interceptors` ref chain (per-call additive `:interceptors` removed — EP-0022) | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
 | Registered interceptors (EP-0022): event/frame `:interceptors` carry serializable interceptor **refs** (bare keyword or `[id arg]`), not inline values; `:interceptor-overrides` matches by exact canonical reference (replace with another ref, or `nil` to remove); effective ordering frame-refs → event-refs → handler-wrapper → subsystem dispatch-time interceptors; refs resolve at chain assembly (registration-time + app-value validation; dispatch-time defensive guard); one standard interceptor `[:rf.interceptor/path path-vector]` (the canonical `:factory` consumer) preserving the frame-commit `identical?` no-op; no standard `unwrap` | [§Registered interceptors and the chain grammar](#registered-interceptors-and-the-chain-grammar), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) |
 | `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
