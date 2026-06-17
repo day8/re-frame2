@@ -106,17 +106,18 @@ receive.
 
 ### The user-visible gap
 
-The guide is explicit about the current limit
-([`docs/guide/tutorial/04-mutations-and-invalidation.md`](../guide/tutorial/04-mutations-and-invalidation.md)
-lines 78–80):
+*(Pre-graduation motivation — the gap this EP filled. Now shipped: the
+mutations tutorial, [`docs/guide/tutorial/04-mutations-and-invalidation.md`](../guide/tutorial/04-mutations-and-invalidation.md),
+teaches the optimistic variant as a current feature.)*
 
-> `:populates` is a *forward-only* seed — optimistic rollback is a deferred
-> feature, not a current one. […] don't reach for populate expecting
-> TanStack-style optimistic updates that revert on failure; that shape isn't
-> available yet.
+Before this EP, the guide was explicit about the limit: `:populates` was a
+*forward-only* seed — optimistic rollback was a deferred feature, not a current
+one — so authors were told not to reach for populate expecting TanStack-style
+optimistic updates that revert on failure, because that shape wasn't available
+yet.
 
-Today a favorite heart flips only **after** the server confirms (`:populates`
-runs on the success path, lines 56–67). That is the single most jarring
+At that point a favorite heart flipped only **after** the server confirmed
+(`:populates` ran on the success path). That was the single most jarring
 difference from a TanStack/SWR app, where the heart flips on click and reverts
 on a 500.
 
