@@ -78,9 +78,9 @@
                    (catch :default e e))]
       (is (some? thrown)
           "rf/init! with a keyword raises")
-      (is (= ":rf.error/no-adapter-specified"
-             (some-> thrown ex-message))
-          "ex-message carries the :rf.error/no-adapter-specified tag")
+      (is (= :rf.error/no-adapter-specified
+             (some-> thrown ex-data :rf.error/id))
+          "ex-data :rf.error/id carries the :rf.error/no-adapter-specified discriminator")
       (let [data (ex-data thrown)]
         (is (= :reagent (:received data))
             "ex-data echoes the offending keyword")))

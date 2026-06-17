@@ -45,7 +45,7 @@
   (testing "an :after key of -1 fails registration with :rf.error/machine-bad-after-delay"
     (let [thrown (registration-throws? :adv/neg (mk-machine -1))]
       (is (some? thrown) "negative :after delay SHOULD throw at registration")
-      (is (= ":rf.error/machine-bad-after-delay" (.getMessage thrown))
+      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))
           "error category names the bad-after-delay contract")
       (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))
           "ex-data :rf.error/id carries the discriminator")

@@ -343,6 +343,32 @@ jobs:
       - name: Verify durable-write namespaces carry no ambient world read (EP-0010)
         run: python scripts/check_ambient_durable_reads.py --verbose
 
+      # Thrown-error human-message corpus gate (rf2-6bb3pg, Spec 009 §The
+      # thrown-error shape / rf2-vvixub). rf2-vvixub flipped the contract: a
+      # framework thrown-error's `ex-message` is a HUMAN sentence + trailing
+      # `[:rf.error/<id>]` token, never the bare stringified discriminator
+      # keyword (`:rf.error/id` ex-data is the SOLE machine discriminator). The
+      # original conformance test (thrown_error_message_conformance_cljs_test)
+      # is a CURATED allow-list — it exercises a handful of central sites
+      # in-process, so a new/never-converted `(ex-info ":rf.error/…")` site is
+      # invisible to it (rf2-6bb3pg found 70+ such sites). This gate is the
+      # corpus replacement: a source scan that fails on ANY framework
+      # `(ex-info …)` whose MESSAGE position is a bare `:rf.*` discriminator
+      # keyword (literal string, `(str :rf.*)`, `(str error-kw/error-id)`, or
+      # `(str (:rf.error/id <map>))`). It scopes to the ex-info FIRST argument,
+      # so a `:rf.error/…` keyword as a :reason value / ex-data slot / trace
+      # arg never fires; `;`-comments are masked. Pure Python stdlib. Self-test
+      # first (proves it FIRES on each bare-keyword shape + stays GREEN on the
+      # conformant counterparts), then the live scan asserts implementation/
+      # framework source is clean. Hosted in this always-on PR-spine python job
+      # so a keyword-only thrown message blocks the merge regardless of which
+      # surface a PR touches. See scripts/check_thrown_error_messages.py.
+      - name: Self-test the thrown-error human-message gate
+        run: python scripts/check_thrown_error_messages.py --self-test --verbose
+
+      - name: Verify framework source carries no keyword-only thrown message (rf2-vvixub)
+        run: python scripts/check_thrown_error_messages.py --verbose
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub

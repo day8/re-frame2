@@ -33,7 +33,8 @@
   shape, and the PURE patch / populate transition over resource entries
   (the mutation success handler applies them); the swaps over these
   paths live in `re-frame.resources.mutation-events`."
-  (:require [re-frame.resources.state :as state]))
+  (:require [re-frame.error :as error]
+            [re-frame.resources.state :as state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -664,14 +665,14 @@
   for an invalid mutation patch / populate TARGET scoped key. `arm`
   (`:patches` | `:populates`) names the offending mutation-spec arm."
   [where arm reason target extra]
-  (ex-info ":rf.error/mutation-invalid-target"
-           (merge {:rf.error/id :rf.error/mutation-invalid-target
-                   :where       where
-                   :arm         arm
-                   :recovery    :fix-mutation-target
-                   :reason      reason
-                   :target      (pr-str target)}
-                  extra)))
+  (error/thrown-ex-info
+    :rf.error/mutation-invalid-target
+    where
+    reason
+    {:recovery :fix-mutation-target
+     :extra    (merge {:arm    arm
+                       :target (pr-str target)}
+                      extra)}))
 
 ;; ---- map-form exact target (EP-0016 Rider 2 / slice 6) --------------------
 ;;
@@ -837,24 +838,24 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
   for a non-serializable mutation INSTANCE id."
   [instance-id where]
-  (ex-info ":rf.error/mutation-non-serializable-instance-id"
-           {:rf.error/id :rf.error/mutation-non-serializable-instance-id
-            :where       where
-            :recovery    :fix-instance-id
-            :reason      (str "a mutation instance id must be serializable EDN "
-                              "(a scalar — keyword / string / number — or an "
-                              "EDN collection recursively built from such); got "
-                              (pr-str instance-id) ". The instance id is stored "
-                              "in runtime-db, the work-ledger work id, and the "
-                              "reply payloads — all durable + trace-visible + "
-                              "epoch / restore-safe — so it follows the same "
-                              "serializable-identity discipline as resource "
-                              "params and scopes. Host / opaque values "
-                              "(functions, promises, dates, DOM nodes, "
-                              "AbortControllers, JS objects, atoms) are "
-                              "rejected. Per EP-0003 §Mutations / Spec 016 "
-                              "§Resource identity.")
-            :instance-id (pr-str instance-id)}))
+  (error/thrown-ex-info
+    :rf.error/mutation-non-serializable-instance-id
+    where
+    (str "a mutation instance id must be serializable EDN "
+         "(a scalar — keyword / string / number — or an "
+         "EDN collection recursively built from such); got "
+         (pr-str instance-id) ". The instance id is stored "
+         "in runtime-db, the work-ledger work id, and the "
+         "reply payloads — all durable + trace-visible + "
+         "epoch / restore-safe — so it follows the same "
+         "serializable-identity discipline as resource "
+         "params and scopes. Host / opaque values "
+         "(functions, promises, dates, DOM nodes, "
+         "AbortControllers, JS objects, atoms) are "
+         "rejected. Per EP-0003 §Mutations / Spec 016 "
+         "§Resource identity.")
+    {:recovery :fix-instance-id
+     :extra    {:instance-id (pr-str instance-id)}}))
 
 (defn validate-instance-id!
   "Fail-closed: reject a non-serializable mutation INSTANCE id BEFORE it is
@@ -904,14 +905,14 @@
   CLOSED at settle time (before any invalidation dispatch), never a silent
   no-op — an author who returns garbage from `:invalidates` learns loudly."
   [where reason raw extra]
-  (ex-info ":rf.error/mutation-invalid-invalidation"
-           (merge {:rf.error/id :rf.error/mutation-invalid-invalidation
-                   :where       where
-                   :arm         :invalidates
-                   :recovery    :fix-invalidates
-                   :reason      reason
-                   :invalidates (pr-str raw)}
-                  extra)))
+  (error/thrown-ex-info
+    :rf.error/mutation-invalid-invalidation
+    where
+    reason
+    {:recovery :fix-invalidates
+     :extra    (merge {:arm         :invalidates
+                       :invalidates (pr-str raw)}
+                      extra)}))
 
 (defn- normalize-one-descriptor
   "Normalize ONE descriptor map into the canonical shape

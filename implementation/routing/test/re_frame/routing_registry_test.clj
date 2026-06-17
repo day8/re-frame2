@@ -903,7 +903,7 @@
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
         (is (some? ex) (str pattern " should be rejected"))
-        (is (= ":rf.error/invalid-route-pattern" (ex-message ex)))
+        (is (= :rf.error/invalid-route-pattern (:rf.error/id (ex-data ex))))
         (is (= route-id (:route-id (ex-data ex))))
         (is (= pattern (:pattern (ex-data ex))))
         (is (some? (:reason (ex-data ex)))

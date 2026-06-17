@@ -58,6 +58,7 @@
   so the JVM test sweep exercises the algebra without the CLJS runtime."
   (:refer-clojure :exclude [get])
   (:require [clojure.core :as core]
+            [re-frame.error :as error]
             [re-frame.identity :as identity])
   #?(:clj (:import [java.util UUID Date]
                    [java.time Instant])))
@@ -406,11 +407,14 @@
                 (let [param (nth seg 1)]
                   (if (contains? bindings param)
                     (core/get bindings param)
-                    (throw (ex-info (str :rf.error/missing-path-param)
-                                    {:rf.error/id :rf.error/missing-path-param
-                                     :where       'rf.path/instantiate
-                                     :recovery    :supply-binding
-                                     :param       param
-                                     :bad-path    path}))))
+                    (error/throw-error!
+                      :rf.error/missing-path-param
+                      'rf.path/instantiate
+                      (str "the :rf/path template references parameter " (pr-str param)
+                           " but no binding was supplied for it; provide a binding for "
+                           "every [:rf.path/param …] segment when instantiating the path.")
+                      {:recovery :supply-binding
+                       :extra    {:param    param
+                                  :bad-path path}})))
                 seg))
             path))))

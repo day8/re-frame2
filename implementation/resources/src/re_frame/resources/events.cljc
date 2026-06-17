@@ -61,6 +61,7 @@
   `live-entry-for-reply`). Terminal rows are pruned on the linked entry's
   next successful transition, retaining a bounded per-key tail for Xray."
   (:require [clojure.set :as set]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as rreply]
@@ -843,19 +844,19 @@
         ;; set). Cross-scope is the only scope-agnostic path and must be
         ;; opted into explicitly. Per Spec 016 §Invalidation.
         _          (when (and (not cross-scope?) (nil? scope))
-                     (throw (ex-info ":rf.error/resource-invalidate-scope-required"
-                                     {:rf.error/id :rf.error/resource-invalidate-scope-required
-                                      :where       'rf.resource/invalidate-tags
-                                      :recovery    :fix-scope
-                                      :reason      (str "a scoped :rf.resource/invalidate-tags MUST "
-                                                        "supply an explicit :scope. A missing scope "
-                                                        "is fail-closed (it would silently match "
-                                                        "nothing — or the wrong nil-scope set — "
-                                                        "rather than the intended scope). To "
-                                                        "invalidate the tags in EVERY scope, opt in "
-                                                        "explicitly with :cross-scope? true. Per Spec "
-                                                        "016 §Invalidation.")
-                                      :tags        tags})))
+                     (error/throw-error!
+                       :rf.error/resource-invalidate-scope-required
+                       'rf.resource/invalidate-tags
+                       (str "a scoped :rf.resource/invalidate-tags MUST "
+                            "supply an explicit :scope. A missing scope "
+                            "is fail-closed (it would silently match "
+                            "nothing — or the wrong nil-scope set — "
+                            "rather than the intended scope). To "
+                            "invalidate the tags in EVERY scope, opt in "
+                            "explicitly with :cross-scope? true. Per Spec "
+                            "016 §Invalidation.")
+                       {:recovery :fix-scope
+                        :extra    {:tags tags}}))
         ;; AUDITED ESCAPE — cross-scope MUST carry :cause (rf2-7r8kgd, Spec 016
         ;; §The cross-scope lattice). :cross-scope? true can stale / refetch
         ;; data across every user, tenant, story frame, and SSR request, so it
@@ -864,21 +865,21 @@
         ;; unaudited sweep. (The mutation engine always stamps
         ;; :cause [:mutation id instance]; this guards the direct public entry.)
         _          (when (and cross-scope? (nil? cause))
-                     (throw (ex-info ":rf.error/resource-cross-scope-cause-required"
-                                     {:rf.error/id :rf.error/resource-cross-scope-cause-required
-                                      :where       'rf.resource/invalidate-tags
-                                      :recovery    :fix-cause
-                                      :reason      (str "a :cross-scope? true :rf.resource/invalidate-tags "
-                                                        "MUST carry :cause evidence. Cross-scope is the "
-                                                        "AUDITED escape — it can stale or refetch data "
-                                                        "across every user, tenant, story frame, and SSR "
-                                                        "request, so the runtime records WHY the cache "
-                                                        "reached outside the mutation's own resolved "
-                                                        "scope (a privacy-relevant trace, EP-0015). A "
-                                                        "cross-scope invalidation with no :cause is "
-                                                        "rejected — never a silent unaudited sweep. Per "
-                                                        "Spec 016 §The cross-scope lattice.")
-                                      :tags        tags})))
+                     (error/throw-error!
+                       :rf.error/resource-cross-scope-cause-required
+                       'rf.resource/invalidate-tags
+                       (str "a :cross-scope? true :rf.resource/invalidate-tags "
+                            "MUST carry :cause evidence. Cross-scope is the "
+                            "AUDITED escape — it can stale or refetch data "
+                            "across every user, tenant, story frame, and SSR "
+                            "request, so the runtime records WHY the cache "
+                            "reached outside the mutation's own resolved "
+                            "scope (a privacy-relevant trace, EP-0015). A "
+                            "cross-scope invalidation with no :cause is "
+                            "rejected — never a silent unaudited sweep. Per "
+                            "Spec 016 §The cross-scope lattice.")
+                       {:recovery :fix-cause
+                        :extra    {:tags tags}}))
         ;; route the concrete scope through the SHARED validation path
         ;; (rf2-hosnba, rf2-lzv9xc): rejects reserved-namespace typos +
         ;; host / non-EDN scope values, rejects the wrapped [:rf.scope/global]

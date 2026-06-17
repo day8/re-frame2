@@ -50,7 +50,7 @@
                        :other {}}}
           thrown (registration-throws? :rf.nested-validation/top-on-guard m)]
       (is (some? thrown) "top-level :on :guard misuse SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-guard contract")
       (is (= :no-such-guard (:guard (ex-data thrown)))
           "ex-data carries the offending guard keyword"))))
@@ -65,7 +65,7 @@
                        :other {}}}
           thrown (registration-throws? :rf.nested-validation/top-on-action m)]
       (is (some? thrown) "top-level :on :action misuse SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-action (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-action contract")
       (is (= :no-such-action (:action (ex-data thrown)))
           "ex-data carries the offending action keyword"))))
@@ -171,7 +171,7 @@
           thrown (registration-throws? :rf.nested-validation/top-always-singlemap-guard m)]
       (is (some? thrown)
           "single-map :always :guard misuse SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-guard contract")
       (is (= :no-such-guard (:guard (ex-data thrown)))
           "ex-data carries the offending guard keyword"))))
@@ -187,7 +187,7 @@
           thrown (registration-throws? :rf.nested-validation/top-always-singlemap-action m)]
       (is (some? thrown)
           "single-map :always :action misuse SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-action (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-action contract")
       (is (= :no-such-action (:action (ex-data thrown)))
           "ex-data carries the offending action keyword"))))
@@ -294,7 +294,7 @@
           thrown (registration-throws? :rf.nested-validation/par-on-guard m)]
       (is (some? thrown)
           "parallel-region :on :guard misuse SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-guard contract"))))
 
 (deftest parallel-region-on-action-keyword-unresolved
@@ -312,7 +312,7 @@
           thrown (registration-throws? :rf.nested-validation/par-on-action m)]
       (is (some? thrown)
           "parallel-region :on :action misuse SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))))))
+      (is (= :rf.error/machine-unresolved-action (:rf.error/id (ex-data thrown)))))))
 
 (deftest parallel-region-entry-action-keyword-unresolved
   (testing "Parallel region :entry referencing an unregistered action fails registration"
@@ -400,7 +400,7 @@
              :states  {:checking {:always [{:guard :ready? :target :checking}]}}}
           thrown (registration-throws? :rf.always-self-loop/kw m)]
       (is (some? thrown) "same-state :always self-loop SHOULD throw at registration")
-      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))
           "error category names the self-loop contract")
       (is (= :checking (:state (ex-data thrown)))
           "ex-data carries the declaring state-keyword"))))
@@ -411,7 +411,7 @@
              :states  {:spin {:always [{:target :spin}]}}}
           thrown (registration-throws? :rf.always-self-loop/no-guard m)]
       (is (some? thrown) "guard-less self-target SHOULD throw")
-      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))))))
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))))))
 
 (deftest always-internal-no-target-permitted
   (testing "an internal :always (no :target, just :action) is the canonical
@@ -457,7 +457,7 @@
                                                            :target [:outer :inner]}]}}}}}
           thrown (registration-throws? :rf.always-self-loop/vec m)]
       (is (some? thrown) "vector self-target SHOULD throw")
-      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown)))
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown))))
       (is (= :inner (:state (ex-data thrown)))
           "ex-data names the declaring leaf state"))))
 
@@ -468,7 +468,7 @@
              :states  {:checking {:always {:guard :ready? :target :checking}}}}
           thrown (registration-throws? :rf.always-self-loop/single m)]
       (is (some? thrown) "single-map :always self-loop SHOULD throw")
-      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))))))
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))))))
 
 (deftest always-sibling-target-permitted
   (testing "an :always targeting a DIFFERENT sibling registers cleanly (control)"
@@ -492,7 +492,7 @@
                          :states  {:x {}}}}}
           thrown (registration-throws? :rf.always-self-loop/region m)]
       (is (some? thrown) "region :always self-loop SHOULD throw at registration")
-      (is (= ":rf.error/machine-always-self-loop" (.getMessage thrown))))))
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))))))
 
 ;; ---- compound state missing :initial rejected (rf2-boryv) ----------------
 ;;
@@ -509,7 +509,7 @@
                                  :settings  {}}}}}     ;; no :initial — rejected
           thrown (registration-throws? :rf.missing-initial/top m)]
       (is (some? thrown) "compound state without :initial SHOULD throw")
-      (is (= ":rf.error/machine-compound-state-missing-initial" (.getMessage thrown))
+      (is (= :rf.error/machine-compound-state-missing-initial (:rf.error/id (ex-data thrown)))
           "error category names the missing-initial contract")
       (is (= :authenticated (:state (ex-data thrown)))
           "ex-data carries the compound state-keyword"))))
@@ -521,7 +521,7 @@
                                :states  {:mid {:states {:leaf {}}}}}}}  ;; :mid compound, no :initial
           thrown (registration-throws? :rf.missing-initial/nested m)]
       (is (some? thrown) "nested compound state without :initial SHOULD throw")
-      (is (= ":rf.error/machine-compound-state-missing-initial" (.getMessage thrown)))
+      (is (= :rf.error/machine-compound-state-missing-initial (:rf.error/id (ex-data thrown))))
       (is (= :mid (:state (ex-data thrown)))
           "ex-data names the offending nested compound state"))))
 
@@ -599,7 +599,7 @@
           thrown (registration-throws? :rf.ylpnn/guard-dangling-tail m)]
       (is (some? thrown)
           "a dangling multi-hop guard chain MUST throw at registration")
-      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-guard contract")
       (is (= :a (:guard (ex-data thrown)))
           "ex-data names the head ref the author wrote"))))
@@ -615,7 +615,7 @@
           thrown (registration-throws? :rf.ylpnn/action-dangling-tail m)]
       (is (some? thrown)
           "a dangling multi-hop action chain MUST throw at registration")
-      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-action (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-action contract")
       (is (= :a (:action (ex-data thrown)))
           "ex-data names the head ref the author wrote"))))
@@ -633,7 +633,7 @@
           thrown (registration-throws? :rf.ylpnn/guard-cycle m)]
       (is (some? thrown)
           "a cyclic guard indirection MUST throw at registration (not loop)")
-      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-guard contract"))))
 
 ;; ---- transition :target shape + resolution (rf2-w84jv) -------------------
@@ -655,7 +655,7 @@
           thrown (registration-throws? :rf.w84jv/scalar-target m)]
       (is (some? thrown)
           "a scalar :target SHOULD throw at registration, not at dispatch")
-      (is (= ":rf.error/machine-bad-target" (.getMessage thrown))
+      (is (= :rf.error/machine-bad-target (:rf.error/id (ex-data thrown)))
           "error category names the bad-target contract")
       (is (= 42 (:target (ex-data thrown)))
           "ex-data carries the offending target"))))
@@ -668,7 +668,7 @@
           thrown (registration-throws? :rf.w84jv/missing-vector-target m)]
       (is (some? thrown)
           "an unresolved vector :target SHOULD throw at registration, not commit an invalid snapshot at dispatch")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-target contract")
       (is (= [:missing] (:target (ex-data thrown)))
           "ex-data carries the offending target"))))
@@ -681,7 +681,7 @@
           thrown (registration-throws? :rf.w84jv/missing-kw-target m)]
       (is (some? thrown)
           "an unresolved keyword :target SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-target contract")
       (is (= :nowhere (:target (ex-data thrown)))))))
 
@@ -698,7 +698,7 @@
           thrown (registration-throws? :rf.w84jv/cross-level-kw m)]
       (is (some? thrown)
           "a keyword target reaching past the immediate parent level SHOULD throw")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest after-unresolved-target-rejected-at-registration
   (testing "an :after entry whose :target is unresolved is rejected at registration (rf2-w84jv)"
@@ -708,7 +708,7 @@
           thrown (registration-throws? :rf.w84jv/after-target m)]
       (is (some? thrown)
           "an unresolved :after :target SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest on-done-unresolved-target-rejected-at-registration
   (testing "a compound's :on-done whose :target is unresolved is rejected at registration (rf2-w84jv)"
@@ -719,7 +719,7 @@
           thrown (registration-throws? :rf.w84jv/on-done-target m)]
       (is (some? thrown)
           "an unresolved compound :on-done :target SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest spawn-on-error-unresolved-target-rejected-at-registration
   (testing "a :spawn :on-error whose :target is unresolved is rejected at registration (rf2-w84jv)"
@@ -730,7 +730,7 @@
           thrown (registration-throws? :rf.w84jv/spawn-on-error-target m)]
       (is (some? thrown)
           "an unresolved :spawn :on-error :target SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest parallel-region-unresolved-target-rejected-at-registration
   (testing "an unresolved :target inside a parallel REGION is rejected at registration (rf2-w84jv)"
@@ -743,7 +743,7 @@
           thrown (registration-throws? :rf.w84jv/region-target m)]
       (is (some? thrown)
           "an unresolved region :target SHOULD throw at registration")
-      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
 
 (deftest valid-targets-register-cleanly
   (testing "well-formed resolvable targets (keyword sibling, vector absolute, :same-state, history pseudo-state) register cleanly (control) (rf2-w84jv)"

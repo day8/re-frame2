@@ -77,8 +77,6 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo ex)
           "an unknown kind throws an ex-info")
-      (is (= ":rf.error/unknown-registry-kind" (.getMessage ^Exception ex))
-          "message is the stringified canonical error keyword")
       (let [data (ex-data ex)]
         (is (= :rf.error/unknown-registry-kind (:rf.error/id data))
             ":rf.error/id is the canonical discriminator")
@@ -177,7 +175,6 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo ex)
           "a malformed reg-sub tail throws an ex-info")
-      (is (= ":rf.error/reg-sub-bad-args" (.getMessage ^Exception ex)))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-sub-bad-args (:rf.error/id data)))
         (is (= 'rf/reg-sub (:where data)))

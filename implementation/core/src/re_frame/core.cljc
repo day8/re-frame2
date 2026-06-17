@@ -3061,12 +3061,13 @@
   "Raise `:rf.error/no-adapter-specified` with a consistent reason
   string. Factored out of `init!`'s nil-check and not-map-check."
   [received]
-  (throw (ex-info ":rf.error/no-adapter-specified"
-                  (cond-> {:where    'rf/init!
-                           :expected "adapter spec map"
-                           :recovery :no-recovery
-                           :reason   "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter)."}
-                    (some? received) (assoc :received received)))))
+  (error/throw-error!
+    :rf.error/no-adapter-specified
+    'rf/init!
+    "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter)."
+    {:recovery :no-recovery
+     :extra    (cond-> {:expected "adapter spec map"}
+                 (some? received) (assoc :received received))}))
 
 (defn init!
   "Idempotent boot — installs a substrate adapter. Pass the adapter spec
@@ -3121,12 +3122,13 @@
   [p]
   (if (#{:server :client} p)
     (do (interop/set-platform! p) nil)
-    (throw (ex-info ":rf.error/invalid-platform"
-                    {:where    'rf/init-platform
-                     :expected "one of #{:server :client}"
-                     :received p
-                     :recovery :no-recovery
-                     :reason   "rf/init-platform takes the platform keyword directly — :server or :client per Spec 011 §Effect handling on the server."}))))
+    (error/throw-error!
+      :rf.error/invalid-platform
+      'rf/init-platform
+      "rf/init-platform takes the platform keyword directly — :server or :client per Spec 011 §Effect handling on the server."
+      {:recovery :no-recovery
+       :extra    {:expected "one of #{:server :client}"
+                  :received p}})))
 
 ;; ---- feature inspection (rf2-3nbl5.5, API-governance G5) ------------------
 ;;

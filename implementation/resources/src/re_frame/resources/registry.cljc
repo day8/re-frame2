@@ -24,7 +24,8 @@
   data-lifecycle events (`:rf.resource/remove` / `:rf.resource/release-owner`
   / `:rf.resource/clear-scope`) remain the in-cascade, scope/instance-grained
   disposal surfaces."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.classification :as classification]
@@ -116,12 +117,12 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-resource` validation failure."
   [error-id where reason extra]
-  (ex-info (str error-id)
-           (merge {:rf.error/id error-id
-                   :where       where
-                   :recovery    :fix-registration
-                   :reason      reason}
-                  extra)))
+  (error/thrown-ex-info
+    error-id
+    where
+    reason
+    {:recovery :fix-registration
+     :extra    extra}))
 
 (defn- validate-resource-spec!
   "Fail loudly at the authoring boundary when a resource spec omits the

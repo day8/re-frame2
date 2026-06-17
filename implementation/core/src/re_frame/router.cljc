@@ -15,6 +15,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
+            [re-frame.error :as error]
             [re-frame.error-emit :as error-emit]
             [re-frame.events :as events]
             [re-frame.cofx :as cofx]
@@ -512,13 +513,13 @@
   "Throw `:rf.error/interceptor-override-invalid` (Spec 002 §`:interceptor-
   overrides` / §Error model) for a malformed override map key or replacement."
   [k v reason]
-  (throw (ex-info ":rf.error/interceptor-override-invalid"
-                  {:rf.error/id :rf.error/interceptor-override-invalid
-                   :where       :rf.interceptor/overrides
-                   :recovery    :fix-overrides
-                   :reason      reason
-                   :key         k
-                   :replacement v})))
+  (error/throw-error!
+    :rf.error/interceptor-override-invalid
+    :rf.interceptor/overrides
+    reason
+    {:recovery :fix-overrides
+     :extra    {:key         k
+                :replacement v}}))
 
 (defn- override-replacement
   "Resolve an `:interceptor-overrides` replacement VALUE to an executable

@@ -162,7 +162,6 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/reg-event-bad-middle-slot" (ex-message ex)))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id data)))
         (is (= 'rf/reg-event (:where data)))
@@ -187,7 +186,6 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/reg-event-bad-arity" (ex-message ex)))
       (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex))))
       (is (re-find #"interceptor chains in metadata :interceptors" (:reason (ex-data ex)))))))
 
@@ -202,7 +200,6 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/reg-event-bad-interceptors" (ex-message ex)))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id data)))
         (is (= "reg-event" (:reg-fn data)))
@@ -224,7 +221,7 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/reg-event-bad-interceptors" (ex-message ex)))
+      (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id (ex-data ex))))
       (is (re-find #"reference" (:reason (ex-data ex))))))
 
   (testing "EP-0022 reference-only flip: an INLINE interceptor value in a chain throws inline-interceptor-removed"
@@ -234,7 +231,6 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/inline-interceptor-removed" (ex-message ex)))
       (let [data (ex-data ex)]
         (is (= :rf.error/inline-interceptor-removed (:rf.error/id data)))
         (is (= "reg-event" (:reg-fn data)))
@@ -252,7 +248,7 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/inline-interceptor-removed" (ex-message ex)))))
+      (is (= :rf.error/inline-interceptor-removed (:rf.error/id (ex-data ex))))))
 
   (testing "EP-0022: a bare-keyword ref to an UNREGISTERED interceptor throws unregistered-interceptor"
     (let [ex (try (rf/reg-event :test.0adhqs/bad-ref
@@ -261,7 +257,6 @@
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/unregistered-interceptor" (ex-message ex)))
       (is (= :rf.error/unregistered-interceptor (:rf.error/id (ex-data ex))))))
 
   (testing "the malformed rejection happens BEFORE the registry slot is written"
@@ -548,9 +543,8 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/reg-event-bad-arity" (ex-message ex))
-          "message is the stringified discriminator kw")
-      (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex))))
+      (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex)))
+          ":rf.error/id is the canonical discriminator")
       (is (re-find #"reg-event expects" (:reason (ex-data ex)))
           ":reason names the arity error")))
   (testing "two-arg middle slot that is neither a map nor a vector throws"
@@ -561,7 +555,6 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/reg-event-bad-middle-slot" (ex-message ex)))
       (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id (ex-data ex))))
       (is (re-find #"metadata-map" (:reason (ex-data ex)))))))
 

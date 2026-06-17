@@ -124,7 +124,7 @@
                     (catch clojure.lang.ExceptionInfo e e))]
         (is (some? ex)
             (str "(rf/init-platform " (pr-str bad) ") raised"))
-        (is (= ":rf.error/invalid-platform" (ex-message ex)))
+        (is (= :rf.error/invalid-platform (:rf.error/id (ex-data ex))))
         (is (= :no-recovery (:recovery (ex-data ex))))
         (is (= 'rf/init-platform (:where (ex-data ex))))
         (is (= bad (:received (ex-data ex)))))))

@@ -77,7 +77,8 @@
   the handler's coeffect db (the pre-transition causal input) and pass it to
   `:rf.resource/clear-scope` concretely. Per Spec 016 §`clear-scope` resolves
   the concrete scope from the coeffect db (EP-0016 issue 7)."
-  (:require [re-frame.marks :as marks]
+  (:require [re-frame.error :as error]
+            [re-frame.marks :as marks]
             [re-frame.path :as path]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
@@ -120,12 +121,12 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-resource-scope` validation failure."
   [error-id where reason extra]
-  (ex-info (str error-id)
-           (merge {:rf.error/id error-id
-                   :where       where
-                   :recovery    :fix-registration
-                   :reason      reason}
-                  extra)))
+  (error/thrown-ex-info
+    error-id
+    where
+    reason
+    {:recovery :fix-registration
+     :extra    extra}))
 
 ;; ---- validation ----------------------------------------------------------
 

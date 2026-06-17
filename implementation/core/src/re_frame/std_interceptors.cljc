@@ -156,13 +156,13 @@
   the `[:rf.interceptor/path <path-vector>]` ref carries a non-vector or
   otherwise malformed path argument."
   [path-vector reason]
-  (throw (ex-info ":rf.error/path-interceptor-bad-path"
-                  {:rf.error/id :rf.error/path-interceptor-bad-path
-                   :where       :rf.interceptor/path
-                   :recovery    :fix-path
-                   :reason      reason
-                   :got         path-vector
-                   :expected    "an EDN vector naming a concrete app-db path, e.g. [:cart :items]"})))
+  (error/throw-error!
+    :rf.error/path-interceptor-bad-path
+    :rf.interceptor/path
+    reason
+    {:recovery :fix-path
+     :extra    {:got      path-vector
+                :expected "an EDN vector naming a concrete app-db path, e.g. [:cart :items]"}}))
 
 (defn standard-path-interceptor
   "Build the framework-standard `:rf.interceptor/path` interceptor focusing the

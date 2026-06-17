@@ -22,6 +22,7 @@
       action-failure projection, finalize delegation (in
       `lifecycle-fx.finalize`)."
   (:require [re-frame.cofx :as cofx]
+            [re-frame.error :as error]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -748,25 +749,23 @@
   ;; direct path stays legal for it.
   (when (and (:data-schema machine)
              (not *in-registration-home?*))
-    (throw (ex-info
-             ":rf.error/machine-schema-requires-reg-machine"
-             {:rf.error/id :rf.error/machine-schema-requires-reg-machine
-              :where       'rf-machines/make-machine-handler
-              :recovery    :use-reg-machine
-              :reason
-              (str "make-machine-handler was handed a machine spec carrying a "
-                   ":data-schema via the bare (reg-event id meta "
-                   "(make-machine-handler spec)) direct path. That path stamps "
-                   "neither the :rf/machine? / :rf/machine registration "
-                   "metadata (so the :data-schema validates NOTHING) NOR the "
-                   ":sensitive? / :large? redaction marks (so a sensitive :data "
-                   "slot egresses RAW to the trace bus / AI-MCP). Register the "
-                   "machine through reg-machine / reg-machine* — and when the "
-                   "machine ALSO validates its outer event vector, use the "
-                   "event-:schema arity: (reg-machine id {:schema EventSchema} "
-                   "machine) or (reg-machine* id machine {:schema EventSchema}). "
-                   "These run both side-effects.")
-              :data-schema (:data-schema machine)})))
+    (error/throw-error!
+      :rf.error/machine-schema-requires-reg-machine
+      'rf-machines/make-machine-handler
+      (str "make-machine-handler was handed a machine spec carrying a "
+           ":data-schema via the bare (reg-event id meta "
+           "(make-machine-handler spec)) direct path. That path stamps "
+           "neither the :rf/machine? / :rf/machine registration "
+           "metadata (so the :data-schema validates NOTHING) NOR the "
+           ":sensitive? / :large? redaction marks (so a sensitive :data "
+           "slot egresses RAW to the trace bus / AI-MCP). Register the "
+           "machine through reg-machine / reg-machine* — and when the "
+           "machine ALSO validates its outer event vector, use the "
+           "event-:schema arity: (reg-machine id {:schema EventSchema} "
+           "machine) or (reg-machine* id machine {:schema EventSchema}). "
+           "These run both side-effects.")
+      {:recovery :use-reg-machine
+       :extra    {:data-schema (:data-schema machine)}}))
   ;; Per rf2-f9tu — `build-initial-snapshot` runs lazily INSIDE the
   ;; returned handler, not at registration time. The initial-state
   ;; computation reaches through `:initial` / `:states` / `:regions`;
@@ -1029,16 +1028,15 @@
   at read time — so the schema-vs-manual composition is order-independent."
   [machine-id machine opts]
   (when (or (contains? opts :rf/machine?) (contains? opts :rf/machine))
-    (throw (ex-info
-             ":rf.error/machine-reserved-meta-in-opts"
-             {:rf.error/id :rf.error/machine-reserved-meta-in-opts
-              :where       'rf-machines/reg-machine*
-              :recovery    :drop-reserved-keys
-              :reason      (str "reg-machine opts must not carry the "
-                                "framework-owned :rf/machine? / :rf/machine "
-                                "keys — the registration home stamps them.")
-              :machine-id  machine-id
-              :opts        opts})))
+    (error/throw-error!
+      :rf.error/machine-reserved-meta-in-opts
+      'rf-machines/reg-machine*
+      (str "reg-machine opts must not carry the "
+           "framework-owned :rf/machine? / :rf/machine "
+           "keys — the registration home stamps them.")
+      {:recovery :drop-reserved-keys
+       :extra    {:machine-id machine-id
+                  :opts       opts}}))
   ;; Per rf2-s83iu: install a per-machine region-machine cache before
   ;; the machine value is threaded through the handler closure and
   ;; published to the registrar. Re-registration replaces the machine

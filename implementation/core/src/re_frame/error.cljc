@@ -132,6 +132,26 @@
   ([error-id where-sym reason opts]
    (throw (thrown-ex-info error-id where-sym reason opts))))
 
+(defn ex-info-from-data
+  "Build a canonical thrown-error `ex-info` whose ex-data is the ALREADY-BUILT
+  `data` map verbatim, deriving the human message from the map's own
+  `:rf.error/id` + `:reason` slots (Spec 009 §The thrown-error shape).
+
+  The companion to `thrown-ex-info` for the sites that build a SHARED ex-data
+  payload up front — reused by both a throw and a trace-emit / final-boundary
+  emit (e.g. `re-frame.frame`'s `no-frame-context-payload`,
+  `re-frame.events`'s `legacy-runtime-root-ex-data`) — so the two surfaces
+  carry an IDENTICAL map. Those sites cannot route the BUILD through
+  `thrown-ex-info` without forking the shared payload; this helper lets them
+  keep the one payload and still emit the human message instead of the bare
+  `(str (:rf.error/id data))` keyword the message position used to carry.
+
+  `data` MUST carry `:rf.error/id` and SHOULD carry `:reason`; the message is
+  `(human-message (:rf.error/id data) (:reason data))`. ex-data is `data`
+  unchanged."
+  [data]
+  (ex-info (human-message (:rf.error/id data) (:reason data)) data))
+
 (defn keyword-only-message?
   "Conformance predicate (rf2-vvixub): true when `message` is a bare
   stringified `:rf.error/…` keyword — i.e. the OLD keyword-only message

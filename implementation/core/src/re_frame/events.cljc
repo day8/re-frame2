@@ -37,6 +37,7 @@
             [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.late-bind :as late-bind]
             [re-frame.cofx :as cofx]
+            [re-frame.error :as error]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -82,16 +83,15 @@
   swallow: a malformed chain cannot be honoured and must not be silently
   dropped or coerced."
   [reg-fn-name id value reason]
-  (throw (ex-info
-           ":rf.error/reg-event-bad-interceptors"
-           {:rf.error/id :rf.error/reg-event-bad-interceptors
-            :where       'rf/reg-event
-            :reg-fn      reg-fn-name
-            :id          id
-            :recovery    :fix-registration
-            :reason      reason
-            :got         value
-            :expected    "a vector of interceptor references (e.g. [:auth/required [:rf.interceptor/path [:cart]]])"})))
+  (error/throw-error!
+    :rf.error/reg-event-bad-interceptors
+    'rf/reg-event
+    reason
+    {:recovery :fix-registration
+     :extra    {:reg-fn   reg-fn-name
+                :id       id
+                :got      value
+                :expected "a vector of interceptor references (e.g. [:auth/required [:rf.interceptor/path [:cart]]])"}}))
 
 (defn- throw-inline-interceptor-removed!
   "Raise `:rf.error/inline-interceptor-removed` (ex-info) at registration when a
@@ -103,23 +103,21 @@
   not at first dispatch. Mirrors the dispatch-time
   `interceptor-registry/resolve-chain` rejection with the same error id."
   [reg-fn-name id value offending]
-  (throw (ex-info
-           ":rf.error/inline-interceptor-removed"
-           {:rf.error/id :rf.error/inline-interceptor-removed
-            :where       'rf/reg-event
-            :reg-fn      reg-fn-name
-            :id          id
-            :recovery    :fix-registration
-            :reason
-            (str reg-fn-name " for `" id "` carried an INLINE interceptor value `"
-                 (pr-str offending) "` in its metadata `:interceptors` chain. "
-                 "Interceptor chains are reference-only (EP-0022): register the "
-                 "interceptor with `rf/reg-interceptor` and reference it by id — "
-                 "a bare keyword `:my/ic` or an `[id arg]` 2-vector "
-                 "(e.g. `[:rf.interceptor/path [:cart]]`).")
-            :got         value
-            :offending   offending
-            :expected    "a vector of interceptor references (keyword ids / [id arg] vectors)"})))
+  (error/throw-error!
+    :rf.error/inline-interceptor-removed
+    'rf/reg-event
+    (str reg-fn-name " for `" id "` carried an INLINE interceptor value `"
+         (pr-str offending) "` in its metadata `:interceptors` chain. "
+         "Interceptor chains are reference-only (EP-0022): register the "
+         "interceptor with `rf/reg-interceptor` and reference it by id — "
+         "a bare keyword `:my/ic` or an `[id arg]` 2-vector "
+         "(e.g. `[:rf.interceptor/path [:cart]]`).")
+    {:recovery :fix-registration
+     :extra    {:reg-fn    reg-fn-name
+                :id        id
+                :got       value
+                :offending offending
+                :expected  "a vector of interceptor references (keyword ids / [id arg] vectors)"}}))
 
 (defn- validate-meta-interceptors!
   "Validate the metadata-map `:interceptors` value at registration. The value
@@ -245,22 +243,21 @@
   [reg-fn-name id meta interceptors]
   (when (and (attaches-validate-at-boundary-interceptor? interceptors)
              (not (and (map? meta) (contains? meta :schema))))
-    (throw (ex-info ":rf.error/at-boundary-missing-schema"
-                    {:rf.error/id :rf.error/at-boundary-missing-schema
-                     :where    'rf/reg-event
-                     :reg-fn   reg-fn-name
-                     :id       id
-                     :reason
-                     (str reg-fn-name " for `" id "` attaches the "
-                          "`:rf.schema/at-boundary` interceptor but the "
-                          "registration carries no `:schema` metadata. "
-                          "The boundary interceptor cannot validate "
-                          "without a schema and is structurally "
-                          "meaningless without one. Either attach a "
-                          "`:schema` to the metadata-map "
-                          "(recommended) or remove the boundary "
-                          "interceptor from metadata `:interceptors`.")
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/at-boundary-missing-schema
+      'rf/reg-event
+      (str reg-fn-name " for `" id "` attaches the "
+           "`:rf.schema/at-boundary` interceptor but the "
+           "registration carries no `:schema` metadata. "
+           "The boundary interceptor cannot validate "
+           "without a schema and is structurally "
+           "meaningless without one. Either attach a "
+           "`:schema` to the metadata-map "
+           "(recommended) or remove the boundary "
+           "interceptor from metadata `:interceptors`.")
+      {:recovery :no-recovery
+       :extra    {:reg-fn reg-fn-name
+                  :id     id}}))
   nil)
 
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
@@ -558,8 +555,7 @@
   emits in-band rather than throwing, so the drain is not aborted."
   [app-db event]
   (when (legacy-runtime-root? app-db)
-    (throw (ex-info ":rf.error/legacy-runtime-root"
-                    (legacy-runtime-root-ex-data event))))
+    (throw (error/ex-info-from-data (legacy-runtime-root-ex-data event))))
   app-db)
 
 (defn- commit-fx-effects
@@ -766,23 +762,21 @@
   Loud-fail at registration per Conventions §No silent swallow — the
   interceptor would otherwise be silently dropped and never run."
   [reg-fn-name slot offending args]
-  (throw (ex-info
-           ":rf.error/reg-event-bare-interceptor"
-           {:rf.error/id :rf.error/reg-event-bare-interceptor
-            :where       'rf/reg-event
-            :reg-fn      reg-fn-name
-            :slot        slot
-            :recovery    :fix-registration
-            :reason
-            (str reg-fn-name " received a BARE interceptor in the " (name slot)
-                 " slot; the interceptor chain belongs in metadata "
-                 "`:interceptors` and MUST be a vector. A bare interceptor map "
-                 "would be silently dropped (never run). Wrap it: `("
-                 reg-fn-name " id {:interceptors [the-interceptor]} handler)` "
-                 "— not `(" reg-fn-name " id the-interceptor handler)`.")
-            :got         offending
-            :expected    "metadata-map with :interceptors (e.g. {:interceptors [:my/ic]})"
-            :args        args})))
+  (error/throw-error!
+    :rf.error/reg-event-bare-interceptor
+    'rf/reg-event
+    (str reg-fn-name " received a BARE interceptor in the " (name slot)
+         " slot; the interceptor chain belongs in metadata "
+         "`:interceptors` and MUST be a vector. A bare interceptor map "
+         "would be silently dropped (never run). Wrap it: `("
+         reg-fn-name " id {:interceptors [the-interceptor]} handler)` "
+         "— not `(" reg-fn-name " id the-interceptor handler)`.")
+    {:recovery :fix-registration
+     :extra    {:reg-fn   reg-fn-name
+                :slot     slot
+                :got      offending
+                :expected "metadata-map with :interceptors (e.g. {:interceptors [:my/ic]})"
+                :args     args}}))
 
 (defn- normalise-args
   "Accept the two documented shapes for the variadic tail of `reg-event`:
@@ -804,23 +798,21 @@
           (bare-interceptor-map? middle)
           (throw-bare-interceptor! reg-fn-name :middle middle args)
           (map? middle)    [middle handler]
-          :else            (throw (ex-info
-                                    ":rf.error/reg-event-bad-middle-slot"
-                                    {:rf.error/id :rf.error/reg-event-bad-middle-slot
-                                     :where       'rf/reg-event
-                                     :recovery    :fix-registration
-                                     :reason      "the middle slot of a reg-event call must be a metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]}); the positional interceptor vector is retired"
-                                     :args        args
-                                     :got         middle
-                                     :expected    "metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]})"}))))
-    (throw (ex-info
-             ":rf.error/reg-event-bad-arity"
-             {:rf.error/id :rf.error/reg-event-bad-arity
-              :where       'rf/reg-event
-              :recovery    :fix-registration
-              :reason      "reg-event expects (id handler) or (id metadata handler); put interceptor chains in metadata :interceptors"
-              :args        args
-              :count       (count args)}))))
+          :else            (error/throw-error!
+                             :rf.error/reg-event-bad-middle-slot
+                             'rf/reg-event
+                             "the middle slot of a reg-event call must be a metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]}); the positional interceptor vector is retired"
+                             {:recovery :fix-registration
+                              :extra    {:args     args
+                                         :got      middle
+                                         :expected "metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]})"}})))
+    (error/throw-error!
+      :rf.error/reg-event-bad-arity
+      'rf/reg-event
+      "reg-event expects (id handler) or (id metadata handler); put interceptor chains in metadata :interceptors"
+      {:recovery :fix-registration
+       :extra    {:args  args
+                  :count (count args)}})))
 
 (defn- merge-form-source
   "Merge `*pending-form-source*` into `m` under `:rf.handler/source`
@@ -1101,12 +1093,12 @@
     (trace/emit-error! error-kw
                        (cond-> {:recovery :no-recovery :reason reason}
                          (some? id) (assoc :id id)))
-    (throw (ex-info (str error-kw)
-                    (cond-> {:rf.error/id error-kw
-                             :where       where
-                             :recovery    :no-recovery
-                             :reason      reason}
-                      (some? id) (assoc :id id))))))
+    (error/throw-error!
+      error-kw
+      where
+      reason
+      {:recovery :no-recovery
+       :extra    (cond-> {} (some? id) (assoc :id id))})))
 
 (defn ^:no-doc reg-event-db
   "REMOVED in EP-0018 (no alias). Calling `reg-event-db` is the hard error

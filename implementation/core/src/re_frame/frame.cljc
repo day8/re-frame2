@@ -400,7 +400,14 @@
   ([operation extra]
    (merge {:rf.error/id :rf.error/no-frame-context
            :operation   operation
-           :recovery    :supply-frame}
+           :recovery    :supply-frame
+           :reason      (str "a frame-scoped " (name operation) " ran with no frame "
+                             "context — no carried frame stamp and no established "
+                             "scope. Frame identity is carried, not found: declare "
+                             "your root frame (rf/reg-frame) and run the operation "
+                             "inside that scope (with-frame / a frame-provider), or "
+                             "pass an explicit {:frame <id>}. Per Spec 002 §The error "
+                             "and its ladder.")}
           ;; Capture-site ancestry off the in-scope handler scope: the
           ;; cascade's dispatch-id correlates a stampless continuation back
           ;; to the cascade that captured the callback. nil outside any
@@ -516,11 +523,11 @@
                     :frame-provider
                     {:where where :recovery :supply-frame})]
       (emit-no-frame-context! payload)
-      (throw (ex-info (str (:rf.error/id payload)) payload)))
+      (throw (error/ex-info-from-data payload)))
     :else
     (let [payload (bad-frame-provider-arg-payload frame-kw {:where where})]
       (emit-bad-frame-provider-arg! payload)
-      (throw (ex-info (str (:rf.error/id payload)) payload)))))
+      (throw (error/ex-info-from-data payload)))))
 
 (defn require-current-frame!
   "Return the frame stamp (id) the in-effect scope carries, or raise/emit
@@ -551,7 +558,7 @@
    (or (resolve-current-frame)
        (let [payload (no-frame-context-payload operation extra)]
          (emit-no-frame-context! payload)
-         (throw (ex-info (str (:rf.error/id payload)) payload))))))
+         (throw (error/ex-info-from-data payload))))))
 
 (defn require-frame-stamp!
   "Operation-time companion to `require-current-frame!` (EP-0002, Spec 002
@@ -578,7 +585,7 @@
    (or frame-id
        (let [payload (no-frame-context-payload operation extra)]
          (emit-no-frame-context! payload)
-         (throw (ex-info (str (:rf.error/id payload)) payload))))))
+         (throw (error/ex-info-from-data payload))))))
 
 ;; ---- lookup ---------------------------------------------------------------
 

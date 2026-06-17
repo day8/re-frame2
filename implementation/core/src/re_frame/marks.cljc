@@ -38,6 +38,7 @@
   classification is authored on the frame. The former
   schema→app-db-egress route is gone post-EP-0015 §8.)"
   (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -148,13 +149,12 @@
   merges the offending-value slot (`:bad-value` for a non-vector whole,
   `:bad-entries` for malformed entries)."
   [mark-key reason extras]
-  (ex-info (str :rf.error/bad-marks)
-           (merge {:rf.error/id :rf.error/bad-marks
-                   :where       'rf/reg-marks
-                   :recovery    :fix-registration
-                   :reason      reason
-                   :bad-key     mark-key}
-                  extras)))
+  (error/thrown-ex-info
+    :rf.error/bad-marks
+    'rf/reg-marks
+    reason
+    {:recovery :fix-registration
+     :extra    (merge {:bad-key mark-key} extras)}))
 
 (defn- coerce-paths
   "Normalise a `:sensitive` / `:large` declaration value to a vector of
@@ -634,17 +634,17 @@
                  (case mark
                    :sensitive [(conj s p) l]
                    :large     [s (conj l p)]
-                   (throw (ex-info (str :rf.error/bad-marks)
-                                   {:rf.error/id :rf.error/bad-marks
-                                    :where       'rf/add-marks
-                                    :recovery    :fix-mark-value
-                                    :reason      (str "an app-db mark value must be one of "
-                                                      (pr-str app-db-mark-values)
-                                                      " — :sensitive redacts the value, :large "
-                                                      "emits a size marker")
-                                    :bad-path    path
-                                    :bad-mark    mark
-                                    :valid       app-db-mark-values})))))
+                   (error/throw-error!
+                     :rf.error/bad-marks
+                     'rf/add-marks
+                     (str "an app-db mark value must be one of "
+                          (pr-str app-db-mark-values)
+                          " — :sensitive redacts the value, :large "
+                          "emits a size marker")
+                     {:recovery :fix-mark-value
+                      :extra    {:bad-path path
+                                 :bad-mark mark
+                                 :valid    app-db-mark-values}}))))
              [[] []]
              path->mark))
 

@@ -17,6 +17,17 @@
   asserts the central builder + every CENTRAL per-surface site routed
   through it (rf2-vvixub PR) emits the canonical message.
 
+  CORPUS BACKSTOP (rf2-6bb3pg): this suite exercises the BUILDER
+  PREDICATES + a curated set of central sites in-process, so a NEW or
+  never-converted `(ex-info \":rf.error/…\")` site elsewhere is invisible
+  to it. The whole-tree anti-regression sweep is now
+  `scripts/check_thrown_error_messages.py` — a source scan (run by
+  `scripts/test-fast-pr.sh`) that fails on ANY framework `(ex-info …)`
+  whose message position is a bare `:rf.*` discriminator keyword. That
+  corpus gate, not this allow-list, is what guarantees the rollout can't
+  silently regress; this suite proves the BUILDER and predicates the
+  corpus gate's contract rests on are themselves correct.
+
   Dual-runtime: the ns ends in `-cljs-test` so it rides the always-on
   `:node-test` gate (`npm run test:cljs`); cognitect-test-runner also
   discovers the `.cljc` on the JVM (`clojure -M:test`). Pure data — no

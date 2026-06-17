@@ -74,8 +74,8 @@
                           (catch :default e e))]
           (is (some? thrown)
               "render-to-string threw when no emitter was installed")
-          (is (= ":rf.error/no-hiccup-emitter-bound" (.-message thrown))
-              "ex-message names the error keyword")
+          (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
+              "ex-data :rf.error/id carries the canonical discriminator")
           (let [data (ex-data thrown)]
             (is (some? data)
                 "the thrown value carries ex-data")
