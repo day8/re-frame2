@@ -252,13 +252,20 @@ const DEV_ONLY_SENTINELS = [
   // must elide in production.
   { source: 're-frame.epoch/on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
     sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
-  // re-frame.epoch — :rf.warning/epoch-redact-fn-exception (rf2-wp70d).
-  // Emitted by maybe-redact when an installed :redact-fn throws.
-  // Every consumer of maybe-redact (settle!, perform-replace-app-db!
-  // via replace-app-db!'s if-not gate, on-frame-destroyed!) sits
-  // inside the universal `interop/debug-enabled?` gate, so this
-  // string literal must elide in :advanced + goog.DEBUG=false.
-  { source: 're-frame.epoch/maybe-redact (rf.warning/epoch-redact-fn-exception)',
+  // re-frame.epoch — :rf.warning/epoch-redact-fn-exception (rf2-wp70d,
+  // EP-0015 issue 6 rf2-ba0eum). EP-0015 RULED storage-side `:redact-fn`
+  // mutation removed: the `:redact-fn` advanced override is now
+  // PROJECTION-SIDE only — it runs at the OFF-BOX egress boundary inside
+  // `re-frame.epoch.tool-pair/projected-record`, AFTER the frame/profile
+  // `re-frame.projection/project-egress` projection, never at storage
+  // time (settle! / replace-app-db! / on-frame-destroyed! deliver the
+  // raw record UNMUTATED). The warning is emitted by
+  // `re-frame.epoch.assembly/apply-redact-fn` when an installed
+  // projection-side :redact-fn throws; the emit body sits inside the
+  // universal `interop/debug-enabled?` gate (the projection helper is
+  // itself gated), so this string literal must elide in :advanced +
+  // goog.DEBUG=false.
+  { source: 're-frame.epoch.assembly/apply-redact-fn (rf.warning/epoch-redact-fn-exception, projection-side)',
     sentinel: 'rf.warning/epoch-redact-fn-exception' },
   // re-frame.views — :rf.view/render trace op (Spec 004 §Render-tree
   // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
@@ -444,9 +451,12 @@ const DEV_ONLY_SENTINELS = [
   // fragment must NOT survive in production bundles.
   { source: 're-frame.core/{dispatch,subscribe,inject-cofx} (rf.trace/call-site stamping)',
     sentinel: 'rf.trace/call-site' },
-  // re-frame.core/reg-event-{db,fx,ctx} — handler form-source capture
-  // (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch,
-  // rf2-xgfuy). The defreg-event-macro emission wraps the bound source
+  // re-frame.core/reg-event — handler form-source capture (Spec 009
+  // §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch, rf2-xgfuy).
+  // EP-0018 collapsed public event registration to the ONE `reg-event`
+  // macro (the per-kind `reg-event-{db,fx,ctx}` forms are removed —
+  // calling them is a hard error). The defreg-event-macro emission wraps
+  // the bound source
   // string in `(if interop/debug-enabled? ~src-string nil)` and the
   // events/merge-form-source body is gated on `interop/debug-enabled?`.
   // Under :advanced + goog.DEBUG=false, Closure constant-folds both

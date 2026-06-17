@@ -28,14 +28,15 @@
 ;; A minimal synthetic manifest reproducing the EXACT ambiguity the real
 ;; manifest has: the bare var `adapter` carried for four namespaces, three
 ;; of them at tier :adapter and one (SSR) at :implementation. Plus an
-;; intentionally-bare var (`reg-event-db`) for the bare-row path.
+;; intentionally-bare var (`reg-event` — the EP-0018 one-form public event
+;; registrar) for the bare-row path.
 (def ^:private synthetic-rows
   [{:namespace "re-frame.adapter.reagent" :var "adapter" :tier :adapter}
    {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter}
    {:namespace "re-frame.adapter.helix"   :var "adapter" :tier :adapter}
    {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation}
    {:namespace "re-frame.http"            :var "get"     :tier :advanced}
-   {:namespace "re-frame.core"            :var "reg-event-db" :tier :front-porch}])
+   {:namespace "re-frame.core"            :var "reg-event" :tier :front-porch}])
 
 (defn- problems-for
   "Run `reconcile` over `api-rows` against the synthetic manifest, with the
@@ -121,8 +122,8 @@
   (testing "a bare row resolves if ANY manifest row with that bare name
             carries the stated tier"
     (is (empty? (problems-for
-                  [{:var "reg-event-db" :qualifier nil :tier :front-porch
-                    :line 1 :raw "reg-event-db"}])))
+                  [{:var "reg-event" :qualifier nil :tier :front-porch
+                    :line 1 :raw "reg-event"}])))
     (testing "and an unmanifested bare name is flagged unless allowlisted"
       (is (= 1 (count (problems-for
                         [{:var "story-view" :qualifier nil :tier :tooling
@@ -136,8 +137,8 @@
   (testing "a bare row whose stated tier no manifest row with that name
             carries is a tier-mismatch"
     (let [problems (problems-for
-                     [{:var "reg-event-db" :qualifier nil :tier :tooling
-                       :line 1 :raw "reg-event-db"}])]
+                     [{:var "reg-event" :qualifier nil :tier :tooling
+                       :line 1 :raw "reg-event"}])]
       (is (= 1 (count problems)))
       (is (= :tier-mismatch (:kind (first problems))))
       (is (= #{:front-porch} (:manifest-tiers (first problems)))))))
