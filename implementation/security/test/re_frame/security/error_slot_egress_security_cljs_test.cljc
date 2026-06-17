@@ -61,7 +61,6 @@
   egress is out of scope and not gold-plated."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.walk :as walk]
             [re-frame.core :as rf]
             ;; Publishes the Malli late-bind validate/explain/sensitive hooks;
             ;; without it `route-url` soft-passes (no validation throw) and the
@@ -100,17 +99,11 @@
 
 (defn- contains-sentinel?
   "Deep-walk `x`; true when the sentinel string appears anywhere (as a
-  value, inside a collection, or inside a stringified form)."
+  value - matched as a SUBSTRING - inside a collection, or inside a
+  stringified form). Thin wrapper over the shared `gen/contains-string?`
+  (rf2-n5bkm7); the sentinel is matched as a substring (`exact? false`)."
   [x]
-  (let [hit (volatile! false)]
-    (walk/postwalk
-      (fn [node]
-        (when (and (string? node) (re-find (re-pattern sentinel) node))
-          (vreset! hit true))
-        node)
-      x)
-    (or @hit
-        (boolean (re-find (re-pattern sentinel) (pr-str x))))))
+  (gen/contains-string? x sentinel false))
 
 ;; ===========================================================================
 ;; SITE 1 — :rf.error/machine-action-exception :exception-data
