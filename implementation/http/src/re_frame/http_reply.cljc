@@ -243,6 +243,79 @@
                       (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
 ;; ---------------------------------------------------------------------------
+;; Actor-destroy obsolescence (rf2-yrrpe2; Managed-Effects §Cancellation —
+;; "`:status :cancelled` when the actor-bound target is still meaningful,
+;; `:status :stale`/`:suppressed` when teardown made the target obsolete
+;; before delivery"; EP-0011 §Status taxonomy line 763-768). An
+;; actor-destroy abort whose reply target ADDRESSES THE DESTROYED ACTOR ITSELF
+;; (the machine-shape wrapper's `[self-id [:rf.http/failed]]` default, or any
+;; request whose origin / explicit target names the actor under teardown) has
+;; an OBSOLETE target — that event-id no longer names a live actor — so its
+;; app reply MUST NOT run. It lowers to the canonical `:status :stale` /
+;; `:work/status :suppressed` outcome, exactly like supersession. A request
+;; whose reply target is an ordinary (non-actor) event is STILL MEANINGFUL —
+;; it keeps the live `:status :cancelled` delivery (rf2-wvkn). The
+;; obsolescence determinant is STRUCTURAL, not a live-DB read: when
+;; `abort-on-actor-destroy` fires, the actor IS being torn down (its snapshot
+;; is still present mid-cascade — `destroy-single-actor!` aborts in-flight
+;; HTTP BEFORE the snapshot teardown), so a reply addressing that same actor
+;; is obsolete by construction, no liveness probe required.
+
+(def actor-destroy-stale-reason
+  "The `:stale/reason` an obsolete actor-bound HTTP completion carries: the
+  reply target's owning actor was destroyed before delivery, so the target is
+  obsolete (Managed-Effects §Cancellation). Named once (EP-0007)."
+  :rf.http/actor-destroyed-target-obsolete)
+
+(defn actor-destroy-target-obsolete?
+  "True when an actor-destroy abort's reply target is OBSOLETE — its event-id
+  names the destroyed actor itself, so dispatching it would address a now-dead
+  actor (Managed-Effects §Cancellation; rf2-yrrpe2).
+
+  `reply-target-id` is the head of the reply event the abort would dispatch:
+  the explicit `:on-failure` vector's head when supplied, else the originating
+  event-id (`resolve-origin-event`'s head). `actor-id` is the destroyed
+  actor's address. Obsolete iff the target names that actor — the
+  machine-shape wrapper's `[self-id [:rf.http/failed]]` target, or any request
+  whose default reply addresses its own actor.
+
+  A target naming an ORDINARY (different) event is still meaningful and stays a
+  live `:cancelled` delivery (the rf2-wvkn `:on-failure [:reply/recorder]`
+  shape). A nil `actor-id` (the request was not actor-bound) is never
+  obsolete."
+  [reply-target-id actor-id]
+  (and (some? actor-id)
+       (some? reply-target-id)
+       (= reply-target-id actor-id)))
+
+(defn actor-destroy-suppress
+  "Produce the stale-suppression outcome for an actor-destroy abort whose
+  reply target is OBSOLETE (rf2-yrrpe2) — WITHOUT dispatching the app reply
+  target. Delegates to the shared `re-frame.reply/suppress` correctness
+  boundary: the returned `:reply` is `:status :stale` (no `:value`, no app
+  mutation), `:deliver?` is false, and `:trace` carries the carried correlation
+  joined to `:work/id`.
+
+  `ctx` is the aborted attempt's reply-ctx (`{:request-id … :origin-event …
+  :issuance … :attempt … :frame …}`) — it supplies the carried HTTP work-id.
+  The carried gate is the attempt's own work-id; the current gate is nil (the
+  actor that owned the target is gone — there is no live successor), so the
+  shared `stale?` predicate suppresses (a carried id against a nil current is
+  stale, the same shape supersession uses when the superseding work-id is
+  unknown)."
+  [ctx]
+  (let [carried-wid (work-id ctx)]
+    (reply/suppress nil
+                    {:work/id carried-wid}
+                    nil
+                    (cond-> {:work/id      carried-wid
+                             :work/kind    :http
+                             :attempt      (or (:attempt ctx) 1)
+                             :stale/reason actor-destroy-stale-reason}
+                      (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
+                      (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
+
+;; ---------------------------------------------------------------------------
 ;; Public compatibility reshape (Managed-Effects §Public Compatibility
 ;; Sugar; EP-0011 §Public Compatibility Sugar). The inverse projection:
 ;; canonical reply map → the Spec 014 public reply payload. This is the

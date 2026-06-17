@@ -167,6 +167,56 @@
       (is (= :actor-destroyed (:cancel/reason r))))))
 
 ;; ===========================================================================
+;; Group 1b — the SHARED-TARGET lowering path + the reply-mapping functor law
+;; for HTTP (rf2-9u1tvq). HTTP's compatibility addressing — append the public
+;; reply payload as the final arg of the reply target's event — IS the shared
+;; `re-frame.reply/complete` `:delivery :append` over the `:rf.http/compat-
+;; reply` payload. These pin that HTTP rides the shared target functions
+;; (`complete` / `map-target`) rather than a family-private append, and that
+;; the EP-0011 functor law holds over HTTP's compat target — not only that the
+;; canonical reply map is constructed.
+;; ===========================================================================
+
+(deftest http-compat-target-lowers-through-shared-complete
+  (testing "the HTTP compat reply (public payload appended to the target event) IS re-frame.reply/complete :delivery :append — the shared-target lowering path, not a family-private append"
+    (let [reply   (http-reply/success-reply base-ctx {:title "Welcome"})
+          payload (http-reply/reply->public-payload reply) ;; the :rf.http/compat-reply body
+          target  [:article/load {:id 42}]]
+      ;; `complete` appends the compat payload as the final arg — exactly the
+      ;; shape `build-reply-event` produces for an explicit reply target.
+      (is (= [:article/load {:id 42} {:kind :success :value {:title "Welcome"}}]
+             (reply/complete target payload)))
+      (testing "a failure compat payload lowers the same way through the shared append"
+        (let [f  {:kind :rf.http/http-5xx :status 503 :body "down"}
+              fp (http-reply/reply->public-payload (http-reply/failure-reply base-ctx f))]
+          (is (= [:svc/failed {:kind :failure :failure f}]
+                 (reply/complete [:svc/failed] fp))))))))
+
+(deftest http-compat-target-satisfies-functor-law
+  (testing "rf2-9u1tvq — the EP-0011 reply-mapping functor law holds over HTTP's compat target: complete(map-target(f,t),reply) == f(complete(t,reply)); identity + composition"
+    (let [payload (http-reply/reply->public-payload
+                    (http-reply/success-reply base-ctx {:title "Welcome"}))
+          target  [:article/load {:id 42}]
+          ;; relocate the completed reply into a wrapper event (the Cmd.map role)
+          wrap    (fn [ev] [:wrap ev])
+          tag     (fn [ev] (conj ev :tag))]
+      (testing "the law: complete(map-target(f, target), reply) == f(complete(target, reply))"
+        (is (= (reply/complete (reply/map-target wrap target) payload)
+               (wrap (reply/complete target payload)))))
+      (testing "identity: map-target(identity, target) completes to the plain completion"
+        (is (= (reply/complete (reply/map-target identity target) payload)
+               (reply/complete target payload))))
+      (testing "composition: map-target(comp f g) == map-target f ∘ map-target g"
+        (is (= (reply/complete (reply/map-target (comp wrap tag) target) payload)
+               (reply/complete (reply/map-target wrap (reply/map-target tag target)) payload))))
+      (testing "mapping changes ONLY the completed event — the canonical reply facts (work-id / status) are untouched by map-target"
+        (let [reply (http-reply/success-reply base-ctx {:title "Welcome"})]
+          ;; work-id / status are not stored on the target, so mapping cannot
+          ;; touch them — the law is structural.
+          (is (= [:rf.work/http :article/by-id 1 1] (:work/id reply)))
+          (is (= :ok (:status reply))))))))
+
+;; ===========================================================================
 ;; Group 2a — public compatibility reshape (pure inverse projection).
 ;; ===========================================================================
 
@@ -380,3 +430,44 @@
         (finally
           (trace/unregister-listener! lid)
           (stop-server! srv))))))
+
+;; ===========================================================================
+;; Group 4 — actor-destroy obsolete-target stale suppression (rf2-yrrpe2,
+;; pure altitude). Managed-Effects §Cancellation: an actor-destroy abort whose
+;; reply target addresses the destroyed actor itself is OBSOLETE and lowers to
+;; `:status :stale` / `:work/status :suppressed` (no app delivery); a target
+;; naming an ordinary event is still meaningful and stays a live `:cancelled`.
+;; ===========================================================================
+
+(deftest actor-destroy-target-obsolete-predicate
+  (testing "rf2-yrrpe2 — a reply target naming the destroyed actor itself is obsolete; an ordinary target is meaningful"
+    (is (true?  (http-reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1))
+        "target == actor-id (machine-shape wrapper's [self-id ...]) → obsolete")
+    (is (false? (http-reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1))
+        "target is an ordinary event (≠ actor-id) → still meaningful")
+    (is (false? (http-reply/actor-destroy-target-obsolete? :worker/proc#1 nil))
+        "no actor binding → never obsolete")
+    (is (false? (http-reply/actor-destroy-target-obsolete? nil :worker/proc#1))
+        "no resolvable target → not classified obsolete")))
+
+(deftest actor-destroy-suppress-is-canonical-stale
+  (testing "rf2-yrrpe2 — an obsolete actor-bound completion lowers to the shared :status :stale / :work/status :suppressed outcome, no app delivery"
+    (let [ctx {:request-id   [:worker/proc#1 :slow]
+               :origin-event [:worker/proc#1 [:rf.http/failed]]
+               :issuance     1
+               :attempt      1
+               :frame        :app/main}
+          {:keys [deliver? reply trace] :as out} (http-reply/actor-destroy-suppress ctx)]
+      (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
+      (is (= :suppressed (:work/status out)))
+      (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+      (is (= :stale (:status reply)))
+      (is (true? (:stale? reply)))
+      (is (= :rf.http/actor-destroyed-target-obsolete (:stale/reason reply)))
+      (is (= :suppressed (:work/status reply)))
+      (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
+      (testing "the trace joins the carried work-id"
+        (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1]
+               (:work/id (:rf.reply/carried trace))))
+        (is (nil? (:rf.reply/current trace))
+            "no live successor — the actor that owned the target is gone")))))

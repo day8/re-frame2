@@ -338,9 +338,59 @@
                             :reply-payload (http-reply/reply->public-payload reply)
                             :completed-at  (:completed-at reply)))))
 
+(defn emit-actor-destroy-stale-trace!
+  "rf2-yrrpe2 — emit the canonical EP-0011 `:status :stale` /
+  `:work/status :suppressed` reply-envelope trace for an actor-destroy abort
+  whose reply target is OBSOLETE (it addressed the destroyed actor itself),
+  WITHOUT dispatching the app target (Managed-Effects §Cancellation /
+  §Stale suppression — clauses 1/2/3/4: the obsolete actor-bound target's
+  reply outcome becomes `:stale`, its ledger row reaches `:suppressed`, and
+  the trace stream records the carried correlation).
+
+  Mirrors `emit-superseded-stale-trace!` but for the actor-teardown
+  obsolescence case: the carried correlation is the aborted attempt's own
+  work-id; there is no live successor (`:current` is nil — the actor that
+  owned the target is gone). The wire-bearing slots route through the shared
+  `http-reply/trace-reply` → `re-frame.reply/trace-summary` →
+  `re-frame.elision/elide-wire-value` walker. Gated on `debug-enabled?` like
+  the other `:rf.http/*` trace rows."
+  [ctx]
+  (when interop/debug-enabled?
+    (let [{:keys [reply trace]} (http-reply/actor-destroy-suppress ctx)
+          summary (http-reply/trace-reply
+                    reply
+                    (cond-> {:sensitive? (true? (:sensitive? ctx))}
+                      (:frame ctx) (assoc :frame (:frame ctx))))]
+      (trace/emit! :info :rf.http/stale-suppressed
+                   (cond-> {:rf.reply/status       (:status summary)
+                            :rf.reply/work-status   (:work/status summary)
+                            :rf.reply/stale-reason  (:stale/reason summary)
+                            :rf.reply/work-id       (:work/id summary)
+                            ;; canonical join key for Xray's uniform
+                            ;; work/reply grouping (reads bare `:work/id`).
+                            :work/id                (:work/id summary)
+                            :work/kind              :http
+                            :rf.reply/carried       (:rf.reply/carried trace)
+                            :rf.reply/current       (:rf.reply/current trace)
+                            :recovery               :actor-destroyed-target-obsolete}
+                     (:frame ctx) (assoc :frame (:frame ctx)))))))
+
+(defn- reply-target-id
+  "The head (event-id) of the reply event an abort would dispatch: the
+  explicit `:on-failure` vector's head when supplied, else the originating
+  event-id (`resolve-origin-event`'s head). Used to decide whether an
+  actor-destroy abort's reply target is OBSOLETE (rf2-yrrpe2)."
+  [ctx]
+  (let [explicit (:explicit-on-failure ctx)
+        value    (:value explicit)]
+    (if (and (:supplied? explicit) (vector? value))
+      (first value)
+      (first (:origin-event ctx)))))
+
 (defn- dispatch-aborted!
   "Emit the `:rf.http/aborted` trace + dispatch the abort reply for a
-  cancelled request, honouring rf2-lxd3 supersede suppression.
+  cancelled request, honouring rf2-lxd3 supersede suppression and the
+  rf2-yrrpe2 actor-destroy obsolete-target stale suppression.
 
   Shared by BOTH cancellation states (rf2-wj8vv):
    - the in-flight-fetch abort-fn in `run-attempt!` (a fetch / future is
@@ -354,7 +404,17 @@
   identical to consumers regardless of which lifecycle phase it was in.
   `reason` is `:user` / `:actor-destroyed` / `:request-id-superseded` /
   `:timeout`. `ctx` must carry `:request-id`, `:actor-id`, `:url`,
-  `:sensitive?`."
+  `:sensitive?`.
+
+  Per Managed-Effects §Cancellation (rf2-yrrpe2): an `:actor-destroyed`
+  abort whose reply target is OBSOLETE — its event-id names the destroyed
+  actor itself (the machine-shape wrapper's `[self-id [:rf.http/failed]]`
+  default, or any request whose default reply addresses its own actor) — does
+  NOT deliver a live `:cancelled`/failure reply; it lowers to the canonical
+  `:status :stale` / `:work/status :suppressed` outcome (the `:rf.http/aborted`
+  trace still fires; only the app reply delivery is suppressed). An
+  `:actor-destroyed` abort whose target is an ORDINARY (still-meaningful)
+  event keeps the live failure delivery, as do explicit `:user` aborts."
   [ctx reason]
   (let [failure {:kind       :rf.http/aborted
                  :request-id (:request-id ctx)
@@ -369,10 +429,26 @@
                          sensitive?
                          {:frame (:frame ctx)})]
         (trace/emit-error! :rf.http/aborted redacted)))
-    ;; Per rf2-lxd3 — supersede semantics suppress the reply. Other
-    ;; abort reasons (`:user`, `:actor-destroyed`, `:timeout`) all
-    ;; dispatch the failure reply normally.
-    (when-not (= :request-id-superseded reason)
+    (cond
+      ;; Per rf2-lxd3 — supersede semantics suppress the reply (the new
+      ;; request replaces the old; the superseded attempt's canonical stale
+      ;; trace is emitted by `emit-superseded-stale-trace!` at supersede time).
+      (= :request-id-superseded reason)
+      nil
+
+      ;; Per rf2-yrrpe2 — an actor-destroy abort whose reply target is
+      ;; OBSOLETE (it addresses the destroyed actor itself) suppresses the app
+      ;; delivery as a canonical `:status :stale` / `:work/status :suppressed`
+      ;; outcome (Managed-Effects §Cancellation). The app target MUST NOT run.
+      (and (= :actor-destroyed reason)
+           (http-reply/actor-destroy-target-obsolete?
+             (reply-target-id ctx) (:actor-id ctx)))
+      (emit-actor-destroy-stale-trace! (reply-ctx ctx))
+
+      ;; Other abort reasons (`:user`, `:timeout`) and actor-destroy aborts
+      ;; whose target is still meaningful (an ordinary event) deliver the
+      ;; failure reply normally as a live `:status :cancelled`.
+      :else
       (dispatch-failure! ctx failure))))
 
 (defn- already-replied?
