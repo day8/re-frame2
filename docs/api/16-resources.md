@@ -52,7 +52,7 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
 
 **Optional keys**: `:doc`, `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
 
-**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, `:infinite`, transport extension protocols, and mutation-only keys (`:invalidates`, `:optimistic`, `:rollback`). (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling.)
+**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, `:infinite`, transport extension protocols. (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling.) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
 
 ### Scope policy
 
@@ -239,7 +239,7 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 
 > **Mutation `:scope` is not fail-closed.** Unlike a resource read — whose `:scope` is **required** and fails closed — a mutation's `:scope` is optional and resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it **MUST match the scope of the resources the write changes**: a write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead and silently misses the scoped entries (stale reads, no error). Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site; the `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
 
-**Reserved / deferred**: `:optimistic` / `:rollback` — optimistic rollback's snapshot/rollback/reconciliation shape is *reserved* in the success trace but not yet implemented.
+**Optimistic keys** (landed via [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) — see [spec/016 §Optimistic mutations](../../spec/016-Resources.md#optimistic-mutations)): `:optimistic` is a registration-level forward plan (the twin of `:patches`) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol.
 
 ### `clear-mutation`
 

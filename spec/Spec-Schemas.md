@@ -2666,9 +2666,10 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
   ;; id) so concurrent submissions of the same mutation never clobber each
   ;; other. The in-flight attempt rides :rf.runtime/work-ledger via
   ;; :current-work; host handles live in side tables. :affected-keys /
-  ;; :patch-summary reserve the optimistic-rollback trace shape (optimistic
-  ;; itself DEFERRED). The :error envelope is the closed :rf.http/* shape.
-  ;; Per [016 §Deferred slices] / [EP-0003 §Mutations].
+  ;; :patch-summary carry the optimistic-rollback trace shape (snapshot
+  ;; inverse / :revision / :snapshot-id / settle disposition) — landed via
+  ;; EP-0019, see [016 §Optimistic mutations]. The :error envelope is the
+  ;; closed :rf.http/* shape. Per [016 §Mutations] / [EP-0003 §Mutations].
   [:map
    [:mutation/id   :keyword]
    [:instance/id   :any]
