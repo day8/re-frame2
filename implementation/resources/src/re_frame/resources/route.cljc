@@ -588,7 +588,9 @@
                         cparams    (registry/validate+canonicalize-params
                                      resource-id spec raw-params
                                      'rf.resource/route-entry)
-                        scoped-key (state/scoped-resource-key scope resource-id cparams)
+                        ;; rf2-rplgkw: scope (resolve-scope-for-event →
+                        ;; canonicalize-scope) + cparams already canonical.
+                        scoped-key (state/scoped-resource-key* scope resource-id cparams)
                         blocking?  (boolean (:blocking? entry))
                         ensure-ev  [:rf.resource/ensure
                                     (cond-> {:resource resource-id
