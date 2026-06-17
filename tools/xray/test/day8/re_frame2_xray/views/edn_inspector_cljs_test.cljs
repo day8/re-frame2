@@ -1535,6 +1535,78 @@
     (is (not (contains? struck "50")) "50 survives (shifted 4→2) — not struck")
     (is (not (contains? struck "10")) "10 survives in place — not struck")))
 
+;; =========================================================================
+;; rf2-3eplfk — MIXED insert+delete edit scripts render the genuinely-
+;; removed member struck and the survivors un-morphed. Mirrors
+;; `diff-removed-vector-element-no-sentinel-leak` (the delete-only render
+;; guard) for the mixed-edit case the engine bug uncovered.
+;; =========================================================================
+;;
+;; These exercise the SAME render path as the rf2-vu42n scattered-removal
+;; tests above (`render-vec-diff` threads the real `engine/project`), so a
+;; regression in the unified-replay engine fix surfaces here as the WRONG
+;; member struck (or a survivor morphed). Each case is a repro from the
+;; rf2-3eplfk bead.
+
+(deftest diff-vector-insert-before-delete-strikes-removed-not-survivor
+  ;; rf2-3eplfk repro 1: `[:a :b :c] -> [:X :a :c]` ⇒ `[[0] :+ :X] [[2] :-]`.
+  ;; :b (before-idx 1) is removed; :X added; :a/:c survive. Pre-fix struck
+  ;; :c (a SURVIVOR) and never surfaced :b.
+  (let [before [:a :b :c]
+        after  [:X :a :c]
+        h      (render-vec-diff before after)
+        all    (collect-text h)
+        struck (struck-members h)]
+    (testing "the genuinely-removed member :b is struck"
+      (is (contains? struck ":b") ":b (removed@1) is struck"))
+    (testing "the surviving members are NOT struck (not morphed)"
+      (is (not (contains? struck ":c"))
+          ":c SURVIVES (unmoved at after-idx 2) — must not be struck")
+      (is (not (contains? struck ":a"))
+          ":a SURVIVES (shifted 0→1) — must not be struck")
+      (is (not (contains? struck ":X"))
+          ":X is the inserted element — added, not struck"))
+    (testing "every member still visible somewhere in the tree"
+      (is (re-find #":a" all))
+      (is (re-find #":b" all))
+      (is (re-find #":c" all))
+      (is (re-find #":X" all)))))
+
+(deftest diff-vector-insert-before-double-delete-survivor-not-struck
+  ;; rf2-3eplfk repro 2: `[:a :b :c :d] -> [:X :a :d]` ⇒
+  ;; `[[0] :+ :X] [[2] :-] [[2] :-]`. :b + :c removed; :d SURVIVES.
+  ;; Pre-fix struck :d (a survivor) and dropped :c.
+  (let [before [:a :b :c :d]
+        after  [:X :a :d]
+        h      (render-vec-diff before after)
+        struck (struck-members h)]
+    (testing "the two genuinely-removed members are struck"
+      (is (contains? struck ":b") ":b (removed) is struck")
+      (is (contains? struck ":c") ":c (removed) is struck"))
+    (testing "the surviving :d is NOT struck"
+      (is (not (contains? struck ":d"))
+          ":d SURVIVES at after-idx 2 — must not be struck"))))
+
+(deftest diff-vector-insert-then-tail-delete-shows-dropped-removal
+  ;; rf2-3eplfk repro 3: `[:a :b :c :d] -> [:a :X :b :c]` ⇒
+  ;; `[[1] :+ :X] [[4] :-]`. :d (before-idx 3) removed. Pre-fix DROPPED the
+  ;; removal entirely (edit-index 4 out-of-range vs pristine `(range 4)`),
+  ;; so :d never rendered struck. The fix must surface it.
+  (let [before [:a :b :c :d]
+        after  [:a :X :b :c]
+        h      (render-vec-diff before after)
+        all    (collect-text h)
+        struck (struck-members h)]
+    (testing "the removed :d is struck (not silently dropped)"
+      (is (contains? struck ":d") ":d (removed@3) is struck"))
+    (testing "the survivors are not struck"
+      (is (not (contains? struck ":a")) ":a survives in place — not struck")
+      (is (not (contains? struck ":b")) ":b survives (shifted) — not struck")
+      (is (not (contains? struck ":c")) ":c survives (shifted) — not struck")
+      (is (not (contains? struck ":X")) ":X is inserted — added, not struck"))
+    (testing ":d still visible in the tree"
+      (is (re-find #":d" all) "the dropped element :d appears struck-through"))))
+
 (deftest sequential-diff-children-scattered-removal-shape
   ;; The pure projection-aware child walk directly: for `[:a :b :c :d] ->
   ;; [:a :c]` it emits before-ordered triples with the removed members at
