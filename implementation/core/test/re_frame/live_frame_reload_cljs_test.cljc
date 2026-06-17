@@ -478,49 +478,74 @@
             headline guarantee, wired by rf2-h4q6cy). Uses the LIVE source store
             + the shared registrar; snapshot/restore the source store and clean
             the registrar in finally (NOT clear-all!). Asserts BEHAVIOR (the
-            frame resolves the new impl), never the internal dirty flag."
+            frame resolves the new impl), never the internal dirty flag.
+
+            DETERMINISM (rf2-roou7s): the shared `pending-reprojection?` flag and
+            the `interop/next-tick` schedule are process-wide (a `defonce` hook).
+            The register!s below schedule a REAL deferred `next-tick` flush that
+            races this case's synchronous `flush-pending-reprojection!`: were a
+            scheduled tick (this case's own, or one a prior case left in flight on
+            the JVM executor thread / a CLJS microtask) to fire first, it would
+            DRAIN the pending flag and the assert-time synchronous flush would
+            return `{}` — the observed intermittent `(not (contains? {} :auto/main))`.
+            So redef `interop/next-tick` to a NO-OP for the whole case: no async
+            flush ever runs, the ONLY flush is the explicit synchronous one this
+            case drives, and the dirty flag is set by `register!` and drained
+            ONLY by that synchronous flush. This is the same `next-tick`-isolation
+            every sibling auto-reprojection case below already uses; the assertions
+            are unchanged (still the register!-armed synchronous flush)."
     (let [snapshot @source-store/kind->id->ns->descriptor]
       (try
-        ;; Start from a clean slate: drain any reprojection a prior case left
-        ;; pending (the hook is a process-defonce, shared across cases).
-        (lf/flush-pending-reprojection!)
-        ;; First registration of the selected id, via the SAME register! path a
-        ;; reg-* macro funnels through (so the auto-reprojection hook is exercised
-        ;; end to end). The hook fires here too (first-time); no frame is live yet,
-        ;; so we drain the resulting (move-empty) pending flush to start clean.
-        (registrar/register! :event :auto/inc
-          {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v1})
-        (lf/flush-pending-reprojection!)
-        (let [img   (image/image {:id :auto/img :include-ns ["auto.feature"]})
-              frame (lf/make-frame {:id :auto/main :images [img]})
-              gen-before (lf/frame-generation frame)]
-          (testing "the frame resolves the ORIGINAL impl before any re-eval (control)"
-            (is (= ::auto-v1
-                   (:handler-fn (asm/resolve-descriptor gen-before :event :auto/inc)))))
-          ;; The reg-* RE-EVAL — a new impl for the same (kind,id,ns) slot, through
-          ;; register!. This FIRES the registration hook → marks dirty + schedules.
+        ;; The next-tick no-op makes the coalesced flush deterministic: no
+        ;; scheduled tick can fire and drain the shared pending flag out from
+        ;; under the synchronous flush this case asserts on (rf2-roou7s).
+        (with-redefs [interop/next-tick (fn [_f] nil)]
+          ;; Start from a clean slate: drain any reprojection a prior case left
+          ;; pending (the hook is a process-defonce, shared across cases).
+          (lf/flush-pending-reprojection!)
+          ;; First registration of the selected id, via the SAME register! path a
+          ;; reg-* macro funnels through (so the auto-reprojection hook is exercised
+          ;; end to end). The hook fires here too (first-time); no frame is live yet,
+          ;; so we drain the resulting (move-empty) pending flush to start clean.
           (registrar/register! :event :auto/inc
-            {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v2})
-          ;; Force the COALESCED flush synchronously (the same flush the next-tick
-          ;; tick arms). NO manual reproject-live-frames! — this is the wired path:
-          ;; a flush only does work because the register! above marked it pending.
-          (let [moved (lf/flush-pending-reprojection!)]
-            (testing "the register!-armed flush reprojects the affected
-                      explicit-image frame (the hook fired and marked it dirty)"
-              (is (contains? moved :auto/main))
-              (is (contains? (:changed (get moved :auto/main)) [:event :auto/inc]))))
-          (testing "the live frame now resolves the RE-EVAL'd impl through its
-                    swapped generation — automatically, no reload-images! call"
-            (is (= ::auto-v2
-                   (:handler-fn (asm/resolve-descriptor
-                                  (lf/frame-generation (lf/live-frame :auto/main))
-                                  :event :auto/inc))))))
+            {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v1})
+          (lf/flush-pending-reprojection!)
+          (let [img   (image/image {:id :auto/img :include-ns ["auto.feature"]})
+                frame (lf/make-frame {:id :auto/main :images [img]})
+                gen-before (lf/frame-generation frame)]
+            (testing "the frame resolves the ORIGINAL impl before any re-eval (control)"
+              (is (= ::auto-v1
+                     (:handler-fn (asm/resolve-descriptor gen-before :event :auto/inc)))))
+            ;; The reg-* RE-EVAL — a new impl for the same (kind,id,ns) slot, through
+            ;; register!. This FIRES the registration hook → marks dirty + schedules
+            ;; (the schedule is the redef'd no-op, so nothing drains the flag early).
+            (registrar/register! :event :auto/inc
+              {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v2})
+            ;; Force the COALESCED flush synchronously (the same flush the next-tick
+            ;; tick arms). NO manual reproject-live-frames! — this is the wired path:
+            ;; a flush only does work because the register! above marked it pending.
+            (let [moved (lf/flush-pending-reprojection!)]
+              (testing "the register!-armed flush reprojects the affected
+                        explicit-image frame (the hook fired and marked it dirty)"
+                (is (contains? moved :auto/main))
+                (is (contains? (:changed (get moved :auto/main)) [:event :auto/inc]))))
+            (testing "the live frame now resolves the RE-EVAL'd impl through its
+                      swapped generation — automatically, no reload-images! call"
+              (is (= ::auto-v2
+                     (:handler-fn (asm/resolve-descriptor
+                                    (lf/frame-generation (lf/live-frame :auto/main))
+                                    :event :auto/inc)))))))
         (finally
           ;; Clean the shared registrar slot we wrote + drain any residual pending
           ;; reprojection, then restore the source store. (The hook itself is a
-          ;; process-defonce — it stays installed across cases by design.)
-          (registrar/unregister! :event :auto/inc)
-          (lf/flush-pending-reprojection!)
+          ;; process-defonce — it stays installed across cases by design.) Keep the
+          ;; next-tick no-op over the cleanup too: the synchronous drain stays
+          ;; synchronous and no stray real tick can be left scheduled to fire
+          ;; mid-sibling and drain its pending flag (the same rf2-roou7s race,
+          ;; just relocated to teardown).
+          (with-redefs [interop/next-tick (fn [_f] nil)]
+            (registrar/unregister! :event :auto/inc)
+            (lf/flush-pending-reprojection!))
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
 
 (deftest reg-star-burst-coalesces-to-one-flush
