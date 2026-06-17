@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 515,
+ :var-count 513,
  :tier-vocab
  [:front-porch
   :advanced
@@ -390,7 +390,6 @@
   {:namespace "re-frame.ssr.ring", :var "ssr-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-middleware", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "stream-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.story", :var "add-marks", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "all-kinds-with-counts", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "assert-deterministic", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "assertions-passing?", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
@@ -480,7 +479,6 @@
   {:namespace "re-frame.story", :var "run-result", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "run-result-schema", :tier :tooling, :kind :var, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "run-variant", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.story", :var "set-marks", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "snapshot-identity", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "start-recording!", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "static-mode?", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
