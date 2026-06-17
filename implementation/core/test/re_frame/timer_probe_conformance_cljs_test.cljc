@@ -47,11 +47,15 @@
   (fn [_args] {:handle (gensym "host-timer-") :started-at start-ms}))
 
 (def ^:private base-args
-  {:timer/id   :debounce/search
-   :after      300
-   :generation 1
-   :reply-to   [:search/timer-elapsed {:q "re-frame"}]
-   :frame      :rf/default})
+  {:timer/id    :debounce/search
+   :after       300
+   :generation  1
+   ;; The reply target is pinned under the CANONICAL `:rf/reply-to` key (the
+   ;; single property-9 target spelling, Managed-Effects §The reply target).
+   ;; The probe is the core-surface conformance example a future managed-async
+   ;; writer copies, so it carries NO unqualified second spelling.
+   :rf/reply-to [:search/timer-elapsed {:q "re-frame"}]
+   :frame       :rf/default})
 
 ;; ===========================================================================
 ;; Property 9 — work-id correlation (Managed-Effects §Work-id correlation).
@@ -76,9 +80,19 @@
 (deftest args-map-shape-is-closed
   (testing "a well-formed spec validates"
     (is (true? (probe/valid-args? base-args))))
+  (testing "the reply target is pinned under the CANONICAL :rf/reply-to key
+            (Managed-Effects §The reply target — the single property-9 spelling)"
+    (is (true? (probe/valid-args? base-args)) "the canonical :rf/reply-to validates")
+    (is (false? (probe/valid-args? (dissoc base-args :rf/reply-to)))
+        "the reply target is required under :rf/reply-to")
+    (is (false? (probe/valid-args? (-> base-args
+                                       (dissoc :rf/reply-to)
+                                       (assoc :reply-to [:t]))))
+        "an unqualified :reply-to alias is NOT accepted — the probe pins :rf/reply-to,
+         so a fresh consumer copying it inherits the canonical spelling"))
   (testing "missing / malformed required fields are rejected as data (no throw)"
     (is (false? (probe/valid-args? (dissoc base-args :timer/id))))
-    (is (false? (probe/valid-args? (dissoc base-args :reply-to))))
+    (is (false? (probe/valid-args? (dissoc base-args :rf/reply-to))))
     (is (false? (probe/valid-args? (assoc base-args :after 0))) "delay must be positive")
     (is (false? (probe/valid-args? (assoc base-args :after -5))))
     (is (false? (probe/valid-args? (assoc base-args :generation :nope))))
@@ -100,7 +114,7 @@
   (testing "a malformed spec is an fx-arg contract violation (throws), not silent"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (probe/probe-timer-fx {:frame :rf/default}
-                                       (dissoc base-args :reply-to)
+                                       (dissoc base-args :rf/reply-to)
                                        (stub-scheduler 1000))))))
 
 (deftest registry-is-queryable-by-id
