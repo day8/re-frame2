@@ -2572,24 +2572,50 @@
        009 §`trace-buffer` API."}
        clear-trace-buffer!    trace/clear-trace-buffer!)))
 
-(def ^{:doc "Register an always-on event-emit listener `f` under `id`.
-  Survives `:advanced` + `goog.DEBUG=false` — fires in CLJS production
-  builds where the trace surface is elided. `f` receives a tight
-  event-record per processed event (NOT subs / fxs); see
-  `re-frame.event-emit` ns docstring for the record shape. Re-registering
-  the same id replaces. Returns `id`. Per Spec 009 §Event-emit listener."}
+(def ^{:doc "ADVANCED corpus-wide integration hook — register an always-on
+  event-emit listener `f` under `id`. Survives `:advanced` + `goog.DEBUG=false`
+  — fires in CLJS production builds where the trace surface is elided. `f`
+  receives a tight event-record per processed event (NOT subs / fxs), with the
+  `:event` vector elided through the wire-walker but otherwise UNPROJECTED — it
+  is fanned across EVERY frame, not routed under any frame's egress policy; see
+  `re-frame.event-emit` ns docstring for the record shape. Re-registering the
+  same id replaces. Returns `id`.
+
+  NOT the normal off-box egress surface (EP-0015 §9): the NORMAL production
+  observation path is the frame-owned `:observability :handled-events` sink
+  (declared on `reg-frame`, wired with `register-observability-sink!`), which
+  routes an already-PROJECTED record under the owning frame's classification +
+  the sink's egress profile. Reach for THIS corpus-wide listener only for an
+  intentionally cross-frame hook (one fan-out across every frame) or a record
+  the sink routing does not carry. Per Spec 009 §Event-emit listener +
+  Spec 015 §Frame-owned observability sink policy."}
   register-event-listener!   event-emit/register-event-listener!)
 
 (def ^{:doc "Drop the always-on event-emit listener registered under `id`.
   Returns nil. Per Spec 009 §Event-emit listener."}
   unregister-event-listener! event-emit/unregister-event-listener!)
 
-(def ^{:doc "Register an always-on error-emit listener `f` under `id`.
-  Survives `:advanced` + `goog.DEBUG=false`. `f` receives a tight
-  error-record per `:rf.error/*` event (see `re-frame.error-emit` ns
-  docstring for the record shape). For off-box observability shippers
-  (Sentry, Honeybadger, Rollbar). Re-registering the same id replaces.
-  Returns `id`. Per Spec 009 §Error observability."}
+(def ^{:doc "ADVANCED corpus-wide integration hook — register an always-on
+  error-emit listener `f` under `id`. Survives `:advanced` + `goog.DEBUG=false`.
+  `f` receives a tight error-record per `:rf.error/*` event (see
+  `re-frame.error-emit` ns docstring for the record shape). The record is
+  fanned across EVERY frame and is NOT projected under any frame's egress
+  policy — the `:event` vector is wire-elided, but the `:exception` object rides
+  RAW (the documented exception to the always-on axis's 'structured data only'
+  rule, for post-mortem shippers that need the host throwable + stack).
+  Re-registering the same id replaces. Returns `id`.
+
+  NOT the normal off-box egress surface (EP-0015 §9): because this record is
+  unprojected, raw owner-local data can leave a frame here. The NORMAL
+  production error-observation path is the frame-owned `:observability :errors`
+  sink (declared on `reg-frame`, wired with `register-observability-sink!`),
+  which PROJECTS the record under the owning frame's classification + the sink's
+  egress profile BEFORE the sink sees it (sensitive paths redacted, `:exception`
+  dropped under `:rf.egress/public-error`). Off-box shippers (Sentry /
+  Honeybadger / Rollbar) should prefer the frame sink; reach for THIS
+  corpus-wide listener only for an intentionally cross-frame hook or a record
+  the sink routing does not carry. Per Spec 009 §Error observability +
+  Spec 015 §Frame-owned observability sink policy."}
   register-error-listener!   error-emit/register-error-listener!)
 
 (def ^{:doc "Drop the always-on error-emit listener registered under `id`.

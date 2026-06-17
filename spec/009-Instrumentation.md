@@ -1142,19 +1142,42 @@ Five surfaces survive elision and are the canonical production-debugging fallbac
 
    > **The corpus-wide listener carries the raw `:exception`; the frame-owned sink route PROJECTS it.** The `register-error-listener!` registry is the **advanced integration API** for off-box post-mortem shippers (Sentry / Honeybadger / Rollbar), which need the host throwable and its stack — so the corpus-wide record carries the raw `:exception` object deliberately. This is the documented exception to the always-on axis's "structured data only — never raw values" rule (§The promotion criterion): the `:event` vector is elided through the wire-walker, but the opaque `:exception` rides raw for the shipper. The **NORMAL production observation surface is the frame-owned `:observability :errors` sink** (Spec 015 §Frame-owned observability sink policy): EVERY production-reachable `:rf.error/*` record routes there ALONGSIDE the listener fan-out, where the runtime PROJECTS the record under the owning frame's classification and the sink's egress profile BEFORE the sink sees it (sensitive paths redacted, `:exception` dropped under `:rf.egress/public-error`). This holds for BOTH the event-centric records (`dispatch-on-error!` → `observability/route-error!`) and the EP-0008 NON-EVENT union records — the frame-teardown report and the promoted SSR categories (`dispatch-error-record!` → `observability/route-error-record!`, which lifts the flat category slots onto a projected `:tags` tree-key so a `:hook-failures` entry's nested exception ex-data is redacted under frame policy). A FRAMELESS record (`:frame nil` — the pre-frame SSR hydration-parse path) reaches the corpus-wide listener only: it carries no frame-owned sink policy by definition.
 
+   **Off-box shippers wire the FRAME-OWNED sink, not the raw listener.** The off-box production path for Sentry / Honeybadger / Rollbar is the frame's `:observability :errors` sink (Spec 015 §Frame-owned observability sink policy): declare it on `reg-frame`, register the concrete sink fn with `register-observability-sink!`, and the runtime hands the sink an already-PROJECTED record (sensitive paths redacted, `:exception` dropped under `:rf.egress/public-error`) — no sink-local redaction, no raw owner-local data crossing the trust boundary.
+
    ```clojure
+   ;; 1. Declare the frame's error-observability policy + classification.
+   (rf/reg-frame :app/main
+     {:observability {:errors [{:sink :my-app.sinks/sentry
+                                :rf.egress/profile :rf.egress/off-box-observability}]}
+      :sensitive     {:app-db [[:auth :token]]}})
+
+   ;; 2. Register the concrete sink fn (gated belt-and-braces). The record is
+   ;;    ALREADY projected — ship it as-is.
+   (when (and (= "production" (:env config))
+              (not ^boolean re-frame.interop/debug-enabled?)
+              (:dsn config))
+     (rf/register-observability-sink!
+       :my-app.sinks/sentry
+       (fn [projected-record]
+         (sentry/capture-event projected-record))))
+   ```
+
+   The raw `register-error-listener!` registry remains the **advanced corpus-wide integration API** — reach for it only for an intentionally cross-frame hook (one fan-out across every frame) or a record the sink routing does not carry (a FRAMELESS `:frame nil` record). It delivers an UNPROJECTED record (the `:event` vector is wire-elided, but the `:exception` rides raw and no frame egress policy is applied), so raw owner-local data can leave a frame here — only an advanced integration that genuinely needs the host throwable + stack and accepts that posture should use it:
+
+   ```clojure
+   ;; ADVANCED corpus-wide hook — unprojected, cross-frame. Not the off-box default.
    (when (and (= "production" (:env config))
               (not ^boolean re-frame.interop/debug-enabled?)
               (:dsn config))
      (rf/register-error-listener!
-       :sentry/forward
+       :sentry/corpus-forward
        (fn [error-record]
          (sentry/capture-exception (:exception error-record)
                                    {:tags {:event-id (:event-id error-record)
                                            :frame    (:frame error-record)}}))))
    ```
 
-   Use #1 and #2 together to route both events and errors through one hosted observability back-end without preserving the full trace surface.
+   Use #1 and #2 together for an intentionally corpus-wide events+errors hook; for the per-frame production case, prefer the frame `:observability` sink above.
 3. **The Performance API channel** (per [§Performance instrumentation](#performance-instrumentation)) — gated on the independent `re-frame.performance/enabled?` `goog-define`, default off. A production build that wants timing observability flips `{:closure-defines {re-frame.performance/enabled? true}}`; the bracket sites at the four hot paths (`:event`, `:sub`, `:fx`, `:render`) emit User-Timing measure entries that any `PerformanceObserver` — including the host APM's — reads via `performance.getEntriesByType('measure')`. This is the production observability surface re-frame2 ships and supports.
 4. **The SSR error-projector boundary** (per [011 §Server error projection](011-SSR.md#server-error-projection)) — on the server (JVM/SSR), `re-frame.interop/debug-enabled?` is hardcoded `true` (per [§JVM builds](#jvm-builds)), so the trace surface is live. The runtime emits structured `:rf.error/*` traces, the registered error projector consumes them, and the locked `:rf/public-error` shape is written to the HTTP response. Apps with an SSR tier get the full trace + projection pipeline server-side independent of the client-side bundle's elision.
 5. **Native browser machinery** — uncaught exceptions still reach `window.onerror` / `window.onunhandledrejection`. A re-frame2 event handler that throws in production still surfaces there; what's missing is the structured `:rf.error/handler-exception` shape, the `:rf.trace/dispatch-id` correlation, and the `:rf.trace/trigger-handler` coord — those rode the trace surface. Prefer the error-emit listener (#2) for structured access to the failing handler's id and the exception.
