@@ -12,8 +12,9 @@
     1. The pre-wire failure: when the emitter is absent, calling
        `render-to-string` throws an `ExceptionInfo` whose
        `ex-message` is `:rf.error/no-hiccup-emitter-bound` and whose
-       `ex-data` carries `:reason` (string) and `:render-tree` (the
-       tree passed in).
+       `ex-data` carries `:reason` (string) and an EP-0015-safe
+       `:render-tree/summary` (the SHAPE of the tree, never the raw
+       tree — rf2-uwqale).
 
     2. The post-wire success: after `re-frame.ssr` has resolved the
        late-bind hook and installed the emitter, `render-to-string`
@@ -56,14 +57,17 @@
 ;; ---- test (1) — pre-wire failure: ex-info shape ----------------------------
 
 (deftest render-to-string-throws-with-no-emitter
-  (testing "rf2-8k0g3: (render-to-string [:div] {}) before the emitter is
-            installed throws ExceptionInfo whose ex-message is
+  (testing "rf2-8k0g3 + rf2-uwqale: (render-to-string [:div] {}) before the
+            emitter is installed throws ExceptionInfo whose ex-message is
             ':rf.error/no-hiccup-emitter-bound' and whose ex-data carries
-            :reason + :render-tree"
+            :reason + an EP-0015-safe :render-tree/summary (never the raw
+            tree)"
     (with-cleared-emitter
       (fn []
         (let [render-fn (:render-to-string reagent-adapter/adapter)
-              tree      [:div "smoke"]
+              ;; The body carries a recognisable token; the EP-0015 fix
+              ;; means it MUST NOT survive into the thrown diagnostic.
+              tree      [:div "smoke-secret-xyzzy"]
               thrown    (try
                           (render-fn tree {})
                           nil
@@ -77,8 +81,19 @@
                 "the thrown value carries ex-data")
             (is (string? (:reason data))
                 ":reason key is a string explaining the misconfiguration")
-            (is (= tree (:render-tree data))
-                ":render-tree key carries the tree the caller passed in")))))))
+            ;; EP-0015 (rf2-uwqale): the raw render-tree is NOT carried —
+            ;; only an EP-0015-safe shape summary.
+            (is (nil? (:render-tree data))
+                "the raw :render-tree slot is gone (EP-0015)")
+            (let [summary (:render-tree/summary data)]
+              (is (= :vector (:type summary))
+                  ":render-tree/summary describes the tree's SHAPE")
+              (is (= 2 (:count summary))
+                  "the summary carries the element count, not the children"))
+            (is (not (re-find #"xyzzy" (pr-str data)))
+                "no hiccup child content leaked into the thrown ex-data")
+            (is (not (re-find #"xyzzy" (.-message thrown)))
+                "no hiccup child content leaked into the message")))))))
 
 ;; ---- test (2) — post-wire success ------------------------------------------
 

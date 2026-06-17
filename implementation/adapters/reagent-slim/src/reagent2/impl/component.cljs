@@ -45,6 +45,7 @@
   do NOT support `componentDidCatch`. The cap's
   `:component-did-catch` key is the single irreplaceable Form-3 surface."
   (:require [reagent2.impl.batching :as batching]
+            [reagent2.impl.diag :as diag]
             [reagent2.ratom :as ratom]
             ["react" :as react]))
 
@@ -79,15 +80,19 @@
   [hiccup]
   (if-let [f @as-element-fn]
     (f hiccup)
+    ;; EP-0015 (rf2-uwqale): carry a SHAPE summary of the hiccup, never
+    ;; the raw tree — this throw escapes through React's render path into
+    ;; error boundaries / host logs, and the hiccup can carry app-owned
+    ;; sensitive/large values that path-based projection cannot recover.
     (throw (ex-info ":rf.error/as-element-fn-unregistered"
-             {:rf.error/id :rf.error/as-element-fn-unregistered
-              :where       'reagent2.impl.component/->react-element
-              :recovery    :no-recovery
-              :reason      (str "reagent2.impl.template/as-element was not"
-                                " registered before render. Require"
-                                " reagent2.impl.template (or reagent2.core)"
-                                " so its ns-load wires the as-element seam.")
-              :hiccup      hiccup}))))
+             {:rf.error/id    :rf.error/as-element-fn-unregistered
+              :where          'reagent2.impl.component/->react-element
+              :recovery       :no-recovery
+              :reason         (str "reagent2.impl.template/as-element was not"
+                                   " registered before render. Require"
+                                   " reagent2.impl.template (or reagent2.core)"
+                                   " so its ns-load wires the as-element seam.")
+              :hiccup/summary (diag/value-summary hiccup)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dynamic var: in-flight component instance
@@ -517,12 +522,16 @@
   [spec]
   (validate-spec! spec)
   (let [render-fn (or (:reagent-render spec)
+                      ;; EP-0015 (rf2-uwqale): summarise the Form-3 spec —
+                      ;; never carry the whole spec map. A spec can carry
+                      ;; app-owned closures/data; the throw is captured by
+                      ;; host logs before path-based projection runs.
                       (throw (ex-info ":rf.error/create-class-missing-render"
-                               {:rf.error/id :rf.error/create-class-missing-render
-                                :where       'reagent2.core/create-class
-                                :recovery    :no-recovery
-                                :reason      "create-class spec is missing the required :reagent-render fn."
-                                :spec        spec})))
+                               {:rf.error/id  :rf.error/create-class-missing-render
+                                :where        'reagent2.core/create-class
+                                :recovery     :no-recovery
+                                :reason       "create-class spec is missing the required :reagent-render fn."
+                                :spec/summary (diag/value-summary spec)})))
         ;; The constructor: extends React.Component via prototype chain.
         ^js klass (fn [props]
                     (this-as this

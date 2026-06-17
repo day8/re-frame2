@@ -79,6 +79,7 @@
   (:require [clojure.string :as str]
             [goog.string :refer [StringBuffer]]
             [reagent2.impl.component :as component]
+            [reagent2.impl.diag :as diag]
             [reagent2.impl.template :as template]))
 
 ;; ---------------------------------------------------------------------------
@@ -799,19 +800,23 @@
       (fn? head)                  (emit-user-fn sb head argv)
       :else
       ;; Canonical shape replicated inline (bundle isolation — see above).
-      (throw (ex-info (str "Hiccup head " (pr-str head)
+      ;; EP-0015 (rf2-uwqale): summarise head + argv — a static-markup
+      ;; throw is captured by SSR/static-export error handlers and host
+      ;; logs before the projector can classify it, and argv carries
+      ;; app-owned hiccup children that can hold sensitive/large values.
+      (throw (ex-info (str "Hiccup head " (pr-str (diag/value-summary head))
                            " is not a valid element head; use a keyword "
                            "(DOM tag or :>/:<>/:r>/:f>), a Reagent component "
                            "class, a React component class, or a fn. "
                            "[:rf.error/static-markup-bad-tag]")
-                      {:rf.error/id :rf.error/static-markup-bad-tag
-                       :where       'reagent2.dom.server/render-to-static-markup
-                       :reason      (str "Hiccup head must be a keyword (DOM tag "
-                                         "or :>/:<>/:r>/:f>), a Reagent component "
-                                         "class, a React component class, or a fn.")
-                       :recovery    :supply-a-valid-hiccup-head
-                       :tag         head
-                       :argv        argv})))))
+                      {:rf.error/id   :rf.error/static-markup-bad-tag
+                       :where         'reagent2.dom.server/render-to-static-markup
+                       :reason        (str "Hiccup head must be a keyword (DOM tag "
+                                           "or :>/:<>/:r>/:f>), a Reagent component "
+                                           "class, a React component class, or a fn.")
+                       :recovery      :supply-a-valid-hiccup-head
+                       :tag/summary   (diag/value-summary head)
+                       :argv/summary  (diag/value-summary argv)})))))
 
 (defn- emit-element
   "Recursive walker. Per §8.1."
@@ -827,17 +832,20 @@
     (sequential? x) (doseq [c x] (emit-element sb c))
     :else
     ;; Canonical shape replicated inline (bundle isolation — see above).
-    (throw (ex-info (str "Cannot render " (pr-str x)
+    ;; EP-0015 (rf2-uwqale): summarise the offending child — never the
+    ;; raw value. The bad-element throw is captured off-box (SSR error
+    ;; handlers, host logs) and the child can carry app-owned data.
+    (throw (ex-info (str "Cannot render " (pr-str (diag/value-summary x))
                          " as static markup; a hiccup child must be a string, "
                          "number, keyword, symbol, hiccup vector, or a "
                          "sequential of those. [:rf.error/static-markup-bad-element]")
-                    {:rf.error/id :rf.error/static-markup-bad-element
-                     :where       'reagent2.dom.server/render-to-static-markup
-                     :reason      (str "A hiccup child must be a string, number, "
-                                       "keyword, symbol, hiccup vector, or a "
-                                       "sequential of those.")
-                     :recovery    :supply-a-renderable-child
-                     :got         x}))))
+                    {:rf.error/id  :rf.error/static-markup-bad-element
+                     :where        'reagent2.dom.server/render-to-static-markup
+                     :reason       (str "A hiccup child must be a string, number, "
+                                        "keyword, symbol, hiccup vector, or a "
+                                        "sequential of those.")
+                     :recovery     :supply-a-renderable-child
+                     :got/summary  (diag/value-summary x)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public entry

@@ -37,6 +37,7 @@
             ["react-dom"         :as react-dom]
             ["react-dom/client"  :as react-dom-client]
             [re-frame.disposable :as rf-disposable]
+            [re-frame.error      :as rf-error]
             [re-frame.frame      :as frame]
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
@@ -803,9 +804,14 @@
   (fn render-to-string [render-tree opts]
     (if-let [emit @emitter-cell]
       (emit render-tree opts)
+      ;; EP-0015 (rf2-uwqale): carry an EP-0015-safe SUMMARY of the
+      ;; render-tree, never the raw tree — a thrown render-to-string
+      ;; ex-data is captured by SSR/static-export error handlers and
+      ;; host logs before the record projector can classify it, and a
+      ;; hiccup tree can carry app-owned sensitive/large values.
       (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                      {:reason      "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
-                       :render-tree render-tree})))))
+                      {:reason              "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
+                       :render-tree/summary (rf-error/diag-value-summary render-tree)})))))
 
 ;; ---- context provider — substrate-agnostic CORE ---------------------------
 ;;

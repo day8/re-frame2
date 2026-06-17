@@ -313,8 +313,11 @@
       (str "Test-React adapter has no built-in hiccup emitter; call "
            "set-hiccup-emitter! (or require re-frame.ssr) before "
            "render-to-string if a test needs HTML output.")
+      ;; EP-0015 (rf2-uwqale): carry an EP-0015-safe SUMMARY of the
+      ;; render-tree, never the raw tree (a thrown render diagnostic is
+      ;; captured off-box before path-based projection can classify it).
       {:recovery :call-set-hiccup-emitter
-       :extra    {:render-tree render-tree}})))
+       :extra    {:render-tree/summary (error/diag-value-summary render-tree)}})))
 
 ;; ---- frame-provider --------------------------------------------------------
 
