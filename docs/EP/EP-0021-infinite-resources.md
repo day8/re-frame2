@@ -1,20 +1,26 @@
 # EP-0021: Infinite Resources And Load-More Feeds
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> This EP proposes a first-class **infinite resource** primitive for Spec 016:
+> **Graduated `accepted → final` 2026-06-18 (Mike, operator graduation).**
+> This EP added a first-class **infinite resource** primitive to Spec 016:
 > a managed resource whose value is an ordered, growing **sequence of pages**
 > accumulated by repeated `load-more` events, with a declarative
 > next/previous-page-param model, a merged-list + page-metadata subscription
 > contract, and refetch/invalidation/scope/GC semantics consistent with the
 > existing single-page resource. Its normative home is
-> `spec/016-Resources.md` (the `:infinite` registration key reserved there
-> since EP-0003). **Accepted** (Mike, 2026-06-17) — the seven open design
-> questions plus the `:request` signature are now ruled; see
+> [`spec/016-Resources.md`](../../spec/016-Resources.md) (the `:infinite`
+> registration key reserved there since EP-0003). The seven open design
+> questions plus the `:request` signature are ruled (Mike, 2026-06-17); see
 > [§Resolved Decisions](#resolved-decisions). The `spec/016` + `Spec-Schemas`
-> amendments and the runtime implementation follow as subsequent slices, so this
-> EP stays `accepted` (not `final`) until they land.
+> amendments, the runtime implementation (registry / state / events / subs /
+> SSR-restore / Xray), the cursor-egress fix, the tooling, the guide rewrite,
+> and the flagship example have all landed across the seven implementation
+> waves plus the two graduation review tails. The §Specification and §Bead Plan
+> sections below are the design record; where they and the spec differ, the
+> spec governs. `final` asserts the **decisions are settled** and the normative
+> home governs.
 
 ## Abstract
 
