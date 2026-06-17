@@ -651,7 +651,7 @@
   `Transfer-Encoding: chunked`. Per Spec 011 §Streaming SSR.
 
   Opts mirror `re-frame.ssr.ring/ssr-handler` — same `:on-create` /
-  `:root-view` / `:payload` / `:on-error` (+ `:on-error-fallback`) /
+  `:root-view` / `:payload` / `:on-error` /
   `:error-view` / `:emit-hash?` / `:version` / `:schema-digest` /
   `:content-type` plus the four trusted shell-hook opts (`:head` /
   `:body-end` / `:script-src` / `:app-element-id`, honoured by
@@ -760,10 +760,9 @@
   (lifecycle/validate-streaming-opts! raw-opts)
   ;; Mirror ssr-handler's defaults so streaming and non-streaming
   ;; handlers feel symmetric to callers. `:on-error` resolves the same
-  ;; way via the shared `lifecycle/resolve-on-error` (rf2-c1tac): caller's
-  ;; `:on-error` wins, then `:on-error-fallback {:body … :content-type …}`
-  ;; is templated through `make-default-on-error`, then the locked
-  ;; `default-on-error` (rf2-kzvwq topology-leak contract).
+  ;; way via the shared `lifecycle/resolve-on-error`: caller's
+  ;; `:on-error` wins, else the locked `default-on-error` (rf2-kzvwq
+  ;; topology-leak contract).
   (let [opts        (-> (merge {:emit-hash?   true
                                 :content-type "text/html; charset=utf-8"}
                                raw-opts)

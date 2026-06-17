@@ -1115,7 +1115,6 @@
   ["re-frame.ssr.ring" "default-streaming-prefix"]  {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "default-streaming-suffix"]  {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "default-on-error"]          {:tier :implementation :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "make-default-on-error"]     {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "cookie->set-cookie-header"] {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "handler-defaults"]          {:tier :implementation :owner "011" :status "v1"}
 

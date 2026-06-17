@@ -29,7 +29,6 @@
     stream-handler
     default-streaming-prefix
     default-streaming-suffix
-    make-default-on-error
     ssr-handler
     ssr-middleware])
 

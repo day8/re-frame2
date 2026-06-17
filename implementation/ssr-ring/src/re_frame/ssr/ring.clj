@@ -174,10 +174,8 @@
 ;; lives in one place). The construction-time validation triple
 ;; (`validate-construction-opts!`) and the `:on-error` precedence
 ;; (`resolve-on-error`) also live in `lifecycle` — shared verbatim with
-;; `stream-handler` so the fail-closed-at-boot + rf2-c1tac on-error
-;; contracts are single-sourced.
-
-(import-fn lifecycle/make-default-on-error)
+;; `stream-handler` so the fail-closed-at-boot + on-error contracts are
+;; single-sourced.
 
 ;; `default-on-error` is a DATA var (a 2-arity fn VALUE held in a `def`,
 ;; not a `defn`), so it carries no `:arglists`. Re-export it copying the
@@ -312,21 +310,13 @@
                       hook — they flow through the error projector and
                       render `:error-view` / the default error template
                       (see below). `:on-error` is the last-resort
-                      transport-failure net.
-    :on-error-fallback — (map) `{:body \"…\" :content-type \"…\"}` —
-                      templating shortcut (rf2-c1tac) for callers who
-                      want to swap the locked default body string
-                      (\"Internal error\") for a branded plaintext-or-
-                      HTML page WITHOUT writing a full `:on-error` fn.
-                      The resulting fn ignores the throwable, so the
-                      rf2-kzvwq `.getMessage` topology-leak surface
-                      stays closed. Ignored when `:on-error` is also
-                      supplied (the explicit fn wins). The caller-
-                      supplied `:body` is the caller's trust boundary
-                      — emitted RAW like the four trusted shell-hook
-                      opts. Use the `:error-view` opt below for caller-
-                      registered hiccup-rendered error pages on the
-                      projected (drain-time) path.
+                      transport-failure net. A caller wanting a branded
+                      transport-failure body writes an explicit leak-safe
+                      `:on-error` fn that returns a fixed response and
+                      ignores the throwable (the `default-on-error`
+                      shape, caller-owned). Use the `:error-view` opt
+                      below for caller-registered hiccup-rendered error
+                      pages on the projected (drain-time) path.
     :error-view     — (optional) the projected-error page body (Spec 011
                       §Server error projection step 5). Either a
                       registered-view keyword (resolved as
@@ -407,12 +397,11 @@
   ;; (`setup-request-frame!`, `build-full-response`) can destructure
   ;; without re-stating the `:or` map. Caller-supplied values win.
   ;;
-  ;; rf2-c1tac — `:on-error` resolution goes through
-  ;; `lifecycle/resolve-on-error` (shared with `stream-handler`): the
-  ;; templatable `:on-error-fallback {:body … :content-type …}` opt
-  ;; produces a default-shaped fn without forcing the caller to write a
-  ;; Ring fn. Resolution happens AFTER merge so handler-defaults can stay
-  ;; orthogonal to on-error (no `:on-error` slot in the defaults map).
+  ;; `:on-error` resolution goes through `lifecycle/resolve-on-error`
+  ;; (shared with `stream-handler`): the caller's `:on-error` fn or the
+  ;; host-locked `default-on-error`. Resolution happens AFTER merge so
+  ;; handler-defaults can stay orthogonal to on-error (no `:on-error`
+  ;; slot in the defaults map).
   (let [opts        (-> (merge handler-defaults raw-opts)
                         (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error]} opts]
