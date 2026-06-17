@@ -411,3 +411,51 @@
       ;; SCXML — a target-less <transition> (already faithful pre-fix).
       (is (= 1 (scxml-internal-transition-count m))
           "scxml emits the target-less machine-level <transition>"))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0011 — error-final terminal KIND surfaces in ALL THREE emitters.
+;;
+;; Spec 005 §:final? lets a `:final?` leaf carry `:error? true`: a child
+;; finishing via an error final lowers to the uniform reply envelope as
+;; `:status :error` and routes the spawning parent's `:spawn` `:on-error`
+;; (vs a plain final's `:status :ok` / `:on-done`). The KIND must not
+;; collapse silently on any surface: the chart paints the error-hue ring,
+;; the SCXML emitter carries `data_rf_error_final` (lossless round-trip),
+;; and the Mermaid emitter notes the error terminal.
+
+(def success-and-error-finals-machine
+  {:initial :running
+   :states  {:running {:on {:ok :ok :boom :boom}}
+             :ok      {:final? true}
+             :boom    {:final? true :error? true}}})
+
+(deftest error-final-kind-surfaced-by-all-three-emitters
+  (testing "EP-0011 — an :error? final reads distinctly from a success
+            final in chart, mermaid, AND SCXML; a plain :final? does not
+            pick up the error KIND"
+    ;; CHART — the layout node carries :error? (gated on :final?).
+    (let [nodes  (:nodes (layout/project-definition success-and-error-finals-machine))
+          by-lbl (into {} (map (juxt :label identity) nodes))]
+      (is (true?  (:error? (get by-lbl "boom"))) "chart flags the error final")
+      (is (false? (:error? (get by-lbl "ok")))   "chart leaves the success final plain")
+      (is (false? (:error? (get by-lbl "running"))) "a non-final node is never error"))
+    ;; MERMAID — the error final gets a note; the success final does not.
+    (let [out (mermaid-body success-and-error-finals-machine)]
+      (is (str/includes? out "ok --> [*]")   "success terminal renders plainly")
+      (is (str/includes? out "boom --> [*]") "error terminal renders the edge")
+      (is (str/includes? out "note right of boom") "error terminal carries a note")
+      (is (not (str/includes? out "note right of ok"))
+          "success terminal carries no error note"))
+    ;; SCXML — the error final carries the carrier attr AND round-trips :error?.
+    (let [out  (scxml/spec->scxml success-and-error-finals-machine)
+          back (scxml/scxml->spec out)]
+      (is (str/includes? out "<final id=\"boom\" data_rf_error_final=\"true\"")
+          "scxml carries the error-final attribute")
+      (is (str/includes? out "<final id=\"ok\"")
+          "scxml emits the success final as a plain <final>")
+      (is (= success-and-error-finals-machine back)
+          "scxml round-trips the error-final spec exactly")
+      (is (true? (get-in back [:states :boom :error?]))
+          "the error terminal reconstructs :error? true")
+      (is (nil? (get-in back [:states :ok :error?]))
+          "the success terminal carries no :error? bit"))))

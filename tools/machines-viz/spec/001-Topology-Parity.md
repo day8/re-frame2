@@ -170,14 +170,36 @@ scoping + §3.1 G9).
 > property, Spec 005:2840) is *out* of this affordance — it belongs to a
 > separate all-finals output decision if it earns one.
 >
-> **Text emitters (mermaid / SCXML) carry no error-final distinction.**
-> Mermaid's `[*]` terminal and SCXML's `<final>` element have no
-> first-class error-terminal concept — the error-final ring is a
-> visual-chart affordance only. Both emitters render an `:error?` final
-> identically to a success final (`[*]` / `<final>`); the round-trip is
-> lossless on `:final?` but does **not** preserve `:error?`. This is by
-> design: the chart surfaces a re-frame2-specific routing distinction the
-> portable text formats cannot represent.
+> **Text emitters (mermaid / SCXML) preserve the error-final distinction.**
+> The error-final KIND is **not** chart-only trivia: it is the machine
+> **completion status** the framework acts on. Under EP-0011 a child that
+> finishes via an `:error?` final lowers to the uniform reply envelope as
+> `:status :error` and routes the spawning parent's `:spawn` **`:on-error`**,
+> while a plain `:final?` child completes `:status :ok` and routes
+> **`:on-done`**. Collapsing the two terminal kinds on a text round-trip
+> would silently turn an error completion into a success one — EP-0011
+> reply-envelope semantic drift, not a harmless visual caveat. So both
+> emitters carry the distinction, each in the idiom of its format:
+>
+> - **SCXML** has no first-class error-terminal element, so the bit rides a
+>   re-frame2-specific custom attribute — `<final … data_rf_error_final="true"/>`
+>   — exactly the `data_*` carrier posture the action-name round-trip
+>   (`data_rf_action`) already uses. An ordinary SCXML consumer ignores the
+>   unknown `data_*` attribute (the export stays consumable), while the
+>   re-frame2 import recovers `:error? true` from it. The round-trip is
+>   therefore **lossless on both `:final?` and `:error?`**.
+> - **Mermaid** has no error-terminal glyph, and its emitter is one-way
+>   (there is no `mermaid->spec`). Rather than collapse an `:error?` final
+>   into a plain success terminal, the emitter **visibly marks** it with a
+>   `note right of <error-final>` naming the error-terminal completion
+>   (`:status :error` / parent `:on-error`) — the same `note` idiom the
+>   action-only completion and history-default annotations use. A success
+>   `:final?` terminal carries no such note.
+>
+> The chart's error-hue outer ring (above) is the *canvas* counterpart of
+> the same distinction; the SCXML attribute and the Mermaid note are its
+> text-surface counterparts. All three keep the re-frame2 completion-status
+> routing visible rather than letting the portable formats erase it.
 
 ### 1.5 Event labels
 

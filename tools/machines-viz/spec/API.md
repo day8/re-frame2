@@ -2147,8 +2147,23 @@ local Ollama / Xray's chat seam / re-frame2-pair-mcp).
 ;;     :states  {:idle    {:on {:login :loading}}
 ;;               :loading {:on {:ok :success :err :failed}}
 ;;               :success {:final? true}
-;;               :failed  {:final? true}}}
+;;               ;; EP-0011 — :err is a FAILURE terminal, so it carries
+;;               ;; :error? true: the machine completes :status :error and
+;;               ;; routes a spawning parent's :on-error (vs the success
+;;               ;; terminal's :status :ok / :on-done). A non-error terminal
+;;               ;; stays a plain {:final? true}.
+;;               :failed  {:final? true :error? true}}}
 ```
+
+The system prompt (`ai/system-prompt`) teaches this distinction: a
+terminal that represents the machine *failing* (a load error, an auth
+rejection, a payment decline) is `{:final? true :error? true}`; a
+successful terminal stays `{:final? true}`. An ordinary in-flow error
+state the user can retry from is **not** terminal at all (it keeps
+running), so it carries neither bit. This keeps a generated child
+machine's completion **status** (Spec 005 §`:final?` /
+[EP-0011](../../../spec/005-StateMachines.md)) honest — a failure
+outcome does not silently complete as a success.
 
 ### Contract
 

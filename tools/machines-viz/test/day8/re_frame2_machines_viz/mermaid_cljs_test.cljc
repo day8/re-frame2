@@ -127,6 +127,42 @@
       (is (str/includes? out "success --> [*]"))
       (is (str/includes? out "failed --> [*]")))))
 
+;; ---------------------------------------------------------------------------
+;; Error-final terminal KIND — EP-0011 reply-envelope completion status.
+;;
+;; Spec 005 §:final? lets a `:final?` leaf carry `:error? true`. A child
+;; finishing via an `:error?` final completes as `:status :error` (vs a plain
+;; final's `:status :ok`) and routes the spawning parent's `:on-error`
+;; instead of `:on-done`. Mermaid's `[*]` terminal has no error-terminal
+;; glyph, so — same posture as the action-only / history annotations — the
+;; emitter surfaces the distinction visibly via a `note` on the error final
+;; rather than letting it collapse into a plain success terminal.
+
+(def success-and-error-finals-machine
+  "Two terminals of distinct KIND: a plain success final + an `:error?`
+  error final."
+  {:initial :running
+   :states  {:running {:on {:ok :ok :boom :boom}}
+             :ok      {:final? true}
+             :boom    {:final? true :error? true}}})
+
+(deftest emit-marks-error-final-distinctly
+  (testing "an :error? final is visibly marked (a `note` annotation tying
+            it to the EP-0011 :status :error / parent :on-error routing);
+            a success final renders as a plain `state --> [*]` terminal
+            with no such note"
+    (let [out (m/emit success-and-error-finals-machine)]
+      (is (str/includes? out "ok --> [*]")
+          "the success final renders the plain terminal edge")
+      (is (str/includes? out "boom --> [*]")
+          "the error final still renders the terminal edge")
+      (is (str/includes? out "note right of boom")
+          "the error final carries a note marking the error terminal")
+      (is (str/includes? out "error terminal")
+          "the note text names the error-terminal completion")
+      (is (not (str/includes? out "note right of ok"))
+          "the success final carries NO error-terminal note"))))
+
 (deftest emit-includes-omission-caveat-by-default
   (testing "the `:after` + `:spawn-all` omission caveat lands at the top"
     (let [out (m/emit idle-loading-success-error)]

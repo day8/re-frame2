@@ -550,22 +550,53 @@
        (str (indent-str depth) "</history>")]
       [(str (indent-str depth) "<history " attrs "/>")])))
 
+;; EP-0011 — the re-frame2-specific carrier for an ERROR-terminal final
+;; state. Spec 005 §`:final?` lets a `:final?` leaf carry `:error? true` (an
+;; error terminal that routes the spawning parent's `:spawn` `:on-error` and
+;; completes `:status :error`, vs a plain final's `:on-done` / `:status :ok`).
+;; W3C SCXML's `<final>` has no error-terminal concept, so — like
+;; `data_rf_action` — the bit rides a custom `data_*` attribute (underscore
+;; key, so `parse-attrs`' `(\w+)` pattern recovers it; can never collide with
+;; a real W3C SCXML attribute). The emitter writes it on the `<final>`
+;; element when `:error? true`; the parser recovers it back to `:error?`.
+;; Ordinary SCXML consumers ignore an unknown `data_*` attribute, so the
+;; export stays consumable while the completion-status distinction survives.
+(def ^:private error-final-attr "data_rf_error_final")
+
 (defn- emit-state
   "Emit a `<state>` (or `<final>`) block for one state-node. `path` is
   the absolute path (root → this state) used to emit unique xsd:IDs and
   to qualify transition targets (rf2-mnp93.7).
 
   rf2-m285a — a `:type :history` child of this state is emitted as a W3C
-  `<history>` element (`emit-history`), NOT a nested `<state>`."
+  `<history>` element (`emit-history`), NOT a nested `<state>`.
+
+  EP-0011 — a `:final? true :error? true` leaf is an ERROR terminal; its
+  `<final>` carries the `data_rf_error_final=\"true\"` carrier so the
+  completion-status distinction survives the round-trip (see
+  `error-final-attr`)."
   [path state-node depth]
-  (let [{:keys [final? initial states on after always on-done]} state-node
+  (let [{:keys [final? error? initial states on after always on-done]} state-node
         id-str (qualified-id path)
         tag    (if final? "final" "state")
         attrs  (cond-> (str "id=\"" (escape-xml-attr id-str) "\"")
                  (and (not final?) initial)
                  ;; rf2-mnp93.7 — `initial` references a CHILD by its
                  ;; unique qualified id (the child's absolute path).
-                 (str " initial=\"" (escape-xml-attr (qualified-id (conj (vec path) initial))) "\""))
+                 (str " initial=\"" (escape-xml-attr (qualified-id (conj (vec path) initial))) "\"")
+                 ;; EP-0011 — a `:final? true :error? true` leaf is an ERROR
+                 ;; terminal: it lowers to the uniform reply envelope as
+                 ;; `:status :error` and routes the spawning parent's
+                 ;; `:spawn` `:on-error` (vs a plain final's `:status :ok` /
+                 ;; `:on-done`). W3C SCXML's `<final>` has no error-terminal
+                 ;; concept, so the bit rides the re-frame2-specific
+                 ;; `data_rf_error_final` custom attribute (same carrier
+                 ;; posture as `data_rf_action`) — ordinary SCXML consumers
+                 ;; ignore it; the import side recovers `:error?` from it so
+                 ;; the completion STATUS does not silently collapse to
+                 ;; success.
+                 (and final? error?)
+                 (str " " error-final-attr "=\"true\""))
         children
         (concat
           (emit-transitions-for-on on path (inc depth))
@@ -1331,6 +1362,14 @@
         state-id   (abs-path->local-key abs-path)
         base       (cond-> {}
                      (= "final" tag) (assoc :final? true)
+                     ;; EP-0011 — recover the error-terminal KIND from the
+                     ;; re-frame2 carrier (`emit-state`). Only meaningful on
+                     ;; a `<final>`; the parent's `:on-error` vs `:on-done`
+                     ;; routing (`:status :error` vs `:status :ok`) depends
+                     ;; on this bit surviving the round-trip.
+                     (and (= "final" tag)
+                          (= "true" (get attrs error-final-attr)))
+                     (assoc :error? true)
                      ;; rf2-mnp93.7 — `initial` references a child by its
                      ;; qualified id; the re-frame2 `:initial` is the
                      ;; child's LOCAL key (last segment).

@@ -660,6 +660,36 @@
                    (concat self child))))
        (remove nil?)))
 
+(defn- render-error-final-notes
+  "EP-0011 — visibly mark every `:final? true :error? true` ERROR terminal
+  (compound-aware). Spec 005 §`:final?` lets a final leaf carry `:error?
+  true`: a child finishing via an error final lowers to the uniform reply
+  envelope as `:status :error` and routes the spawning parent's `:spawn`
+  `:on-error` (vs a plain final's `:status :ok` / `:on-done`). This is a
+  re-frame2 routing distinction the FRAMEWORK acts on, not decoration.
+
+  Mermaid's `[*]` terminal has no error-terminal glyph, so — same posture
+  as the action-only / history annotations — the distinction is surfaced
+  visibly via a `note right of <error-final>` rather than collapsing into a
+  plain success terminal. A plain `:final?` (success) terminal carries NO
+  such note. (The chart canvas paints the error-hue ring; the SCXML emitter
+  carries `data_rf_error_final`; this is the Mermaid surface's counterpart.)"
+  [root-path states]
+  (mapcat
+    (fn [[state-id state-node]]
+      (let [state-path (conj (vec root-path) state-id)
+            self       (when (and (:final? state-node) (:error? state-node))
+                         [(str "  note right of " (sanitise-id state-path))
+                          ;; EP-0011 — names the completion KIND + the
+                          ;; parent routing it drives, so a reader sees this
+                          ;; is not a success terminal.
+                          "    error terminal — completes :status :error (parent :on-error)"
+                          "  end note"])
+            child      (when (:states state-node)
+                         (render-error-final-notes state-path (:states state-node)))]
+        (concat self child)))
+    states))
+
 (defn- render-state-alias
   [state-path label depth]
   (let [indent (apply str (repeat depth "  "))]
@@ -772,6 +802,10 @@
                                fallback-edges)
         edge-lines     (map render-edge edges)
         final-lines    (render-final-edges root-path states)
+        ;; EP-0011 — mark error-final terminals (`:final? true :error? true`)
+        ;; so their `:status :error` / parent `:on-error` routing is not
+        ;; silently collapsed into a plain success terminal.
+        error-final-notes (render-error-final-notes root-path states)
         compound-lines (render-compound-blocks root-path states 1)
         ;; rf2-ay42f — a COMPOUND whose `:on-done` is action-only
         ;; (target-less) has no sibling arrow to draw; render its
@@ -796,6 +830,7 @@
                compound-lines
                edge-lines
                final-lines
+               error-final-notes
                on-done-notes
                internal-notes
                root-fallback-notes))))
@@ -865,6 +900,14 @@
         final-lines (mapcat (fn [[region-id {:keys [states]}]]
                               (render-final-edges [region-id] states))
                             regions)
+        ;; EP-0011 — mark error-final terminals inside any region so the
+        ;; `:status :error` / parent `:on-error` routing is not silently
+        ;; collapsed into a plain success terminal (matches the flat/
+        ;; compound emitter).
+        error-final-notes
+        (mapcat (fn [[region-id {:keys [states]}]]
+                  (render-error-final-notes [region-id] states))
+                regions)
         ;; rf2-ay42f — a COMPOUND inside a region whose `:on-done` is
         ;; action-only renders the same completion note the flat/compound
         ;; emitter and the parallel-root use (no sibling arrow to draw).
@@ -897,6 +940,7 @@
                ["  }"]
                edge-lines
                final-lines
+               error-final-notes
                region-on-done-notes
                region-internal-notes
                root-internal-notes
