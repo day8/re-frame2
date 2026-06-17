@@ -173,14 +173,24 @@
     (is (some? (eu/editor-uri {:custom "emacsclient://open?file={path}"}      sample-coord)))
     (is (some? (eu/editor-uri {:custom "org-protocol://capture?path={path}"}  sample-coord)))
     (is (some? (eu/editor-uri {:custom "vscode-insiders://file/{path}:{line}"} sample-coord)))
-    (is (some? (eu/editor-uri {:custom "file://{path}"}                       sample-coord)))))
+    (is (some? (eu/editor-uri {:custom "file://{path}"}                       sample-coord))))
+  (testing "rf2-ox357n: an UNKNOWN, uncatalogued, non-dangerous custom
+            scheme passes through — there is no positive allowlist, so a
+            future editor's scheme is NOT a silent dead button"
+    ;; `lapce:` is a real editor scheme that was never in the old
+    ;; allowlist; under denylist-only it must produce a clickable URI.
+    (is (= "lapce://open?file=src/app/views.cljs&line=42"
+           (eu/editor-uri {:custom "lapce://open?file={path}&line={line}"} sample-coord)))
+    ;; A wholly-made-up scheme also passes — the gate rejects ONLY the
+    ;; three known-bad schemes, everything else is the developer's call.
+    (is (some? (eu/editor-uri {:custom "future-editor-9://{path}:{line}"} sample-coord)))))
 
 (deftest builtin-schemes-cannot-trip-the-gate
   (testing "the built-in scheme builders never produce a forbidden scheme"
     (doseq [editor [nil :vscode :cursor :windsurf :zed :idea]]
       (let [uri (eu/editor-uri editor sample-coord)]
         (is (string? uri))
-        (is (not (#'eu/forbidden-scheme? uri))
+        (is (not (eu/forbidden-scheme? uri))
             (str editor " produced a URI that trips the forbidden-scheme gate: "
                  uri))))))
 
@@ -196,95 +206,69 @@
                  {:custom "myeditor://open?file={path}"}
                  {:file "javascript:not-a-scheme.cljs" :line 1 :column 1})))))
 
-;; ---- positive scheme allowlist (rf2-cm93v / rf2-p887o) -------------------
+;; ---- public forbidden-scheme? predicate (rf2-ox357n) ---------------------
 ;;
-;; The allowlist was lifted from `day8.re-frame2-xray.open-in-editor` into
-;; this shared ns per rf2-p887o so Story and Xray consume the same predicate.
+;; rf2-ox357n removed the positive allowlist (allowed-uri? /
+;; allowed-editor-uri-schemes) — the spec mandates a scheme-REJECTION list,
+;; not an allowlist (Security.md / Tool-Pair.md §Editor URI scheme
+;; allowlist). `forbidden-scheme?` is now PUBLIC so the tool `open!` seams
+;; can re-apply the cheap denylist at the pre-resolved `{:uri ...}` handoff.
 
-(deftest allowed-uri-accepts-builtin-editor-schemes
-  (testing "the built-in editor schemes pass the allowlist"
-    (is (eu/allowed-uri? "vscode://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "cursor://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "windsurf://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri? "zed://file/src/x.cljs:1:1"))
-    (is (eu/allowed-uri?
-          "idea://open?file=src/x.cljs&line=1&column=1"))))
+(deftest forbidden-scheme-rejects-the-three-known-bad
+  (testing "forbidden-scheme? is true for javascript: / data: / vbscript:"
+    (is (eu/forbidden-scheme? "javascript:alert(1)"))
+    (is (eu/forbidden-scheme? "data:text/html,<script>alert(1)</script>"))
+    (is (eu/forbidden-scheme? "vbscript:msgbox(1)"))))
 
-(deftest allowed-uri-accepts-other-editor-schemes
-  (testing "other catalogued editor schemes pass — emacs / vim / sublime
-            family, jetbrains alt, file:"
-    (is (eu/allowed-uri? "subl://open?path=src/x.cljs"))
-    (is (eu/allowed-uri? "emacs:src/x.cljs"))
-    (is (eu/allowed-uri? "emacsclient://src/x.cljs"))
-    (is (eu/allowed-uri? "vim://src/x.cljs"))
-    (is (eu/allowed-uri? "nvim://src/x.cljs"))
-    (is (eu/allowed-uri? "txmt://open?url=file://src/x.cljs"))
-    (is (eu/allowed-uri? "jetbrains://idea/src/x.cljs"))
-    (is (eu/allowed-uri? "file:///abs/path/src/x.cljs"))))
+(deftest forbidden-scheme-is-case-insensitive
+  (testing "rf2-ox357n: bad schemes are rejected regardless of casing"
+    (is (eu/forbidden-scheme? "JavaScript:alert(1)"))
+    (is (eu/forbidden-scheme? "JAVASCRIPT:alert(1)"))
+    (is (eu/forbidden-scheme? "Data:text/html,xxx"))
+    (is (eu/forbidden-scheme? "DATA:text/html,xxx"))
+    (is (eu/forbidden-scheme? "VBScript:msgbox(1)"))
+    (is (eu/forbidden-scheme? "VBSCRIPT:msgbox(1)"))))
 
-(deftest allowed-uri-rejects-javascript-scheme
-  (testing "javascript: is rejected — in-tab script execution vector"
-    (is (not (eu/allowed-uri? "javascript:alert(1)")))
-    (is (not (eu/allowed-uri? "JavaScript:alert(1)")))
-    (is (not (eu/allowed-uri? "JAVASCRIPT:alert(1)")))))
-
-(deftest allowed-uri-rejects-data-scheme
-  (testing "data: is rejected — inline-rendered HTML / script vector"
-    (is (not (eu/allowed-uri?
-               "data:text/html,<script>alert(1)</script>")))
-    (is (not (eu/allowed-uri?
-               "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==")))))
-
-(deftest allowed-uri-rejects-http-scheme
-  (testing "http: is rejected — a custom editor template that resolves
-            to `http://...` would navigate the page rather than launch
-            an editor (rf2-cm93v)"
-    (is (not (eu/allowed-uri? "http://evil.example/x")))
-    (is (not (eu/allowed-uri? "HTTP://evil.example/x")))))
-
-(deftest allowed-uri-rejects-https-scheme
-  (testing "https: is rejected — same navigation vector as http:"
-    (is (not (eu/allowed-uri? "https://evil.example/x")))
-    (is (not (eu/allowed-uri? "HTTPS://evil.example/x")))))
-
-(deftest allowed-uri-rejects-vbscript-scheme
-  (testing "vbscript: is rejected — legacy IE / WebView2 script vector"
-    (is (not (eu/allowed-uri? "vbscript:msgbox(1)")))))
-
-(deftest allowed-uri-handles-non-string-and-empty
-  (testing "non-string / empty / scheme-less URIs are rejected"
-    (is (not (eu/allowed-uri? nil)))
-    (is (not (eu/allowed-uri? "")))
-    (is (not (eu/allowed-uri? "no-scheme-here")))
-    (is (not (eu/allowed-uri? ":leading-colon")))))
-
-(deftest allowed-uri-tolerates-leading-whitespace
+(deftest forbidden-scheme-tolerates-leading-whitespace
   (testing "leading whitespace doesn't disguise a forbidden scheme"
-    (is (not (eu/allowed-uri? " javascript:alert(1)")))
-    (is (not (eu/allowed-uri? "\thttp://evil.example/x")))
-    (is (eu/allowed-uri? " vscode://file/src/x.cljs:1:1"))))
+    (is (eu/forbidden-scheme? " javascript:alert(1)"))
+    (is (eu/forbidden-scheme? "\tdata:text/html,xxx"))
+    (is (eu/forbidden-scheme? "  vbscript:msgbox(1)"))))
 
-(deftest allowed-editor-uri-schemes-set-shape
-  (testing "the allowlist enumerates the catalogued editor schemes"
-    (is (contains? eu/allowed-editor-uri-schemes "vscode"))
-    (is (contains? eu/allowed-editor-uri-schemes "cursor"))
-    (is (contains? eu/allowed-editor-uri-schemes "windsurf"))
-    (is (contains? eu/allowed-editor-uri-schemes "zed"))
-    (is (contains? eu/allowed-editor-uri-schemes "idea"))
-    (is (contains? eu/allowed-editor-uri-schemes "subl"))
-    (is (contains? eu/allowed-editor-uri-schemes "emacs"))
-    (is (contains? eu/allowed-editor-uri-schemes "vim"))
-    (is (contains? eu/allowed-editor-uri-schemes "file"))
-    ;; http: / https: must NOT be on the list — that's the whole point.
-    (is (not (contains? eu/allowed-editor-uri-schemes "http")))
-    (is (not (contains? eu/allowed-editor-uri-schemes "https")))))
+(deftest forbidden-scheme-passes-everything-else
+  (testing "rf2-ox357n: NO positive allowlist — every non-dangerous scheme
+            passes (built-in editors, catalogued long-tail, AND unknown
+            custom schemes that the old allowlist would have dead-buttoned)"
+    ;; Built-in + catalogued.
+    (is (not (eu/forbidden-scheme? "vscode://file/src/x.cljs:1:1")))
+    (is (not (eu/forbidden-scheme? "cursor://file/src/x.cljs:1:1")))
+    (is (not (eu/forbidden-scheme? "idea://open?file=src/x.cljs&line=1")))
+    (is (not (eu/forbidden-scheme? "subl://open?path=src/x.cljs")))
+    (is (not (eu/forbidden-scheme? "vim://src/x.cljs")))
+    (is (not (eu/forbidden-scheme? "file:///abs/path/src/x.cljs")))
+    ;; http: / https: now PASS — the old allowlist rejected these, the
+    ;; denylist does not (the spec says do NOT over-gate; only the three
+    ;; script schemes are XSS vectors).
+    (is (not (eu/forbidden-scheme? "http://localhost:3000/x")))
+    (is (not (eu/forbidden-scheme? "https://localhost:3000/x")))
+    ;; Unknown custom non-dangerous schemes pass — the whole point of
+    ;; dropping the allowlist.
+    (is (not (eu/forbidden-scheme? "lapce://open?file=src/x.cljs&line=1")))
+    (is (not (eu/forbidden-scheme? "future-editor-9://src/x.cljs:1:1")))))
 
-(deftest builtin-schemes-all-pass-the-allowlist
-  (testing "every built-in scheme builder produces a URI the allowlist accepts"
-    (doseq [editor [nil :vscode :cursor :windsurf :zed :idea]]
-      (let [uri (eu/editor-uri editor sample-coord)]
-        (is (eu/allowed-uri? uri)
-            (str editor " produced a URI the allowlist rejects: " uri))))))
+(deftest forbidden-scheme-handles-non-string-and-empty
+  (testing "non-string / empty / scheme-less URIs are not forbidden (the
+            absent case is handled by the caller's `(when uri ...)` guard)"
+    (is (not (eu/forbidden-scheme? nil)))
+    (is (not (eu/forbidden-scheme? "")))
+    (is (not (eu/forbidden-scheme? "no-scheme-here")))
+    (is (not (eu/forbidden-scheme? 42)))))
+
+(deftest forbidden-scheme-substring-is-not-rejected
+  (testing "the gate matches the LEADING scheme only — a 'javascript:'
+            substring deep in the URI is not the scheme"
+    (is (not (eu/forbidden-scheme? "vscode://file/src/has-javascript:x.cljs:1:1")))
+    (is (not (eu/forbidden-scheme? "myeditor://open?file=javascript:not-a-scheme.cljs")))))
 
 ;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
 ;;
