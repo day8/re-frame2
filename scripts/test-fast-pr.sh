@@ -197,6 +197,20 @@ run "implementation JS harness helpers" "cd implementation && npm run test:scrip
 run "CLJS node integration" "cd implementation && npm run test:cljs" \
   bash -lc "cd '$repo_root/implementation' && npm run test:cljs"
 
+# Per-namespace test-isolation gate (rf2-32siq3.44).  The consolidated
+# node-test bundle shares ONE runtime, so a test ns whose fixture forgets to
+# install its own substrate adapter is masked: it passes whenever a sibling
+# left an adapter installed (suite ORDERING hides a self-incomplete fixture).
+# This gate re-runs the curated EP-0023 image/frame runtime-construction
+# namespaces EACH ALONE; a fixture leaning on bundle pollution goes red
+# standalone.  Self-test first (proves the red/green classification), then the
+# live run (reuses the bundle test:cljs just compiled).
+run "per-ns isolation self-test" "cd implementation && node scripts/check-per-ns-isolation.cjs --self-test" \
+  bash -lc "cd '$repo_root/implementation' && node scripts/check-per-ns-isolation.cjs --self-test"
+
+run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
+  bash -lc "cd '$repo_root/implementation' && node scripts/check-per-ns-isolation.cjs"
+
 # ---- conditional markdown gates ----
 if [ "$markdown_changed" = "true" ]; then
   printf '\n--- markdown changes detected → running link/anchor gates ---\n'
