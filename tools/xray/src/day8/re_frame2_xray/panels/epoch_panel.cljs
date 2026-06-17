@@ -39,7 +39,7 @@
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
-;; rf2-bbua4z — the registry resolvers below run INSIDE the
+;; The registry resolvers below run INSIDE the
 ;; `:rf.xray/epoch-pipeline` sub COMPUTATION (threaded into
 ;; `proj/project-numbered`), and Xray seats in its OWN image-loaded `:rf/xray`
 ;; frame, so the sub build binds the registrar to Xray's image generation. They
