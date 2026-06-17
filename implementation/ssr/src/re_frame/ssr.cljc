@@ -19,8 +19,9 @@
     - Pure hiccup → HTML emitter (HTML5 void elements, doctype prefix,
       attr/text escaping, `:tag#id.cls` parsing, registered-view
       resolution). Per Spec 011 §The render-tree → HTML emitter.
-    - `:rf/hydrate` event with `:replace-app-db` semantics; the server-
-      supplied payload's `:rf/app-db` replaces the client app-db.
+    - `:rf/hydrate` event with `:replace-frame-state` semantics; the server-
+      supplied payload's `:rf/app-db` replaces the client frame-state
+      (app-db + serializable runtime-db).
     - The six `:rf.server/*` response-shape fxs gated by `:platforms
       #{:server}`; the accumulator at `[:rf/response]` is consumed by
       the host adapter after drain. Per §HTTP response contract.

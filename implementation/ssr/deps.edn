@@ -4,7 +4,7 @@
 ;; Per Spec 011 the server-side rendering and hydration surface — the
 ;; pure hiccup → HTML emitter (`render-to-string`), the structural
 ;; render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with
-;; `:replace-app-db` semantics, the `:rf.server/set-status` /
+;; `:replace-frame-state` semantics, the `:rf.server/set-status` /
 ;; `:rf.server/set-header` / `:rf.server/append-header` /
 ;; `:rf.server/set-cookie` / `:rf.server/delete-cookie` /
 ;; `:rf.server/redirect` server-only fx family, the per-request HTTP

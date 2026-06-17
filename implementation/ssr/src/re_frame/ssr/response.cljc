@@ -367,7 +367,7 @@
                     :frame    frame
                     :recovery :warned-and-replaced}))))
 
-;; ---- handler fns for the six :rf.server/* fxs ----------------------------
+;; ---- handler fns for the seven :rf.server/* fxs --------------------------
 
 (defn set-status-fx
   "Handler fn for `:rf.server/set-status`. Last-write-wins; multi-write

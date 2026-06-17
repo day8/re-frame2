@@ -23,7 +23,7 @@
   `re-frame.ssr.constants/payload-script-id` id; the boot helper reads
   that SAME id (`document.getElementById`), parses the EDN with the same
   reader the server's `pr-str` round-trips through, and seeds the frame
-  via the framework's `:rf/hydrate` event (locked `:replace-app-db`
+  via the framework's `:rf/hydrate` event (locked `:replace-frame-state`
   policy, Spec 011 §The :rf/hydrate event).
 
   Before this helper every host re-implemented the same read → dispatch →
@@ -218,7 +218,7 @@
     2. HYDRATE — `dispatch-sync` `[:rf/hydrate payload]` against the
                  target frame BEFORE the first render, so the frame's
                  app-db is the server's authoritative slice when the view
-                 first evaluates (locked `:replace-app-db` policy, Spec
+                 first evaluates (locked `:replace-frame-state` policy, Spec
                  011 §The :rf/hydrate event). Skipped when there is no
                  payload (client-only first load) — the caller renders
                  against the empty app-db.
