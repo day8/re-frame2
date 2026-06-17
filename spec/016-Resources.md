@@ -676,7 +676,7 @@ These three are the registration gate (`:scope` fail-closed first, then `:params
 
 Per [EP-0015 §6](../docs/EP/EP-0015-frame-owned-egress-policy.md) (ruled issue 11), classification is **owned by the resource / mutation definition**: the canonical fine-grained surface is **per-slot `:sensitive?` / `:large?` props on `:data-schema` / `:params-schema`** (the same EP-0005 mechanism the machine `:data-schema` uses) — there is **no new resource path-map vocabulary**; the coarse whole-entry `:sensitive?` / `:large?` claims on the spec remain as the degenerate **root-prop** case (the whole resource is the classification unit). Projection applies it at every egress boundary (SSR, tool, trace, epoch, observability) through the merged frame-owned `rf/project-egress` over the shared `rf/elide-wire-value` walker — never a family-private elider. See [015-Data-Classification §Resource and mutation durable classification](015-Data-Classification.md#resource-and-mutation-durable-classification).
 
-**Deferred keys** (rejected / unused in v1): `:revalidate`, `:placeholder`, transport extension protocols, `:cache-key`, `:infinite`. (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling — see [§Polling](#polling).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation` (`:optimistic` / `:optimistic-tags` / `:on-conflict` land via [§Optimistic mutations](#optimistic-mutations)).
+**Deferred keys** (rejected / unused in v1): `:revalidate`, `:placeholder`, transport extension protocols, `:cache-key`. (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling — see [§Polling](#polling).) The `:infinite` registration kind — the ordered-page-sequence / load-more feed — is **now specified** (no longer deferred): see [§Infinite resources and load-more feeds](#infinite-resources-and-load-more-feeds) ([EP-0021](../docs/EP/EP-0021-infinite-resources.md)). The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation` (`:optimistic` / `:optimistic-tags` / `:on-conflict` land via [§Optimistic mutations](#optimistic-mutations)).
 
 ### No `:select` key
 
@@ -1166,6 +1166,207 @@ Paginated tables, filtered lists, search results, and cursor feeds are ordinary 
 
 `previous-data` is a projection from the prior key; it is **not** inserted into the new cache entry and MUST NOT provide tags for the new key. The new entry becomes ordinary `:loaded` data only after its own request succeeds. Cache growth for list params is controlled by the same owner and GC rules; `:keep-previous?` MUST NOT pin old pages beyond their owners.
 
+## Infinite resources and load-more feeds
+
+> **Scope.** This section is the normative home of the `:infinite` registration kind ([EP-0021](../docs/EP/EP-0021-infinite-resources.md), accepted 2026-06-17; the Resolved Decisions R1–R8 are the binding rulings). Numbered/keyed pagination ([§Paginated and previous data](#paginated-and-previous-data)) is untouched and orthogonal: that model keeps each page an **independent** entry (the page is in `:params`, the identity is the page), addressable as "go to page N". An **infinite** resource is the complementary **load-more / infinite-scroll feed** — the user accumulates pages (page 1, then 1+2, then 1+2+3), rendered as one growing list, with the *next* page param **derived from the last page's data**. Both are legitimate; an app picks per feed.
+
+An **infinite resource** is a resource registered with `:infinite true`. It reuses every existing resource contract — identity, fail-closed scope, the five-state FSM, the work ledger, owners/causes, stale/GC policy, SSR, restore, egress projection — and adds exactly one new fact: an ordered, growing **sequence of pages** held as the one feed entry's durable value, accumulated by repeated `:rf.resource/load-more` events.
+
+### Registration — `:infinite`
+
+```clojure
+(rf/reg-resource
+  :feed/timeline
+  {:doc "Infinite home timeline (load-more)."
+
+   :infinite true
+
+   ;; The feed-IDENTITY params (filter / sort / search) — what makes two feeds
+   ;; distinct cache instances. The per-page cursor is NOT here (it is the
+   ;; resolved page-param the runtime threads through :request's reserved ctx).
+   :params-schema    [:map [:filter :keyword]]
+   :scope            {:from-db :app/session}     ;; a named scope resolver, like any resource
+   :page-data-schema :app/timeline-page          ;; validates ONE page (the decode target + egress contract)
+
+   ;; :request keeps its settled (params ctx) shape; the RESERVED ctx now
+   ;; carries the resolved page context for THIS page (nil/empty for a
+   ;; non-infinite resource). NO new arity.
+   :request
+   (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+     {:request {:method :get
+                :url    "/api/timeline"
+                :params (cond-> {:filter filter :limit 20}
+                          page-param (assoc :cursor page-param))}
+      :decode  :app/timeline-page})
+
+   ;; REQUIRED for :infinite. Derive the NEXT page param from the last loaded
+   ;; page + all pages so far. Returns nil to signal "no more pages" (the single
+   ;; terminal). Pure. TanStack getNextPageParam(lastPage, allPages) analogue.
+   :next-page-param
+   (fn [last-page _all-pages]
+     (get-in last-page [:page-info :next-cursor]))   ;; nil => end of feed
+
+   ;; OPTIONAL — the bidirectional mirror. Defined now (R7), but the prepend
+   ;; event (:rf.resource/load-prev) is DEFERRED — see below.
+   :prev-page-param
+   (fn [first-page _all-pages]
+     (get-in first-page [:page-info :prev-cursor]))
+
+   ;; REQUIRED when a page is NOT already a vector — the merge accessor (R3).
+   :page->items      :items                       ;; or (fn [page] …) — loud over guessing
+
+   ;; OPTIONAL — the refetch policy (R6). Default is window-preserving.
+   :refetch          {:refetch-all-pages? false}
+
+   :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})
+   :stale-after-ms   60000
+   :gc-after-ms      300000})
+```
+
+Registration rules (MUST):
+
+- **`:infinite true` makes `:next-page-param` REQUIRED.** A `reg-resource` with `:infinite true` and no `:next-page-param` is a loud registration error (`:rf.error/infinite-missing-next-page-param`), in the same registration gate as `:scope` / `:params-schema` / `:request`.
+- **`:next-page-param` is pure** `(last-page all-pages) -> next-param-or-nil`. Returning **`nil` is the single canonical terminal** ("no more pages"); the derived `:has-next-page?` is `(some? next-page-param)`. (Both gold standards diverge here — TanStack returns `undefined`, SWR ends on an empty page; re-frame2 standardises on `nil` and additionally exposes `:has-next-page?` so a view never re-derives the terminal.)
+- **The `:request` reserved ctx is the page extension point (R8).** `:request` keeps its settled `(params ctx)` shape; for an infinite resource the **reserved `ctx`** is `{:rf.resource/page-param p :rf.resource/page-index i}`. A **non-infinite** resource's `:request` still receives a `nil`/empty ctx unchanged. **No new 3-arity is introduced** — the page context rides the already-reserved context slot ([§The `ctx` argument is reserved across resource/mutation fn surfaces](#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces)).
+- **The first page is fetched with `:page-param nil`** (the TanStack `initialPageParam` analogue; the framework default is `nil`, overridable via an optional `:initial-page-param`) and `:page-index 0`.
+- **The page param is internal sequencing state, NOT part of the feed's cache identity.** Two `load-more` calls on the same feed do **not** produce two cache keys — they extend one entry. Only the **identity params** (`:params`, schema-validated, canonical: filter / sort / search) name the feed; changing them yields a **different scoped resource key** → a different feed instance (the old accumulation is a separate, GC-eligible entry; the new feed first-loads page 0). This is the deliberate divergence from numbered pagination, where the page *is* in params and *is* the identity. ([EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md): the feed identity params are canonical-EDN identities; the per-page param is not part of the key.)
+- **`:page-data-schema` validates ONE page (R5)** — the per-page decode target **and** the per-page egress/classification contract. SSR / tool / trace projection apply it **per page** so sensitive page fields are classified ([EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md)); the accumulated `:data` is a framework-owned vector of pages and **must not** bypass per-page classification. **`:data-schema` is not used** for the accumulated vector.
+- **`:page->items` is REQUIRED for any feed whose page is non-vector / enveloped (R3)** — see [§Subscription contract](#subscription-contract-the-merged-list-and-page-metadata-r3) below.
+- **`:tags` tag the feed identity** and SHOULD also be derivable per item so item-level invalidation can reach the feed (see [§Refetch and invalidation of an infinite feed](#refetch-and-invalidation-of-an-infinite-feed)).
+
+The `:infinite`-only optional keys (`:next-page-param` REQUIRED, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, `:refetch`) join the optional-v1-key set; the closed registration args-map is `:rf/infinite-resource-args` ([Spec-Schemas §`:rf/infinite-resource-args`](Spec-Schemas.md#rfinfinite-resource-args-the-infinite-resource-registration-args-map-spec-016--ep-0021)).
+
+### Durable cache shape (R1)
+
+**One scoped resource entry per feed**, pages stored as an **ordered vector** inside it, in the existing `:rf.runtime/resources` partition — **not** N per-page entries and **not** an app-db slice. The feed reuses the single-resource entry shape and refines `:data` to be the page sequence, plus a small set of infinite-only facts:
+
+```clojure
+;; A durable infinite-feed entry (a refinement of the §Status semantics entry).
+{:resource/id     :feed/timeline
+ :resource/key    [scope :feed/timeline {:filter :recent}]
+ :infinite?       true
+ :status          :loaded            ;; the existing FSM, unchanged semantics
+ ;; :data is the ORDERED PAGE SEQUENCE — the durable fact. One element per
+ ;; accumulated page, in load order. The merged list is DERIVED in the subs
+ ;; layer (never stored — derived values are not durable facts).
+ :data            [<page-0-decoded> <page-1-decoded> …]
+ :page-params     [nil <param-1> <param-2> …]   ;; one per page (page-0 = nil)
+ :next-page-param <param-or-nil>                ;; recomputed after each load; nil = terminal
+ :prev-page-param <param-or-nil>                ;; bidirectional only (derivation defined; load-prev deferred)
+ :error           nil                ;; first-load (page 0) failure envelope
+ :refresh-error   nil                ;; whole-feed background refresh failure (data kept)
+ :page-error      nil                ;; a LOAD-MORE (page N>0) failure — see below
+ :loaded-at <ms> :stale-at <ms> :invalidated-at nil
+ :attempt 1 :generation 4 :revision 5 :request-id … :current-work …
+ :tags #{[:feed :recent]} :active-owners #{[:route :route/home nav-token]}}
+```
+
+The whole feed has **one** owner set, one `:loaded-at` / `:stale-at`, one GC clock, one SSR-restore unit, and one Xray row. Structural sharing ([§Structural sharing](#structural-sharing)) keeps unchanged pages identical across a load-more (only the appended page is new). The page param is stored on the entry as `:page-params` (one per accumulated page, `page-0 = nil`) and is **never** part of the cache key.
+
+This matches both references' own internal model (TanStack's `{pages, pageParams}` is one cache entry; SWR's collection is one infinite hook instance). The cost it accepts — a feed entry's `:data` grows, so GC and egress projection reason about a growing durable value, and item-level invalidation reaches inside the vector — is the deliberate, ruled trade-off (R1).
+
+### Causal event — `:rf.resource/load-more` (R2)
+
+A new resource event extends the feed by one page. It is **causal** ([§Public API](#public-api) — views stay passive), reuses the work ledger (one work-ledger row per page fetch, `:work/kind :resource`), and respects generation + stale suppression exactly as `ensure` does.
+
+```clojure
+[:rf.resource/load-more
+ {:resource :feed/timeline
+  :scope    {:from-db :app/session}     ;; resolved like any resource event
+  :params   {:filter :recent}           ;; the FEED identity (not a page)
+  :owner    [:route :route/home nav-token]
+  :cause    [:user :feed/load-more]}]
+```
+
+FSM interaction (MUST) — **no 6th FSM state (R2)**; the five states are untouched:
+
+- **`load-more` on a `:loaded` feed that has a next page** computes the next `:page-param` from the entry's tail (via `:next-page-param`), issues the managed request for that page with the resolved page ctx, and transitions the feed to **`:fetching` (the existing refresh-class transition)** — because the feed already has data. The accumulated pages **stay visible** (no skeleton).
+- A page-fetch **success** appends the decoded page to `:data`, appends its param to `:page-params`, recomputes `:next-page-param` / `:prev-page-param`, and returns the feed to `:loaded`. Structural sharing preserves all prior pages.
+- A page-fetch **failure** is a **load-more failure**, not a feed first-load failure: the feed returns to `:loaded`, **keeps all accumulated pages**, and records `:page-error` — a **third error channel** beside `:error` (first-load) and `:refresh-error` (whole-feed refresh) — so a view shows "couldn't load more — retry" without losing the feed. `:page-error` is cleared by the next successful load-more or whole-feed load.
+- **`load-more` with no next page** (`:next-page-param` is `nil`) is a **no-op** that emits a trace (`:rf.resource/load-more-skipped`, `:reason :no-next-page`); it never fires a request.
+- A **`load-more` while a page fetch is already in flight** dedupes against the in-flight work ([§Race and in-flight semantics](#race-and-in-flight-semantics)), exactly as a duplicate `ensure` does (trace `:rf.resource/load-more-skipped`, `:reason :in-flight`).
+
+A load-more in flight is the derived **`:fetching-next?`** subscription (below) — distinct from `:fetching?` (a whole-feed refresh). The distinction is a derived value, not a new entry status.
+
+**`:rf.resource/ensure` on an infinite resource fetches page 0 only** (the first load); it does not re-fetch the whole accumulation. A route entry ensures **page 0**; `:blocking?` blocks on page 0 only. Load-more is a user-caused event during the route's lifetime, not a route plan step. Refetch is [§Refetch and invalidation of an infinite feed](#refetch-and-invalidation-of-an-infinite-feed).
+
+> **Bidirectional (R7).** The `:prev-page-param` derivation mirror is **defined now** (it is free — the same machinery as `:next-page-param`, computed from the first page). The **prepend event `:rf.resource/load-prev` is DEFERRED** until a consumer needs it; v1 ships **next-direction `load-more` only**. `:has-prev-page?` is exposed (so the derivation is observable) but a feed with no `load-prev` event simply never advances backward in v1.
+
+### Subscription contract: the merged list and page metadata (R3)
+
+The existing `:rf.resource/state` / `:data` / `:status` / `:loading?` / `:fetching?` / `:stale?` / `:error` / `:refresh-error` / `:has-data?` family all apply to an infinite feed — but `:rf.resource/data` returns the **raw page vector**, which is rarely what a feed view wants. The artefact adds a small infinite-specific projection family, all passive, all derived (never stored), and **framework-owned + memoised** (the merge is a pure derivation the framework owns once, not an ordinary app sub over `:pages`):
+
+```clojure
+;; The merged / flattened list — the everyday feed read (the HEADLINE).
+;; DERIVED from :data (the page vector) by concatenating each page's items.
+[:rf.resource/items          {:resource :feed/timeline :scope … :params …}]
+
+;; The raw page sequence (the TanStack `pages` analogue) — for views that need
+;; page boundaries (e.g. "—— page break ——" or per-page headers).
+[:rf.resource/pages          {:resource … :scope … :params …}]
+
+;; Page metadata — the load-more UI state.
+[:rf.resource/has-next-page? {:resource … :scope … :params …}]   ;; (some? next-page-param)
+[:rf.resource/has-prev-page? {:resource … :scope … :params …}]
+[:rf.resource/fetching-next? {:resource … :scope … :params …}]   ;; a load-more in flight (R2)
+[:rf.resource/page-count     {:resource … :scope … :params …}]
+[:rf.resource/page-error     {:resource … :scope … :params …}]   ;; last load-more failure
+```
+
+And a combined infinite view-model (the feed analogue of `:rf.resource/state`):
+
+```clojure
+@(rf/subscribe [:rf.resource/infinite-state {:resource :feed/timeline :scope … :params …}])
+;; =>
+{:status         :loaded
+ :items          [<item> <item> …]   ;; merged list (the everyday read)
+ :pages          [<page-0> <page-1> …]
+ :page-count     3
+ :has-next-page? true
+ :has-prev-page? false
+ :loading?       false               ;; first load (page 0), no data yet
+ :fetching-next? false               ;; a load-more in flight (pages stay visible)
+ :fetching?      false               ;; whole-feed refresh in flight
+ :stale?         false
+ :has-data?      true
+ :error          nil                 ;; page-0 first-load failure
+ :refresh-error  nil
+ :page-error     nil}                ;; last load-more failure
+```
+
+Rules (MUST):
+
+- **`:rf.resource/items` is the headline read** — most feed views want the flat list (TanStack users immediately `.flatMap(p => p.items)`). The merge is a pure derivation the framework owns and memoises once; `:rf.resource/pages` is available when page boundaries matter.
+- **The flatten rule is loud, not magic (R3).** A page that **is already a vector** flattens by identity. A feed whose page is **non-vector / enveloped** (e.g. `{:items [...] :page-info {…}}`) **MUST** declare a **`:page->items`** accessor (a keyword key or a `(fn [page] …)`) — the framework does **not** guess `:items` / `:data`. `:rf.resource/items` is then `(into [] (mapcat page->items) pages)`. A non-vector page with no `:page->items` is a registration error (`:rf.error/infinite-missing-page-accessor`).
+- **`:rf.resource/items`, `:rf.resource/pages`, and `:rf.resource/infinite-state` are framework-owned memoised subscriptions** — not ordinary app subs over `:pages`. (This is the deliberate divergence from the `:select` precedent — for the *merge*, the framework owns the memoised projection because it is the headline read of every feed.)
+
+A worked feed view reads `:rf.resource/infinite-state`, renders `:items`, shows a spinner when `:fetching-next?`, a "Load more" button (dispatching `:rf.resource/load-more`) when `:has-next-page?`, an end-of-feed marker otherwise, and a "couldn't load more — retry" affordance when `:page-error`. The view is passive: it reads the merged list + page metadata and dispatches a causal `load-more`.
+
+### Refetch and invalidation of an infinite feed
+
+- **`:rf.resource/refetch` of a feed** is governed by an explicit per-resource `:refetch` policy. The **ruled default is conservative: preserve the visible window (R6)** — the accumulated pages stay rendered until their replacement succeeds, so a focus/reconnect/invalidation-driven refetch **never collapses a loaded feed back to page 0** (the failure mode of a hard discard-tail default). Two opt-ins ship **from day one**: **`:refetch-all-pages?`** re-fetches every accumulated page param in sequence (TanStack parity), and **`:refetch-window`** bounds how much of the accumulation is refreshed. Pages persist by *accumulation*, not by being independently cached, so the window-preserving swap is coherent. *(This supersedes the EP's earlier discard-tail recommendation — the Codex-flagged safer behaviour is the ruled default.)*
+- **Tag invalidation** (`:rf.resource/invalidate-tags`, and an [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) mutation `:invalidates`) marks the feed entry stale by its **feed tag** → the feed refetches per the refetch rule above on the next ensure.
+- **Item-inside-the-feed mutation invalidates the WHOLE feed (R4).** A mutation that touches one item inside the feed invalidates the feed (coarse, correct, v1) rather than patching one element in place. **In-place patching** of a single item inside the page vector is **deferred** to the optimistic/patch axis ([EP-0016 issue 9](../docs/EP/EP-0016-resource-mutation-completion.md#open-issues)). A feed `:tags` fn MAY be evaluated per item so an item tag maps to the feeds containing it (enabling targeted feed invalidation), but reaching into the vector to patch is out of scope for v1.
+- **Scope invalidation** (`clear-scope` on logout) drops the feed entry like any scoped entry — the whole accumulation goes, correctly, with the user.
+
+### SSR, hydration, restore
+
+The infinite feed entry is an ordinary durable resource entry, so it rides the existing [§SSR and hydration](#ssr-and-hydration) and [§Restore and replay](#restore-and-replay) contracts unchanged — **no new SSR/restore rules are required** (a direct benefit of the one-entry-in-runtime-db shape, R1):
+
+- **SSR / hydration.** A blocking route serializes the accumulated pages (typically just page 0 from the server) through the same allowlist projection + egress walker, applying `:page-data-schema` **per page** (R5). The client hydrates the page vector; load-more continues from the hydrated tail's `:next-page-param`.
+- **Restore / replay.** The page vector is durable and restores wholesale; an in-flight load-more is a non-terminal work-ledger row reconciled to dangling exactly as any in-flight resource fetch ([§Restore and replay part 2](#2-in-flight-work-does-not-survive-restore-as-live-work)); the monotonic generation allocator ([part 1](#1-the-generation-allocator-is-monotonic-and-host-side-it-does-not-rewind)) stays monotonic so a late page reply cannot append to a post-restore feed.
+
+### Trace surfacing
+
+The `:rf.resource/*` trace family ([§Xray and AI tooling](#xray-and-ai-tooling)) gains four infinite-specific ops (reserved now; the emit catalogue lands in [009 §resources](009-Instrumentation.md), and the Xray panel spec `tools/xray/spec/024-Resources-Panel.md` lands with the emit slice, per the standing Xray-spec-currency rule — this spec slice touches no `tools/xray/` source):
+
+- **`:rf.resource/load-more`** — a load-more was dispatched: feed key, resolved `:page-param`, current `:page-count`, work id.
+- **`:rf.resource/page-appended`** — a page-fetch succeeded and was appended: page index, new `:page-count`, derived `:next-page-param` (or `:terminal? true`).
+- **`:rf.resource/load-more-skipped`** — a load-more that fired no request: `:reason :no-next-page` (terminal) or `:reason :in-flight` (deduped).
+- **`:rf.resource/page-failed`** — a load-more page fetch failed (the `:page-error` channel; distinct from `:rf.resource/failed` first-load and `:rf.resource/refresh-failed`).
+
+Xray's resource-instance table shows, for an infinite entry: page count, next-page-param presence (`has-next?`), per-page params (egress-projected, since cursors can carry ids), and the accumulated-size growth view.
+
 ## SSR and hydration
 
 SSR MUST use request-local frames — a process-global resource cache would leak data between users.
@@ -1270,6 +1471,8 @@ The artefact's `:rf.error/resource-*` error tags and `:rf.warning/resource-*` / 
 | `:rf.error/resource-cross-scope-cause-required` | error (use-time) | a `:cross-scope? true` invalidation carries no `:cause` evidence | [§The cross-scope lattice](#the-cross-scope-lattice--three-precise-rungs) |
 | `:rf.error/resource-route-plan` | error (route planning) | a route-resource entry's params/scope/`:when`/`:after` fails to resolve (fail-closed, surfaced on the route slice + Xray) | [§Route integration](#route-integration) |
 | `:rf.error/resource-ssr-blocking-timeout` | error (SSR) | a blocking SSR resource exceeds the render deadline | [§SSR and hydration](#ssr-and-hydration) |
+| `:rf.error/infinite-missing-next-page-param` | error (registration) | a `reg-resource` declares `:infinite true` but no `:next-page-param` | [§Infinite resources and load-more feeds](#infinite-resources-and-load-more-feeds) |
+| `:rf.error/infinite-missing-page-accessor` | error (registration) | an `:infinite` resource whose page is non-vector / enveloped declares no `:page->items` accessor | [§Subscription contract](#subscription-contract-the-merged-list-and-page-metadata-r3) |
 | `:rf.warning/resource-sub-scope-mismatch` | dev warning (DCE'd) | a `:rf.scope/from-caller` sub resolves a valid-but-wrong scope (read-side tripwire) | [§Dev-mode likely-mismatch warning](#dev-mode-likely-mismatch-warning-rfwarningresource-sub-scope-mismatch) |
 | `:rf.warning/mutation-scope-mismatch` | dev warning (DCE'd) | a mutation's `:invalidates` descriptor matches zero entries in its scope while another scope holds them (write-side tripwire) | [§Dev-mode write-side tripwire](#mutation-scope-is-two-distinct-scopes-hybrid) |
 | `:rf.warning/resource-clear-scope-unresolved` | dev warning (DCE'd) | a `{:from-db …}` reference resolves nil at a `clear-scope` site | [§`clear-scope` resolves the concrete scope from the coeffect db](#clear-scope-resolves-the-concrete-scope-from-the-coeffect-db-not-a-snapshot) |
@@ -1278,7 +1481,7 @@ The artefact's `:rf.error/resource-*` error tags and `:rf.warning/resource-*` / 
 
 (`:rf.error/no-frame-context` and `:rf.error/legacy-runtime-root` are framework-wide tags this artefact composes with, owned by [002-Frames](002-Frames.md) / [Conventions](Conventions.md), not minted here.)
 
-The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.resource/registered` (one row per FIRST-TIME `reg-resource`, frame-agnostic — the registration anchor of the family; symmetric with `:rf.route/registered` / `:rf.flow/registered`), `:rf.resource/ensure`, `:rf.resource/owner-attached` (a NEW owner lease landing on an entry — both on a fresh load and on a dedupe join; symmetric with `:rf.resource/owner-released`), `:rf.resource/cache-hit` (a *fresh-skip* ensure — an `ensure` of an already-`:loaded` entry still fresh-by-policy serves the cached value, neither fetching nor joining in-flight work; distinct from `:rf.resource/deduped`), `:rf.resource/deduped`, `:rf.resource/work-started` (a work-LEDGER row was created — the transport request started; carries `:status :running` + `:superseded`) and `:rf.resource/fetch-started` (the cache ENTRY's status transition — carries the entry's `:status`, `:fetching` on a first load or stale-revalidate), `:rf.resource/work-abort-requested`, `:rf.resource/work-completed`, `:rf.resource/succeeded`, `:rf.resource/failed`, `:rf.resource/refresh-failed`, `:rf.resource/invalidated`, `:rf.resource/refetch-decision`, `:rf.resource/owner-released`, `:rf.resource/stale-scheduled`, `:rf.resource/stale-fired`, `:rf.resource/gc-scheduled`, `:rf.resource/gc-fired`, `:rf.resource/gc-skipped`, `:rf.resource/removed`, `:rf.resource/stale-suppressed` (the entry + ledger stale/superseded-reply suppression — the single suppression op the runtime emits; an earlier draft named a separate `:rf.resource/work-suppressed`, now folded into this one — there is exactly one suppression op, not two), `:rf.resource/route-plan` (the route `:resources` plan summary on route entry — route id, nav-token, ensured count, blocking scoped keys; the route/resource graph signal), `:rf.resource/revalidate-scan` (the focus/reconnect active-stale scan summary — the revalidation signal, the `:focus` / `:reconnect` cause, the scanned-entry count, and the refetched scoped keys; the per-entry refetch decisions ride the ordinary refetch traces), `:rf.resource/hydrated`, and `:rf.resource/hydrate-refetch` (one per hydration refetch-plan entry — the per-entry decision that a hydrated entry was not sufficient on its own, `:reason` `:no-data` / `:stale` / `:metadata-only`, distinct from the ordinary refetch the route slice then dispatches). Each carries, where applicable, frame, work id, scope, resource key/id, params summary, generation, request id, owner, cause, status before/after, work status, resource/invalidated tags, freshness timestamps, and redaction/size markers.
+The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.resource/registered` (one row per FIRST-TIME `reg-resource`, frame-agnostic — the registration anchor of the family; symmetric with `:rf.route/registered` / `:rf.flow/registered`), `:rf.resource/ensure`, `:rf.resource/owner-attached` (a NEW owner lease landing on an entry — both on a fresh load and on a dedupe join; symmetric with `:rf.resource/owner-released`), `:rf.resource/cache-hit` (a *fresh-skip* ensure — an `ensure` of an already-`:loaded` entry still fresh-by-policy serves the cached value, neither fetching nor joining in-flight work; distinct from `:rf.resource/deduped`), `:rf.resource/deduped`, `:rf.resource/work-started` (a work-LEDGER row was created — the transport request started; carries `:status :running` + `:superseded`) and `:rf.resource/fetch-started` (the cache ENTRY's status transition — carries the entry's `:status`, `:fetching` on a first load or stale-revalidate), `:rf.resource/work-abort-requested`, `:rf.resource/work-completed`, `:rf.resource/succeeded`, `:rf.resource/failed`, `:rf.resource/refresh-failed`, `:rf.resource/invalidated`, `:rf.resource/refetch-decision`, `:rf.resource/owner-released`, `:rf.resource/stale-scheduled`, `:rf.resource/stale-fired`, `:rf.resource/gc-scheduled`, `:rf.resource/gc-fired`, `:rf.resource/gc-skipped`, `:rf.resource/removed`, `:rf.resource/stale-suppressed` (the entry + ledger stale/superseded-reply suppression — the single suppression op the runtime emits; an earlier draft named a separate `:rf.resource/work-suppressed`, now folded into this one — there is exactly one suppression op, not two), `:rf.resource/route-plan` (the route `:resources` plan summary on route entry — route id, nav-token, ensured count, blocking scoped keys; the route/resource graph signal), `:rf.resource/revalidate-scan` (the focus/reconnect active-stale scan summary — the revalidation signal, the `:focus` / `:reconnect` cause, the scanned-entry count, and the refetched scoped keys; the per-entry refetch decisions ride the ordinary refetch traces), `:rf.resource/hydrated`, `:rf.resource/hydrate-refetch` (one per hydration refetch-plan entry — the per-entry decision that a hydrated entry was not sufficient on its own, `:reason` `:no-data` / `:stale` / `:metadata-only`, distinct from the ordinary refetch the route slice then dispatches), and the **infinite-resource** ops `:rf.resource/load-more` (a load-more dispatched — resolved `:page-param`, current `:page-count`, work id), `:rf.resource/page-appended` (a page-fetch succeeded and was appended — page index, new `:page-count`, derived `:next-page-param` or `:terminal? true`), `:rf.resource/load-more-skipped` (a load-more that fired no request — `:reason :no-next-page` terminal or `:reason :in-flight` deduped), and `:rf.resource/page-failed` (a load-more page fetch failed — the `:page-error` channel, distinct from `:rf.resource/failed` first-load and `:rf.resource/refresh-failed`; see [§Infinite resources and load-more feeds](#infinite-resources-and-load-more-feeds)). Each carries, where applicable, frame, work id, scope, resource key/id, params summary, generation, request id, owner, cause, status before/after, work status, resource/invalidated tags, freshness timestamps, and redaction/size markers.
 
 > **Fresh-skip op — `:rf.resource/cache-hit`.** The family emits `:rf.resource/cache-hit` for a *fresh-skip* ensure — an `ensure` of an already-`:loaded` entry that is still fresh-by-policy, so it neither dedupes (no in-flight work to join) nor starts a fetch (the cached value is sufficient). That is genuinely distinct from `:rf.resource/deduped` (joining an in-flight request). The fresh-skip *behaviour* is mandated by the FSM (a `:loaded` entry transitions to `:fetching` only on `stale/refetch`; a fresh `ensure` has no transition) and by [§Restore and replay](#restore-and-replay) ("refetches only on the next `ensure` from a live owner … gated by the entry's own stale/fresh policy"). The reference implementation short-circuits a fresh `:loaded` ensure: it attaches the supplied owner lease (a `:rf.resource/owner-attached` row covers a newly-attached owner), emits `:rf.resource/cache-hit`, drains any blocking route slot immediately (a fresh blocking resource settles the navigation at once — it treats the fresh entry as already-`:success`, so a route blocked on a fresh resource never hangs), and starts no new generation / fetch / work record. A `refetch` is never a fresh-skip (it always forces a new generation); a STALE `:loaded` entry still refetches on the next `ensure` (fresh-skip never swallows a stale refresh). The cache-hit needs no `:previous-key` projection (the entry has its own fresh data), arms no timers, and supersedes nothing.
 
@@ -1377,7 +1580,7 @@ The following are named here but their full contract lands with their slice (per
 - **First public-beta gate — LANDED, now complete.** Two slices graduated past the read-resource MVP and are fully specified above, not deferred:
   - **Mutations** — `reg-mutation` / `clear-mutation` register a causal write under the `:mutation` registrar kind; `:rf.mutation/execute` mints a per-submission instance row at `:rf.runtime/mutations` (keyed by instance id, so concurrent submissions don't clobber), creates a `:rf.runtime/work-ledger` record (work-kind `:mutation`), and lowers the write through the same managed-HTTP transport (runtime-owned reply addressing; generation + work-id stale suppression as for resources); on success it patches/populates resource entries then invalidates the `:invalidates` tags (explicit `:before-request` / `:after-success` / `:after-failure` / `:after-settle` timing); `:rf.mutation/clear` is the causal instance reset; the `:rf.mutation/*` passive subs project the instance view-model. Write retries are opt-in; optimistic rollback is deferred (the success trace reserves its shape). See [§Mutations (first public-beta gate)](#mutations-first-public-beta-gate).
   - **Focus/reconnect active-stale revalidation** — the `:rf.resource/window-focused` / `:rf.resource/network-reconnected` events scan the frame's active-owner stale entries and refetch them by policy (cause `:focus` / `:reconnect`, never an owner; generation + stale-suppression respected); the host `window` focus / online listeners are installed per-frame by `install-revalidation-listeners!` and cancelled on frame destroy via the `:resources/on-frame-destroyed!` hook ([§Stale and GC scheduling](#stale-and-gc-scheduling)).
-- **Later slices:** GraphQL read/mutation transport (`:rf.graphql/query`, the first transport-extension proof — see [EP-0003 §Deferred: GraphQL](../docs/EP/EP-0003-resource-queries.md#deferred-graphql-later-phase)); generic transport extension protocol; infinite resources; normalized entity caches; automatic graph-derived invalidation; subscription-driven fetching; offline persistence; cross-tab broadcast. (Optimistic rollback landed via [EP-0019](../docs/EP/EP-0019-optimistic-mutation-rollback.md); polling/interval revalidation landed as [§Polling](#polling) via EP-0020.)
+- **Later slices:** GraphQL read/mutation transport (`:rf.graphql/query`, the first transport-extension proof — see [EP-0003 §Deferred: GraphQL](../docs/EP/EP-0003-resource-queries.md#deferred-graphql-later-phase)); generic transport extension protocol; normalized entity caches; automatic graph-derived invalidation; subscription-driven fetching; offline persistence; cross-tab broadcast. (Optimistic rollback landed via [EP-0019](../docs/EP/EP-0019-optimistic-mutation-rollback.md); polling/interval revalidation landed as [§Polling](#polling) via EP-0020; **infinite resources / load-more feeds are now specified** as [§Infinite resources and load-more feeds](#infinite-resources-and-load-more-feeds) via [EP-0021](../docs/EP/EP-0021-infinite-resources.md) — next-direction load-more, coarse feed-level invalidation, a window-preserving refetch default, with prepend / in-place item patching / streaming still deferred.)
 
 Mutations were the second slice (the first public-beta gate), not the MVP; with mutation invalidation and active-stale revalidation now **landed**, the first public-beta surface — the threshold for "complete-enough resource management" — is complete. What remains (optimistic rollback, polling, GraphQL, the generalized work ledger) is genuinely later-slice work, not a gap in the public-beta contract.
 
@@ -1441,9 +1644,23 @@ The three [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) decision
 
 > **EP-0016 related work** (the slice-1 absorption context). The dogfood findings and adjacent work this slice composes with: the feed-invalidation bug (the D2 dogfood acceptance case the descriptor mechanism fixes); the global-scope spelling ambiguity Rider 2's map-form input eliminates at the API boundary; the invalidate-tags fail-closed scope strictness D2 composes with (the bottom rung of the cross-scope lattice); the sub-side scope-mismatch dev warning adjacent to D3's fail-closed nil; the hybrid mutation scope-resolution rule D2's `:rf.scope/same` default cites, now homed in [§Mutation scope is two distinct scopes](#mutation-scope-is-two-distinct-scopes-hybrid); live sub re-keying when resolver inputs change mid-session (answered by the slice-3 route/event/sub integration, not this spec slice); and the tenant-switcher testbed (the un-defer consumer for the reserved `[:runtime path]` source).
 
+### EP-0021 infinite resources — the `:infinite` load-more feed — `:resolved`
+
+The [EP-0021](../docs/EP/EP-0021-infinite-resources.md) Resolved Decisions R1–R8 (Mike, 2026-06-17) are graduated into this Spec as the `:infinite` registration kind. The rulings and their normative homes here:
+
+- **R1 — one scoped entry per feed.** Pages are the ordered durable `:data` vector inside one `:rf.runtime/resources` entry (plus `:page-params` / `:next-page-param` / `:page-error`), **not** N per-page entries and **not** an app-db slice. Load-bearing prose: [§Durable cache shape (R1)](#durable-cache-shape-r1).
+- **R2 — no 6th FSM state.** A load-more reuses the existing `:fetching` (refresh-class) transition; a derived **`:fetching-next?`** sub distinguishes a load-more in flight from a whole-feed `:fetching?` refresh. Load-bearing prose: [§Causal event — `:rf.resource/load-more` (R2)](#causal-event--rfresourceload-more-r2).
+- **R3 — framework-owned merged list.** `:rf.resource/items` (the headline merged read), `:rf.resource/pages`, `:rf.resource/infinite-state`, and the page-metadata subs are framework-owned + memoised; **`:page->items` is REQUIRED** for any non-vector / enveloped page (loud over guessing). Load-bearing prose: [§Subscription contract](#subscription-contract-the-merged-list-and-page-metadata-r3).
+- **R4 — coarse item-mutation invalidation.** A mutation touching an item inside a feed **invalidates the whole feed**; in-place patching is deferred. Load-bearing prose: [§Refetch and invalidation of an infinite feed](#refetch-and-invalidation-of-an-infinite-feed).
+- **R5 — `:page-data-schema` is the per-page contract.** It validates one page (the decode target) **and** is the per-page egress/classification contract; `:data-schema` is not used for the accumulated vector. Load-bearing prose: [§Registration — `:infinite`](#registration--infinite).
+- **R6 — window-preserving refetch default.** `:refetch` is an explicit per-resource policy; the conservative default preserves the visible window until replacement succeeds; `:refetch-all-pages?` and `:refetch-window` ship as opt-ins from day one. *(Supersedes the EP body's earlier discard-tail default.)* Load-bearing prose: [§Refetch and invalidation of an infinite feed](#refetch-and-invalidation-of-an-infinite-feed).
+- **R7 — next-only v1.** The `:next-page-param` / `:prev-page-param` derivation mirror is defined now; the prepend event `:rf.resource/load-prev` is deferred. Load-bearing prose: [§Causal event — `:rf.resource/load-more` (R2)](#causal-event--rfresourceload-more-r2).
+- **R8 — `:request` reserved-ctx page extension.** The page context rides the already-reserved `:request` ctx (`{:rf.resource/page-param p :rf.resource/page-index i}`); non-infinite requests still get a nil/empty ctx; **no new 3-arity**. Load-bearing prose: [§Registration — `:infinite`](#registration--infinite).
+
 ## Cross-references
 
 - [EP-0003 — Resource Queries](../docs/EP/EP-0003-resource-queries.md) — the originating enhancement proposal; full rationale, prior-art benchmark (TanStack Query / RTK Query / SWR / `re-frame-query`), slice plan, and the deferred GraphQL phase.
+- [EP-0021 — Infinite Resources And Load-More Feeds](../docs/EP/EP-0021-infinite-resources.md) — the `:infinite` registration kind; the page-param model, the durable page-vector entry, the `:rf.resource/load-more` causal event, the merged-list + page-metadata subscription family, and the Resolved Decisions R1–R8 this spec's [§Infinite resources and load-more feeds](#infinite-resources-and-load-more-feeds) encodes.
 - [Managed-Effects](Managed-Effects.md) — the nine-property managed-effect contract; **§The uniform reply envelope** is the canonical normative home of the reply map, the closed `:status` taxonomy, the `:work/id` correlation rule, and the mandatory stale-suppression boundary resources + mutations complete through (see [§The uniform reply envelope and the canonical reply map](#the-uniform-reply-envelope-and-the-canonical-reply-map)).
 - [EP-0011 — Uniform Async Reply Envelope](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the rationale record for the reply envelope; §Resource Reply And Work Ledger / §Mutation Reply are the resource + mutation lowering slices. [EP-0007 — One Name Per Fact](../docs/EP/EP-0007-one-name-per-fact.md) — the rule behind one-attempt-one-`:work/id` and the `:value`-everywhere reply-result spelling (the kh9jz6 `:value` / `:data` / `:result` layering).
 - [EP-0001 — Frame App/Runtime Partitions](../docs/EP/EP-0001-frame-partitions.md) / [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract) — the runtime-db partition the cache lives in; full-frame restore.

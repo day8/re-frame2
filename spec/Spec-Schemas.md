@@ -2753,6 +2753,48 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
 
 `:rf/scope-policy`, `:rf/resource-scope-resolver`, `:rf/invalidation-descriptor`, and `:rf/exact-target` are the schema ids for `ScopePolicy`, `ResourceScopeResolver`, `InvalidationDescriptor`, and `ExactTarget`. The mutation **`:reply-to` continuation** reuses the `:rf/reply-map` shape below (one closed `:status` referencing the EP-0011 enum) plus the mutation-specific facts (`:mutation`, `:instance`, `:scope`, `:affected-keys`, `:cause [:mutation <id> <instance>]`) enumerated in [016 §Mutation completion continuations](016-Resources.md#mutation-completion-continuations--call-site-reply-to) — it is **not** a separate reply-map schema, only the `:rf/reply-map` with family facts added additively.
 
+### `:rf/infinite-resource-args` (the `:infinite` resource registration args-map, Spec 016 / EP-0021)
+
+> **Layer:** Authoring (input form)
+> **Owner:** [016-Resources.md](016-Resources.md) (the optional `day8/re-frame2-resources` artefact)
+> **Status:** v1-optional (post-v1 artefact)
+
+The **additive `:infinite`-only slice** of the `reg-resource` registration args-map ([016 §Infinite resources and load-more feeds](016-Resources.md#infinite-resources-and-load-more-feeds), [EP-0021](../docs/EP/EP-0021-infinite-resources.md) R1–R8). An infinite resource reuses every existing `reg-resource` key (`:params-schema` / `:scope` / `:request` REQUIRED, plus the optional v1 keys); this schema names the keys that the `:infinite true` flag adds and gates. It is an **authoring shape validated at registration**, distinct from the durable runtime storage shapes above (the feed entry is an ordinary `:rf/resource-entry` whose `:data` is the page vector — there is **no** new runtime entry schema, per R1).
+
+```clojure
+(def RefetchPolicy
+  ;; The R6 refetch policy for an infinite feed. The DEFAULT (omitted) is
+  ;; CONSERVATIVE: preserve the visible window until the replacement succeeds,
+  ;; so a focus/reconnect/invalidation refetch never collapses a loaded feed to
+  ;; page 0. The two opt-ins ship from day one. (Supersedes the EP body's
+  ;; earlier discard-tail default.)
+  [:map
+   [:refetch-all-pages? {:optional true} :boolean]  ;; re-fetch every accumulated page param in sequence (TanStack parity); default false
+   [:refetch-window     {:optional true} :int]])     ;; bound how much of the accumulation is refreshed
+
+(def InfiniteResourceArgs
+  ;; The :infinite slice of the reg-resource args-map. :infinite true makes
+  ;; :next-page-param REQUIRED (the registration gate raises
+  ;; :rf.error/infinite-missing-next-page-param otherwise). The per-page cursor
+  ;; is NEVER a registration key — it is the runtime-threaded page-param the
+  ;; :request fn reads from its RESERVED ctx (R8): (request feed-params
+  ;; {:rf.resource/page-param p :rf.resource/page-index i}); a non-infinite
+  ;; :request still receives a nil/empty ctx (NO new 3-arity). The feed-identity
+  ;; params (filter/sort/search) are the cache identity (:params-schema); the
+  ;; page-param is internal sequencing state, never part of the key.
+  [:map
+   [:infinite          [:= true]]                ;; the flag that selects this kind
+   [:next-page-param   fn?]                       ;; REQUIRED — (fn [last-page all-pages] → next-param | nil); nil = the SINGLE terminal
+   [:prev-page-param   {:optional true} fn?]      ;; the R7 bidirectional MIRROR (defined now; the :rf.resource/load-prev prepend event DEFERRED)
+   [:initial-page-param {:optional true} :any]    ;; page-0 param; framework default nil (TanStack initialPageParam analogue)
+   [:page->items       {:optional true}           ;; REQUIRED for a non-vector / enveloped page (R3) — loud over guessing :items/:data
+                       [:or :keyword fn?]]         ;;   a key (e.g. :items) or (fn [page] → seq-of-items); a vector page flattens by identity
+   [:page-data-schema  {:optional true} :any]      ;; validates ONE page (decode target) + the PER-PAGE egress/classification contract (R5); :data-schema is NOT used for the accumulated vector
+   [:refetch           {:optional true} RefetchPolicy]]) ;; the R6 refetch policy; omitted ⇒ window-preserving default
+```
+
+`:rf/infinite-resource-args` is the schema id for `InfiniteResourceArgs` (the `:infinite` slice of the `reg-resource` args-map). It is **additive** to the existing required `reg-resource` keys (`:params-schema` / `:scope` / `:request`) and the optional v1 keys — `:infinite true` selects this slice and makes `:next-page-param` REQUIRED (gate: `:rf.error/infinite-missing-next-page-param`); a non-vector page with no `:page->items` is `:rf.error/infinite-missing-page-accessor`. There is **no** new runtime entry schema: an infinite feed is stored as an ordinary `:rf/resource-entry` whose `:data` is the ordered page vector (plus `:page-params` / `:next-page-param` / `:page-error` facts), per [016 §Durable cache shape (R1)](016-Resources.md#durable-cache-shape-r1).
+
 ### `:rf/derivation-node`, `:rf/fact`, `:rf/derivation-edge`, `:rf/storage-class`, `:rf/evaluation-policy`, `:rf/lifecycle` (the derivation/process algebra, EP-0014)
 
 > **Layer:** Runtime
