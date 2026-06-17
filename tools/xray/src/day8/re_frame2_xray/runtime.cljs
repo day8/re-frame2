@@ -291,7 +291,9 @@
       (egress-value v {:include-sensitive? true}) ; opt back in
 
   Optional `:path` — the ABSOLUTE app-db path the value sits at. The
-  framework's schema-declared sensitive / large declarations are keyed
+  framework's frame-owned app-db sensitive / large declarations (the
+  `:sensitive {:app-db …}` / `:large {:app-db …}` path maps on `reg-frame`,
+  Spec 015 §Frame-owned durable classification) are keyed
   by absolute path, so a SLICE egress'd in isolation (e.g. one
   changed-path slice from `get-app-db-diff`, or a `:path`-scoped
   `get-app-db` read) must tell the walker where the slice lives or the
@@ -638,8 +640,8 @@
   scoped by `:path`. Routes through `elide-wire-value` (MUST-inventory
   row #19 — direct-read privacy posture). When `:path` is supplied the
   absolute path is threaded into the egress walker so a scoped slice is
-  elided against schema-declared sensitive / large paths (keyed by
-  absolute path) — fail-closed, symmetric with the whole-db read and
+  elided against the frame-owned `:sensitive` / `:large` app-db declarations
+  (keyed by absolute path) — fail-closed, symmetric with the whole-db read and
   the `get-app-db-diff` slices (rf2-a96xq). Returns
   `{:ok? true :frame <id> :path <vec> :value <edn>}` or
   `{:ok? false :reason :no-frame-resolved}`."
@@ -655,8 +657,9 @@
           :frame fid
           :path  (vec path)
           ;; Thread the ABSOLUTE app-db `:path` into the egress walker so
-          ;; a `:path`-scoped slice is elided against schema-declared
-          ;; sensitive / large paths (keyed by absolute path) — without
+          ;; a `:path`-scoped slice is elided against the frame-owned
+          ;; `:sensitive` / `:large` app-db declarations (keyed by absolute
+          ;; path) — without
           ;; it the walker starts the sliced value at root `[]` and a
           ;; declaration registered for e.g. `[:auth :password]` never
           ;; matches a direct read of `{:path [:auth :password]}`, leaking
@@ -695,8 +698,9 @@
   trust-boundary override the sibling accessors expose, and the resolved
   `:frame` so every slice projects under that frame's classification
   (EP-0015 frame-owned egress, rf2-5b2ct2) rather than the ambient scope.
-  Each slice is egress'd at its ABSOLUTE leaf `:path` so schema-declared
-  sensitive / large paths still match against the isolated slice."
+  Each slice is egress'd at its ABSOLUTE leaf `:path` so the frame-owned
+  `:sensitive` / `:large` app-db declarations still match against the
+  isolated slice."
   [before after egress-opts]
   (let [{:keys [flat-rows]} (diff-engine/project before after)
         egress-at (fn [v path] (egress-value v (assoc egress-opts :path path)))]

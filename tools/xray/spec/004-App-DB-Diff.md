@@ -485,7 +485,7 @@ labels; the underlying paths now live under the runtime-db partition's
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
+| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Hydrated at `reg-frame` time from the **frame-owned** `:sensitive {:app-db …}` / `:large {:app-db …}` path-map declarations (installed by `re-frame.frame-classification` under `:source :frame`, Spec 015 §Frame-owned durable classification); consulted by `rf/elide-wire-value` at every wire-boundary emit. Durable app-db classification is frame-owned, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `:data-schema` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
 
 Conventions is the canonical home; this table is the panel-facing
 projection. The `runtime-areas` lookup in `app_db_diff_helpers.cljc`
@@ -532,10 +532,15 @@ questions.
 
 Per [Spec 015 §Data Classification](../../../spec/015-Data-Classification.md)
 and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress),
-an app-supplied epoch `:redact-fn` may substitute the `:rf/redacted`
-sentinel into `:db-before` / `:db-after` to keep sensitive material out
-of recorded records. When the underlying value at a redacted path
-actually changed across a cascade, the structural diff correctly sees
+the panel renders the projected view of an epoch, and any value that the
+observed frame declared `:sensitive` is substituted by the `:rf/redacted`
+sentinel through **egress projection** (`project-egress` keyed on the
+observed frame) — never by mutating the stored record. Per Spec 015 §6
+(Epoch projection — no storage-side mutation), raw epoch records remain
+in-process and the legacy storage-side `(rf/configure! :epoch-history
+{:redact-fn …})` hook is gone; projection at the export / on-box-render
+boundary is the normal answer. When the underlying value at a redacted
+path actually changed across a cascade, the structural diff correctly sees
 `:rf/redacted` = `:rf/redacted` and emits no row — the elision
 contract is preserved (per `diff/engine.cljc` §Sentinel-aware
 modified handling). The developer is left with an empty diff and no
@@ -557,26 +562,28 @@ count is 0.
 threads an exact `:rf.epoch/redacted-modified-paths-count` integer on
 the epoch record (per
 [Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)).
-Computed inside `re-frame.epoch.assembly/build-record` from raw
-db-before / db-after values BEFORE the `:redact-fn` runs — parallel to
+Computed inside `re-frame.epoch.assembly/build-record` from the raw,
+in-process db-before / db-after values (no storage-side mutation runs;
+projection happens only at egress / render) — parallel to
 the `:rf.epoch/sensitive?` rollup. A path `P` counts in the framework's
 figure when:
 
-1. `P` is schema-declared sensitive (`[:rf.runtime/elision :sensitive-declarations]`
+1. `P` is frame-declared sensitive (`[:rf.runtime/elision :sensitive-declarations]`
    in the runtime-db partition, EP-0001 rf2-vzld77,
-   populated from `{:sensitive? true}` per-slot schema props per
-   [Spec 015](../../../spec/015-Data-Classification.md)).
+   hydrated from the frame's `:sensitive {:app-db …}` path-map declarations
+   under `:source :frame` per
+   [Spec 015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md)).
 2. `(not= (get-in db-before P) (get-in db-after P))` — value-equality
-   on the raw (pre-redact-fn) dbs.
+   on the raw (unprojected) in-process dbs.
 
 This is the **exact** count of declared-sensitive paths that mutated
 this cascade. Xray reads it directly from the record; no walk, no
 heuristic.
 
 **Heuristic fallback (rf2-bz1cl).** Records that lack the egress slot
-(legacy snapshots, hand-rolled test fixtures, hosts with no schema
-layer that produces a sensitive-declarations registry) fall back to a
-Xray-side heuristic — paths `P` where:
+(legacy snapshots, hand-rolled test fixtures, hosts whose frames declared
+no `:sensitive {:app-db …}` classification, so no sensitive-declarations
+registry exists) fall back to a Xray-side heuristic — paths `P` where:
 
 1. `(= :rf/redacted (get-in db-before P))`, AND
 2. `(= :rf/redacted (get-in db-after  P))`, AND
