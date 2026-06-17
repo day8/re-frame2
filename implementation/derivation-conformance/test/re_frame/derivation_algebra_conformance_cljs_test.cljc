@@ -578,6 +578,23 @@
   ;; [cache-scope resource-id canonical-params] — a concrete live fact id.
   [[:rf.scope/global] :article/by-slug {:slug "a1"}])
 
+;; EP-0011 (rf2-cxpa87) — the resource attempt's generation. The canonical
+;; resource work-id is the FAMILY tuple `[:rf.work/resource <scoped-key>
+;; <generation>]` (`re-frame.resources.work-ledger/resource-work-id`), NOT a
+;; scalar. Managed-Effects §Work-id correlation: ledger-backed async work
+;; carries ONE `:work/id` per attempt, and the resource family's head is
+;; `:rf.work/resource`. The previous fixture used a SCALAR `3` and a
+;; non-issuance `:status :pending`, which let this cross-family graph tier pass
+;; while accepting a non-canonical work-id shape + a status the real issuance
+;; row never writes — so it failed to protect the one-attempt-one-:work/id rule
+;; or the work-ledger status vocabulary in the graph projection.
+(def ^:private k3-generation 3)
+(def ^:private k3-work-id
+  ;; The canonical resource work-id tuple — `[:rf.work/resource <scoped-key>
+  ;; <generation>]`, exactly what `resources.work-ledger/resource-work-id`
+  ;; mints at issuance.
+  [:rf.work/resource k3-scoped-key k3-generation])
+
 (defn- k3-live-contributors
   "Contributors whose subs / resources / routes live-fns return the realized
   shapes a `[:article/page \"a1\"]` materialization + a route-owned fetch
@@ -621,8 +638,14 @@
                     :lifecycle   {:kind :scoped-resource-key
                                   :owners #{[:route :route/article k3-nav-token]}}
                     :status      :loading
-                    :work-ledger {:work/id 3
-                                  :record  {:work/id 3 :status :pending
+                    ;; EP-0011 (rf2-cxpa87) — the in-flight work-ledger link
+                    ;; carries the CANONICAL resource work-id TUPLE and the
+                    ;; REAL non-terminal issuance status (`:running`, in
+                    ;; `work-ledger/non-terminal-statuses`), matching the row
+                    ;; `re-frame.resources.work-ledger/work-record` writes — not
+                    ;; a scalar id / non-issuance `:pending`.
+                    :work-ledger {:work/id k3-work-id
+                                  :record  {:work/id k3-work-id :status :running
                                             :resource/key k3-scoped-key}}}})}
    ;; the LIVE route slice with its realized owner.
    :routes
@@ -662,8 +685,30 @@
         (is (= #{[:route :route/article k3-nav-token]}
                (get-in res [:lifecycle :owners]))
             "the live owner set is composed through verbatim")
-        (is (= 3 (get-in res [:work-ledger :work/id]))
-            "the in-flight work-ledger link is composed through")))
+        ;; EP-0011 (rf2-cxpa87) — the composed work-ledger link carries the
+        ;; CANONICAL resource work-id TUPLE (not a scalar), with the
+        ;; `:rf.work/resource` family head, and the REAL non-terminal issuance
+        ;; status. Assert the tuple head + status explicitly so a regression to
+        ;; a scalar id / a non-issuance status (`:pending`) goes RED here.
+        (is (= k3-work-id (get-in res [:work-ledger :work/id]))
+            "the in-flight work-ledger link is the canonical work-id tuple, composed through")
+        (is (= :rf.work/resource (first (get-in res [:work-ledger :work/id])))
+            "the work-id tuple head is the :rf.work/resource family head (one-attempt-one-:work/id)")
+        (is (= k3-scoped-key (second (get-in res [:work-ledger :work/id])))
+            "the work-id tuple carries the concrete scoped-key")
+        (is (= k3-generation (nth (get-in res [:work-ledger :work/id]) 2))
+            "the work-id tuple embeds the attempt generation")
+        (is (= k3-work-id (get-in res [:work-ledger :record :work/id]))
+            "the work-ledger RECORD carries the same canonical work-id tuple")
+        (is (= :running (get-in res [:work-ledger :record :status]))
+            "the work-ledger record status is the real non-terminal issuance status :running (not :pending)")
+        ;; The old SCALAR-`:work-id` spelling MUST be absent from the composed
+        ;; node — Managed-Effects uses the `:work/id` (namespaced) key, never a
+        ;; bare `:work-id`.
+        (is (not (contains? (:work-ledger res) :work-id))
+            "the composed work-ledger uses :work/id, never the old bare :work-id spelling")
+        (is (not (contains? (get-in res [:work-ledger :record]) :work-id))
+            "the work-ledger record uses :work/id, never the old bare :work-id spelling")))
     (testing "the REALIZED route-owned resource edge (rf2-k0meap.1) resolves
               the static :parametric marker into a concrete edge: live route
               → concrete [:resource scoped-key], :param role"
