@@ -276,14 +276,165 @@
                               ":rf.error/world-inputs-renamed error on the line)")}))))
         lines))
 
+;; ---------------------------------------------------------------------------
+;; EP-0011 reply-envelope vocabulary-drift guard (rf2-uhew69).
+;;
+;; The var-resolution projection checks scope to PUBLIC-VAR references and
+;; cannot see the EP-0011 reply-envelope KEYWORD vocabulary at all (`rg` over
+;; the scripts surface found no `:work/id`, `:stale-key`, or reply-status
+;; vocabulary). EP-0011 settled one canonical attempt identity — namespaced
+;; `:work/id` — and explicitly RETIRED two near-duplicate spellings
+;; ([EP-0007] one-name-per-fact):
+;;
+;;   - `:stale-key` — the retired second stale-suppression key. EP-0011 keys
+;;     stale suppression on `:work/id`; `:stale-key` is dropped (no synonym).
+;;   - bare hyphenated `:work-id` — the unqualified spelling that survived in
+;;     resource / mutation internal reply events; EP-0011 lowered them all to
+;;     the qualified `:work/id`. (`:work-id` legitimately survives ONLY inside
+;;     an `:rf.observe/*` correlation example, where it is a string-valued
+;;     correlation-id projection, not the reply-map attempt identity.)
+;;
+;; A teaching/spec surface that reintroduces `:stale-key` or bare `:work-id`
+;; as live reply-envelope vocabulary has drifted, while every var-resolution
+;; check stays green. This guard closes that gap with a targeted KEYWORD scan,
+;; mirroring the EP-0017 guard above: a stale keyword is flagged UNLESS the
+;; line ALSO carries a retirement/rename/migration marker (the spec's own
+;; retirement prose always names `:work/id` as the canonical replacement) or,
+;; for `:work-id`, an `:rf.observe`/`:correlation` context marker.
+;; ---------------------------------------------------------------------------
+
+(def ^:private work-id-retirement-markers
+  "Same-line tokens that mark a `:stale-key` / bare `:work-id` mention as a
+   legitimate retirement / rename / correlation reference rather than fresh
+   stale reply-envelope vocabulary. The canonical replacement key `:work/id`
+   and the [EP-0007] one-name-per-fact citation are the strongest markers; the
+   prose words cover narrative migration mentions; `:rf.observe` /
+   `:correlation` mark the one legitimate non-EP-0011 surface where a bare
+   `:work-id` correlation-id projection survives."
+  [":work/id"
+   "ep-0007" "one-name-per-fact" "one name per fact"
+   ":rf.observe" ":correlation"
+   "retired" "renamed" "removed" "dropped" "superseded" "synonym" "migrat"])
+
+(defn ep0011-reply-vocab-drift-problems
+  "Return a seq of EP-0011 reply-envelope vocabulary-drift problem maps for
+   `lines` (a seq of `[line-no text]`), tagged with `file` (repo-relative).
+   Flags each `:stale-key` or bare hyphenated `:work-id` mention NOT
+   accompanied on its line by a retirement / rename / correlation marker (see
+   `work-id-retirement-markers`).
+
+   The bare-`:work-id` match is anchored on a NON-`/` boundary so it never
+   fires on the canonical namespaced `:work/id` (the `/` after `work` makes it
+   `:work/id`, not `:work-id`).
+
+   Pure over the supplied lines so the contract is unit-testable with
+   synthetic inputs (rf2-uhew69)."
+  [file lines]
+  (let [;; `:work-id` (hyphen) but NOT `:work/id` (slash). Trailing boundary
+        ;; keeps `:work-id-foo` from matching as the bare identity key.
+        work-id-re #":work-id(?![/a-zA-Z0-9*!?<>=._+-])"]
+    (keep (fn [[n text]]
+            (let [lc       (str/lower-case text)
+                  approved (some #(str/includes? lc (str/lower-case %))
+                                 work-id-retirement-markers)
+                  stale    (cond
+                             (str/includes? text ":stale-key")  ":stale-key"
+                             (re-find work-id-re text)           ":work-id")]
+              (when (and stale (not approved))
+                {:file file :line n :raw stale
+                 :detail (str "stale EP-0011 reply-envelope vocabulary — the "
+                              "canonical attempt identity is the namespaced "
+                              ":work/id; " stale " is a retired near-duplicate "
+                              "([EP-0007] one-name-per-fact). A mention must be "
+                              "an explicit retirement/rename reference (name "
+                              ":work/id on the line) or, for :work-id, an "
+                              ":rf.observe/:correlation projection context")})))
+          lines)))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 privacy / egress vocabulary-drift guard (rf2-1zjkn8).
+;;
+;; The var-resolution projection checks are blind to EP-0015's keyword
+;; vocabulary. EP-0015 renamed two early `:rf.egress/*` profile spellings for
+;; axis consistency and the OLD keyword forms must never reappear as live
+;; vocabulary:
+;;
+;;   - `:rf.egress/on-box-hidden-sensitive` → renamed to `:rf.egress/local-redacted`
+;;   - `:rf.egress/trusted-local-raw`       → renamed to `:rf.egress/local-raw`
+;;
+;; These retired keyword profile forms appear only in the superseded EP-0015
+;; proposal doc (not a scanned surface); reintroducing either into a teaching
+;; / spec / skills surface is drift while the var-resolution checks stay green.
+;;
+;; SCOPE DISCIPLINE. The match is on the RETIRED `:rf.egress/`-prefixed
+;; keyword FORMS only — NOT the bare English adjectives "on-box" /
+;; "trusted-local", which remain current trust-boundary descriptors
+;; (`:rf.egress/local-raw` IS "trusted local operator"). A mention carrying a
+;; retirement/rename marker on the same line (the proposal-doc rename rows
+;; name the replacement) is approved. The closed six-member profile enum and
+;; the `:rf.egress/output-sensitivity` value set are PINNED positively by
+;; `ep0015-egress-enum-problems` over the spec/Conventions.md owner row.
+;; ---------------------------------------------------------------------------
+
+(def ^:private egress-profile-retirement-markers
+  "Same-line tokens that mark a retired `:rf.egress/*` profile-form mention as
+   a legitimate rename reference. The replacement profile keywords and the
+   rename prose words approve a line; one carrying NONE is fresh stale
+   vocabulary."
+  [":rf.egress/local-redacted" ":rf.egress/local-raw"
+   "renamed" "rename" "retired" "removed" "superseded" "earlier" "migrat"])
+
+(def ^:private retired-egress-profiles
+  "The retired `:rf.egress/*` profile keyword FORMS EP-0015 renamed away for
+   axis consistency (each followed by its current replacement, for the report)."
+  {":rf.egress/on-box-hidden-sensitive" ":rf.egress/local-redacted"
+   ":rf.egress/trusted-local-raw"       ":rf.egress/local-raw"})
+
+(defn ep0015-privacy-vocab-drift-problems
+  "Return a seq of EP-0015 privacy/egress vocabulary-drift problem maps for
+   `lines` (a seq of `[line-no text]`), tagged with `file` (repo-relative).
+   Flags each retired `:rf.egress/*` profile keyword form NOT accompanied on
+   its line by a rename / retirement marker (see
+   `egress-profile-retirement-markers`).
+
+   Pure over the supplied lines so the contract is unit-testable with
+   synthetic inputs (rf2-1zjkn8)."
+  [file lines]
+  (keep (fn [[n text]]
+          (let [lc       (str/lower-case text)
+                approved (some #(str/includes? lc (str/lower-case %))
+                               egress-profile-retirement-markers)
+                stale    (some (fn [[retired _]]
+                                 (when (str/includes? text retired) retired))
+                               retired-egress-profiles)]
+            (when (and stale (not approved))
+              {:file file :line n :raw stale
+               :detail (str "stale EP-0015 egress-profile keyword — " stale
+                            " was renamed to " (get retired-egress-profiles stale)
+                            " for axis consistency; the retired form must only "
+                            "appear in an explicit rename/retirement reference")})))
+        lines))
+
 (defn keyword-drift-problems-over-files
-  "Run `ep0017-keyword-drift-problems` over every file in `files` (io/file
-   seq), returning the concatenated problem seq with repo-relative `:file`
-   tags. The driver projection checks fold this into their problem list so a
-   keyword-drift reintroduction goes RED alongside any var-resolution drift."
+  "Run the keyword-drift guards over every file in `files` (io/file seq),
+   returning the concatenated problem seq with repo-relative `:file` tags. The
+   driver projection checks fold this into their problem list so a keyword /
+   vocabulary reintroduction goes RED alongside any var-resolution drift.
+
+   Folds in three guards over the same scanned surfaces:
+     - EP-0017 `:rf.world/inputs` keyword drift (rf2-tawage);
+     - EP-0011 reply-envelope vocabulary drift — retired `:stale-key` /
+       bare `:work-id` attempt-identity spellings (rf2-uhew69);
+     - EP-0015 egress-profile vocabulary drift — retired
+       `:rf.egress/on-box-hidden-sensitive` / `:rf.egress/trusted-local-raw`
+       profile keyword forms (rf2-1zjkn8)."
   [files]
   (mapcat (fn [^java.io.File f]
-            (ep0017-keyword-drift-problems (repo-relative f) (numbered-lines f)))
+            (let [rel   (repo-relative f)
+                  lines (numbered-lines f)]
+              (concat (ep0017-keyword-drift-problems rel lines)
+                      (ep0011-reply-vocab-drift-problems rel lines)
+                      (ep0015-privacy-vocab-drift-problems rel lines))))
           files))
 
 ;; ---------------------------------------------------------------------------

@@ -250,3 +250,60 @@
       (is (some? row) "spec/API.md must carry a `reg-cofx` var-row")
       (is (empty? (c/reg-cofx-contract-problems row))
           "live drift: spec/API.md reg-cofx row lost an EP-0017 contract facet"))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0015 :rf.egress/* closed-enum pin (rf2-1zjkn8).
+;;
+;; The keyword-drift guard catches RETIRED spellings reappearing; this pin
+;; catches the closed `:rf.egress/*` enum silently SHRINKING on its owner row
+;; in spec/Conventions.md. A member dropped from the row must go RED.
+;; ---------------------------------------------------------------------------
+
+(def ^:private good-egress-row
+  "A synthetic `:rf.egress/*` owner row naming every closed member (a trimmed
+   paraphrase of the live spec/Conventions.md row)."
+  (str "| `:rf.egress/*` | closed six-member profile enum: "
+       ":rf.egress/off-box-observability, :rf.egress/off-box-tool, "
+       ":rf.egress/local-redacted, :rf.egress/local-raw, "
+       ":rf.egress/ssr-hydration, :rf.egress/public-error. Plus "
+       ":rf.egress/output-sensitivity and its value set :rf.egress/inherit / "
+       ":rf.egress/sensitive / :rf.egress/public. | 015 |"))
+
+(deftest egress-good-row-has-no-enum-problems
+  (testing "a row naming every closed member passes the enum pin"
+    (is (empty? (c/egress-enum-problems good-egress-row)))))
+
+(deftest egress-shrunk-row-flags-missing-members
+  (testing "a row that dropped a profile member and the declassification value
+            set is flagged on every missing member"
+    (let [shrunk (str "| `:rf.egress/*` | profiles: "
+                      ":rf.egress/off-box-observability, :rf.egress/off-box-tool, "
+                      ":rf.egress/local-redacted, :rf.egress/local-raw, "
+                      ":rf.egress/ssr-hydration. | 015 |")
+          probs  (c/egress-enum-problems shrunk)
+          missing (set (map :member probs))]
+      (is (pos? (count probs)) "the shrunk enum row must be flagged")
+      (is (every? #(= :egress-member-missing (:kind %)) probs))
+      (is (contains? missing ":rf.egress/public-error"))
+      (is (contains? missing ":rf.egress/output-sensitivity"))
+      (is (contains? missing ":rf.egress/inherit")))))
+
+(deftest egress-missing-row-is-flagged
+  (testing "an absent :rf.egress/* owner row is a contract problem, not a pass"
+    (let [probs (c/egress-enum-problems nil)]
+      (is (= 1 (count probs)))
+      (is (= :egress-row-missing (:kind (first probs)))))))
+
+(deftest egress-live-row-pins-clean
+  (testing "the committed spec/Conventions.md :rf.egress/* row carries the full
+            closed EP-0015 enum (the CI contract)"
+    (let [row (#'c/egress-enum-row-text)]
+      (is (some? row) "spec/Conventions.md must carry a `:rf.egress/*` row")
+      (is (empty? (c/egress-enum-problems row))
+          "live drift: spec/Conventions.md :rf.egress/* row lost a closed member"))))
+
+(deftest live-api-md-check-with-new-guards-passes
+  (testing "the committed tree passes the full api-md-check including the new
+            EP-0011/EP-0015 keyword guards + the egress-enum pin (no false +)"
+    (is (true? (c/check!))
+        "live drift: api-md-check failed with the EP-0011/EP-0015 guards wired")))

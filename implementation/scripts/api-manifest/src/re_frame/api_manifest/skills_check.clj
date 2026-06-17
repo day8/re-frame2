@@ -69,11 +69,12 @@
                                {:file file :line line :raw raw
                                 :detail "no re-frame.core manifest row"}))
                            results)
-        ;; EP-0017 keyword-drift guard (rf2-tawage): scan the SAME checked
-        ;; skill files (the migration skill is already excluded above, where
-        ;; the retired keyword legitimately appears) for stale
-        ;; `:rf.world/inputs` vocabulary reintroduced outside an explicit
-        ;; retirement/rename mention.
+        ;; Keyword-drift guards (rf2-tawage / rf2-uhew69 / rf2-1zjkn8): scan
+        ;; the SAME checked skill files (the migration skill is already excluded
+        ;; above, where retired vocabulary legitimately appears) for stale
+        ;; EP-0017 `:rf.world/inputs`, EP-0011 reply-envelope (`:stale-key` /
+        ;; bare `:work-id`), and EP-0015 egress-profile vocabulary reintroduced
+        ;; outside an explicit retirement/rename mention.
         kw-problems  (proj/keyword-drift-problems-over-files files)
         problems     (concat var-problems kw-problems)]
     (proj/report-with-floor! "skills/ (excl. re-frame-migration)"
