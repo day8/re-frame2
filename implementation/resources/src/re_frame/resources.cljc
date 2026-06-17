@@ -588,4 +588,12 @@
    ;; static :require.
    :resources/reg-resource-scope     reg-resource-scope
    :resources/clear-resource-scope   clear-resource-scope
-   :resources/resolve-resource-scope resolve-resource-scope})
+   :resources/resolve-resource-scope resolve-resource-scope
+   ;; rf2-84l82t (EP-0015): the OFF-BOX trace egress projector for a
+   ;; `:rf.resource/scope-resolved` row — the central trace egress pipeline
+   ;; (epoch tool-pair) consults it to redact the resolver's resolved
+   ;; `:input-values` / `:scope` (a value-path walk is structurally blind to
+   ;; resolver-owned values once copied into trace tags). Published so the
+   ;; epoch artefact reaches it without a static :require on resources.
+   :resources/project-scope-resolved-egress
+   scope-registry/project-scope-resolved-egress})

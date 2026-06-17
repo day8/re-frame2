@@ -37,6 +37,7 @@
    [re-frame.resources.route :as route]
    [re-frame.resources.state :as state]
    [re-frame.resources.subs :as r-subs]
+   [re-frame.resources.scope-registry :as scope-registry]
    [re-frame.resources.test-support]
    [re-frame.routing :as routing]
    [re-frame.schemas]
@@ -443,3 +444,72 @@
     (testing "the causal event-ensure resolution STILL emits a scope-resolved row"
       (is (pos? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
           "the traced causal boundary kept its evidence"))))
+
+;; ===========================================================================
+;; rf2-84l82t (EP-0015) — OFF-BOX egress projection of the
+;; :rf.resource/scope-resolved trace row's resolver-owned values.
+;; ===========================================================================
+
+(deftest scope-resolved-off-box-egress-redacts-resolver-values
+  ;; The resolved :input-values (raw db reads) and :scope (the derived identity
+  ;; tuple embedding them) are owner-local values the generic value-path trace
+  ;; egress walk cannot classify. project-scope-resolved-egress FAILS CLOSED:
+  ;; a db-reading resolver not explicitly declassified redacts both slots +
+  ;; stamps :sensitive? true, preserving the structural attribution slots.
+  (testing "the default (:inherit) :t/session resolver redacts its values off-box"
+    (let [tags {:resource-id  :t/session
+                :kind         :resource-scope
+                :inputs       [:username]
+                :input-values {:username "jake"}
+                :whole-db?    false
+                :scope        [:rf.scope/session {:username "jake"}]
+                :resolved-nil? false}
+          proj (scope-registry/project-scope-resolved-egress tags)]
+      (is (= :rf/redacted (:input-values proj)) "raw db reads redacted")
+      (is (= :rf/redacted (:scope proj)) "derived identity tuple redacted")
+      (is (true? (:sensitive? proj)) "row stamped sensitive for the egress gate")
+      (testing "the structural attribution slots ride verbatim"
+        (is (= :t/session (:resource-id proj)))
+        (is (= :resource-scope (:kind proj)))
+        (is (= [:username] (:inputs proj)) "the declared input NAMES survive")
+        (is (false? (:resolved-nil? proj))))
+      (testing "no raw secret survives the projection"
+        (let [secret? (fn secret? [v]
+                        (cond (= v "jake") true
+                              (map? v)  (boolean (or (some secret? (keys v))
+                                                     (some secret? (vals v))))
+                              (coll? v) (boolean (some secret? v))
+                              :else     false))]
+          (is (not (secret? proj))))))))
+
+(deftest scope-resolved-off-box-egress-public-resolver-rides-verbatim
+  ;; A resolver that explicitly DECLASSIFIES (:rf.egress/public) asserts its
+  ;; derived scope is safe to surface — the trusted, enumerable audit surface.
+  (rf/reg-resource-scope :t/public-locale
+    {:inputs  {:locale [:db [:i18n :locale]]}
+     :rf.egress/output-sensitivity :rf.egress/public
+     :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
+  (testing "an explicitly :rf.egress/public resolver's values ride verbatim"
+    (let [tags {:resource-id  :t/public-locale
+                :kind         :resource-scope
+                :inputs       [:locale]
+                :input-values {:locale "en"}
+                :scope        [:rf.scope/locale {:locale "en"}]
+                :resolved-nil? false}
+          proj (scope-registry/project-scope-resolved-egress tags)]
+      (is (= {:locale "en"} (:input-values proj)))
+      (is (= [:rf.scope/locale {:locale "en"}] (:scope proj)))
+      (is (not (:sensitive? proj))))))
+
+(deftest scope-resolver-egress-sensitive-fails-closed-on-unregistered
+  ;; An unregistered resolver id → sensitive (fail-closed: no spec proves safe).
+  (testing "the predicate fails closed for an unknown resolver"
+    (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/never-registered))))
+  (testing "the predicate is sensitive for a db-reading :inherit resolver"
+    (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/session))))
+  (testing "the predicate is NOT sensitive for an explicitly :public resolver"
+    (rf/reg-resource-scope :t/public2
+      {:inputs  {:locale [:db [:i18n :locale]]}
+       :rf.egress/output-sensitivity :rf.egress/public
+       :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
+    (is (false? (scope-registry/scope-resolver-egress-sensitive? :t/public2)))))

@@ -1250,6 +1250,39 @@
                       event-arg-tag-slots)))
           trace-events)))
 
+(defn- omit-off-box-resource-scope-values
+  "Per rf2-84l82t (EP-0015): redact the resolver-owned VALUES on a
+  `:rf.resource/scope-resolved` trace row for off-box egress. The row carries
+  the resolved `:input-values` (the concrete db reads) and the derived `:scope`
+  (which embeds them) — owner-local identity-bearing values the generic
+  value-path egress walk cannot classify once copied into trace tags. The
+  resource family owns the row's egress projector (the SSR/tool-projection
+  analogue), consulted here through the late-bound
+  `:resources/project-scope-resolved-egress` hook the resources artefact
+  publishes: it FAILS CLOSED (redacts `:input-values` / `:scope`, stamps
+  `:sensitive? true`) for any db-reading resolver not explicitly declassified
+  (`:output-sensitivity :rf.egress/public`), preserving the structural
+  `:resource-id` / `:inputs` (declared NAMES) / `:kind` / `:resolved-nil?`.
+
+  The redaction is the off-box default; the trusted-local `:include-sensitive?`
+  opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
+  HTTP-body redactions honour). No-op when no resources artefact is loaded (the
+  hook is nil — an app with no resources emits no scope-resolved rows anyway).
+  Idempotent (`:rf/redacted` re-redacts to itself) and nil/non-sequential-
+  preserving."
+  [trace-events {:keys [include-sensitive?]}]
+  (if (or include-sensitive? (not (sequential? trace-events)))
+    trace-events
+    (if-let [project (late-bind/get-fn :resources/project-scope-resolved-egress)]
+      (mapv (fn [ev]
+              (if (and (map? ev)
+                       (= :rf.resource/scope-resolved (:operation ev))
+                       (map? (:tags ev)))
+                (update ev :tags project)
+                ev))
+            trace-events)
+      trace-events)))
+
 (defn- elide-trace-events-slot
   "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
@@ -1270,6 +1303,10 @@
         (reroot-trace-event-db-slots frame-id opts)
         (omit-off-box-event-args opts)
         (omit-off-box-http-bodies opts)
+        ;; rf2-84l82t — redact the resolver-owned `:input-values` / `:scope`
+        ;; on `:rf.resource/scope-resolved` rows (fail-closed; the generic
+        ;; walk below cannot classify resolver-owned values copied into tags).
+        (omit-off-box-resource-scope-values opts)
         (projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row
