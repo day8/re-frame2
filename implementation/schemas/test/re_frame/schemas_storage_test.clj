@@ -115,11 +115,19 @@
            (storage/coerce-opts {:frame :tenant/a :other :thing})))
     (is (= {} (storage/coerce-opts {})))))
 
+(deftest coerce-opts-accepts-nil-as-empty-opts
+  (testing "rf2-iszpyg — nil coerces to {} (the empty-opts shape), identical
+            to the no-arg arity: it means 'no override, resolve the frame
+            from scope'. A nil OPTS has no analogue to the nil-PATH hazard,
+            so accepting it removes a footgun for a trusted in-process caller."
+    (is (= {} (storage/coerce-opts nil)))))
+
 (deftest coerce-opts-throws-on-bad-arg
   (testing "Per rf2-yv62u — a non-keyword, non-map argument throws
-            :rf.error/bad-app-schemas-arg. nil, numbers, strings,
-            vectors all fail."
-    (doseq [bad-arg [nil 42 "frame-a" [:a :b] :well/-actually-keyword-is-ok]]
+            :rf.error/bad-app-schemas-arg. numbers, strings, vectors all
+            fail. (rf2-iszpyg — nil is now accepted as {}; see
+            coerce-opts-accepts-nil-as-empty-opts.)"
+    (doseq [bad-arg [42 "frame-a" [:a :b] :well/-actually-keyword-is-ok]]
       (cond
         ;; keywords pass — exclude from the throw-loop sentinel above.
         (keyword? bad-arg)

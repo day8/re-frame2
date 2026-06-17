@@ -59,12 +59,22 @@
 
 (defn coerce-opts
   "Permit the keyword-only sugar `(app-schemas frame-id)` and the
-  opts-map form `(app-schemas {:frame frame-id})`. Every zero-arity
-  caller (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
-  `app-schemas-digest`) supplies `{}` explicitly — `nil` is not a
-  permitted argument."
+  opts-map form `(app-schemas {:frame frame-id})`.
+
+  rf2-iszpyg — a `nil` argument coerces to `{}` (the empty-opts shape),
+  identical to the no-arg arity's behaviour: it means \"no override —
+  resolve the frame from the carried-invariant scope\". Every read /
+  registration entry point already passes `{}` in its zero-arity
+  (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
+  `app-schemas-digest`, `reg-app-schemas`), so `nil` only arrives from an
+  explicit `(app-schemas nil)` by a trusted in-process caller. Unlike the
+  nil-PATH hazard (a non-sequential path poisons the `get-in` validation
+  hot path), a nil OPTS has no downstream hazard — it just delegates frame
+  resolution to scope, exactly as the no-arg arity does — so accepting it
+  removes a footgun rather than masking a defect."
   [opts-or-frame-id]
   (cond
+    (nil?     opts-or-frame-id) {}
     (keyword? opts-or-frame-id) {:frame opts-or-frame-id}
     (map?     opts-or-frame-id) opts-or-frame-id
     :else
