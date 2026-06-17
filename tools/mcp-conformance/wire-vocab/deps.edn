@@ -113,5 +113,21 @@
                        ;; classpath dependency intentional, mirroring the
                        ;; diff-encode + de-dupe live-emission gates.
                        day8/re-frame2
-                       {:local/root "../../../implementation/core"}}
+                       {:local/root "../../../implementation/core"}
+                       ;; rf2-9wvwpa — the SECOND framework emitter of the
+                       ;; `:rf.size/large-elided` marker:
+                       ;; `re-frame.schemas.validate/validate-event!`'s
+                       ;; validation-failure size-safety arm (Spec 010
+                       ;; §`:large?`). hvn83u's live gate drove only the
+                       ;; `re-frame.elision/elide-wire-value` walker; the
+                       ;; schemas-artefact emitter sat fixture-free — exactly
+                       ;; the blind spot that let `validate.cljc` ship a
+                       ;; non-conformant `:reason :schema` / no-`:hint`
+                       ;; marker. `:local/root` to the schemas artefact puts
+                       ;; `re-frame.schemas` on the JVM classpath so the gate
+                       ;; below can drive the REAL validation-failure emitter
+                       ;; LIVE and validate its marker against the same
+                       ;; canonical `ElisionMarker` schema.
+                       day8/re-frame2-schemas
+                       {:local/root "../../../implementation/schemas"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

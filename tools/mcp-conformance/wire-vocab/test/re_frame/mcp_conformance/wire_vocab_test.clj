@@ -101,6 +101,14 @@
             [re-frame.elision :as elision]
             [re-frame.frame  :as frame]
             [re-frame.frame-classification :as frame-class]
+            ;; rf2-9wvwpa — the SECOND framework emitter of the
+            ;; `:rf.size/large-elided` marker: the schemas-artefact
+            ;; validation-failure size-safety arm (Spec 010 §`:large?`).
+            ;; Required so the gate below can drive `validate-event!`
+            ;; LIVE over a `:large?`-flagged schema and validate the
+            ;; emitted failure-trace marker against `ElisionMarker`.
+            [re-frame.schemas :as schemas]
+            [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.overflow :as mcp-overflow]
@@ -736,6 +744,77 @@
                          :hint   nil
                          :handle [:rf.elision/at [:user :uploaded-pdf]]}}))
       ":reason :schema is the retired pre-EP-0015 shape and MUST NOT validate"))
+
+;; ---------------------------------------------------------------------------
+;; :rf.size/large-elided — SECOND live emitter (rf2-9wvwpa).
+;;
+;; hvn83u's gate above drives the wire-elision walker
+;; (`re-frame.elision/elide-wire-value`). But the framework has a SECOND
+;; runtime emitter of the same marker: the schemas-artefact validation-
+;; failure size-safety arm. When a `:large?`-flagged schema slot fails
+;; validation, `re-frame.schemas.validate/validate-event!` substitutes the
+;; `:rf.size/large-elided` marker into the value-bearing trace slots
+;; (Spec 010 §`:large?`) so the raw blob never rides the
+;; `:rf.error/schema-validation-failure` trace.
+;;
+;; That emitter sat FIXTURE-FREE — exactly the blind spot that let
+;; `validate.cljc` ship a non-conformant marker (`:reason :schema`, outside
+;; the post-EP-0015 [:frame :marks] enum, and the REQUIRED `:hint` slot
+;; omitted) while its docstring falsely claimed `:rf/elision-marker`
+;; conformance. The fix delegates to the canonical `elision/->marker`; this
+;; gate drives the REAL `validate-event!` emitter LIVE and validates the
+;; emitted marker against the SAME canonical `ElisionMarker` schema, so a
+;; future drift on the schemas-artefact path turns red here — symmetric to
+;; hvn83u's `elide-wire-value` gate.
+
+(defn- schema-validation-failure-marker
+  "Drive `re-frame.schemas.validate/validate-event!` LIVE over a
+  `:large?`-flagged schema slot whose value fails validation, capture the
+  `:rf.error/schema-validation-failure` trace, and return the
+  `:rf.size/large-elided` marker substituted into its `:value` slot."
+  [blob]
+  (reset! frame/frames {})
+  (rf/init! plain-atom/adapter)
+  (frame/ensure-default-frame!)
+  (let [traces (atom [])]
+    (rf/register-listener! ::sv (fn [ev] (swap! traces conj ev)))
+    (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
+                             {:schema [:cat [:= :upload/save]
+                                       [:map [:blob {:large? true} :int]]]})
+    (rf/unregister-listener! ::sv)
+    (-> (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                       @traces))
+        :tags :value)))
+
+(deftest schema-validation-failure-marker-emitted-live-validates
+  ;; Drive the REAL schemas-artefact validation-failure emitter and assert
+  ;; the substituted marker (a) is the canonical single-key wrapper and (b)
+  ;; validates against `ElisionMarker` — the gate that would have caught the
+  ;; `:reason :schema` / missing-`:hint` non-conformance this bead fixed.
+  (let [blob   (apply str (repeat 200 "X"))
+        marker (schema-validation-failure-marker blob)]
+    (testing "validate-event! substitutes a :rf.size/large-elided marker on a :large? failure"
+      (is (elision/marker? marker)
+          (str "validate-event! MUST substitute a :rf.size/large-elided "
+               "marker for a :large?-flagged slot's failure. Got: "
+               (pr-str marker))))
+    (testing "the live-emitted validation-failure marker validates against ElisionMarker"
+      (is (m/validate ElisionMarker marker)
+          (str "Live-emitted schema-validation-failure marker failed "
+               "ElisionMarker validation — the schemas-artefact emitter has "
+               "drifted from the canonical contract (rf2-9wvwpa):\n"
+               (me/humanize (m/explain ElisionMarker marker)))))
+    (testing "the live :reason is the post-EP-0015 frame-owned default, NOT the retired :schema"
+      (is (= :frame (get-in marker [:rf.size/large-elided :reason]))
+          (str "The validation-failure marker MUST emit :reason :frame "
+               "(post-EP-0015 §8 [:frame :marks] enum). Got: "
+               (pr-str (get-in marker [:rf.size/large-elided :reason])))))
+    (testing "the marker carries the REQUIRED :hint slot"
+      (is (contains? (:rf.size/large-elided marker) :hint)
+          ":hint is REQUIRED by ElisionMarkerBody (was previously omitted)"))
+    (testing "the large blob survives nowhere verbatim in the marker"
+      (is (not (str/includes? (pr-str marker) blob))
+          "the whole-value substitution must not re-leak the blob"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text vocabulary pin. The literal marker key MUST appear in

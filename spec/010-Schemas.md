@@ -282,7 +282,12 @@ Inside the schema value passed to `reg-app-schema`, individual slots may carry p
 
 ### `:large?` — schema-driven size-elision nomination
 
-Slots marked `:large? true` are the **canonical AI-discoverable entry point** for the size-elision nomination contract catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The runtime walks every registered **app-db** schema at boot (and on `reg-app-schema` re-registration), and writes a `{:large? true :hint <str-or-nil> :source :schema}` entry into the frame's runtime-db `[:rf.runtime/elision :declarations <path>]` slot for every flagged path (the declarations describe app-db paths but the records are runtime bookkeeping). The framework's `rf/elide-wire-value` walker (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) consults the merged registry on every wire-boundary emit and substitutes the `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)) in place of the elided value.
+Slots marked `:large? true` declare, on a schema, that the value at the slot is **large** — a structural fact about the data's shape, for use by the owner-local size-elision classifiers that consume a schema (catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)). Per **EP-0015 §8 (Schemas Describe Shape, Not Public Egress Policy)** — normative in [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification) — a `reg-app-schema` `{:large? true}` slot prop is **NOT** a route into the frame's durable app-db egress registry: durable app-db classification is **frame-owned** (`(rf/reg-frame :app/main {:large {:app-db [[:user :uploaded-pdf]]}})`, installed under `:source :frame`), and the `rf/elide-wire-value` wire-boundary walker consults that frame-owned registry only. Schemas describe shape and validation; frames own durable public egress.
+
+The walker that extracts a schema's `:large?` paths — `re-frame.schemas/extract-large-paths-from-schema`, published through the late-bind hook table as `:schemas/extract-large-paths-from-schema` so `re-frame.core` reaches it without statically requiring the schemas artefact — has exactly **two** live consumers:
+
+1. **Owner-local egress classifiers (EP-0015 §8).** The http resource, `reg-pull` resource, and machine `:data` surfaces each consult their own `:data-schema`'s `:large?` slots to size-elide their own egress products (`re-frame.http.privacy-body`, `re-frame.resources.classification`, `re-frame.machines.lifecycle-fx.registration`). The elision is owner-local — it scopes to that owner's egress value, not to a shared app-db registry.
+2. **The validation-failure size-safety arm** (immediately below) — the schema's own egress product, the `:rf.error/schema-validation-failure` trace.
 
 ```clojure
 (rf/reg-app-schema
@@ -291,20 +296,16 @@ Slots marked `:large? true` are the **canonical AI-discoverable entry point** fo
    [:profile     [:map [:name :string] [:email :string]]]
    [:uploaded-pdf {:large? true :hint "Upload preview blob"} :string]])
 
-;; At boot, the framework populates (in runtime-db):
-;;   {:rf.runtime/elision
-;;     {:declarations
-;;       {[:user :uploaded-pdf] {:large? true
-;;                               :source :schema
-;;                               :hint   "Upload preview blob"}}}}
+;; `extract-large-paths-from-schema` yields the schema's large-path
+;; declarations for an owner-local classifier to consume:
+;;   {[:user :uploaded-pdf] {:large? true
+;;                           :source :schema
+;;                           :hint   "Upload preview blob"}}
 ;;
-;; Every wire-boundary emit thereafter substitutes the path with:
-;;   {:rf.size/large-elided {:path   [:user :uploaded-pdf]
-;;                            :bytes  5242880
-;;                            :type   :string
-;;                            :reason :schema
-;;                            :hint   "Upload preview blob"
-;;                            :handle [:rf.elision/at [:user :uploaded-pdf]]}}
+;; This does NOT populate the frame's durable app-db elision registry
+;; (EP-0015 §8 — that registry is frame-owned, `:source :frame`). To
+;; size-elide an app-db path on the wire, declare it on the FRAME:
+;;   (rf/reg-frame :app/main {:large {:app-db [[:user :uploaded-pdf]]}})
 ```
 
 The `:large?` flag may live in two structural positions inside the schema:
@@ -335,15 +336,13 @@ Nesting works as expected — `:large?` on a deeply-nested slot resolves to the 
 
 Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) descend at the parent path — these ops don't introduce a new app-db path segment. `:multi` branch slot-level props apply to the dispatched-value's path (the `:multi`'s own path); the inner branch schema's name slots add further sub-paths.
 
-**Conflict resolution.** Schema metadata is canonical. Re-running schema-driven registry population replaces the schema-owned declaration slot from the current schema set; re-registering a schema with a new `:hint` refreshes the marker hint, and removing `:large?` prunes the stale declaration.
+**Registration is a single atomic write.** Per **EP-0015 §8** (rf2-d2r3um) a `reg-app-schema` is a bare atomic write to the per-frame schema side-table and nothing more — schemas no longer feed any app-db egress registry, so there is **no second schema→elision/sensitive population step** and no per-frame linearization lock guarding it. (The pre-EP-0015 two-step write — side-table, then a derived registry refresh — and the per-frame monitor that ordered them are both retired: the off-box-redaction-loss race that lock guarded cannot exist when no registry is populated from the schema. The `extract-large-paths-from-schema` walker is now invoked only by the owner-local classifiers and the validation-failure arm, at their own emit/registration sites, against the schema directly.)
 
-**Per-frame linearizability.** Each `reg-app-schema` performs two writes — the per-frame schema side-table, then the schema-derived elision/sensitive registry refresh computed from it — and `reg-app-schemas` performs a batch of side-table writes followed by one final refresh. These MUST be **linearizable per frame**: a registration's refresh always reflects a schema-table snapshot that already includes that registration's own write, and the last refresh to land on a frame reflects the latest committed table. Without this, two concurrent registrations against the same frame can interleave so a stale snapshot's refresh lands last and DROPS another registration's just-added declaration from the runtime registry while the schema table still holds it — leaving a `:sensitive?`-marked slot un-redacted (or a `:large?` slot un-elided) on a wire / trace / epoch / hydration emit that fires before the next full repopulate, an off-box privacy leak. The CLJS reference enforces this with a per-frame registration monitor held across the side-table write and the refresh (JVM-only; CLJS is single-threaded so no interleaving is possible). Disjoint frames never contend.
+**Idempotency.** The `extract-large-paths-from-schema` walker is pure data — re-running it against the same schema produces the same large-path declarations, so an owner-local classifier that re-derives them on re-registration sees a stable result.
 
-**Idempotency.** The walker is pure data and the population is idempotent — re-running it against the same `(db, schema-set)` pair produces the same result. Schemas registered, then re-registered, then walked again yield the same declarations.
+**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same walker shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`) and is published through the late-bind hook table — its consumers (the owner-local classifiers, per the [§`:large?` consumers](#large--schema-driven-size-elision-nomination) list above) call it without statically requiring the schemas artefact (per the per-feature artefact split).
 
-**Other ports.** The `:large?` mechanism is portable in spirit: any port whose schema language carries per-slot properties (Zod's `.describe` / refinements; Pydantic's `Field`'s arbitrary kwargs; dry-rb's metadata) can plug the same predicate into the same registry shape. The CLJS reference's walker lives in the schemas artefact (`re-frame.schemas/extract-large-paths-from-schema`) and is published through the late-bind hook table — `re-frame.core` calls it without statically requiring the schemas artefact (per the per-feature artefact split).
-
-**`:large?` in validation-failure traces — the size-safety arm.** A `:rf.error/schema-validation-failure` trace carries the **whole checked value verbatim** in its value-bearing slots (`:value` / `:received` / `:explain`, plus the per-surface `:rf.fx/args` / `:rf.sub/query-v`). A validation error is an egress surface like any other, so a `:large?`-flagged blob inside the failing value would ride the whole payload into the trace bus / epoch / MCP / log sinks unless the emit-site elides it. Symmetric with the `:sensitive?` redaction below: when the registered schema declares **any** `:large?` slot (and no `:sensitive?` slot governs the redaction), the validation emit-site substitutes the `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker), `:reason :schema`) for the whole value-bearing slots and stamps `:tags :large? true`. **Sensitive wins** over large — see [§Composition with `:large?`](#sensitive--privacy-in-schema-validation-error-traces) — a both-flagged or sensitive slot redacts to `:rf/redacted` instead (the size marker itself would leak a secret's `:path` / `:bytes` signature). A non-`:large?`, non-`:sensitive?` failure rides verbatim, exactly as before — the elision is precise, not a blanket marker. The CLJS reference's whole-schema predicate is `re-frame.schemas/schema-has-large?` (the mirror of `schema-has-sensitive?`).
+**`:large?` in validation-failure traces — the size-safety arm.** A `:rf.error/schema-validation-failure` trace carries the **whole checked value verbatim** in its value-bearing slots (`:value` / `:received` / `:explain`, plus the per-surface `:rf.fx/args` / `:rf.sub/query-v`). A validation error is an egress surface like any other, so a `:large?`-flagged blob inside the failing value would ride the whole payload into the trace bus / epoch / MCP / log sinks unless the emit-site elides it. Symmetric with the `:sensitive?` redaction below: when the registered schema declares **any** `:large?` slot (and no `:sensitive?` slot governs the redaction), the validation emit-site substitutes the canonical `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)) for the whole value-bearing slots and stamps `:tags :large? true`. The marker is built by the canonical `re-frame.elision/->marker` and carries `:reason :frame` (the post-EP-0015 §8 `[:frame :marks]` enum default — schemas no longer carry a distinct `:reason :schema` egress vocabulary; the validation-failure provenance is already on the enclosing trace's `:operation` / `:where` / `:tags :large?`) plus the required `:hint` slot. **Sensitive wins** over large — see [§Composition with `:large?`](#sensitive--privacy-in-schema-validation-error-traces) — a both-flagged or sensitive slot redacts to `:rf/redacted` instead (the size marker itself would leak a secret's `:path` / `:bytes` signature). A non-`:large?`, non-`:sensitive?` failure rides verbatim, exactly as before — the elision is precise, not a blanket marker. The CLJS reference's whole-schema predicate is `re-frame.schemas/schema-has-large?` (the mirror of `schema-has-sensitive?`).
 
 ### `:sensitive?` — privacy in schema-validation error traces
 
