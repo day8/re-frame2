@@ -743,7 +743,16 @@
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "expected ex-info to be thrown")
-      (is (= ":rf.error/unknown-story-config-key" (.getMessage ^Exception e)))
+      ;; Canonical thrown-error shape: a human sentence carrying the
+      ;; offending key(s) + the trailing `[:rf.error/<id>]` token — NOT
+      ;; the bare keyword string (rf2-r2redv).
+      (let [msg (.getMessage ^Exception e)]
+        (is (re-find #":rf.story/edtior" msg)
+            "the message names the unknown key the author typed")
+        (is (re-find #"known keys are" msg)
+            "the message enumerates the known keys")
+        (is (re-find #"\[:rf.error/unknown-story-config-key\]" msg)
+            "the message ends with the machine-readable error token"))
       (let [data (ex-data e)]
         (is (= :rf.error/unknown-story-config-key (:rf.error/id data)))
         (is (= 'rf.story/configure! (:where data)))
