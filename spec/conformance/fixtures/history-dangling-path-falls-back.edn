@@ -9,6 +9,11 @@
 ;; runtime never enters a dead path. This is a benign, expected consequence of
 ;; hot reload — NOT an error; no `:rf.error/*` is raised.
 ;;
+;; The history-owning compound is `:playing` (the XState v5 / SCXML exit-set
+;; rule, rf2-9eidiv — only a genuinely-exited compound records). The restore
+;; ENTERS :playing (does not exit it), so it records nothing: the seeded
+;; dangling value is discarded for RESOLUTION but the slot is left untouched.
+;;
 ;; Per [005 §Dangling recorded paths after hot reload]
 ;; (../../005-StateMachines.md#dangling-recorded-paths-after-hot-reload).
 
@@ -23,47 +28,48 @@
  :fixture/calls
  [;; (1) DEEP dangling leaf: the seeded :rf/history references [:player :playing
   ;; :gone], which the current definition does not declare. The restore
-  ;; discards it and falls back to :default-target :playing → :at-start. The
-  ;; exit cascade overwrites the slot with the valid outgoing :stopped config.
+  ;; discards it and falls back to :default-target :at-start. The restore
+  ;; ENTERS :playing, so it records nothing — the slot keeps the dangling value.
   {:call         :machine-transition
    :definition
    {:initial :player
     :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :deep? true :default-target :playing}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
                          :playing {:initial :at-start
                                    :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                   :states  {:hist      {:type :history :deep? true :default-target :at-start}
+                                             :at-start  {:on {:seek :mid-track}}
                                              :mid-track {:on {:stop [:player :stopped]}}}}}}}}
    :snapshot     {:state    [:player :stopped]
                   :data     {}
-                  :rf/history {[:player] [:player :playing :gone]}}
+                  :rf/history {[:player :playing] [:player :playing :gone]}}
    :event        [:play]
    :expect-next-snapshot {:state    [:player :playing :at-start]
                           :data     {}
-                          :rf/history {[:player] [:player :stopped]}}
+                          :rf/history {[:player :playing] [:player :playing :gone]}}
    :expect-effects       []}
 
-  ;; (2) SHALLOW dangling child: the seeded :rf/history records the child :ghost,
-  ;; not a child of :player in the current definition. Discarded; falls back to
-  ;; :default-target :playing → :at-start.
+  ;; (2) SHALLOW dangling child: the seeded :rf/history records the child
+  ;; :ghost, not a child of :playing in the current definition. Discarded;
+  ;; falls back to :default-target :at-start. Slot untouched (the restore enters
+  ;; :playing rather than exiting it).
   {:call         :machine-transition
    :definition
    {:initial :player
     :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :default-target :playing}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
                          :playing {:initial :at-start
                                    :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                   :states  {:hist      {:type :history :default-target :at-start}
+                                             :at-start  {:on {:seek :mid-track}}
                                              :mid-track {:on {:stop [:player :stopped]}}}}}}}}
    :snapshot     {:state    [:player :stopped]
                   :data     {}
-                  :rf/history {[:player] :ghost}}
+                  :rf/history {[:player :playing] :ghost}}
    :event        [:play]
    :expect-next-snapshot {:state    [:player :playing :at-start]
                           :data     {}
-                          :rf/history {[:player] :stopped}}
+                          :rf/history {[:player :playing] :ghost}}
    :expect-effects       []}]}

@@ -6,6 +6,11 @@
 ;; `:default-target` — or, when `:default-target` is absent, to the compound's
 ;; `:initial`. Both arms are pinned here as two independent calls.
 ;;
+;; The history-owning compound is `:playing` (the XState v5 / SCXML exit-set
+;; rule, rf2-9eidiv — only a genuinely-exited compound records). On first entry
+;; the restore ENTERS :playing (it does not exit it), so nothing is recorded
+;; and the restore reads the empty history, falling to the default.
+;;
 ;; Per [005 §History states §Restoration](../../005-StateMachines.md#restoration--on-re-entry-resolving-the-pseudo-state):
 ;; "never-entered = `:default-target` (or `:initial`)".
 
@@ -18,41 +23,41 @@
  :fixture/handlers  {}
 
  :fixture/calls
- [;; (1) :default-target DECLARED, nothing recorded ⇒ :default-target :playing,
-  ;; descended to its :initial (:at-start). The restore transition records the
-  ;; outgoing :stopped on the way (the slot is allocated for the first time).
+ [;; (1) :default-target DECLARED, nothing recorded ⇒ :default-target :at-start
+  ;; (already a leaf). The restore ENTERS :playing, so it records nothing — the
+  ;; :rf/history slot is left untouched (empty).
   {:call         :machine-transition
    :definition
    {:initial :player
     :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :deep? true :default-target :playing}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
                          :playing {:initial :at-start
                                    :on      {:stop [:player :stopped]}
-                                   :states  {:at-start  {:on {:seek :mid-track}}
+                                   :states  {:hist      {:type :history :deep? true :default-target :at-start}
+                                             :at-start  {:on {:seek :mid-track}}
                                              :mid-track {:on {:stop [:player :stopped]}}}}}}}}
    :snapshot     {:state [:player :stopped] :data {}}
    :event        [:play]
    :expect-next-snapshot {:state    [:player :playing :at-start]
-                          :data     {}
-                          :rf/history {[:player] [:player :stopped]}}
+                          :data     {}}
    :expect-effects       []}
 
   ;; (2) NO :default-target, nothing recorded ⇒ the owning compound's :initial
-  ;; (:stopped). The restore is a no-op move (already at :stopped), recording
-  ;; :stopped as the outgoing config.
+  ;; (:at-start). The restore ENTERS :playing, recording nothing.
   {:call         :machine-transition
    :definition
    {:initial :player
     :states  {:player
               {:initial :stopped
-               :states  {:stopped {:on {:play [:player :hist]}}
-                         :hist    {:type :history :deep? true}
-                         :playing {:on {:stop :stopped}}}}}}
+               :states  {:stopped {:on {:play [:player :playing :hist]}}
+                         :playing {:initial :at-start
+                                   :on      {:stop [:player :stopped]}
+                                   :states  {:hist      {:type :history :deep? true}
+                                             :at-start  {}
+                                             :mid-track {}}}}}}}
    :snapshot     {:state [:player :stopped] :data {}}
    :event        [:play]
-   :expect-next-snapshot {:state    [:player :stopped]
-                          :data     {}
-                          :rf/history {[:player] [:player :stopped]}}
+   :expect-next-snapshot {:state    [:player :playing :at-start]
+                          :data     {}}
    :expect-effects       []}]}

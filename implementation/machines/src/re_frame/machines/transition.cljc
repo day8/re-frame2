@@ -1611,15 +1611,19 @@
   `lca-len`, write each history-bearing compound's last-active configuration
   into the snapshot's `:rf/history` slot.
 
-  A history-owning compound `C` records iff the exit cascade leaves the
-  child subtree beneath `C` — i.e. `C` is a prefix of `src-path` with an
-  active child below it (`(count src-path) > (count C-path)`) AND that
-  child is being exited (`lca-len <= (count C-path)`, so the child at depth
-  `(count C-path)` sits at-or-below the LCA boundary). The compound `C`
-  itself need not be exited — moving between two children of `C` (LCA = C)
-  still tears down `C`'s current child subtree, which is exactly what
-  history captures. A transition staying entirely within `C`'s current
-  child (LCA strictly below `C`'s child) records nothing for `C`.
+  A history-owning compound `C` records iff `C` is itself in the EXIT SET
+  — i.e. `C` is a prefix of `src-path` with an active child below it
+  (`(count src-path) > (count C-path)`) AND `C` itself is being exited
+  (`lca-len < (count C-path)`, so `C`'s node — at index `(count C-path) - 1`
+  along `src-path` — sits strictly below the surviving LCA boundary and is
+  torn down). This aligns with the XState v5 / W3C SCXML gold standard
+  (Appendix D writes the history value while iterating `statesToExit`):
+  history captures \"where this compound was when WE LEFT IT\", so the
+  compound must actually be left. A transition that merely moves between
+  two children of `C` (LCA = C, so `C` SURVIVES as the LCCA) records
+  NOTHING for `C` — `C` was never exited, so there is no last-active
+  configuration to remember (rf2-9eidiv: ruled ALIGN to the exit-set rule,
+  retiring the prior `<=` active-child-subtree-teardown trigger).
 
   Returns `[snapshot recorded]` where `recorded` is the seq of
   `{:compound-path :recorded-config :kind :prev-config}` maps (for the
@@ -1634,12 +1638,16 @@
   (let [src-path (vec src-path)
         n        (count src-path)]
     ;; Walk every prefix of `src-path` that could own history (depth 0..n-1;
-    ;; a leaf at depth n-1 has no child below it). A prefix `C-path` records
-    ;; iff its child at depth `(count C-path)` is exited: `lca-len <= depth`.
+    ;; a leaf at depth n-1 has no child below it). A prefix `C-path` of
+    ;; length `depth` records iff the compound `C` it names is itself in the
+    ;; EXIT SET — its node (index `depth - 1` along `src-path`) lies strictly
+    ;; below the surviving LCA boundary: `lca-len < depth`. (A move BETWEEN
+    ;; `C`'s children leaves `lca-len = depth`, so `C` survives as the LCCA
+    ;; and records nothing — the XState v5 / SCXML exit-set rule, rf2-9eidiv.)
     (reduce
       (fn [[snap recs] depth]
         (let [compound-path (subvec src-path 0 depth)
-              entry         (when (<= lca-len depth)
+              entry         (when (< lca-len depth)
                               (record-history-config machine compound-path src-path))]
           (if entry
             (let [[hkey config] entry

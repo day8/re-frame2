@@ -48,8 +48,9 @@
    :expect-effects       []}
 
   ;; (2) RE-ENTRY (history recorded): the slot holds :s02 (a prior exit). The
-  ;; restore uses the STORED config (:s02), NOT the default (:s01). The exit
-  ;; cascade overwrites the slot with the outgoing :s02 (already there).
+  ;; restore uses the STORED config (:s02), NOT the default (:s01). The restore
+  ;; ENTERS :s0 (it does not exit it), so it records nothing — the slot is left
+  ;; untouched (still :s02), per the exit-set rule (rf2-9eidiv).
   {:call         :machine-transition
    :definition
    {:initial :s0
