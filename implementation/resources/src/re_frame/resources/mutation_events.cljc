@@ -185,25 +185,31 @@
   form) and each `patch-fn` is `(fn [old-data result] -> new-data)` applied to
   the resolved key's last-known-good `:data` (controlled patch,
   structural-shared, freshness refreshed). Returns `[runtime-db' affected-keys
-  policies nil-resolved-ids]`. A patch on a key with no entry / no data is a
-  no-op (a patch transforms existing data; populate seeds); a target whose
-  `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). Per EP-0003
-  §Mutations / Spec 016 §Map-form exact resource targets."
+  policies nil-resolved-ids skipped-targets]`. A patch on a key with no entry /
+  no data is a no-op (a patch transforms existing data; populate seeds); a
+  target whose `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). A
+  RECOVERABLE bad target (unregistered resource / non-map / non-keyword
+  `:resource`) is DROPPED-AND-collected (`skipped-targets`) — this runs
+  POST-WRITE at settle, so a typo'd sibling must not strand the whole committed
+  mutation (rf2-1vpbld); cache-identity CORRUPTION still throws the whole arm.
+  Per EP-0003 §Mutations / Spec 016 §Map-form exact resource targets."
   [runtime-db patches-fn params result clock-ms mut-scope db where]
-  (let [[patches nil-ids]
+  (let [[patches nil-ids skipped]
         (when patches-fn
           ;; rf2-3yyaur / EP-0016 Rider 2 — resolve each map-form target's
-          ;; scope against the settle-time db, then validate + canonicalize
-          ;; EVERY resolved key BEFORE any cache mutation (fail-closed: one bad
-          ;; target rejects the whole patch arm; a nil-resolving {:from-db …}
-          ;; target is dropped, never a partial / wrong-scope write).
+          ;; scope against the settle-time db, then classify + canonicalize
+          ;; EVERY resolved key. POST-WRITE settle policy (rf2-1vpbld,
+          ;; :skip-recoverable): a nil-resolving {:from-db …} target is dropped
+          ;; (never a wrong-scope write); a RECOVERABLE bad target is
+          ;; dropped-and-warned (the valid siblings still land); cache-identity
+          ;; CORRUPTION still throws the whole arm.
           (mstate/validate-target-map!
             (patches-fn params result)
             #(resolve-exact-target-scope % mut-scope db where)
-            registry/resource-meta :patches where))]
+            registry/resource-meta :patches where :skip-recoverable))]
     (if (seq patches)
       (reduce-kv
-        (fn [[db' ks policies nils] scoped-key patch-fn]
+        (fn [[db' ks policies nils sk] scoped-key patch-fn]
           (let [entry (get-in db' (state/entry-path scoped-key))]
             (if (and entry (state/has-data? entry))
               (let [rspec    (registry/resource-meta (:resource/id entry))
@@ -214,11 +220,11 @@
                 [(assoc-in db' (state/entry-path scoped-key) entry')
                  (conj ks scoped-key)
                  (cond-> policies delays (assoc scoped-key delays))
-                 nils])
-              [db' ks policies nils])))
-        [runtime-db #{} {} (vec nil-ids)]
+                 nils sk])
+              [db' ks policies nils sk])))
+        [runtime-db #{} {} (vec nil-ids) (vec skipped)]
         patches)
-      [runtime-db #{} {} (vec nil-ids)])))
+      [runtime-db #{} {} (vec nil-ids) (vec skipped)])))
 
 (defn- apply-populates
   "Apply the mutation spec's `:populates` to the resource cache. `:populates`
@@ -228,19 +234,23 @@
   load, Rider 1). The populated entry takes the resource's tags from the
   resource spec's `:tags` fn (a populated entry MUST carry its own tags so a
   later invalidation can reach it). Returns `[runtime-db' affected-keys
-  policies nil-resolved-ids]`. A target whose `{:from-db …}` scope resolves nil
-  is FAIL-CLOSED (dropped). Per EP-0003 §Mutations / Spec 016 §Map-form exact
-  resource targets / §Populate is an authoritative load."
+  policies nil-resolved-ids skipped-targets]`. A target whose `{:from-db …}`
+  scope resolves nil is FAIL-CLOSED (dropped). A RECOVERABLE bad target
+  (unregistered resource / non-map / non-keyword `:resource`) is
+  DROPPED-AND-collected (`skipped-targets`) — POST-WRITE at settle, so a typo'd
+  sibling must not strand the committed mutation (rf2-1vpbld); cache-identity
+  CORRUPTION still throws the whole arm. Per EP-0003 §Mutations / Spec 016
+  §Map-form exact resource targets / §Populate is an authoritative load."
   [runtime-db populates-fn params result clock-ms mut-scope db where]
-  (let [[populates nil-ids]
+  (let [[populates nil-ids skipped]
         (when populates-fn
           (mstate/validate-target-map!
             (populates-fn params result)
             #(resolve-exact-target-scope % mut-scope db where)
-            registry/resource-meta :populates where))]
+            registry/resource-meta :populates where :skip-recoverable))]
     (if (seq populates)
       (reduce-kv
-        (fn [[db' ks policies nils] scoped-key value]
+        (fn [[db' ks policies nils sk] scoped-key value]
           (let [[_scope resource-id rparams] scoped-key
                 rspec    (registry/resource-meta resource-id)
                 stale-at (stale-at-for rspec clock-ms)
@@ -254,10 +264,10 @@
             [(assoc-in db' (state/entry-path scoped-key) entry')
              (conj ks scoped-key)
              (cond-> policies delays (assoc scoped-key delays))
-             nils]))
-        [runtime-db #{} {} (vec nil-ids)]
+             nils sk]))
+        [runtime-db #{} {} (vec nil-ids) (vec skipped)]
         populates)
-      [runtime-db #{} {} (vec nil-ids)])))
+      [runtime-db #{} {} (vec nil-ids) (vec skipped)])))
 
 (defn- apply-removes
   "Apply the mutation spec's `:removes` to the resource cache (EP-0016 Rider 2 /
@@ -270,13 +280,17 @@
   each target maps to a placeholder). Each resolved key is DISSOC'd from the
   cache by its byte `key-id` (rf2-9e0tyq — a dissoc by the scoped-key vector
   would no-op and leak the entry), mirroring `:rf.resource/remove`. A target
-  whose `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). Returns
-  `[runtime-db' removed-keys removed-work nil-resolved-ids]` where
-  `removed-work` is `[[work-id transport] …]` for each removed entry's in-flight
-  attempt (best-effort abort + terminal `:cancelled` work row, as `remove` does)
-  and `removed-keys` are the scoped-key VECTORS removed (for `:affected-keys` +
-  the trace). A remove of a key with no entry is a no-op. Per EP-0003
-  §Mutations / Spec 016 §Map-form exact resource targets."
+  whose `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). A
+  RECOVERABLE bad target (unregistered resource / non-map / non-keyword
+  `:resource`) is DROPPED-AND-collected (`skipped-targets`) — POST-WRITE at
+  settle, so a typo'd sibling must not strand the committed mutation
+  (rf2-1vpbld); cache-identity CORRUPTION still throws the whole arm. Returns
+  `[runtime-db' removed-keys removed-work nil-resolved-ids skipped-targets]`
+  where `removed-work` is `[[work-id transport] …]` for each removed entry's
+  in-flight attempt (best-effort abort + terminal `:cancelled` work row, as
+  `remove` does) and `removed-keys` are the scoped-key VECTORS removed (for
+  `:affected-keys` + the trace). A remove of a key with no entry is a no-op. Per
+  EP-0003 §Mutations / Spec 016 §Map-form exact resource targets."
   [runtime-db removes-fn params result mut-scope db where]
   (let [targets (when removes-fn
                   (let [raw (removes-fn params result)]
@@ -287,15 +301,15 @@
                       (nil? raw)                 nil
                       (mstate/target-map? raw)   {raw ::remove}
                       :else                      (into {} (map (fn [t] [t ::remove])) raw))))
-        [resolved nil-ids]
+        [resolved nil-ids skipped]
         (when (seq targets)
           (mstate/validate-target-map!
             targets
             #(resolve-exact-target-scope % mut-scope db where)
-            registry/resource-meta :removes where))]
+            registry/resource-meta :removes where :skip-recoverable))]
     (if (seq resolved)
       (reduce-kv
-        (fn [[db' ks work nils] scoped-key _placeholder]
+        (fn [[db' ks work nils sk] scoped-key _placeholder]
           (let [k-id  (state/key-id scoped-key)
                 entry (get-in db' (state/entry-path scoped-key))]
             (if entry
@@ -308,11 +322,11 @@
                                    :cancelled {:reason :mutation-remove})))
                  (conj ks scoped-key)
                  (cond-> work wid (conj [wid transport]))
-                 nils])
-              [db' ks work nils])))
-        [runtime-db #{} [] (vec nil-ids)]
+                 nils sk])
+              [db' ks work nils sk])))
+        [runtime-db #{} [] (vec nil-ids) (vec skipped)]
         resolved)
-      [runtime-db #{} [] (vec nil-ids)])))
+      [runtime-db #{} [] (vec nil-ids) (vec skipped)])))
 
 ;; ---- optimistic apply (phase 1.5) — EP-0019 Decisions 1, 2, 4 -------------
 ;;
@@ -892,6 +906,88 @@
   `re-frame.resources.subs/reset-scope-mismatch-warnings!`. Returns nil."
   []
   (reset! warned-mutation-scope-mismatch #{})
+  nil)
+
+;; ---- the settle-time skipped-target dev tripwire (rf2-1vpbld) --------------
+;;
+;; A POST-WRITE `:patches` / `:populates` / `:removes` target that is RECOVERABLE
+;; (unregistered resource; non-map / non-keyword :resource) is DROPPED-AND-WARNED
+;; rather than thrown, because the server write already landed — a typo'd sibling
+;; must not strand the whole committed mutation. This is the DEDICATED warning
+;; path the relaxation requires: NOT `maybe-warn-scope-mismatch!` (whose dedupe
+;; key + payload are invalidation-scope-specific). CACHE-IDENTITY CORRUPTION
+;; (reserved-scope typo; non-EDN scope / params) still THROWS in the runtime
+;; classifier and never reaches here.
+
+(defonce ^:private
+  ^{:doc "One-shot dedupe set of `[mutation-id arm reason resource-id target]`
+   tuples already warned about, so a mutation re-executed many times (a form
+   firing on every keystroke) emits the settle-time skipped-target dev warning
+   ONCE per genuine bad target rather than flooding the trace. Host-side
+   transient dev state (NOT runtime-db); cleared per-test by the resources reset
+   hook. Mirrors `warned-mutation-scope-mismatch`."}
+  warned-mutation-target-skipped
+  (atom #{}))
+
+(defn reset-mutation-target-skipped-warnings!
+  "Drop every recorded settle-time skipped-target warning dedupe key (test
+  isolation). Published through the resources reset hook so the shared CLJS
+  reset-runtime fixture clears it per test — host-side transient dev state, not
+  runtime-db. Mirrors `reset-mutation-scope-mismatch-warnings!`. Returns nil."
+  []
+  (reset! warned-mutation-target-skipped #{})
+  nil)
+
+(defn maybe-warn-target-skipped!
+  "Emit the dev-only `:rf.warning/mutation-target-skipped` warning (rf2-1vpbld)
+  for each RECOVERABLE settle-time target that was dropped-and-warned: an
+  unregistered resource, or a non-map / non-keyword-`:resource` target reaching
+  a POST-WRITE `:patches` / `:populates` / `:removes` arm. The server write
+  already committed, so dropping the bad sibling (and applying the valid ones)
+  beats stranding the whole instance — but the developer still needs the loud,
+  recoverable tripwire (the asymmetry-fix is not a silent swallow). Cache-identity
+  CORRUPTION never reaches here (it throws in the runtime classifier).
+
+  DEV-ONLY: the whole body is behind `interop/debug-enabled?` so Closure DCE
+  elides it in production, and the emit rides `trace/emit!` (same gate). One-shot
+  idempotent per distinct `[mutation-id arm reason resource-id target]` so a
+  mutation re-executed repeatedly warns once per genuine bad target. `skipped` is
+  the egress-safe `[{:reason :target :resource} …]` vector
+  `validate-target-map!`'s `:skip-recoverable` policy returns. Returns nil."
+  [skipped {:keys [frame-id mutation-id instance-id arm]}]
+  (when (and interop/debug-enabled? (seq skipped))
+    (doseq [{:keys [reason target resource]} skipped]
+      (let [dedupe-key [mutation-id arm reason resource target]]
+        (when-not (contains? @warned-mutation-target-skipped dedupe-key)
+          (swap! warned-mutation-target-skipped conj dedupe-key)
+          (trace/emit! :warning :rf.warning/mutation-target-skipped
+                       {:rf.frame/id frame-id
+                        :mutation    mutation-id
+                        :instance    instance-id
+                        :arm         arm
+                        :reason      reason
+                        :resource    resource
+                        :target      target
+                        :recovery    :fix-mutation-target
+                        :hint        (str "mutation " (pr-str mutation-id) " " (name arm)
+                                          " target " target " was SKIPPED at settle time ("
+                                          (case reason
+                                            :unregistered-resource
+                                            (str "the resource " (pr-str resource)
+                                                 " is UNREGISTERED — call rf/reg-resource first, "
+                                                 "or the seeded / patched entry is unreachable by "
+                                                 "any subscription")
+                                            :non-keyword-resource
+                                            "the target map's :resource must be a keyword"
+                                            :non-map-target
+                                            (str "the target must be the map-form exact target "
+                                                 "{:resource <id> :params <params> :scope <scope>}")
+                                            (str (name reason)))
+                                          "). The server write already committed, so this "
+                                          "recoverable target was DROPPED while the valid "
+                                          "siblings in the same arm applied — fix the target so "
+                                          "the cache consequence lands. Per Spec 016 §Map-form "
+                                          "exact resource targets / EP-0003 §Mutations.")})))))
   nil)
 
 (defn maybe-warn-scope-mismatch!
@@ -1606,8 +1702,8 @@
             ;; armed reaper) PLUS the fail-closed nil-resolved {:from-db …} ids
             ;; (targets dropped because their scope resolver returned nil).
             ;; populate wins on a key written by both (it ran last).
-            [rdb1 patched-ks patch-policies patch-nil-ids]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
-            [rdb2 populated-ks populate-policies populate-nil-ids] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
+            [rdb1 patched-ks patch-policies patch-nil-ids patch-skipped]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
+            [rdb2 populated-ks populate-policies populate-nil-ids populate-skipped] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
             ;; controlled REMOVES (EP-0016 Rider 2 / rf2-fi6tda.3 finding 1 —
             ;; accepted replies apply patches, populates, invalidates, AND
             ;; removes). Each map-form target's scope resolves exactly as a
@@ -1615,10 +1711,23 @@
             ;; in-flight work settled `:cancelled` (mirroring
             ;; `:rf.resource/remove`). Applied BEFORE the invalidation match so
             ;; a removed key is never ALSO reported stale (it is gone).
-            [rdb3 removed-ks removed-work remove-nil-ids] (apply-removes rdb2 (:removes spec) params result scope app-db where)
+            [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2 (:removes spec) params result scope app-db where)
             patch-affected      (set/union patched-ks populated-ks)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
+            ;; rf2-1vpbld — the RECOVERABLE post-write targets the relaxed
+            ;; settle policy DROPPED-AND-WARNED (unregistered resource / non-map
+            ;; / non-keyword :resource), per arm. The server write already
+            ;; committed, so a typo'd sibling does NOT strand the instance — the
+            ;; valid siblings applied; these are the dropped ones, recorded as
+            ;; egress-safe summaries on the trace beside :target-unresolved and
+            ;; surfaced via the dev `:rf.warning/mutation-target-skipped`.
+            patch-target-skipped    (mapv #(assoc % :arm :patches) patch-skipped)
+            populate-target-skipped (mapv #(assoc % :arm :populates) populate-skipped)
+            remove-target-skipped   (mapv #(assoc % :arm :removes) remove-skipped)
+            target-skipped      (-> (vec patch-target-skipped)
+                                    (into populate-target-skipped)
+                                    (into remove-target-skipped))
             ;; the success-time invalidation (EP-0016 D2: per-descriptor
             ;; scoped). The patch already freshened the keys it touched; the
             ;; invalidation reaches the OTHER tagged entries (lists, siblings)
@@ -1685,6 +1794,12 @@
                                    ;; scope resolved nil were DROPPED (never written
                                    ;; under an implicit global).
                                    :target-unresolved (vec target-nil-ids)
+                                   ;; rf2-1vpbld drop-and-warn evidence: RECOVERABLE
+                                   ;; post-write targets (unregistered resource /
+                                   ;; non-map / non-keyword :resource) DROPPED while
+                                   ;; the valid siblings applied — egress-safe
+                                   ;; {:arm :reason :resource :target} summaries.
+                                   :target-skipped (vec target-skipped)
                                    ;; pessimistic write: the optimistic slots stay nil.
                                    :snapshot-id nil :rollback nil
                                    :reconciliation-refetches nil}
@@ -1796,6 +1911,16 @@
         (maybe-warn-scope-mismatch!
           inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
                     :mut-scope scope :entries (get-in rdb3 (state/entries-path))})
+        ;; DEV-ONLY drop-and-warn tripwire (rf2-1vpbld) — for each RECOVERABLE
+        ;; post-write `:patches` / `:populates` / `:removes` target the relaxed
+        ;; settle policy DROPPED (unregistered resource / non-map / non-keyword
+        ;; :resource), emit the dedicated `:rf.warning/mutation-target-skipped`.
+        ;; The valid siblings already applied + the instance settled (the asymmetry
+        ;; fix); the developer still needs the loud, recoverable tripwire.
+        (doseq [{:keys [arm] :as s} target-skipped]
+          (maybe-warn-target-skipped!
+            [s] {:frame-id frame-id :mutation-id mutation-id
+                 :instance-id instance-id :arm arm}))
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/succeeded` so the
         ;; `:rf.mutation/replied` trace row truthfully follows settlement in the
         ;; phase order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.

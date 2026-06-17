@@ -703,10 +703,103 @@
   [target]
   (and (map? target) (contains? target :resource)))
 
+(defn- target-summary
+  "An egress-SAFE summary of a target for trace / warning evidence
+  (rf2-1vpbld). `pr-str`s the target the same way `target-key-error` does, so
+  no raw host value leaks onto the trace beyond what the thrown-error shape
+  already exposes. Returns a small serializable map `{:resource … :target …}`
+  (the resource id is kept literal when it is a keyword — the recoverable
+  identity the developer must fix; the whole target is pr-str'd)."
+  [target]
+  (cond-> {:target (pr-str target)}
+    (and (map? target) (keyword? (:resource target)))
+    (assoc :resource (:resource target))))
+
+(defn classify-target-key
+  "PURE classifier for a SINGLE mutation patch / populate / remove TARGET
+  (rf2-1vpbld). Splits the boundary into two dispositions:
+
+  - `[:apply <canonical-storage-key>]` — a VALID target; the canonical
+    `[canonical-scope resource-id canonical-params]` storage key the caller
+    writes under (never a caller's alternate spelling).
+  - `[:skip <reason-kw> <egress-safe-summary>]` — a RECOVERABLE bad target the
+    settle-time relaxed policy DROPS-AND-WARNS rather than throws (a typo on
+    one sibling must not strand a committed write — the asymmetry-fix the
+    settle path needs): a non-map target (`:non-map-target`), a missing /
+    non-keyword `:resource` (`:non-keyword-resource`), or an UNREGISTERED
+    resource id (`:unregistered-resource`). These are the same 'thing isn't
+    there / wrong shape' class a patch on a missing entry already no-ops on.
+
+  THROWS `:rf.error/mutation-invalid-target` (NEVER classified `:skip`) for
+  CACHE-IDENTITY CORRUPTION — the cases that would silently write the cache
+  under a WRONG identity, which no relaxed policy may swallow:
+
+  - a reserved-scope TYPO (a bare `:rf.scope/*` keyword outside the closed
+    enum — `:rf.scope/glabal`), which would write under a wrong scope;
+  - a non-EDN / host scope or params (the cache key MUST be serializable EDN).
+
+  The corruption checks run BEFORE the recoverable ones for a malformed map so
+  a target that is simultaneously corruption-class (non-EDN scope) and
+  recoverable (unregistered) still THROWS. `resolved-scope` is the CONCRETE
+  scope the events layer already resolved; `registered-resource?` is the
+  injected `(fn [resource-id] -> truthy)` registry predicate; `where` / `arm`
+  name the call-site + offending arm for the thrown-error shape."
+  [target resolved-scope registered-resource? where arm]
+  (if-not (target-map? target)
+    ;; a non-map target (e.g. a bare tuple, a keyword) — recoverable: the
+    ;; shape is wrong, but nothing is written under a wrong identity.
+    [:skip :non-map-target (target-summary target)]
+    (let [{:keys [resource params]} target
+          scope resolved-scope]
+      ;; CORRUPTION-class first (a wrong-identity write no relaxed policy may
+      ;; swallow): reserved-scope typo + non-EDN scope / params.
+      (when (reserved-scope-typo? scope)
+        (throw (target-key-error
+                 where arm
+                 (str "a mutation " (name arm) " target carries the bare "
+                      "framework-reserved scope " (pr-str scope) ", which is "
+                      "not one of the closed reserved policies "
+                      (pr-str reserved-scope-policies) " — a typo would "
+                      "silently write the cache under a wrong scope. Per "
+                      "Conventions §Reserved namespaces.")
+                 target {:scope scope})))
+      (when-not (state/serializable-edn? scope)
+        (throw (target-key-error
+                 where arm
+                 (str "a mutation " (name arm) " target's scope is not "
+                      "serializable EDN — host / opaque values are rejected at "
+                      "the cache-key boundary. Per Spec 016 §Resource identity.")
+                 target {:scope (pr-str scope)})))
+      (when-not (state/serializable-edn? params)
+        (throw (target-key-error
+                 where arm
+                 (str "a mutation " (name arm) " target's params are not "
+                      "serializable EDN — host / opaque values are rejected at "
+                      "the cache-key boundary. Per Spec 016 §Resource identity.")
+                 target {:params (pr-str params)})))
+      ;; RECOVERABLE class (settle-time drop-and-warn; pre-write throws via the
+      ;; `validate-target-key!` wrapper): non-keyword :resource, unregistered.
+      (cond
+        (not (keyword? resource))
+        [:skip :non-keyword-resource (target-summary target)]
+
+        (not (registered-resource? resource))
+        [:skip :unregistered-resource (target-summary target)]
+
+        :else
+        [:apply (state/scoped-resource-key scope resource params)]))))
+
 (defn validate-target-key!
   "Fail-closed validation of a SINGLE mutation patch / populate TARGET, BEFORE
   any cache mutation (EP-0003 §Mutations / Spec 016 §Resource identity /
-  §Map-form exact resource targets). The public INPUT form is the TARGET MAP
+  §Map-form exact resource targets). The STRICT (throwing) wrapper over the
+  pure `classify-target-key` (rf2-1vpbld): it throws on BOTH the
+  cache-identity-corruption cases AND the recoverable cases (so the default /
+  pre-write / optimistic policy is UNCHANGED — a bad target rejects the whole
+  arm). The settle path relaxes the RECOVERABLE cases via the
+  `:skip-recoverable` policy on `validate-target-map!`; this wrapper does not.
+
+  The public INPUT form is the TARGET MAP
   `{:resource <id> :params <params> :scope <scope>}` (EP-0016 Rider 2 — the
   only public input form, no tuple migration window). The map's `:scope` has
   already been RESOLVED to a CONCRETE scope value by the events layer
@@ -735,60 +828,43 @@
   caller's alternate spelling). Throws `:rf.error/mutation-invalid-target`
   otherwise."
   [target resolved-scope registered-resource? where arm]
-  (when-not (target-map? target)
-    (throw (target-key-error
-             where arm
-             (str "a mutation " (name arm) " target must be the map-form exact "
-                  "target {:resource <id> :params <params> :scope <scope>} (the "
-                  "only public input form — the scoped-key tuple is the internal "
-                  "storage representation, not a public input); got "
-                  (pr-str target) ". Per Spec 016 §Map-form exact resource "
-                  "targets / EP-0016 Rider 2.")
-             target {})))
-  (let [{:keys [resource params]} target
-        scope resolved-scope]
-    (when-not (keyword? resource)
-      (throw (target-key-error
-               where arm
-               (str "a mutation " (name arm) " target map's :resource must be "
-                    "a keyword; got " (pr-str resource) " in " (pr-str target)
-                    ". Per Spec 016 §Map-form exact resource targets.")
-               target {:resource-id resource})))
-    (when (reserved-scope-typo? scope)
-      (throw (target-key-error
-               where arm
-               (str "a mutation " (name arm) " target carries the bare "
-                    "framework-reserved scope " (pr-str scope) ", which is "
-                    "not one of the closed reserved policies "
-                    (pr-str reserved-scope-policies) " — a typo would "
-                    "silently write the cache under a wrong scope. Per "
-                    "Conventions §Reserved namespaces.")
-               target {:scope scope})))
-    (when-not (state/serializable-edn? scope)
-      (throw (target-key-error
-               where arm
-               (str "a mutation " (name arm) " target's scope is not "
-                    "serializable EDN — host / opaque values are rejected at "
-                    "the cache-key boundary. Per Spec 016 §Resource identity.")
-               target {:scope (pr-str scope)})))
-    (when-not (state/serializable-edn? params)
-      (throw (target-key-error
-               where arm
-               (str "a mutation " (name arm) " target's params are not "
-                    "serializable EDN — host / opaque values are rejected at "
-                    "the cache-key boundary. Per Spec 016 §Resource identity.")
-               target {:params (pr-str params)})))
-    (when-not (registered-resource? resource)
-      (throw (target-key-error
-               where arm
-               (str "a mutation " (name arm) " targets the UNREGISTERED "
-                    "resource " (pr-str resource) " — a controlled patch / "
-                    "populate must target a resource the read path also "
-                    "knows, or the seeded / patched entry is unreachable by "
-                    "any subscription. Call rf/reg-resource first. Per "
-                    "EP-0003 §Mutations.")
-               target {:resource-id resource})))
-    (state/scoped-resource-key scope resource params)))
+  (let [[disposition a b] (classify-target-key target resolved-scope
+                                               registered-resource? where arm)]
+    (case disposition
+      :apply a
+      ;; STRICT policy: a recoverable :skip ALSO throws (the corruption-class
+      ;; already threw inside classify). Reconstruct the precise message.
+      :skip
+      (case a
+        :non-map-target
+        (throw (target-key-error
+                 where arm
+                 (str "a mutation " (name arm) " target must be the map-form exact "
+                      "target {:resource <id> :params <params> :scope <scope>} (the "
+                      "only public input form — the scoped-key tuple is the internal "
+                      "storage representation, not a public input); got "
+                      (pr-str target) ". Per Spec 016 §Map-form exact resource "
+                      "targets / EP-0016 Rider 2.")
+                 target {}))
+
+        :non-keyword-resource
+        (throw (target-key-error
+                 where arm
+                 (str "a mutation " (name arm) " target map's :resource must be "
+                      "a keyword; got " (pr-str (:resource target)) " in " (pr-str target)
+                      ". Per Spec 016 §Map-form exact resource targets.")
+                 target {:resource-id (:resource target)}))
+
+        :unregistered-resource
+        (throw (target-key-error
+                 where arm
+                 (str "a mutation " (name arm) " targets the UNREGISTERED "
+                      "resource " (pr-str (:resource target)) " — a controlled patch / "
+                      "populate must target a resource the read path also "
+                      "knows, or the seeded / patched entry is unreachable by "
+                      "any subscription. Call rf/reg-resource first. Per "
+                      "EP-0003 §Mutations.")
+                 target {:resource-id (:resource target)}))))))
 
 (defn target-scope
   "The DECLARED `:scope` of a map-form exact target, defaulting to
@@ -802,35 +878,80 @@
 
 (defn validate-target-map!
   "Fail-closed validation + canonicalization of a WHOLE mutation `:patches` /
-  `:populates` target map `{target value}` BEFORE any cache mutation (EP-0003
-  §Mutations / Spec 016 §Map-form exact resource targets). Each KEY is a public
-  map-form target `{:resource :params :scope}`; `resolve-target-scope` is
+  `:populates` / `:removes` target map `{target value}` (EP-0003 §Mutations /
+  Spec 016 §Map-form exact resource targets). Each KEY is a public map-form
+  target `{:resource :params :scope}`; `resolve-target-scope` is
   `(fn [target] -> [:resolved <concrete-scope>] | [:nil-resolved <from-db-id>])`
   — injected by the events layer (it owns the registry + settle-time db) and
   resolves each target's declared `:scope` (`:rf.scope/same` / concrete /
   `{:from-db …}`). A target whose scope resolves NIL (`:nil-resolved`) is
   FAIL-CLOSED: it is DROPPED (no cache write under an implicit global, never a
-  silent wrong-scope poke). Validates every resolved key via
-  `validate-target-key!` (one bad target rejects the whole arm — no partial
-  cache mutation) and returns `[canonical-map nil-resolved-ids]`: a map re-keyed
-  by the CANONICAL STORAGE key (values preserved) plus the vector of
-  `{:from-db …}` ids that resolved nil (fail-closed evidence for the trace).
-  `kind` (`:patches` | `:populates`) names the offending arm in the error. A
-  nil / empty input map returns `[nil []]`."
-  [target-map resolve-target-scope registered-resource? kind where]
-  (if-not (seq target-map)
-    [nil []]
-    (reduce-kv
-      (fn [[m nils] target value]
-        (let [[outcome scope-or-id] (resolve-target-scope target)]
-          (case outcome
-            :nil-resolved [m (conj nils scope-or-id)]
-            :resolved     [(assoc m (validate-target-key!
-                                      target scope-or-id registered-resource? where kind)
-                                  value)
-                           nils])))
-      [{} []]
-      target-map)))
+  silent wrong-scope poke).
+
+  `policy` (rf2-1vpbld) selects how a BAD resolved key is handled:
+
+  - `:strict` (DEFAULT — the pre-write / optimistic / `:execute`-time callers,
+    where no server write has landed): EVERY bad target — recoverable OR
+    corruption-class — REJECTS the whole arm (no partial cache mutation), via
+    the throwing `validate-target-key!`. Returns `[canonical-map nil-ids]` (the
+    historic 2-tuple — the optimistic caller destructures it).
+
+  - `:skip-recoverable` (the POST-WRITE SETTLE arms only): a RECOVERABLE bad
+    target (unregistered resource; non-map / non-keyword `:resource`) is
+    DROPPED-AND-collected rather than thrown — applying the VALID siblings
+    instead of stranding the whole instance AFTER the server write already
+    committed (the asymmetry the read path's no-op-on-missing-entry already
+    has). CACHE-IDENTITY CORRUPTION (reserved-scope typo; non-EDN scope /
+    params) STILL THROWS the whole arm — no relaxed policy may swallow a
+    wrong-identity write. Returns the 3-tuple
+    `[canonical-map nil-ids skipped]` where `skipped` is a vector of
+    `{:reason <kw> :target <pr-str> :resource <id?>}` egress-safe summaries
+    (the events layer warns + records them on the trace beside the nil-resolved
+    evidence).
+
+  A map re-keyed by the CANONICAL STORAGE key (values preserved). `kind`
+  (`:patches` | `:populates` | `:removes`) names the offending arm in the
+  error. A nil / empty input map returns the policy's empty shape
+  (`[nil []]` / `[nil [] []]`)."
+  ([target-map resolve-target-scope registered-resource? kind where]
+   (validate-target-map! target-map resolve-target-scope registered-resource? kind where :strict))
+  ([target-map resolve-target-scope registered-resource? kind where policy]
+   (case policy
+     :strict
+     (if-not (seq target-map)
+       [nil []]
+       (reduce-kv
+         (fn [[m nils] target value]
+           (let [[outcome scope-or-id] (resolve-target-scope target)]
+             (case outcome
+               :nil-resolved [m (conj nils scope-or-id)]
+               :resolved     [(assoc m (validate-target-key!
+                                         target scope-or-id registered-resource? where kind)
+                                     value)
+                              nils])))
+         [{} []]
+         target-map))
+
+     :skip-recoverable
+     (if-not (seq target-map)
+       [nil [] []]
+       (reduce-kv
+         (fn [[m nils skipped] target value]
+           (let [[outcome scope-or-id] (resolve-target-scope target)]
+             (case outcome
+               :nil-resolved [m (conj nils scope-or-id) skipped]
+               :resolved
+               ;; classify-target-key THROWS on corruption-class (kept) and
+               ;; returns [:skip …] for the recoverable cases (dropped here).
+               (let [[disposition a b]
+                     (classify-target-key target scope-or-id registered-resource? where kind)]
+                 (case disposition
+                   :apply [(assoc m a value) nils skipped]
+                   :skip  [m nils (conj skipped {:reason a
+                                                 :target (:target b)
+                                                 :resource (:resource b)})])))))
+         [{} [] []]
+         target-map)))))
 
 ;; ---- mutation INSTANCE id validation (Spec 016 §Resource identity) --------
 

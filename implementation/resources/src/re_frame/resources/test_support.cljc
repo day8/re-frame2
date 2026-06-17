@@ -79,6 +79,12 @@
   ;; warning; likewise host-side transient dev state, cleared so each test
   ;; observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.
   (mutation-events/reset-mutation-scope-mismatch-warnings!)
+  ;; and the host-side settle-time SKIPPED-TARGET dev-warning dedupe set
+  ;; (rf2-1vpbld) — the dedicated drop-and-warn tripwire for recoverable
+  ;; post-write `:patches` / `:populates` / `:removes` targets; likewise
+  ;; host-side transient dev state, cleared so each test observes the one-shot
+  ;; `:rf.warning/mutation-target-skipped` freshly.
+  (mutation-events/reset-mutation-target-skipped-warnings!)
   nil)
 
 ;; Publish the reset hook from this test-support ns-load — the shared CLJS
