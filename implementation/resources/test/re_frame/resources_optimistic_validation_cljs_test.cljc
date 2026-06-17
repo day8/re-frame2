@@ -670,3 +670,79 @@
   (testing "an opted-out call is :optimistic? false (no apply ran)"
     (is (= true (:pending? (mutation-state :f1))))
     (is (= false (:optimistic? (mutation-state :f1))))))
+
+;; ===========================================================================
+;; REGRESSION (rf2-o5ca8k) — a MALFORMED :optimistic-tags descriptor is
+;; warn-and-skipped, never an abort. The optimistic paint is reversible
+;; best-effort; a typo in the descriptor must NOT nuke the authoritative write
+;; (which is strictly worse than :invalidates, settled post-write). The
+;; well-formed descriptors in the SAME plan still apply.
+;; ===========================================================================
+
+(deftest malformed-optimistic-tags-descriptor-does-not-block-the-write
+  (rf/reg-resource :r/article
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+     :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+  (rf/reg-resource :r/feed
+    {:scope :rf.scope/global
+     :params-schema [:map]
+     :request (fn [_p _] {:request {:method :get :url "/feed"}})
+     :tags (fn [_p _] #{[:feed-w]})})
+  (let [feed-key (state/scoped-resource-key :rf.scope/global :r/feed {})]
+    (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
+                 {:article {:favorited false}})
+    (own-loaded! {:resource :r/feed :scope :rf.scope/global :params {} :owner [:v :f]}
+                 {:items 1})
+    (testing "a descriptor with a missing :patch does NOT abort — the request still lowers"
+      (rf/reg-mutation :m/bad-patch
+        {:scope :rf.scope/global
+         :params-schema [:map [:slug :string]]
+         :request (fn [_p _] {:request {:method :post :url "/fav"}})
+         ;; FIRST descriptor is malformed (no :patch); SECOND is well-formed.
+         :optimistic-tags (fn [{:keys [slug]}]
+                            [{:scope :rf.scope/global :tags #{[:article slug]}}
+                             {:scope :rf.scope/global :tags #{[:feed-w]}
+                              :patch (fn [d] (assoc d :touched true))}])})
+      (let [warn (trace-of :rf.warning/optimistic-tags-descriptor-skipped
+                   #(rf/dispatch-sync [:rf.mutation/execute
+                                       {:mutation :m/bad-patch :params {:slug "w"}
+                                        :instance :bp1}]))]
+        (is (= :pending (:status (instance :bp1)))
+            "the write lowered — the malformed descriptor did NOT abort the event")
+        (is (some? @last-managed-args) "the request reached the transport")
+        (is (some? warn) "a dev-visible warning was emitted for the skipped descriptor")
+        (is (= :m/bad-patch (some-> warn :mutation))
+            "the warning names the offending mutation")
+        (is (string? (:reason warn)) "the warning carries a dev-readable reason")
+        (testing "the WELL-FORMED descriptor in the same plan still applied"
+          (is (= true (get-in (entry feed-key) [:data :touched]))))
+        (testing "the malformed descriptor's tag was skipped (no patch to apply)"
+          (is (nil? (get-in (entry article-key) [:data :touched]))))))
+    (reset! last-managed-args nil)
+    (testing "a descriptor with a non-collection :tags also warn-and-skips"
+      (rf/reg-mutation :m/bad-tags
+        {:scope :rf.scope/global
+         :params-schema [:map [:slug :string]]
+         :request (fn [_p _] {:request {:method :post :url "/fav2"}})
+         :optimistic-tags (fn [_p]
+                            [{:scope :rf.scope/global :tags :not-a-coll
+                              :patch (fn [d] (assoc d :touched2 true))}])})
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/bad-tags :params {:slug "w"}
+                                               :instance :bt1}])
+      (is (= :pending (:status (instance :bt1)))
+          "a non-collection :tags descriptor did NOT abort the write")
+      (is (some? @last-managed-args) "the request reached the transport"))
+    (reset! last-managed-args nil)
+    (testing "a non-map descriptor entry in the vector also warn-and-skips, write still lowers"
+      (rf/reg-mutation :m/bad-shape
+        {:scope :rf.scope/global
+         :params-schema [:map [:slug :string]]
+         :request (fn [_p _] {:request {:method :post :url "/fav3"}})
+         :optimistic-tags (fn [_p] [:not-a-map])})
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/bad-shape :params {:slug "w"}
+                                               :instance :bs1}])
+      (is (= :pending (:status (instance :bs1)))
+          "a non-map descriptor entry did NOT abort the write")
+      (is (some? @last-managed-args) "the request reached the transport"))))

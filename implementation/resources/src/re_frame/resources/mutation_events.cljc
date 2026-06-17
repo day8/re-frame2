@@ -367,57 +367,93 @@
       #(resolve-exact-target-scope % mut-scope db where)
       registry/resource-meta :optimistic where)))
 
+(defn- warn-optimistic-tag-descriptor-skipped!
+  "DEV-ONLY: emit `:rf.warning/optimistic-tags-descriptor-skipped` for a
+  malformed `:optimistic-tags` descriptor that was warn-and-skipped (rf2-o5ca8k).
+  Behind `interop/debug-enabled?` so Closure DCE elides it in production, riding
+  the same `trace/emit!` gate as the other write-side dev tripwires. Returns nil."
+  [{:keys [frame-id mutation]} reason detail]
+  (when interop/debug-enabled?
+    (trace/emit! :warning :rf.warning/optimistic-tags-descriptor-skipped
+                 (merge {:rf.frame/id frame-id
+                         :mutation    mutation
+                         :recovery    :fix-descriptor
+                         :reason      reason}
+                        detail))))
+
 (defn- normalize-optimistic-tag-descriptors
-  "PURE: normalize the `:optimistic-tags` plan `(fn [params] -> descriptors)`
-  into the canonical descriptor vector `[{:scope … :tags #{…} :patch fn}]`
-  (EP-0019 Decision 4). Accepts a single descriptor map or a vector of them;
-  each MUST carry a `:patch` fn `(fn [old-data] -> new-data)` (the forward
-  optimistic op for every tag-matched entry) and a `:tags` collection. The
-  `:scope` defaults to `:rf.scope/same` (resolved at execute time). Fails CLOSED
-  on a non-map descriptor / a non-collection `:tags` / a missing `:patch`
-  (reusing the `:invalidates` descriptor-error shape, `:arm :optimistic-tags`).
-  A nil / empty raw plan yields an empty vector."
-  [raw where]
+  "Normalize the `:optimistic-tags` plan `(fn [params] -> descriptors)` into the
+  canonical descriptor vector `[{:scope … :tags #{…} :patch fn}]` (EP-0019
+  Decision 4). Accepts a single descriptor map or a vector of them; each MUST
+  carry a `:patch` fn `(fn [old-data] -> new-data)` (the forward optimistic op
+  for every tag-matched entry) and a `:tags` collection. The `:scope` defaults
+  to `:rf.scope/same` (resolved at execute time).
+
+  WARN-AND-SKIP (rf2-o5ca8k): a malformed descriptor — a non-map entry, a
+  non-collection `:tags`, or a missing `:patch` — is DROPPED with a dev-visible
+  `:rf.warning/optimistic-tags-descriptor-skipped` warning, NOT thrown. This runs
+  inline in `execute-handler` BEFORE the request lowers; a throw here aborted the
+  whole event and the authoritative write NEVER fired — strictly worse than
+  `:invalidates` (which runs post-write at settle). The optimistic paint is
+  reversible best-effort, so skipping a bad descriptor corrupts nothing (the
+  authoritative reply still settles the cache via `:populates` / `:invalidates`);
+  the well-formed descriptors in the SAME plan still apply. The fail-closed SCOPE
+  boundary is unaffected — it lives downstream in `optimistic-tag-targets` (a
+  nil-resolving `{:from-db …}` still drops the target + records unresolved
+  evidence). A nil / empty raw plan yields an empty vector.
+
+  `ctx` is `{:frame-id … :mutation …}` for the warning."
+  [raw ctx]
   (let [one (fn [descriptor]
-              (when-not (map? descriptor)
-                (throw (mstate/invalidation-descriptor-error
-                         where
-                         (str "an :optimistic-tags descriptor must be a map "
-                              "{:scope … :tags #{…} :patch (fn [old] new)}; got "
-                              (pr-str descriptor) ". Per Spec 016 §Optimistic "
-                              "mutations / EP-0019 Decision 4.")
-                         raw {:descriptor (pr-str descriptor)})))
-              (let [{:keys [scope tags patch]} descriptor]
-                (when-not (and (some? tags) (coll? tags))
-                  (throw (mstate/invalidation-descriptor-error
-                           where
-                           (str "an :optimistic-tags descriptor must carry a "
-                                "non-nil :tags collection; got " (pr-str tags)
-                                " in " (pr-str descriptor) ". Per Spec 016 "
-                                "§Optimistic mutations.")
-                           raw {:descriptor (pr-str descriptor) :tags (pr-str tags)})))
-                (when-not (fn? patch)
-                  (throw (mstate/invalidation-descriptor-error
-                           where
-                           (str "an :optimistic-tags descriptor must carry a "
-                                ":patch fn (fn [old-data] -> new-data); got "
-                                (pr-str patch) " in " (pr-str descriptor)
-                                ". Per Spec 016 §Optimistic mutations.")
-                           raw {:descriptor (pr-str descriptor) :patch (pr-str patch)})))
-                {:scope (if (contains? descriptor :scope) scope mstate/same-scope-marker)
-                 :tags  (state/normalize-tag-set tags)
-                 :patch patch}))]
+              (cond
+                (not (map? descriptor))
+                (do (warn-optimistic-tag-descriptor-skipped!
+                      ctx
+                      (str "an :optimistic-tags descriptor must be a map "
+                           "{:scope … :tags #{…} :patch (fn [old] new)}; got "
+                           (pr-str descriptor) " — skipping it. Per Spec 016 "
+                           "§Optimistic mutations / EP-0019 Decision 4.")
+                      {:descriptor (pr-str descriptor)})
+                    nil)
+
+                (let [tags (:tags descriptor)] (not (and (some? tags) (coll? tags))))
+                (do (warn-optimistic-tag-descriptor-skipped!
+                      ctx
+                      (str "an :optimistic-tags descriptor must carry a non-nil "
+                           ":tags collection; got " (pr-str (:tags descriptor))
+                           " in " (pr-str descriptor) " — skipping it. Per Spec "
+                           "016 §Optimistic mutations.")
+                      {:descriptor (pr-str descriptor) :tags (pr-str (:tags descriptor))})
+                    nil)
+
+                (not (fn? (:patch descriptor)))
+                (do (warn-optimistic-tag-descriptor-skipped!
+                      ctx
+                      (str "an :optimistic-tags descriptor must carry a :patch fn "
+                           "(fn [old-data] -> new-data); got "
+                           (pr-str (:patch descriptor)) " in " (pr-str descriptor)
+                           " — skipping it. Per Spec 016 §Optimistic mutations.")
+                      {:descriptor (pr-str descriptor) :patch (pr-str (:patch descriptor))})
+                    nil)
+
+                :else
+                (let [{:keys [scope tags patch]} descriptor]
+                  {:scope (if (contains? descriptor :scope) scope mstate/same-scope-marker)
+                   :tags  (state/normalize-tag-set tags)
+                   :patch patch})))]
     (cond
       (or (nil? raw) (and (coll? raw) (empty? raw))) []
-      (map? raw)                                     [(one raw)]
-      (and (coll? raw) (every? map? raw))            (mapv one raw)
+      (map? raw)                                     (into [] (keep one) [raw])
+      (coll? raw)                                    (into [] (keep one) raw)
       :else
-      (throw (mstate/invalidation-descriptor-error
-               where
-               (str "an :optimistic-tags result must be a descriptor map or a "
-                    "vector of descriptor maps {:scope … :tags #{…} :patch fn}; "
-                    "got " (pr-str raw) ". Per Spec 016 §Optimistic mutations.")
-               raw {})))))
+      (do (warn-optimistic-tag-descriptor-skipped!
+            ctx
+            (str "an :optimistic-tags result must be a descriptor map or a "
+                 "vector of descriptor maps {:scope … :tags #{…} :patch fn}; "
+                 "got " (pr-str raw) " — skipping the whole plan. Per Spec 016 "
+                 "§Optimistic mutations.")
+            {:raw (pr-str raw)})
+          []))))
 
 (defn- optimistic-tag-targets
   "Resolve the `:optimistic-tags` plan into the per-tag-matched-key target map
@@ -1191,7 +1227,8 @@
         (when has-opt?
           (optimistic-tag-targets
             (normalize-optimistic-tag-descriptors
-              (when-let [f (:optimistic-tags spec)] (f cparams)) where)
+              (when-let [f (:optimistic-tags spec)] (f cparams))
+              {:frame-id frame-id :mutation mutation})
             opt-entries cscope app-db where))
         ;; exact targets first, then tag-matched (a tag-matched key that is also
         ;; an exact target keeps the exact patch-fn — exact wins, it is the more
