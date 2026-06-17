@@ -135,7 +135,8 @@
 ;; (`{:rf.resource/page-param p :rf.resource/page-index i}`); a non-infinite
 ;; `:request` still receives a nil/empty ctx (NO new 3-arity). The
 ;; `:rf.error/infinite-missing-page-accessor` error is RUNTIME-detected at the
-;; first non-vector page in the merge layer (wave 4), not here — at registration
+;; first non-vector page in the subs merge site (state/merge-pages->items), not
+;; here — at registration
 ;; we have no page to inspect; here we shape-validate `:page->items` (a keyword
 ;; or fn) when present.
 
@@ -157,8 +158,8 @@
     - the optional `:prev-page-param` (R7 mirror) MUST be a fn when present;
     - the optional `:page->items` (R3 accessor) MUST be a keyword or fn when
       present (a non-vector page with NO `:page->items` is the RUNTIME-detected
-      `:rf.error/infinite-missing-page-accessor`, raised at the merge site in
-      wave 4 — not here);
+      `:rf.error/infinite-missing-page-accessor`, raised at the subs merge site
+      — not here);
     - the optional `:refetch` policy (R6) MUST be a map with a boolean
       `:refetch-all-pages?` and/or an integer `:refetch-window` when present.
 
@@ -340,6 +341,10 @@
   Validates the spec (the REQUIRED, fail-closed `:scope` policy first;
   then `:params-schema` and `:request`) and writes a `:resource`-kind
   registrar entry carrying the spec plus any captured source coords.
+
+  An `:infinite true` resource additionally REQUIRES `:next-page-param` (and
+  may declare `:prev-page-param` / `:page->items` / `:refetch` /
+  `:initial-page-param`) — see Spec 016 §Infinite resources and load-more feeds.
 
   Returns `resource-id` per the `reg-*` return-value convention
   ([Conventions §reg-* return-value convention])."
