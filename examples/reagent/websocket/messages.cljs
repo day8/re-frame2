@@ -254,8 +254,8 @@
 
 (def socket-actor-machine
   "Spec for the `:websocket/socket` actor machine — held in a `def` so
-   `register-all!` can rebuild the live handler after an upstream
-   `clear-all!` wiped the registrar."
+   the spec reads cleanly and the `reg-machine` registration below can
+   reference it."
     {:initial :opening
      :data    {:url        nil
                :auth-token nil}

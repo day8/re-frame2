@@ -14,7 +14,7 @@ examples/
   scripts/                              <-- orchestrator + Playwright helpers
     serve-and-run-examples-tests.cjs    <-- compiles, stages, serves, runs (entry point of `npm run test:examples`)
     run-examples-tests.cjs              <-- Playwright runner (runs the EXAMPLES manifest's specs; reconciles it against the spec.cjs on disk under SPEC_ROOTS)
-    spec-helpers.cjs                    <-- shared assertion helpers used by every spec
+    spec-helpers.cjs                    <-- shared assertion helpers used by the adapter testbed + Story/Xray specs (examples/ is test-free)
   reagent/                              <-- canonical substrate (full set)
     counter/
       core.cljs

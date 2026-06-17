@@ -377,9 +377,8 @@ which now defers here as the canonical statement):
 > `:where :machine-data` boundary, NOT the whole `{:state ... :data ...}`
 > snapshot and not `reg-app-schema`; the snapshot lives in runtime-db at
 > `[:rf.runtime/machines :snapshots :auth.login/flow]`, which is runtime-db
-> state, not app-db — EP-0001). The live `:data-schema` currently ships in
-> `login_uix` (rf2-384975); the Reagent and Helix siblings are being
-> brought into byte-for-byte parity under follow-up beads. It
+> state, not app-db — EP-0001). The live `:data-schema` ships in all three
+> siblings in byte-for-byte parity. It
 > proves **substrate parity**: byte-for-byte identical events, subs,
 > schemas, machine, and managed-HTTP stub driving three different reactive
 > view layers (Reagent `reg-view`, UIx `defui` + `use-subscribe`, Helix
