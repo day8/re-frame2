@@ -1,12 +1,19 @@
 # 02 — Views
 
-Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the same `reg-view` registration works against Reagent, UIx, and Helix; the same `frame-handle` and `frame-bound-fn` helpers compose across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
+Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `frame-handle` and `frame-bound-fn` helpers compose across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
 
-This chapter covers the registration surface (`reg-view`, `reg-view*`, `view`), the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
+There are **two registration lanes**, and you almost certainly want only one of them:
 
-## The view registry
+- **App-facing view registration** — what application authors use to register and render their own views. This is the `reg-view` macro (Reagent) plus rendering by Var reference. Read this if you are building screens.
+- **Tooling / host view registration** — what tools, dynamic hosts, and library code use to register views from *computed* ids and render them by id at runtime. This is `reg-view*` plus `(rf/view id)`. Read this only if you are embedding views you don't write at the call site — tool panels, story canvases, code-gen pipelines, plugin systems.
 
-The view registry is what `[my-view "arg"]` resolves against. Every view you register lives in it; every view that emits hiccup ends up rendered through it. The registry is keyed by id (a keyword, conventionally `(keyword *ns* sym)` so the view's id matches its symbol).
+If you're not sure, you're an application author: use the app-facing lane and skip the tooling lane entirely.
+
+This chapter also covers the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
+
+## App-facing view registration
+
+This is the lane for application authors. You register a view with `reg-view`, render it by Var reference, and that's the whole story for the 80% case. The view registry that backs this is what `[my-view "arg"]` resolves against: every view you register lives in it, keyed by id (a keyword, conventionally `(keyword *ns* sym)` so the view's id matches its symbol).
 
 ### `reg-view`
 
@@ -28,24 +35,7 @@ The view registry is what `[my-view "arg"]` resolves against. Every view you reg
   ```
 - **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
 
-### `reg-view*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-view* id render-fn)
-  (reg-view* id metadata render-fn)
-  ```
-- **Description**: The plain-fn surface beneath `reg-view`. No auto-def (the caller manages the Var or computed id), no auto-inject, no compile check. Reach for it when you need: computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var.
-
-### `view`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (view view-id) → render-fn
-  ```
-- **Description**: Runtime lookup handle. Returns the **registered render-fn**, not hiccup. Use in hiccup as `[(rf/view :id) args...]` when you need to late-bind a view by id (computed id, plugin-style dispatch, dynamic chrome).
+There is one app-facing exception that still lives in the macro family: Reagent **Form-3** components (`reagent.core/create-class`) aren't `defn`-shaped, so the `reg-view` macro can't wrap them. Those register through `reg-view*` — see [Tooling / host view registration](#tooling--host-view-registration) below, where the rest of the starred-form callers live.
 
 ### How `reg-view` reads
 
@@ -72,29 +62,53 @@ The macro accepts three shapes for the same registration. They produce the same 
 
 In all three cases the symbol `cart-line` is `def`-ed so you can write `[cart-line item]` from sibling code. The macro also injects `dispatch` and `subscribe` as lexical bindings so you can call them without the `rf/` prefix inside the body — this matters less than it used to (the `rf/` prefix is conventional) but the seam is preserved for muscle-memory and macro composition.
 
-### When to reach for `reg-view*`
+### Rendering an app-facing view
 
-The starred form is the right call when:
-
-- **The id is computed.** Code-gen pipelines, plugin systems, story / variant scaffolding — anywhere the id isn't a literal symbol at the call site.
-- **You don't want a Var.** Inside a `let` or a closure, or when the view is a one-off built from configuration data.
-- **You're writing a Form-3 component.** Reagent's `create-class` wraps a map of lifecycle methods around a render-fn; the call shape is `(rf/reg-view* :id (r/create-class {...}))`.
-- **You're consumer-side library code.** Libraries that ship registered views (a charting library, a table widget) often want to register without imposing a `def` on the consumer's namespace.
-
-The `*` follows Clojure's own `let` / `let*`, `fn` / `fn*` idiom — the un-starred form is the macro shorthand; the starred form is the underlying primitive.
-
-### The `view` lookup form
+In the app-facing lane you render a view by **Var reference** — the symbol `reg-view` `def`-ed:
 
 ```clojure
-[(rf/view :app/header) {:title "Cart"}]   ;; resolves the registered render-fn at render time
+[cart-line item]                ;; the canonical, source-readable form
 ```
 
-Two shapes coexist in hiccup:
+Reagent / UIx / Helix all resolve a function-in-tag-position by calling it with the trailing args. Bare keyword-tagged hiccup (`[:my-view "args"]`) is **removed in v2** — it was a v1 footgun that collided with HTML tag keywords; use the Var form. The by-id lookup form `[(rf/view :id) args]` exists too, but it belongs to the tooling lane below — application authors reaching for it usually want a plain Var reference instead.
 
-- **Var form** `[my-view arg1 arg2]` — the canonical, source-readable form. Reagent / UIx / Helix all resolve a function-in-tag-position by calling it with the trailing args.
-- **Lookup form** `[(rf/view :my/id) arg1 arg2]` — for late-binding by id. Same render outcome; different addressing scheme.
+## Tooling / host view registration
 
-Bare keyword-tagged hiccup (`[:my-view "args"]`) is **removed in v2** — it was a v1 footgun that collided with HTML tag keywords. Use the Var form or the lookup form.
+This is the lane for **tools, dynamic hosts, and library code** — not application screens. Reach for it when the thing rendering a view doesn't know the view at the call site: a tool panel hosting an arbitrary registered view, a story canvas that stores a view id in data, a code-gen pipeline that emits views from a manifest, or a plugin system that late-binds by id. It is built from two surfaces: `reg-view*` (register from a computed id or a non-`defn` render fn) and `view` (resolve a registered render-fn by id at runtime). If you're writing application views, you don't need either — use `reg-view` and Var references above.
+
+### `reg-view*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-view* id render-fn)
+  (reg-view* id metadata render-fn)
+  ```
+- **Description**: The plain-fn surface beneath `reg-view`. No auto-def (the caller manages the Var or computed id), no auto-inject, no compile check. The starred form is the right call when:
+    - **The id is computed.** Code-gen pipelines, plugin systems, story / variant scaffolding — anywhere the id isn't a literal symbol at the call site.
+    - **You don't want a Var.** Inside a `let` or a closure, or when the view is a one-off built from configuration data.
+    - **You're writing a Form-3 component.** Reagent's `create-class` wraps a map of lifecycle methods around a render-fn; the call shape is `(rf/reg-view* :id (r/create-class {...}))`. This is the one app-facing reason to touch the starred form.
+    - **You're consumer-side library code.** Libraries that ship registered views (a charting library, a table widget) often want to register without imposing a `def` on the consumer's namespace.
+- **Note**: The `*` follows Clojure's own `let` / `let*`, `fn` / `fn*` idiom — the un-starred form is the macro shorthand; the starred form is the underlying primitive. Inside a `reg-view*` body there's no auto-injected `dispatch` / `subscribe`; capture a `(rf/frame-handle)` at render and use its ops if the view needs frame-bound dispatch.
+
+### `view`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (view view-id) → render-fn
+  ```
+- **Description**: Runtime lookup handle. Returns the **registered render-fn**, not hiccup. Use in hiccup as `[(rf/view :id) args...]` when you need to late-bind a view by id — a host that resolves a stored view id, plugin-style dispatch, dynamic chrome. This is how tool shells host an arbitrary registered view: they read a view id out of data, resolve it with `(rf/view id)`, and render the result.
+- **Example**:
+  ```clojure
+  [(rf/view :app/header) {:title "Cart"}]   ;; resolves the registered render-fn at render time
+  ```
+
+The lookup form and the Var form produce the same render outcome — they differ only in addressing scheme. The Var form (`[my-view args]`) is the app-facing default; the lookup form (`[(rf/view :id) args]`) is for the tooling/host case where the id, not the symbol, is what the caller holds.
+
+### Keep internal tool panels out of app-facing docs
+
+A tool's own chrome — Story's panel grid, Xray's inspector views — is registered with `reg-view*` and hosted by id, but those panel components are *internal to the tool*, not part of the application author's view surface. When documenting an application, leave them out: an app author registers their screens with `reg-view` and never sees the host's panel registry. The tooling lane exists so that tools can host the app's views, not so that app authors adopt the tool's internals.
 
 ## The substrate-agnostic ergonomic surface
 
@@ -311,7 +325,7 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
   ```
 - **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
 
-The UIx / Helix adapters do **not** support `reg-view` (the macro is Reagent-specific in its `defn`-shape rewriting). UIx and Helix users register with `rf/reg-view*` when they need registry-keyed view addressing — most don't, because UIx and Helix components compose by Var reference like ordinary React components.
+The UIx / Helix adapters do **not** support `reg-view` (the macro is Reagent-specific in its `defn`-shape rewriting). For UIx and Helix the app-facing lane *is* native components plus the adapter hooks — most application views need no view registration at all, because UIx and Helix components compose by Var reference like ordinary React components. `reg-view*` is the tooling/host lane here too: reach for it only when something needs registry-keyed view addressing (a tool hosting the view by id, a code-gen pipeline).
 
 See [14 — Adapters](14-adapters.md) for the per-substrate detail.
 

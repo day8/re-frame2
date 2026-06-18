@@ -155,9 +155,18 @@ These costs are small; the wins above justify them.
 
 Pattern-RemoteData's `:status` field is the canonical home for loading state. Pattern-Boot makes the boot phase visible via `:rf/boot {:phase :authenticating}`. The Nine States example renders all loading states exhaustively. State machines naturally have `:loading` as a state with `:on` transitions to `:loaded` / `:error`. All of these compose cleanly because they share the explicit-state approach; a Suspense-based machinery would collide with all of them.
 
+## Two registration lanes: app-facing and tooling/host
+
+View registration sorts into two lanes that should be documented separately because they serve different callers:
+
+- **App-facing view registration** — the surface application authors use to register and render their own views: the `reg-view` macro (Reagent's `defn`-shape sugar) plus Var-reference rendering. This is the canonical, 80%-case lane.
+- **Tooling / host view registration** — the surface tools, dynamic hosts, and library code use to register views from *computed* ids and render them by id at runtime: `reg-view*` plus `(rf/view id)`. This lane has real adoption (Story and Xray host registered views by id; see [Calling a registered view](#calling-a-registered-view) and [`view`](#view--the-canonical-post-registration-lookup)) and is **not** to be removed or folded into the app-facing lane — it is a distinct contract with distinct callers.
+
+Both lanes write into the same view registry; the split is about *who registers and how they address the view*, not about two registries. App-facing docs should teach the `reg-view` lane without the tooling internals (host panel components, by-id hosting) mixed in; tooling and adapter authors get the `reg-view*` / `view` lane documented on its own. The remainder of this section specifies both surfaces.
+
 ## `reg-view` is the multi-frame contract
 
-`reg-view` is a **defn-shape macro**. It registers a render function under an auto-derived id, defs the symbol you supply to the wrapped (frame-aware) fn, and auto-injects two lexical bindings — `dispatch` and `subscribe` — at every call to the rendered fn.
+`reg-view` is a **defn-shape macro**. It registers a render function under an auto-derived id, defs the symbol you supply to the wrapped (frame-aware) fn, and auto-injects two lexical bindings — `dispatch` and `subscribe` — at every call to the rendered fn. It is the **app-facing lane**.
 
 ### Shape
 
@@ -200,7 +209,7 @@ The error message names the kind of value supplied and points at `reg-view*` —
 (re-frame.core/reg-view* id metadata render-fn)
 ```
 
-A plain function. No auto-def. No auto-inject. No compile-time check. Use when:
+The **tooling/host lane**'s registration primitive: a plain function. No auto-def. No auto-inject. No compile-time check. This is the surface tools and library code register against (and the one app-facing exception, Reagent Form-3, falls through to). Use when:
 - The id is computed at runtime (dynamic dispatch).
 - The render fn is computed (a library that generates views from data).
 - The body is Reagent Form-3 (`reagent.core/create-class`) — out of scope for the macro.
