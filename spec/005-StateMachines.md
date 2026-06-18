@@ -3816,8 +3816,9 @@ The handler resolves its id from the inbound event vector's first element (`:dra
 ### Level 3 — registered in a test frame
 
 ```clojure
-(rf/with-new-frame [f (rf/make-frame {:on-create [:my/init]})]
+(rf/with-new-frame [f (rf/make-frame {})]
   (rf/reg-event :my/editor {} (rf/make-machine-handler {...}))
+  (rf/dispatch-sync [:my/init] {:frame f})   ;; seed via a setup dispatch
   (rf/dispatch-sync [:my/editor [:event]] {:frame f})
   (assert ...))
 ```
