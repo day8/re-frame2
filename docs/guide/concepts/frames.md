@@ -56,6 +56,10 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
 
 Notice that `init!` created no frame. Nothing is implicit about which frame your root uses; you say so, once, at the root.
 
+!!! note "Three lanes meet at startup — keep them apart"
+
+    The two lines above are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:on-create` event, which seeds app-db or kicks a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, `current-adapter`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
+
 ## When you want more than one
 
 The genuine multi-frame cases, roughly in the order you'll meet them:
