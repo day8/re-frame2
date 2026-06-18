@@ -1093,16 +1093,92 @@
       {:recovery :no-recovery
        :extra    (cond-> {} (some? id) (assoc :id id))})))
 
+;; ---- data-driven removed event-registration names (rf2-ne2uk8) ------------
+;;
+;; The three retired public event registrars are described ONCE in the data
+;; table below, not as three near-identical bespoke stubs. Each row carries the
+;; behavioural facts the stub needs — the facade symbol it answers to, the
+;; exact `:rf.error/*` id it raises, the replacement surface it names, and the
+;; actionable conversion `:fix` that lands in the error `:reason`. The thin
+;; `^:no-doc` stubs that follow each delegate to `raise-removed-reg-event-by-
+;; row!`, which resolves the row and fans out on the always-on error channel +
+;; dev trace bus before throwing (via the shared `raise-removed-reg-event!`).
+;; Adding / retiring a name is a one-row edit, and the audit surface is the
+;; single literal vector — exactly the data-over-functions shape the
+;; removed-symbol audit wants. The stubs are plain `defn`s (NOT macro-
+;; generated), so they compile identically on JVM and CLJS.
+;;
+;; `:fix` is either a plain string or a `(fn [id] …)` of the offending id (one
+;; row needs the id woven into its message); the by-row thrower normalises both.
+
+(def ^:private removed-reg-event-names
+  "The EP-0018 retired public event-registration names, one row each — the
+  single audit surface for the removed event registrars (rf2-ne2uk8). A row is
+  `{:sym :error-kw :where :replacement :fix}`:
+    - `:sym`         the bare var symbol exported `^:no-doc` from this ns and
+                     aliased onto the `re-frame.core` facade;
+    - `:error-kw`    the exact `:rf.error/*` id the stub raises;
+    - `:where`       the `'rf/<name>` symbol the hard error attributes to;
+    - `:replacement` the public surface the error names as the fix;
+    - `:fix`         the actionable conversion woven into the error `:reason`
+                     (a string, or a `(fn [id] string)` when the id matters).
+  Adding / retiring a name is a one-row edit here; the per-name stub bodies
+  below are thin lookups into this table and never change."
+  [{:sym         'reg-event-db
+    :error-kw    :rf.error/reg-event-db-removed
+    :where       'rf/reg-event-db
+    :replacement "reg-event"
+    :fix         (str "destructure `:db` from the coeffects map and wrap the "
+                      "return in `{:db …}`: "
+                      "`(reg-event id (fn [{:keys [db]} ev] {:db BODY}))`.")}
+   {:sym         'reg-event-fx
+    :error-kw    :rf.error/reg-event-fx-removed
+    :where       'rf/reg-event-fx
+    :replacement "reg-event"
+    :fix         "it is the identical shape — just rename the call."}
+   {:sym         'reg-event-ctx
+    :error-kw    :rf.error/reg-event-ctx-removed
+    :where       'rf/reg-event-ctx
+    :replacement "reg-interceptor"
+    :fix         (str "express full-context work as a registered interceptor "
+                      "(`rf/reg-interceptor` with `:before` / `:after`) and "
+                      "reference it by id from a `reg-event` registration's "
+                      "`:interceptors` chain.")}])
+
+(def ^:private removed-reg-event-by-sym
+  "`removed-reg-event-names` indexed by bare `:sym` for the stubs' lookup."
+  (into {} (map (juxt :sym identity)) removed-reg-event-names))
+
+(defn ^:no-doc raise-removed-reg-event-by-row!
+  "Raise the EP-0018 retired-name hard error for `row` (one entry of
+  `removed-reg-event-names`) on a stale call carrying `args`. Resolves the
+  row's `:fix` (string or `(fn [id] string)`) against the offending id, then
+  fans out + throws via `raise-removed-reg-event!`. Every stub delegates here
+  so the throw path + per-name facts live in ONE place (the data table), not
+  in three near-duplicate bodies."
+  [row args]
+  (let [{:keys [error-kw sym where replacement fix]} row
+        id  (first args)
+        fix (if (fn? fix) (fix id) fix)]
+    (raise-removed-reg-event! error-kw (name sym) where id replacement fix)))
+
+;; The three retired names survive as thin `^:no-doc` facade stubs — each body
+;; is a one-line lookup into `removed-reg-event-names`, so the behavioural
+;; facts (error id, attributed symbol, replacement, conversion `:fix`) live
+;; ONCE in the data table rather than in three hand-maintained bodies. Plain
+;; `defn`s (not macro-generated) so they compile identically on JVM and CLJS —
+;; the data table, not codegen, is what makes this data-driven and keeps the
+;; removed-symbol surface auditable from one literal vector. Each var stays
+;; `^:no-doc` (dropped from the manifest generator + CLJS publics probe — no
+;; manifest row). Per spec/001-Registration.md §The retired event-registration
+;; names.
+
 (defn ^:no-doc reg-event-db
   "REMOVED in EP-0018 (no alias). Calling `reg-event-db` is the hard error
   `:rf.error/reg-event-db-removed`, naming `reg-event` as the replacement.
   See spec/001-Registration.md §The retired event-registration names."
   [& args]
-  (raise-removed-reg-event! :rf.error/reg-event-db-removed "reg-event-db"
-                            'rf/reg-event-db (first args) "reg-event"
-                            (str "destructure `:db` from the coeffects map and "
-                                 "wrap the return in `{:db …}`: "
-                                 "`(reg-event id (fn [{:keys [db]} ev] {:db BODY}))`.")))
+  (raise-removed-reg-event-by-row! (get removed-reg-event-by-sym 'reg-event-db) args))
 
 (defn ^:no-doc reg-event-fx
   "REMOVED in EP-0018 (no alias). Calling `reg-event-fx` is the hard error
@@ -1110,9 +1186,7 @@
   (the identical shape under the bare name). See spec/001-Registration.md
   §The retired event-registration names."
   [& args]
-  (raise-removed-reg-event! :rf.error/reg-event-fx-removed "reg-event-fx"
-                            'rf/reg-event-fx (first args) "reg-event"
-                            "it is the identical shape — just rename the call."))
+  (raise-removed-reg-event-by-row! (get removed-reg-event-by-sym 'reg-event-fx) args))
 
 (defn ^:no-doc reg-event-ctx
   "DEMOTED to a framework-internal primitive in EP-0018 (off the public
@@ -1121,13 +1195,7 @@
   replacement for application full-context work. See spec/001-Registration.md
   §The retired event-registration names."
   [& args]
-  (raise-removed-reg-event! :rf.error/reg-event-ctx-removed "reg-event-ctx"
-                            'rf/reg-event-ctx (first args) "reg-interceptor"
-                            (str "express full-context work as a registered "
-                                 "interceptor (`rf/reg-interceptor` with "
-                                 "`:before` / `:after`) and reference it by id "
-                                 "from a `reg-event` registration's "
-                                 "`:interceptors` chain.")))
+  (raise-removed-reg-event-by-row! (get removed-reg-event-by-sym 'reg-event-ctx) args))
 
 (defn clear-event
   "Unregister an event handler. Zero-arity clears every registered

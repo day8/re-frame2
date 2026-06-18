@@ -73,6 +73,79 @@
 ;; implementation-only drift fix (API.md + EP-0022 already correct) and rides
 ;; no catalogued category — just the actionable throw.
 
+;; ---- data-driven removed std-interceptor values (rf2-ne2uk8) ---------------
+;;
+;; The two removed standard interceptor values (`path` / `unwrap-interceptor`)
+;; are described ONCE in this table, not as two bespoke throwers. Unlike the
+;; EP-0018 reg-event removed names (which fan out on the always-on error
+;; channel + dev trace bus, per their Spec 009 catalogue rows), these are
+;; implementation-only drift fixes (API.md + EP-0022 were already correct) that
+;; ride no catalogued 009 category — they JUST throw the actionable
+;; `re-frame.error/throw-error!` hard error. The table holds each row's
+;; behavioural facts; the per-name stubs below are thin lookups, so adding /
+;; retiring a removed standard value is a one-row edit and the audit surface is
+;; one literal vector. `:msg` / `:extra` are `(fn [args] …)` so a row can weave
+;; the call args into its message + ex-data (only `path` needs the path vec).
+
+(def ^:private removed-std-interceptor-values
+  "The EP-0022 removed standard interceptor VALUES, one row each — the audit
+  surface for the removed std-interceptor names (rf2-ne2uk8). A row is
+  `{:sym :error-kw :where :msg :extra}`:
+    - `:sym`      the bare var symbol exported `^:no-doc` from this ns and
+                  aliased onto the `re-frame.core` facade;
+    - `:error-kw` the exact `:rf.error/*` id the stub raises;
+    - `:where`    the `'rf/<name>` symbol the hard error attributes to;
+    - `:msg`      `(fn [args] reason-string)` — the actionable replacement
+                  guidance (woven with the call args where it matters);
+    - `:extra`    `(fn [args] map)` — the `:extra` ex-data payload (or `nil`)."
+  [{:sym      'path
+    :error-kw :rf.error/path-removed
+    :where    'rf/path
+    :msg      (fn [args]
+                (str "`rf/path` is REMOVED in EP-0022 (no public path value "
+                     "constructor). Reference the framework-standard path "
+                     "interceptor by id in the handler's `:interceptors` chain: "
+                     "`{:interceptors [[:rf.interceptor/path "
+                     (pr-str (vec args)) "]]}`."))
+    :extra    (fn [args] {:got (vec args)})}
+   {:sym      'unwrap-interceptor
+    :error-kw :rf.error/unwrap-removed
+    :where    'rf/unwrap-interceptor
+    :msg      (fn [_args]
+                (str "`rf/unwrap-interceptor` is REMOVED in EP-0022 (no "
+                     "framework-standard unwrap value). Destructure the "
+                     "`[<id> <payload-map>]` payload in the handler arglist — "
+                     "`(fn [_ {:keys [a b]}] …)` — or register a project "
+                     "`:app/unwrap` interceptor with your own `:before` / "
+                     "`:after` for genuine chain-wide reshaping."))
+    :extra    (fn [_args] nil)}])
+
+(def ^:private removed-std-interceptor-by-sym
+  "`removed-std-interceptor-values` indexed by bare `:sym` for stub lookup."
+  (into {} (map (juxt :sym identity)) removed-std-interceptor-values))
+
+(defn- raise-removed-std-interceptor!
+  "Throw the EP-0022 removed-value hard error for `row` (one entry of
+  `removed-std-interceptor-values`) on a stale reference carrying `args`.
+  Resolves the row's `:msg` / `:extra` fns against the args, then throws via
+  the canonical `re-frame.error/throw-error!`. Does NOT fan out on the
+  error-emit channel (these ride no catalogued 009 category — the loud throw
+  IS the migration alarm). Every stub delegates here so the throw path + the
+  per-name facts live in ONE place (the data table)."
+  [row args]
+  (let [{:keys [error-kw where msg extra]} row
+        ex (extra args)]
+    (if (some? ex)
+      (error/throw-error! error-kw where (msg args) {:extra ex})
+      (error/throw-error! error-kw where (msg args)))))
+
+;; The removed standard values survive as thin `^:no-doc` facade stubs — each
+;; body is a one-line lookup into `removed-std-interceptor-values`, so the
+;; behavioural facts (error id, attributed symbol, message, ex-data) live ONCE
+;; in the table rather than in two hand-maintained bodies. Plain `defn`s (the
+;; data table, not codegen, is what makes this data-driven), each `^:no-doc`
+;; (dropped from the manifest generator + CLJS publics probe — no manifest row).
+
 (defn ^:no-doc path-removed!
   "REMOVED in EP-0022 (no alias). The public `rf/path` VALUE constructor is
   gone; the one path surface is the framework-registered factory ref
@@ -81,15 +154,7 @@
   as the replacement. See spec/API.md §Standard interceptors,
   EP-0022 §Registered interceptors, and docs/api/15-removed.md."
   [& path-segs]
-  (let [path-vec (vec path-segs)]
-    (error/throw-error!
-      :rf.error/path-removed
-      'rf/path
-      (str "`rf/path` is REMOVED in EP-0022 (no public path value "
-           "constructor). Reference the framework-standard path interceptor by "
-           "id in the handler's `:interceptors` chain: "
-           "`{:interceptors [[:rf.interceptor/path " (pr-str path-vec) "]]}`.")
-      {:extra {:got path-vec}})))
+  (raise-removed-std-interceptor! (get removed-std-interceptor-by-sym 'path) path-segs))
 
 ;; ---- unwrap: the removed standard value (EP-0022, rf2-3qeu38) --------------
 ;;
@@ -123,14 +188,8 @@
   those replacements. See spec/API.md §Standard interceptors,
   EP-0022 §Registered interceptors, and docs/api/15-removed.md."
   [& _args]
-  (error/throw-error!
-    :rf.error/unwrap-removed
-    'rf/unwrap-interceptor
-    (str "`rf/unwrap-interceptor` is REMOVED in EP-0022 (no framework-standard "
-         "unwrap value). Destructure the `[<id> <payload-map>]` payload in the "
-         "handler arglist — `(fn [_ {:keys [a b]}] …)` — or register a project "
-         "`:app/unwrap` interceptor with your own `:before` / `:after` for "
-         "genuine chain-wide reshaping.")))
+  (raise-removed-std-interceptor!
+    (get removed-std-interceptor-by-sym 'unwrap-interceptor) _args))
 
 ;; ---- standard :rf.interceptor/path (EP-0022 Slice C — FULL contract) -------
 ;;
