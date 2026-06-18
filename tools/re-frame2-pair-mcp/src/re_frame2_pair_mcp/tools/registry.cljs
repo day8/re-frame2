@@ -85,6 +85,7 @@
             [re-frame2-pair-mcp.tools.list-streams :as list-streams]
             [re-frame2-pair-mcp.tools.get-stream-controls :as get-stream-controls]
             [re-frame2-pair-mcp.tools.handler-meta :as handler-meta]
+            [re-frame2-pair-mcp.tools.describe-image :as describe-image]
             [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
@@ -277,6 +278,14 @@
     :handler    (ignoring-extra #(handler-meta/list-handlers-tool %1 %2))
     :cacheable? true
     :descriptor data/list-handlers}
+   {:name       "describe-image"
+    :handler    (ignoring-extra #(describe-image/describe-image-tool %1 %2))
+    ;; Pure read of a frame's resolved image generation (rf2-srobm0) — a
+    ;; function of the frame's sealed generation, cacheable like the other
+    ;; read tools. The generation is inert until reload-images!, so the
+    ;; precheck-hash cache opt-in is safe.
+    :cacheable? true
+    :descriptor data/describe-image}
    {:name       "set-operating-frame"
     :handler    (ignoring-extra #(operating-frame/set-operating-frame-tool %1 %2))
     ;; Mutates the per-session frame pin — NOT cacheable (the result is

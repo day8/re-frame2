@@ -684,3 +684,137 @@
 (deftest list-handlers-resource-scope-routes-through-registrar-list
   (testing "kind \"resource-scope\" emits a registrar-list form, never the machines enumerator"
     (async done (list-handlers-routes-through-registrar-list-test "resource-scope" ":resource-scope" done))))
+
+;; ---------------------------------------------------------------------------
+;; Frame-targeting — the EP-0023 forward direction (rf2-srobm0).
+;;
+;; The OPTIONAL `:frame` arg re-keys the lookup through THAT frame's running
+;; image generation — routing through the per-frame runtime fns
+;; `frame-registrar-describe` / `frame-registrar-list` (which consume the
+;; PUBLIC `(rf/handler-meta {:frame f …})` / `(rf/handler-ids {:frame f …})`
+;; facade reads). ABSENT ⇒ the byte-identical default path. PRESENT ⇒ the
+;; frame-id threaded into the per-frame form + stamped on the response.
+;; `:frame` + `:realm` are mutually exclusive (distinct address families);
+;; `:frame` + machine is rejected (machines are not in the resolver).
+;; ---------------------------------------------------------------------------
+
+(deftest handler-meta-frame-routes-through-frame-registrar-describe
+  (testing ":frame ⇒ the form uses the per-frame frame-registrar-describe runtime fn and stamps :frame"
+    (async done
+      (let [form (atom nil)
+            canned {:ns 'blue.core :line 1 :handler-fn-hash 7
+                    :rf.image/coordinate {:source :registered :ns "blue.core"}}]
+        (-> (with-form-capture! form canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
+                                                        :id    ":counter/inc"
+                                                        :frame ":blue/main"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "frame-registrar-describe")
+                                   "frame path routes through the per-frame runtime fn")
+                               (is (str/includes? @form ":blue/main")
+                                   "the frame-id is threaded into the form")
+                               (is (not (str/includes? @form "registrar-describe)"))
+                                   "NOT the default registrar-describe path")
+                               (is (true? (:ok? edn)))
+                               (is (= :blue/main (:frame edn))
+                                   "the resolved frame is stamped on the response")
+                               (is (= {:source :registered :ns "blue.core"}
+                                      (:rf.image/coordinate edn))
+                                   "the provenance coordinate rides through"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-default-path-has-no-frame
+  (testing "no :frame ⇒ the default registrar-describe path, no :frame key on the response"
+    (async done
+      (let [form (atom nil)
+            canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
+        (-> (with-form-capture! form canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (not (str/includes? @form "frame-registrar-describe")))
+                               (is (not (contains? edn :frame))
+                                   "default-path response carries NO :frame key (byte-identical)"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-rejects-frame-plus-realm
+  (testing ":frame + :realm ⇒ structured :frame-realm-mixed-address (distinct address families)"
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
+                                              :id    ":counter/inc"
+                                              :frame ":blue/main"
+                                              :realm ":shop/realm"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :frame-realm-mixed-address (:reason edn)))
+                     (is (= :blue/main (:frame edn)))
+                     (is (= :shop/realm (:realm edn))))
+                   (done)))))))
+
+(deftest handler-meta-rejects-frame-with-machine
+  (testing ":frame + kind=machine ⇒ structured :frame-unsupported-for-machine"
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind  "machine"
+                                              :id    ":auth/session"
+                                              :frame ":blue/main"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :frame-unsupported-for-machine (:reason edn)))
+                     (is (= :blue/main (:frame edn))))
+                   (done)))))))
+
+(deftest list-handlers-frame-routes-through-frame-registrar-list
+  (testing "list-handlers :frame ⇒ the per-frame frame-registrar-list runtime fn + stamps :frame"
+    (async done
+      (let [form (atom nil)]
+        (-> (with-form-capture! form [:counter/inc]
+              (fn []
+                (-> (hm/list-handlers-tool nil (args-js {:kind "event" :frame ":blue/main"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "frame-registrar-list")
+                                   "frame path routes through the per-frame runtime fn")
+                               (is (str/includes? @form ":blue/main"))
+                               (is (true? (:ok? edn)))
+                               (is (= :blue/main (:frame edn))
+                                   "the resolved frame is stamped on the response"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest list-handlers-rejects-frame-plus-realm
+  (testing "list-handlers :frame + :realm ⇒ :frame-realm-mixed-address"
+    (async done
+      (-> (hm/list-handlers-tool nil (args-js {:kind  "event"
+                                               :frame ":blue/main"
+                                               :realm ":shop/realm"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :frame-realm-mixed-address (:reason edn))))
+                   (done)))))))
+
+(deftest list-handlers-rejects-frame-with-machine
+  (testing "list-handlers :frame + kind=machine ⇒ :frame-unsupported-for-machine"
+    (async done
+      (-> (hm/list-handlers-tool nil (args-js {:kind "machine" :frame ":blue/main"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :frame-unsupported-for-machine (:reason edn))))
+                   (done)))))))
+
+(deftest frame-arg-is-optional-in-descriptors
+  (testing "the :frame property is present but NOT required on both tools"
+    (doseq [tool-name ["handler-meta" "list-handlers"]]
+      (let [{:keys [required properties]} (:inputSchema (find-descriptor tool-name))]
+        (is (contains? properties :frame)
+            (str tool-name " exposes the optional :frame property"))
+        (is (not (contains? (set required) "frame"))
+            (str tool-name " does not require :frame (default registrar is the common case)"))))))
