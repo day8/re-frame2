@@ -355,6 +355,7 @@ preserving first-seen order.
 | `:examples/login-with-stories` | http://localhost:8041/ · `/#/stories` |
 | `:examples/counter-with-stories` | http://localhost:8042/ · `/#/stories` |
 | `:examples/login-form` | http://localhost:8043/ · `/#/stories` |
+| `:examples/linearlite` | http://localhost:8044/ |
 
 The build→port table mirrors the `:dev-http` map in `shadow-cljs.edn`.
 

@@ -90,11 +90,12 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           8033 machine-epochs
 //                                           8034 edn-inspector
 //                                           8035 managed-http
-//   8040-8043   Story showcases           :dev-http (shadow-cljs.edn):
-//                                           8040 nine-states-with-stories
+//   8040-8044   Story showcases +         :dev-http (shadow-cljs.edn):
+//               worked examples             8040 nine-states-with-stories
 //                                           8041 login-with-stories
 //                                           8042 counter-with-stories
 //                                           8043 login-form
+//                                           8044 linearlite (plain example)
 //   805x        examples orchestrator     DEFAULT_PORT in
 //                                           examples/scripts/examples-port.cjs
 //                                           (8050; pre-flight + forward scan).
@@ -102,7 +103,7 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           8060 tenant-switcher (rf2-5e22yc)
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
-// The :dev-http bands (8030-8035 / 8040-8043 / 8765) are mirrored in the
+// The :dev-http bands (8030-8035 / 8040-8044 / 8765) are mirrored in the
 // DEV_HTTP map below (READ-only — shadow-cljs.edn is hot-zone). The 805x
 // examples band is NOT a :dev-http port — it is the test-orchestrator's
 // http-server default, resolved at runtime — so it lives only here + in
@@ -126,6 +127,9 @@ const DEV_HTTP = {
   ':examples/login-with-stories': { port: 8041, story: true },
   ':examples/counter-with-stories': { port: 8042, story: true },
   ':examples/login-form': { port: 8043, story: true },
+  // rf2-tideyl — Linearlite optimistic-board example (804x band, plain
+  // build: no Story shell, so no `story: true`).
+  ':examples/linearlite': { port: 8044 },
   // rf2-5e22yc — top-level tenant-switcher testbed (806x band).
   ':testbeds/tenant-switcher': { port: 8060 },
 };
