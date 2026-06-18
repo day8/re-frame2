@@ -57,7 +57,7 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
 | Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
 | Assertion: read app-db | `(rf/app-db-value :test-frame)` |
-| Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :auth/state-machine])` for storage-layer assertions) |
+| Assertion: read snapshot | `@(rf/subscribe [:rf/machine :auth/state-machine])` (or `(get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
 | Machine cleanup on destroy | `(rf/destroy-frame! f)` — disposes sub-cache, stops router, clears overrides |
 | Static sub-graph inspection | `(rf/sub-topology)` |
@@ -657,10 +657,10 @@ Earlier ranks are cheaper and catch a tighter bug class; later ranks catch view-
 ### Reading machine snapshots
 
 ```clojure
-(is (= :authenticated (:state @(rf/sub-machine :auth/state-machine {:frame :test-frame}))))
+(is (= :authenticated (:state @(rf/subscribe [:rf/machine :auth/state-machine] {:frame :test-frame}))))
 ```
 
-`sub-machine` is **not** one of the three test-surface namespaces above — it ships from `re-frame.machines` (sugar over the framework `:rf/machine` sub, per [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-sub-machine)). A test reaching it `:require`s `[re-frame.machines :as machines]` (shown here through the `rf/` alias for brevity). For a non-reactive storage-layer read, `(get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :auth/state-machine])` reads the snapshot directly from runtime-db with no subscription. Pure transition logic is tested without a frame at all via `machine-transition` ([Pattern 4](#pattern-4--pure-machine-simulation-no-frame)).
+A machine snapshot is read through the ordinary `subscribe` test surface — there is no machine-special call site. The canonical read is the registered `[:rf/machine <machine-id>]` subscription vector (the framework-shipped `:rf/machine` sub, per [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub)), so no extra namespace beyond the core test surface is required. For a non-reactive storage-layer read, `(get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :auth/state-machine])` reads the snapshot directly from runtime-db with no subscription. Pure transition logic is tested without a frame at all via `machine-transition` ([Pattern 4](#pattern-4--pure-machine-simulation-no-frame)).
 
 ### Asserting on effects (without firing them)
 

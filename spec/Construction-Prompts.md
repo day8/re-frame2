@@ -366,7 +366,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf.runtime/machines :snapshots <machine-id>]` in the frame's **runtime-db** partition (not app-db). For id `:auth.login/flow`, the snapshot is at `[:rf.runtime/machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own runtime-db and thus its own `[:rf.runtime/machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
-**Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/sub-machine :auth.login/flow)` returns the snapshot (sugar over `@(rf/subscribe [:rf/machine :auth.login/flow])`) — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+**Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/subscribe [:rf/machine :auth.login/flow])` returns the snapshot — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
 **Strict encapsulation.** Actions and guards see `{:state :data}` only — *no `:db`, no cofx*. Cross-cutting reads pass through the event payload; cross-cutting writes go via `:fx [[:dispatch <named-event>]]`. Action effect maps are `{:data {...} :fx [...]}` — symmetric with `reg-event`'s `{:db :fx}`. The named-bounce-event pattern is a feature, not a tax: it makes the cross-cutting concern visible in the trace, the registry, and 10x's event log (per [005 §Strict encapsulation](005-StateMachines.md#strict-encapsulation--actions-only-see-their-own-data)).
 
@@ -561,13 +561,13 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
     (is (= :submitting (:state @(rf/subscribe [:rf/machine :auth.login/flow] {:frame f}))))))
 ```
 
-**Template — view consuming `sub-machine`:**
+**Template — view consuming `[:rf/machine <id>]`:**
 
-The framework-registered `:rf/machine` sub returns the snapshot for any machine; the wrapper `sub-machine` is the canonical user-facing form:
+The framework-registered `:rf/machine` sub returns the snapshot for any machine; the canonical user-facing form is the ordinary `[:rf/machine <id>]` subscription vector:
 
 ```clojure
 (rf/reg-view login-form []
-  (let [{:keys [state data]} @(rf/sub-machine :auth.login/flow)]
+  (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
     [:form
      (case state
        :idle        [submit-button]
@@ -604,7 +604,7 @@ For projections, compose against `:rf/machine` via `:<-`:
 - No `:db` in action effect maps — cross-cutting writes go via `:fx [[:dispatch <named-event>]]`.
 - Cross-cutting reads come through the event payload, not from `app-db`.
 - Cross-machine reuse of a guard/action is via a Clojure var referenced from each machine's `:guards` / `:actions` map — not via a global registry.
-- Views read state via `@(rf/sub-machine <machine-id>)` (or the explicit `@(rf/subscribe [:rf/machine <machine-id>])`); no manual `reg-sub` over `[:rf.runtime/machines :snapshots ...]`.
+- Views read state via `@(rf/subscribe [:rf/machine <machine-id>])`; no manual `reg-sub` over `[:rf.runtime/machines :snapshots ...]`.
 - Transition table conforms to `:rf/transition-table` schema (per [Spec-Schemas](Spec-Schemas.md)).
 - Level-1 headless test passes via `machine-transition` (no event dispatch needed).
 - If the machine has terminal states, they're marked `:meta {:terminal? true}`.

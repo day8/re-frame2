@@ -349,7 +349,7 @@ The former single reserved app-db root `:rf/runtime` is **retired**. Framework d
 
 ## Reserved runtime-db keys
 
-Runtime-db is a map whose top-level children are **framework-owned subsystem sub-trees**, each qualified under `:rf.runtime/*`. The runtime owns them; user code MUST NOT write under them directly — it reaches subsystem state only through public framework subscriptions (`sub-machine`, `[:rf.route/*]`) and tool/full-frame APIs (per [002 §Subscriptions read the partition they belong to](002-Frames.md#subscriptions-read-the-partition-they-belong-to)). The reserved set is **fixed-and-additive**: existing children cannot be repurposed; new ones (e.g. the post-v1 `:rf.runtime/resources`) are added by Spec change.
+Runtime-db is a map whose top-level children are **framework-owned subsystem sub-trees**, each qualified under `:rf.runtime/*`. The runtime owns them; user code MUST NOT write under them directly — it reaches subsystem state only through public framework subscriptions (`[:rf/machine <id>]`, `[:rf.route/*]`) and tool/full-frame APIs (per [002 §Subscriptions read the partition they belong to](002-Frames.md#subscriptions-read-the-partition-they-belong-to)). The reserved set is **fixed-and-additive**: existing children cannot be repurposed; new ones (e.g. the post-v1 `:rf.runtime/resources`) are added by Spec change.
 
 This table is the **canonical home for the reserved `:rf.runtime/*` key set** — [Runtime-Subsystems.md](Runtime-Subsystems.md), which names the five-clause contract every one of these children satisfies, references this table for clause 1 (subtree) rather than duplicating it. Each child also carries a grading row there (and, for the resource trio, in [016 §Runtime-subsystem graduation](016-Resources.md#runtime-subsystem-graduation)).
 
@@ -435,7 +435,7 @@ The reserved set of framework-shipped sub-ids:
 | `[:rf/route]` / `[:rf.route/id]` / `[:rf.route/params]` / `[:rf.route/query]` / `[:rf.route/fragment]` / `[:rf.route/transition]` / `[:rf.route/error]` / `[:rf.route/chain]` | Route-related reads | 012 |
 | `[:rf/pending-navigation]` | The pending-navigation slot (or `nil`) — populated when a `:can-leave` guard rejects; reads the runtime-db projection. | 012 |
 
-For the user-facing API surface (signatures, status, cross-references) see [API.md](API.md). For machine read mechanics see [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+For the user-facing API surface (signatures, status, cross-references) see [API.md](API.md). For machine read mechanics see [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
 ## Cross-MCP indicator-field vocabulary (suppression counters)
 

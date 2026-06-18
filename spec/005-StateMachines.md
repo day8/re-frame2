@@ -795,7 +795,7 @@ What this gives:
 - **One id, one registration.** Reuses the `:event` registry kind. `(registrations :event)` enumerates every machine alongside every other event handler; `(handler-meta :event :drawer/editor)` carries `:rf/machine? true` so tooling can identify it. The snapshot's location in `runtime-db` is fixed and runtime-managed (see [§Where snapshots live](#where-snapshots-live)).
 - **Standard dispatch.** `dispatch` and `dispatch-sync` route to a machine the same way they route to any handler.
 - **Hot-reload.** Re-eval of the registration replaces the table; live snapshots pick up the new interpretation on their next event.
-- **Reading the snapshot.** Views read the snapshot via the framework-shipped `:rf/machine` sub — `@(rf/subscribe [:rf/machine :drawer/editor])` yields `{:state ... :data ...}` (or `nil` if not yet initialised). See [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine).
+- **Reading the snapshot.** Views read the snapshot via the framework-shipped `:rf/machine` sub — `@(rf/subscribe [:rf/machine :drawer/editor])` yields `{:state ... :data ...}` (or `nil` if not yet initialised). See [§Subscribing to machines via the `:rf/machine` sub](#subscribing-to-machines-via-the-rfmachine-sub).
 
 Sub-events are how the machine receives its inputs:
 
@@ -2350,7 +2350,7 @@ Symmetry between singleton and spawned:
 | Singleton | `:drawer/editor` (explicit) | `[:rf.runtime/machines :snapshots :drawer/editor]` | a registrar entry registered at boot via `reg-event`; outlives any one frame's value |
 | Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf.runtime/machines :snapshots :request/protocol#42]` | the SNAPSHOT's presence — no per-instance registrar entry; resolved on dispatch from the snapshot's `:rf/machine-type`; reverts with the frame value |
 
-Both are addressable by `dispatch` (`[<id> <event>]`). Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/subscribe [:rf/machine actor-id])`. A singleton appears in `(registrations :event)`; a spawned actor does not (its liveness is its snapshot) — enumerate live actors via `[:rf.runtime/machines :snapshots]` instead, per [§Querying machines](#querying-machines).
+Both are addressable by `dispatch` (`[<id> <event>]`). Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via the `:rf/machine` sub](#subscribing-to-machines-via-the-rfmachine-sub)) — the actor-id is just the argument: `@(rf/subscribe [:rf/machine actor-id])`. A singleton appears in `(registrations :event)`; a spawned actor does not (its liveness is its snapshot) — enumerate live actors via `[:rf.runtime/machines :snapshots]` instead, per [§Querying machines](#querying-machines).
 
 ### Spawn lifecycle — ordering
 
@@ -3686,7 +3686,7 @@ User-facing call sites:
 
 See also [API.md §Machines](API.md#machines).
 
-## Subscribing to machines via `sub-machine`
+## Subscribing to machines via the `:rf/machine` sub
 
 Machines are read like any other slice of frame-state — through a registered subscription (the snapshot lives in the runtime-db partition, per [§Where snapshots live](#where-snapshots-live)). The framework ships **`:rf/machine`** as standard infrastructure (alongside `:dispatch` fx, the standard `[:rf.interceptor/path <path-vector>]` interceptor, and the rest of the framework-supplied registry entries):
 

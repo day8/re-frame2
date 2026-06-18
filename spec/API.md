@@ -926,7 +926,7 @@ v1 transition-table grammar subset is enumerated in [005 §Capability matrix](00
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data}` (or `nil` if not yet initialised) | 005 |
 
-The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
 ---
 
