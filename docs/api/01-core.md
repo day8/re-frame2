@@ -146,13 +146,19 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (make-frame opts) → :rf.frame/<id>
+  (make-frame opts)             ; → live frame object
+  (make-frame opts descriptors) ; → live frame object
   ```
-- **Description**: Anonymous-frame shortcut. The id is gensym'd; useful for tests, transient sandboxes, and the SSR per-request frame pattern.
+- **Description**: The EP-0023 **object constructor**: builds a live frame from an `:images` vector and **returns the runnable live frame object** (not a gensym keyword). `dispatch` / `subscribe` / `destroy-frame!` accept the object directly (or its `:id`). Useful for per-mount lifecycles — devcards, modal stacks, multiple live instances of a widget, dynamic tabs, tests, and the SSR per-request frame pattern. The `reg-frame` named path is the front-porch surface; `make-frame` is the advanced per-instance one. Opts: `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the process-local live-frame registry, fail-loud on a duplicate id), `:initial-db` (seed `app-db` state), `:capabilities`, and `:adapter`. A frame created **without** an `:id` bypasses the registry — a direct local reference for tests and harnesses. Lifecycle is the caller's responsibility — pair `make-frame` with a `destroy-frame!` in the `:finally` of `r/with-let` (or an equivalent unmount hook). **Record-only config keys fail loud.** `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, and the like raise `:rf.error/make-frame-record-only-key` rather than silently dropping. That record-config surface (with the gensym-id behaviour the old per-instance helper had) lives on the advanced `re-frame.frame/make-frame`; the front-porch `reg-frame` carries it for named frames. See [spec/002 §Per-instance frames](../../spec/002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0023](../EP/EP-0023-image-loaded-frames.md).
 - **Example**:
   ```clojure
-  (rf/with-new-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
-    (rf/dispatch [:temp/set-celsius 21]))
+  (defn counter-widget [label]
+    (r/with-let [f (rf/make-frame {:images     [counter-image]
+                                   :initial-db {:count 0}})]
+      [rf/frame-provider {:frame f}
+       [counter-view label]]
+      (finally
+        (rf/destroy-frame! f))))
   ```
 - **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
