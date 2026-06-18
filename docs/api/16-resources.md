@@ -336,7 +336,9 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
 
 > **Internal replies — do not dispatch.** The `:rf.mutation.internal/*` replies (and the `:rf.mutation/*` trace family — `started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`, carrying the instance id) are framework-internal; user code MUST NOT dispatch them.
 
-## Introspection
+## Introspection and projection (tool/test lane)
+
+These direct functions are the **tool/test projection lane** — not an app-read API. `resource-meta` / `mutation-meta` project the **registration** (the registered spec); `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame. They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. **App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#subscriptions-passive)**, never through these functions, which do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [Guide ch.27 §Three lanes](../guide/concepts/server-state.md#three-lanes--registering-causing-projecting) and the [Spec 016 lane table](../../spec/016-Resources.md#public-api).
 
 `:frame` is an explicit, app-registered frame id ([EP-0002](../EP/EP-0002-frame-target-resolution.md) — no ambient `:rf/default` fallback; a frameless call with no resolvable context fails closed).
 

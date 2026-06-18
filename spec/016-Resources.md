@@ -555,6 +555,17 @@ Two ledger-design points govern what rides the restore/hydration/epoch wire:
 
 ## Public API
 
+The surface splits into **four lanes**, and they must not be read as competing read APIs. Keep them distinct:
+
+| Lane | Spelling | Who calls it |
+|---|---|---|
+| **Registration** | `reg-resource` / `clear-resource`, `reg-mutation` / `clear-mutation`, `reg-resource-scope` / `clear-resource-scope` (functions) | Author, once, at boot. Declares a handler; does **not** fetch or read state. |
+| **Commands (causal)** | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.mutation/execute …]`, … (dispatched event vectors) | App events / routes / machines. These **cause** work; they are not reads. |
+| **App reads (passive)** | `[:rf.resource/state …]`, `[:rf.resource/data …]`, `[:rf.mutation/state …]`, … (subscription vectors) | Views, via `subscribe`. The **only** lane app UI uses to project runtime state. |
+| **Tool/test projections** | `resource-meta`, `resource-state`, `resources`, `mutation-meta`, `mutation-state`, `mutations` (direct functions) | Tools (Xray), tests, SSR plumbing — an explicit-frame snapshot read. **Not** an app-UI alternative to the subscription lane. |
+
+The load-bearing distinction is between **registration** (the function that records a `:resource` / `:mutation` / `:resource-scope` handler in the registrar — analogous to `reg-event` / `reg-sub`) and **projection** (reading the runtime state that handler produces). Registering a resource never reads its cache, and projecting its state never registers anything. App code projects through the **passive subscription** lane; the direct `resource-state` / `mutation-state` functions are the **tool/test projection** of the same runtime state at an explicit frame, used where there is no reactive subscription context (Xray, a unit test, an SSR serializer) — they are deliberately **not** a second app-read API competing with the subs.
+
 ### Registration
 
 ```clojure
@@ -569,7 +580,7 @@ Two ledger-design points govern what rides the restore/hydration/epoch wire:
 (rf/resolve-resource-scope db scope-id)          ;; resolver helper: PURELY resolve a named scope against a db value (no trace)
 ```
 
-`clear-resource` is a **registration-lifecycle** operation, not the normal cache invalidation API. Application code uses `:rf.resource/invalidate-tags`, `:rf.resource/remove`, or `:rf.resource/clear-scope` for data-lifecycle work. When a resource registration is cleared, the implementation MUST also dispose resource-runtime state for that resource id in each affected frame: release owner indexes, cancel timers/host handles, abort in-flight requests where possible, suppress late replies by generation, remove tag-index rows, and emit a trace.
+`clear-resource` is a **registration-lifecycle** operation — the `clear-` registrar-removal inverse of `reg-resource`, per the [Conventions tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — **not** the normal cache-invalidation API. Application code uses the data-lifecycle **events** `:rf.resource/invalidate-tags`, `:rf.resource/remove`, or `:rf.resource/clear-scope` for cache work. The vocabulary overlap is deliberate and settled: `clear-resource` (a registration-lifecycle **function**, no bang) and `:rf.resource/clear-scope` (a causal cache **event vector**) live in different registers — a registrar-removal verb vs. a dispatched event — so they never collide at a call site, and the registration trio keeps the same `clear-*` spelling as the rest of the registrar family (`clear-event`, `clear-sub`, `clear-fx`, …). When a resource registration is cleared, the implementation MUST also dispose resource-runtime state for that resource id in each affected frame: release owner indexes, cancel timers/host handles, abort in-flight requests where possible, suppress late replies by generation, remove tag-index rows, and emit a trace.
 
 Three registrar kinds belong to this artefact: **`:resource`** (`reg-resource` / `clear-resource`), **`:mutation`** (`reg-mutation` / `clear-mutation`), and **`:resource-scope`** (`reg-resource-scope` / `clear-resource-scope`) — each a distinct kind in the [Spec 001 kind taxonomy](001-Registration.md#registry-model--the-canonical-kind-keyword-set), late-bound by the optional Resources artefact (an app that omits the artefact registers none of them), enumerable via `(rf/registrations :resource)` / `(rf/registrations :mutation)` / `(rf/registrations :resource-scope)` and inspectable via `(rf/handler-meta :resource-scope <id>)`. Do **not** add a `:query` public kind (it collides with route query params and prior-art names).
 
@@ -628,13 +639,15 @@ The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.inter
 
 **No v1 subscription fetches.** A subscription is a pure passive read; it resolves scope per [§Subscription-side scope resolution](#subscription-side-scope-resolution) and raises `:rf.error/resource-sub-unresolved-scope` rather than reading global or returning a silent `:idle`. A future `:rf.resource/live` side-effecting convenience, if added, MUST be explicitly documented as side-effecting and kept separate from the recommended route/event pattern.
 
-### Introspection
+### Introspection and projection (tool/test only)
 
 ```clojure
-(rf/resource-meta :article/by-slug)
-(rf/resource-state {:resource … :scope … :params … :frame :app/main})
-(rf/resources      {:frame :app/main})
+(rf/resource-meta :article/by-slug)                                  ;; registration projection: the registered spec
+(rf/resource-state {:resource … :scope … :params … :frame :app/main}) ;; runtime projection: one entry, explicit frame
+(rf/resources      {:frame :app/main})                                ;; registry + live entries for a frame
 ```
+
+These direct functions are the **tool/test projection lane**, not an app-read API. `resource-meta` projects the **registration** (the registered spec), while `resource-state` / `resources` project **runtime state** (the live cache entries) at an explicit frame — the same runtime state the `[:rf.resource/*]` subscriptions derive, read here without a reactive subscription context. Their callers are Xray, unit tests, and SSR/serialization plumbing. **App views MUST use the passive subscription lane** ([§Subscriptions](#subscriptions-passive)) — these functions take a one-shot, non-reactive snapshot and do not re-render on change, so reaching for them in a view is a category error (registering vs. projecting vs. subscribing are three different jobs; see the [lane table](#public-api)).
 
 `:frame` is an explicit, app-registered frame id (`:app/main` is illustrative). Per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) there is no ambient `:rf/default` fallback: the frame target is carried explicitly, and a frameless introspection call with no resolvable context fails closed rather than silently inspecting the wrong frame.
 

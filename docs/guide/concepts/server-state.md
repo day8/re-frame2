@@ -66,6 +66,22 @@ Once it's registered, a **cause** is what makes it fetch — a cause is just the
        [article-view (:data state)]])))
 ```
 
+### Three lanes — registering, causing, projecting
+
+Those three steps are three different jobs, and the surface is much easier to hold once you stop reading them as competing APIs. **Registering a resource is not the same as reading its state**, and neither is the same as causing it to fetch:
+
+| Lane | What it does | The spelling | Who uses it |
+|---|---|---|---|
+| **Register** | Declare the handler, once, at boot | `(rf/reg-resource …)` / `(rf/reg-mutation …)` — plain functions | Author |
+| **Cause** | Make a fetch or a write happen | `(rf/dispatch [:rf.resource/ensure …])`, `[:rf.mutation/execute …]` — event vectors | Routes, events, machines |
+| **Project (app read)** | Read the runtime state into a view | `@(subscribe [:rf.resource/state …])` — subscription vectors | Views |
+
+`reg-resource` records a handler in the registrar — exactly like `reg-event` or `reg-sub` records one. It does **not** fetch anything and it does **not** read any cache; it only teaches the runtime *how* to. The cache only fills when a cause fires, and a view only sees it through a subscription. So "I registered the resource but my view is empty" almost always means a cause hasn't fired yet, not that registration failed.
+
+!!! note "`resource-state` and `mutation-state` are tool/test projections, not a second app-read API"
+
+    You'll also find direct functions — `(rf/resource-state {:resource … :scope … :params … :frame …})`, `(rf/resources {:frame …})`, `(rf/mutation-state {:instance … :frame …})`. These project the *same* runtime state the `[:rf.resource/*]` subscriptions read, but as a one-shot, non-reactive snapshot at an explicit frame. They exist for tools (Xray), unit tests, and SSR serialization — places with no reactive subscription context. **In a view, always project through a subscription**: a `resource-state` call won't re-render when the data changes, so reaching for it in UI is reading the right value through the wrong lane.
+
 ## Routes declare what a page needs
 
 The cleanest cause is the page itself, because a page already knows what data it needs. `:resources` is [route](routing.md) metadata that says, in effect, "this page needs this server state":
