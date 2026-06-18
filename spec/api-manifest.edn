@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 510,
+ :var-count 498,
  :tier-vocab
  [:front-porch
   :advanced
@@ -75,11 +75,7 @@
   {:namespace "re-frame.core", :var "->interceptor*", :tier :advanced, :kind :fn, :owner "002", :status "EP-0022 (internal lowering only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "active-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "adapter-disposed?", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "app", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "app-db-value", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "app-owns", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "app-registrations", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "app-requires", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "assert-process-local-frame-id!", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "assoc-coeffect", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "assoc-effect", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
@@ -106,7 +102,6 @@
   {:namespace "re-frame.core", :var "dispatch-sync", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "dispatch-sync*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "dispatch-to-system", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "dispose-realm!", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "domino-bucket", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "elide-wire-value", :tier :tooling, :kind :fn, :owner "009", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "elision-collect-sensitive-values", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
@@ -125,7 +120,6 @@
   {:namespace "re-frame.core", :var "frame-ids", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-meta", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-provider", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.core", :var "frame-realm", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-state-value", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "get-coeffect", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "get-effect", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
@@ -138,18 +132,15 @@
   {:namespace "re-frame.core", :var "image", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "init!", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "init-platform", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "install!", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-adapter!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-managed-request-stubs!", :tier :testing, :kind :fn, :owner "014", :status "v1 (optional capability, dev/test)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "installed-app", :tier :tooling, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "machine-has-tag?", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame-handle", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "migration-explain", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "migration-map", :tier :advanced, :kind :var, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "module", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-meta", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-state", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutations", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
@@ -157,8 +148,6 @@
   {:namespace "re-frame.core", :var "project-error", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "projected-history", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "projected-record", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "realm", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "realm-ids", :tier :tooling, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "redact-derived-large-values", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "redact-derived-values", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "redact-matching-large-values", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
@@ -189,7 +178,6 @@
   {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "register-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "registrations", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "reinstall!", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reload-images!", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}

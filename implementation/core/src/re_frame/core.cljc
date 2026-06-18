@@ -88,23 +88,20 @@
             ;; bundle-isolation neutral and production-surviving (the
             ;; always-on observability stream is NOT DCE'd, by design).
             [re-frame.observability :as observability]
-            ;; EP-0013 D2 stages 5-7: the app-value ns. Stage 5 (rf2-yozjzo)
-            ;; published the `:app-value/project` late-bind hook
-            ;; `re-frame.realm/installed-app` consults to project the realm's
-            ;; installed app VALUE over its registrar (an ns-load side-effect —
-            ;; bound at boot). Stage 6 (rf2-zlhgr6) added the PUBLIC
-            ;; construction half (`module` / `app` + the inspectors
-            ;; `app-registrations` / `app-owns` / `app-requires`). Stage 7
-            ;; (rf2-xq4go0) adds the installation half — `install!` /
-            ;; `reinstall!` SEAT an app value into a realm (capability-checked,
-            ;; descriptor-lowered into the realm's registrar). All re-exported
-            ;; below under `rf/module` / `rf/app` / `rf/app-*` / `rf/install!`
-            ;; / `rf/reinstall!`. The ns pulls only `re-frame.realm` +
-            ;; `re-frame.registrar` + `re-frame.late-bind` (core spine), so it
-            ;; is bundle-isolation neutral; construction is PURE inert data, and
-            ;; install! defaults to the default realm so the `reg-*` sugar path
-            ;; is byte-identical. `rf/realm` (the public realm constructor) is
-            ;; a later stage and NOT shipped here.
+            ;; EP-0013 D2: the app-value ns — EP-0023 RETAINED-INTERNAL substrate.
+            ;; EP-0023 (rf2-pl97nd.2) REMOVED the public facade re-exports it once
+            ;; backed (`rf/module` / `rf/app` / `rf/app-*` / `rf/install!` /
+            ;; `rf/reinstall!`); the ns stays as the registrar-backed installation
+            ;; path during migration. It is still REQUIRED HERE for its ns-load
+            ;; SIDE-EFFECT — it publishes the `:app-value/project` late-bind hook
+            ;; `re-frame.realm/installed-app` consults to project a realm's
+            ;; installed app VALUE over its registrar (bound at boot; a static
+            ;; require would close a load cycle), and core wires the descriptor
+            ;; lowering hooks (`:app-value/install-descriptor!` et al.) it consults
+            ;; (see below). The ns pulls only `re-frame.realm` + `re-frame.registrar`
+            ;; + `re-frame.late-bind` (core spine), so it is bundle-isolation
+            ;; neutral. The alias is no longer referenced directly now the facade
+            ;; re-exports are gone; the require is load-side-effect-only.
             [re-frame.app-value :as app-value]
             ;; EP-0013 D1 stage 8 (rf2-blibek): the realm-targeted QUERY
             ;; readers — `realm/realm-registrations` / `realm-handler-meta` /
@@ -1987,14 +1984,12 @@
   §`:rf/frame-meta`."}
   frame-meta   frame/frame-meta)
 
-(def ^{:doc "Return the id of the runtime realm a frame belongs to —
-  `(frame-realm frame-id)` — or nil for an unknown / destroyed frame. In a
-  single-realm app this is the default realm id for every frame. The
-  frame-side half of the (realm, frame) addressing model (EP-0013 disposition
-  3): pair it with `realm-ids` (the installed realms) to route a `{:realm …}`
-  registrar query to the realm a given frame lives in. Per Spec 002 §Frames
-  reference realms."}
-  frame-realm  frame/frame-realm)
+;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the realm-family facade read
+;; `rf/frame-realm` (the frame-side half of the retired `(realm, frame)`
+;; addressing model) is REMOVED from the public facade. `re-frame.frame/frame-realm`
+;; remains as internal substrate. The public model is `image -> frame -> event
+;; stream`; a frame is addressed by its process-local frame id, with no realm
+;; coordinate. See `(rf/migration-explain :rf.realm/frame-address)`.
 
 (defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,
@@ -2090,80 +2085,17 @@
        Per Spec 002 §The public registrar query API."}
        sub-topology subs/sub-topology)))
 
-;; ---- app-value construction + composition (EP-0013 D2 stage 6) -----------
-;;
-;; The PUBLIC construction half of EP-0013 D2: build a program as an INERT app
-;; value from explicit feature modules, then inspect it BEFORE installing it
-;; into a realm. `module` / `app` are the reserved-vocabulary constructors
-;; (EP-0013 issue 1); `app-registrations` / `app-owns` / `app-requires` are
-;; the inspectors the EP's "A Whole App As Data" example shows. PURE — a
-;; `module` / `app` call has no registration side effect (it returns data, not
-;; a realm mutation); the ordinary `reg-*` sugar path is untouched. Seating an
-;; app value into a realm (`rf/install!` / `rf/reinstall!`) is the installation
-;; half just below (stage 7).
-
-(def ^{:doc "Construct a MODULE value — a composable app-value fragment
-  (EP-0013 §Module Values). `(module {:id … :rf.module/owns {…}
-  :rf.module/requires #{…} :events {id entry} :subs {…} …})` lowers each
-  registration section into descriptors stamped with the module id, as INERT
-  data (no realm, no registrar, no side effect). The module's FACT keys are
-  owner-qualified (`:rf.module/owns` / `:rf.module/requires`, EP-0007 /
-  EP-0017 v5); the structural section keys (`:id`, `:events`, `:subs`, …) stay
-  bare. The reserved-vocabulary `rf/module` constructor. Per spec/API.md
-  §App values and composition (EP-0013).
-
-  EP-0023 MIGRATION: `rf/module` is re-expressed as an IMAGE FRAGMENT — a
-  feature namespace registers ordinary `reg-*` forms and an `rf/image` selects
-  them by `:include-ns` provenance glob; no separate public module noun is
-  needed for the core model. `rf/module` is retained as an internal/migration
-  surface. See `(rf/migration-explain :rf/module)` and EP-0023 §Backwards
-  Compatibility."}
-  module app-value/module)
-
-(def ^{:doc "Construct an APP value by composing module values — `(app {:id …
-  :modules [m1 m2 …]})`. Composition is DETERMINISTIC + order-stable; a
-  same-(kind,id) collision across modules THROWS
-  `:rf.error/app-composition-collision` (the ex-data names every colliding
-  source) rather than last-writer-wins. INERT data — an app value is pure
-  until a stage-7 `install!` seats it. The reserved-vocabulary `rf/app`
-  constructor. Per spec/API.md §App values and composition (EP-0013).
-
-  EP-0023 MIGRATION: `rf/app` is publicly REPLACED by `rf/image` — the selected
-  registration-set value a frame loads. Construct an image
-  (`(rf/image {:include-ns [...]})`) and supply it to `make-frame` via
-  `:images`, instead of composing modules into an app value. `rf/app` is
-  retained as an internal/migration surface. See
-  `(rf/migration-explain :rf/app)` and EP-0023 §Backwards Compatibility."}
-  app app-value/app)
-
-(defn app-registrations
-  "Return an app value's registration descriptors for a `kind` (`{id
-  descriptor}`), or `nil`. The enumerable registration view that makes static
-  dispatch-coverage checks possible WITHOUT installing the app. Works over both
-  constructed (`app`) and projected app values. Per spec/API.md §App values and
-  composition (EP-0013).
-
-  Arities:
-    `(app-registrations app kind)`           — the positional form.
-    `(app-registrations {:app app :kind k})` — the map-shaped form (EP-0013
-      stage 8, open-issue 11), parallel to the realm-targeted registrar
-      queries: `:app` is the app value, `:kind` the registry kind. Unambiguous
-      against the positional form (the single-arg map carries both)."
-  ([m] (app-value/app-registrations (:app m) (:kind m)))
-  ([app kind] (app-value/app-registrations app kind)))
-
-(def ^{:doc "Return the set of `:rf.capability/*` requirements an app value
-  declares — `(app-requires app)`, the union of its modules'
-  `:rf.module/requires` (read off the app value's `:rf.app/requires` slot). The
-  explicit dependency surface a realm must satisfy before install. Per
-  spec/API.md §App values and composition (EP-0013)."}
-  app-requires app-value/app-requires)
-
-(def ^{:doc "Return the module id that owns app-db `path` in an app value, or
-  `nil` — `(app-owns app [:cart])`. Resolves against the modules'
-  `:rf.module/owns {:app-db [...]}` ownership declarations. Per spec/API.md
-  §App values and composition (EP-0013)."}
-  app-owns app-value/app-owns)
+;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the app-value construction +
+;; composition facade (`rf/module` / `rf/app` / `rf/app-registrations` /
+;; `rf/app-requires` / `rf/app-owns`) is REMOVED from the public facade. The
+;; public construction model is `rf/image` — the selected registration-set value
+;; a frame loads — supplied to `make-frame` via `:images`; a feature namespace
+;; registers ordinary `reg-*` forms and an image selects them by `:include-ns`
+;; provenance glob, so no separate module/app composition noun is needed. The
+;; constructors + inspectors REMAIN in `re-frame.app-value` as internal substrate
+;; (the registrar-backed installation path during migration). See
+;; `(rf/migration-explain :rf/app)` / `(rf/migration-explain :rf/module)` and
+;; EP-0023 §Backwards Compatibility.
 
 ;; ---- app-value installation (EP-0013 D2 stage 7) -------------------------
 ;;
@@ -2431,122 +2363,18 @@
 
 (late-bind/set-fn! :app-value/refuse-unsupported-removal! refuse-unsupported-removal!)
 
-(def ^{:doc "Seat an immutable app value into a runtime realm — `(install! app)`
-  (default realm) or `(install! realm app)`. CAPABILITY-CHECKS first: every
-  `:rf.capability/*` in `(app-requires app)` must be present in the realm's
-  capability map, else `:rf.error/missing-capability` is thrown BEFORE any
-  registrar mutation. Then lowers every descriptor into the realm's registrar
-  (firing the ordinary hot-reload hooks + registration trace) and records the
-  seated app value at the realm boundary; returns the realm map. The explicit
-  seating path — the ordinary `reg-*` sugar path (which updates the default
-  realm's program in place) is UNCHANGED. Per spec/API.md §App values and
-  composition (EP-0013).
-
-  EP-0023 MIGRATION: `rf/install!` is RETAINED as an internal/migration/tooling
-  surface — it is no longer the taught public vocabulary. The public path is
-  `make-frame` with `:images`; the realm registrar remains the backing
-  installation substrate during migration. See
-  `(rf/migration-explain :rf/install!)` and EP-0023 §Backwards Compatibility."}
-  install! app-value/install!)
-
-(def ^{:doc "Hot-reload a realm by replacing its installed app value —
-  `(reinstall! new-app)` (default realm) or `(reinstall! realm new-app opts)`.
-  Diffs `new-app` against the installed app and applies the delta: `:added` /
-  `:changed` `(kind, id)` are re-registered (the registrar's hot-reload
-  replacement path fires its hooks + trace, so changed subs invalidate their
-  caches), `:removed` are unregistered (failing loudly on future lookup). Re-runs
-  the capability check on the new app. Returns the diff value
-  `{:realm :reason :added :changed :removed}` (`:reason` echoes `opts`,
-  default `:hot-reload`). Descriptor-only slice — live-instance migration is a
-  later slice. Per spec/API.md §App values and composition (EP-0013).
-
-  EP-0023 MIGRATION: `rf/reinstall!` is RETAINED as an internal/migration
-  surface. The public hot-reload path is `reload-images!` against a FRAME target,
-  which swaps the frame's image generation while preserving frame memory. See
-  `(rf/migration-explain :rf/reinstall!)` and EP-0023 §Backwards Compatibility."}
-  reinstall! app-value/reinstall!)
-
-;; ---- the public realm constructor (EP-0013 D1 stage 9) -------------------
-;;
-;; The LAST EP-0013 impl slice graduates the reserved `rf/realm` vocabulary
-;; (EP-0013 issue 1; ruled `rf/realm`, NEVER `rf/runtime`). A constructed realm
-;; is HERMETIC by default (its OWN registrar atom) and REGISTERED by id, so a
-;; caller installs an app value into it and targets the stage-8 `{:realm …}`
-;; queries against it — parallel apps, multi-tenant, or hermetic tests that
-;; install exactly the program they need without clearing a process-global
-;; registrar. The implicit default realm is unchanged + byte-identical.
-
-(def ^{:doc "Construct + register an explicit runtime realm — `(realm {:id …
-  :adapter … :capabilities {…}})`. A realm is the container a caller installs an
-  app value into (`install!`) and targets registrar queries against (the
-  `{:realm …}` query forms). HERMETIC by default: it gets its OWN `(kind, id) →
-  metadata` registrar atom, so an app installed into it is isolated from every
-  other realm — two realms can hold different handlers for the same id without
-  collision, and a hermetic test installs exactly its program without clearing a
-  process-global registrar. May carry its own `:adapter` SELECTION + capability
-  map (so N realms can run N substrate roots). Realm ids are unique within a
-  process — a duplicate `:id` THROWS `:rf.error/realm-id-conflict`. Returns the
-  realm map (composes: `(-> (rf/realm {:id …}) (rf/install! app))`). The
-  reserved-vocabulary `rf/realm` constructor (ruled `rf/realm`, never
-  `rf/runtime`). Per spec/API.md §App values and composition (EP-0013).
-
-  EP-0023 MIGRATION: `rf/realm` is RETAINED as the INTERNAL installation
-  substrate — it stops being the beginner-facing public architecture. The public
-  model targets a FRAME (a process-local frame id, or a direct frame object for
-  tests); the frame determines the image generation used for registration
-  resolution. See `(rf/migration-explain :rf/realm)` and EP-0023 §Backwards
-  Compatibility."}
-  realm realm/construct-realm)
-
-(def ^{:doc "Dispose a constructed realm — `(dispose-realm! realm-or-id)` drops
-  it from the process realm registry, releasing its own registrar (and
-  adapter/host-transient inventory) for GC. The default realm is never disposed
-  (a no-op). The teardown counterpart of `rf/realm` for hermetic-test cleanup +
-  multi-tenant realm lifecycle. Per spec/API.md §App values and composition
-  (EP-0013)."}
-  dispose-realm! realm/dispose-realm!)
-
-(def ^{:doc "Return the set of installed runtime realm ids — `(realm-ids)`.
-  Always includes the default realm id (seeded at process load, never
-  disposed), so a single-realm app returns exactly `#{:rf.realm/default}`.
-  Constructed realms (`realm`) join the set; disposed realms (`dispose-realm!`)
-  drop out — it is the LIVE enumeration of which realms exist now. The
-  realm-enumeration half of the (realm, frame) addressing model (EP-0013
-  disposition 3): the `{:realm …}` registrar query forms take a realm id, and
-  this is the public way to discover WHICH ids exist; pair it with
-  `frame-realm` (a frame's realm) for the full address. Per spec/API.md §App
-  values and composition (EP-0013)."}
-  realm-ids realm/realm-ids)
-
-(def ^{:doc "Return the app VALUE installed in a running realm — `(installed-app)`
-  (default realm) / `(installed-app realm-or-id)`. The public realm→installed-app
-  READ seam (EP-0013 disposition 6): a running realm's program-as-a-value that
-  nothing public exposed before. The registrar is the single source of truth, so
-  this is the LIVE registrar projection — it ALWAYS reflects the live
-  registrations (`reg-*` sugar AND installed alike) and never desyncs from
-  `app-value` / dispatch (rf2-77ewnm). A realm that had an app value SEATED via
-  `install!` overlays that seated value's `:modules` provenance (per-module
-  `:rf.module/owns` / `:rf.module/requires` / `:owner`-stamped descriptors /
-  source coords) onto the projection — so a tool can feed it straight to the
-  `app-registrations` / `app-owns` / `app-requires` inspectors to read which
-  module owns a handler/sub/path WITHOUT installing anything, while coexisting
-  sugar that `install!` preserves stays visible. A realm seated only through the
-  `reg-*` sugar (load-order, no `install!`) carries no module structure, so its
-  installed app is the bare projection — registrations grouped by kind, but an
-  empty `:modules`/`:rf.app/requires` (load-order registrations declare no
-  module). nil resolves
-  to the default realm (absence = default realm). `tooling` tier alongside
-  `realm-ids` / `frame-realm` — the realm-aware-tool read surface (it unblocks the
-  Xray Module-view's MODULES section, EP-0013 disposition 6). It does NOT route
-  live dispatch through a non-default realm (the deferred runtime-routing slice).
-  Per spec/API.md §App values and composition (EP-0013).
-
-  EP-0023 MIGRATION: `rf/installed-app` is RETAINED as a tooling/migration
-  surface. The public model inspects a FRAME's resolved image generation; tools
-  may still read the internal installation boundary but should label it as
-  implementation structure. See `(rf/migration-explain :rf/installed-app)` and
-  EP-0023 §Backwards Compatibility."}
-  installed-app realm/installed-app)
+;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the realm install / hot-reload
+;; / constructor / query facade — `rf/install!`, `rf/reinstall!`, `rf/realm`,
+;; `rf/dispose-realm!`, `rf/realm-ids`, `rf/installed-app` — is REMOVED from the
+;; public facade. The public model targets a FRAME (a process-local frame id, or
+;; a direct frame object for tests) whose image generation determines
+;; registration resolution; the public hot-reload path is `reload-images!`
+;; against a frame target. The realm machinery REMAINS in `re-frame.realm` /
+;; `re-frame.app-value` as internal substrate (the registrar-backed installation
+;; path that `install!`/`reinstall!` above still wire through the late-bind
+;; hooks), but it is no longer presented as public vocabulary. See
+;; `(rf/migration-explain :rf/install!)` / `:rf/realm` / `:rf/installed-app` and
+;; EP-0023 §Backwards Compatibility.
 
 ;; ---- interceptors --------------------------------------------------------
 

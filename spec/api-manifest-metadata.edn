@@ -619,65 +619,18 @@
   ["re-frame.core" "current-adapter"]      {:tier :advanced :owner "006" :status "v1"}
   ["re-frame.core" "current-adapter-spec"] {:tier :advanced :owner "006" :status "v1"}
   ["re-frame.core" "configure!"]           {:tier :front-porch :owner "Conventions" :status "v1"}
-  ;; EP-0013 D2 stage 6 (rf2-zlhgr6): the PUBLIC app/module constructors +
-  ;; composition algebra (the reserved-vocabulary `rf/app` / `rf/module` per
-  ;; EP-0013 issue 1) + the three inspectors. `advanced` tier — the surface
-  ;; large-SPA code uses to compose a program as a value before install; not
-  ;; a day-one front-porch surface. Owner: Runtime-Subsystems (the EP-0013
-  ;; realm/app-value contract home).
-  ["re-frame.core" "module"]               {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "app"]                  {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "app-registrations"]    {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "app-requires"]         {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "app-owns"]             {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ;; EP-0013 D2 stage 7 (rf2-xq4go0): the PUBLIC installation half — `install!`
-  ;; seats an immutable app value into a realm (capability-checked, descriptors
-  ;; lowered into the realm's registrar), `reinstall!` hot-reloads a realm by
-  ;; diffing the new app value against the installed one and applying the delta.
-  ;; The reserved-vocabulary `rf/install!` / `rf/reinstall!` (EP-0013 issue 1).
-  ;; `advanced` tier alongside the stage-6 constructors — the explicit seating
-  ;; path large-SPA code uses; both DEFAULT to the default realm so the `reg-*`
-  ;; sugar path is byte-identical (zero ergonomic regression). Owner:
-  ;; Runtime-Subsystems (the EP-0013 realm/app-value contract home).
-  ["re-frame.core" "install!"]             {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "reinstall!"]           {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ;; EP-0013 D1 stage 9 (rf2-swrf4k, the LAST EP-0013 impl slice): the PUBLIC
-  ;; realm CONSTRUCTOR — the reserved `rf/realm` vocabulary graduates (ruled
-  ;; `rf/realm`, NEVER `rf/runtime`, EP-0013 issue 1). `realm` constructs +
-  ;; registers an explicit, HERMETIC-by-default runtime realm a caller installs
-  ;; an app value into + targets the `{:realm …}` queries against (parallel
-  ;; apps / multi-tenant / hermetic tests); `dispose-realm!` is its teardown
-  ;; counterpart. `advanced` tier alongside the stage-6/7 constructors — the
-  ;; surface large-SPA / multi-tenant code uses; the implicit default realm is
-  ;; unchanged + byte-identical (a single-realm app never spells a realm).
-  ;; Owner: Runtime-Subsystems (the EP-0013 realm/app-value contract home).
-  ["re-frame.core" "realm"]                {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "dispose-realm!"]       {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
-  ;; EP-0013 (rf2-f1xa3k): the PUBLIC realm-enumeration surface — the (realm,
-  ;; frame) addressing model's two read halves (EP-0013 disposition 3). The
-  ;; `{:realm …}` registrar query forms take a realm id but nothing public told
-  ;; a tool WHICH ids exist or WHICH realm a given frame lives in. `realm-ids`
-  ;; enumerates the installed realms; `frame-realm` (promoted from internal)
-  ;; reads a frame's realm. `tooling` tier — these are the realm-aware-tool
-  ;; read surface, alongside `frame-ids` / `handler-ids` / `registrations`
-  ;; (also `:tooling`), not the `advanced` constructor/install path. They
-  ;; unblock the 5 tools/realm-awareness beads. Owner: Runtime-Subsystems
-  ;; (`realm-ids`, the EP-0013 realm contract home) / 002 (`frame-realm`, the
-  ;; frame registry query API home, alongside the other frame-* readers).
-  ["re-frame.core" "realm-ids"]            {:tier :tooling :owner "Runtime-Subsystems" :status "v1"}
-  ["re-frame.core" "frame-realm"]          {:tier :tooling :owner "002" :status "v1"}
-  ;; EP-0013 disposition 6 (rf2-imquoq): the PUBLIC realm→installed-app READ
-  ;; seam — returns a running realm's installed app VALUE (the `install!`-seated
-  ;; value with its `:modules` provenance, else the recomputable registrar
-  ;; projection), so a tool can feed it to `app-registrations` / `app-owns` /
-  ;; `app-requires` WITHOUT installing anything. This is the named graduation:
-  ;; the per-module provenance/ownership/capability facts graduate from internal
-  ;; WHEN the Xray Module-view demands them (which it now does). A STATIC read of
-  ;; the install-time value — NOT the deferred runtime-routing slice (a15n62).
-  ;; `tooling` tier alongside `realm-ids` / `frame-realm` (the realm-aware-tool
-  ;; read surface), not the `advanced` constructor/install path. Owner:
-  ;; Runtime-Subsystems (the EP-0013 realm/app-value contract home).
-  ["re-frame.core" "installed-app"]        {:tier :tooling :owner "Runtime-Subsystems" :status "v1"}
+  ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the retired app/realm/module
+  ;; COMPOSITION VOCABULARY left the public `re-frame.core` facade. The former
+  ;; rows — `rf/module` / `rf/app` / `rf/app-registrations` / `rf/app-requires` /
+  ;; `rf/app-owns` (stage-6 constructors + inspectors), `rf/install!` /
+  ;; `rf/reinstall!` (stage-7 installation), `rf/realm` / `rf/dispose-realm!`
+  ;; (stage-9 realm constructor), `rf/realm-ids` / `rf/frame-realm` /
+  ;; `rf/installed-app` (realm-enumeration + installed-app reads) — were REMOVED
+  ;; from the facade, so they drop out of the generated manifest. The machinery
+  ;; remains in `re-frame.realm` / `re-frame.app-value` as internal substrate (not
+  ;; rowed: only the `re-frame.core` facade is enumerated). The public model is
+  ;; `image -> frame -> event stream`; see `re-frame.core` `rf/image` /
+  ;; `make-frame` / `reload-images!` rows and EP-0023 §Backwards Compatibility.
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}
