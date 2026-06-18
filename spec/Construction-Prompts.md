@@ -1073,8 +1073,8 @@ A descriptor mixing `:factory` with `:before` / `:after` is ambiguous and reject
   {:before
    (fn before-audit-record-event [ctx]
      ;; Read the dispatched event from coeffects; rewrite the :db coeffect.
-     (let [[event-id] (rf/get-coeffect ctx :event)]
-       (rf/update-coeffect ctx :db update :audit/events (fnil conj []) event-id)))})
+     (let [[event-id] (get-in ctx [:coeffects :event])]
+       (update-in ctx [:coeffects :db :audit/events] (fnil conj []) event-id)))})
 ```
 
 **Template — static `{:after}` (inspect/rewrite effects):**
@@ -1084,8 +1084,8 @@ A descriptor mixing `:factory` with `:before` / `:after` is ambiguous and reject
   {:doc "Increment a write counter whenever a handler returned a :db effect."}
   {:after
    (fn after-metrics-count-writes [ctx]
-     (if (rf/get-effect ctx :db)
-       (rf/assoc-effect ctx :db (vary-meta (rf/get-effect ctx :db) update :write-count (fnil inc 0)))
+     (if-let [db (get-in ctx [:effects :db])]
+       (assoc-in ctx [:effects :db] (vary-meta db update :write-count (fnil inc 0)))
        ctx))})
 ```
 
@@ -1100,10 +1100,10 @@ A descriptor mixing `:factory` with `:before` / `:after` is ambiguous and reject
    (fn factory-app-role [{:keys [role redirect]}]      ;; ONE arg — a composite map
      {:before
       (fn before-app-role [ctx]
-        (let [[_ payload] (rf/get-coeffect ctx :event)]
+        (let [[_ payload] (get-in ctx [:coeffects :event])]
           (if (= role (:role payload))
             ctx
-            (rf/assoc-effect ctx :fx [[:dispatch redirect]]))))})})
+            (assoc-in ctx [:effects :fx] [[:dispatch redirect]]))))})})
 ```
 
 The factory takes **exactly one** argument. A behaviour needing several inputs takes them as a single composite arg (a vector or map), as above. A bare-keyword reference to a `:factory` id — or an `[id arg]` reference to a static id — is `:rf.error/interceptor-factory-arity`.
@@ -1153,8 +1153,8 @@ Override keys are interceptor **references**, matched by exact canonical referen
     {:doc "Append each handled event's id to the audit trail."}
     {:before
      (fn [ctx]
-       (let [[event-id] (rf/get-coeffect ctx :event)]
-         (rf/update-coeffect ctx :db update :audit/events (fnil conj []) event-id)))})
+       (let [[event-id] (get-in ctx [:coeffects :event])]
+         (update-in ctx [:coeffects :db :audit/events] (fnil conj []) event-id)))})
   (rf/reg-event :feature/touch
     {:interceptors [:audit/record-event]}
     (fn [{:keys [db]} _] {:db db}))
@@ -1168,7 +1168,7 @@ Override keys are interceptor **references**, matched by exact canonical referen
 - Interceptor id is a single namespaced keyword and unused (`(rf/registrations :interceptor)`).
 - The descriptor is exactly one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}` — no `:factory`+`:before`/`:after` mix.
 - A `:factory` factory takes exactly **one** argument (a composite vector/map when it needs several inputs).
-- `:before` / `:after` fns are `(context) -> context`, pure with respect to the context map; side-effects are expressed as effects (`assoc-effect` / `:fx`), never performed in the body.
+- `:before` / `:after` fns are `(context) -> context`, pure with respect to the context map; side-effects are expressed as effects (write `[:effects :fx]` via `assoc-in` / `update-in`), never performed in the body.
 - `:doc` is present and one sentence.
 - The interceptor is **referenced** from chains by id — bare keyword (static) or `[id arg]` (factory) — never inlined as a value.
 - Overrides (in stories/tests) are reference-valued (another ref or `nil`), never inline values.
@@ -1185,12 +1185,12 @@ Override keys are interceptor **references**, matched by exact canonical referen
   {:doc "Redirect to login when no user is authenticated; let the handler run otherwise."}
   {:before
    (fn before-auth-required [ctx]
-     (if (get-in (rf/get-coeffect ctx :db) [:auth :user])
+     (if (get-in ctx [:coeffects :db :auth :user])
        ctx
        ;; Unauthenticated: stage a redirect. (Throwing from :before short-circuits
        ;; the remaining :before stages and the handler — see 002 §Interceptor chain
        ;; execution; a redirect-and-continue gate stages an :fx instead, as here.)
-       (rf/assoc-effect ctx :fx [[:dispatch [:rf.route/navigate :route/login]]])))})
+       (assoc-in ctx [:effects :fx] [[:dispatch [:rf.route/navigate :route/login]]])))})
 
 ;; Any event that needs the gate references it by id:
 (rf/reg-event :account/update-profile

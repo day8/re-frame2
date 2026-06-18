@@ -477,7 +477,7 @@ The public authoring form is:
    (fn [ctx]
      (update-in ctx [:coeffects :db :audit/events]
                 (fnil conj [])
-                (first (rf/get-coeffect ctx :event))))})
+                (first (get-in ctx [:coeffects :event]))))})
 ```
 
 `metadata` is the standard Spec 001 registration-metadata map (`:doc`, `:schema`, `:tags`, `:platforms`, the auto-captured source coordinates, and future common keys — §The metadata map). `descriptor` is one of:

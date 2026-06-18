@@ -1510,7 +1510,7 @@
       ;; EP-0022 reference-only: register the capture interceptor, reference by id.
       (rf/reg-interceptor* :test/capture-after
         {:after (fn [ctx]
-                  (reset! seen-db (rf/get-effect ctx :db))
+                  (reset! seen-db (get-in ctx [:effects :db]))
                   ctx)})
       (rf/reg-event :set-n
         {:interceptors [:test/capture-after]}

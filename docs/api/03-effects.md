@@ -60,14 +60,14 @@ The v2 standard-interceptor surface is **two specific helpers** (`path`, `unwrap
   ```
 - **Description**: Assert `[id payload-map]` event shape; replace the `:event` coeffect with just the payload map; restore on `:after`. Sugar over the canonical map-payload form (per [MIGRATION §M-19](../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)).
 
-### `->interceptor`
+### `reg-interceptor`
 
-- **Kind**: function
+- **Kind**: macro (with `reg-interceptor*` as the programmatic `*`-twin)
 - **Signature**:
   ```clojure
-  (->interceptor & {:keys [id before after]})
+  (reg-interceptor id {:keys [before after]})
   ```
-- **Description**: The primitive. Build a custom interceptor with `:before` and / or `:after`. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact.
+- **Description**: The public custom-interceptor authoring form. Register a named interceptor with `:before` and / or `:after`, then **reference it by id** from a `reg-event` / `reg-frame` `:interceptors` vector. **Use this for any work not covered by the standard interceptors above** — analytics, logging, validation, ad-hoc context manipulation. The interceptor is named, addressable, and queryable like any other artefact. (`->interceptor` is the framework-internal lowering constructor that turns a descriptor into an executable chain entry; it is not the application-authoring form and must not appear directly in a public chain.)
 
 ### `validate-at-boundary-interceptor`
 
@@ -100,69 +100,39 @@ The `:before` rewrites `(:db cofx)` to `(get-in db [:cart :items])`. The handler
 
 You wrote `(rf/dispatch [:foo/update {:id 1 :new-value "x"}])`; the handler receives the payload map directly under `:event` instead of the full vector. Sugar — it's not load-bearing — but it composes cleanly with the canonical map-payload form.
 
-### Building custom interceptors with `->interceptor`
+### Building custom interceptors with `reg-interceptor`
 
 ```clojure
-(def log-on-error
-  (rf/->interceptor
-    :id     :log-on-error
-    :after  (fn [ctx]
-              (when-let [err (:rf.error/last-event ctx)]
-                (js/console.error err))
-              ctx)))
+(rf/reg-interceptor :log-on-error
+  {:after (fn [ctx]
+            (when-let [err (:rf.error/last-event ctx)]
+              (js/console.error err))
+            ctx)})
 
 (rf/reg-event ::save-cart
-  {:interceptors [log-on-error]}
+  {:interceptors [:log-on-error]}                ;; reference by id
   (fn [cofx _] ...))
 ```
 
-The map-of-keyword-args API is deliberate — `{:id :before :after}` is the entire vocabulary; the resulting interceptor value carries those keys and the runtime threads it. Every standard interceptor is just a `->interceptor` call with specific behaviour baked in.
+Register the interceptor once with `reg-interceptor`, then reference it **by id** from the `:interceptors` vector. The `:before` / `:after` fns receive and return the context map; `{:before :after}` is the entire behaviour vocabulary, and every standard interceptor is just a registered interceptor with specific behaviour baked in.
 
 ## Context plumbing
 
-The interceptor context — the ctx — is the value threaded through the chain. It carries `:coeffects` (everything available to the handler before it runs), `:effects` (everything the handler produced), and the queue / stack of remaining interceptors. Most app code never reaches into ctx directly; the four accessors below are for the rare interceptor body that does.
+The interceptor context — the ctx — is the value threaded through the chain. It carries `:coeffects` (everything available to the handler before it runs), `:effects` (everything the handler produced), and the queue / stack of remaining interceptors. Most app code never reaches into ctx directly. The rare interceptor body that does works the context map with ordinary Clojure: read coeffects with `(get-in ctx [:coeffects k])`, read effects with `(get-in ctx [:effects k])`, and write either slot with `assoc-in` before returning the updated ctx.
 
-### `get-coeffect`
+```clojure
+(rf/reg-interceptor :inject-now
+  {:before (fn [ctx]
+             (assoc-in ctx [:coeffects :now] (js/Date.now)))})  ;; handler reads (:now coeffects)
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (get-coeffect ctx)
-  (get-coeffect ctx key)
-  (get-coeffect ctx key not-found)
-  ```
-- **Description**: "Read the coeffect map (or one slot of it)."
+(rf/reg-interceptor :tag-db
+  {:after (fn [ctx]
+            (let [db (get-in ctx [:effects :db])]               ;; inspect what the handler emitted
+              (cond-> ctx
+                db (assoc-in [:effects :db] (vary-meta db assoc :tagged? true)))))})
+```
 
-### `assoc-coeffect`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (assoc-coeffect ctx key value)
-  ```
-- **Description**: "Write a coeffect slot in the ctx."
-
-### `get-effect`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (get-effect ctx)
-  (get-effect ctx key)
-  (get-effect ctx key not-found)
-  ```
-- **Description**: "Read the effect map (or one slot)."
-
-### `assoc-effect`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (assoc-effect ctx key value)
-  ```
-- **Description**: "Write an effect slot in the ctx."
-
-These are stable surfaces preserved from v1. If you're writing an interceptor that needs to read or modify what the handler will see / what the handler emitted, this is the surface.
+> **Removed:** the façade context accessors `get-coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` are no longer exported — post-EP-0017/EP-0022 they lost their audience. Work the context map directly as shown above.
 
 ## Override surfaces
 

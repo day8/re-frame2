@@ -553,13 +553,16 @@
   ;; coord-capturing macro) and `->interceptor*` (the plain-fn constructor)
   ;; survive only as the framework-INTERNAL lowering constructor that turns a
   ;; descriptor into an executable chain entry; they MUST NOT appear in a public
-  ;; event/frame chain. Demoted off `:front-porch` to `:internal-public` (a
-  ;; supported framework-internal embedding point — used by the registry
-  ;; resolver, the std interceptors, and tests as the lowering seam — not a
-  ;; public-authoring API). `->interceptor*` stays at the `:advanced` tier
-  ;; API.md §Standard interceptors documents it under (the "internal lowering
-  ;; constructor" row).
-  ["re-frame.core" "->interceptor"]       {:tier :internal-public :owner "002" :status "EP-0022 (internal lowering only)"}
+  ;; event/frame chain. `->interceptor` is tiered `:implementation`: exported
+  ;; only so the registry resolver, the std interceptors, and tests can reach
+  ;; the lowering seam across a namespace boundary — NOT a host/tool embedding
+  ;; point (it fails the `internal-public` boundary test "is this a surface a
+  ;; host or tool legitimately embeds against?"), so it is below the supported
+  ;; surface. (The earlier `:internal-public` row was self-contradicting: API.md
+  ;; asserts the Xray `mount-<panel>!` family is that tier's sole instance.)
+  ;; `->interceptor*` stays at the `:advanced` tier API.md §Standard
+  ;; interceptors documents it under (the "internal lowering constructor" row).
+  ["re-frame.core" "->interceptor"]       {:tier :implementation :owner "002" :status "EP-0022 (internal lowering only)"}
   ["re-frame.core" "->interceptor*"]      {:tier :advanced        :owner "002" :status "EP-0022 (internal lowering only)"}
   ;; EP-0017 + rf2-w9xyx1: `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
   ;; coeffect-injection interceptors — are REMOVED (EP-0017 slice A, no alias;
@@ -572,10 +575,14 @@
   ;; a stale call to that namespace-internal var still raises the always-on
   ;; catalogue error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`.
   ;; Migration docs live in docs/api/15-removed.md.
-  ["re-frame.core" "get-coeffect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "assoc-coeffect"]      {:tier :advanced :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "get-effect"]          {:tier :advanced :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "assoc-effect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
+  ;; Interceptor CONTEXT ACCESSORS REMOVED from the façade: `get-coeffect`,
+  ;; `assoc-coeffect`, `get-effect`, `assoc-effect` no longer re-export from
+  ;; `re-frame.core`. Post-EP-0017/EP-0022 they lost their audience (the setters
+  ;; had zero callers, the getters one); the intended interceptor model authors
+  ;; with `reg-interceptor` and works the context map directly in `:before` /
+  ;; `:after` fns. A removed surface carries NO manifest row. The underlying
+  ;; `re-frame.interceptor/{get,assoc}-{coeffect,effect}` fns remain in their
+  ;; owning namespace as framework-internal context helpers (un-rowed).
   ;; EP-0022 + rf2-dgtdna: the public `re-frame.core/path` VALUE constructor is
   ;; REMOVED (EP-0022:552 "There is no public rf/path value constructor."; :932
   ;; lists the removal; spec/API.md + spec/002-Frames.md already follow it). The

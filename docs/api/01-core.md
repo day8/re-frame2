@@ -25,7 +25,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
     (fn [{:keys [db]} [_ item]] {:db (update db :items conj item)}))
   ```
   > **Migration note.** The historical bare/positional interceptor vector middle slot — `(reg-event :id [undoable] handler)` — has been removed. Put event interceptor chains in the metadata map: `(reg-event :id {:interceptors [undoable]} handler)`.
-- **Full interceptor-context work**: there is no separate registrar for raw-context handlers. When you need to read or rewrite the interceptor context itself, write a `(rf/->interceptor {:id ... :before ... :after ...})` and add it under `:interceptors` — the same superset slot above.
+- **Full interceptor-context work**: there is no separate registrar for raw-context handlers. When you need to read or rewrite the interceptor context itself, register a named interceptor with `(rf/reg-interceptor :my/audit {:before ... :after ...})` and reference it **by id** from the `:interceptors` vector above (`{:interceptors [:my/audit]}`). The `:before` / `:after` fns receive and return the context map directly. (`->interceptor` is the framework-internal lowering constructor, not the application-authoring form.)
 - **Example** — a pure state update and an effectful handler:
   ```clojure
   ;; State-only: the db write is an explicit :db effect.
