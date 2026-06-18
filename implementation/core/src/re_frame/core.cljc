@@ -1691,6 +1691,128 @@
 ;; BYTE-IDENTICAL — a single-realm caller never spells a realm (the absence-is-
 ;; default rule); only a caller that passes an explicit `{:realm …}` map reaches
 ;; the realm-scoped path.
+;;
+;; EP-0023 (rf2-wkw8na) — the FRAME-TARGETED map form. Each of the trio ALSO
+;; grows a `{:frame f :kind k …}` form that reads the registrations resolved
+;; through a live frame's OWN sealed image generation (EP-0023 §Frame-derived
+;; live registration resolution — "target frame -> resolved image generation ->
+;; registration resolution"), surfacing the `:rf.provenance/ns` + inline/image +
+;; replacement/standard facts the resolved descriptors already carry. This is
+;; the promised-but-unshipped READ of the EP-0023 model: the public tooling
+;; surface over a frame's generation, for tools (Pair MCP, Xray) that EP-0023
+;; forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly`
+;; internals. The thin, no-duplication path: resolve the frame target ONCE to a
+;; live frame object, then run the EXISTING registrar reads inside
+;; `re-frame.live-frame/call-with-frame-resolution`, which binds
+;; `registrar/*generation*` so the registrar's ALREADY generation-aware
+;; `lookup` / `registrations` / `ids` do the resolution — byte-identical
+;; descriptor shape, no resolver-walk duplicated here. The realm/default paths
+;; stay byte-identical: only a caller that passes `{:frame …}` reaches it.
+;;
+;; FAIL-LOUD (rf2-wkw8na, EP-0023 §Id Spaces — the address families are
+;; distinct): a `:frame` that does not resolve to a live frame carrying a
+;; generation throws (NO fallback to the default/realm registrar — the read
+;; needs a live EP-0023 frame), and a map mixing `:frame` + `:realm` throws (a
+;; silent priority rule would re-introduce the (realm, frame) ambiguity EP-0023
+;; removes). `:frame` accepts a REGISTERED FRAME ID (keyword, looked up in the
+;; process-local live-frame registry — the same path `reload-images!` uses) OR a
+;; direct live frame OBJECT (`make-frame`'s return value).
+
+(defn- resolve-live-frame-object
+  "Resolve a `:frame` target to the LIVE frame OBJECT it names — verifying the
+  object carries a sealed image generation — or FAIL LOUD
+  (`:rf.error/frame-no-generation`). `frame-target` is a REGISTERED frame id
+  (keyword, looked up in the process-local live-frame registry — the same path
+  `rf/reload-images!` uses) OR a direct live frame OBJECT — the same target
+  shapes `rf/reload-images!` accepts. NO fallback to the default/realm registrar:
+  a frame-targeted read needs a live EP-0023 frame that carries a generation, so
+  an id that names no live frame, a non-frame value, or a frame object with no
+  `:rf.frame/generation` slot is an error naming the bad target. Returns the
+  frame OBJECT (the caller passes it to `re-frame.live-frame/call-with-frame-
+  resolution`, which binds its generation, or reads its generation directly) —
+  the façade re-surfaces that BEHAVIOUR through the public reads without
+  exporting the internal `re-frame.live-frame` names.
+
+  `where-sym` is the public fn the caller invoked, used in the diagnostic so the
+  message names the user-facing surface (`rf/registrations` / `rf/handler-meta`
+  / `rf/handler-ids` / `rf/frame-generation`)."
+  [frame-target where-sym]
+  (let [frame-object (if (live-frame/frame-object? frame-target)
+                       frame-target
+                       (live-frame/live-frame frame-target))]
+    (if (some? (live-frame/frame-resolution-generation frame-object))
+      frame-object
+      (error/throw-error!
+        :rf.error/frame-no-generation
+        where-sym
+        (str where-sym ": :frame target " (pr-str frame-target) " does not "
+             "resolve to a live frame carrying an image generation. A frame-"
+             "targeted registrar read resolves the (kind, id) set through the "
+             "target frame's OWN sealed image generation (EP-0023 §Frame-derived "
+             "live registration resolution); it needs a LIVE EP-0023 frame — a "
+             "frame id registered in the process-local live-frame registry, or a "
+             "direct frame object returned by rf/make-frame — and does NOT fall "
+             "back to the default/realm registrar. Live frame ids: "
+             (pr-str (vec (live-frame/live-frame-ids))) ".")
+        {:recovery :target-a-live-frame-id-or-a-direct-frame-object
+         :extra    {:frame          frame-target
+                    :live-frame-ids (vec (live-frame/live-frame-ids))}}))))
+
+(defn- assert-not-frame-realm-mixed!
+  "Fail loud (`:rf.error/frame-realm-mixed-address`) when a registrar-query map
+  carries BOTH `:frame` and `:realm`. They are DISTINCT address families
+  (EP-0023 §Id Spaces — `:rf.realm/frame-address`): `:realm` targets a realm's
+  OWN registrar atom, `:frame` resolves through a live frame's sealed image
+  generation. A silent priority rule would re-introduce the (realm, frame)
+  ambiguity EP-0023 removes, so the façade rejects the mixed address rather than
+  pick one. Returns `arg` unchanged when at most one of the two is present."
+  [arg where-sym]
+  (when (and (map? arg) (contains? arg :frame) (contains? arg :realm))
+    (error/throw-error!
+      :rf.error/frame-realm-mixed-address
+      where-sym
+      (str where-sym ": a registrar-query map carries BOTH :frame and :realm, "
+           "but they are DISTINCT address families (EP-0023 §Id Spaces). :realm "
+           "reads a realm's OWN registrar atom; :frame resolves through a live "
+           "frame's sealed image generation. Pick ONE — a silent priority rule "
+           "would re-introduce the (realm, frame) addressing ambiguity EP-0023 "
+           "removes.")
+      {:recovery :pass-frame-or-realm-not-both
+       :extra    {:frame (:frame arg)
+                  :realm (:realm arg)}}))
+  arg)
+
+(defn frame-generation
+  "Return the SEALED, resolved image GENERATION a live frame is running — the
+  inert image-assembly generation value it resolves `(kind, id)` lookups through
+  (EP-0023 §Frame — \"a reference to the resolved image generation it is
+  running\"). The dedicated raw READ over the EP-0023 frame->generation model,
+  for tools (Pair MCP `describe-image`, Xray) that EP-0023 forbids from consuming
+  `re-frame.live-frame` / `re-frame.image-assembly` internals directly.
+
+  `frame-target` is a REGISTERED frame id (keyword, looked up in the process-
+  local live-frame registry) OR a direct live frame OBJECT (`rf/make-frame`'s
+  return value) — the same target shapes `rf/reload-images!` accepts.
+
+  Returns the generation map with the four documented stable public keys (EP-0023
+  §Specification Summary; `re-frame.image-assembly`):
+
+    :rf.gen/resolver  {[kind id] descriptor, …}   the sealed [kind id] map
+    :rf.gen/images    [<normalized image value> …]
+    :rf.gen/requires  #{:rf.capability/* …}        union of image requires
+    :rf.gen/kinds     #{kind …}                     kinds present, for tools
+
+  FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-target` does not
+  resolve to a live frame carrying a generation: NO nil-as-default, NO fallback
+  to the default/realm registrar — a frame-generation read needs a live EP-0023
+  frame. Use the `:frame` arity of `registrations` / `handler-meta` /
+  `handler-ids` for per-`(kind, id)` resolution WITH provenance; use this when a
+  view needs the whole generation (selected registrations, capability set,
+  replacement facts) without per-kind round-trips. Per Spec 002 §The public
+  registrar query API; EP-0023 §Public API / Use-Case 7."
+  [frame-target]
+  (-> (resolve-live-frame-object frame-target 'rf/frame-generation)
+      (live-frame/frame-resolution-generation)))
 
 (defn registrations
   "Return all ids registered under `kind` with their metadata — the
@@ -1711,17 +1833,47 @@
                                      the default realm. An optional `:pred`
                                      filters by metadata as the positional
                                      `pred-fn` does.
+    `(registrations {:frame f :kind k})` — FRAME-TARGETED (EP-0023, rf2-wkw8na):
+                                     the `{id metadata}` for `:kind` resolved
+                                     through live frame `:frame`'s OWN sealed
+                                     image generation — only the ids that frame's
+                                     image carries, with the `:rf.provenance/ns`
+                                     + inline/image + replacement/standard facts
+                                     the resolved descriptors carry. `:frame` is
+                                     a REGISTERED frame id (keyword) OR a direct
+                                     live frame OBJECT (the same target shapes
+                                     `rf/reload-images!` accepts). An optional
+                                     `:pred` filters by metadata as above. FAILS
+                                     LOUD when `:frame` does not resolve to a live
+                                     frame generation (`:rf.error/frame-no-
+                                     generation` — NO default/realm fallback), or
+                                     when the map ALSO carries `:realm`
+                                     (`:rf.error/frame-realm-mixed-address` —
+                                     distinct address families).
 
   The map-shaped form is unambiguous against the keyword arities (a `kind` is a
   keyword, never a map) — the byte-identical default-realm path is unchanged
   for every existing caller."
   ([arg]
-   (if (map? arg)
+   (cond
+     (and (map? arg) (contains? arg :frame))
+     (let [_     (assert-not-frame-realm-mixed! arg 'rf/registrations)
+           frame (resolve-live-frame-object (:frame arg) 'rf/registrations)
+           {:keys [kind pred]} arg]
+       (live-frame/call-with-frame-resolution
+         frame
+         #(if pred
+            (registrar/registrations kind pred)
+            (registrar/registrations kind))))
+
+     (map? arg)
      (let [{:keys [realm kind pred]} arg
            base (realm/realm-registrations realm kind)]
        (if pred
          (into {} (filter (fn [[_id meta]] (pred meta))) base)
          base))
+
+     :else
      (registrar/registrations arg)))
   ([kind pred-fn]
    (registrar/registrations kind pred-fn)))
@@ -1745,6 +1897,18 @@
       the default realm's machine specs, so the realm-targeted form is for the
       registrar kinds; a machine kind through the map form resolves against
       the default-realm derivation.)
+    `(handler-meta {:frame f :kind k :id id})` — FRAME-TARGETED (EP-0023,
+      rf2-wkw8na): the metadata for `[k id]` resolved through live frame `f`'s
+      OWN sealed image generation (surfacing `:rf.provenance/ns` + inline/image +
+      replacement/standard facts the resolved descriptor carries), or `nil` when
+      that frame's image carries no such `[k id]`. `:frame` is a REGISTERED frame
+      id (keyword) OR a direct live frame OBJECT (the same target shapes
+      `rf/reload-images!` accepts). The frame form is for the REGISTRAR kinds
+      (the machine kinds are not registrar kinds and are not in the generation
+      resolver — a machine kind through the frame form is `nil`). FAILS LOUD when
+      `:frame` does not resolve to a live frame generation
+      (`:rf.error/frame-no-generation` — NO default/realm fallback) or when the
+      map ALSO carries `:realm` (`:rf.error/frame-realm-mixed-address`).
 
   The two machine kinds `:machine-guard` / `:machine-action` are NOT
   registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `id` is
@@ -1761,10 +1925,17 @@
   is a keyword, never a map) — the byte-identical default-realm path is
   unchanged for every existing caller."
   ([arg]
-   (let [{:keys [realm kind id]} arg]
-     (case kind
-       (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
-       (realm/realm-handler-meta realm kind id))))
+   (if (contains? arg :frame)
+     (let [_     (assert-not-frame-realm-mixed! arg 'rf/handler-meta)
+           frame (resolve-live-frame-object (:frame arg) 'rf/handler-meta)
+           {:keys [kind id]} arg]
+       (live-frame/call-with-frame-resolution
+         frame
+         #(registrar/handler-meta kind id)))
+     (let [{:keys [realm kind id]} arg]
+       (case kind
+         (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
+         (realm/realm-handler-meta realm kind id)))))
   ([kind id]
    (case kind
      (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
@@ -1780,12 +1951,30 @@
       id set under `:kind` in realm `:realm`'s OWN registrar — only THAT
       realm's ids. `:realm` is a realm map, a realm-id keyword, or absent/nil
       for the default realm.
+    `(handler-ids {:frame f :kind k})` — FRAME-TARGETED (EP-0023, rf2-wkw8na):
+      the id set under `:kind` resolved through live frame `:frame`'s OWN sealed
+      image generation — only the ids that frame's image carries. `:frame` is a
+      REGISTERED frame id (keyword) OR a direct live frame OBJECT (the same
+      target shapes `rf/reload-images!` accepts). FAILS LOUD when `:frame` does
+      not resolve to a live frame generation (`:rf.error/frame-no-generation` —
+      NO default/realm fallback) or when the map ALSO carries `:realm`
+      (`:rf.error/frame-realm-mixed-address`).
 
   The map-shaped form is unambiguous against the keyword arity (a `kind` is a
   keyword, never a map) — the default-realm path is byte-identical."
   [arg]
-  (if (map? arg)
+  (cond
+    (and (map? arg) (contains? arg :frame))
+    (let [_     (assert-not-frame-realm-mixed! arg 'rf/handler-ids)
+          frame (resolve-live-frame-object (:frame arg) 'rf/handler-ids)]
+      (live-frame/call-with-frame-resolution
+        frame
+        #(registrar/ids (:kind arg))))
+
+    (map? arg)
     (realm/realm-handler-ids (:realm arg) (:kind arg))
+
+    :else
     (registrar/ids arg)))
 
 (def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
