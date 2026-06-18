@@ -27,7 +27,8 @@
  *
  * Asserts the rf2-ldgpd (machines) contract:
  *   - A second ```cljs-rf2 cell calls real rf/reg-machine against a two-state
- *     toggle machine, renders the state name via rf/sub-machine, and clicking
+ *     toggle machine, renders the state name via rf/subscribe [:rf/machine …],
+ *     and clicking
  *     a button flips :on -> :off through reg-machine + dispatch + the :rf/machine
  *     framework sub — proving re-frame.machines's late-bind hooks register at
  *     bundle init (sci.cljs :require's the artefact) and its top-level
@@ -115,7 +116,7 @@ const PAGE = `<!DOCTYPE html>
              :on  {:on {:flip {:target :off}}}}})
 (rf/dispatch-sync [:rf2smoke/toggle [:flip]])
 (defn toggle-view []
-  (let [snap @(rf/sub-machine :rf2smoke/toggle)]
+  (let [snap @(rf/subscribe [:rf/machine :rf2smoke/toggle])]
     [:div
      [:span#rf2-tog-state "state: " (str (:state snap))]
      [:button#rf2-tog-btn {:on-click #(rf/dispatch [:rf2smoke/toggle [:flip]])} "flip"]]))
@@ -139,7 +140,7 @@ const PAGE = `<!DOCTYPE html>
              :ready   {}}})
 (rf/dispatch-sync [:rf2smoke/eager [:rf.machine/start]])
 (defn eager-view []
-  (let [snap @(rf/sub-machine :rf2smoke/eager)]
+  (let [snap @(rf/subscribe [:rf/machine :rf2smoke/eager])]
     [:div
      [:span#rf2-eager-state "state: " (str (:state snap))]]))
 [eager-view]</pre>
@@ -312,8 +313,8 @@ assert(
 //
 // The machines artefact is now bundled (re-frame.machines is :require'd by the
 // SCI build, activating the :machines/* late-bind hooks at load time). A cell
-// that calls real rf/reg-machine + rf/sub-machine + rf/dispatch must render
-// the machine's state and flip across button-driven transitions.
+// that calls real rf/reg-machine + rf/subscribe [:rf/machine …] + rf/dispatch
+// must render the machine's state and flip across button-driven transitions.
 await page.waitForSelector(".cljs-cell--rf2 #rf2-tog-state", { timeout: 20000 });
 const togBefore = (await page.locator("#rf2-tog-state").innerText()).trim();
 console.log("machine cell state (initial):", JSON.stringify(togBefore));

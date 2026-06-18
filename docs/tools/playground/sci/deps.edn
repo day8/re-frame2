@@ -16,7 +16,7 @@
 ;;     (rf2-ldgpd). `:require`d by the SCI bundle namespace so the
 ;;     `:machines/*` late-bind hooks register at bundle init: the
 ;;     `reg-machine*` / `make-machine-handler` / `machine-transition`
-;;     / `sub-machine` / `machine-has-tag?` aliases on `re-frame.core`
+;;     / `machine-has-tag?` aliases on `re-frame.core`
 ;;     (which `sci/copy-ns` already exposes) become live, and the
 ;;     `:rf/machine` / `:rf/machine-has-tag?` framework subs +
 ;;     `:rf.machine/spawn` / `:rf.machine/destroy` fxs register from
