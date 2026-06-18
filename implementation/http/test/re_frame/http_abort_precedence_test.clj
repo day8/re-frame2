@@ -10,31 +10,44 @@
    - Spec 014 §Abort on actor destroy (rf2-wvkn)
 
   Test strategy: each test deterministically interleaves the abort with a
-  late-classifying failure / success by gating the response side on a
-  `CountDownLatch`. Either the server blocks (decode never gets to run
-  while the abort is fired against an in-flight request) or a custom
-  decoder blocks (decode is mid-run when the abort fires — the most
-  contended race). The abort-wins seam in `re-frame.http-transport`
-  (`finalise-failure!` / `finalise-success!` re-sample the handle's
-  `:aborted?` cell after winning the once-only CAS) collapses the
-  observable outcome to `:rf.http/aborted` regardless of which side
-  classified first.
+  late-classifying failure / success by gating the contended side rather
+  than racing wall-clock timing. The server blocks on a `CountDownLatch`
+  (the response, hence decode, never gets to run while the abort is fired
+  against an in-flight request), or a custom decoder blocks (decode is
+  mid-run when the abort fires — the most contended race), or the
+  finalise seam is driven DIRECTLY with the abort intent already recorded
+  on the handle (the transport-classification precedence, pinned without
+  any cross-thread timing). The abort-wins seam in
+  `re-frame.http-transport` (`finalise-failure!` / `finalise-success!`
+  re-sample the handle's `:aborted?` cell after winning the once-only CAS)
+  collapses the observable outcome to `:rf.http/aborted` regardless of
+  which side classified first.
 
-  Three scenarios (each its own deftest):
+  Four scenarios (each its own deftest):
    1. abort-during-in-flight-decode-wins-over-decode-failure
-   2. abort-during-transport-error-wins-over-transport-classification
+   2. abort-during-in-flight-transport-wins-over-transport-classification
+      (deterministic end-to-end: an accept-but-never-respond server holds
+      the request in-flight so the user abort lands before any transport
+      classification can — the realistic transport-vs-abort case)
+   2b. transport-classification-loses-to-recorded-abort-precedence-seam
+       (deterministic unit-level: drives `finalise-failure!` with a
+       `:rf.http/transport` failure on a handle whose `:aborted?` is
+       ALREADY flipped — pins the exact reclassification the flaky
+       same-dispatch-vs-async race (rf2-12r1dn) was probing by timing)
    3. abort-via-actor-destroy-wins-over-decode-failure"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.http-managed :as http-managed]
+            [re-frame.http-registry :as http-registry]
+            [re-frame.http-transport :as http-transport]
             [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
-           [java.net InetSocketAddress ServerSocket]
+           [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---- per-test reset --------------------------------------------------------
@@ -90,16 +103,34 @@
 (defn- stop-server! [{:keys [^HttpServer server]}]
   (.stop server 0))
 
-(defn- pick-closed-port!
-  "Bind a transient socket on 127.0.0.1, capture the port, close. The
-  port is briefly free and unlikely to be re-bound before the test's
-  HTTP attempt — chosen specifically to provoke a connection-refused /
-  transport-error in the JVM transport classifier."
-  []
-  (let [s (ServerSocket. 0 1 (java.net.InetAddress/getByName "127.0.0.1"))
-        p (.getLocalPort s)]
-    (.close s)
-    p))
+(defn- start-stalled-server!
+  "Start an HttpServer that ACCEPTS the connection but blocks the handler
+  on `latch`, so the request stays genuinely in-flight (connected, awaiting
+  a response) until the test releases the latch at teardown. The JVM
+  HttpClient's `sendAsync` future therefore CANNOT resolve a transport
+  error on its own — the only way the in-flight request completes is the
+  abort the test fires, so the abort-vs-transport-classification ordering is
+  deterministic by construction rather than a wall-clock race against a
+  connection-refused resolution (rf2-12r1dn)."
+  [^CountDownLatch latch]
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/"
+                    (reify HttpHandler
+                      (handle [_ ex]
+                        (let [^HttpExchange ex ex]
+                          ;; Hold the exchange open until the test releases
+                          ;; the latch at teardown; the request is in-flight
+                          ;; (connected, no response) for the whole window
+                          ;; the abort is fired in.
+                          (.await latch 30 TimeUnit/SECONDS)
+                          (try
+                            (.sendResponseHeaders ex 204 -1)
+                            (catch Throwable _ nil))
+                          nil))))
+    (.setExecutor server nil)
+    (.start server)
+    {:server server
+     :port   (.getPort (.getAddress server))}))
 
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
@@ -182,60 +213,134 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- (2) abort during transport-error — must beat :rf.http/transport ------
+;; ---- (2) abort during transport — must beat :rf.http/transport -----------
 ;;
-;; Setup: target a port that nothing's listening on so the JVM
-;; HttpClient surfaces a connection-refused / transport error from
-;; sendAsync. We fire the abort fx in the SAME dispatch as the managed
-;; request — the supersede semantics don't apply (different request-id),
-;; so the test exercises the user-abort-during-transport-error race.
+;; rf2-12r1dn — DETERMINISM FIX. The prior shape targeted a CLOSED PORT and
+;; fired the abort fx in the SAME synchronous dispatch as the managed
+;; request, then asserted abort wins. That is a wall-clock RACE, not a
+;; sequenced ordering: `:rf.http/managed` calls `sendAsync`, which resolves
+;; the connection-refused transport error on the JVM HttpClient's OWN
+;; executor thread, concurrently with the (synchronous) abort fx that runs
+;; next in the fx-vector. On a fast runner the transport completion reaches
+;; `finalise-failure!` and wins the once-only `:finalised?` CAS BEFORE the
+;; abort-fn flips `:aborted?` — so `finalise-failure!`'s abort-precedence
+;; re-sample reads nil and the `:rf.http/transport` reply lands. The
+;; abort-wins seam is correct; it can only reclassify a failure when the
+;; abort intent is RECORDED before finalisation, and the same-dispatch
+;; shape did not guarantee that ordering (it passed on Windows / origin/main
+;; CI, failed intermittently on Linux CI — environment-dependent timing).
 ;;
-;; In practice the abort-fn flips :aborted? before the transport's
-;; whenComplete callback synthesises the :rf.http/transport failure;
-;; the precedence seam in finalise-failure! observes the flip and
-;; reclassifies. Because the JVM CompletableFuture path completes-
-;; exceptionally with a CancellationException once .cancel cf true fires,
-;; the natural classifier may produce :rf.http/aborted directly — but
-;; in either case the reply MUST be :rf.http/aborted, never
-;; :rf.http/transport. This test pins the contract end-to-end.
+;; This is fixed deterministically WITHOUT a sleep, in two complementary
+;; tests:
+;;
+;;   (2)  end-to-end — an ACCEPT-but-never-respond server holds the request
+;;        genuinely in-flight (connected, awaiting a response). The transport
+;;        future therefore cannot resolve a transport error on its own; the
+;;        test polls `in-flight-snapshot` until the handle is registered (the
+;;        deterministic gate that the request is in-flight) THEN fires the
+;;        abort. `.cancel cf true` completes the future exceptionally with a
+;;        CancellationException → `classify-jvm-error` → `:rf.http/aborted`.
+;;        Abort wins by construction, not by timing.
+;;
+;;   (2b) unit-level — drives `finalise-failure!` DIRECTLY with a
+;;        `:rf.http/transport` failure on a handle whose `:aborted?` cell is
+;;        ALREADY flipped, pinning the exact reclassification the flaky race
+;;        was probing: transport classified first, abort intent recorded, →
+;;        the visible reply MUST be `:rf.http/aborted`. Zero cross-thread
+;;        timing; the precedence is asserted, not sampled.
 
-(deftest abort-during-transport-error-wins-over-transport-classification
-  (testing "rf2-wez75 — abort fired against an in-flight request to an unreachable host yields :rf.http/aborted, not :rf.http/transport"
-    (let [closed-port (pick-closed-port!)
-          replies     (atom [])]
+(deftest abort-during-in-flight-transport-wins-over-transport-classification
+  (testing "rf2-12r1dn / rf2-wez75 — a user abort fired against a genuinely in-flight request (held open by an accept-but-never-respond server) yields :rf.http/aborted, deterministically, never :rf.http/transport"
+    (let [release (CountDownLatch. 1)
+          {:keys [port] :as srv} (start-stalled-server! release)
+          replies (atom [])]
+      (try
+        (rf/reg-event :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event :issue
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/")}
+                    :request-id :race
+                    :decode     :json
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/reg-event :do/abort
+          (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
+        (rf/dispatch-sync [:issue])
+        ;; Deterministic gate: the request is REGISTERED and in-flight (the
+        ;; connection is established, the server is blocked, no transport
+        ;; error is possible) before we fire the abort. This replaces the
+        ;; flaky reliance on the abort fx out-racing an async connection-
+        ;; refused resolution.
+        (await-condition! #(seq (http-managed/in-flight-snapshot)))
+        (is (= 1 (count (http-managed/in-flight-snapshot)))
+            "request is in-flight against the stalled server — abort window open, no transport error possible")
+        (rf/dispatch-sync [:do/abort])
+        (await-condition! #(seq @replies))
+        (let [reply (first @replies)]
+          (is (= :failure (:kind reply))
+              "the abort surfaces as a :failure reply, not a success")
+          (is (= :rf.http/aborted (get-in reply [:failure :kind]))
+              "the reply MUST be :rf.http/aborted, NOT :rf.http/transport (rf2-wez75 Mike decision a)")
+          (is (= :user (get-in reply [:failure :reason]))
+              "user-initiated abort surfaces :reason :user"))
+        (is (= 1 (count @replies))
+            "exactly one reply — abort precedence does not double-dispatch")
+        (is (empty? (http-managed/in-flight-snapshot))
+            "in-flight registry is clean after the aborted reply")
+        (finally
+          (.countDown release)
+          (stop-server! srv))))))
+
+;; The finalise-failure! private is reached the same way (6c) reaches
+;; schedule-backoff-handle! — a #'-deref of the private var.
+(def ^:private finalise-failure!*
+  @#'http-transport/finalise-failure!)
+
+(deftest transport-classification-loses-to-recorded-abort-precedence-seam
+  (testing "rf2-12r1dn — finalise-failure! driven with a :rf.http/transport failure on a handle whose :aborted? is ALREADY flipped reclassifies the reply to :rf.http/aborted; this pins the exact precedence the flaky same-dispatch-vs-async-transport race was probing, with no cross-thread timing"
+    (let [replies (atom [])]
       (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
-      ;; Issue the request and then immediately fire the abort against
-      ;; the same request-id. The transport hasn't finished resolving
-      ;; the connection-refused error yet (sendAsync is async).
-      (rf/reg-event :issue
-        (fn [_ _]
-          {:fx [[:rf.http/managed
-                 {:request    {:url (str "http://127.0.0.1:" closed-port "/")}
-                  :request-id :race
-                  ;; Long-but-finite timeout — we want the test to bound,
-                  ;; not the transport.
-                  :decode     :json
-                  :on-failure [:reply/recorder]
-                  :on-success [:reply/recorder]}]
-                [:rf.http/managed-abort :race]]}))
-      (rf/dispatch-sync [:issue])
-      ;; Wait for SOME reply (either the abort beat the transport or
-      ;; vice versa). The contract under rf2-wez75 is that whichever
-      ;; arrived first, the reply MUST be :rf.http/aborted.
-      (await-condition! #(seq @replies))
-      (let [reply (first @replies)]
-        (is (= :failure (:kind reply))
-            "transport-error-or-aborted scenario surfaces a failure reply")
-        (is (= :rf.http/aborted (get-in reply [:failure :kind]))
-            "abort precedence pins the reply to :rf.http/aborted regardless of transport-classifier race ordering (rf2-wez75 Mike decision a)")
-        (is (contains? #{:user :request-id-superseded}
-                       (get-in reply [:failure :reason]))
-            ":reason discriminates user-abort from supersede; both are abort-flavoured"))
-      (is (= 1 (count @replies))
-          "exactly one reply — abort precedence does not double-dispatch")
-      (is (empty? (http-managed/in-flight-snapshot))
-          "in-flight registry is clean"))))
+      ;; A handle stamped exactly as run-attempt!'s record-in-flight! would:
+      ;; a once-only :finalised? CAS cell and the :aborted? precedence cell —
+      ;; here PRE-FLIPPED to model the abort-fn having recorded the abort
+      ;; intent BEFORE the transport's whenComplete reaches finalise-failure!.
+      (let [finalised? (atom false)
+            aborted?   (atom {:reason :user :actor-id nil})
+            handle     (http-registry/record-in-flight!
+                         :race nil
+                         {:abort-fn   (fn [_] nil)
+                          :url        "http://127.0.0.1:1/"
+                          :finalised? finalised?
+                          :aborted?   aborted?
+                          :sensitive? false
+                          :frame      :rf/default})
+            ctx        {:request-id          :race
+                        :url                 "http://127.0.0.1:1/"
+                        :handle              handle
+                        :frame               :rf/default
+                        :sensitive?          false
+                        :origin-event        [:issue]
+                        :explicit-on-failure {:supplied? true :value [:reply/recorder]}}]
+        ;; The transport classifier produced :rf.http/transport (the losing
+        ;; classification in the bead's failing CI run). finalise-failure!
+        ;; samples the already-flipped :aborted? cell after winning the CAS
+        ;; and replaces the failure with the canonical aborted shape.
+        (finalise-failure!* ctx {:kind :rf.http/transport :message "Connection refused" :cause "java.net.ConnectException"})
+        (await-condition! #(seq @replies))
+        (let [reply (first @replies)]
+          (is (= :failure (:kind reply))
+              "the reclassified outcome is a :failure reply")
+          (is (= :rf.http/aborted (get-in reply [:failure :kind]))
+              "a recorded abort RECLASSIFIES a transport classification to :rf.http/aborted — the abort-wins precedence the race was probing")
+          (is (= :user (get-in reply [:failure :reason]))
+              "the abort snapshot's :reason rides the reclassified reply"))
+        (is (= 1 (count @replies))
+            "exactly one reply — the once-only :finalised? CAS still pins single-dispatch")
+        (is (empty? (http-managed/in-flight-snapshot))
+            "finalise-failure! cleared the in-flight registry")))))
 
 ;; ---- (3) abort-via-actor-destroy wins over decode-failure -----------------
 ;;
