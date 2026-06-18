@@ -7,10 +7,13 @@
       `add-marks` merges into the existing frame mark-set; `set-marks`
       replaces the frame mark-set wholesale. Both take the same
       `{path mark, ...}` shape — symmetric path-keyed form.
-    - Per-registration mark tables — a per-(kind, id) index of
-      `{:sensitive [paths] :large [paths] :sensitive? bool :large? bool}`
-      stashed at registration time so emit-time consumers can resolve
-      marks without re-walking the registrar meta on every event.
+    - Per-registration marks — DERIVED at read time (`marks-for`) from the
+      registration metadata `re-frame.registrar` already holds, normalised to
+      `{:sensitive [paths] :large [paths] :output-sensitivity <enum> :large? bool}`.
+      The author keys (`:sensitive` / `:large` / `:rf.egress/output-sensitivity`
+      / `:large?`) are stored by every reg-* path on the registrar entry, so
+      `marks-for` re-derives them through the SAME `normalise-marks` validation
+      the registration ran — no duplicated imperative side-table (rf2-ehexnw).
     - Emit-time projection — the path-walk + sentinel substitution
       consumed by `re-frame.trace/build-event` to redact `:rf/redacted`
       at `:sensitive` paths and surface `:rf.size/large-elided` markers
@@ -44,46 +47,53 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.path :as path]
             [re-frame.privacy :as privacy]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- per-registration mark tables ----------------------------------------
+;; ---- per-registration marks: DERIVED from the registrar (rf2-ehexnw) ------
 ;;
-;; A per-(kind, id) index of the registration's declared marks. Populated
-;; at registration time by `register-marks!` (called from the existing
-;; `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-machine` /
-;; `reg-flow` reg-paths). Read at emit time by the projection helpers.
+;; A registration's declared marks (`:sensitive` / `:large` /
+;; `:rf.egress/output-sensitivity` / `:large?`) are NOT stashed into a second
+;; imperative side-table at registration time. Every reg-* path already stores
+;; the author meta on its `re-frame.registrar` entry (`registrar/register! kind
+;; id (assoc meta … :handler-fn …)`), so `marks-for` DERIVES the marks at read
+;; time by running `normalise-marks` over `registrar/handler-meta` — the SAME
+;; validation path the registration ran. This is the pattern machine-guards use
+;; ("read it back rather than duplicate into a second registrar entry"): the
+;; registrar is the single source of truth, snapshot/restored by the test-
+;; isolation runtime fixture for free.
 ;;
-;; The table is process-scoped (mirrors `re-frame.registrar`'s shape) —
-;; declarations bind to (kind, id), not to (frame, kind, id). `add-marks`
-;; / `set-marks` are the exception — they are frame-scoped and write
-;; into the per-frame elision registry.
-
-(defonce ^:private kind->id->marks
-  (atom {}))
+;; Marks bind to (kind, id), not to (frame, kind, id) — `registrar/handler-meta`
+;; resolves under the same realm / image-generation scope as the original
+;; registration (`*registrar*` / `*generation*`). `add-marks` / `set-marks` are
+;; the exception — they are frame-scoped and write into the per-frame elision
+;; registry.
 
 ;; ---- machine :data-schema marks (order-independent source — rf2-qpibk0) --
 ;;
-;; Schema-derived machine marks live in a SEPARATE per-machine-id table from
-;; the author-sourced `kind->id->marks` `:event` entry, and `marks-for :event
-;; <id>` UNIONS the two at READ time. This is the SAME multi-source-union
+;; Schema-derived machine marks live in a per-machine-id table SEPARATE from
+;; the author-sourced registrar `:event` entry, and `marks-for :event <id>`
+;; UNIONS the two at READ time. The author side is DERIVED from the registrar
+;; `:event` meta (rf2-ehexnw); the schema side is genuinely derived-and-stored
+;; here (keyed by machine/instance id, lifecycle-cleared), so it is NOT a
+;; registrar entry and stays a real table. This is the SAME multi-source-union
 ;; architecture the app-db elision registry uses: differently-sourced
-;; declarations (`:source :frame` from `reg-frame`, `:source :marks` from the
-;; demoted imperative route) live ALONGSIDE each other in the registry,
-;; unioned at lookup. Bringing it to machine marks makes the schema-vs-author union
-;; truly ORDER-INDEPENDENT (rf2-qpibk0): a `register-marks!` (or a bare-meta
-;; re-registration) on the `:event` entry REPLACES that entry in full
-;; (matching the registrar slot semantics every other reg-* site relies on),
-;; but it CANNOT drop the schema-derived `[:data …]` marks because they are
-;; not stored there — they re-union at the next `marks-for` read regardless
-;; of whether the manual `register-marks!` ran before OR after `reg-machine`.
+;; declarations (`:source :frame` from `reg-frame`, `:source :marks`) live
+;; ALONGSIDE each other in the registry, unioned at lookup. Bringing it to
+;; machine marks makes the schema-vs-author union truly ORDER-INDEPENDENT
+;; (rf2-qpibk0): re-registering the machine's `:event` entry REPLACES it in
+;; full (registrar slot semantics), but it CANNOT drop the schema-derived
+;; `[:data …]` marks because they are not stored there — they re-union at the
+;; next `marks-for` read regardless of whether the author marks were declared
+;; (on the machine's reg-event meta) before OR after `reg-machine`.
 ;;
 ;; The prior bridge (rf2-w46fpt) worked around the replace by capturing the
-;; manual marks BEFORE `reg-event` and re-unioning them, which only held
-;; for manual-BEFORE-reg-machine; a manual `register-marks!` AFTER reg-machine
-;; still clobbered the schema marks. The separate-table read-time union fixes
-;; that asymmetry.
+;; manual marks BEFORE `reg-event` and re-unioning them, which only held for
+;; manual-BEFORE-reg-machine. The separate-table read-time union fixes that
+;; asymmetry — and since the author side is now derived from the registrar,
+;; the machine's authored marks ride its `:event` registration meta directly.
 ;;
 ;; Keyed by machine-id (the `:event`-registry key — a machine IS an event
 ;; handler). Per-instance (spawned-actor) entries also live here so the
@@ -106,10 +116,15 @@
 ;; armed-trap shape on the marks-ingestion side, the worst failure mode for a
 ;; safety surface.
 ;;
-;; We now REJECT LOUDLY at the ingestion boundary (`register-marks!` /
-;; `union-marks!`, called from the reg-* paths), mirroring the flows-side fix
-;; (rf2-cgk0wb, which rejects malformed `reg-flow` classification metadata with
-;; `:rf.error/flow-bad-marks` before any state mutates). Per the k0ew8n
+;; We now REJECT LOUDLY at the ingestion boundary (`validate-marks!`, called
+;; from each reg-* path AFTER the registrar write — rf2-ehexnw), mirroring the
+;; flows-side fix (rf2-cgk0wb, which rejects malformed `reg-flow` classification
+;; metadata with `:rf.error/flow-bad-marks` before any state mutates). The
+;; validation runs the SAME `normalise-marks` `marks-for` re-runs at read time,
+;; so a malformed declaration is caught at registration (fail-loud) AND can
+;; never be re-derived into a mark — but nothing is stashed: the marks are
+;; derived from the registrar meta, not duplicated into a side-table. Per the
+;; k0ew8n
 ;; warn-vs-reject principle: there are ZERO legitimate non-vector entries and a
 ;; correct spelling always exists (`[[:token]]`), so REJECT, not warn. The
 ;; ex-info carries the canonical thrown-error shape (Spec 009 §The thrown-error
@@ -318,22 +333,23 @@
         (some? os)                  (assoc :output-sensitivity os)
         (contains? meta :large?)    (assoc :large?    (boolean (:large? meta)))))))
 
-(defn register-marks!
-  "Record a registration's mark declaration for later emit-time consultation.
-  Returns nil. No-op when `meta` carries no mark-relevant keys.
+(defn validate-marks!
+  "Validate a registration's mark declaration at the reg-* boundary, FAIL-LOUD
+  (rf2-ehexnw / rf2-y7l5t5). Returns nil. No-op (no throw) when `meta` carries
+  no mark-relevant keys or carries only well-formed ones.
 
-  Called from each reg-* path AFTER the underlying registrar write so the
-  marks table mirrors the registry. Re-registration replaces the prior
-  marks entry in full (no merge — matches the registrar's slot semantics)."
-  [kind id meta]
-  (let [marks (normalise-marks kind meta)]
-    (if (nil? marks)
-      ;; Clear any prior marks for this (kind, id) on re-registration
-      ;; without marks — the new registration's declaration set should
-      ;; supersede the old one in full. The same rule generalises
-      ;; from `set-marks` to every reg-* site.
-      (swap! kind->id->marks update kind dissoc id)
-      (swap! kind->id->marks assoc-in [kind id] marks)))
+  Called from each reg-* path BEFORE the underlying registrar write. It runs the
+  SAME `normalise-marks` `marks-for` re-runs at read time and DISCARDS the
+  result — its only job is the throw-side-effect: a malformed `:sensitive` /
+  `:large` / `:rf.egress/output-sensitivity` declaration (or a `:sensitive?`
+  overload on a `:sub`) raises `:rf.error/bad-marks` at registration rather
+  than silently mis-deriving (or lazily throwing) at the first emit. NOTHING is
+  stashed — the marks are derived from the registrar meta by `marks-for`, not
+  duplicated into a process-scoped side-table. Validating BEFORE the registrar
+  write means a malformed registration never LANDS, so a stored meta `marks-for`
+  re-derives at read time is always well-formed (rf2-ehexnw)."
+  [kind meta]
+  (normalise-marks kind meta)
   nil)
 
 (defn- union-path-vecs
@@ -394,52 +410,14 @@
     (or (= :rf.egress/public existing)    (= :rf.egress/public added))    :rf.egress/public
     :else nil))
 
-(defn union-marks!
-  "Union a mark declaration into the existing `(kind, id)` marks entry —
-  the per-(kind, id) marks-table analogue of `add-marks` merging into a
-  frame's app-db elision registry (Spec 015 §App-db marks). Returns nil.
-  No-op when `meta` carries no `:sensitive` / `:large` / `:sensitive?` /
-  `:large?` keys.
-
-  Unlike `register-marks!` (which REPLACES the entry in full, matching the
-  registrar's slot semantics), this MERGES: the supplied `:sensitive` /
-  `:large` path vectors UNION with whatever the entry already holds, so a
-  registration with a schema-derived mark set AND a manually-registered
-  one ends up with BOTH (Spec 015 §Conflict between the two sources is
-  resolved by union — there is no way for one source to unmark a path the
-  other marked). The whole-output `:sensitive?` / `:large?` flags OR into
-  the entry (true wins) and an explicit `false` opt-out is PRESERVED across
-  a union that touches only paths (rf2-1zqh1z) — the OR semantics this fn
-  documents are honoured both ways.
-
-  ORDER-INDEPENDENT (rf2-qpibk0): unioning declaration A then B yields the
-  identical entry as B then A — set-union of paths plus monotone-OR of the
-  whole-output flags is commutative + associative, so the registration order
-  of a machine's `:data-schema` bridge and a manual `register-marks!` never
-  changes the result.
-
-  Used by `reg-machine`'s `:data-schema` redaction bridge (EP-0005): the
-  schema's per-slot `:sensitive?` / `:large?` paths (snapshot-rooted under
-  `[:data …]`) union into the machine's `:event`-keyed marks entry, so a
-  token marked `:sensitive?` in a `:data-schema` is redacted in snapshot
-  egress (`project-machine-tags`) exactly like an app-db slot — and a
-  machine that ALSO carries a manual `register-marks!` keeps both sets."
-  [kind id meta]
-  (let [added (normalise-marks kind meta)]
-    (when added
-      (swap! kind->id->marks update-in [kind id]
-             (fn [existing]
-               (let [union-s (union-path-vecs (:sensitive existing) (:sensitive added))
-                     union-l (union-path-vecs (:large existing)     (:large added))
-                     os      (union-output-sensitivity (:output-sensitivity existing)
-                                                       (:output-sensitivity added))
-                     large?  (union-whole-output-flag (:large? existing)     (:large? added))]
-                 (cond-> {}
-                   union-s          (assoc :sensitive          union-s)
-                   union-l          (assoc :large              union-l)
-                   (some? os)       (assoc :output-sensitivity os)
-                   (some? large?)   (assoc :large?             large?)))))))
-  nil)
+;; NOTE: `union-marks!` is GONE (rf2-ehexnw). It was the additive-merge analogue
+;; of the deleted `kind->id->marks` side-table and had NO production caller —
+;; the machine `:data-schema` bridge writes the schema-sourced set through
+;; `declare-machine-schema-marks!` (the separate `machine-id->schema-marks`
+;; table), and `marks-for :event <id>` unions that with the registrar-derived
+;; author marks at read time. The path/flag union helpers it shared
+;; (`union-path-vecs` / `union-whole-output-flag` / `union-output-sensitivity`)
+;; survive — `merge-schema-marks` (below) uses them for that read-time union.
 
 (defn- merge-schema-marks
   "Union the author-sourced `manual` marks entry with the schema-sourced
@@ -467,7 +445,8 @@
       (when (seq merged) merged))))
 
 (defn marks-for
-  "Return the registered mark declaration for `(kind, id)`, or nil.
+  "Return the mark declaration for `(kind, id)`, or nil — DERIVED at read time
+  from `registrar/handler-meta` (rf2-ehexnw), NOT a duplicated side-table.
 
   The returned shape is `{:sensitive [paths] :large [paths]
   :output-sensitivity <enum> :large? bool}` — slots are present only when the
@@ -475,16 +454,18 @@
   declassification claim (`:rf.egress/sensitive` / `:rf.egress/public`; the
   `:rf.egress/inherit` default is omitted).
 
-  For `:event`-kind ids that name a machine carrying a `:data-schema`, the
-  author-sourced `kind->id->marks` entry is UNIONED at read time with the
-  schema-sourced `machine-id->schema-marks` entry (rf2-qpibk0). The two
-  tables are kept separate so a `register-marks!` (or bare-meta
-  re-registration) on the `:event` entry — which REPLACES it in full — can
-  never drop schema-derived `[:data …]` marks, making the union truly
-  order-independent regardless of whether the manual marks were registered
-  before OR after `reg-machine`."
+  `normalise-marks` runs over the registrar's stored meta (the SAME validation
+  `validate-marks!` ran at registration, so a clean stored meta never throws;
+  an unknown id returns nil meta → nil marks). For `:event`-kind ids that name
+  a machine carrying a `:data-schema`, the registrar-derived author marks are
+  UNIONED at read time with the schema-sourced `machine-id->schema-marks` entry
+  (rf2-qpibk0). The schema table is kept SEPARATE from the registrar so a
+  bare-meta re-registration of the `:event` entry — which REPLACES the registrar
+  slot in full — can never drop schema-derived `[:data …]` marks, making the
+  union truly order-independent regardless of whether the author marks were
+  declared (on the machine's reg-event meta) before OR after `reg-machine`."
   [kind id]
-  (let [manual (get-in @kind->id->marks [kind id])]
+  (let [manual (normalise-marks kind (registrar/handler-meta kind id))]
     (if (= :event kind)
       (merge-schema-marks manual (get @machine-id->schema-marks id))
       manual)))
@@ -499,16 +480,20 @@
 
   Returns a vector of `{:kind <kind> :id <id>}` maps (e.g.
   `{:kind :sub :id :auth/token-prefix}`), sorted by `(kind, id)` string for a
-  stable audit ordering. Pure read over the process-scoped marks table — the
-  Xray `:public`-claim panel consumes it, mirroring how `global-scope-audit`
+  stable audit ordering. Pure read DERIVED from the registrar (rf2-ehexnw) —
+  walks every mark-carrying kind (`:event :sub :fx :cofx`) via
+  `registrar/registrations`, re-derives each entry's marks through
+  `normalise-marks`, and collects the `:rf.egress/public` ones. The Xray
+  `:public`-claim panel consumes it, mirroring how `global-scope-audit`
   consumes the resources registry. Empty when no output is declassified."
   []
-  (->> @kind->id->marks
-       (mapcat (fn [[kind id->marks]]
-                 (keep (fn [[id marks]]
-                         (when (= :rf.egress/public (:output-sensitivity marks))
+  (->> [:event :sub :fx :cofx]
+       (mapcat (fn [kind]
+                 (keep (fn [[id meta]]
+                         (when (= :rf.egress/public
+                                  (:output-sensitivity (normalise-marks kind meta)))
                            {:kind kind :id id}))
-                       id->marks)))
+                       (registrar/registrations kind))))
        (sort-by (juxt (comp str :kind) (comp str :id)))
        vec))
 
@@ -518,10 +503,10 @@
   `{:sensitive [paths] :large [paths] :sensitive? bool :large? bool}` shape
   (snapshot-rooted under `[:data …]`), or nil to clear the entry. Returns nil.
 
-  Kept separate from the author-sourced `kind->id->marks` `:event` entry so
+  Kept separate from the author-sourced registrar `:event` entry so
   `marks-for :event machine-id` unions the two at read time — order-
-  independent against any `register-marks!` / re-registration on the `:event`
-  entry. Called by `reg-machine`'s `:data-schema` bridge for both the type id
+  independent against any re-registration of the machine's `:event` entry.
+  Called by `reg-machine`'s `:data-schema` bridge for both the type id
   (at `reg-machine` time) and per-instance spawned-actor ids (at spawn time,
   rf2-fm1cpl)."
   [machine-id marks]
@@ -544,11 +529,15 @@
   nil)
 
 (defn clear-marks!
-  "Drop every registered marks declaration (author-sourced AND
-  schema-sourced). Test-isolation only — production code never calls this.
-  Returns nil."
+  "Drop every SCHEMA-SOURCED marks declaration (the `machine-id->schema-marks`
+  table). Test-isolation only — production code never calls this. Returns nil.
+
+  The author-sourced marks now live in the registrar (rf2-ehexnw), which the
+  test-isolation runtime fixture already snapshot/restores via
+  `re-frame.test-support/restore-registrar!` — so there is no separate author
+  side-table to reset here; only the genuinely derived-and-stored schema table
+  needs clearing."
   []
-  (reset! kind->id->marks {})
   (reset! machine-id->schema-marks {})
   nil)
 
@@ -1823,8 +1812,7 @@
 
 (late-bind/set-fn! :marks/project-trace-event project-trace-event)
 (late-bind/set-fn! :marks/redact-event-by-registration redact-event-by-registration)
-(late-bind/set-fn! :marks/register-marks!     register-marks!)
-(late-bind/set-fn! :marks/union-marks!        union-marks!)
+(late-bind/set-fn! :marks/validate-marks!     validate-marks!)
 (late-bind/set-fn! :marks/marks-for           marks-for)
 (late-bind/set-fn! :marks/declare-machine-schema-marks! declare-machine-schema-marks!)
 (late-bind/set-fn! :marks/clear-machine-schema-marks!   clear-machine-schema-marks!)

@@ -282,6 +282,13 @@
                "recordable fact (`{:recordable? true :provided? true}`) may "
                "omit its supplier — its owner stamps the value onto the token. "
                "An ambient supplier must be a value-returning fn.")))
+      ;; Per Spec 015 §5. Coeffects — VALIDATE any declared `:sensitive` /
+      ;; `:large` marks fail-loud BEFORE the registrar write (rf2-ehexnw); the
+      ;; marks themselves are DERIVED from the registrar meta at `marks-for`
+      ;; read time (emit-time projection redacts the delivered coeffect value's
+      ;; slots in trace events that surface `:coeffects`), no imperative stash.
+      (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+        (validate! :cofx meta))
       (registrar/register! :cofx id
                            (assoc (source-coords/merge-coords meta)
                                   ;; The value-returning supplier rides the
@@ -292,11 +299,6 @@
                                   :handler-fn  supplier
                                   :recordable? recordable?
                                   :provided?   provided?)))
-    ;; Per Spec 015 §5. Coeffects — stash `:sensitive` / `:large` path
-    ;; declarations so emit-time projection redacts the delivered coeffect
-    ;; value's slots in trace events that surface `:coeffects`.
-    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-      (register! :cofx id meta))
     id))
 
 ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------

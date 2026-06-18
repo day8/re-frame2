@@ -28,9 +28,10 @@
   Per Spec 015 §1. Event handlers — the registration meta-map accepts
   optional `:sensitive [paths]` and `:large [paths]` keys that index
   into the dispatched event vector's arg-map (the second element).
-  The marks are stashed in the per-(kind, id) marks table via
-  `re-frame.marks/register-marks!` (called through the late-bind
-  hook to keep events decoupled from the optional marks artefact)."
+  The marks are DERIVED from the registrar meta at `re-frame.marks/marks-for`
+  read time (rf2-ehexnw); reg-event only VALIDATES them fail-loud via
+  `re-frame.marks/validate-marks!` (called through the late-bind hook to keep
+  events decoupled from the optional marks artefact), no imperative stash."
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
@@ -905,6 +906,18 @@
     ;; `:rf.error/cofx-name-collision` on a malformed / duplicate declaration.
     ;; EP-0018: `:rf.cofx/requires` is uniformly available (the former
     ;; db-handler exception is gone — the one form is coeffects-in).
+    ;; Per Spec 015 §1. Event handlers: VALIDATE any declared `:sensitive` /
+    ;; `:large` marks fail-loud BEFORE the registrar write (rf2-ehexnw); the
+    ;; marks themselves are DERIVED from the registrar meta at `marks-for` read
+    ;; time, no imperative stash. Late-bound — the hook is unbound when the
+    ;; marks artefact is absent (which it never is in the canonical build, but
+    ;; the indirection keeps `events` decoupled from `marks`). Runs for MACHINE
+    ;; registrations too: a machine's author marks ride its `:event` reg meta
+    ;; (via `reg-machine` opts), and its `:data-schema` marks flow through the
+    ;; separate schema-marks table — `marks-for :event <id>` unions both at read
+    ;; time (rf2-qpibk0), order-independent with no stash to clobber.
+    (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+      (validate! :event meta))
     (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
       (registrar/register! :event id
         (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)
@@ -912,26 +925,6 @@
                        :interceptors (-> [] (into interceptors) (conj wrapped)))
           (seq requires-parsed)
           (assoc :rf.cofx/requires-parsed requires-parsed))))
-    ;; Per Spec 015 §1. Event handlers: stash any declared `:sensitive`
-    ;; / `:large` paths in the marks table so emit-time projection can
-    ;; resolve them. Late-bound — the hook is unbound when the marks
-    ;; artefact is absent (which it never is in the canonical build,
-    ;; but the indirection keeps `events` decoupled from `marks`).
-    ;;
-    ;; Per rf2-qpibk0: SKIP the clearing call for a MACHINE registration
-    ;; (`:rf/machine?` in meta). `reg-machine` re-registers the machine as an
-    ;; event handler with bare meta (no mark keys), and `register-marks!`'s
-    ;; full-replace semantics would CLEAR any manually-registered machine
-    ;; marks (`register-marks! :event machine-id {...}`) — the order-dependent
-    ;; clobber the bead closes. A machine declares its `:sensitive?` /
-    ;; `:large?` in its `:data-schema` (bridged into the separate schema-marks
-    ;; table by `reg-machine`, unioned at read time), never in the reg meta, so
-    ;; there is nothing to stash here for a machine — and skipping the call lets
-    ;; a manual machine `register-marks!` survive `reg-machine` regardless of
-    ;; order (it unions with the schema marks at `marks-for` read time).
-    (when-not (:rf/machine? meta)
-      (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-        (register! :event id meta)))
     id))
 
 (defn normalize-relowered-meta

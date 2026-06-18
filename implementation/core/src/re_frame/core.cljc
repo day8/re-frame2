@@ -65,9 +65,11 @@
             ;; boundary now). `re-frame.marks` stays a side-effect-only
             ;; require — it publishes the `:marks/*` late-bind hooks (the
             ;; trace bus's `:marks/project-trace-event` emit chokepoint, the
-            ;; per-(kind,id) `:marks/register-marks!` / `:marks/marks-for`
-            ;; registry, etc.) that must be bound at boot. No `marks/*`
-            ;; symbols are referenced from this façade any more.
+            ;; reg-* boundary `:marks/validate-marks!` fail-loud check, and
+            ;; `:marks/marks-for` — which DERIVES per-(kind,id) marks from the
+            ;; registrar metadata at read time, no imperative side-table:
+            ;; rf2-ehexnw) that must be bound at boot. No `marks/*` symbols are
+            ;; referenced from this façade any more.
             [re-frame.marks]
             ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect
             ;; only — it publishes the `:frame-classification/*` late-bind

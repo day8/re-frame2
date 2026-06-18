@@ -131,16 +131,19 @@
 (def ^:private plain-machine-id     :sec/plain-machine)
 
 (defn- declare-machine-marks!
-  "Install the per-(kind, id) marks a `reg-machine` with `:sensitive`
-  machine-data paths would install (machine marks are keyed under the
-  `:event` kind because a machine IS an event handler)."
+  "Install the marks a `reg-machine` with `:sensitive` machine-data paths would
+  install (machine marks key under the `:event` kind because a machine IS an
+  event handler). Post-rf2-ehexnw the marks are DERIVED from the registrar
+  `:event` meta, so we register each id as an event carrying the author marks
+  (the snapshot analogue `project-machine-error-tags` keys off) rather than
+  poking a deleted side-table."
   []
-  ;; Sensitive machine — declares a sensitive `:data` path (the snapshot
-  ;; analogue), the signal `project-machine-error-tags` keys off.
-  (marks/register-marks! :event sensitive-machine-id
-                         {:sensitive [[:data :token]]})
+  ;; Sensitive machine — declares a sensitive `:data` path on its reg meta.
+  (rf/reg-event sensitive-machine-id
+                {:sensitive [[:data :token]]}
+                (fn [_ _] nil))
   ;; Plain machine — no marks at all.
-  (marks/register-marks! :event plain-machine-id {}))
+  (rf/reg-event plain-machine-id (fn [_ _] nil)))
 
 (defn- machine-action-exception-tags
   "The EXACT `:tags` shape `trace-action-failure!` hands to
@@ -252,7 +255,8 @@
 (deftest machine-exception-data-verbatim-for-unregistered-machine
   (testing "rf2-zsm03 — a machine with no marks entry at all (never
             registered marks) rides :exception-data verbatim"
-    ;; No declare-machine-marks! call — kind->id->marks has no entry.
+    ;; No declare-machine-marks! call — the id is unregistered, so the
+    ;; registrar carries no :event meta and `marks-for` derives nil marks.
     (let [out  (emit-machine-action-exception-for :sec/unregistered)
           tags (:tags out)]
       (is (some? out) "the machine-action-exception trace was delivered")

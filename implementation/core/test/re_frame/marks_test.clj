@@ -233,25 +233,27 @@
 ;; flows-side fix (rf2-cgk0wb / `:rf.error/flow-bad-marks`).
 
 (defn- bad-marks-data
-  "Return the ex-data of the throw from `(register-marks! :event :probe meta)`,
-  or nil if it did not throw. `:probe` is left UNREGISTERED on success so the
-  same probe id can be reused across cases."
+  "Return the ex-data of the throw from registering `:probe` as an event with
+  `meta`, or nil if it did not throw. The marks are now VALIDATED fail-loud at
+  the reg-* boundary (rf2-ehexnw) before the registrar write, so a malformed
+  declaration throws here and `:probe` never lands; on success `:probe` is a
+  no-op event registration the per-test reset rolls back."
   [meta]
   (try
-    (marks/register-marks! :event :probe meta)
+    (rf/reg-event :probe meta (fn [_ _] nil))
     nil
     (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest register-marks-rejects-bare-keyword-whole
   (testing ":sensitive :token (a bare keyword, not a vector-of-paths) is rejected"
     (let [data (bad-marks-data {:sensitive :token})]
-      (is (some? data) "register-marks! threw")
+      (is (some? data) "reg-event threw at the marks-validation boundary")
       (is (= :rf.error/bad-marks (:rf.error/id data)) ":rf.error/id discriminator")
       (is (= 'rf/reg-marks (:where data)))
       (is (= :fix-registration (:recovery data)))
       (is (= :sensitive (:bad-key data)) ":bad-key names the offending key")
       (is (= :token (:bad-value data)) ":bad-value names the non-vector whole")
-      (is (nil? (marks/marks-for :event :probe)) "no marks stashed on rejection"))))
+      (is (nil? (marks/marks-for :event :probe)) "no marks landed on rejection"))))
 
 (deftest register-marks-rejects-string-whole
   (testing ":large \"blob\" (a string) is rejected with :bad-value"
@@ -297,9 +299,9 @@
           "the two well-formed vector entries are not listed"))))
 
 (deftest reg-event-rejects-malformed-marks-no-stash
-  ;; The rejection fires through the PUBLIC reg-* boundary too (register-marks!
-  ;; is called from reg-event / reg-sub / reg-fx / reg-cofx).
-  (testing "reg-event with a malformed :sensitive throws and stashes nothing"
+  ;; The rejection fires at the reg-* boundary (validate-marks! is called from
+  ;; reg-event / reg-sub / reg-fx / reg-cofx BEFORE the registrar write).
+  (testing "reg-event with a malformed :sensitive throws and lands nothing"
     (let [ex (try (rf/reg-event :malformed/evt
                     {:sensitive [:password]} ; should be [[:password]]
                     (fn [{:keys [db]} _] {:db db}))
@@ -324,11 +326,11 @@
   ;; Regression guard: the tightened validator must NOT reject the legitimate
   ;; whole-value mark `[[]]`, an empty declaration `[]`, or well-formed paths.
   (testing "[[]] whole-value, [] empty, and ordinary paths all register cleanly"
-    (marks/register-marks! :event :wv {:sensitive [[]] :large [[:docs :csv]]})
+    (rf/reg-event :wv {:sensitive [[]] :large [[:docs :csv]]} (fn [_ _] nil))
     (let [m (marks/marks-for :event :wv)]
       (is (= [[]] (:sensitive m)) "[[]] whole-value mark accepted")
       (is (= [[:docs :csv]] (:large m)) "ordinary path accepted"))
-    (marks/register-marks! :event :empty {:sensitive []})
+    (rf/reg-event :empty {:sensitive []} (fn [_ _] nil))
     ;; An empty :sensitive normalises to [] (no paths); the entry is dropped on
     ;; read because it carries no marks — but it did NOT throw.
     (is (nil? (:sensitive (marks/marks-for :event :empty)))
@@ -347,7 +349,7 @@
   (testing "rf2-94o54l.2 — a UUID path segment (valid EP-0012 segment, was
             omitted by the private validator) is accepted"
     (let [uid (java.util.UUID/randomUUID)]
-      (marks/register-marks! :event :uuid-seg {:sensitive [[:invoices uid :total]]})
+      (rf/reg-event :uuid-seg {:sensitive [[:invoices uid :total]]} (fn [_ _] nil))
       (is (= [[:invoices uid :total]] (:sensitive (marks/marks-for :event :uuid-seg)))
           "a UUID segment registers — shared segment domain, not the narrow private one"))))
 
@@ -355,14 +357,14 @@
   (testing "rf2-94o54l.2 — an instant path segment (valid EP-0012 segment)
             is accepted"
     (let [inst (java.time.Instant/parse "2026-06-12T00:00:00Z")]
-      (marks/register-marks! :event :inst-seg {:large [[:audit inst :payload]]})
+      (rf/reg-event :inst-seg {:large [[:audit inst :payload]]} (fn [_ _] nil))
       (is (= [[:audit inst :payload]] (:large (marks/marks-for :event :inst-seg)))
           "an instant segment registers"))))
 
 (deftest register-marks-accepts-nil-segment
   (testing "rf2-94o54l.2 — a nil path segment (valid EP-0012 segment, a real
             map key) is accepted — distinct from the [[]] whole-value mark"
-    (marks/register-marks! :event :nil-seg {:sensitive [[:by-key nil :secret]]})
+    (rf/reg-event :nil-seg {:sensitive [[:by-key nil :secret]]} (fn [_ _] nil))
     (is (= [[:by-key nil :secret]] (:sensitive (marks/marks-for :event :nil-seg)))
         "a nil segment registers — segment? admits nil")))
 
@@ -416,102 +418,37 @@
       (is (every? vector? (keys decls))
           "every declaration key is a canonical vector"))))
 
-(deftest union-marks-rejects-malformed
-  (testing "union-marks! shares the coerce-paths chokepoint, so a malformed
-            added declaration is rejected too"
-    (marks/register-marks! :event :um {:sensitive [[:ok]]})
-    (let [ex (try (marks/union-marks! :event :um {:sensitive [:bad]})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/bad-marks (:rf.error/id (ex-data ex))))
-      (is (= [[:ok]] (:sensitive (marks/marks-for :event :um)))
-          "the pre-existing well-formed entry is untouched by the rejected union"))))
-
-;; ---- union-marks! — additive merge (rf2-w46fpt / EP-0005) ----------------
+;; ---- union-marks! is GONE (rf2-ehexnw) -----------------------------------
 ;;
-;; The per-(kind, id) marks-table analogue of `add-marks` merging into the
-;; app-db elision registry. `register-marks!` REPLACES the entry in full (it
-;; matches the registrar's slot semantics); `union-marks!` MERGES, so a
-;; schema-derived mark set and a manual one compose rather than clobber.
-
-(deftest union-marks-creates-entry-when-absent
-  (marks/union-marks! :event :u1 {:sensitive [[:data :token]] :large [[:data :blob]]})
-  (let [m (marks/marks-for :event :u1)]
-    (is (= [[:data :token]] (:sensitive m)))
-    (is (= [[:data :blob]] (:large m)))))
-
-(deftest union-marks-unions-with-existing
-  (marks/register-marks! :event :u2 {:sensitive [[:data :a]]})
-  (marks/union-marks!    :event :u2 {:sensitive [[:data :b]]})
-  (is (= #{[:data :a] [:data :b]}
-         (set (:sensitive (marks/marks-for :event :u2))))
-      "union-marks! merges into the existing register-marks! entry"))
-
-(deftest union-marks-dedups
-  (marks/register-marks! :event :u3 {:sensitive [[:data :a]]})
-  (marks/union-marks!    :event :u3 {:sensitive [[:data :a] [:data :b]]})
-  (is (= [[:data :a] [:data :b]] (:sensitive (marks/marks-for :event :u3)))
-      "a path already present is not duplicated; order preserved"))
-
-(deftest union-marks-noop-without-paths
-  (marks/register-marks! :event :u4 {:sensitive [[:data :a]]})
-  (marks/union-marks!    :event :u4 {})
-  (is (= [[:data :a]] (:sensitive (marks/marks-for :event :u4)))
-      "a mark-key-free meta is a no-op (does NOT clear, unlike register-marks!)"))
-
-;; ---- union-marks! :rf.egress/output-sensitivity monotone (EP-0015 #9) -----
-;; The derived-output declassification enum (`:rf.egress/output-sensitivity`)
-;; replaces the rejected boolean `:sensitive?` declassify spelling. The union
-;; is monotone toward sensitivity (fail-closed): `:rf.egress/sensitive` (force)
-;; on EITHER side wins over `:rf.egress/public` (declassify); an explicit
-;; `:public` is preserved when the other side is absent / path-only.
-
-(deftest union-marks-ors-output-sensitivity-flags
-  (marks/register-marks! :sub :u5 {:rf.egress/output-sensitivity :rf.egress/public})
-  (marks/union-marks!    :sub :u5 {:rf.egress/output-sensitivity :rf.egress/sensitive})
-  (is (= :rf.egress/sensitive (:output-sensitivity (marks/marks-for :sub :u5)))
-      "output-sensitivity unions monotone toward sensitive (force wins over public)"))
-
-(deftest union-marks-preserves-public-when-added-has-only-paths
-  (marks/register-marks! :sub :f1 {:rf.egress/output-sensitivity :rf.egress/public})
-  (marks/union-marks!    :sub :f1 {:sensitive [[:data :token]]})
-  (let [m (marks/marks-for :sub :f1)]
-    (is (= :rf.egress/public (:output-sensitivity m))
-        "explicit :public survives a union that adds only path marks")
-    (is (= [[:data :token]] (:sensitive m))
-        "the added path mark lands alongside the preserved :public claim")))
-
-(deftest union-marks-preserves-public-when-added-is-nil-shaped
-  ;; The added declaration carries a DIFFERENT flag (`:large?`) but no
-  ;; output-sensitivity claim — the existing `:public` must not vanish.
-  (marks/register-marks! :sub :f2 {:rf.egress/output-sensitivity :rf.egress/public})
-  (marks/union-marks!    :sub :f2 {:large? true})
-  (let [m (marks/marks-for :sub :f2)]
-    (is (= :rf.egress/public (:output-sensitivity m)) "existing :public preserved")
-    (is (true? (:large? m))                           "added true :large? lands")))
-
-(deftest union-marks-sensitive-overrides-existing-public
-  (marks/register-marks! :sub :f3 {:rf.egress/output-sensitivity :rf.egress/public})
-  (marks/union-marks!    :sub :f3 {:rf.egress/output-sensitivity :rf.egress/sensitive})
-  (is (= :rf.egress/sensitive (:output-sensitivity (marks/marks-for :sub :f3)))
-      "a later :sensitive wins over an existing :public (monotone toward sensitive)"))
-
-(deftest union-marks-public-added-over-existing-sensitive-stays-sensitive
-  (marks/register-marks! :sub :f4 {:rf.egress/output-sensitivity :rf.egress/sensitive})
-  (marks/union-marks!    :sub :f4 {:rf.egress/output-sensitivity :rf.egress/public})
-  (is (= :rf.egress/sensitive (:output-sensitivity (marks/marks-for :sub :f4)))
-      "an added :public cannot retract an existing :sensitive (force wins)"))
+;; The table-level additive-merge `union-marks!` and its sibling stash
+;; `register-marks!` are DELETED: author marks are now DERIVED from the
+;; registrar meta at `marks-for` read time, so re-registering a (kind, id)
+;; REPLACES its marks (registrar slot semantics) — there is no per-(kind, id)
+;; "merge into the existing entry" operation any more. The schema-vs-author
+;; UNION (the only union that mattered) survives via the separate
+;; `machine-id->schema-marks` table + the read-time merge in `marks-for`,
+;; exercised by the `machine-schema-marks-*` tests below. The deleted
+;; `union-marks!` tests (creates-when-absent / unions-with-existing / dedups /
+;; noop-without-paths + the output-sensitivity monotone-OR cases) tested that
+;; removed table-level merge; the monotone-OR union helpers they exercised are
+;; still covered through the schema-vs-author path. The malformed-rejection
+;; that `union-marks-rejects-malformed` covered is now covered at the reg-*
+;; boundary by `reg-sub-rejects-malformed-marks` / `reg-event-rejects-
+;; malformed-marks-no-stash` (the only ingestion path that remains).
 
 ;; ---- machine schema marks: order-independent union (rf2-qpibk0) ----------
 ;; Schema-sourced machine marks live in a SEPARATE table that `marks-for
-;; :event <id>` unions with the author-sourced `:event` entry at read time, so
-;; the schema-vs-author composition is order-independent and a register-marks!
-;; on the `:event` entry can never drop schema-derived marks.
+;; :event <id>` unions with the REGISTRAR-DERIVED author `:event` marks at read
+;; time, so the schema-vs-author composition is order-independent and a
+;; re-registration of the `:event` entry can never drop schema-derived marks.
+;; The author side is now expressed by registering the (machine) id as an event
+;; with the author marks in its reg meta (rf2-ehexnw) — the registrar holds it,
+;; `marks-for` derives it.
 
 (deftest machine-schema-marks-union-with-author-marks-at-read-time
   (marks/declare-machine-schema-marks! :m/auth {:sensitive [[:data :token]]
                                                 :large     [[:data :blob]]})
-  (marks/register-marks! :event :m/auth {:sensitive [[:data :session-id]]})
+  (rf/reg-event :m/auth {:sensitive [[:data :session-id]]} (fn [_ _] nil))
   (let [m (marks/marks-for :event :m/auth)]
     (is (= #{[:data :token] [:data :session-id]} (set (:sensitive m)))
         "schema-sourced and author-sourced sensitive paths union at read time")
@@ -520,32 +457,32 @@
 
 (deftest machine-schema-marks-order-independent-author-after-schema
   (marks/declare-machine-schema-marks! :m/o1 {:sensitive [[:data :token]]})
-  (marks/register-marks! :event :m/o1 {:sensitive [[:data :extra]]})
+  (rf/reg-event :m/o1 {:sensitive [[:data :extra]]} (fn [_ _] nil))
   (is (= #{[:data :token] [:data :extra]}
          (set (:sensitive (marks/marks-for :event :m/o1))))
       "schema-first then author yields the union"))
 
 (deftest machine-schema-marks-order-independent-schema-after-author
-  (marks/register-marks! :event :m/o2 {:sensitive [[:data :extra]]})
+  (rf/reg-event :m/o2 {:sensitive [[:data :extra]]} (fn [_ _] nil))
   (marks/declare-machine-schema-marks! :m/o2 {:sensitive [[:data :token]]})
   (is (= #{[:data :token] [:data :extra]}
          (set (:sensitive (marks/marks-for :event :m/o2))))
       "author-first then schema yields the IDENTICAL union (order-independent)"))
 
 (deftest re-registering-event-entry-does-not-drop-schema-marks
-  ;; A bare-meta register-marks! (or re-registration) REPLACES the author
-  ;; `:event` entry, but the schema-sourced marks live in a separate table and
-  ;; survive — the order-independence invariant.
+  ;; A bare-meta re-registration REPLACES the author `:event` registrar slot,
+  ;; but the schema-sourced marks live in a separate table and survive — the
+  ;; order-independence invariant.
   (marks/declare-machine-schema-marks! :m/o3 {:sensitive [[:data :token]]})
-  (marks/register-marks! :event :m/o3 {:sensitive [[:data :extra]]})
-  ;; Bare-meta register-marks! clears the author entry (last-write-wins).
-  (marks/register-marks! :event :m/o3 {})
+  (rf/reg-event :m/o3 {:sensitive [[:data :extra]]} (fn [_ _] nil))
+  ;; Bare-meta re-registration clears the author marks (registrar slot replace).
+  (rf/reg-event :m/o3 (fn [_ _] nil))
   (is (= #{[:data :token]} (set (:sensitive (marks/marks-for :event :m/o3))))
       "schema-sourced [:data :token] survives the author-entry clear"))
 
 (deftest clear-machine-schema-marks-drops-only-schema-entry
   (marks/declare-machine-schema-marks! :m/c1 {:sensitive [[:data :token]]})
-  (marks/register-marks! :event :m/c1 {:sensitive [[:data :extra]]})
+  (rf/reg-event :m/c1 {:sensitive [[:data :extra]]} (fn [_ _] nil))
   (marks/clear-machine-schema-marks! :m/c1)
   (let [m (marks/marks-for :event :m/c1)]
     (is (= #{[:data :extra]} (set (:sensitive m)))

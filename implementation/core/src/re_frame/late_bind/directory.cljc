@@ -165,22 +165,18 @@
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
     :description "Replace the frame's app-db mark-set wholesale (Spec 015 §App-db marks). Like `:marks/add-marks`, the `set-marks` façade export was removed; the underlying `re-frame.marks/set-marks` survives as an internal / test / generated-code surface reached by direct require, not through this hook."}
-   {:key         :marks/register-marks!
+   {:key         :marks/validate-marks!
     :producer-ns 're-frame.marks
-    :design-bead "rf2-vw7f5"
-    :description "Stash a registration's :sensitive / :large declarations in the per-(kind, id) marks table at registration time."}
-   {:key         :marks/union-marks!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-w46fpt"
-    :description "UNION a mark declaration into the existing per-(kind, id) marks entry (additive merge, vs register-marks!'s full replace) — the marks-table analogue of add-marks merging into the app-db elision registry. The schema's per-slot :sensitive? / :large? paths (snapshot-rooted under [:data …]) union into the machine's :event-keyed marks so a sensitive :data slot is redacted in snapshot egress (project-machine-tags) like an app-db slot, AND a machine that also carries a manual register-marks! keeps both sets (Spec 015 §union-by-source). Hook retained for the directory contract; re-frame.machines' reg-machine :data-schema bridge (EP-0005) now reaches this fn by a direct `re-frame.marks` require, not through this late-bind hook."}
+    :design-bead "rf2-ehexnw"
+    :description "VALIDATE a registration's :sensitive / :large / :rf.egress/output-sensitivity declarations fail-loud at the reg-* boundary (raising :rf.error/bad-marks on a malformed declaration, before the registrar write so a bad registration never lands). NOTHING is stashed — per-(kind, id) marks are DERIVED from the registrar meta at :marks/marks-for read time (rf2-ehexnw), not duplicated into an imperative side-table. Replaces the deleted :marks/register-marks! (stash) and :marks/union-marks! (additive-merge) hooks. Called from reg-event / reg-fx / reg-cofx / reg-sub via this late-bind hook to keep core decoupled from the optional marks artefact."}
    {:key         :marks/marks-for
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"
-    :description "Read the registered mark declaration for a (kind, id), or nil. For an :event-kind machine id, unions the author-sourced marks with the schema-sourced marks at read time (rf2-qpibk0). Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress, EP-0005) now calls `re-frame.marks/marks-for` by direct require, not through this late-bind hook."}
+    :description "Read the mark declaration for a (kind, id), or nil — DERIVED at read time from registrar/handler-meta (rf2-ehexnw), no side-table. For an :event-kind machine id, unions the registrar-derived author marks with the schema-sourced marks at read time (rf2-qpibk0). Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress, EP-0005) now calls `re-frame.marks/marks-for` by direct require, not through this late-bind hook."}
    {:key         :marks/declare-machine-schema-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-qpibk0"
-    :description "Record a machine's :data-schema-derived marks under machine-id in the schema-sourced table (kept separate from the author-sourced :event entry so marks-for unions the two at read time — order-independent against any register-marks! / re-registration on the :event entry). Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005) for both the type id (reg-machine time) and per-instance spawned-actor ids (spawn time, rf2-fm1cpl)."}
+    :description "Record a machine's :data-schema-derived marks under machine-id in the schema-sourced table (kept separate from the registrar-derived author :event marks so marks-for unions the two at read time — order-independent against any re-registration of the :event entry). Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005) for both the type id (reg-machine time) and per-instance spawned-actor ids (spawn time, rf2-fm1cpl)."}
    {:key         :marks/clear-machine-schema-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-egvm4t"

@@ -18,8 +18,9 @@
 ;;
 ;; Harness note: the conformance runner threads `:fixture/registry :event`
 ;; metadata through to `reg-event-*` (rf2-jwm4), so the `:sensitive` key
-;; declared there reaches `register-marks!`. Capability
-;; `:data-classification/marks`.
+;; lands in the event's registrar metadata, where the marks projection
+;; derives it at emit time (`marks-for`, derived from the registrar — no
+;; imperative side-table). Capability `:data-classification/marks`.
 
 {:fixture/id           :data-classification/event-arg-sensitive-path-redacts
  :fixture/spec-version "1.0"
