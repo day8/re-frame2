@@ -101,8 +101,12 @@
         (is (= ["hello"] (get-in (rf/runtime-db-value :rf/default)
                                  [:rf.runtime/machines :snapshots spawned :data :msgs]))
             "dispatch via system-id lookup reached the live actor")
-        ;; And the sugar fn no-ops when the system-id is unbound.
-        (is (nil? (rf/dispatch-to-system :no-such-system [:notify "x"]))
+        ;; And the implementation-tier sugar fn no-ops when the system-id is
+        ;; unbound. rf2-gkt25a / rf2-80mmlf: `dispatch-to-system` is demoted
+        ;; off the `re-frame.core` facade and lives in `re-frame.machines`;
+        ;; the canonical action-side surface is the `:rf.machine/dispatch-to-system`
+        ;; fx tuple.
+        (is (nil? (machines/dispatch-to-system :no-such-system [:notify "x"]))
             "dispatch-to-system on an unbound system-id returns nil"))))
 
   (testing ":system-id collision emits :rf.error/system-id-collision and rebinds (last-write-wins)"

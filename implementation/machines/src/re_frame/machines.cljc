@@ -221,6 +221,28 @@
 ;; targets the queued dispatch at the same frame — consistent with
 ;; `spawn-fx` / `update-snapshot-fx`.
 
+(defn dispatch-to-system
+  "Implementation-tier sugar: dispatch `event` to the spawned-machine
+  bound to `system-id` in the active frame. Equivalent to
+  `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`,
+  with a no-op fall-through when the system-id is unbound.
+
+  Demoted off the `re-frame.core` facade (rf2-gkt25a / rf2-80mmlf — exactly
+  one in-repo caller, a negative-path test): the CANONICAL action-side
+  messaging surface is the reserved `[:rf.machine/dispatch-to-system
+  [system-id event]]` fx tuple (see `dispatch-to-system-fx`); this direct-
+  call FN is the redundant call-site twin, retained here as an
+  implementation-tier helper rather than an app-facing front-porch API.
+  Per Spec 005 §Cross-machine messaging by name."
+  ([system-id event]
+   (when-let [machine-id (machine-by-system-id system-id)]
+     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+       (dispatch! [machine-id event]))))
+  ([system-id event frame-id]
+   (when-let [machine-id (machine-by-system-id system-id frame-id)]
+     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+       (dispatch! [machine-id event] {:frame frame-id})))))
+
 (defn dispatch-to-system-fx
   "fx handler for `:rf.machine/dispatch-to-system`. Resolves `system-id`
   through the emitting frame's `[:rf.runtime/machines :system-ids]`

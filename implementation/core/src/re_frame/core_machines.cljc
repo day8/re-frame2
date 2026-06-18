@@ -5,15 +5,15 @@
 
   `reg-machine` / `reg-machine*` keep a bespoke shape (they share the
   `:where`-symbol parameter via `reg-machine-impl` so the macro and the
-  plain-fn surface raise with their own faithful `:where` symbol). Sugar
-  fns (`dispatch-to-system`, `machine-has-tag?`) are not late-
-  bind surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
+  plain-fn surface raise with their own faithful `:where` symbol). The
+  `machine-has-tag?` sugar fn is not a late-bind surface — it layers over
+  `subs/subscribe`. (The `dispatch-to-system` FN was demoted off the
+  facade and relocated to `re-frame.machines` — rf2-gkt25a / rf2-80mmlf.)"
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.router :as router]
             [re-frame.subs :as subs]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -200,19 +200,12 @@
    (reg-machine-impl 'rf/reg-machine machine-id machine opts)))
 
 ;; ---- sugar surfaces — not late-bind wrappers -----------------------------
-
-(defn dispatch-to-system
-  "Sugar: dispatch `event` to the spawned-machine bound to `system-id`
-  in the active frame. Equivalent to
-  `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`,
-  with a no-op fall-through when the system-id is unbound. Per Spec 005
-  §Cross-machine messaging by name."
-  ([system-id event]
-   (when-let [machine-id (machine-by-system-id system-id)]
-     (router/dispatch! [machine-id event])))
-  ([system-id event frame-id]
-   (when-let [machine-id (machine-by-system-id system-id frame-id)]
-     (router/dispatch! [machine-id event] {:frame frame-id}))))
+;;
+;; The `dispatch-to-system` FN was DEMOTED off the `re-frame.core` facade
+;; (rf2-gkt25a / rf2-80mmlf — exactly one in-repo caller) and RELOCATED to
+;; `re-frame.machines` (the optional machines artefact ns) as an
+;; implementation-tier helper. The canonical action-side surface is the
+;; reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
 
 (defn machine-has-tag?
   "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Sugar
