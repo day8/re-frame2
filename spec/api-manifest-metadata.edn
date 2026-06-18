@@ -683,9 +683,23 @@
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "require-feature!"]     {:tier :advanced :owner "Conventions" :status "v1"}
   ;; Public registrar query API (spec/API.md §Public registrar query API).
+  ;; The `{:frame f …}` map ARITY added in rf2-wkw8na (EP-0023) extends these
+  ;; three EXISTING exports — it adds NO new facade name, so it adds NO new row;
+  ;; the arity is documented in each fn's docstring + spec/API.md.
   ["re-frame.core" "registrations"]        {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "handler-ids"]          {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "handler-meta"]         {:tier :tooling :owner "002" :status "v1"}
+  ;; EP-0023 (rf2-wkw8na): `frame-generation` is the dedicated raw READ over the
+  ;; EP-0023 frame->generation model — return the sealed image generation a live
+  ;; frame is running (the four stable `:rf.gen/*` keys), for tools that EP-0023
+  ;; forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly`
+  ;; internals (Pair MCP `describe-image`, Xray; EP-0023 Use-Case 7 / the
+  ;; `:rf.provenance/ns` contract). Tier `:tooling` (a READ, not a constructor/
+  ;; mutator — UNLIKE `make-frame` / `image` / `reload-images!` which are
+  ;; `:advanced`); owner 002 (Frames — EP-0023's frame/image normative home,
+  ;; matching the registrar query family). Status `EP-0023` (proposal-stage; the
+  ;; row exists ahead of the spec/API.md projection EP-0023 graduates separately).
+  ["re-frame.core" "frame-generation"]     {:tier :tooling :owner "002" :status "EP-0023"}
   ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers
   ;; (`machines`, `machine-meta`, `machine-by-system-id`, `machine-transition`,
   ;; `make-machine-handler`) are no longer façade exports — reach them through

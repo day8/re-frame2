@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 509,
+ :var-count 510,
  :tier-vocab
  [:front-porch
   :advanced
@@ -120,6 +120,7 @@
   {:namespace "re-frame.core", :var "features", :tier :advanced, :kind :fn, :owner "Conventions", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-bound-fn", :tier :advanced, :kind :macro, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-bound-fn*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "frame-generation", :tier :tooling, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-handle", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-ids", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-meta", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
