@@ -50,13 +50,22 @@ There are three test namespaces, split by what each one asserts against — the 
 
 The full inventory is in [10 — Testing](../api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
 
-## Realms: what is public today
+## Images and frames: the composition model
 
-A **realm** is the container your registrations live in — the registrar, the adapter selection, the capability map, the frame registry (a frame is an isolated instance of your app's state and loop). A single-realm app never names one, because no realm means the default realm, by rule. The public constructors — `rf/realm`, `rf/module`, `rf/app`, `rf/install!`, `rf/reinstall!`, `rf/dispose-realm!` — plus the realm-targeted registrar queries ship from `re-frame.core` today. A constructed realm isolates installation and queries: its own registrar and capability map make it the natural unit for hermetic tests and multi-program inspection.
+The public model is `image → frame → event stream`. An **image** is a value naming a set of registrations (events, subs, fx, …) plus their capability requirements — built with `rf/image`, either by selecting registrations from loaded namespaces (`:include-ns`) or by listing them inline. A **frame** is the live isolated execution context: it owns the app state, the subscription cache, the trace surface, the adapter binding, a capability map, and one resolved image generation. You build a frame from images with `rf/make-frame`:
 
-!!! note "Targeting a non-default realm"
+```clojure
+(rf/make-frame {:id           :app/main
+                :images       [app-image]
+                :adapter      :reagent
+                :capabilities {:rf.capability/http http-client}})
+```
 
-    Live dispatch through a non-default realm is supported via the `:realm` dispatch option: dispatch (sending an event into the loop) and subscribe (reading a derived value) resolve against the named realm's own registrar, so a constructed realm is a fully running program — not just an isolated registrar-and-capability container. Omit `:realm` and resolution still routes through the default realm, by the absence-is-default rule. The contract rows are in [spec/API.md §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013); the model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md).
+A frame *is* the natural unit for hermetic tests and multi-program inspection: each frame runs its own sealed registration set, so two frames can hold different handlers for the same id without collision. A single-app process never composes images by hand — it just `reg-*`s into the global registrar and the runtime assembles the standard image for it.
+
+!!! note "The internal installation substrate"
+
+    Underneath, the runtime still seats frames through an internal installation container (the EP-0013 "realm" — the registrar, adapter selection, and capability map). That substrate is **internal implementation structure**, not a public surface: there is no public realm constructor or realm-scoped dispatch option in the `image → frame → event stream` model. The public address is always the frame id. The internal-substrate model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md); the public image/frame model is owned by [EP-0023](../EP/EP-0023-image-loaded-frames.md). The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration).
 
 ## The worked examples
 

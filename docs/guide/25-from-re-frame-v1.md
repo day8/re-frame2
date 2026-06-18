@@ -165,19 +165,19 @@ Flows can also reach what `on-changes` couldn't. `on-changes` was statically wir
 
 The rewrite itself is Type B. Mechanically it's `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`, but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditional rather than always-on. An app with no `on-changes` sees no migration here at all.
 
-### Registrations, app values, and realms
+### Registrations, images, and frames
 
-A v1 app registers everything at namespace load with `reg-*`, into one process-global registrar. v2 keeps that path working: `reg-*` still registers, now into the **default realm** ([chapter 21](concepts/app-db.md)) — a realm being the registry scope your registrations live in. The mechanical migration changes nothing about how you register. Keep writing `reg-*`. You are using a realm without naming it, exactly as you've always used a frame without naming it.
+A v1 app registers everything at namespace load with `reg-*`, into one process-global registrar. v2 keeps that path working: `reg-*` still registers, and the runtime assembles a standard frame over the global registrations for you. The mechanical migration changes nothing about how you register. Keep writing `reg-*`. You are using a frame without naming it, exactly as you've always used app-db without naming a frame.
 
-You reach past that only when v2 gives you a shape v1 didn't have. The explicit constructors — `rf/module` and `rf/app` to describe a feature pack or program as a value, `rf/install!` to seat that value into a realm, `rf/realm` for an explicit realm — are the route for genuinely new structure: a packaged feature you install and dispose as a unit, a per-tenant or multi-program process. They're public from `re-frame.core` today, but they are a refinement you grow into, not a step the migration forces.
+You reach past that only when v2 gives you a shape v1 didn't have. The public composition model is `image → frame → event stream`: an **image** (`rf/image`) is a value naming a set of registrations plus their capability requirements — you select them from loaded namespaces (`:include-ns`) or list them inline. A **frame** (`rf/make-frame`) is the live isolated execution context that runs one resolved image generation, with its own app state, subscription cache, adapter binding, and capability map. Images and frames are the route for genuinely new structure: a packaged feature you assemble and run as a unit, a per-tenant or multi-program process. They are a refinement you grow into, not a step the migration forces.
 
-!!! note "What `install!` lowers today is a subset"
+!!! note "Build isolated contexts from images"
 
-    Before you package a module, know its current limits. `install!` wires the core registrar kinds — `:event`, `:sub`, `:fx`, `:cofx`, and `:frame` — and **refuses loudly** (`:rf.error/unsupported-descriptor-kind`) on `:route` / `:flow` / `:resource` / `:mutation` and the other richer kinds, whose install lowering is a later slice ([chapter 21](concepts/app-db.md)). So migrate flows, routes, and resources as ordinary `reg-flow` / `reg-route` / resource registrations into the default realm — that's their canonical home today — and reserve a module for the event/sub/fx/cofx/frame surface it supports. (A multi-tenant process is registrar-isolated per realm today. A second runnably-dispatching, routed program per realm and a second substrate root are the direction, not yet shipped — see [chapter 21](concepts/app-db.md).)
+    A frame built from `:images` runs exactly the registrations those images select — its own sealed registration set, validated for collisions and capability requirements at assembly. Two frames hold different handlers for the same id without collision, which makes a frame the natural unit for a hermetic test or a parallel program. The internal installation container that seats and routes frames is implementation structure, not a public surface — you target a frame by its id, never a container.
 
-!!! warning "Don't register the same id twice"
+!!! warning "Don't select the same id twice"
 
-    One accident to avoid the day you do reach for a module: do **not** register the same id both through `reg-*` sugar and in a module you install into the same realm. The runtime catches it as a same-id collision and fails loudly rather than silently merging ([chapter 21](concepts/app-db.md)). It's the first error a migrating app meets when it half-adopts modules — so pick one source per id. And the reserved-vocabulary spelling is `rf/realm`, never `rf/runtime`.
+    One accident to avoid the day you compose images: do **not** select the same id both through `reg-*` sugar (the global registrations) and an inline image registration that resolves into the same frame. Image assembly catches it as a same-id collision and fails loudly rather than silently merging ([chapter 21](concepts/app-db.md)) — so pick one source per id, or declare an explicit `:replace`.
 
 ## The devtools moved house
 
@@ -192,4 +192,4 @@ That's the migration in one read. The architecture is the same architecture, the
 - plan a v1 migration as a bounded sweep, not a rewrite — knowing what crosses over unchanged and what genuinely changed
 - drive the automated migration from the kickoff prompt, and answer the Type B judgment calls instead of hand-editing
 - migrate the deps pay-as-you-go: swap the core coord, add a substrate adapter, and pull only the per-feature artefacts you use
-- recognise the genuinely-new shapes — single `reg-event`, managed HTTP, flows, realms, Xray — and adopt them where they improve the code they touch
+- recognise the genuinely-new shapes — single `reg-event`, managed HTTP, flows, images/frames, Xray — and adopt them where they improve the code they touch

@@ -309,11 +309,11 @@ Three observations:
 
 ### Frames reference realms
 
-> **EP-0013, accepted 2026-06-11; realm-routed resolution shipped 2026-06-14 (staging step 4).** A single-realm app never mentions a realm — it carries the default realm implicitly, and the whole single-realm path is byte-identical. The realm-container model itself is graduated in [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container).
+> **EP-0013, accepted 2026-06-11; realm-routed resolution shipped 2026-06-14 (staging step 4). Retained-internal under [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) (graduated 2026-06-16).** The realm machinery this section describes is the **internal installation substrate** that seats and routes frames — it is **not** the public model. EP-0023 presents the public architecture as `image → frame → event stream`: the **frame id is the whole public address** (one process-local frame-id space), and the EP-0013 `(realm, frame)` two-part address survives only internally (the realm constructor / install / query facade exports were removed). A single-container app never mentions a container — it carries the default container implicitly, and the whole path is byte-identical. The internal-substrate container model is graduated in [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container).
 
-A **frame belongs to exactly one realm for its lifetime**, and references it internally. The frame's registrar, installed adapter, and capability map are the realm's, not the frame's — many frames can share one realm (the common many-frames-one-app case), and one process can host more than one realm (multi-tenant, multi-product, a legacy adapter beside a new one). The **frame registry is realm-owned**: a `reg-frame` registers the frame into its realm's registry, and the frame record is keyed by its `(realm, frame)` address (the default realm collapses to the bare frame-id — the byte-identical single-realm key).
+A **frame belongs to exactly one installation container ("realm") for its lifetime**, and references it internally. The frame's registrar, installed adapter, and capability map are the container's, not the frame's — many frames can share one container (the common many-frames-one-app case), and one process can host more than one container (multi-tenant, multi-product, a legacy adapter beside a new one). The **frame registry is container-owned**: a `reg-frame` seats the frame into its container's registry, and internally the frame record is keyed by its `(realm, frame)` address (the default container collapses to the bare frame-id).
 
-**Frame ids are unique within a realm**, not globally. The same frame id registered in two different realms is a **tested legal case**, not a collision (EP-0013 issue 3 disposition). The full address of a frame under the carried model is therefore the `(realm, frame)` pair; APIs that cross a realm boundary carry both. A single-realm app keeps the current frame-id ergonomics — it carries the default realm implicitly, exactly as observation 1's "global" registrar *is* the default realm's.
+**Public frame ids are unique in the one process-local frame-id space** ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) §Id Spaces) — the frame id is the whole public address. *Internally*, the retained EP-0013 substrate keys live frames by the `(realm, frame)` pair, so the same frame id could coexist in two containers; that is internal-substrate addressing, not the public model. A migrating codebase that relied on the same frame id across containers gives its live frames distinct public ids (`rf/assert-process-local-frame-id!` surfaces the collision — see [EP-0023 §Backwards Compatibility](../docs/EP/EP-0023-image-loaded-frames.md)). A single-container app keeps the current frame-id ergonomics — it carries the default container implicitly, exactly as observation 1's "global" registrar *is* the default container's.
 
 **Realm-routed resolution (shipped).** When an event is dispatched to (or a subscription resolved against) a frame, the runtime resolves the **event handler, every coeffect supplier, every effect, AND every subscription** from the **owning frame's realm registrar** — all together, coherently. Routing only some (event + sub but not fx/cofx) would be an incoherent half-dispatch: a realm-local handler returning a realm-installed effect or requiring a realm-installed cofx would resolve it in the default registrar and miss. Child dispatches (an `:fx [[:dispatch …]]`), async continuations (`:dispatch-later`), and frame-handles all preserve the realm; trace and epoch records carry `:rf.realm/id`.
 
@@ -2126,7 +2126,7 @@ Framework dispatch-time interceptors that are **not** authored program members r
 Event and frame metadata store interceptor **references**, not resolved interceptor maps. The runtime resolves references when assembling the dispatch chain.
 
 - **Registration-time validation.** A live `reg-event` / `reg-frame` that references an interceptor id with no registration fails at registration — `:rf.error/unregistered-interceptor`. Typos die before dispatch semantics apply.
-- **App-value validation.** App values ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)) validate refs at construction or install — whichever already owns cross-kind validation for the constructed program.
+- **Image-assembly validation.** Image values ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)) validate refs during assembly of the resolved image generation — the explicit phase that selects descriptors, validates collisions and references, and seals a generation before the frame runs.
 - **Dispatch-time guard.** A dispatch-time unknown-ref failure exists only as a defensive guard against corrupt state or a hot-reload race.
 
 Resolving at dispatch time preserves **hot reload**: re-registering `:auth/required` with a new descriptor takes effect on the next dispatch of any event whose chain references it — the event does not have to be re-registered just because an interceptor implementation changed ([001 §Interceptors — Hot reload](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). Implementations MAY cache resolved chains, but cache invalidation MUST observe interceptor re-registration, event re-registration, frame re-registration, and per-call override changes.
@@ -2172,23 +2172,22 @@ There is **no** standard `unwrap` interceptor (EP-0022 §No standard `unwrap`; a
 
 A project that genuinely wants chain-wide event reshaping registers its own interceptor (`(rf/reg-interceptor :app/unwrap {:doc "…"} {:before … :after …})`); it does not need to be a framework standard. (The retirement of the v1 `unwrap` / `trim-v` standard helpers is catalogued in [API.md §Standard interceptors](API.md#standard-interceptors) and [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors).)
 
-### App values and modules
+### Images carry interceptor descriptors
 
-An app value may carry interceptor descriptors, so a module owns interceptors exactly as it owns events and subs ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)):
+An image's registration set may carry interceptor descriptors, so an image owns interceptors exactly as it owns events and subs ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)). A registration set declares its interceptor alongside the events that reference it:
 
 ```clojure
-(defmodule cart
-  {:rf.module/owns {:app-db [[:cart]]}
-   :reg-interceptor [[:cart/auth-required
-                      {:doc "Cart auth gate."}
-                      {:before require-cart-auth}]]
-   :reg-event       [[:cart/add
-                      {:interceptors [:cart/auth-required
-                                      [:rf.interceptor/path [:cart]]]}
-                      cart-add]]})
+(rf/reg-interceptor :cart/auth-required
+  {:doc "Cart auth gate."}
+  {:before require-cart-auth})
+
+(rf/reg-event :cart/add
+  {:interceptors [:cart/auth-required
+                  [:rf.interceptor/path [:cart]]]}
+  cart-add)
 ```
 
-This keeps the app-as-value rule intact: the program contains named members, not anonymous runtime objects embedded in other members. Realm-aware lookup is not specified here, but the ref model composes with per-realm registrars (the effective-ordering note above).
+An image built over these namespaces (via `:include-ns`, or by listing them as inline `:registrations`) carries both members; the resolved image generation a frame runs validates the refs at assembly. This keeps the program-as-named-members rule intact: the registration set contains named members, not anonymous runtime objects embedded in other members.
 
 ### Tooling and metadata
 

@@ -256,49 +256,46 @@ Four ways to "reset between tests" ship in `re-frame.test-support`. They form a 
 
 `make-reset-runtime-fixture` is a **factory**: the call shape is `(make-reset-runtime-fixture opts) → fixture-fn`. Use the returned fn in `(use-fixtures :each ...)`. Contrast `with-fresh-registrar`, which takes a thunk and runs it directly — the names differ deliberately to mark the call-shape axis.
 
-## Hermetic-realm testing — fresh realm + injected capabilities
+## Hermetic-frame testing — a fresh frame from images + injected capabilities
 
-The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. A **runtime realm** (per [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container), EP-0013) offers a different isolation axis: construct a realm with **its own registrar atom**, install exactly the program under test into it, and dispose it on teardown — there is no process-global registrar to clear, because the test never touched one.
+The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. An **image-loaded frame** (per [EP-0023 §Image / §Public API](../docs/EP/EP-0023-image-loaded-frames.md)) offers a different isolation axis: build a frame from exactly the images under test, supply exactly the capabilities those images require, and destroy it on teardown — there is no process-global registrar to clear, because the test never touched one. The frame *is* the hermetic unit: it owns its own resolved image generation (the sealed registration set), app state, subscription cache, and capability map.
 
 ```clojure
-;; A hermetic test realm — the program and exactly the capabilities it needs,
-;; with no process-global state to clear or restore.
+;; A hermetic test frame — the images under test and exactly the capabilities
+;; they need, with no process-global state to clear or restore.
 (deftest cart-checkout
-  (let [realm (rf/realm {:id           :test/cart
-                         :adapter      :plain-atom
-                         :capabilities {:rf.capability/http   fake-http
-                                        :rf.capability/clock  fixed-clock
-                                        :rf.capability/random seeded-random}})]
+  (let [frame (rf/make-frame
+                {:id           :test/cart
+                 :images       [cart-image]                    ;; the images under test
+                 :adapter      :plain-atom
+                 :capabilities {:rf.capability/http   fake-http
+                                :rf.capability/clock  fixed-clock
+                                :rf.capability/random seeded-random}})]
     (try
-      ;; Seat the app value (built with rf/module / rf/app) into the realm.
-      ;; install! seats the app's :frame descriptors into the target realm,
-      ;; stamping each frame with the realm.
-      (rf/install! realm cart-app)
-      ;; The realm is CARRIED — an explicit :realm dispatch opt (or the realm
-      ;; the carried frame already belongs to); there is no with-realm and no
-      ;; ambient default (per 002 §Frames reference realms). :realm is an
-      ;; :rf/dispatch-opts key (Spec-Schemas) resolved to the envelope's
-      ;; :rf.realm/id.
-      (rf/dispatch-sync [:cart/checkout] {:frame :cart :realm :test/cart})
-      (is (= :complete (get-in (rf/app-db-value :cart) [:cart :state])))
+      ;; The frame is the carried target — an explicit :frame dispatch opt (or
+      ;; the carried frame established by scope); there is no ambient default
+      ;; (per 002 §Frame target resolution). The image's registrations resolve
+      ;; against this frame's resolved generation.
+      (rf/dispatch-sync [:cart/checkout] {:frame :test/cart})
+      (is (= :complete (get-in (rf/app-db-value :test/cart) [:cart :state])))
       (finally
-        (rf/dispose-realm! :test/cart)))))         ;; drop the realm + its registrar for GC
+        (rf/destroy-frame! :test/cart)))))               ;; drop the frame + its state for GC
 ```
 
-**Capability injection is the explicit dependency seam.** A realm's `:capabilities` map names the runtime services a feature depends on — `:rf.capability/http` (request execution), `:rf.capability/clock` (time), `:rf.capability/random` (id/randomness generation), and the rest (per [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps)). A hermetic test injects test doubles for exactly those it needs; `install!` capability-checks first, failing with `:rf.error/missing-capability` (naming the realm + capability) *before* any registrar mutation if the app `:requires` a capability the realm does not supply. This is the **injectable** alternative to process-global stubs discovered by namespace load order.
+**Capability injection is the explicit dependency seam.** A frame's `:capabilities` map names the runtime services its images depend on — `:rf.capability/http` (request execution), `:rf.capability/clock` (time), `:rf.capability/random` (id/randomness generation), and the rest (per [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps)). A hermetic test injects test doubles for exactly those it needs; image assembly capability-checks first, failing with `:rf.error/image-missing-capability` (naming the missing + supplied capabilities) *before* the frame runs any event if an image `:rf.image/requires` a capability the frame does not supply. This is the **injectable** alternative to process-global stubs discovered by namespace load order.
 
-**The public surface** (all from `re-frame.core`, per [API §App values and composition](API.md#app-values-and-composition-ep-0013)): `(rf/realm {:id … :adapter … :capabilities {…}})` constructs + registers a hermetic-by-default realm; `(rf/install! realm app)` seats an immutable app value (built with `rf/module` / `rf/app`) into it; `(rf/dispose-realm! realm-or-id)` drops it (the default realm is never disposed — a no-op). Live event / sub / fx / cofx resolution routes through the owning frame's realm registrar (the realm-routed resolution path is shipped), so two realms can hold different handlers for the same id without collision.
+**The public surface** (all from `re-frame.core`, per [API §Registration](API.md#registration)): `(rf/make-frame {:id … :images [...] :adapter … :capabilities {…}})` builds + registers a hermetic-by-default frame from the named images; `(rf/destroy-frame! frame-or-id)` drops it (runs `:on-destroy`, the machine teardown cascade, and sub-cache disposal). Each frame runs its own resolved image generation, so two frames can hold different handlers for the same id without collision.
 
 **Reconciling with the snapshot/restore ladder.** Both isolate; pick by what the test needs:
 
 | Approach | Isolation mechanism | Reach for it when |
 |---|---|---|
-| **L1–L3 snapshot/restore** ([§Fixture-granularity ladder](#fixture-granularity-ladder)) | capture + restore the **process-global (default-realm) registrar** and per-process state | the default-realm `reg-*` sugar is the program under test — the common single-app suite. L3 is the cheap default. |
-| **Hermetic realm** (this section) | a **fresh realm with its own registrar**; nothing process-global is touched | parallel-app / multi-tenant isolation; two adapters in one process (two realms); a test that wants explicit capability injection rather than global stubbing; the fastest hermetic-test payoff per EP-0013. |
+| **L1–L3 snapshot/restore** ([§Fixture-granularity ladder](#fixture-granularity-ladder)) | capture + restore the **process-global registrar** and per-process state | the global `reg-*` sugar is the program under test — the common single-app suite. L3 is the cheap default. |
+| **Hermetic frame** (this section) | a **fresh frame built from its own images**; nothing process-global is touched | parallel-app / multi-tenant isolation; two adapters in one process (two frames); a test that wants explicit capability injection rather than global stubbing; the fastest hermetic-test payoff. |
 
-A suite that needs neither global cleanup nor capability injection stays on L3; a suite that wants a truly isolated program with injected doubles constructs a realm.
+A suite that needs neither global cleanup nor capability injection stays on L3; a suite that wants a truly isolated program with injected doubles builds a frame from images.
 
-> **Disambiguation — realm `install!` vs the `with-app-fixture` `:install` hook.** These are unrelated despite the shared word. `rf/install!` (this section) **seats an app value into a realm** — it lowers an immutable program description (modules + capability requirements) into a realm's registrar. The `:install` key on [Pattern 5](#pattern-5--single-frame-e2e-fixture)'s `with-app-fixture` opts map is a **zero-arg app `install!` fn** the test author supplies — typically the app's own `install!` that runs `reg-event` / `reg-sub` / `reg-view` calls into the (default-realm) global registrar. Pattern 5's `:install` is the long-standing single-frame e2e hook; it is **not** `rf/install!` and does not construct or seat a realm. A test using Pattern 5's `:install` rolls its registrations back with L3's `make-reset-runtime-fixture`; a test using `rf/install!` rolls back by disposing the realm.
+> **Disambiguation — `make-frame` `:images` vs the `with-app-fixture` `:install` hook.** These are unrelated despite both seating registrations. `rf/make-frame` (this section) **builds a frame from image values** — it assembles a sealed resolved generation (a registration set plus capability requirements) the frame runs in isolation. The `:install` key on [Pattern 5](#pattern-5--single-frame-e2e-fixture)'s `with-app-fixture` opts map is a **zero-arg setup fn** the test author supplies — typically the app's own setup that runs `reg-event` / `reg-sub` / `reg-view` calls into the global registrar. Pattern 5's `:install` is the long-standing single-frame e2e hook; it does not assemble an image or build an isolated frame. A test using Pattern 5's `:install` rolls its registrations back with L3's `make-reset-runtime-fixture`; a test using `rf/make-frame` rolls back by destroying the frame.
 
 ## Per-test stubbing patterns
 
