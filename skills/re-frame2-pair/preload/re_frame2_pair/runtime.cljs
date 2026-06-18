@@ -937,6 +937,200 @@
   (handler-fn-hash (rf/handler-meta kind id)))
 
 ;; ---------------------------------------------------------------------------
+;; Frame-derived registrar introspection (EP-0023, rf2-srobm0)
+;;
+;; The forward EP-0023 direction: a frame's inspectable registration set is its
+;; RESOLVED IMAGE GENERATION — the same `(kind, id)` can resolve DIFFERENTLY per
+;; frame (two frames running different images each resolve their own
+;; descriptor). The realm/default-registrar reads above answer "what is
+;; registered process-globally / in this installation container"; these answer
+;; "what does THIS FRAME's running image resolve `(kind, id)` to" — keyed off
+;; the frame's sealed generation, not the default/realm registrar.
+;;
+;; They consume ONLY the PUBLIC facade reads shipped by rf2-wkw8na — the
+;; `{:frame f :kind k …}` arities of `rf/registrations` / `rf/handler-meta` /
+;; `rf/handler-ids`, and `rf/frame-generation`. EP-0023 forbids tools from
+;; consuming `re-frame.live-frame` / `re-frame.image-assembly` internals
+;; directly; the facade re-surfaces the BEHAVIOUR through these reads, so this
+;; preload stays on the public surface.
+;;
+;; PROVENANCE: a resolved descriptor carries the source coordinate that
+;; identifies where the winning registration came from — `:rf.provenance/ns`
+;; (a registered descriptor's authoring namespace), `:rf.provenance/inline` +
+;; `:rf.provenance/image` (an image-supplied inline section), or `:standard
+;; true` (a framework standard). These ride VERBATIM on the `:frame`-arity
+;; `rf/handler-meta` result (the resolved descriptor), so an agent reading a
+;; frame's `(kind, id)` sees WHICH source won — the distinguishing fact the
+;; realm/default reads cannot surface (they read the flat registrar atom, which
+;; has no per-frame resolution / provenance).
+;; ---------------------------------------------------------------------------
+
+(defn- coordinate-summary
+  "The provenance/standard coordinate facts a resolved descriptor carries,
+   as a small EDN-clean map (or nil when the descriptor carries none — a
+   pre-EP-0023 / realm-resolved meta map). Surfaces WHICH source won the
+   `(kind, id)` resolution:
+
+     {:source :registered :ns \"my.app.events\"}      a registered descriptor
+     {:source :inline :image <id> :inline [sec id]}   an image inline section
+     {:source :standard}                              a framework standard
+
+   `:rf.provenance/ns` rides through unchanged on the meta map too; this is the
+   normalized rollup so agents read one `:rf.image/coordinate` slot rather than
+   sniffing the raw provenance keys. Pure read of the meta map's slots."
+  [m]
+  (cond
+    (:standard m)
+    {:source :standard}
+
+    (:rf.provenance/inline m)
+    {:source :inline
+     :image  (:rf.provenance/image m)
+     :inline (:rf.provenance/inline m)}
+
+    (some? (:rf.provenance/ns m))
+    {:source :registered
+     :ns     (:rf.provenance/ns m)}))
+
+(defn frame-registrar-describe
+  "Per-FRAME handler metadata for `(kind, id)` — the registration resolved
+   through frame `frame-id`'s OWN sealed image generation (NOT the
+   default/realm registrar). Routes through the PUBLIC facade read
+   `(rf/handler-meta {:frame f :kind k :id id})` (rf2-wkw8na); EP-0023 §Frame-
+   derived live registration resolution.
+
+   Surfaces the resolved descriptor's `:rf.provenance/ns` + inline/image +
+   `:standard` facts the realm/default reads can't — plus a normalized
+   `:rf.image/coordinate` rollup naming WHICH source won. Same EDN-hygiene as
+   `registrar-describe`: the raw `:handler-fn` is dropped (replaced by
+   `:handler-fn-hash`) and every nested fn becomes the `:rf/fn` sentinel.
+
+   Returns the meta map merged with the coordinate rollup on a hit, or
+   `{:ok? false :reason :not-registered …}` when the frame's image carries no
+   such `(kind, id)`. FAILS LOUD up the eval boundary when `frame-id` is not a
+   live frame carrying a generation (`:rf.error/frame-no-generation`) — the
+   facade's no-silent-fallback contract."
+  [frame-id kind id]
+  (if-let [m (rf/handler-meta {:frame frame-id :kind kind :id id})]
+    (let [coord (coordinate-summary m)]
+      (cond-> (-> m
+                  (assoc :handler-fn-hash (handler-fn-hash m))
+                  (dissoc :handler-fn)
+                  strip-fns)
+        coord (assoc :rf.image/coordinate coord)))
+    {:ok? false :reason :not-registered :kind kind :id id :frame frame-id}))
+
+(defn frame-registrar-list
+  "Enumerate the ids registered under `kind` resolved through frame
+   `frame-id`'s OWN image generation — only the ids that frame's image
+   carries (NOT the default/realm registrar). Routes through the PUBLIC facade
+   read `(rf/handler-ids {:frame f :kind k})` (rf2-wkw8na). Returns the sorted
+   id vector. FAILS LOUD up the eval boundary on an unresolvable frame."
+  [frame-id kind]
+  (-> (rf/handler-ids {:frame frame-id :kind kind}) sort vec))
+
+(defn frame-registrar-registrations
+  "The `{id meta}` map for `kind` resolved through frame `frame-id`'s OWN image
+   generation, each meta carrying its provenance/coordinate facts. Routes
+   through the PUBLIC facade read `(rf/registrations {:frame f :kind k})`
+   (rf2-wkw8na). Fns are stripped (the `:rf/fn` sentinel) so the map is
+   EDN-clean. FAILS LOUD up the eval boundary on an unresolvable frame."
+  [frame-id kind]
+  (reduce-kv
+    (fn [acc id m]
+      (let [coord (coordinate-summary m)]
+        (assoc acc id (cond-> (strip-fns (dissoc m :handler-fn))
+                        coord (assoc :rf.image/coordinate coord)))))
+    {}
+    (rf/registrations {:frame frame-id :kind kind})))
+
+(defn frame-capability-requires
+  "The capability set frame `frame-id`'s running image DECLARES it requires —
+   the union `:rf.gen/requires` off the frame's sealed generation
+   (`rf/frame-generation`). The PUBLIC window into a frame's capability needs:
+   it lets an agent distinguish a MISSING-CAPABILITY failure (the image
+   requires `:rf.capability/x` that the host frame did not provide) from a
+   MISSING-REGISTRATION one (the `(kind, id)` is simply absent from the
+   resolver). NOTE: the frame-OWNED capability MAP / adapter binding the
+   requires are checked against are not exposed by the public read surface
+   (they are frame-object interior); this reports the IMAGE-declared
+   requirement, the side an agent can act on. Returns the (sorted) require
+   vector. FAILS LOUD up the eval boundary on an unresolvable frame."
+  [frame-id]
+  (-> (rf/frame-generation frame-id) :rf.gen/requires sort vec))
+
+(defn describe-image
+  "Describe the IMAGE GENERATION a frame is running — the EP-0023 Use-Case 7
+   read (Ref-Plan item 17). Answers \"what behaviour does THIS frame run, and
+   where did each piece come from?\" in one round-trip, over the PUBLIC
+   `rf/frame-generation` read (rf2-wkw8na); EP-0023 forbids consuming the
+   `re-frame.image-assembly` internals directly.
+
+   Frame resolution mirrors every other read op: no-arg / `{:frame nil}` uses
+   the OPERATING frame, an explicit `:frame` targets that frame. Returns
+   `{:ok? false :reason :ambiguous-frame …}` when no frame can be resolved
+   (multi-frame session with no selection) rather than silently reading
+   `:rf/default`.
+
+   Slices (all derived from the sealed generation's four `:rf.gen/*` keys):
+
+     :images        the image ids composed into the generation (the
+                    normalized `:rf.gen/images`, reduced to `:rf.image/id`
+                    where present so the listing stays compact).
+     :kinds         the registrar kinds the generation carries
+                    (`:rf.gen/kinds`), sorted.
+     :requires      the union capability set the images declare
+                    (`:rf.gen/requires`), sorted — the missing-capability vs
+                    missing-registration discriminator.
+     :counts        `{kind N …}` — selected-registration counts per kind off
+                    the resolver, so an agent sees the SELECTED universe size
+                    without enumerating every id.
+     :registrations when `:include-ns?` is true, `{[kind id] coordinate …}`
+                    over the resolver — every selected `(kind, id)` with its
+                    provenance/standard coordinate (which source won). Default
+                    OFF (the full resolver can be large); the counts + the
+                    per-kind `frame-registrar-list` drill cover the common
+                    case.
+
+   `:include-ns?` (default false) gates the per-registration provenance map.
+   FAILS LOUD up the eval boundary on an unresolvable explicit frame."
+  ([] (describe-image {}))
+  ([opts]
+   (let [{:keys [frame include-ns?]} opts
+         frame-id (current-frame frame)]
+     (if (nil? frame-id)
+       (ambiguous-frame-error :describe-image)
+       (let [gen      (rf/frame-generation frame-id)
+             resolver (:rf.gen/resolver gen)
+             kinds    (vec (sort (:rf.gen/kinds gen)))
+             counts   (reduce-kv
+                        (fn [acc [k _id] _d] (update acc k (fnil inc 0)))
+                        {}
+                        resolver)]
+         (cond-> {:ok?      true
+                  :frame    frame-id
+                  ;; Each composed image reduces to its `:rf.image/id` when it
+                  ;; carries one (the named case); an ANONYMOUS image (no
+                  ;; `:id`) has none, so surface its `:include-ns` globs — what
+                  ;; the image selected — rather than the whole normalized map.
+                  :images   (mapv (fn [img]
+                                    (or (:rf.image/id img)
+                                        (when (map? img)
+                                          {:rf.image/include-ns (:rf.image/include-ns img)})
+                                        img))
+                                  (:rf.gen/images gen))
+                  :kinds    kinds
+                  :requires (vec (sort (:rf.gen/requires gen)))
+                  :counts   counts}
+           include-ns?
+           (assoc :registrations
+                  (reduce-kv
+                    (fn [acc [k id] d]
+                      (assoc acc [k id] (coordinate-summary d)))
+                    {}
+                    resolver))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Subscriptions
 ;; ---------------------------------------------------------------------------
 
@@ -4576,6 +4770,56 @@
   [kind]
   (count (try (keys (rf/registrations kind)) (catch :default _ nil))))
 
+(defn- realm-registry-view
+  "The REALM-WIDE registry view — counts for every v1 kind plus the full
+   sorted id vectors for the three most navigable kinds, off the
+   default/realm registrar. The fallback orient uses when no single
+   operating frame resolves (a multi-frame ambiguous session, or a core
+   that predates the EP-0023 frame-image-generation reads). `:basis :realm`
+   labels which registrar these counts came from."
+  []
+  {:basis  :realm
+   :counts (into {} (map (fn [k] [k (registrar-count k)])) orient-registrar-kinds)
+   :events (registrar-list :event)
+   :subs   (registrar-list :sub)
+   :fx     (registrar-list :fx)})
+
+(defn- frame-registry-view
+  "The OPERATING-FRAME registry view — counts + the high-value id vectors
+   resolved through `frame-id`'s OWN sealed image generation rather than the
+   realm-wide registrar (rf2-srobm0). The same `(kind, id)` can resolve
+   differently per frame, so the SELECTED universe a frame actually runs is
+   the registry an agent driving that frame should see — not the union of
+   every namespace's registrations the flat registrar holds.
+
+   Routes through the PUBLIC `rf/frame-generation` read (rf2-wkw8na): the
+   resolver's `[kind id]` keys give the per-kind counts and the navigable id
+   vectors directly off the generation. `:basis :frame` + `:frame` label
+   which frame these counts resolved through. Returns nil when the frame does
+   not resolve to a live generation (caller falls back to the realm view)."
+  [frame-id]
+  (when frame-id
+    (try
+      (let [gen      (rf/frame-generation frame-id)
+            resolver (:rf.gen/resolver gen)
+            by-kind  (reduce-kv
+                       (fn [acc [k id] _d] (update acc k (fnil conj #{}) id))
+                       {}
+                       resolver)
+            ids-of   (fn [k] (vec (sort (get by-kind k []))))]
+        {:basis  :frame
+         :frame  frame-id
+         :counts (into {} (map (fn [k] [k (count (get by-kind k []))]))
+                       orient-registrar-kinds)
+         :events (ids-of :event)
+         :subs   (ids-of :sub)
+         :fx     (ids-of :fx)})
+      ;; A frame that does not carry a generation (`:rf.error/frame-no-
+      ;; generation`) means this core predates the EP-0023 reads, or the
+      ;; operating frame is an EP-0013 runnable without a sealed image. Fall
+      ;; back to the realm view rather than fail the whole orientation.
+      (catch :default _ nil))))
+
 (defn orient
   "App-shape orientation summary (rf2-3bu3d.8) — answer 'what is this app
    and what can I drive?' in ONE round-trip.
@@ -4613,11 +4857,22 @@
                       `get-path` / `snapshot`). Tool frames are excluded
                       (rf2-3bu3d.6 posture) so the summary doesn't
                       overflow on Xray/SSR inspection state.
-     :registry        {:counts {<kind> N ...}
+     :registry        {:basis :frame|:realm :frame <id>?
+                       :counts {<kind> N ...}
                        :events [...] :subs [...] :fx [...]} — registrar
                       COUNTS for every v1 kind, plus the full sorted id
                       vectors for the three most navigable kinds. Drill
                       any other kind via `list-handlers {kind ...}`.
+                      RE-BASED on the OPERATING FRAME's resolved image
+                      generation when a single operating frame resolves
+                      (rf2-srobm0, EP-0023) — the SELECTED universe that
+                      frame actually runs, not the realm-wide registrar
+                      union (the same `(kind, id)` can resolve differently
+                      per frame). `:basis :frame` + `:frame <id>` name the
+                      resolution; falls back to `:basis :realm` (the
+                      realm-wide registrar counts) in a multi-frame
+                      ambiguous session or against a core predating the
+                      EP-0023 frame-image-generation reads.
      :machines        the registered machine ids (`rf/machines`).
 
    Compact + summarized by design (respect the wire cap): counts + the
@@ -4628,7 +4883,13 @@
    `health` (idempotent)."
   []
   (let [h        (health)
-        app-fids (app-frame-ids)]
+        app-fids (app-frame-ids)
+        op-frame (:operating-frame h)
+        ;; rf2-srobm0 — re-base the registry on the OPERATING FRAME's resolved
+        ;; image generation when one resolves; fall back to the realm-wide
+        ;; registrar counts otherwise (ambiguous multi-frame session, or a core
+        ;; predating the EP-0023 frame-image-generation reads).
+        registry (or (frame-registry-view op-frame) (realm-registry-view))]
     {:ok?      true
      :liveness {:debug-enabled?      (:debug-enabled? h)
                 :frame-count         (count (:frames h))
@@ -4650,9 +4911,5 @@
                   [fid (let [db (rf/app-db-value fid)]
                          (when (map? db) (vec (sort-by pr-str (keys db)))))]))
            app-fids)
-     :registry {:counts (into {} (map (fn [k] [k (registrar-count k)]))
-                              orient-registrar-kinds)
-                :events (registrar-list :event)
-                :subs   (registrar-list :sub)
-                :fx     (registrar-list :fx)}
+     :registry registry
      :machines (vec (machines/machines))}))

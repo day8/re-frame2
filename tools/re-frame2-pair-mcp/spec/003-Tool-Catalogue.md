@@ -17,7 +17,10 @@ diagnostic `get-stream-controls` (rf2-a0kxsb — the server-side
 resource-control read), the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
-rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
+rf2-4y595 for NAMING.md `list-<things>` conformance; both grow an
+EP-0023 `:frame` arity per rf2-srobm0), the image-generation read
+`describe-image` (rf2-srobm0 — the EP-0023 Use-Case 7 read over a frame's
+running image generation), the operating-frame
 trio `set-operating-frame` + `reset-operating-frame` + `get-operating-frame`
 (rf2-zomfq — the [Tool-Pair §Tool-surface obligations][tsobl] ops that
 surface the session frame pin, the escape from tier-4 `:ambiguous-frame`;
@@ -580,7 +583,8 @@ The summary shape:
             :realms [...] :operating-realm <id>        ; labeled-internal installation boundary
             :frame-realms {<frame-id> <container-id>}}
  :app-db-top-keys {<app-frame-id> [<top-level key> ...]}
- :registry {:counts {<kind> N ...}    ; every v1 registrar kind
+ :registry {:basis :frame|:realm :frame <id>?   ; rf2-srobm0 — see below
+            :counts {<kind> N ...}    ; every v1 registrar kind
             :events [...] :subs [...] :fx [...]}  ; full ids for the 3 navigable kinds
  :machines [...]}
 ```
@@ -591,6 +595,18 @@ three most navigable kinds (`:event` / `:sub` / `:fx`), and per-app-frame
 app-db **top-keys** — *not* the full app-db. Drill via the existing
 `list-handlers` / `list-subscriptions` / `snapshot` / `get-path` /
 `read-sub` ops.
+
+**Frame-rebased registry (EP-0023, rf2-srobm0).** The `:registry` slot is
+**re-based on the operating frame's resolved image generation** when a single
+operating frame resolves — the **selected universe** that frame actually runs
+(the same `(kind, id)` can resolve differently per frame), keyed off the
+frame's generation rather than the realm-wide registrar union. `:basis :frame`
++ `:frame <id>` name the resolution. It **falls back** to `:basis :realm` (the
+realm-wide registrar counts) in a multi-frame ambiguous session (no operating
+frame resolves) or against a core predating the EP-0023
+frame-image-generation reads. Drill a frame's full per-kind ids with
+`list-handlers {:frame … :kind …}` or its whole generation with
+`describe-image {:frame …}`.
 
 Reserved `:rf/*` **tool frames** (Xray's `:rf/xray`, SSR slots, …) are
 split out of `:frames` (`:app` vs `:all`) and **excluded** from
@@ -3126,8 +3142,10 @@ jump-to-editor link.
 `fx` / `cofx` / `interceptor` / `view` / `frame` / `route` / `flow` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
 `machine`), `id` (string, **required** — EDN-encoded
-keyword or composite vector), `realm` (string, optional — EDN-encoded
-internal installation-container id keyword), `build` (string, optional).
+keyword or composite vector), `frame` (string, optional — a frame id keyword;
+the EP-0023 forward direction, see below), `realm` (string, optional —
+EDN-encoded internal installation-container id keyword), `build` (string,
+optional).
 
 **Internal installation boundary** (EP-0023 §Surface dispositions). EP-0023
 makes the public model `image -> frame -> event stream` and demotes the
@@ -3148,14 +3166,34 @@ handlers) — that combination returns
 `{:ok? false :reason :realm-unsupported-for-machine …}` rather than silently
 ignoring it.
 
-The **forward direction** (EP-0023): a frame's inspectable registration set
-is its **resolved image generation** (the same `(kind, id)` may resolve
-differently per frame). Re-keying these reads to resolve through the
-operating frame's image generation — and surfacing image/inline provenance +
-replacement decisions — is the follow-on once the object-frame public
-addressing and the frame-image-generation read API land (the EP-0023
-make-frame collapse wave); `list-subscriptions` is the per-frame exemplar
-today.
+**Frame-targeting — the forward direction** (EP-0023, rf2-srobm0). A frame's
+inspectable registration set is its **resolved image generation**: the same
+`(kind, id)` may resolve **differently per frame** (two frames running
+different images each resolve their own descriptor). The optional `frame` arg
+re-keys the lookup through **that frame's running image generation** rather
+than the default/realm registrar — routing through the per-frame runtime fn
+`(re-frame2-pair.runtime/frame-registrar-describe frame kind id)`, which
+consumes the **public** facade read `(re-frame.core/handler-meta {:frame f
+:kind k :id id})` (rf2-wkw8na). The result carries the resolved descriptor's
+`:rf.provenance/ns` + inline/image + `:standard` facts plus a normalized
+`:rf.image/coordinate` rollup naming **which source won** the resolution:
+
+```clojure
+{:source :registered :ns "my.app.events"}      ; a registered descriptor
+{:source :inline :image :app/img :inline [..]} ; an image inline section
+{:source :standard}                            ; a framework standard
+```
+
+`frame` and `realm` are **distinct address families** (EP-0023 §Id Spaces):
+`realm` reads an installation container's flat registrar atom, `frame`
+resolves through a live frame's sealed generation. Passing **both** is
+rejected — `{:ok? false :reason :frame-realm-mixed-address …}` — the same
+fail-loud the facade enforces, surfaced before the eval round-trip. `frame`
+is **not valid with `kind=machine`** (machines are not in the image
+generation resolver — they derive from `:event` handlers; Spec 005), and
+that combination returns `{:ok? false :reason :frame-unsupported-for-machine
+…}`. Omit `frame` for the byte-identical default-registrar path.
+`list-subscriptions` and `describe-image` are the per-frame siblings.
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
 §Registry model), including the three resources-artefact kinds
@@ -3214,7 +3252,9 @@ On a miss:
 - `{:ok? false :reason :invalid-id-edn :id <raw> :hint "..."}` — `id` failed `cljs.reader/read-string`.
 - `{:ok? false :reason :invalid-realm-edn :realm <raw> :hint "..."}` — non-blank `realm` failed to read as EDN.
 - `{:ok? false :reason :realm-unsupported-for-machine :realm <r> :kind :machine :hint "..."}` — `realm` given with `kind=machine`.
-- `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw.
+- `{:ok? false :reason :frame-realm-mixed-address :frame <f> :realm <r> :hint "..."}` — both `frame` and `realm` supplied (distinct address families, EP-0023 §Id Spaces).
+- `{:ok? false :reason :frame-unsupported-for-machine :frame <f> :kind :machine :hint "..."}` — `frame` given with `kind=machine` (machines are not in the image generation resolver).
+- `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw (including the facade's `:rf.error/frame-no-generation` when `frame` names no live frame carrying a generation).
 
 **Composite-key subs**: pass the vector form as a string —
 `{:kind "sub" :id "[:rf/composite [:items :by-id 42]]"}`.
@@ -3237,8 +3277,20 @@ out what's registered (per kind), then drill in with `handler-meta`
 on a specific `(kind, id)` pair.
 
 **Args**: `kind` (string, **required** — same enum as `handler-meta`),
-`realm` (string, optional — EDN-encoded internal installation-container id
-keyword), `build` (string, optional).
+`frame` (string, optional — a frame id keyword; the EP-0023 forward
+direction), `realm` (string, optional — EDN-encoded internal
+installation-container id keyword), `build` (string, optional).
+
+**Frame-targeting** (EP-0023, rf2-srobm0): same contract as `handler-meta`'s
+`frame` arg. The optional `frame` arg enumerates **only the ids that frame's
+running image generation carries** for the kind — routing through
+`(re-frame2-pair.runtime/frame-registrar-list frame kind)`, which consumes
+the public `(re-frame.core/handler-ids {:frame f :kind k})` read (rf2-wkw8na).
+This is the **selected universe** that frame actually runs, not the
+realm-wide namespace-union the flat registrar holds. `frame` and `realm` are
+mutually exclusive (`:frame-realm-mixed-address`); `frame` is not valid with
+`kind=machine` (`:frame-unsupported-for-machine`). The resolved frame is
+stamped onto the response as `:frame`. Omit it for the default-registrar path.
 
 **Internal installation boundary** (EP-0023 §Surface dispositions): same
 contract as `handler-meta`. The optional `realm` arg names an internal
@@ -3283,7 +3335,9 @@ empty case.
 - `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` — unrecognised / missing `kind` arg.
 - `{:ok? false :reason :invalid-realm-edn :realm <raw> :hint "..."}` — non-blank `realm` failed to read as EDN.
 - `{:ok? false :reason :realm-unsupported-for-machine :realm <r> :kind :machine :hint "..."}` — `realm` given with `kind=machine`.
-- `{:ok? false :reason :list-handlers-failed :message "..."}` — runtime threw.
+- `{:ok? false :reason :frame-realm-mixed-address :frame <f> :realm <r> :hint "..."}` — both `frame` and `realm` supplied.
+- `{:ok? false :reason :frame-unsupported-for-machine :frame <f> :kind :machine :hint "..."}` — `frame` given with `kind=machine`.
+- `{:ok? false :reason :list-handlers-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation`).
 
 **Pair with `handler-meta`**: typical agent workflow is
 `list-handlers {kind "event"}` → pick an id → `handler-meta {kind
@@ -3297,6 +3351,73 @@ surface). No back-compat shim; the old name hard-errors with
 `:unknown-tool`.
 
 **Source**: rf2-pctf8.
+
+## describe-image
+
+Describe the **image generation** a frame is running — the EP-0023
+**Use-Case 7** read (Ref-Plan item 17, rf2-srobm0). Answers "what behaviour
+does **this** frame run, and where did each piece come from?" in one
+round-trip. A frame runs a composed **image** (selected registrations from
+one-or-more namespaces / inline sections, plus framework standards); the same
+`(kind, id)` can resolve differently per frame, so the **selected universe** a
+frame actually runs is what an agent driving it should see — not the
+realm-wide registrar union.
+
+Routes through the runtime preload's `describe-image`, which reads **only** the
+public facade `(re-frame.core/frame-generation frame)` read (rf2-wkw8na).
+EP-0023 forbids tools from consuming `re-frame.live-frame` /
+`re-frame.image-assembly` internals directly; the facade re-surfaces the
+behaviour through the public read.
+
+**Args** (all optional): `frame` (string — a frame id keyword; defaults to the
+operating frame), `include-ns` (boolean, default false — gates the
+per-registration provenance map), `build` (string).
+
+Frame resolution mirrors every read op: omit `frame` to use the operating
+frame; a multi-frame session with no selection returns
+`{:ok? false :reason :ambiguous-frame …}` rather than silently reading
+`:rf/default`.
+
+**Returns**:
+
+```clojure
+{:ok?      true
+ :frame    <frame-id>
+ :images   [<image-id> ...]        ; the composed image ids
+ :kinds    [<kind> ...]            ; registrar kinds present (sorted)
+ :requires [<capability> ...]      ; union :rf.gen/requires (sorted)
+ :counts   {<kind> N ...}          ; selected-registration count per kind
+ :registrations {[<kind> <id>] <coordinate> ...}}  ; only with :include-ns true
+```
+
+The `:registrations` slot (only with `include-ns true`) maps each selected
+`(kind, id)` to its provenance/standard **coordinate** — `{:source
+:registered :ns "..."}` / `{:source :inline :image <id> :inline [..]}` /
+`{:source :standard}` — so an agent sees **which source won** each
+resolution. It is OFF by default because the full resolver can be large;
+`:counts` plus a per-kind `list-handlers {:frame ...}` drill cover the common
+case.
+
+**Missing-capability vs missing-registration**. `:requires` is the
+discriminator EP-0023 §Use-Case 7 wants surfaced: an image that **declares** a
+capability the host frame did not provide is a **missing-capability**
+situation, distinct from a `(kind, id)` simply being **absent** from the
+resolver (**missing-registration**). The frame-**owned** capability map /
+adapter the requires are checked against is frame-object interior and **not**
+exposed by the public read surface; `describe-image` reports the
+**image-declared** requirement — the side an agent can act on.
+
+**Error envelopes**:
+
+- `{:ok? false :reason :ambiguous-frame …}` — multi-frame session, no `frame` and no session pin.
+- `{:ok? false :reason :describe-image-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation` when an explicit `frame` names no live frame carrying a generation).
+
+**Drill-down**: `describe-image` is the per-frame overview; drill a specific
+`(kind, id)` with `handler-meta {:frame … :kind … :id …}` for the full
+per-frame registration metadata, or enumerate a kind with `list-handlers
+{:frame … :kind …}`.
+
+**Source**: rf2-srobm0.
 
 ## set-operating-frame / reset-operating-frame / get-operating-frame
 

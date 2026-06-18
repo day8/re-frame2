@@ -284,6 +284,13 @@ runWithWatchdog(
       // hermetic live-re-frame2-pair-cofx.cjs gate.
       { name: 'handler-meta', arguments: { kind: 'cofx', id: ':rf/time-ms' } },
       { name: 'list-handlers', arguments: { kind: 'cofx' } },
+      // rf2-srobm0 — describe-image reads a frame's running image generation
+      // over the public rf/frame-generation facade read. Degraded mode routes
+      // it through ensure-connection! to the shared :nrepl-port-not-found
+      // envelope (proving the callTool wiring); the LIVE generation projection
+      // is the runtime preload's concern, pinned by the bb structural test
+      // skills/re-frame2-pair/tests/runtime/frame_registrar_test.clj.
+      { name: 'describe-image', arguments: { frame: ':rf/default' } },
       { name: 'read-recording', arguments: { 'recording-id': 'rf2-conformance-no-such' } },
       { name: 'read-sub', arguments: { sub: '[:rf-conformance/probe]' } },
       { name: 'record', arguments: { signals: '[[:rf-conformance/probe]]' } },

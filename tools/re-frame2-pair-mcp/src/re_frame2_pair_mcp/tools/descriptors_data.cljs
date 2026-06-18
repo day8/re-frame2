@@ -1679,7 +1679,14 @@
                      "`rf/app-schema-meta-at` instead. The `machine` kind "
                      "routes through (re-frame.machines/machine-meta id) (Spec 005 §Querying "
                      "machines); the other kinds route through "
-                     "(rf/handler-meta kind id). Returns `{:ok? true :kind k "
+                     "(rf/handler-meta kind id). The OPTIONAL :frame arg "
+                     "(rf2-srobm0, EP-0023) re-keys the lookup through THAT "
+                     "frame's running image generation — surfacing the resolved "
+                     "descriptor's :rf.provenance/ns + inline/image + :standard "
+                     "facts plus an :rf.image/coordinate rollup naming which "
+                     "source won (the same (kind, id) can resolve differently "
+                     "per frame); :frame and :realm are mutually exclusive. "
+                     "Returns `{:ok? true :kind k "
                      ":id i ...meta...}` on a hit or `{:ok? false :reason "
                      ":not-registered :kind k :id i}` when no slot matches. "
                      "Examples: "
@@ -1697,6 +1704,21 @@
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
                                                        "as a string, e.g. \"[:rf/composite :x]\".")}
+                              :frame {:type "string"
+                                      :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
+                                                        "The EP-0023 forward direction (rf2-srobm0): "
+                                                        "resolves the (kind, id) through THAT frame's "
+                                                        "OWN running image generation rather than the "
+                                                        "default/realm registrar — the same (kind, id) "
+                                                        "can resolve differently per frame. The result "
+                                                        "carries the resolved descriptor's "
+                                                        ":rf.provenance/ns + inline/image + :standard "
+                                                        "facts plus an :rf.image/coordinate rollup "
+                                                        "naming WHICH source won. Omit for the default "
+                                                        "registrar (byte-identical). Distinct from "
+                                                        ":realm — passing both is rejected "
+                                                        "(:frame-realm-mixed-address). Not valid with "
+                                                        "kind=machine.")}
                               :realm {:type "string"
                                       :description (str "OPTIONAL internal installation-container id "
                                                         "keyword, e.g. \":shop/realm\". This is the "
@@ -1739,7 +1761,12 @@
                      "`rf/app-schemas` for schema enumeration. The `machine` "
                      "kind lists every event handler flagged `:rf/machine? "
                      "true` via (re-frame.machines/machines); the other kinds lift the id "
-                     "vector off the registrar's per-kind map. Returns "
+                     "vector off the registrar's per-kind map. The OPTIONAL "
+                     ":frame arg (rf2-srobm0, EP-0023) enumerates only the ids "
+                     "THAT frame's running image generation carries for the "
+                     "kind — the selected universe that frame runs, not the "
+                     "realm-wide namespace-union; :frame and :realm are "
+                     "mutually exclusive. Returns "
                      "`{:ok? true :kind k :ids [...] :count n}`. The id "
                      "vector is sorted (string / keyword / symbol ordering) "
                      "so the list shape is stable across calls. "
@@ -1755,6 +1782,18 @@
                  :properties {:kind {:type "string"
                                      :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, frame, route, flow, head, error-projector, resource, mutation, resource-scope, machine."
                                      :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "frame" "route" "flow" "head" "error-projector" "resource" "mutation" "resource-scope" "machine"]}
+                              :frame {:type "string"
+                                      :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
+                                                        "The EP-0023 forward direction (rf2-srobm0): "
+                                                        "enumerates only the ids THAT frame's OWN "
+                                                        "running image generation carries for the kind "
+                                                        "rather than the default/realm registrar — the "
+                                                        "SELECTED universe that frame runs, not the "
+                                                        "namespace-union the flat registrar holds. Omit "
+                                                        "for the default registrar (byte-identical). "
+                                                        "Distinct from :realm — passing both is rejected "
+                                                        "(:frame-realm-mixed-address). Not valid with "
+                                                        "kind=machine.")}
                               :realm {:type "string"
                                       :description (str "OPTIONAL internal installation-container id "
                                                         "keyword, e.g. \":shop/realm\". This is the "
@@ -1770,6 +1809,66 @@
                                                         "Not valid with kind=machine.")}
                               :build {:type "string"}}
                  :required ["kind"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; describe-image (rf2-srobm0 — EP-0023 Use-Case 7 / Ref-Plan item 17)
+;; ---------------------------------------------------------------------------
+
+(def describe-image
+  {:name "describe-image"
+   :description (str "Describe the IMAGE GENERATION a frame is running — the "
+                     "EP-0023 forward read (Use-Case 7). Answers \"what "
+                     "behaviour does THIS frame run, and where did each piece "
+                     "come from?\" in one round-trip over the public "
+                     "rf/frame-generation read. A frame runs a composed IMAGE "
+                     "(selected registrations from one-or-more namespaces / "
+                     "inline sections + framework standards); the SAME (kind, "
+                     "id) can resolve differently per frame, so the SELECTED "
+                     "universe a frame actually runs is what an agent driving "
+                     "it should see — not the realm-wide registrar union. "
+                     "Returns {:ok? true :frame <id> :images [...] :kinds "
+                     "[...] :requires [...] :counts {<kind> N ...}}. :images "
+                     "names the composed image ids; :kinds the registrar kinds "
+                     "present; :requires the union capability set the images "
+                     "DECLARE (:rf.gen/requires) — the missing-capability vs "
+                     "missing-registration discriminator (an image requiring a "
+                     "capability the host frame did not provide differs from a "
+                     "(kind, id) simply being absent); :counts the selected-"
+                     "registration count per kind. With :include-ns true the "
+                     "result also carries :registrations {[kind id] coordinate "
+                     "...} — every selected (kind, id) with its provenance/"
+                     "standard coordinate (which source won the resolution). "
+                     "Frame resolution mirrors every read op: omit :frame to "
+                     "use the operating frame; a multi-frame session with no "
+                     "selection returns {:ok? false :reason :ambiguous-frame}. "
+                     "Drill a specific (kind, id) with handler-meta {:frame "
+                     "... :kind ... :id ...} for the full per-frame metadata. "
+                     "Examples: "
+                     "1. {:frame \":main\"} -> {:ok? true :frame :main :images "
+                     "[:app/img] :kinds [:event :sub] :requires [] :counts "
+                     "{:event 12 :sub 8}}. "
+                     "2. {:frame \":main\" :include-ns true} -> {... "
+                     ":registrations {[:event :user/login] {:source "
+                     ":registered :ns \"my.app.user\"} ...}}.")
+   :typicalTokens 600
+   :annotations idempotent-read-only-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:frame {:type "string"
+                                      :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
+                                                        "Omit to use the operating frame; a multi-frame "
+                                                        "session with no selection returns "
+                                                        ":ambiguous-frame.")}
+                              :include-ns {:type "boolean"
+                                           :description (str "When true, include :registrations — every "
+                                                             "selected (kind, id) with its provenance/"
+                                                             "standard coordinate. Default false (the "
+                                                             "full resolver can be large; counts + the "
+                                                             "per-kind list-handlers {:frame ...} drill "
+                                                             "cover the common case).")}
+                              :build {:type "string"}}
+                 :required []
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
