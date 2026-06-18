@@ -203,7 +203,8 @@ Full async-boundary contract (the four routing patterns and the React click-hand
     (rf/dispatch [::action chosen])))
 
 ;; Eval-bind-run-destroy form — create a throwaway frame for the body
-(rf/with-new-frame [f (rf/make-frame {:on-create [:test/initialise]})]
+(rf/with-new-frame [f (rf/make-frame {:images [test-image]})]
+  (rf/dispatch-sync [:test/initialise])   ;; seed via a setup dispatch
   (rf/dispatch [::action f]))   ;; frame destroyed on exit
 ```
 

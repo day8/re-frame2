@@ -119,8 +119,9 @@ The most common shape. Each test creates a frame, runs assertions, tears down.
 (rf/reg-event :auth/init-idle (fn [_ _] {:db {:auth/state :idle}}))
 
 (deftest auth-flow
-  (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (let [f (rf/make-frame {})]
     (try
+      (rf/dispatch-sync [:auth/init-idle] {:frame f})   ;; seed via a setup dispatch
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
       (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))
       (finally
@@ -133,7 +134,8 @@ For tests that don't need explicit teardown logic, `with-new-frame` handles the 
 
 ```clojure
 (deftest auth-flow
-  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:auth/init-idle])             ;; seed via a setup dispatch (uses :frame f)
     (rf/dispatch-sync [:auth/login-pressed])         ;; uses :frame f via the binding
     (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))))
 ```
@@ -198,7 +200,7 @@ The macro:
 5. Runs `body`.
 6. In a `finally`, destroys the frame regardless of whether `body` returned normally or threw — no leaked frames across tests.
 
-`opts-map` keys (all optional): `:install`, `:root-view`, `:root-view-args`, `:frame-config` (passed through to `make-frame` / `reg-frame` — `:on-create`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors` and the rest of the frame-shape contract per [Spec 002 §`reg-frame`](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
+`opts-map` keys (all optional): `:install`, `:root-view`, `:root-view-args`, `:frame-config` (the record-config map seated onto the fixture frame — `:on-create`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors` and the rest of the frame-shape contract per [Spec 002 §`reg-frame`](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar); these are record-config keys, so the fixture seats them via `reg-frame` / the advanced `re-frame.frame/make-frame`, not the EP-0023 object constructor `rf/make-frame`).
 
 The companion helpers:
 
@@ -331,8 +333,9 @@ A test frame declares its intent — and gets the deterministic defaults — wit
 
 ```clojure
 (rf/reg-frame :test/auth-flow {:preset :test})
-;; or anonymous:
-(rf/with-new-frame [f (rf/make-frame {:preset :test :on-create [:auth/init-idle]})]
+;; or anonymous — :preset is a record-config key, so it rides the advanced
+;; record-config `re-frame.frame/make-frame`, not the EP-0023 object constructor:
+(rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test :on-create [:auth/init-idle]})]
   ...)
 ```
 
@@ -527,7 +530,7 @@ Sixteen public defs, organised by role. Every entry except `with-app-fixture` (w
 | `find-by-testid-prefix` | Fn | `(find-by-testid-prefix tree prefix) → vector` | Every node whose `:data-testid` STARTS with `prefix`. Equivalent to `(find-by-attr-prefix tree :data-testid prefix)`. |
 | `invoke-handler` | Fn | `(invoke-handler node event-key & args) → any` | Find the handler under `event-key` on `node` and call it. Returns the handler's return value (typically `nil` for `dispatch`-side-effecting `:on-click`s). **Throws** when `node` is not a hiccup vector, the node has no attrs map, or no handler is registered — the throwing failure mode is deliberate (a missing handler is almost always a test bug, not a passing case). |
 | `testid` | Fn | `(testid id)` / `(testid id extra) → map` | Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Use at the view call site: `[:button (testid "counter-inc" {:on-click ...}) "+"]`. |
-| `with-app-fixture` | Macro | `(with-app-fixture opts-map frame-id body+)` / `(with-app-fixture opts-map body+)` | Single-frame e2e fixture. Creates the frame, binds `*current-frame*` for the body's dynamic extent, calls `:install` (zero-arg) inside the scope, stashes `:root-view` / `:root-view-args` for `expect-text` / `wait-until`, and destroys the frame on exit (success or exception). Frame-id is positional and optional; omitting it gensym's an anonymous `:rf.frame/*` id. Opts keys: `:install`, `:root-view`, `:root-view-args`, `:frame-config` (passed through to `make-frame` / `reg-frame`). See [§Pattern 5 — single-frame e2e fixture](#pattern-5--single-frame-e2e-fixture). |
+| `with-app-fixture` | Macro | `(with-app-fixture opts-map frame-id body+)` / `(with-app-fixture opts-map body+)` | Single-frame e2e fixture. Creates the frame, binds `*current-frame*` for the body's dynamic extent, calls `:install` (zero-arg) inside the scope, stashes `:root-view` / `:root-view-args` for `expect-text` / `wait-until`, and destroys the frame on exit (success or exception). Frame-id is positional and optional; omitting it gensym's an anonymous `:rf.frame/*` id. Opts keys: `:install`, `:root-view`, `:root-view-args`, `:frame-config` (record-config seated via `reg-frame` / the advanced `re-frame.frame/make-frame`). See [§Pattern 5 — single-frame e2e fixture](#pattern-5--single-frame-e2e-fixture). |
 | `expect-text` | Fn | `(expect-text testid expected)` / `(expect-text tree testid expected) → bool?` | Locate `:data-testid testid` in the (fixture-stashed) root view's rendered hiccup and assert `(text-content node) = expected` via `clojure.test/is` (`do-report`). `testid` accepts a keyword (coerced via `name`) or a string. The 2-arity reads the fixture-stashed root view from `*current-root-view*`; the 3-arity walks an explicit tree. Throws (with a clear `ex-info` message) if neither a fixture nor an explicit tree is present. |
 | `wait-until` | Fn | `(wait-until pred)` / `(wait-until pred opts)` / `(wait-until testid expected)` / `(wait-until testid expected opts)` | Bounded-deadline poll for async-stable assertions. JVM: synchronous — returns the truthy value, throws `ex-info` carrying `:rf.error/id` `:rf.error/wait-until-timeout` (the canonical discriminator, per [Spec 009](009-Instrumentation.md)) on timeout. CLJS: returns a `js/Promise` that resolves with the truthy value or rejects on timeout. The testid form polls the fixture-stashed root view until `(text-content (find-by-testid tree testid)) = expected`; the predicate form polls an arbitrary fn. `opts`: `:timeout-ms` (2000), `:interval-ms` (5), `:label`. Sister of `re-frame.test-support/poll-until` — same shape, tuned for the hiccup-walk pattern. |
 
@@ -552,7 +555,8 @@ Drive a click and assert state changed downstream:
 
 ```clojure
 (deftest counter-inc
-  (rf/with-new-frame [_ (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [_ (rf/make-frame {})]
+    (rf/dispatch-sync [:counter/init])   ;; seed via a setup dispatch
     (let [tree (counter-view {})
           btn  (th/find-by-testid tree "counter-inc")]
       (th/invoke-handler btn :on-click)
@@ -563,7 +567,8 @@ Assert rendered text after dispatching:
 
 ```clojure
 (deftest counter-label
-  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:counter/init])   ;; seed via a setup dispatch
     (rf/dispatch-sync [:counter/set 5])
     (let [tree  (counter-view {})
           label (th/find-by-testid tree "counter-label")]
@@ -663,7 +668,8 @@ When you want to verify what *would* dispatch without actually running the casca
 
 ```clojure
 (let [dispatched (atom [])]
-  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:auth/init-idle])   ;; seed via a setup dispatch
     (rf/dispatch-sync [:auth/login-pressed]
                       {:frame        f
                        :fx-overrides {:dispatch (fn [_m ev] (swap! dispatched conj ev))}})
@@ -672,7 +678,7 @@ When you want to verify what *would* dispatch without actually running the casca
 
 `:dispatch` (and `:dispatch-later`) are in the **OVERRIDABLE** tier of the reserved fx-ids (per [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the cascade does not run. This is the canonical "assert what would dispatch" affordance.
 
-**Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (via `make-frame` / `reg-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
+**Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (a record-config key, so via `reg-frame` / the advanced `re-frame.frame/make-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
 
 **State-installing reserved fxs cannot be stubbed.** The `:fx-overrides` map is tiered: the routing primitives (`:dispatch`, `:dispatch-later`, `:rf.machine/dispatch-to-system`) and the navigation primitives (`:rf.nav/*`) are OVERRIDABLE, but the **state-installing** reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.route/with-nav-token` — are **HARD-REJECTED**. An override targeting one of those is ignored (the runtime emits [`:rf.error/reserved-fx-override`](009-Instrumentation.md#error-event-catalogue) and runs the real reserved body), because stubbing them would leave the frame's runtime-db in an inconsistent state that breaks later behaviour far from the override site (e.g. a spawned actor whose snapshot was never installed → every later actor dispatch is `:rf.error/no-such-handler`). To assert on *those* operations, drive the real fx and read the resulting runtime-db state (machine snapshot, flow registry) directly.
 
@@ -681,7 +687,8 @@ When you want to verify what *would* dispatch without actually running the casca
 For tests that exercise event sequences and want to assert at intermediate points, dispatch one event at a time and assert between dispatches:
 
 ```clojure
-(rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+(rf/with-new-frame [f (rf/make-frame {})]
+  (rf/dispatch-sync [:auth/init-idle])   ;; seed via a setup dispatch
   (rf/dispatch-sync [:auth/email-changed "alice@example.com"])
   (is (= "alice@example.com" (get-in (rf/app-db-value f) [:auth :form :email])))
   (rf/dispatch-sync [:auth/password-changed "hunter2"])
@@ -736,7 +743,8 @@ The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. r
 
 A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)). The testing surface guarantees these shapes for 007:
 
-- `(make-frame {:on-create [:event-id] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact opts shape.
+- `(make-frame {:images [...] :id … :initial-db {…} :capabilities {…} :adapter …})` — the EP-0023 object-constructor opts shape (record-config keys like `:on-create` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors` fail loud here; they ride `reg-frame` / the advanced `re-frame.frame/make-frame`).
+- `(reg-frame :id {:on-create [:event-id] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact record-config opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(app-db-value f)` — current `app-db` value (a plain map) for the named frame.
 - `(snapshot-of path {:frame f})` — exact opts arg.

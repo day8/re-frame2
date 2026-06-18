@@ -115,7 +115,7 @@ Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hit
 
 ```clojure
 (deftest cold-boot-with-saved-token-lands-authed
-  (rf/with-new-frame [f (rf/make-frame {:preset :test})]
+  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]  ;; :preset is record-config — rides re-frame.frame/make-frame, not rf/make-frame
     (rf/with-managed-request-stubs
       {[:get "https://api.realworld.io/api/user"]          ;; the URL Part 3's restore requests
        {:reply {:ok {:user {:username "ada"
@@ -138,7 +138,7 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 ```clojure
 (deftest wrong-password-shows-the-error
-  (rf/with-new-frame [f (rf/make-frame {:preset :test})]
+  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]  ;; :preset is record-config — rides re-frame.frame/make-frame
     (rf/with-managed-request-stubs
       {[:post "https://api.realworld.io/api/users/login"]
        {:reply {:failure {:kind :rf.http/http-4xx :status 422}}}}
