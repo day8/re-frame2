@@ -727,13 +727,7 @@ coherent app/runtime transition, not two independently visible writes.
 
 ### Machine snapshot read
 
-Application code should use public machine subscriptions:
-
-```clojure
-@(rf/sub-machine :door/main)
-```
-
-or:
+Application code should use the public machine subscription:
 
 ```clojure
 @(rf/subscribe [:rf/machine :door/main])
@@ -984,7 +978,7 @@ Audit:
 - flow input resolution;
 - flow registry and last-input cache alignment;
 - flow write effects;
-- `sub-machine`;
+- the `[:rf/machine <id>]` sub;
 - route subs;
 - partition-aware sub-cache invalidation;
 - elision lookup during trace and wire projection;
@@ -1060,7 +1054,7 @@ The diagnostics should teach:
 
 ```text
 app-db is user data. runtime-db lives in the frame runtime partition.
-Use sub-machine / route subs / tool APIs instead of raw runtime paths.
+Use [:rf/machine <id>] / route subs / tool APIs instead of raw runtime paths.
 ```
 
 ### 8. Update docs, examples, skills, and migration
@@ -1463,7 +1457,7 @@ The EP treats runtime-db's children as an ad-hoc list (`:rf.runtime/machines`, `
 
 1. a reserved sub-tree of runtime-db;
 2. a write-authority (its framework code) — §2;
-3. a read API (subs: `sub-machine`, `:rf.route/*`, `:rf.resource/state`) — never raw paths;
+3. a read API (subs: `[:rf/machine <id>]`, `:rf.route/*`, `:rf.resource/state`) — never raw paths;
 4. a serialization / elision / projection policy (what hydrates, what redacts);
 5. a teardown contract (durable facts vs transient handles).
 

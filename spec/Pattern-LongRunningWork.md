@@ -196,7 +196,7 @@ The chunked pattern is for cases where worker offload isn't feasible (DOM access
 | Self-redispatch (`{:dispatch [:count-to false new-so-far finish-at]}`) | State machine with `:processing` / `:yielding` states |
 | `:abandonment-required` app-db flag | `:cancel` event transitioning to `:cancelled` state |
 | `^:flush-dom` event metadata | `:dispatch-later {:ms 0}` |
-| Progress as a `:we-are-working` boolean | Progress as `:data {:processed :total}` read via `sub-machine` |
+| Progress as a `:we-are-working` boolean | Progress as `:data {:processed :total}` read via the `[:rf/machine <id>]` sub |
 
 The state-machine version replaces re-entrant manual dispatch with explicit states; cancellation becomes a state transition; progress is the machine's `:data`.
 

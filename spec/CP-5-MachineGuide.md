@@ -173,7 +173,7 @@ The media-player example uses two genuinely independent regions (audio and video
 What this gives:
 
 - **Atomicity.** Run-to-completion drain at the frame level means `:media/play` runs both `:media/audio [:media/play]` and `:media/video [:media/play]` to completion before any other event sees state. From outside the frame, the two regions advance together.
-- **Inspection.** `(rf/machines)` enumerates both regions; `@(rf/sub-machine :media/audio)` and `@(rf/sub-machine :media/video)` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
+- **Inspection.** `(rf/machines)` enumerates both regions; `@(rf/subscribe [:rf/machine :media/audio])` and `@(rf/subscribe [:rf/machine :media/video])` are independent reads. Tooling treats them as the two separate things they are, not as nested keys inside a parallel-region snapshot.
 - **Undo.** Each region's snapshot lives at its own `[:rf.runtime/machines :snapshots <id>]` key in runtime-db; reverting the frame-state rolls both back together.
 - **Composability.** A view caring only about audio subscribes to `:media/audio`; video-only views ignore audio entirely. Parallel-region snapshots in xstate force consumers to subscribe to the umbrella machine and project — extra ceremony for the same outcome.
 - **Discoverability.** Each region has a name (`:media/audio`) and a registry entry. xstate's regions live anonymously inside the parent machine's transition table.
