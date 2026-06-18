@@ -469,7 +469,7 @@
                        :b {:initial :one :states {:one {} :two {}}}}}
           traces (atom [])]
       (rf/reg-machine :rootafter/e2e m)
-      (rf/register-listener! ::ra (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::ra (fn [ev] (swap! traces conj ev)))
       ;; Eager birth: kick the start so the initial cascade (and root :after
       ;; schedule) runs and commits.
       (rf/dispatch-sync [:rootafter/e2e [:rf.machine/start]])
@@ -491,4 +491,4 @@
                       (= true (:fired? (:tags %))))
                 @traces)
           "a :fired trace (fired? true) emitted for the root :after")
-      (rf/unregister-listener! ::ra))))
+      (rf/unregister-listener! :trace ::ra))))

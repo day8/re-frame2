@@ -79,7 +79,7 @@
     ;; Establish a known retention first.
     (rf/configure! :trace-buffer {:cascades-retained 9})
     (let [warnings (atom [])]
-      (rf/register-listener! ::trace-buffer-opts
+      (rf/register-listener! :trace ::trace-buffer-opts
                              (fn [ev]
                                (when (= :rf.warning/trace-buffer-unrecognised-opts
                                         (:operation ev))
@@ -112,7 +112,7 @@
         (is (= 2 (count @warnings))
             "the canonical {:cascades-retained N} shape does NOT warn")
         (finally
-          (rf/unregister-listener! ::trace-buffer-opts))))))
+          (rf/unregister-listener! :trace ::trace-buffer-opts))))))
 
 (deftest configure-unknown-key-is-silent-no-op
   (testing "rf2-mmlci — unknown keys silently no-op; configure returns nil"

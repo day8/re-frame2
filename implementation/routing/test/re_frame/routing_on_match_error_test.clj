@@ -168,10 +168,10 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
-      (rf/register-listener! ::on-match-source
+      (rf/register-listener! :trace ::on-match-source
                              (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/transitioned "/source-attributed"])
-      (rf/unregister-listener! ::on-match-source)
+      (rf/unregister-listener! :trace ::on-match-source)
       (let [internal-dispatch
             (some (fn [ev]
                     (and (= :rf.event/dispatched (:operation ev))

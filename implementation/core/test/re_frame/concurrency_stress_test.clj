@@ -208,7 +208,7 @@
           n-b         stress-iters
           latch       (CountDownLatch. 1)
           ;; Count cross-frame warnings to assert observability (≥ 1).
-          listener-id (rf/register-listener!
+          listener-id (rf/register-listener! :trace
                         ::rgj-cross-frame
                         (fn [ev]
                           (when (= :rf.warning/cross-frame-dispatch-sync-during-drain
@@ -239,7 +239,7 @@
         ;; anything still queued.
         (rf/dispatch-sync [:bump] {:frame :rgj.sync/a})
         (finally
-          (rf/unregister-listener! listener-id)))
+          (rf/unregister-listener! :trace listener-id)))
       ;; Validate:
       ;;   - Frame A processed exactly (n-a + 1) bumps (the +1 is the
       ;;     final settler dispatch).

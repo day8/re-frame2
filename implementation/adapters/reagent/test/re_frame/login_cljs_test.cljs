@@ -54,9 +54,9 @@
    `:where :machine-data`. Returns the captured (filtered) trace vector."
   [thunk]
   (let [traces (atom [])]
-    (rf/register-listener! ::collect (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! :trace ::collect (fn [ev] (swap! traces conj ev)))
     (try (thunk)
-         (finally (rf/unregister-listener! ::collect)))
+         (finally (rf/unregister-listener! :trace ::collect)))
     (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                    (= :machine-data (-> % :tags :where)))
              @traces)))

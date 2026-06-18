@@ -68,7 +68,7 @@
             trace carrying :source :ui + :rf.trace/call-site = the view's
             definition coord (NOT :unknown, NOT nil)"
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         ;; EP-0002 (rf2-69r7ui): the reg-view render-time frame-handle
         ;; captures `(current-frame-id)`, which REQUIRES an established
@@ -102,7 +102,7 @@
                 "the call-site coord carries a :line (the reg-view definition line)")
             (is (integer? (:column cs))
                 "dev coord carries :column (full coords-form)")))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- frame-preservation regression (the handle's existing guarantee) ----
 
@@ -112,7 +112,7 @@
             fall-through (the rf2-tqlmq sibling class). The dispatch opts
             injection must NOT clobber the handle's render-time frame capture."
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-frame :rf2-cry25/render-frame {:doc "the render-time frame"})
         (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
@@ -138,7 +138,7 @@
                the opts injection")
           (is (= :ui (:source ev))
               ":source :ui rides alongside the preserved frame"))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- subscribe: the view's call-site on the synchronous error path -------
 
@@ -148,7 +148,7 @@
             (subscriptions carry no :source axis; the handle's :subscribe op
             mirrors the subscribe macro's trace/with-call-site wrapper)"
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         ;; EP-0002 (rf2-69r7ui): the reg-view handle captures
         ;; `(current-frame-id)` at render, which REQUIRES a scope. Render
@@ -177,7 +177,7 @@
                  the handle's :subscribe op carried the view coord")
             (is (= 're-frame.reg-view-injection-test (:ns cs))
                 "the subscribe call-site coord is the VIEW's definition-site ns")))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- production-elision shape (dev coord vs slim prod coord) -------------
 ;;

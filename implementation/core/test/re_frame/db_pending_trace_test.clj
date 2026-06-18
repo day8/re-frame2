@@ -52,10 +52,10 @@
 
 (defn- collect-traces!
   "Register a trace listener that accumulates events; return the atom.
-  Tests detach with `(rf/unregister-listener! id)`."
+  Tests detach with `(rf/unregister-listener! :trace id)`."
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- t1 fires when the handler returns `:db` -----------------------------
@@ -79,7 +79,7 @@
             (is (= :rf/default (-> p :tags :frame))
                 ":tags :frame is canonical (per Spec 009 §canonical per-frame routing key)")))
         (finally
-          (rf/unregister-listener! ::t1-db-only))))))
+          (rf/unregister-listener! :trace ::t1-db-only))))))
 
 (deftest t1-suppressed-when-handler-returns-no-db
   (testing "an :fx-only handler return (no :db slot) does NOT emit
@@ -95,7 +95,7 @@
           (is (zero? (count pendings))
               "no :rf.event/db-pending when the handler returned no :db slot"))
         (finally
-          (rf/unregister-listener! ::t1-fx-only))))))
+          (rf/unregister-listener! :trace ::t1-fx-only))))))
 
 (deftest t1-value-is-identical-by-reference-no-copy
   (testing "Mike's ruling: the t1 stamp is the SAME persistent reference
@@ -107,7 +107,7 @@
           captured       (atom nil)]
       (rf/reg-event :t1/return-shared
         (fn [{:keys [db]} _] {:db shared-payload}))
-      (rf/register-listener!
+      (rf/register-listener! :trace
         ::t1-identity
         (fn [ev]
           (when (= :rf.event/db-pending (:operation ev))
@@ -117,7 +117,7 @@
         (is (identical? shared-payload @captured)
             "t1's stamped value is the same persistent reference the handler returned")
         (finally
-          (rf/unregister-listener! ::t1-identity))))))
+          (rf/unregister-listener! :trace ::t1-identity))))))
 
 ;; ---- ordering against the canonical sequence -----------------------------
 
@@ -149,7 +149,7 @@
           (is (< (idx :rf.fx/do-fx) (idx :rf.event/run-end))
               "do-fx precedes run-end (the cascade trailer)"))
         (finally
-          (rf/unregister-listener! ::t1-order))))))
+          (rf/unregister-listener! :trace ::t1-order))))))
 
 ;; ---- t2 contract from the core perspective -------------------------------
 
@@ -167,7 +167,7 @@
           (is (zero? (count t2s))
               "no :rf.event/db-pending-post-flow without the flows artefact"))
         (finally
-          (rf/unregister-listener! ::t2-no-flows))))))
+          (rf/unregister-listener! :trace ::t2-no-flows))))))
 
 ;; ---- payload-shape pin ---------------------------------------------------
 
@@ -190,4 +190,4 @@
           (is (not (contains? p :rf.event/db))
               ":rf.event/db is NOT at top level"))
         (finally
-          (rf/unregister-listener! ::payload-shape))))))
+          (rf/unregister-listener! :trace ::payload-shape))))))

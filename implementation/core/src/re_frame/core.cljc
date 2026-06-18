@@ -1519,16 +1519,15 @@
 ;; public home: reach them through `re-frame.machines` (which already
 ;; publishes them). The `reg-machine` / `defmachine` REGISTRATION MACROS stay
 ;; on the façade (above; per-element source-coord stamping, no owned-ns macro
-;; form). The `dispatch-to-system` / `machine-has-tag?`
-;; subscription-and-dispatch sugar stays on the façade — it has no classified
-;; owned-namespace peer. The `sub-machine` snapshot sugar is REMOVED (rf2-wh7xip
-;; — zero adopters); the canonical machine read is the `[:rf/machine machine-id]`
-;; subscription vector.
-
-(def ^{:doc "Sugar: dispatch `event` to the spawned-machine bound to
-  `system-id` in the active frame; no-op fall-through when the
-  system-id is unbound. Per Spec 005 §Cross-machine messaging by name."}
-  dispatch-to-system     rf-machines/dispatch-to-system)
+;; form). The `machine-has-tag?` subscription sugar stays on the façade —
+;; it has no classified owned-namespace peer (64-example adoption, rf2-gkt25a).
+;; The `dispatch-to-system` FN is DEMOTED off the façade (rf2-gkt25a /
+;; rf2-80mmlf — exactly one in-repo caller): the canonical action-side
+;; messaging surface is the reserved `[:rf.machine/dispatch-to-system
+;; [system-id event]]` fx tuple; the direct-call FN now lives in
+;; `re-frame.machines` as an implementation-tier helper. The `sub-machine`
+;; snapshot sugar is REMOVED (rf2-wh7xip — zero adopters); the canonical
+;; machine read is the `[:rf/machine machine-id]` subscription vector.
 
 (def ^{:doc "Subscribe to a machine's `:fsm/tags` containment-bit for
   `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`
@@ -2011,39 +2010,14 @@
                           :snapshot-of {:where 're-frame.core/snapshot-of})))]
      (get-in (frame/frame-app-db-value frame-id) path))))
 
-;; Per rf2-bmzq0: `sub-topology` and `sub-cache-snapshot` live in
-;; `re-frame.subs.tooling` (production-DCE split). On JVM the
-;; convenience aliases in `re-frame.subs` keep the legacy
-;; `subs/<name>` shape working; this ns mirrors them so the
-;; `rf/sub-topology` / `rf/sub-cache` public API is unchanged. CLJS
-;; consumers needing the surface (Xray, re-frame2-pair-mcp, re-frame-10x,
-;; conformance tests) call `re-frame.subs.tooling/<name>` directly so
-;; production counter bundles DCE the bodies.
-
-#?(:clj
-   (do
-     (defn sub-cache
-       "Inspect a frame's runtime sub-cache — CLJS-only, returns
-       `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
-       reaction values). No-arg form resolves the scope/hold stamp via
-       `frame/require-current-frame!` (EP-0002) — called under no
-       established scope it raises `:rf.error/no-frame-context` rather than
-       inspecting an invented default. Pass the 1-arity form to inspect a
-       named frame from outside any scope. Per Spec 002 §The public
-       registrar query API."
-       ([] (sub-cache (frame/require-current-frame!
-                        :sub-cache {:where 're-frame.core/sub-cache})))
-       ([frame-id]
-        (subs/sub-cache-snapshot frame-id)))
-
-     (def ^{:doc "Return the static dependency graph of every registered
-       subscription — what each sub depends on, computed from its
-       registration (NOT from the live runtime cache). JVM-only convenience
-       alias for `re-frame.subs.tooling/sub-topology` (rf2-bmzq0). CLJS
-       consumers (Xray, re-frame2-pair-mcp, re-frame-10x, conformance tests) call
-       the tooling ns directly so production bundles DCE the body.
-       Per Spec 002 §The public registrar query API."}
-       sub-topology subs/sub-topology)))
+;; rf2-80mmlf: the `sub-topology` / `sub-cache` facade aliases are REMOVED.
+;; They are SUBSCRIPTION-TOOLING surfaces (static dependency-graph + runtime
+;; cache inspection), not app-author front-porch reads — their real callers
+;; are tests / REPLs / dev tooling, which address the owning
+;; `re-frame.subs.tooling` namespace (`sub-topology` / `sub-cache-snapshot`)
+;; directly (production counter bundles DCE the bodies). On JVM the
+;; convenience aliases in `re-frame.subs` (`subs/sub-topology` /
+;; `subs/sub-cache-snapshot`) remain for the legacy `subs/<name>` shape.
 
 ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the app-value construction +
 ;; composition facade (`rf/module` / `rf/app` / `rf/app-registrations` /
@@ -2483,29 +2457,120 @@
   recorder, and registered listeners. Per Spec 009 §Trace emit."}
   emit-trace-event!         trace/emit!)
 
-;; Per rf2-ic1sv pick c: the listener-registration surface lives on
-;; `re-frame.trace` (the function names drop the `-trace-` infix since
-;; the namespace already says `trace`). Re-frame.core re-exports the
-;; same set on both JVM and CLJS — production CLJS DCE depends on user-
-;; side `goog.DEBUG` gating of registration call sites. The heavier
-;; trace-buffer machinery is still reached via `re-frame.trace.tooling/
-;; <name>` directly for the production-DCE story; the trace-buffer
-;; reader is re-exported here for the JVM-side tools / story / xray /
-;; re-frame-10x consumers.
+;; ---- stream-parameterized observation listener verb ----------------------
+;;
+;; One listener verb across the four pure listener streams — the
+;; differentiator is DATA (which stream), so it rides in a leading
+;; required `stream` keyword rather than spawning one register/unregister
+;; pair per channel. The closed stream vocabulary:
+;;
+;;   :trace   — dev-only trace-event listener (re-frame.trace; production
+;;              CLJS bundles DCE the registration site under a `goog.DEBUG`
+;;              gate). The `:event` vector and all slots ride in dev only.
+;;   :events  — always-on event-emit listener (re-frame.event-emit);
+;;              survives `:advanced` + `goog.DEBUG=false`. Receives a tight
+;;              per-event record fanned across EVERY frame, `:event` elided
+;;              through the wire-walker but otherwise unprojected. NOT the
+;;              normal off-box egress path — that is the frame-owned
+;;              `:observability` sink. For an intentionally cross-frame hook.
+;;   :errors  — always-on error-emit listener (re-frame.error-emit);
+;;              survives `:advanced` + `goog.DEBUG=false`. Receives a tight
+;;              error-record per `:rf.error/*` event; `:event` wire-elided,
+;;              but `:exception` rides RAW (the documented exception to the
+;;              always-on 'structured data only' rule). NOT projected under
+;;              any frame's egress policy — the frame-owned `:observability
+;;              :errors` sink is the normal off-box error path.
+;;   :epoch   — drain-settle epoch-record listener, late-bound through the
+;;              optional `day8/re-frame2-epoch` artefact; degrades to nil
+;;              when the artefact is absent.
+;;
+;; `register-observability-sink!` is a DISTINCT verb, NOT a `:sink` stream
+;; (frame-policy sink-id, ALREADY-PROJECTED record, `reg-frame`
+;; `:observability` coupling) — see below.
+;;
+;; Unknown stream throws `:rf.error/unknown-listener-stream` (closed
+;; vocabulary; pre-alpha — no bare 2-arity `:trace` default, no compat
+;; aliases). Per Spec 009 §Observation listeners + Spec 015 §Frame-owned
+;; observability sink policy. The heavier trace-buffer machinery is reached
+;; via `re-frame.trace.tooling/<name>` directly for the production-DCE
+;; story; the trace-buffer reader is re-exported below for the JVM-side
+;; tools / story / xray / re-frame-10x consumers.
 
-(def ^{:doc "Register a trace-event listener under `id`. The listener
-  receives every trace event. Same-id registration replaces. Returns
-  `id`. Dev-only — production CLJS bundles DCE the registration site
-  when wrapped in a `goog.DEBUG` gate. Per rf2-ic1sv pick c — drops
-  the `-trace-` infix; the canonical home is `re-frame.trace/register-
-  listener!` and the `rf/<name>` re-export mirrors that."}
-  register-listener!     trace/register-listener!)
-(def ^{:doc "Drop the trace-event listener registered under `id`.
-  Per rf2-ic1sv pick c."}
-  unregister-listener!   trace/unregister-listener!)
-(def ^{:doc "Drop every registered trace-event listener. Test-isolation
-  only. Per rf2-ic1sv pick c."}
-  clear-listeners!       trace/clear-listeners!)
+(def ^:private listener-streams
+  "Closed vocabulary for `register-listener!` / `unregister-listener!`."
+  #{:trace :events :errors :epoch})
+
+(defn- unknown-listener-stream! [verb stream]
+  (throw (ex-info (str verb ": unknown listener stream " (pr-str stream)
+                       " — must be one of " (pr-str listener-streams))
+                  {:rf.error/id     :rf.error/unknown-listener-stream
+                   :rf/where        verb
+                   :rf/stream       stream
+                   :rf/valid        listener-streams})))
+
+(defn register-listener!
+  "Register an observation listener `f` under `id` on `stream` — one verb
+  across the four pure listener streams (`:trace` / `:events` / `:errors`
+  / `:epoch`). Re-registering the same `id` on the same stream replaces.
+  Returns `id` (or nil on the `:epoch` stream when the
+  `day8/re-frame2-epoch` artefact is absent).
+
+  - `:trace`  — dev-only trace-event listener (production CLJS bundles DCE
+                the registration site when it is `goog.DEBUG`-gated).
+  - `:events` — always-on event-emit listener; ADVANCED corpus-wide
+                integration hook fanned across EVERY frame (NOT the normal
+                off-box egress path — that is the frame-owned
+                `:observability` sink). Survives `:advanced` +
+                `goog.DEBUG=false`.
+  - `:errors` — always-on error-emit listener; the record is fanned across
+                EVERY frame, NOT projected under any frame's egress policy
+                (`:event` wire-elided, `:exception` rides RAW). The
+                frame-owned `:observability :errors` sink is the normal
+                off-box error path.
+  - `:epoch`  — drain-settle epoch-record listener (Spec 009
+                §`register-epoch-listener!`); no-op returning nil when the
+                epoch artefact is absent.
+
+  An unknown `stream` throws `:rf.error/unknown-listener-stream` (closed
+  vocabulary — no bare trace default, no compatibility aliases). Per
+  Spec 009 §Observation listeners + Spec 015 (EP-0015) §Frame-owned
+  observability sink policy."
+  [stream id f]
+  (case stream
+    :trace  (trace/register-listener! id f)
+    :events (event-emit/register-event-listener! id f)
+    :errors (error-emit/register-error-listener! id f)
+    :epoch  (rf-epoch/register-epoch-listener! id f)
+    (unknown-listener-stream! 'rf/register-listener! stream)))
+
+(defn unregister-listener!
+  "Drop the listener registered under `id` on `stream` (`:trace` /
+  `:events` / `:errors` / `:epoch`). Returns nil. No-op on the `:epoch`
+  stream when the `day8/re-frame2-epoch` artefact is absent. An unknown
+  `stream` throws `:rf.error/unknown-listener-stream`. Per Spec 009
+  §Observation listeners."
+  [stream id]
+  (case stream
+    :trace  (trace/unregister-listener! id)
+    :events (event-emit/unregister-event-listener! id)
+    :errors (error-emit/unregister-error-listener! id)
+    :epoch  (rf-epoch/unregister-epoch-listener! id)
+    (unknown-listener-stream! 'rf/unregister-listener! stream)))
+
+(defn clear-listeners!
+  "Drop every registered listener on `stream` (`:trace` / `:events` /
+  `:errors` / `:epoch`). Test-isolation only — production code should
+  never call this. Returns nil. No-op on the `:epoch` stream when the
+  `day8/re-frame2-epoch` artefact is absent. An unknown `stream` throws
+  `:rf.error/unknown-listener-stream`. Per Spec 009 §Observation
+  listeners."
+  [stream]
+  (case stream
+    :trace  (trace/clear-listeners!)
+    :events (event-emit/clear-event-listeners!)
+    :errors (error-emit/clear-error-listeners!)
+    :epoch  (rf-epoch/clear-epoch-listeners!)
+    (unknown-listener-stream! 'rf/clear-listeners! stream)))
 
 #?(:clj
    (do
@@ -2536,55 +2601,15 @@
        009 §`trace-buffer` API."}
        clear-trace-buffer!    trace/clear-trace-buffer!)))
 
-(def ^{:doc "ADVANCED corpus-wide integration hook — register an always-on
-  event-emit listener `f` under `id`. Survives `:advanced` + `goog.DEBUG=false`
-  — fires in CLJS production builds where the trace surface is elided. `f`
-  receives a tight event-record per processed event (NOT subs / fxs), with the
-  `:event` vector elided through the wire-walker but otherwise UNPROJECTED — it
-  is fanned across EVERY frame, not routed under any frame's egress policy; see
-  `re-frame.event-emit` ns docstring for the record shape. Re-registering the
-  same id replaces. Returns `id`.
-
-  NOT the normal off-box egress surface (EP-0015 §9): the NORMAL production
-  observation path is the frame-owned `:observability :handled-events` sink
-  (declared on `reg-frame`, wired with `register-observability-sink!`), which
-  routes an already-PROJECTED record under the owning frame's classification +
-  the sink's egress profile. Reach for THIS corpus-wide listener only for an
-  intentionally cross-frame hook (one fan-out across every frame) or a record
-  the sink routing does not carry. Per Spec 009 §Event-emit listener +
-  Spec 015 §Frame-owned observability sink policy."}
-  register-event-listener!   event-emit/register-event-listener!)
-
-(def ^{:doc "Drop the always-on event-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Event-emit listener."}
-  unregister-event-listener! event-emit/unregister-event-listener!)
-
-(def ^{:doc "ADVANCED corpus-wide integration hook — register an always-on
-  error-emit listener `f` under `id`. Survives `:advanced` + `goog.DEBUG=false`.
-  `f` receives a tight error-record per `:rf.error/*` event (see
-  `re-frame.error-emit` ns docstring for the record shape). The record is
-  fanned across EVERY frame and is NOT projected under any frame's egress
-  policy — the `:event` vector is wire-elided, but the `:exception` object rides
-  RAW (the documented exception to the always-on axis's 'structured data only'
-  rule, for post-mortem shippers that need the host throwable + stack).
-  Re-registering the same id replaces. Returns `id`.
-
-  NOT the normal off-box egress surface (EP-0015 §9): because this record is
-  unprojected, raw owner-local data can leave a frame here. The NORMAL
-  production error-observation path is the frame-owned `:observability :errors`
-  sink (declared on `reg-frame`, wired with `register-observability-sink!`),
-  which PROJECTS the record under the owning frame's classification + the sink's
-  egress profile BEFORE the sink sees it (sensitive paths redacted, `:exception`
-  dropped under `:rf.egress/public-error`). Off-box shippers (Sentry /
-  Honeybadger / Rollbar) should prefer the frame sink; reach for THIS
-  corpus-wide listener only for an intentionally cross-frame hook or a record
-  the sink routing does not carry. Per Spec 009 §Error observability +
-  Spec 015 §Frame-owned observability sink policy."}
-  register-error-listener!   error-emit/register-error-listener!)
-
-(def ^{:doc "Drop the always-on error-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Error observability."}
-  unregister-error-listener! error-emit/unregister-error-listener!)
+;; The always-on event-emit / error-emit listener registries are NO LONGER
+;; facade exports. They are reached through the stream-parameterized
+;; `register-listener!` / `unregister-listener!` / `clear-listeners!` verb
+;; above with the `:events` / `:errors` stream (rf2-ikjmkm, decision
+;; rf2-dbo0c9 Option C). The registries themselves stay reachable via the
+;; `re-frame.event-emit` / `re-frame.error-emit` namespaces + the
+;; `:error-emit/register-error-listener!` late-bind hooks for the internal
+;; consumers that already address them that way (router fan-out, the routing
+;; on-match-error trap, the SSR error projector).
 
 (def ^{:doc "Walk `v` and substitute the frame's declared sensitive or
   large paths for wire egress (the durable declarations are frame-owned —
@@ -2618,9 +2643,10 @@
 ;; event and one error record per `:rf.error/*` site through `project-egress`
 ;; (under the frame's classification + the sink's egress profile) to the
 ;; declared sinks. Sinks consume ALREADY-PROJECTED records — no sink-local
-;; redaction. The advanced `register-event-listener!` / `register-error-
-;; listener!` corpus-wide registries above remain for advanced integration;
-;; this is the normal Datadog/Sentry surface.
+;; redaction. The advanced corpus-wide event/error listeners (reachable via
+;; `register-listener!` with the `:events` / `:errors` stream) remain for
+;; advanced cross-frame integration; this sink is the normal Datadog/Sentry
+;; surface.
 
 (def ^{:doc "Register an observability sink FN `f` under the keyword
   `sink-id` — the user/library-owned id a frame's `:observability`

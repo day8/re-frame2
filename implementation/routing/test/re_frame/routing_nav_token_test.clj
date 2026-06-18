@@ -28,7 +28,7 @@
                        {:db (assoc db :article {:id id :payload payload})}))
 
     (let [traces (atom [])]
-      (rf/register-listener! ::nav-token (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::nav-token (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
@@ -56,7 +56,7 @@
                           :carried-nav-token  "nav-2"
                           :carried-route-id   :route/article}])
 
-      (rf/unregister-listener! ::nav-token)
+      (rf/unregister-listener! :trace ::nav-token)
 
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/app-db-value :rf/default)))
@@ -115,7 +115,7 @@
                        {:db (assoc db :article {:id id :payload payload})}))
 
     (let [traces (atom [])]
-      (rf/register-listener! ::cross-route (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::cross-route (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Navigate to /articles/A (:route/article) — nav-token "nav-1".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
@@ -137,7 +137,7 @@
                           :carried-nav-token "nav-1"
                           :carried-route-id  :route/article}])
 
-      (rf/unregister-listener! ::cross-route)
+      (rf/unregister-listener! :trace ::cross-route)
 
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "route A's stale loader was suppressed; nothing committed")
@@ -196,7 +196,7 @@
                                :route-id    carried-route-id}]]}))
 
     (let [traces (atom [])]
-      (rf/register-listener! ::with-nav-token-fx
+      (rf/register-listener! :trace ::with-nav-token-fx
                              (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
@@ -228,7 +228,7 @@
                           :id               "B"
                           :payload          "B-payload"}])
 
-      (rf/unregister-listener! ::with-nav-token-fx)
+      (rf/unregister-listener! :trace ::with-nav-token-fx)
 
       (is (= {:id "B" :payload "B-payload"}
              (:article (rf/app-db-value :rf/default)))
@@ -332,7 +332,7 @@
 
     (let [traces        (atom [])
           completion-ts 1717000123456]
-      (rf/register-listener! ::completed-at-fx (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::completed-at-fx (fn [ev] (swap! traces conj ev)))
 
       ;; 1. Land on A (nav-1), then supersede with B (nav-2).
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
@@ -348,7 +348,7 @@
                           :id               "A"
                           :payload          "A-payload"}])
 
-      (rf/unregister-listener! ::completed-at-fx)
+      (rf/unregister-listener! :trace ::completed-at-fx)
 
       (let [stale (some (fn [ev]
                           (when (= :rf.route.nav-token/stale-suppressed
@@ -376,7 +376,7 @@
                                :route-id    carried-route-id}]]}))
 
     (let [traces (atom [])]
-      (rf/register-listener! ::no-completed-at (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::no-completed-at (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
       (rf/dispatch-sync [:article/loaded-via-nav-token
@@ -384,7 +384,7 @@
                           :carried-route-id :route/article
                           :id               "A"
                           :payload          "A-payload"}])
-      (rf/unregister-listener! ::no-completed-at)
+      (rf/unregister-listener! :trace ::no-completed-at)
       (let [stale (some (fn [ev]
                           (when (= :rf.route.nav-token/stale-suppressed
                                    (:operation ev))
@@ -406,7 +406,7 @@
 
     (let [traces        (atom [])
           completion-ts 1717009999999]
-      (rf/register-listener! ::fixture-completed-at (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::fixture-completed-at (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
       ;; A's stale resolution carries nav-1 + its captured completion time.
@@ -415,7 +415,7 @@
                           :carried-nav-token    "nav-1"
                           :carried-route-id     :route/article
                           :carried-completed-at completion-ts}])
-      (rf/unregister-listener! ::fixture-completed-at)
+      (rf/unregister-listener! :trace ::fixture-completed-at)
       (let [stale (some (fn [ev]
                           (when (= :rf.route.nav-token/stale-suppressed
                                    (:operation ev))
@@ -493,7 +493,7 @@
 
     (let [traces   (atom [])
           captured (atom {})]
-      (rf/register-listener! ::cofx-flow (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::cofx-flow (fn [ev] (swap! traces conj ev)))
       ;; The :on-match-reached loader: declares the cofx, captures the live
       ;; token at scheduling time (exactly the documented step-2 shape).
       ;; The capture closes over `captured` so the test replays the
@@ -519,7 +519,7 @@
       (rf/dispatch-sync [:article/completed
                          {:captured-token (@captured "B") :id "B" :payload "B-payload"}])
 
-      (rf/unregister-listener! ::cofx-flow)
+      (rf/unregister-listener! :trace ::cofx-flow)
 
       (is (not= (@captured "A") (@captured "B"))
           "the cofx injected DIFFERENT live tokens for the two navigations")
@@ -574,7 +574,7 @@
 
     (let [traces   (atom [])
           captured (atom {})]
-      (rf/register-listener! ::ph1grf (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::ph1grf (fn [ev] (swap! traces conj ev)))
       ;; The :on-match-reached loader declares BOTH framework cofx and captures
       ;; the live nav-token + route-id together (the documented step-2 shape).
       (rf/reg-event :article/load
@@ -599,7 +599,7 @@
                           :captured-route-id (:route-id (@captured "A"))
                           :id               "A"
                           :payload          "A-payload"}])
-      (rf/unregister-listener! ::ph1grf)
+      (rf/unregister-listener! :trace ::ph1grf)
 
       (let [stale (some (fn [ev]
                           (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
@@ -683,7 +683,7 @@
                                :route-id    carried-route-id}]]}))
 
     (let [traces (atom [])]
-      (rf/register-listener! ::stale-reply-to (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::stale-reply-to (fn [ev] (swap! traces conj ev)))
       ;; Land on A (nav-1), supersede with B (nav-2).
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
@@ -692,7 +692,7 @@
                          {:carried-token    "nav-1"
                           :carried-route-id :route/article
                           :id               "A"}])
-      (rf/unregister-listener! ::stale-reply-to)
+      (rf/unregister-listener! :trace ::stale-reply-to)
 
       (is (nil? (:replied (rf/app-db-value :rf/default)))
           "the app :rf/reply-to target was suppressed — no app-db write on a stale completion")
@@ -734,7 +734,7 @@
                                :route-id    :route/article}]]}))
 
     (let [traces (atom [])]
-      (rf/register-listener! ::stale-authority (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::stale-authority (fn [ev] (swap! traces conj ev)))
       ;; Land on A (nav-1), supersede with B (nav-2) so both completions are stale.
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
@@ -762,7 +762,7 @@
         (rf/dispatch-sync [:app/completed {:carried-token "nav-1"}])
         (is (not= :app (:marker (:tool-saw (rf/app-db-value :rf/default))))
             "the unauthorised app target did NOT receive a stale delivery")
-        (rf/unregister-listener! ::stale-authority)
+        (rf/unregister-listener! :trace ::stale-authority)
         (let [err (some (fn [ev]
                           (when (and (= :rf.error/fx-handler-exception (:operation ev))
                                      (= :rf.route/with-nav-token (-> ev :tags :rf.fx/id)))

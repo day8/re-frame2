@@ -139,10 +139,10 @@
         (rf/dispatch* [:c2] {:rf.machine/internal? true})
         {}))
     (let [seen (atom [])]
-      (rf/register-listener! ::epoch-rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::epoch-rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/dispatch-sync [:seed] {:frame :rf/default})
-        (finally (rf/unregister-listener! ::epoch-rec)))
+        (finally (rf/unregister-listener! :trace ::epoch-rec)))
       ;; Run order reflects the leap-frog.
       (is (= [:seed :c1 :c2 :ext] @run-log))
       ;; One :run-start per dequeued event — four distinct events, none

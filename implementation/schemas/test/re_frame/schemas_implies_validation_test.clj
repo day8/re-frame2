@@ -54,7 +54,7 @@
 (defn- record-traces!
   [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- failures-of
@@ -89,7 +89,7 @@
         ;; validate-app-schema! runs the registered app-db schema set over
         ;; the supplied db value, exactly as the post-handler step does.
         (re-frame.schemas/validate-app-schema! {:count "not-an-int"} :count/break))
-      (rf/unregister-listener! ::bad-write)
+      (rf/unregister-listener! :trace ::bad-write)
       (let [violations (failures-of recorded)]
         (is (= 1 (count violations))
             "exactly one schema-validation-failure fired — schema implies validation")
@@ -106,6 +106,6 @@
     (let [recorded (record-traces! ::good-write)]
       (with-redefs [interop/debug-enabled? true]
         (re-frame.schemas/validate-app-schema! {:count 7} :count/ok))
-      (rf/unregister-listener! ::good-write)
+      (rf/unregister-listener! :trace ::good-write)
       (is (empty? (failures-of recorded))
           "no failure trace — the well-typed value conforms"))))

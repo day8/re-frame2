@@ -50,7 +50,7 @@
 
 (defn- collect-traces! [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (defn- run-start-summary
@@ -69,7 +69,7 @@
              "exactly one :rf.event/run-start emit per dispatch")
          (-> run-starts first :tags :rf.interceptor/override-summary))
        (finally
-         (rf/unregister-listener! ::cap))))))
+         (rf/unregister-listener! :trace ::cap))))))
 
 (defn- reg-noop-ic! [id]
   (rf/reg-interceptor* id {:before (fn [ctx] ctx)}))

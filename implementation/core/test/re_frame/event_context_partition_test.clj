@@ -44,7 +44,7 @@
 
 (defn- record-traces! [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- warning-events [recorded operation]

@@ -35,10 +35,10 @@
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/unregister-listener! id) to detach."
+  accumulates events. Tests must (rf/unregister-listener! :trace id) to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- registration -----------------------------------------------------------
@@ -148,7 +148,7 @@
                     [:absent  request]))
           {}))
       (rf/dispatch-sync [:req-test/read-on-client] {:frame client-frame})
-      (rf/unregister-listener! ::req-client)
+      (rf/unregister-listener! :trace ::req-client)
 
       (is (= [:absent nil] @observed)
           "the cofx did NOT run — :rf.server/request is absent from coeffects")

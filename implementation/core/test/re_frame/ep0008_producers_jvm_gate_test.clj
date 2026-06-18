@@ -69,7 +69,7 @@
             `register-error-listener!` (the axis is not debug-gated)."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-error-listener! :test/recorder
+        (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf/reg-frame :gate/teardown {})
         ;; Install a throwing cleanup hook for the duration of the destroy.
@@ -92,7 +92,7 @@
             fans the always-on `:rf.error/write-after-destroy` record out."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-error-listener! :test/recorder
+        (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (adapter/replace-container! nil {:dropped :write})
         (let [reports (records-of seen :rf.error/write-after-destroy)]
@@ -114,7 +114,7 @@
             elides here)."
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom [])]
-        (rf/register-error-listener! :test/recorder
+        (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf/reg-event :gate/blow-up (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
         (rf/reg-frame :gate/ondestroy {:on-destroy [:gate/blow-up]})
@@ -138,8 +138,8 @@
     (with-redefs [interop/debug-enabled? false]
       (let [traces  (atom [])
             reports (atom [])]
-        (rf/register-listener! ::trace-rec (fn [ev] (swap! traces conj ev)))
-        (rf/register-error-listener! :test/err-rec
+        (rf/register-listener! :trace ::trace-rec (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :errors :test/err-rec
                                      (fn [r] (swap! reports conj r)))
         (rf/reg-frame :gate/divergence {})
         (let [orig (late-bind/get-fn :ssr/on-frame-destroyed)]
@@ -149,7 +149,7 @@
             (rf/destroy-frame! :gate/divergence)
             (finally
               (late-bind/set-fn! :ssr/on-frame-destroyed orig)
-              (rf/unregister-listener! ::trace-rec))))
+              (rf/unregister-listener! :trace ::trace-rec))))
         ;; Diagnostic channel: ELIDED under the debug-off gate.
         (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                             @traces))
@@ -176,7 +176,7 @@
             sink-seen     (atom [])]
         (rf/register-observability-sink! :test.sinks/sentry
                                     (fn [r] (swap! sink-seen conj r)))
-        (rf/register-error-listener! :test/listener
+        (rf/register-listener! :errors :test/listener
                                      (fn [r] (swap! listener-seen conj r)))
         ;; index-free decl matches the runtime [:hook-failures 0 :exception-data
         ;; :token] (the vector index is ridden index-free by the wire-walker).

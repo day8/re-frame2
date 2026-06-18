@@ -30,7 +30,7 @@
   | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | the Ring host-adapter (default-html-shell, streaming-prefix/suffix, trusted-shell hooks per Spec 011). |
   | `re-frame.schemas` | `day8/re-frame2-schemas` | `app-schemas`, `app-schema-at`, `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`/-explainer!/-printer!/`set-schema-fns!`, `validate-at-boundary-interceptor` (per [§Schemas](#schemas)). |
   | `re-frame.http` | `day8/re-frame2-http` | the verb helpers `get` / `post` / `put` / `delete` / `patch` / `head` / `options` (per [§HTTP requests](#http-requests-spec-014)). |
-  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `make-machine-handler`, `machine-transition`, `sub-machine`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
+  | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
   | `re-frame.epoch` | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch!`, `replace-app-db!`, `reset-app-db!`, `replace-runtime-db!`, `replace-frame-state!`, `register-epoch-listener!`, `unregister-epoch-listener!`, `(rf/configure! :epoch-history ...)`. Re-exported through `re-frame.core` via late-bind hooks — `(:require [re-frame.epoch])` at boot before consuming the surfaces through `re-frame.core` (per [Tool-Pair §Time-travel — Artefact home](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). |
   | `re-frame.adapter.uix` / `re-frame.adapter.helix` | `day8/re-frame2-uix` / `day8/re-frame2-helix` | UIx- and Helix-specific surfaces (per [§UIx adapter](#uix-adapter-spec-006) / [§Helix adapter](#helix-adapter-spec-006)). |
 
@@ -193,10 +193,8 @@ Per audit-of-audits state-machines #10, the `dispatch-*` family has two sub-shap
 **Stamping-pair sub-family** (`dispatch` / `dispatch-sync` macros + `dispatch*` / `dispatch-sync*` fn variants).
 The pair-shape question is **"do you want call-site stamping or not?"** The macro form captures `:rf.trace/call-site` from the surrounding source position so tooling can navigate from a trace event back to the originating expression. The `*` fn-form skips the stamping — needed for HoF composition (`(map dispatch* events)`) where a macro can't sit inside the higher-order call. Both shapes route through the same dispatcher; only the trace stamping differs.
 
-**Named-target sugar sub-family** (`dispatch-to-system`, per [005 §Cross-machine messaging by name](005-StateMachines.md)).
-This question is **"do you have a `:system-id` instead of a target machine-id?"** `dispatch-to-system` is sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))` — it dispatches just like the macros, but it resolves the target through the per-frame `[:rf.runtime/machines :system-ids]` reverse index first. It is **not** outside the dispatch family; it's a named-addressing sugar built on top of `dispatch`. The hyphen-after-`dispatch` reads as "dispatch with extra routing logic on top," not "different kind of dispatch."
-
-The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, so the same `:rf.trace/call-site` stamping fires (call-site at the `dispatch-to-system` invocation, since that's the macro the user wrote). When future named-addressing variants land (per actor-model patterns) they slot into the same sub-family; new call-site-stamping variants slot into the same pair.
+**Named-target sub-family** (the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple, per [005 §Cross-machine messaging by name](005-StateMachines.md)).
+This question is **"do you have a `:system-id` instead of a target machine-id?"** Named addressing resolves the target through the per-frame `[:rf.runtime/machines :system-ids]` reverse index first, then dispatches just like the stamping pair. The **canonical** surface is the action-side fx tuple; the `dispatch-to-system` direct-call FN (the redundant call-site twin) was demoted off the `re-frame.core` facade to `re-frame.machines` as an implementation-tier helper. The naming reads as "dispatch with extra routing logic on top," not "different kind of dispatch."
 
 ---
 
@@ -505,8 +503,8 @@ For tooling, agents, story tools, 10x.
 | `runtime-db-value` | Fn | `(runtime-db-value frame-id)` → the **runtime-db** partition value (framework-owned subsystem state). Returns nil for an unknown frame. The tool/privileged-runtime read of the framework partition (EP-0001). | v1 | tooling | 002 |
 | `frame-state-value` | Fn | `(frame-state-value frame-id)` → the coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The full-frame read for SSR / epoch / time-travel / Xray (EP-0001). | v1 | tooling | 002 |
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | tooling | ✓ | 002 |
-| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}}` — static dependency graph over the registrar. Pure data; the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. `:input-kind` discriminates `:db` (layer-1; `:inputs []`), `:static` (`:<-` chains; `:inputs` is the vector of literal input query vectors), and `:parametric` (`input-fn`; `:inputs :parametric` — the realized edge set is NOT statically enumerable, only the literal `:<-` edges are). Live realized parametric edges per concrete query vector are exposed by the sub-cache inspection surface, not here. Per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn). | v1 | tooling | ✓ | 002 |
-| `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | tooling | ✗ (CLJS-only) | 002 |
+
+The static subscription-topology query and the runtime sub-cache snapshot are **subscription-tooling** surfaces, not `re-frame.core` facade reads. Reach them through their owning namespace `re-frame.subs.tooling` — `(sub-topology)` (static dependency graph over the registrar) and `(sub-cache-snapshot frame-id)` (live cache state) — with `subs/sub-topology` / `subs/sub-cache-snapshot` as the JVM legacy aliases.
 
 Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-digest` — are rowed canonically in [§Schemas](#schemas).
 
@@ -555,10 +553,7 @@ Per [009 §What IS available in production](009-Instrumentation.md#what-is-avail
 
 > Sensitive data marking is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation that previously drove substrate-level record drop has been removed.
 
-| API | M/Fn | Signature | Status | Tier | Spec |
-|---|---|---|---|---|---|
-| `register-event-listener!` | Fn | `(register-event-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | tooling | 009 |
-| `unregister-event-listener!` | Fn | `(unregister-event-listener! id)` → nil | v1 | tooling | 009 |
+Registration uses the **stream-parameterized listener verb** with the `:events` stream — `(register-listener! :events id listener-fn)` / `(unregister-listener! :events id)` / `(clear-listeners! :events)` (see [§Observation listeners](#observation-listeners)). The four `register-(event|error)-listener!` facade pairs were collapsed into this one verb; the always-on event-emit registry itself stays addressable via `re-frame.event-emit` for internal consumers.
 
 ## Error-emit (always-on, production-survivable)
 
@@ -570,19 +565,31 @@ The listener payload is a **union of three record shapes**: (a) the **per-event 
 
 > Sensitive data marking on the error-emit substrate is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation that previously drove substrate-level event redaction has been removed — the per-path elision wire-walker is now the sole redaction surface on this path.
 
+Registration uses the **stream-parameterized listener verb** with the `:errors` stream — `(register-listener! :errors id listener-fn)` / `(unregister-listener! :errors id)` / `(clear-listeners! :errors)` (see [§Observation listeners](#observation-listeners)). The always-on error-emit registry itself stays addressable via `re-frame.error-emit` + the `:error-emit/register-error-listener!` late-bind hooks for internal consumers (router fan-out, the routing on-match-error trap, the SSR error projector).
+
+## Observation listeners
+
+One **stream-parameterized listener verb** registers an observation callback across the four pure listener streams — the differentiator is data (which stream), so it rides in a leading required `stream` keyword (replacing the former per-channel `register-(trace|event|error|epoch)-listener!` pairs). The closed stream vocabulary is `:trace` / `:events` / `:errors` / `:epoch`; an unknown stream throws `:rf.error/unknown-listener-stream` (no bare trace default, no compatibility aliases). The [frame-owned observability sink](#frame-owned-observability-sinks-ep-0015-9--spec-015) is a **distinct** verb, NOT a `:sink` stream.
+
+| Stream | Axis | Record |
+|---|---|---|
+| `:trace` | dev-only (DCE'd in production) | one trace event per call |
+| `:events` | always-on (survives `:advanced` + `goog.DEBUG=false`) | one tight event-record per processed event, fanned across EVERY frame, `:event` wire-elided but otherwise unprojected — the ADVANCED corpus-wide hook, NOT the off-box default (the frame-owned `:observability` sink is) |
+| `:errors` | always-on | one error-record per `:rf.error/*` event, fanned across EVERY frame, `:event` wire-elided, `:exception` RAW — the ADVANCED corpus-wide hook, NOT the off-box default |
+| `:epoch` | optional artefact (dev-only) | one `:rf/epoch-record` per drain-settle; no-op returning `nil` when `day8/re-frame2-epoch` is absent |
+
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
-| `register-error-listener!` | Fn | `(register-error-listener! id listener-fn)` — `listener-fn` receives one error-record per `:rf.error/*` event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | tooling | 009 |
-| `unregister-error-listener!` | Fn | `(unregister-error-listener! id)` → nil | v1 | tooling | 009 |
+| `register-listener!` | Fn | `(register-listener! stream id listener-fn)` — register `listener-fn` under `id` on `stream` (`:trace` / `:events` / `:errors` / `:epoch`). Re-registering the same `id` on the same stream replaces. Returns `id` (or `nil` on `:epoch` when the epoch artefact is absent). Unknown `stream` throws `:rf.error/unknown-listener-stream`. | v1 | tooling | 009 |
+| `unregister-listener!` | Fn | `(unregister-listener! stream id)` → nil. No-op on `:epoch` when the epoch artefact is absent. | v1 | tooling | 009 |
+| `clear-listeners!` | Fn | `(clear-listeners! stream)` → nil. Test-isolation only. No-op on `:epoch` when the epoch artefact is absent. | v1 | tooling | 009 |
 
 ## Tracing
 
-All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics and synchronous listener delivery.
+All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics and synchronous listener delivery. Trace-listener registration uses the [stream-parameterized listener verb](#observation-listeners) with the `:trace` stream.
 
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
-| `register-listener!` | Fn | `(register-listener! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | tooling | 009 |
-| `unregister-listener!` | Fn | `(unregister-listener! key)` → nil | v1 (dev-only) | tooling | 009 |
 | `emit-trace-event!` | Fn | `(emit-trace-event! op-type operation tags)` → nil | v1 (dev-only) | tooling | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean`. **CLJS**: alias of `goog.DEBUG` — constant-folded by Closure under `:advanced`, so `:advanced` + `goog.DEBUG=false` builds DCE every `(when interop/debug-enabled? ...)` branch. **JVM**: a `def` read ONCE at ns-load from the Java system property `-Dre-frame.debug` (winning on conflict) or the environment variable `RE_FRAME_DEBUG`; defaults `true` (dev parity). Accepts the conventional false-y vocabulary case-insensitively (`false`, `0`, `no`, `off`, empty string) with whitespace trimmed; anything else leaves the flag at `true`. Set BEFORE `re-frame.interop` loads. SSR / webhook receivers / long-running JVMs facing untrusted input MUST set the gate `false` explicitly — per [009 §JVM builds](009-Instrumentation.md#jvm-builds) and [Security §Production gates](Security.md#production-gates). | v1 | tooling | 009 |
 | `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure! ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | tooling | 009 |
@@ -664,7 +671,7 @@ The framework primitive that walks tree-shaped values at the wire boundary and s
 
 ### Frame-owned observability sinks (EP-0015 §9 / Spec 015)
 
-> Cross-reference: [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) is the normative home. The **normal** production observability story (Datadog / Sentry / Honeycomb): an app declares a sink under a frame's `:observability` config (`{:handled-events [{:sink <id> :rf.egress/profile … :opts {…}}] :errors [...]}`) and registers the concrete sink fn against that `<id>` with `rf/register-observability-sink!`. The runtime routes one `:rf.observe/handled-event` record per processed event and one `:rf.observe/error` record per `:rf.error/*` site through [`rf/project-egress`](#record-level-egress-projection-ep-0015--spec-015) — under the owning frame's classification and the entry's egress profile (default `:rf.egress/off-box-observability`) — to the declared sink. **Sinks consume already-projected records only** (no sink-local redaction). Always-on (survives `:advanced` + `goog.DEBUG=false`). The lower-level `register-event-listener!` / `register-error-listener!` corpus-wide registries remain for advanced integration. Routing is **fail-closed**: an unresolved frame or absent `:observability` policy routes nothing (no `:rf/default` synthesis), and a throwing sink is isolated from its siblings.
+> Cross-reference: [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) is the normative home. The **normal** production observability story (Datadog / Sentry / Honeycomb): an app declares a sink under a frame's `:observability` config (`{:handled-events [{:sink <id> :rf.egress/profile … :opts {…}}] :errors [...]}`) and registers the concrete sink fn against that `<id>` with `rf/register-observability-sink!`. The runtime routes one `:rf.observe/handled-event` record per processed event and one `:rf.observe/error` record per `:rf.error/*` site through [`rf/project-egress`](#record-level-egress-projection-ep-0015--spec-015) — under the owning frame's classification and the entry's egress profile (default `:rf.egress/off-box-observability`) — to the declared sink. **Sinks consume already-projected records only** (no sink-local redaction). Always-on (survives `:advanced` + `goog.DEBUG=false`). The lower-level corpus-wide event-emit / error-emit registries (the `:events` / `:errors` streams of `register-listener!`) remain for advanced integration. Routing is **fail-closed**: an unresolved frame or absent `:observability` policy routes nothing (no `:rf/default` synthesis), and a throwing sink is isolated from its siblings.
 
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
@@ -807,7 +814,7 @@ The retired v1 public interceptor-authoring helpers and their replacements:
 
 **Frame-destroy teardown.** `destroy-frame!` releases every per-frame piece of flow state (registry slot, `last-inputs` rows, registrar entries for ids the destroyed frame was last owner of) per [Spec 013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). Sibling frames' state is preserved.
 
-**Flow-eval failures in production.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
+**Flow-eval failures in production.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered error-emit callbacks (the `:errors` stream of `register-listener!`) fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 
 Reserved fx-ids for runtime flow management via `:fx`:
 
@@ -902,7 +909,7 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | tooling | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; `:guards` / `:actions` entries carry co-located `:source-coords` / `:source-code` and each `:states`-tree map node carries its own reference-site `:source-coords` when registered via the macro | v1 | tooling | 005 |
 | `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` / `(machine-by-system-id system-id frame-id)` → spawned-machine id bound to `system-id` in the frame's `[:rf.runtime/machines :system-ids]` reverse index (or `nil`). Per [005 §Named addressing via `:system-id`](005-StateMachines.md). | v1 | advanced | 005 |
-| `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` / `(dispatch-to-system system-id event frame-id)` — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; no-op when the system-id is unbound. Per [005 §Cross-machine messaging by name](005-StateMachines.md). | v1 | advanced | 005 |
+| `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` / `(dispatch-to-system system-id event frame-id)` — implementation-tier helper in `re-frame.machines` (demoted off the `re-frame.core` facade). Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; no-op when the system-id is unbound. The **canonical** action-side surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple. Per [005 §Cross-machine messaging by name](005-StateMachines.md). | v1 | implementation | 005 |
 | `machine-has-tag?` | Fn | `(machine-has-tag? machine-id tag)` → reaction whose value is `true` iff the machine's snapshot's `:tags` set contains `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Per [005 §State tags](005-StateMachines.md). | v1 | advanced | 005 |
 | `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | — (fx-id) | 005 |
 | `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | — (fx-id) | 005 |

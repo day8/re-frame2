@@ -117,7 +117,7 @@
     ;; parent's `:source :test` is recorded against the parent's own
     ;; envelope; the child reports the substrate's actual dispatch site.
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event :test/parent
           (fn [_ _]
@@ -143,7 +143,7 @@
               ":origin :test propagated through the cascade")
           (is (= :fx-dispatch (:source child-ev))
               "child's :source is :fx-dispatch (stamped by the :dispatch fx; NOT inherited from parent)"))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- :envelope exposed on fx-handler ctx (rf2-4jci1.4) -------------------
 

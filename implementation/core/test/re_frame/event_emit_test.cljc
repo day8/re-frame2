@@ -61,7 +61,7 @@
             processed event, carrying the tight {:event :event-id
             :frame :time :outcome :elapsed-ms} shape."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/inc
@@ -88,7 +88,7 @@
             the handler exception internally) and the dispatch
             returns."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/throw
@@ -118,7 +118,7 @@
       ;; commit-db-effect! down its rollback branch.
       (late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame] false))
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/writes
@@ -150,7 +150,7 @@
                          (fn [_frame _db _runtime-db]
                            (throw (ex-info "flow output blew up"
                                            {:rf.flow/failed-id :flow/derived}))))
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/writes
@@ -176,7 +176,7 @@
                          (fn [_db-after _event-id _frame] true))
       (late-bind/set-fn! :flows/run-flows-on-db
                          (fn [_frame db _runtime-db] db))
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/writes
@@ -195,11 +195,11 @@
             and silently dropped — no recursive emit, no propagation
             to user code."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/throws
         (fn [_record]
           (throw (ex-info "listener went boom" {}))))
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/quiet (fn [{:keys [db]} _] {:db db}))
@@ -218,17 +218,17 @@
             registry is a plain atom — symmetric under register /
             unregister / register."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/noop (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:evt/noop])
       (is (= 1 (count @seen)) "listener fired before unregister")
-      (rf/unregister-event-listener! :test/recorder)
+      (rf/unregister-listener! :events :test/recorder)
       (rf/dispatch-sync [:evt/noop])
       (is (= 1 (count @seen)) "listener silent after unregister")
       ;; Re-register and dispatch again.
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:evt/noop])
@@ -244,17 +244,17 @@
             affect siblings."
     (let [a (atom [])
           b (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/listener-a
         (fn [record] (swap! a conj record)))
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/listener-b
         (fn [record] (swap! b conj record)))
       (rf/reg-event :evt/once (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:evt/once])
       (is (= 1 (count @a)))
       (is (= 1 (count @b)))
-      (rf/unregister-event-listener! :test/listener-a)
+      (rf/unregister-listener! :events :test/listener-a)
       (rf/dispatch-sync [:evt/once])
       (is (= 1 (count @a)) ":listener-a stayed silent after unregister")
       (is (= 2 (count @b)) ":listener-b still fired for the second dispatch"))))
@@ -269,7 +269,7 @@
             trace event-id counter), :source, :origin, or any other
             trace-bus key."
     (let [seen (atom nil)]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/shape
         (fn [record] (reset! seen record)))
       (rf/reg-event :evt/shape (fn [{:keys [db]} _] {:db db}))
@@ -302,7 +302,7 @@
   (testing "Handlers continue to fan out — handler-meta `:sensitive?`
             no longer short-circuits the substrate."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/normal

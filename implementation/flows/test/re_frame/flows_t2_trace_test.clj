@@ -53,7 +53,7 @@
 (defn- collect-traces!
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- t2 fires when a flow transforms :db ---------------------------------
@@ -81,7 +81,7 @@
             (is (= :rf/default (-> t2 :tags :frame))
                 ":tags :frame routes canonically")))
         (finally
-          (rf/unregister-listener! ::t2-emit))))))
+          (rf/unregister-listener! :trace ::t2-emit))))))
 
 (deftest t2-suppressed-when-flow-makes-no-change
   (testing "when a flow's value-equal skip leaves :db identical?-equal to
@@ -104,7 +104,7 @@
           (is (zero? (count t2s))
               "no t2 emit when the flow skipped (pending-db is unchanged)"))
         (finally
-          (rf/unregister-listener! ::t2-skip))))))
+          (rf/unregister-listener! :trace ::t2-skip))))))
 
 ;; ---- ordering against :rf.flow/computed and :rf.event/db-changed ---------
 
@@ -133,7 +133,7 @@
           (is (< (idx :rf.event/db-pending-post-flow) (idx :rf.event/db-changed))
               "t2 precedes the commit (atomicity contract — Spec 002)"))
         (finally
-          (rf/unregister-listener! ::t2-order))))))
+          (rf/unregister-listener! :trace ::t2-order))))))
 
 ;; ---- t1 and t2 carry distinct values reflecting the reshape -------------
 
@@ -162,7 +162,7 @@
           (is (not (identical? t1-db t2-db))
               "t1 and t2 are distinct references — the reshape is observable"))
         (finally
-          (rf/unregister-listener! ::t1-t2-pair))))))
+          (rf/unregister-listener! :trace ::t1-t2-pair))))))
 
 ;; ---- flow-throw abort suppresses t2 --------------------------------------
 
@@ -185,4 +185,4 @@
           (is (zero? (count t2s))
               "t2 did NOT fire — the cascade aborted, the pending :db was discarded"))
         (finally
-          (rf/unregister-listener! ::t2-throw))))))
+          (rf/unregister-listener! :trace ::t2-throw))))))

@@ -60,7 +60,7 @@
 (defn- record-traces!
   [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 ;; ---- bare dispatch outside any context FAILS ------------------------------
@@ -78,7 +78,7 @@
               "the throw carries :rf.error/no-frame-context")
           (is (= :dispatch (:operation (ex-data ex)))
               ":operation tags the dispatch surface")))
-      (rf/unregister-listener! ::bare)
+      (rf/unregister-listener! :trace ::bare)
       (is (= 1 (count (filter #(= :rf.error/no-frame-context (:operation %))
                               @recorded)))
           "exactly one always-on :rf.error/no-frame-context error fired")
@@ -102,7 +102,7 @@
       (binding [frame/*current-frame* nil]
         (let [ex (no-frame-context-ex #(rf/dispatch-sync [:never/registered]))]
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))))
-      (rf/unregister-listener! ::precede)
+      (rf/unregister-listener! :trace ::precede)
       (is (empty? (filter #(= :rf.error/no-such-handler (:operation %)) @recorded))
           "no no-such-handler — resolution never reached the registry")
       (is (empty? (filter #(= :rf.error/frame-destroyed (:operation %)) @recorded))
@@ -211,7 +211,7 @@
         ;; recover-but-emit (rf2-2hvga): no throw, but a
         ;; :rf.error/frame-destroyed always-on error.
         (rf/dispatch-sync [:app/noop] {:frame :rf/default}))
-      (rf/unregister-listener! ::bad-explicit)
+      (rf/unregister-listener! :trace ::bad-explicit)
       (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %))
                               @recorded)))
           "a bad explicit target emits :rf.error/frame-destroyed")

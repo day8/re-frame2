@@ -84,7 +84,7 @@
   three regardless of `:op-type`."
   [listener-id]
   (let [a (atom [])]
-    (rf/register-listener!
+    (rf/register-listener! :trace
       listener-id
       (fn [ev]
         (when (contains? ownership-diagnostics (:operation ev))

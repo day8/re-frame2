@@ -36,7 +36,7 @@
             carrying the catalogued tags (Spec 009 §Error event
             catalogue)."
     (let [traces (atom [])]
-      (rf/register-listener! ::srf
+      (rf/register-listener! :trace ::srf
                                    (fn [ev]
                                      (when (= :rf.error/ssr-render-failed
                                               (:operation ev))
@@ -95,7 +95,7 @@
                      (per Spec 009 §Error event shape) — the catalogue
                      row's locked policy")))))
         (finally
-          (rf/unregister-listener! ::srf))))))
+          (rf/unregister-listener! :trace ::srf))))))
 
 (deftest project-render-exception-noop-for-non-server-frame
   (testing "rf2-260pg: `project-render-exception!` against a non-server
@@ -103,7 +103,7 @@
             Belt-and-braces against accidentally emitting the trace from
             client-side render paths."
     (let [traces (atom [])]
-      (rf/register-listener! ::srf-client
+      (rf/register-listener! :trace ::srf-client
                                    (fn [ev]
                                      (when (= :rf.error/ssr-render-failed
                                               (:operation ev))
@@ -120,7 +120,7 @@
               "no `:rf.error/ssr-render-failed` trace fires for a
                non-server frame"))
         (finally
-          (rf/unregister-listener! ::srf-client))))))
+          (rf/unregister-listener! :trace ::srf-client))))))
 
 (deftest project-render-exception-rethrows-under-on-view-exception-throw
   (testing "rf2-ee38b.10 — a server frame with :ssr {:on-view-exception
@@ -128,7 +128,7 @@
             it to a sanitised public-error (Spec 011 §View-time
             exceptions — dev escape-hatch)."
     (let [traces (atom [])]
-      (rf/register-listener! ::srf-throw
+      (rf/register-listener! :trace ::srf-throw
                              (fn [ev]
                                (when (= :rf.error/ssr-render-failed
                                         (:operation ev))
@@ -147,7 +147,7 @@
               "the projection path (and its trace) is skipped when the
                dev escape-hatch is on — the host's outer handler owns it"))
         (finally
-          (rf/unregister-listener! ::srf-throw))))))
+          (rf/unregister-listener! :trace ::srf-throw))))))
 
 (deftest project-render-exception-projects-when-on-view-exception-absent
   (testing "rf2-ee38b.10 — without the :on-view-exception knob (the

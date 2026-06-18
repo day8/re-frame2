@@ -28,7 +28,7 @@
   CLJS production DCE: the listener registration fns are tiny (atom
   swap), but the buffer machinery is heavier. Production builds rely
   on user-side `goog.DEBUG` gating around registration call sites so
-  the entire `(when goog.DEBUG (rf/register-listener! …))` block is
+  the entire `(when goog.DEBUG (rf/register-listener! :trace …))` block is
   dead-coded. The buffer + configure surface remains accessible only
   via `re-frame.trace.tooling/<name>` directly so production counter
   bundles can still DCE the heavier machinery.

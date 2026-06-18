@@ -199,9 +199,9 @@
         "no cascades retained when retention is 0")
     ;; A registered listener still fires under depth=0.
     (let [recv (atom [])]
-      (rf/register-listener! ::probe (fn [ev] (swap! recv conj ev)))
+      (rf/register-listener! :trace ::probe (fn [ev] (swap! recv conj ev)))
       (rf/dispatch-sync [:ping])
-      (rf/unregister-listener! ::probe)
+      (rf/unregister-listener! :trace ::probe)
       (is (seq @recv)
           "live stream continues firing under cascades-retained 0"))))
 
@@ -635,7 +635,7 @@
 (deftest hot-reload-changed-handler-emits-one-trace
   (testing "re-registering a CHANGED handler emits exactly one :rf.registry/handler-replaced"
     (let [recv (atom [])]
-      (rf/register-listener! ::probe
+      (rf/register-listener! :trace ::probe
                              (fn [ev]
                                (when (= :rf.registry/handler-replaced
                                         (:operation ev))
@@ -644,7 +644,7 @@
       (reset! recv [])
       ;; Real edit — different handler-fn body.
       (rf/reg-event :ev/hot {:doc "v1"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))
-      (rf/unregister-listener! ::probe)
+      (rf/unregister-listener! :trace ::probe)
       (is (= 1 (count @recv))
           "exactly one :rf.registry/handler-replaced emitted on real edit")
       (is (= :ev/hot (-> @recv first :tags :id))))))
@@ -658,27 +658,27 @@
       (rf/reg-event :ev/cycle {:doc "doc"} handler-fn) ;; suppressed
       ;; Reset dedup state, then re-register the SAME handler — should
       ;; now emit again because the table is fresh.
-      (rf/clear-listeners!)
-      (rf/register-listener! ::probe
+      (rf/clear-listeners! :trace)
+      (rf/register-listener! :trace ::probe
                              (fn [ev]
                                (when (and (= :rf.registry (:op-type ev))
                                           (= :ev/cycle (-> ev :tags :id)))
                                  (swap! recv conj ev))))
       (rf/reg-event :ev/cycle {:doc "doc"} handler-fn)
-      (rf/unregister-listener! ::probe)
+      (rf/unregister-listener! :trace ::probe)
       (is (seq @recv)
           "post-clear re-registration emits at least one registry trace"))))
 
 (deftest hot-reload-dedup-per-kind-id
   (testing "dedup is per-(kind, id) — separate ids don't interfere"
     (let [recv (atom [])]
-      (rf/register-listener! ::probe
+      (rf/register-listener! :trace ::probe
                              (fn [ev]
                                (when (= :rf.registry (:op-type ev))
                                  (swap! recv conj ev))))
       (rf/reg-event :a {:doc "a"} (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :b {:doc "b"} (fn [{:keys [db]} _] {:db db}))
-      (rf/unregister-listener! ::probe)
+      (rf/unregister-listener! :trace ::probe)
       ;; Different ids never share dedup state — both initial
       ;; registrations are first-time emits.
       (let [a-emits (filter #(= :a (-> % :tags :id)) @recv)

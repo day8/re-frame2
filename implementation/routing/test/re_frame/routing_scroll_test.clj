@@ -410,11 +410,11 @@
   [thunk]
   (let [captured (atom [])
         k        (keyword (gensym "fx-id-tag-"))]
-    (rf/register-listener! k
+    (rf/register-listener! :trace k
       (fn [ev]
         (when (= :rf.fx/skipped-on-platform (:operation ev))
           (swap! captured conj (:tags ev)))))
-    (try (thunk) (finally (rf/unregister-listener! k)))
+    (try (thunk) (finally (rf/unregister-listener! :trace k)))
     @captured))
 
 (deftest nav-fx-skip-traces-use-canonical-rf-fx-id-tag

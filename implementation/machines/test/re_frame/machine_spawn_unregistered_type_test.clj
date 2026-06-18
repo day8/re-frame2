@@ -68,11 +68,11 @@
   to the unregistered-type category. Always unregisters in a `finally`."
   [thunk]
   (let [seen (atom [])]
-    (rf/register-error-listener! ::recorder (fn [r] (swap! seen conj r)))
+    (rf/register-listener! :errors ::recorder (fn [r] (swap! seen conj r)))
     (try
       (thunk)
       (filterv #(= :rf.error/machine-spawn-unregistered-type (:error %)) @seen)
-      (finally (rf/unregister-error-listener! ::recorder)))))
+      (finally (rf/unregister-listener! :errors ::recorder)))))
 
 ;; ===========================================================================
 ;; (1) Single :spawn reject contract — installs NOTHING.

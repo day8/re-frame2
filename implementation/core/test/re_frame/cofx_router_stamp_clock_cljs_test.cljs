@@ -113,11 +113,11 @@
     (rf/reg-frame :wi.clk/trace {:doc "ctx"})
     (rf/reg-event :wi.clk/noop (fn [{:keys [db]} _] {:db db}))
     (let [seen (atom [])]
-      (rf/register-listener! ::clk-probe (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::clk-probe (fn [ev] (swap! seen conj ev)))
       (let [before (js/Date.now)]
         (rf/dispatch-sync [:wi.clk/noop] {:frame :wi.clk/trace})
         (let [after     (js/Date.now)
-              _         (rf/unregister-listener! ::clk-probe)
+              _         (rf/unregister-listener! :trace ::clk-probe)
               enqueue   (->> @seen
                              (filter #(= :rf.event/dispatched (:operation %)))
                              first)

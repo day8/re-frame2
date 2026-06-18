@@ -86,7 +86,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/single m)
-      (rf/register-listener! ::s (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::s (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/single [:fetch]])
       (let [s (snapshot :a/single)]
         (is (= :loading (:state s)))
@@ -100,7 +100,7 @@
       (rf/dispatch-sync [:a/single [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (is (= :timeout (:state (snapshot :a/single)))
           "matching-epoch firing transitions :loading → :timeout")
-      (rf/unregister-listener! ::s))))
+      (rf/unregister-listener! :trace ::s))))
 
 ;; ---- multi-stage :after — warn at 5s, fail at 30s -------------------------
 
@@ -176,7 +176,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/tiebreak m)
-      (rf/register-listener! ::tb (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::tb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/tiebreak [:fetch]])
       (is (= :loading (:state (snapshot :a/tiebreak))))
       ;; Both timers were scheduled at THIS entry's epoch — the same-tick
@@ -208,7 +208,7 @@
                         (= 30000 (:delay (:tags %))))
                   @traces)
             "the slower timer emits :stale-after (deliberate non-guarantee, pinned)"))
-      (rf/unregister-listener! ::tb))))
+      (rf/unregister-listener! :trace ::tb))))
 
 ;; ---- :guard suppresses one :after; siblings continue ---------------------
 
@@ -227,7 +227,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/guard m)
-      (rf/register-listener! ::g (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::g (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/guard [:fetch]])
       (let [epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch [:loading]])]
         ;; 5s fires; guard :slow? returns false → suppressed.
@@ -245,7 +245,7 @@
         (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
         (is (= :timeout (:state (snapshot :a/guard)))
             "sibling :after timer continues and transitions on its own"))
-      (rf/unregister-listener! ::g))))
+      (rf/unregister-listener! :trace ::g))))
 
 ;; ---- guarded candidate-vector :after (rf2-vvbdl) --------------------------
 ;;
@@ -326,7 +326,7 @@
               :timeout {}}}
           traces (atom [])]
       (rf/reg-machine :a/gv-allfail m)
-      (rf/register-listener! ::gva (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::gva (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/gv-allfail [:go]])
       (let [epoch (get-in (snapshot :a/gv-allfail) [:data :rf/after-epoch [:loading]])]
         (rf/dispatch-sync [:a/gv-allfail [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
@@ -343,7 +343,7 @@
         (rf/dispatch-sync [:a/gv-allfail [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
         (is (= :timeout (:state (snapshot :a/gv-allfail)))
             "sibling :after timer continues and transitions on its own"))
-      (rf/unregister-listener! ::gva))))
+      (rf/unregister-listener! :trace ::gva))))
 
 ;; ---- no-invoke variant (splash screen) -----------------------------------
 
@@ -437,7 +437,7 @@
       (let [a-epoch (get-in (snapshot :a/hier2) [:data :rf/after-epoch [:p :a]])]
         (rf/dispatch-sync [:a/hier2 [:next]])
         (is (= [:p :b] (:state (snapshot :a/hier2))))
-        (rf/register-listener! ::h2 (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::h2 (fn [ev] (swap! traces conj ev)))
         ;; Fire :a's old timer (carried at its pre-exit epoch + decl-path).
         (rf/dispatch-sync [:a/hier2 [:rf.machine.timer/after-elapsed
                                      5000 a-epoch [:p :a]]])
@@ -445,7 +445,7 @@
             "stale child :a timer does NOT transition after the sibling move")
         (is (some #(= :rf.machine.timer/stale-after (:operation %)) @traces)
             ":stale-after trace emitted for the exited child's timer")
-        (rf/unregister-listener! ::h2)))))
+        (rf/unregister-listener! :trace ::h2)))))
 
 ;; ---- race: real event beats timer; stale firing must not transition ------
 
@@ -464,7 +464,7 @@
       (rf/dispatch-sync [:a/race [:fetch]])
       (rf/dispatch-sync [:a/race [:loaded]])
       (is (= :ready (:state (snapshot :a/race))))
-      (rf/register-listener! ::r (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::r (fn [ev] (swap! traces conj ev)))
       ;; Stale firing from epoch 1 (the :loading visit).
       (rf/dispatch-sync [:a/race [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (is (= :ready (:state (snapshot :a/race)))
@@ -473,7 +473,7 @@
                        (= 5000 (:delay (:tags %))))
                  @traces)
           ":stale-after trace emitted")
-      (rf/unregister-listener! ::r))))
+      (rf/unregister-listener! :trace ::r))))
 
 ;; ---- fn-form delay (computed once at entry) -------------------------------
 
@@ -598,9 +598,9 @@
               :timeout {}}}
           traces (atom [])]
       (rf/reg-machine :a/sub-bad m)
-      (rf/register-listener! ::no-clock (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::no-clock (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/sub-bad [:go]])
-      (rf/unregister-listener! ::no-clock)
+      (rf/unregister-listener! :trace ::no-clock)
       (is (some (fn [ev]
                   (and (= :rf.warning/no-clock-configured (:operation ev))
                        (= :sub (-> ev :tags :delay-source))))

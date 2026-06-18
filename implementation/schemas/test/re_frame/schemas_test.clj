@@ -70,12 +70,12 @@
   (testing "validate-app-schema! emits :rf.error/schema-validation-failure when debug-enabled? is true"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
-      (rf/register-listener! ::dev (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dev (fn [ev] (swap! traces conj ev)))
       ;; Dev mode is the JVM default; validate-app-schema! should walk the
       ;; registered schemas and emit on a malformed value.
       (with-redefs [interop/debug-enabled? true]
         (schemas/validate-app-schema! {:count "not-an-int"} :test/handler))
-      (rf/unregister-listener! ::dev)
+      (rf/unregister-listener! :trace ::dev)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -91,12 +91,12 @@
   (testing "validate-app-schema! is a no-op when debug-enabled? is false (production)"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
-      (rf/register-listener! ::prod (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::prod (fn [ev] (swap! traces conj ev)))
       ;; Production mode — the validation site elides; even with a
       ;; malformed value, no trace fires.
       (with-redefs [interop/debug-enabled? false]
         (schemas/validate-app-schema! {:count "not-an-int"} :test/handler))
-      (rf/unregister-listener! ::prod)
+      (rf/unregister-listener! :trace ::prod)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
                           @traces))
@@ -106,10 +106,10 @@
   (testing "validate-app-schema! with a conforming value emits no trace"
     (rf/reg-app-schema [:count] [:int])
     (let [traces (atom [])]
-      (rf/register-listener! ::ok (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::ok (fn [ev] (swap! traces conj ev)))
       (with-redefs [interop/debug-enabled? true]
         (schemas/validate-app-schema! {:count 42} :test/handler))
-      (rf/unregister-listener! ::ok)
+      (rf/unregister-listener! :trace ::ok)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
                           @traces))
@@ -121,10 +121,10 @@
     (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [traces (atom [])]
-      (rf/register-listener! ::live (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::live (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/init])
       (rf/dispatch-sync [:n/break])
-      (rf/unregister-listener! ::live)
+      (rf/unregister-listener! :trace ::live)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -187,7 +187,7 @@
     (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [events (atom [])]
-      (rf/register-listener! ::ord
+      (rf/register-listener! :trace ::ord
         (fn [ev] (when (#{:rf.event/db-changed
                           :rf.error/schema-validation-failure}
                         (:operation ev))
@@ -197,7 +197,7 @@
       (rf/dispatch-sync [:n/init])
       (reset! events [])
       (rf/dispatch-sync [:n/break])
-      (rf/unregister-listener! ::ord)
+      (rf/unregister-listener! :trace ::ord)
       ;; Three emissions in this exact order: forward commit (no phase),
       ;; schema-failure error (no phase slot), rollback commit (phase
       ;; :rollback).
@@ -239,12 +239,12 @@
           (swap! calls inc)
           {:db (update db :users (fnil conj []) payload)}))
       (let [traces (atom [])]
-        (rf/register-listener! ::ev (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::ev (fn [ev] (swap! traces conj ev)))
         ;; Well-typed payload — passes; handler runs.
         (rf/dispatch-sync [:user/register {:email "alice@example.com" :age 30}])
         ;; Malformed payload — fails; handler must NOT run.
         (rf/dispatch-sync [:user/register {:email "carol@example.com" :age "no"}])
-        (rf/unregister-listener! ::ev)
+        (rf/unregister-listener! :trace ::ev)
         (is (= 1 @calls)
             "handler ran exactly once — once for the well-typed payload, skipped for the bad one")
         (let [violations (filter #(= :rf.error/schema-validation-failure
@@ -279,10 +279,10 @@
          :interceptors [::after-probe]}
         (fn [{:keys [db]} _] (swap! handler-calls inc) {:db db}))
       (let [traces (atom [])]
-        (rf/register-listener! ::after-ev (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::after-ev (fn [ev] (swap! traces conj ev)))
         ;; Malformed payload — event-vector validation fails pre-handler.
         (rf/dispatch-sync [:user/probe "not-an-int"])
-        (rf/unregister-listener! ::after-ev)
+        (rf/unregister-listener! :trace ::after-ev)
         (is (= 1 (count (filter #(= :rf.error/schema-validation-failure
                                     (:operation %))
                                 @traces)))
@@ -303,10 +303,10 @@
         {:schema [:cat [:= :user/strict] :int]}
         (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
-        (rf/register-listener! ::ev2 (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::ev2 (fn [ev] (swap! traces conj ev)))
         (with-redefs [interop/debug-enabled? false]
           (rf/dispatch-sync [:user/strict "not-an-int"]))
-        (rf/unregister-listener! ::ev2)
+        (rf/unregister-listener! :trace ::ev2)
         (is (empty? (filter #(= :rf.error/schema-validation-failure
                                 (:operation %))
                             @traces))
@@ -326,14 +326,14 @@
       {:schema [:vector :string]}
       (fn [db _] (:items db)))
     (let [traces (atom [])]
-      (rf/register-listener! ::sr (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::sr (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:items/init])
       ;; Well-typed: sub returns the vec.
       (is (= ["a" "b" "c"] (rf/subscribe-once [:items])))
       (rf/dispatch-sync [:items/break])
       ;; Malformed: sub yields nil per :replaced-with-default recovery.
       (is (nil? (rf/subscribe-once [:items])))
-      (rf/unregister-listener! ::sr)
+      (rf/unregister-listener! :trace ::sr)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -358,11 +358,11 @@
       {:schema [:vector :int]}
       (fn [db _] (:nums db)))
     (let [traces (atom [])]
-      (rf/register-listener! ::cs (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::cs (fn [ev] (swap! traces conj ev)))
       (is (= [1 2 3] (#'re-frame.subs/compute-sub [:nums] {:nums [1 2 3]})))
       (is (nil? (#'re-frame.subs/compute-sub [:nums] {:nums ["bad"]}))
           "compute-sub yields nil on validation failure")
-      (rf/unregister-listener! ::cs)
+      (rf/unregister-listener! :trace ::cs)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -403,13 +403,13 @@
           (swap! calls inc)
           {:db {:app-version "should-not-stash"}}))
       (let [traces (atom [])]
-        (rf/register-listener! ::cf (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::cf (fn [ev] (swap! traces conj ev)))
         ;; The recordable-value failure throws out of dispatch-sync (a hard
         ;; error in dev AND prod); the trace fires BEFORE the throw.
         (try
           (rf/dispatch-sync [:cap/seed] {:rf.cofx {:app-version/v 42}})
           (catch clojure.lang.ExceptionInfo _))
-        (rf/unregister-listener! ::cf)
+        (rf/unregister-listener! :trace ::cf)
         (is (= 0 @calls)
             "handler was skipped because the recordable cofx :schema failed")
         (let [violations (filter #(= :rf.error/cofx-value-invalid
@@ -436,9 +436,9 @@
           (reset! seen-version well)
           {}))
       (let [traces (atom [])]
-        (rf/register-listener! ::cf2 (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::cf2 (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:cap/seed-good] {:rf.cofx {:app-version/well "1.4.5"}})
-        (rf/unregister-listener! ::cf2)
+        (rf/unregister-listener! :trace ::cf2)
         (is (= "1.4.5" @seen-version)
             "handler ran and saw the well-typed recordable cofx value")
         (is (empty? (filter #(= :rf.error/cofx-value-invalid (:operation %))
@@ -459,12 +459,12 @@
       {:rf.cofx/requires [:auth/creds]}
       (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-listener! ::cfs (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::cfs (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:cap/seed-secret]
                           {:rf.cofx {:auth/creds {:token 42}}})
         (catch clojure.lang.ExceptionInfo _))
-      (rf/unregister-listener! ::cfs)
+      (rf/unregister-listener! :trace ::cfs)
       (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v) "the recordable-cofx violation fired")
@@ -496,9 +496,9 @@
                              :message "boom"}]
                 [:my/log    "anything"]]}))           ;; sibling — must still run
       (let [traces (atom [])]
-        (rf/register-listener! ::fxv (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::fxv (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:ui/announce])
-        (rf/unregister-listener! ::fxv)
+        (rf/unregister-listener! :trace ::fxv)
         (is (= 0 @bad-fx-calls)
             "the offending fx handler was skipped — its body did NOT run")
         (is (= 1 @good-fx-calls)
@@ -539,9 +539,9 @@
         (fn [_ _]
           {:fx [[:my/email {:to "alice@example.com"}]]}))
       (let [traces (atom [])]
-        (rf/register-listener! ::fxv2 (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::fxv2 (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:user/welcome])
-        (rf/unregister-listener! ::fxv2)
+        (rf/unregister-listener! :trace ::fxv2)
         (is (= 1 @calls) "fx handler ran exactly once")
         (is (= {:to "alice@example.com"} @seen) "fx handler saw the well-typed args")
         (is (empty? (filter #(= :rf.error/schema-validation-failure
@@ -559,10 +559,10 @@
         (fn [_ _]
           {:fx [[:strict/fx {:x "not-an-int"}]]}))
       (let [traces (atom [])]
-        (rf/register-listener! ::fxv3 (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::fxv3 (fn [ev] (swap! traces conj ev)))
         (with-redefs [interop/debug-enabled? false]
           (rf/dispatch-sync [:strict/trigger]))
-        (rf/unregister-listener! ::fxv3)
+        (rf/unregister-listener! :trace ::fxv3)
         (is (empty? (filter #(= :rf.error/schema-validation-failure
                                 (:operation %))
                             @traces))
@@ -574,7 +574,7 @@
   (testing "validate-fx! returns true on pass, false on fail; emits the canonical
             :where :fx-args trace with the locked tag shape"
     (let [traces (atom [])]
-      (rf/register-listener! ::fxv4 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::fxv4 (fn [ev] (swap! traces conj ev)))
       ;; Direct call — exercises the validate-fx! fn itself, not the integration.
       (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {:schema [:map [:x :int]]}))
           "well-typed args pass")
@@ -582,7 +582,7 @@
           "malformed args fail")
       (is (true? (schemas/validate-fx! :my/fx :ev/origin {:x 1} {}))
           "no :schema → soft pass")
-      (rf/unregister-listener! ::fxv4)
+      (rf/unregister-listener! :trace ::fxv4)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -638,13 +638,13 @@
       {:rf.cofx/requires [:probe/cofx]}
       (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-listener! ::cf-frame (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::cf-frame (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:probe/cofx-seed]
                           {:frame :test/cofx-frame
                            :rf.cofx {:probe/cofx 42}})   ;; int, not string
         (catch clojure.lang.ExceptionInfo _))
-      (rf/unregister-listener! ::cf-frame)
+      (rf/unregister-listener! :trace ::cf-frame)
       (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v) "the recordable-cofx violation fired")
@@ -661,9 +661,9 @@
     (rf/reg-event :probe/fx-seed
       (fn [_ _] {:fx [[:probe/fx {:x "bad"}]]}))   ;; string, not int
     (let [traces (atom [])]
-      (rf/register-listener! ::fx-frame (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::fx-frame (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:probe/fx-seed] {:frame :test/fx-frame})
-      (rf/unregister-listener! ::fx-frame)
+      (rf/unregister-listener! :trace ::fx-frame)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "the fx-args violation fired")
@@ -680,13 +680,13 @@
       {:schema [:vector :string]}
       (fn [db _] (:items db)))
     (let [traces (atom [])]
-      (rf/register-listener! ::sr-frame (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::sr-frame (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:probe/sub-break] {:frame :test/sub-frame})
       ;; Subscribe within the named frame so the reaction recomputes there.
       ;; subscribe-once takes the frame-id FIRST (2-arity), not an opts map.
       (is (nil? (rf/subscribe-once :test/sub-frame [:probe/items]))
           "malformed sub yields nil per :replaced-with-default recovery")
-      (rf/unregister-listener! ::sr-frame)
+      (rf/unregister-listener! :trace ::sr-frame)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "the sub-return violation fired")
@@ -709,7 +709,7 @@
             fail, true on the no-:schema soft-pass arm; emits the
             canonical :where :event trace with the locked tag shape"
     (let [traces (atom [])]
-      (rf/register-listener! ::evd (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::evd (fn [ev] (swap! traces conj ev)))
       (is (true? (schemas/validate-event! :user/strict [:user/strict 7]
                                           {:schema [:cat [:= :user/strict] :int]}))
           "well-typed event vector passes")
@@ -718,7 +718,7 @@
           "malformed event vector fails")
       (is (true? (schemas/validate-event! :user/strict [:user/strict "bad"] {}))
           "no :schema on meta → soft pass (validate.cljc:250 true arm)")
-      (rf/unregister-listener! ::evd)
+      (rf/unregister-listener! :trace ::evd)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -745,7 +745,7 @@
             fail, true on the no-:schema soft-pass arm; emits the
             canonical :where :sub-return trace with the locked tag shape"
     (let [traces (atom [])]
-      (rf/register-listener! ::sbd (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::sbd (fn [ev] (swap! traces conj ev)))
       (is (true? (schemas/validate-sub! :items [:items] ["a" "b"]
                                         {:schema [:vector :string]}))
           "well-typed sub return passes")
@@ -754,7 +754,7 @@
           "malformed sub return fails")
       (is (true? (schemas/validate-sub! :items [:items] [1 2] {}))
           "no :schema on meta → soft pass (validate.cljc:250 true arm)")
-      (rf/unregister-listener! ::sbd)
+      (rf/unregister-listener! :trace ::sbd)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -781,13 +781,13 @@
   (testing "rf2-rbbmt — validate-sub! is a no-op (returns true, emits
             nothing) when debug-enabled? is false (production)"
     (let [traces (atom [])]
-      (rf/register-listener! ::sbe (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::sbe (fn [ev] (swap! traces conj ev)))
       (with-redefs [interop/debug-enabled? false]
         (is (true? (schemas/validate-sub! :items [:items] [1 2]
                                           {:schema [:vector :string]}))
             "production gate returns true unconditionally — even on a
              value that would fail in dev"))
-      (rf/unregister-listener! ::sbe)
+      (rf/unregister-listener! :trace ::sbe)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
                           @traces))
@@ -800,7 +800,7 @@
             and stamps `:sensitive? true`. Per rf2-4fbsd the earlier
             `:malli-error` duplicate slot is gone."
     (let [traces (atom [])]
-      (rf/register-listener! ::fxv5 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::fxv5 (fn [ev] (swap! traces conj ev)))
       ;; Sensitivity is now path-marked on the schema slot (the handler/
       ;; fx-meta `:sensitive?` annotation has been removed); a `:sensitive?
       ;; true` prop on the failing slot's schema drives redaction.
@@ -808,7 +808,7 @@
                                         :ev/origin
                                         {:token 42}
                                         {:schema [:map [:token {:sensitive? true} :string]]})))
-      (rf/unregister-listener! ::fxv5)
+      (rf/unregister-listener! :trace ::fxv5)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -986,9 +986,9 @@
     (rf/reg-app-schema [:n] [:int] {:frame :test/other})
     (rf/reg-event :n/break-on-main (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (let [traces (atom [])]
-      (rf/register-listener! ::sib (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::sib (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/break-on-main] {:frame :test/main})
-      (rf/unregister-listener! ::sib)
+      (rf/unregister-listener! :trace ::sib)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
           "no schema fires on :test/main because the schema lives on :test/other"))))
@@ -1000,9 +1000,9 @@
     (rf/reg-app-schema [:n] [:int] {:frame :test/main})
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (let [traces (atom [])]
-      (rf/register-listener! ::same (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::same (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/break] {:frame :test/main})
-      (rf/unregister-listener! ::same)
+      (rf/unregister-listener! :trace ::same)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
         (is (= 1 (count violations))
@@ -1124,11 +1124,11 @@
             before the seam landed."
     (rf/reg-app-schema [:n] [:int])
     (let [traces (atom [])]
-      (rf/register-listener! ::default-malli (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::default-malli (fn [ev] (swap! traces conj ev)))
       ;; Malformed value triggers the default Malli validate to return
       ;; falsey -> trace fires.
       (schemas/validate-app-schema! {:n "not-an-int"} :test/handler)
-      (rf/unregister-listener! ::default-malli)
+      (rf/unregister-listener! :trace ::default-malli)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
         (is (= 1 (count violations))
@@ -1148,10 +1148,10 @@
       (schemas/set-schema-validator! custom)
       (rf/reg-app-schema [:label] :string)
       (let [traces (atom [])]
-        (rf/register-listener! ::custom (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::custom (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:label "hello"} :h/ok)        ;; passes
         (schemas/validate-app-schema! {:label "totally-bad"} :h/no)  ;; fails
-        (rf/unregister-listener! ::custom)
+        (rf/unregister-listener! :trace ::custom)
         (is (= 2 (count @calls))
             "custom validator was invoked for both validation calls")
         (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -1169,7 +1169,7 @@
             duplicated the no-op assertion as separate deftests."
     (schemas/set-schema-validator! nil)
     (let [traces (atom [])]
-      (rf/register-listener! ::nilv (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::nilv (fn [ev] (swap! traces conj ev)))
       (rf/reg-app-schema [:n] [:int])
       ;; Each malformed value would fire a trace under the default
       ;; (Malli) validator; with nil installed every call short-circuits
@@ -1183,7 +1183,7 @@
           "sub-return: nil validator → true")
       (is (true? (schemas/validate-fx! :fx/x :ev/o {:x "bad"} {:schema [:map [:x :int]]}))
           "fx-args: nil validator → true")
-      (rf/unregister-listener! ::nilv)
+      (rf/unregister-listener! :trace ::nilv)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
           "nil validator: no validation, no trace, no surprise — on any surface"))))
@@ -1199,9 +1199,9 @@
         {:schema [:cat [:= :user/strict] :int]}
         (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
-        (rf/register-listener! ::nile (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::nile (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:user/strict "not-an-int"])
-        (rf/unregister-listener! ::nile)
+        (rf/unregister-listener! :trace ::nile)
         (is (= 1 @calls)
             "handler ran — nil validator means no pre-handler check")
         (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -1220,10 +1220,10 @@
       (schemas/set-schema-fns! {:validate v-fn :explain e-fn})
       (rf/reg-app-schema [:k] :keyword)
       (let [traces (atom [])]
-        (rf/register-listener! ::map (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::map (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:k :good}   :h/pass)
         (schemas/validate-app-schema! {:k :nope}   :h/fail)
-        (rf/unregister-listener! ::map)
+        (rf/unregister-listener! :trace ::map)
         (is (= 2 @validate-calls) "custom validate fn ran for both calls")
         (is (= 1 @explain-calls)  "custom explain fn ran only on the failure path")
         (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -1274,9 +1274,9 @@
       (schemas/set-schema-explainer! custom-e)
       (rf/reg-app-schema [:n] [:int])
       (let [traces (atom [])]
-        (rf/register-listener! ::eonly (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::eonly (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:n "broken"} :h/oops)
-        (rf/unregister-listener! ::eonly)
+        (rf/unregister-listener! :trace ::eonly)
         (is (= "broken" @explained) "custom explainer ran with the bad value")
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
@@ -1301,7 +1301,7 @@
     (schemas/set-schema-explainer! nil)
     (rf/reg-app-schema [:n] [:int])
     (let [traces (atom [])]
-      (rf/register-listener! ::nilexp (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::nilexp (fn [ev] (swap! traces conj ev)))
       ;; app-db walk emit site.
       (is (false? (schemas/validate-app-schema! {:n "bad"} :h/app-db)))
       ;; the three meta-bearing emit sites (run-validation core).
@@ -1311,7 +1311,7 @@
                                          {:schema [:vector :string]})))
       (is (false? (schemas/validate-fx! :fx/x :ev/o {:x "bad"}
                                         {:schema [:map [:x :int]]})))
-      (rf/unregister-listener! ::nilexp)
+      (rf/unregister-listener! :trace ::nilexp)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -1334,18 +1334,18 @@
     (rf/reg-app-schema [:n] [:int])
     ;; First confirm the sabotage is in effect.
     (let [traces (atom [])]
-      (rf/register-listener! ::sab (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::sab (fn [ev] (swap! traces conj ev)))
       (schemas/validate-app-schema! {:n "bad"} :h/sabotage)
-      (rf/unregister-listener! ::sab)
+      (rf/unregister-listener! :trace ::sab)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
           "sabotage validator passes everything — no trace"))
     ;; Reset back to default Malli, retry the bad value, expect a trace.
     (schemas/reset-schema-validator!)
     (let [traces (atom [])]
-      (rf/register-listener! ::rst (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::rst (fn [ev] (swap! traces conj ev)))
       (schemas/validate-app-schema! {:n "bad"} :h/back-to-default)
-      (rf/unregister-listener! ::rst)
+      (rf/unregister-listener! :trace ::rst)
       (is (= 1 (count (filter #(= :rf.error/schema-validation-failure (:operation %))
                               @traces)))
           "default Malli validator is back in place — bad value catches"))))
@@ -1573,7 +1573,7 @@
           (swap! calls inc)
           {:db {:last-response payload}}))
       (let [traces (atom [])]
-        (rf/register-listener! ::ok (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::ok (fn [ev] (swap! traces conj ev)))
         ;; Production build path — flip the boundary's gate without
         ;; killing the trace surface. The router's step-1
         ;; validation also fires (debug-enabled? still true on JVM)
@@ -1582,7 +1582,7 @@
         ;; passes silently.
         (with-redefs [spec/dev-mode? (constantly false)]
           (rf/dispatch-sync [:api/response {:status 200 :body "OK"}]))
-        (rf/unregister-listener! ::ok)
+        (rf/unregister-listener! :trace ::ok)
         (is (= 1 @calls)
             "handler ran exactly once for the well-typed payload")
         (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
@@ -1629,14 +1629,14 @@
        :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
     (let [traces (atom [])]
-      (rf/register-listener! ::tr (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::tr (fn [ev] (swap! traces conj ev)))
       ;; dev-mode? false → boundary takes its prod branch; but
       ;; debug-enabled? stays true on the JVM so emit-error! actually
       ;; fires its body and the trace is observable.
       (with-redefs [spec/dev-mode? (constantly false)]
         (let [before (:before rf/validate-at-boundary-interceptor)]
           (before {:coeffects {:event [:api/strict "not-an-int"]}})))
-      (rf/unregister-listener! ::tr)
+      (rf/unregister-listener! :trace ::tr)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
         (is (= 1 (count violations))
@@ -1736,10 +1736,10 @@
          :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
-        (rf/register-listener! ::nil (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::nil (fn [ev] (swap! traces conj ev)))
         (with-redefs [spec/dev-mode? (constantly false)]
           (rf/dispatch-sync [:api/disabled "wildly-malformed"]))
-        (rf/unregister-listener! ::nil)
+        (rf/unregister-listener! :trace ::nil)
         (is (= 1 @calls)
             "handler ran — nil validator means no boundary check")
         (is (empty? (filter #(and (= :rf.error/schema-validation-failure (:operation %))
@@ -1758,12 +1758,12 @@
          :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
-        (rf/register-listener! ::dev (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::dev (fn [ev] (swap! traces conj ev)))
         ;; Dev mode (the JVM default). The router's step-1
         ;; validate-event! call fires for the malformed payload; the
         ;; boundary interceptor SHOULD NOT fire a second trace.
         (rf/dispatch-sync [:api/dev "not-an-int"])
-        (rf/unregister-listener! ::dev)
+        (rf/unregister-listener! :trace ::dev)
         (is (= 0 @calls)
             "handler skipped — but by the dev-mode step-1 path, not the boundary")
         (let [boundary-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
@@ -1899,10 +1899,10 @@
       ;; 4. Semantic faithfulness: validation against a restored
       ;;    schema fires exactly like it did before the round-trip.
       (let [traces (atom [])]
-        (rf/register-listener! ::rt (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::rt (fn [ev] (swap! traces conj ev)))
         ;; A malformed value under [:n] on :rf/default — should fire.
         (schemas/validate-app-schema! {:n "not-an-int"} :test.6lka/handler)
-        (rf/unregister-listener! ::rt)
+        (rf/unregister-listener! :trace ::rt)
         (let [violations (filter #(= :rf.error/schema-validation-failure
                                      (:operation %))
                                  @traces)]

@@ -64,9 +64,9 @@
   events."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (rf/unregister-listener! ::rec)))
+         (finally (rf/unregister-listener! :trace ::rec)))
     @seen))
 
 (defn- errors-of

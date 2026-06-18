@@ -120,10 +120,10 @@
   (testing "compute-sub emits :rf.error/sub-exception when the sub body throws (layer-1)"
     (rf/reg-sub :boom (fn [_db _q] (throw (ex-info "boom" {:k :v}))))
     (let [traces (atom [])]
-      (rf/register-listener! ::boom (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::boom (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:boom] {}))
           "compute-sub still returns nil (recovery :replaced-with-default)")
-      (rf/unregister-listener! ::boom)
+      (rf/unregister-listener! :trace ::boom)
       (let [ev (some (fn [e]
                        (when (= :rf.error/sub-exception (:operation e)) e))
                      @traces)]
@@ -144,9 +144,9 @@
     (rf/reg-sub :n   (fn [db _] (:n db)))
     (rf/reg-sub :n*2 :<- [:n] (fn [_n _q] (throw (ex-info "kaboom" {}))))
     (let [traces (atom [])]
-      (rf/register-listener! ::boom2 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::boom2 (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/compute-sub [:n*2] {:n 7})))
-      (rf/unregister-listener! ::boom2)
+      (rf/unregister-listener! :trace ::boom2)
       (is (some (fn [e]
                   (and (= :rf.error/sub-exception (:operation e))
                        (= :n*2 (:rf.sub/id (:tags e)))
@@ -158,11 +158,11 @@
   (testing "subscribe / subscribe-once against a missing frame don't throw"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [traces (atom [])]
-      (rf/register-listener! ::missing (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::missing (fn [ev] (swap! traces conj ev)))
       (is (nil? (rf/subscribe :missing/frame [:n])) "subscribe returns nil")
       (is (nil? (rf/subscribe-once :missing/frame [:n]))
           "subscribe-once returns nil")
-      (rf/unregister-listener! ::missing)
+      (rf/unregister-listener! :trace ::missing)
       (is (some (fn [ev]
                   (and (= :rf.error/frame-destroyed (:operation ev))
                        (= :replaced-with-default (:recovery ev))))
@@ -194,7 +194,7 @@
 (deftest dispatch-sync-in-handler-errors
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
-      (rf/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dsih (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
       (rf/reg-event :nested
         (fn [_ _]
@@ -203,7 +203,7 @@
           (rf/dispatch-sync [:outer])
           {}))
       (rf/dispatch-sync [:nested])
-      (rf/unregister-listener! ::dsih)
+      (rf/unregister-listener! :trace ::dsih)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))
@@ -560,9 +560,9 @@
       (is (= "server-hash-X"
              (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/ssr :hydration :server-hash])))
       ;; Now simulate the client render producing a different hash.
-      (rf/register-listener! ::vh (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")
-      (rf/unregister-listener! ::vh)
+      (rf/unregister-listener! :trace ::vh)
       (is (some (fn [ev]
                   (and (= :rf.ssr/hydration-mismatch (:operation ev))
                        (= "server-hash-X" (:server-hash (:tags ev)))
@@ -603,9 +603,9 @@
                     :flow/checkout {:state :pending  :data {}}})}))
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
     (let [traces (atom [])]
-      (rf/register-listener! ::df (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::df (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame! :tenant-a)
-      (rf/unregister-listener! ::df)
+      (rf/unregister-listener! :trace ::df)
       (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                         (:operation %))
                                    @traces)]
@@ -648,10 +648,10 @@
       (rf/reg-event :flow handler)
       ;; Each frame's first invoke should get :worker#1.
       (let [traces (atom [])]
-        (rf/register-listener! ::sids (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::sids (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:flow [:start]] {:frame :left})
         (rf/dispatch-sync [:flow [:start]] {:frame :right})
-        (rf/unregister-listener! ::sids)
+        (rf/unregister-listener! :trace ::sids)
         (let [spawn-traces (filter #(= :rf.machine.spawn/spawned (:operation %)) @traces)
               ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
           (is (= 2 (count spawn-traces))
@@ -680,7 +680,7 @@
 (deftest spawn-and-destroy-machine-fx
   (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
     (let [traces (atom [])]
-      (rf/register-listener! ::spawn (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::spawn (fn [ev] (swap! traces conj ev)))
       ;; rf2-ywv74m — register the spawned child TYPE before the spawn fx; the
       ;; implicit "spec-less spawn" path is removed and an unregistered
       ;; `:machine-id` now rejects fail-closed
@@ -694,7 +694,7 @@
                                             :on-spawn   :record}]
                         [:rf.machine/destroy :worker#1]]}))
       (rf/dispatch-sync [:do-spawn])
-      (rf/unregister-listener! ::spawn)
+      (rf/unregister-listener! :trace ::spawn)
       (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
           "expected :rf.machine.spawn/spawned trace")
       (is (some #(= :rf.machine/destroyed (:operation %)) @traces)

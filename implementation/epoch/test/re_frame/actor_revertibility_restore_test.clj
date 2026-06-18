@@ -69,7 +69,7 @@
 
 (defn- record-trace! []
   (let [recorded (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
     recorded))
 
 (defn- counter-child []
@@ -126,7 +126,7 @@
         ;; Dispatch to the gone actor → clean no-such-handler.
         (let [errs (record-trace!)]
           (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
-          (rf/unregister-listener! ::rec)
+          (rf/unregister-listener! :trace ::rec)
           (is (some #(= :rf.error/no-such-handler (:operation %)) @errs)
               "dispatch to the gone actor is a clean :rf.error/no-such-handler"))))))
 
@@ -189,7 +189,7 @@
       (let [errs (record-trace!)
             pre  (rf/app-db-value :test/main)
             ok?  (rf/restore-epoch! :test/main alive-epoch)]
-        (rf/unregister-listener! ::rec)
+        (rf/unregister-listener! :trace ::rec)
         (is (false? ok?) "restore refused — the actor's TYPE is gone")
         (is (= pre (rf/app-db-value :test/main)) "app-db unchanged on refusal")
         (let [ev (some #(when (= :rf.epoch/restore-missing-handler (:operation %)) %) @errs)]
@@ -260,7 +260,7 @@
       (let [errs (record-trace!)
             pre  (rf/app-db-value :test/main)
             ok?  (rf/restore-epoch! :test/main alive-epoch)]
-        (rf/unregister-listener! ::rec)
+        (rf/unregister-listener! :trace ::rec)
         (is (false? ok?) "restore refused — spawned-actor TYPE version drifted")
         (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
         (let [ev (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %) @errs)]
@@ -320,7 +320,7 @@
             errs        (record-trace!)
             pre         (rf/app-db-value :test/main)
             ok?         (rf/restore-epoch! :test/main drift-epoch)]
-        (rf/unregister-listener! ::rec)
+        (rf/unregister-listener! :trace ::rec)
         (is (false? ok?) "inline-definition version drift refuses restore")
         (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
         (let [ev (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %) @errs)]
@@ -345,7 +345,7 @@
       (registrar/unregister! :event :rev/child)   ;; clear the TYPE
       (let [errs (record-trace!)
             ok?  (rf/restore-epoch! :test/main alive-epoch)]
-        (rf/unregister-listener! ::rec)
+        (rf/unregister-listener! :trace ::rec)
         (is (false? ok?) "restore refused")
         (is (some #(= :rf.epoch/restore-missing-handler (:operation %)) @errs)
             "a cleared TYPE is a MISSING handler, not a version mismatch")

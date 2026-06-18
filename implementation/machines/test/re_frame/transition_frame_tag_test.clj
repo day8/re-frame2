@@ -43,8 +43,8 @@
 (defn- record-traces!
   []
   (let [seen (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
-    [seen #(rf/unregister-listener! ::rec)]))
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
+    [seen #(rf/unregister-listener! :trace ::rec)]))
 
 (defn- transitions-of [evs]
   (filterv #(= :rf.machine/transition (:operation %)) evs))

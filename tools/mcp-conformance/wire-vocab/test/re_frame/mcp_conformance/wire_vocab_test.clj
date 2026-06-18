@@ -777,11 +777,11 @@
   (rf/init! plain-atom/adapter)
   (frame/ensure-default-frame!)
   (let [traces (atom [])]
-    (rf/register-listener! ::sv (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! :trace ::sv (fn [ev] (swap! traces conj ev)))
     (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
                              {:schema [:cat [:= :upload/save]
                                        [:map [:blob {:large? true} :int]]]})
-    (rf/unregister-listener! ::sv)
+    (rf/unregister-listener! :trace ::sv)
     (-> (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                        @traces))
         :tags :value)))

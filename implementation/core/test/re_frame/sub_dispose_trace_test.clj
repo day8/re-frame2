@@ -62,7 +62,7 @@
 (defn- collect-traces!
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (defn- dispose-events
@@ -104,7 +104,7 @@
             (is (= :no-more-derefers (-> ev :tags :rf.sub/reason))
                 ":tags :rf.sub/reason :no-more-derefers — sync 1 → 0 path")))
         (finally
-          (rf/unregister-listener! ::layer-1-no-derefers))))))
+          (rf/unregister-listener! :trace ::layer-1-no-derefers))))))
 
 (deftest no-dispose-when-ref-count-still-positive
   (testing "with two subscribers, one unsubscribe does NOT emit
@@ -126,7 +126,7 @@
         (is (= :no-more-derefers
                (-> (dispose-events @acc) first :tags :rf.sub/reason)))
         (finally
-          (rf/unregister-listener! ::two-subs))))))
+          (rf/unregister-listener! :trace ::two-subs))))))
 
 (deftest dispose-cascade-emits-per-evicted-layer
   (testing "a layer-2 sub's disposal cascades to its layer-1 inputs —
@@ -156,7 +156,7 @@
                       disposes)
               "every cascade emit carries the :no-more-derefers reason"))
         (finally
-          (rf/unregister-listener! ::cascade-emit))))))
+          (rf/unregister-listener! :trace ::cascade-emit))))))
 
 (deftest dispose-then-resubscribe-builds-fresh-slot
   (testing "per rf2-cmfln: unsubscribe disposes synchronously, so a
@@ -186,7 +186,7 @@
             (is (= 1 (count (dispose-events @acc)))
                 "no additional dispose emit — the new slot is alive")))
         (finally
-          (rf/unregister-listener! ::sync-dispose-then-resub))))))
+          (rf/unregister-listener! :trace ::sync-dispose-then-resub))))))
 
 ;; ---- :hot-reload ---------------------------------------------------------
 ;;
@@ -216,7 +216,7 @@
                 ":tags :rf.sub/reason :hot-reload discriminates re-registration")
             (is (= :rf/default (-> ev :tags :frame)))))
         (finally
-          (rf/unregister-listener! ::hot-reload))))))
+          (rf/unregister-listener! :trace ::hot-reload))))))
 
 (deftest dispose-hot-reload-fires-per-evicted-slot
   (testing "hot-reloading a sub with N cached query-arg variants fires
@@ -244,7 +244,7 @@
           (is (every? #(= :hot-reload (-> % :tags :rf.sub/reason))
                       disposes)))
         (finally
-          (rf/unregister-listener! ::hot-reload-many))))))
+          (rf/unregister-listener! :trace ::hot-reload-many))))))
 
 ;; ---- :cache-clear --------------------------------------------------------
 ;;
@@ -275,7 +275,7 @@
           (is (every? #(= :rf/default (-> % :tags :frame))
                       disposes)))
         (finally
-          (rf/unregister-listener! ::cache-clear))))))
+          (rf/unregister-listener! :trace ::cache-clear))))))
 
 ;; ---- emit-shape pin ------------------------------------------------------
 ;;
@@ -309,7 +309,7 @@
                 (:rf.sub/reason tags))
               "reason is in the closed-enum"))
         (finally
-          (rf/unregister-listener! ::tag-shape))))))
+          (rf/unregister-listener! :trace ::tag-shape))))))
 
 ;; ---- elision pin ---------------------------------------------------------
 ;;
@@ -334,4 +334,4 @@
         (is (seq (dispose-events @acc))
             "an emit landed — JVM dev path is wired")
         (finally
-          (rf/unregister-listener! ::elision-pin))))))
+          (rf/unregister-listener! :trace ::elision-pin))))))

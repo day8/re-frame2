@@ -244,7 +244,7 @@
   (testing "every request creates a fresh frame and destroys it before returning"
     (register-articles-app! [{:id "x" :title "Article X"}])
     (let [destroyed (atom [])
-          _ (rf/register-listener! ::destroy-watch
+          _ (rf/register-listener! :trace ::destroy-watch
               (fn [ev]
                 (when (= :rf.frame/destroyed (:operation ev))
                   (swap! destroyed conj (:frame ev)))))
@@ -256,7 +256,7 @@
           frames-before (set (rf/frame-ids))
           response (handler {:uri "/" :request-method :get})
           frames-after (set (rf/frame-ids))]
-      (rf/unregister-listener! ::destroy-watch)
+      (rf/unregister-listener! :trace ::destroy-watch)
       (is (= 200 (:status response)))
       ;; No per-request frame leaks into the global frame registry.
       ;; Some destroy-trace-side-channel frame-ids must have been
@@ -308,7 +308,7 @@
         {:fx [[:rf.server/redirect {:status 302}]]}))
     (rf/reg-view* :pages/noop-rt (fn [] [:div]))
     (let [traces (atom [])]
-      (rf/register-listener! ::redirect-no-target-watch
+      (rf/register-listener! :trace ::redirect-no-target-watch
         (fn [ev] (when (= :rf.ssr/ssr-redirect-no-target (:operation ev))
                    (swap! traces conj ev))))
       (let [handler  (ssr-ring/ssr-handler
@@ -317,7 +317,7 @@
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/secret" :request-method :get})
             headers  (:headers response)]
-        (rf/unregister-listener! ::redirect-no-target-watch)
+        (rf/unregister-listener! :trace ::redirect-no-target-watch)
         (is (= 302 (:status response)) "still emits the redirect status")
         (is (nil? (or (get headers "Location") (get headers "location")))
             "no Location header — there is no target to write")
@@ -526,7 +526,7 @@
     (rf/reg-view* :pages/broken-evt
       (fn [] (throw (ex-info "boom" {}))))
     (let [traces (atom [])]
-      (rf/register-listener! ::error-view-throw-watch
+      (rf/register-listener! :trace ::error-view-throw-watch
         (fn [ev] (when (= :rf.error/ssr-ring-error-view-failed (:operation ev))
                    (swap! traces conj ev))))
       (let [handler  (ssr-ring/ssr-handler
@@ -537,7 +537,7 @@
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/broken" :request-method :get})
             body     (:body response)]
-        (rf/unregister-listener! ::error-view-throw-watch)
+        (rf/unregister-listener! :trace ::error-view-throw-watch)
         (is (= 500 (:status response)) "still a 500 — boundary holds")
         (is (str/includes? body "Something went wrong")
             "fell back to the default error template's public :message")
@@ -2059,14 +2059,14 @@
                             're-frame.ssr.ring.lifecycle/destroy-frame-quietly!)
           traces           (atom [])
           f                :rf.frame/test-destroy-throws]
-      (rf/register-listener! ::dfq (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dfq (fn [ev] (swap! traces conj ev)))
       (try
         (with-redefs [rf/destroy-frame!
                       (fn [_] (throw (ex-info "synthetic destroy failure"
                                               {:reason :test})))]
           (destroy-quietly! f))
         (finally
-          (rf/unregister-listener! ::dfq)))
+          (rf/unregister-listener! :trace ::dfq)))
 
       (let [hits (filterv #(= :rf.ssr/destroy-frame-failed (:operation %)) @traces)]
         (is (= 1 (count hits))
@@ -2105,7 +2105,7 @@
                           're-frame.ssr.ring.lifecycle/resolve-head)
           traces        (atom [])
           frame-id      :rf.frame/test-head-throws]
-      (rf/register-listener! ::rh
+      (rf/register-listener! :trace ::rh
                              (fn [ev]
                                (when (= :rf.error/ssr-head-resolution-failed
                                         (:operation ev))
@@ -2117,7 +2117,7 @@
                                                      {:reason :test})))]
                        (resolve-head! frame-id))
                      (finally
-                       (rf/unregister-listener! ::rh)))]
+                       (rf/unregister-listener! :trace ::rh)))]
         (testing "fallback shape preserved (rf2-h2ujj contract)"
           (is (= "" (:head-html result))
               "empty fragment so a buggy head fn can't take down the request")
@@ -2156,7 +2156,7 @@
                           're-frame.ssr.ring.lifecycle/resolve-head)
           traces        (atom [])
           frame-id      :rf.frame/test-head-ok]
-      (rf/register-listener! ::rh-ok
+      (rf/register-listener! :trace ::rh-ok
                              (fn [ev]
                                (when (= :rf.error/ssr-head-resolution-failed
                                         (:operation ev))
@@ -2169,7 +2169,7 @@
             (is (nil? (:html-attrs result)))
             (is (nil? (:body-attrs result)))))
         (finally
-          (rf/unregister-listener! ::rh-ok)))
+          (rf/unregister-listener! :trace ::rh-ok)))
       (is (zero? (count @traces))
           "success path must NOT emit the head-resolution-failed trace"))))
 
@@ -2236,7 +2236,7 @@
             degradation (Spec 011 §1070), enforced not incidental."
     (register-head-throwing-app!)
     (let [traces  (atom [])
-          _       (rf/register-listener! ::head-fail-watch
+          _       (rf/register-listener! :trace ::head-fail-watch
                     (fn [ev]
                       (when (= :rf.error/ssr-head-resolution-failed
                                (:operation ev))
@@ -2248,7 +2248,7 @@
           response (try
                      (handler {:uri "/head-throws" :request-method :get})
                      (finally
-                       (rf/unregister-listener! ::head-fail-watch)))]
+                       (rf/unregister-listener! :trace ::head-fail-watch)))]
       ;; THE PIN: a throwing head fn must NOT take down the request.
       ;; The default projector maps any projected :rf.error/* → 500;
       ;; were the head trace ever projected (a reorder regression),
@@ -2505,7 +2505,7 @@
   every fanned record; returns the seen-categories atom."
   []
   (let [seen (atom [])]
-    (rf/register-error-listener!
+    (rf/register-listener! :errors
       ::hhutya-wire-recorder
       (fn [record] (swap! seen conj (:error record))))
     seen))
