@@ -22,26 +22,29 @@
             [clojure.set :as set]
             [re-frame.image :as image]
             [re-frame.live-frame :as live-frame]
+            [re-frame.frame :as frame]
             [re-frame.image-assembly :as image-assembly]
             [re-frame.trace :as trace]
             [day8.re-frame2-xray.panels.image-view-reads :as reads]))
 
-;; Each case starts from a clean live-frame registry so an `:id` from one case
-;; never collides with the next (EP-0023 §Id Spaces — a frame id is unique in
-;; the process-local registry). The frame-no-emit gate (rf2-2qaqh) lives in a
-;; persistent `re-frame.trace` set that `clear-live-frames!` does NOT touch, so
-;; the seating cases also clear the shell ids they exercise so each starts
-;; un-gated.
+;; Each case starts from a clean frame registry so an `:id` from one case never
+;; carries over to the next. EP-0024 (rf2-tu2vr7): the registries collapsed —
+;; an image-loaded frame is a `re-frame.frame/frames` record carrying a
+;; `:generation`, so resetting `frame/frames` clears the image-loaded frames
+;; (`clear-live-frames!` is now a no-op kept for back-compat). The frame-no-emit
+;; gate (rf2-2qaqh) lives in a persistent `re-frame.trace` set the registry
+;; reset does NOT touch, so the seating cases also clear the shell ids they
+;; exercise so each starts un-gated.
 (def ^:private seat-test-frame-ids
   [:rf.xray/seat-a :rf.xray/seat-b :rf.xray/seat-c])
 
 (use-fixtures :each
   {:before (fn []
-             (live-frame/clear-live-frames!)
+             (reset! frame/frames {})
              (doseq [fid seat-test-frame-ids]
                (trace/set-frame-no-emit! fid false)))
    :after  (fn []
-             (live-frame/clear-live-frames!)
+             (reset! frame/frames {})
              (doseq [fid seat-test-frame-ids]
                (trace/set-frame-no-emit! fid false)))})
 
@@ -239,8 +242,8 @@
 (deftest resolve-descriptor-is-frame-derived
   (testing "resolving a [kind id] through a real frame's generation yields the
             frame's OWN descriptor (the frame-derived resolution path)"
-    (let [frame (live-frame/make-frame {:images [target-image]} target-pool)
-          gen   (:rf.frame/generation frame)
+    (let [fval (live-frame/make-frame {:images [target-image]} target-pool)
+          gen   (live-frame/frame-generation fval)
           desc  (reads/resolve-descriptor gen :event :counter/inc)]
       (is (= :counter/inc (:id desc)))
       (is (= "app.counter" (:rf.provenance/ns desc))
@@ -262,8 +265,8 @@
             Xray's OWN registrations (the frame runs Xray's image, not the shared
             registrar) — the true runtime dogfood"
     (let [obj (reads/seat-xray-frame! :rf.xray/seat-a xray-pool)
-          kids (reads/application-resolver-keyset (:rf.frame/generation obj))]
-      (is (some? obj) "a fresh seat returns the live frame object")
+          kids (reads/application-resolver-keyset (live-frame/frame-generation obj))]
+      (is (some? obj) "a fresh seat returns the live frame value")
       (is (= :rf.xray/seat-a (:rf.frame/id obj)) "registered under the shell id")
       (is (true? (reads/xray-frame-seated? :rf.xray/seat-a))
           "the frame is now live in the EP-0023 registry")

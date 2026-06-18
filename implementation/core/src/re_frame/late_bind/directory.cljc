@@ -1040,10 +1040,6 @@
     :producer-ns 're-frame.frame
     :design-bead "rf2-yueuvi"
     :description "EP-0013 realm-disposal counterpart of `:realm/frames-by-realm`. Destroys every frame OWNED by a realm — runs the full per-frame `destroy-frame!` recipe for each owned frame id (resolved from `frames-by-realm`, under `*current-realm*` bound to the realm so a non-default-realm frame is found by its `[realm-id frame-id]` address). `re-frame.realm/dispose-realm!` calls it FIRST (before its adapter + host-transient teardown) so disposing a realm ends its frames' lifecycle rather than leaving stale records addressable; routed late-bound because a static `realm` → `frame` require would cycle (`frame` requires `realm` for the record's default realm-id). No-op when the realm owns no frames."}
-   {:key         :live-frame/forget!
-    :producer-ns 're-frame.live-frame
-    :design-bead "rf2-32siq3.32"
-    :description "EP-0023 collapse slice 1: forget a destroyed frame's PUBLIC live-frame registry entry (the teardown counterpart of `rf/make-frame`'s registration). `re-frame.frame/destroy-frame!` invokes it from the frame's destroy boundary, keyed by the frame id; routed late-bound because `re-frame.live-frame` requires `re-frame.frame` (for the backing runnable record), so a static back-require would cycle. No-op for a frame id that never entered the live-frame registry (every EP-0013 realm-only frame, and a no-id direct object keyed under its own gensym runnable-id)."}
    {:key         :app-value/project
     :producer-ns 're-frame.app-value
     :design-bead "rf2-yozjzo"

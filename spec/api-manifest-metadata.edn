@@ -388,22 +388,27 @@
   ["re-frame.core" "reg-interceptor"]     {:tier :front-porch :owner "001" :status "EP-0022"}
   ["re-frame.core" "reg-interceptor*"]    {:tier :advanced    :owner "001" :status "EP-0022"}
   ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
-  ;; EP-0023 collapse FINALE (rf2-32siq3.48): `make-frame` is REPOINTED onto the
-  ;; runnable OBJECT constructor (`re-frame.live-frame/make-frame`) — it now
-  ;; RETURNS THE LIVE FRAME OBJECT in all cases, not a gensym keyword id. The
-  ;; migration slices (.45/.46/.47) moved every record caller off the
-  ;; keyword-returning contract first, so the flip is non-breaking for the public
-  ;; surface; the facade exports exactly one `make-frame`, the object one. Status
-  ;; `v1` -> `EP-0023` (the surface is now reshaped by the named EP).
-  ;; The EP-0013 RECORD constructor survives, demoted to the advanced
-  ;; `re-frame.frame/make-frame` (gensym id + the `:on-create` / `:fx-overrides`
-  ;; / `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` record-config surface);
-  ;; it is no longer facade-exported. A record-only config key on `rf/make-frame`
-  ;; fails loud `:rf.error/make-frame-record-only-key` (the rf2-32siq3.45
-  ;; never-silent-drop finding — option-(b) disposition: option-(a), extending
-  ;; the object constructor to honour record-config keys, would require editing
-  ;; `re-frame.live-frame`, owned by a concurrent slice).
-  ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "EP-0023"}
+  ;; EP-0024 (rf2-tu2vr7): `make-frame` is the ONE frame constructor over the ONE
+  ;; `frames` registry — it backs onto the unified `re-frame.live-frame/make-frame`,
+  ;; RETURNS THE FRAME VALUE (the lifecycle token), and accepts BOTH
+  ;; image-selection opts (`:images` / `:id` / `:initial-db` / `:capabilities` /
+  ;; `:adapter`) AND record-config opts (`:on-create` / `:fx-overrides` /
+  ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification) in one
+  ;; call. EP-0024 adopts the deferred option-(a) and REVERSES the rf2-32siq3.45
+  ;; option-(b) `:rf.error/make-frame-record-only-key` fail-loud redirect (the
+  ;; unified single frame value backed by the one registry removes the
+  ;; two-constructor split that motivated the redirect). A duplicate `:id` is now
+  ;; idempotent replacement (preserving durable state). The advanced
+  ;; `re-frame.frame/make-frame` is demoted to an INTERNAL no-`:id` record helper;
+  ;; it is not facade-exported. Status `EP-0023` -> `EP-0024`.
+  ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "EP-0024"}
+  ;; EP-0024 (rf2-tu2vr7): the single public accessor from a frame VALUE (the
+  ;; lifecycle token `make-frame` returns) to its frame id (EP-0024 Open Issue #2
+  ;; — "provide one accessor frame value → id; do not expose the representation").
+  ;; A frame-id keyword passes through unchanged. Tier `:advanced` (a frame-value
+  ;; helper, not a front-porch primitive); owned by 002 (Frames — the frame
+  ;; identity normative home).
+  ["re-frame.core" "frame-value->id"]     {:tier :advanced    :owner "002" :status "EP-0024"}
   ;; EP-0023 collapse slice 2 (rf2-32siq3.32): `reload-images!` is the public
   ;; `rf/reload-images!` — the frame-targeted, composition-REPLACING image hot
   ;; reload that swaps a frame's whole `:images` composition while PRESERVING

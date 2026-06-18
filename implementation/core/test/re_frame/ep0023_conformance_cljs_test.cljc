@@ -517,16 +517,24 @@
       (is (= ::inc (:handler-fn (asm/resolve-descriptor (lf/frame-generation frame)
                                                         :event :counter/inc)))))))
 
-(deftest s5-live-frame-id-conflict-fails-loud
-  (testing "EP-0023 §Id Spaces: two live frames may not both register the same
-            frame id — a duplicate is :rf.error/live-frame-id-conflict (NEVER a
-            silent clobber). Registration ids stay reusable across images."
+(deftest s5-duplicate-id-is-idempotent-replacement
+  (testing "EP-0024 §Duplicate id policy: re-make-frame-ing the same id is
+            IDEMPOTENT REPLACEMENT (hot-reload / Story-friendly) — config +
+            generation refresh while durable state is preserved; it does NOT
+            fail loud. Registration ids stay reusable across images."
     (let [pool [(reg-desc "examples.counter" :event :counter/inc ::inc)]
-          img  (rf/image {:include-ns ["examples.counter"]})]
-      (lf/make-frame {:id :counter/main :images [img]} pool)
-      (is (= :rf.error/live-frame-id-conflict
-             (err-id #(lf/make-frame {:id :counter/main :images [img]} pool))))
-      (testing "a no-id (direct) frame object bypasses the registry entirely"
+          img  (rf/image {:include-ns ["examples.counter"]})
+          f1   (lf/make-frame {:id :counter/main :images [img]} pool)]
+      ;; seed durable state, then re-make under the SAME id
+      (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
+      (let [db-before (rf/app-db-value :counter/main)
+            f2        (lf/make-frame {:id :counter/main :images [img]} pool)]
+        (is (lf/frame-object? f2) "re-make returns a frame value, no throw")
+        (is (= :counter/main (rf/frame-value->id f1) (rf/frame-value->id f2))
+            "both values route to the same id")
+        (is (= db-before (rf/app-db-value :counter/main))
+            "durable app-db is preserved across the idempotent re-make"))
+      (testing "a no-id (direct) frame value bypasses the public id space entirely"
         (is (lf/frame-object? (lf/make-frame {:images [img]} pool)))
         (is (lf/frame-object? (lf/make-frame {:images [img]} pool)))))))
 
@@ -817,26 +825,59 @@
           (realm/dispose-realm! :mig/a)
           (realm/dispose-realm! :mig/b))))))
 
-(deftest s8-make-frame-repointed-to-the-object-constructor
-  (testing "EP-0023 collapse FINALE (rf2-32siq3.48): rf/make-frame is REPOINTED
-            onto the OBJECT constructor — it returns the live frame OBJECT, not a
-            gensym keyword id. The dual-export window is CLOSED; the facade exports
-            exactly one make-frame. Built against an explicit descriptor pool (the
-            2-arity) so the repoint pin does not project the live store."
+(deftest s8-make-frame-is-the-one-constructor
+  (testing "EP-0024 §One constructor (rf2-tu2vr7): rf/make-frame is the ONE
+            public constructor — it returns the frame VALUE, not a gensym keyword
+            id, and the value routes to its id through rf/frame-value->id. Built
+            against an explicit descriptor pool (the 2-arity) so the pin does not
+            project the live store."
     (let [pool    [(reg-desc "examples.counter" :event :counter/inc ::inc)]
           img     (rf/image {:include-ns ["examples.counter"]})
-          created (rf/make-frame {:images [img]} pool)]
+          created (rf/make-frame {:id :counter/one :images [img]} pool)]
       (is (lf/frame-object? created)
-          "rf/make-frame returns the EP-0023 live frame OBJECT")
+          "rf/make-frame returns the frame VALUE")
       (is (not (keyword? created))
-          "it is NOT the EP-0013 keyword id anymore (the repoint happened)")
+          "it is NOT a bare keyword id (the value is the lifecycle token)")
+      (is (= :counter/one (rf/frame-value->id created))
+          "the single accessor reads the id from the value")
       (rf/destroy-frame! created))
-    (testing "a record-only config key fails loud rather than silently dropping —
-              the rf2-32siq3.45 never-silent-drop finding (option-b disposition)"
-      (is (= :rf.error/make-frame-record-only-key
-             (err-id #(rf/make-frame {:on-create [:noop]})))
-          ":on-create is the EP-0013 record surface — fail loud, redirect to
-           re-frame.frame/make-frame"))))
+    (testing "EP-0024 reverses the rf2-32siq3.45 option-(b) fail-loud redirect:
+              a record-config key is HONOURED in the same call (option-(a)), not
+              rejected with :rf.error/make-frame-record-only-key"
+      (let [img (rf/image {:include-ns ["examples.counter"]})
+            f   (rf/make-frame {:id :counter/cfg :images [img]
+                                :doc "configured" :preset :test}
+                               [(reg-desc "examples.counter" :event :counter/inc ::inc)])]
+        (is (lf/frame-object? f) "the record-config keys are accepted, no throw")
+        (is (= "configured" (:doc (rf/frame-meta :counter/cfg)))
+            "the :doc record-config key landed on the frame's config")
+        (rf/destroy-frame! f)))))
+
+(deftest s8-on-create-runs-after-generation-and-initial-db-installed
+  (testing "EP-0024 (rf2-tu2vr7) ordering: when make-frame is given :images +
+            :initial-db + :on-create in one call, the resolved generation AND the
+            seeded app-db are installed on the record BEFORE :on-create fires —
+            so the :on-create cascade resolves through the frame's image
+            generation and observes the seed, and its writes are NOT clobbered by
+            a later initial-db seed."
+    ;; A real event handler that reads the seeded db (proving the seed is live at
+    ;; :on-create time) and writes a key (proving the write survives — not
+    ;; clobbered by a post-on-create seed). No `:images` ⇒ an ordinary configured
+    ;; frame whose :on-create resolves via the shared registrar where the handler
+    ;; is registered; this pins the :initial-db-before-:on-create ordering (bug
+    ;; fix rf2-tu2vr7) without depending on default-image whole-store projection.
+    (rf/reg-event :ep0024.oc/init
+      (fn [{:keys [db]} _] {:db (assoc db :saw-seed (:seed db) :booted? true)}))
+    (let [f   (rf/make-frame {:id      :ep0024/oc-frame
+                              :initial-db {:seed 42}
+                              :on-create [:ep0024.oc/init]})
+          db  (rf/app-db-value :ep0024/oc-frame)]
+      (is (lf/frame-object? f))
+      (is (= 42 (:seed db))   "the :initial-db seed survives :on-create (not clobbered)")
+      (is (= 42 (:saw-seed db)) ":on-create OBSERVED the seeded app-db (seed installed first)")
+      (is (true? (:booted? db))
+          ":on-create's event resolved and ran")
+      (rf/destroy-frame! f))))
 
 ;; ===========================================================================
 ;; SECTION 9 — Framework-standard registry populated

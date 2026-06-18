@@ -412,7 +412,8 @@ the leak comparison — the assertion the .29 dogfooding review verifies.
 
 The EP-0023 sections are demand-gated like the realm dimension. EP-0023's
 public model is OPT-IN over the retained EP-0013 substrate: a process that
-never calls `rf/make-frame` with `:images` has an empty live-frame registry, so
+never calls `rf/make-frame` with `:images` has no image-loaded frames (no
+`frames` record carries a `:generation` — EP-0024, rf2-tu2vr7), so
 `project-image-view` reports `:images?` false and the FRAMES section renders
 the calm **no-image caption** (`image_view_helpers/no-images-caption`) naming
 the `rf/image` / `rf/make-frame` remedy — the honest *not-using-images-yet*
@@ -421,13 +422,15 @@ does not flip `:images?` (there is no image content to show).
 
 ### §8.3 Data sources & privacy
 
-- `:rf.xray/image-view` — the FRAMES/IMAGES composite; reads the EP-0023
-  live-frame registry (`re-frame.live-frame/live-frames`) + each frame's sealed
-  generation (`re-frame.image-assembly/resolve-descriptor`) at recompute time
-  via the fail-soft `image_view_reads` seam, and projects via the pure
-  `image_view_helpers/project-image-view`. **Read-only** — enumerating live
-  frames and reading sealed generations pins nothing and dispatches nothing (a
-  sealed generation is an immutable VALUE, not a routing path).
+- `:rf.xray/image-view` — the FRAMES/IMAGES composite; reads the image-loaded
+  frames (`re-frame.live-frame/image-view-frames` — the EP-0024 one-registry
+  read that projects each `frames` record carrying a `:generation` into an inert
+  frame view) + each frame's sealed generation
+  (`re-frame.image-assembly/resolve-descriptor`) at recompute time via the
+  fail-soft `image_view_reads` seam, and projects via the pure
+  `image_view_helpers/project-image-view`. **Read-only** — enumerating
+  image-loaded frames and reading sealed generations pins nothing and dispatches
+  nothing (a sealed generation is an immutable VALUE, not a routing path).
 - The surface carries frame/image **ids and structural descriptors** — frame
   ids, image ids, `[kind id]` pairs, provenance namespace strings / inline
   coordinates, and capability keywords. These are **structural descriptors**,
@@ -443,8 +446,9 @@ does not flip `:images?` (there is no image content to show).
   `provenance-summary` · `image-row-summary` · `no-images-caption`);
   JVM-testable.
 - `panels/image_view_reads.cljs` — the READ-TIME fail-soft live read seam
-  (`live-frames` · `resolve-descriptor` · `image-view-data`) over the EP-0023
-  core surfaces (`re-frame.live-frame` / `re-frame.image` /
+  (`live-frames` — now over `re-frame.live-frame/image-view-frames`, the EP-0024
+  one-registry read · `resolve-descriptor` · `image-view-data`) over the core
+  surfaces (`re-frame.live-frame` / `re-frame.image` /
   `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor +
   SEATING (`xray-image` · `xray-image-id` · `xray-source-glob` ·
   `xray-exclude-globs` · `resolver-keyset` · `application-resolver-keyset` ·
@@ -465,8 +469,11 @@ does not flip `:images?` (there is no image content to show).
   (EP-0023 §Xray Beside The Target): `rf/make-frame {:id frame-id :images
   [(xray-image)]}` (live-store + explicit-pool arities) +
   `re-frame.trace/set-frame-no-emit!` for the
-  trace gate, guarded by `xray-frame-seated?` (a live-frame registry probe) for
-  idempotency on re-seat. Xray may require these core
+  trace gate, guarded by `xray-frame-seated?` (an image-loaded-frame probe — the
+  frame's `frames` record carries a `:generation`) for idempotency on re-seat.
+  EP-0024 (rf2-tu2vr7): a duplicate `:id` is now idempotent replacement, so the
+  probe is a benign skip-optimisation rather than a fail-loud guard. Xray may
+  require these core
   namespaces directly — bundle isolation forbids `implementation/` requiring
   from `tools/`, not the reverse, the same pattern Xray uses for
   `re-frame.frame` / `re-frame.registrar` / `re-frame.trace`. (The read seam's
@@ -502,9 +509,11 @@ does not flip `:images?` (there is no image content to show).
   `host_registry.cljs` (the realm-targeted, generation-bypassing reads above);
   both node-test and the `routes-epochs` nightly xray-feature-gate are green with
   the flip. The runtime-reset test fixture
-  (`re-frame.test-support/make-reset-runtime-fixture`) clears the EP-0023
-  live-frame registry in lockstep with `frame/frames` (so a frame seated via
-  `make-frame {:id …}` in one test does not leak into the next).
+  (`re-frame.test-support/make-reset-runtime-fixture`) clears the ONE
+  `frame/frames` registry (EP-0024, rf2-tu2vr7 — the live-frame registry
+  dissolved into it; an image-loaded frame is a record carrying a `:generation`),
+  so a frame seated via `make-frame {:id …}` in one test does not leak into the
+  next.
 - `panels/module_view.cljs` — extended with the FRAMES section (`frame-row` ·
   `descriptor-rows` · `frames-section-body`) + the `:rf.xray/image-view` sub.
 - Tests: `panels/image_view_helpers_cljs_test.cljc` (the generation/image

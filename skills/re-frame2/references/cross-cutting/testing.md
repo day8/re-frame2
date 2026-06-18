@@ -52,9 +52,9 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
     (is (= ["SKU-1"] @(rf/subscribe frame [:cart/items])))))
 ```
 
-- **The frame is a direct object** (no `:id`) — born in the test, discarded with it, never entering the process-local frame-id registry. That is the EP-0023 direct-frame-object test pattern.
+- **The frame is a local frame value** (no `:id`) — born in the test, discarded with it, never claiming a public frame id. `make-frame` returns the frame value (the lifecycle token); a test passes it (or its id, via `rf/frame-value->id`) to `dispatch-sync` / `subscribe`. That is the direct-frame-value test pattern (EP-0024).
 - **Override behaviour through the image**, not a global install: an `rf/image` `:replace` / `:replace-standard` declares an exact winning descriptor (order never silently decides), so a swap is data the test states rather than last-writer-wins on a shared table.
-- **Until the object `make-frame` / `:images` facade lands**, keep ordinary single-frame tests on `make-reset-runtime-fixture` + `with-new-frame`; reach for the image shape above when a test must isolate *behaviour*, not just state.
+- For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`; reach for the image shape above when a test must isolate *behaviour*, not just state. A frame created with no `:images` is an ordinary configured frame (resolves against the shared registrar); pass `:images [...]` to isolate behaviour.
 
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 

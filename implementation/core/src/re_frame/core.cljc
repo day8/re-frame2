@@ -752,106 +752,66 @@
 
 ;; ---- frame management ----------------------------------------------------
 
-;; EP-0023 collapse FINALE (rf2-32siq3.48): `rf/make-frame` is REPOINTED onto the
-;; runnable OBJECT constructor (`re-frame.live-frame/make-frame`). The migration
-;; slices (rf2-32siq3.45/.46/.47) moved every record caller off the
-;; keyword-returning contract first, so the flip is non-breaking for the public
-;; surface; the facade exports exactly one make-frame, the object one. The
-;; EP-0013 RECORD constructor survives, demoted to the advanced
-;; `re-frame.frame/make-frame` (gensym id + the record-config surface —
-;; `:on-create` / `:fx-overrides` / `:platform` / `:ssr` / `:doc` / `:preset` /
-;; `:tags` / …); it is no longer facade-exported.
+;; EP-0024 (rf2-tu2vr7): `rf/make-frame` is the ONE public frame constructor.
+;; It backs onto `re-frame.live-frame/make-frame` — the unified constructor over
+;; the ONE `frames` registry — which accepts BOTH image-selection opts
+;; (`:images` / `:id` / `:initial-db` / `:capabilities` / `:adapter`) AND
+;; record-config opts (`:on-create` / `:fx-overrides` / `:platform` / `:ssr` /
+;; `:doc` / `:preset` / `:tags` / …) in ONE call, and returns the frame VALUE.
 ;;
-;; Record-config keys (the rf2-32siq3.45 finding — NEVER silent-drop): the
-;; object constructor honours only the EP-0023 frame-creation opts
-;; (`:images` / `:id` / `:initial-db` / `:capabilities` / `:adapter`). A
-;; record-only config key (e.g. `:on-create`, `:preset`, `:fx-overrides`) would
-;; be SILENTLY DROPPED by the object constructor, so the facade FAILS LOUD on any
-;; opt outside the EP-0023 set rather than accepting a config that does nothing —
-;; the diagnostic names the advanced `re-frame.frame/make-frame` for the record
-;; surface. This is the option-(b) disposition (fail-loud + redirect) per the
-;; bead: option-(a) (extend the object constructor to honour record-config keys)
-;; would require editing `re-frame.live-frame`, owned by a concurrent slice.
-(def ^{:private true
-       :doc "The EP-0023 frame-creation opt keys `rf/make-frame` (the object
-  constructor) accepts. Any other key in the opts map is a record-only config
-  key — fail loud + redirect to `re-frame.frame/make-frame`."}
-  make-frame-opt-keys
-  #{:images :id :initial-db :capabilities :adapter})
-
-(defn- assert-make-frame-opts!
-  "Fail loud (`:rf.error/make-frame-record-only-key`) when `opts` carries a key
-  outside the EP-0023 object-constructor set (`make-frame-opt-keys`). The
-  record-config keys (`:on-create` / `:fx-overrides` / `:platform` / `:ssr` /
-  `:doc` / `:preset` / `:tags` / …) are honoured ONLY by the advanced EP-0013
-  record constructor `re-frame.frame/make-frame`; the object constructor would
-  silently drop them, so the facade rejects them rather than accept a config
-  that does nothing (the rf2-32siq3.45 never-silent-drop finding). Returns
-  `opts` unchanged when every key is an EP-0023 opt."
-  [opts]
-  (let [extra (when (map? opts)
-                (not-empty (into #{} (remove make-frame-opt-keys) (keys opts))))]
-    (when extra
-      (error/throw-error!
-        :rf.error/make-frame-record-only-key
-        'rf/make-frame
-        (str "rf/make-frame: opt key(s) " (pr-str extra) " are not EP-0023 "
-             "make-frame opts. rf/make-frame is the EP-0023 OBJECT constructor — "
-             "it accepts only " (pr-str make-frame-opt-keys) " and returns the "
-             "live frame object. The record-config surface (:on-create, "
-             ":fx-overrides, :platform, :ssr, :doc, :preset, :tags, …) lives on "
-             "the advanced EP-0013 record constructor re-frame.frame/make-frame. "
-             "Seed frame state with :initial-db; reach the record surface via "
-             "re-frame.frame/make-frame if you genuinely need it.")
-        {:recovery :use-an-ep-0023-opt-or-the-advanced-record-constructor
-         :extra    {:offending-keys extra
-                    :ep-0023-opts   make-frame-opt-keys}})))
-  opts)
+;; EP-0024 adopts the previously-deferred option-(a) and REVERSES the
+;; rf2-32siq3.45 option-(b) fail-loud redirect (the
+;; `:rf.error/make-frame-record-only-key` guard that rejected record-config keys
+;; on the object constructor): the unified single frame value backed by the one
+;; registry removes the two-constructor split that motivated the redirect, so a
+;; record-config key is now honoured, not rejected. The advanced
+;; `re-frame.frame/make-frame` is demoted to an INTERNAL no-`:id` record helper —
+;; it is not facade-exported (`rf/make-frame` is the public path).
 
 (defn make-frame
-  "Create a live frame from one or more IMAGES and return the live frame OBJECT
-  (EP-0023 §Public API — \"`rf/make-frame` returns the live frame object in all
-  cases\"). The returned object is fully runnable: `dispatch` / `subscribe` /
-  `destroy-frame!` / `app-db-value` accept it (or its `:id`). Per Spec 002
-  §Per-instance frames + EP-0023 §Public API.
+  "Create a live frame and return the frame VALUE — the ONE public constructor
+  (EP-0024 §One constructor, Spec 002 §Per-instance frames). It accepts BOTH
+  image-selection options AND frame record-config options in one call.
 
-  `opts` is a map; the EP-0023 opt keys are:
+  `opts` is a map. The image-selection + value opts:
 
     :images        a VECTOR of image values (always a vector, even for a single
                    image). Resolved into one sealed image generation; a
                    non-vector fails loud (`:rf.error/make-frame-bad-images`).
-                   Optional — absent/`[]` runs the DEFAULT IMAGE.
-    :id            the frame id (optional). When supplied, the object is
-                   registered in the PROCESS-LOCAL live-frame registry under this
-                   id (a duplicate live id fails loud). When ABSENT, the frame is
-                   LOCAL-ONLY — keep the returned object and pass it to
-                   dispatch / subscribe / test helpers.
+                   Optional — absent ⇒ an ordinary configured frame on the shared
+                   registrar; `[]` runs the DEFAULT IMAGE.
+    :id            the frame id (optional). When supplied, the frame is registered
+                   under this id; re-`make-frame`-ing the same id is IDEMPOTENT
+                   REPLACEMENT (config + generation refresh, durable state
+                   preserved — hot-reload / Story-friendly, EP-0024 §Duplicate id
+                   policy). When ABSENT, the frame is LOCAL-ONLY — keep the
+                   returned value and pass it (or its id) to dispatch / subscribe
+                   / test helpers.
     :initial-db    the frame's initial app-db value (optional). Seeds the frame's
                    app-db partition so an immediate subscribe/read observes it.
-                   Seed frame STATE here — image is a behaviour concern.
     :capabilities  the host capability map the image's `:rf.image/requires` is
                    checked against (optional, fail-loud on a missing capability).
     :adapter       the active-substrate adapter binding/configuration (optional).
 
-  RECORD-CONFIG KEYS FAIL LOUD: this is the EP-0023 OBJECT constructor — it
-  accepts ONLY the keys above. A record-only config key (`:on-create`,
-  `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, …) would be
-  silently dropped, so it is rejected `:rf.error/make-frame-record-only-key`
-  (the rf2-32siq3.45 never-silent-drop finding). Seed frame state with
-  `:initial-db`; reach the advanced EP-0013 record constructor (gensym id +
-  record-config surface) via `re-frame.frame/make-frame` directly if you need it.
+  EVERY OTHER key is RECORD-CONFIG, honoured in the same call: `:on-create`,
+  `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, the EP-0015
+  classification keys, etc. So
+  `(rf/make-frame {:id :todo/left :images [todo-image] :fx-overrides {...}})`
+  configures the frame in one call (EP-0024 adopts option-(a) and reverses the
+  rf2-32siq3.45 option-(b) record-only-key fail-loud redirect).
 
-  EP-0023 collapse FINALE (rf2-32siq3.48): the facade repoint. Earlier slices
-  migrated every record caller off the keyword-returning contract; this flips
-  `rf/make-frame` onto the object constructor and retires the dual-export guard.
+  Returns the frame VALUE — the live lifecycle token (its representation is not
+  an app-facing data contract; read its id with `rf/frame-value->id`). The frame
+  is fully runnable: `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value`
+  accept the value OR its id. The public routing address is the frame id.
 
   Two arities mirror `re-frame.live-frame/make-frame`:
     (make-frame opts)             — resolve `:images` against the LIVE source store.
     (make-frame opts descriptors) — resolve against an explicit descriptor pool
                                     (tests / harnesses / a pre-snapshotted store)."
   {:arglists '([opts] [opts descriptors])}
-  ([opts]             (live-frame/make-frame (assert-make-frame-opts! opts)))
-  ([opts descriptors] (live-frame/make-frame (assert-make-frame-opts! opts) descriptors)))
+  ([opts]             (live-frame/make-frame opts))
+  ([opts descriptors] (live-frame/make-frame opts descriptors)))
 
 (def ^{:doc "Hot-reload ONE frame's whole image composition, PRESERVING FRAME
   MEMORY (EP-0023 §Hot Reload / §Public API). `target` is EITHER a frame id
@@ -882,6 +842,14 @@
   machines, schemas, SSR, epoch), clears the sub-cache, and removes the
   frame from the registry. Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! frame/destroy-frame!)
+
+(def ^{:doc "The single public accessor from a frame VALUE (the lifecycle token
+  `rf/make-frame` returns) to its frame id (EP-0024, rf2-tu2vr7). Returns the
+  frame id the value routes to; a frame-id keyword passes through unchanged, so a
+  caller can always pass a value or an id. The frame value's representation is
+  not an app-facing data contract — read the id through this accessor. Per Spec
+  002 §Frame value and EP-0024 Operation target grammar."}
+  frame-value->id frame/frame-value->id)
 
 ;; ---- flows / schemas — façade boundary (rf2-wad2fl) ----------------------
 ;;
