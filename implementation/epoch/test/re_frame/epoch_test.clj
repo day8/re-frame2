@@ -4250,7 +4250,7 @@
     (rf/configure! {:epoch-history {:depth 7}})
     (rf/configure! {:epoch-history {:depth "five"}})
     (is (= 7 (:depth (epoch/current-config)))
-        ":depth non-numeric silently dropped"))})
+        ":depth non-numeric silently dropped")))
 
 (deftest configure-rejects-negative-depth
   (testing "(rf/configure! {:epoch-history {:depth -1}}) is a no-op"
