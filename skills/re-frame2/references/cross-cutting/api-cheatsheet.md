@@ -67,21 +67,22 @@ The public multi-frame model is `image -> frame -> event stream`: an image is th
 
 Object `make-frame` (returns the live frame object, accepts `:images`) and frame-targeted `reload-images!` are the in-progress facade wave (implementation in `re-frame.live-frame`); today the facade still exports the EP-0013 record `make-frame`. Construct image *values* with `rf/image`; create callable frames with `reg-frame` + `frame-provider` (see [`../fundamentals/frames.md`](../fundamentals/frames.md)).
 
-## EP-0013 → EP-0023 migration surface (`re-frame.core`)
+## EP-0013 → EP-0023: the retired composition surface
 
-EP-0023 supersedes EP-0013's public app/realm vocabulary; the realm machinery is **retained internally** as the installation substrate. These surfaces are **migration-only / internal**, not the taught public model — target a frame instead.
+EP-0023 supersedes EP-0013's public app/realm vocabulary. The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`). The EP-0013 app/realm construction/install/query family is **NOT on the `re-frame.core` facade** — the realm machinery is retained only as the **internal installation substrate** (the `re-frame.realm` / `re-frame.app-value` namespaces, used by SSR routing and tooling that requires them directly). Do not reach for these as public APIs; use the image/frame replacement.
 
-| Surface | Disposition / shape |
+| Retired EP-0013 surface | Public EP-0023 replacement |
 |---|---|
-| `rf/migration-map` | `{surface-kw {:status … :replacement … :guidance …}}` — the EP-0013→EP-0023 dispositions as inspectable data |
-| `rf/migration-explain` | `(surface-kw)` → one-line migration guidance for an EP-0013 public name, or nil |
-| `rf/assert-process-local-frame-id!` | `(frame-id)` / `(frame-id target-realm)` → fail-loud `:rf.error/cross-realm-frame-id` when a frame id is already live in another realm (the EP-0023 process-local frame-id break) |
-| `rf/app` / `rf/module` | EP-0013 app/module composition — **publicly replaced** by `rf/image` (app) / image fragment (module). Retained for migration. |
-| `rf/install!` / `rf/reinstall!` / `rf/installed-app` | EP-0013 realm install/hot-reload/inspect — **retained internal**; the public path is `make-frame` `:images` / `reload-images!` / inspect a frame's resolved image generation |
-| `rf/realm` / `rf/dispose-realm!` / `rf/realm-ids` / `rf/frame-realm` | EP-0013 realm container + `(realm, frame)` address — **retained internal**; target a frame (frame id, or direct frame object for tests) |
-| `rf/app-registrations` / `rf/app-requires` / `rf/app-owns` | EP-0013 app-value static queries — retained for migration/tooling |
+| `rf/app` (app value) | `rf/image` — construct an image and supply it via `:images` |
+| `rf/module` (module descriptor) | an image fragment — register ordinary `reg-*` forms; an `rf/image` selects them by `:include-ns` provenance glob |
+| `rf/install!` / `rf/reinstall!` | `rf/make-frame` with `:images` / `rf/reload-images!` against a frame target |
+| `rf/installed-app` | inspect a frame's resolved image generation |
+| `rf/realm` / `rf/dispose-realm!` | target a frame (frame id, or a direct frame object for tests); `rf/make-frame` / `rf/destroy-frame!` are the lifecycle pair |
+| `rf/realm-ids` / `rf/frame-realm` | the public address is the frame id (`rf/frame-ids`); the installation boundary is internal substrate (read `re-frame.realm` directly only when tooling truly needs it) |
+| `rf/app-registrations` / `rf/app-requires` / `rf/app-owns` | inspect a frame's resolved image generation |
+| `(realm, frame)` two-part address | a single frame target |
 
-The realm-targeted **map-shaped** registrar queries (`(rf/registrations {:realm r :kind k})`, `(rf/handler-meta {:realm r :kind k :id id})`, `(rf/handler-ids {:realm r :kind k})`) are a retained tooling/migration surface over the internal realm registrar; the public model resolves lookups through the target frame's image generation. The keyword arities (`(rf/registrations :event)`) are byte-identical to the default form — a single-frame caller never spells a realm.
+The EP-0013 realm-targeted **map-shaped** registrar queries (`(rf/registrations {:realm r …})`, etc.) are likewise not part of the public model — public registrar queries resolve through the target frame; a single-frame caller never spells a container.
 
 ## Routing — `day8/re-frame2-routing`
 

@@ -94,7 +94,7 @@ Now attach it where the event is registered — the metadata map's `:interceptor
     {:db (update db :cart/items conj item)}))
 ```
 
-That split — register once, reference by id everywhere — is the whole shape. The handler's chain is plain data: a vector of keywords you can serialize, diff, and store in an app value. Drop an inline interceptor map into a public chain and the runtime rejects it (`:rf.error/inline-interceptor-removed`); the fix is always to register the behaviour and reference it. And because the chain stores a *reference*, re-registering `:my-app/logger` with new behaviour takes effect on the next dispatch — you don't re-register the event just because an interceptor's implementation changed.
+That split — register once, reference by id everywhere — is the whole shape. The handler's chain is plain data: a vector of keywords you can serialize, diff, and carry in an image. Drop an inline interceptor map into a public chain and the runtime rejects it (`:rf.error/inline-interceptor-removed`); the fix is always to register the behaviour and reference it. And because the chain stores a *reference*, re-registering `:my-app/logger` with new behaviour takes effect on the next dispatch — you don't re-register the event just because an interceptor's implementation changed.
 
 Dispatch `[:cart.item/add ...]` and the console shows the trip in and the timed trip out. Now open Xray and focus the event's epoch: the pipeline lists your chain by `:id` with a jump-to-source link, and the after-interceptors stage shows the way out. (In a real app the [trace wire](observability.md) already records every event with timings — this logger is the teaching shape.)
 

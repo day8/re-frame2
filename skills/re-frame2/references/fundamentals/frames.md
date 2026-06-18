@@ -200,20 +200,20 @@ You almost certainly do not need to name an image. The two facts an author shoul
 
 EP-0013's **realm** (the container that owns the registrar table, the installed adapter, runtime capabilities, and the frame registry) is **retained as the internal installation substrate** — it is no longer the beginner-facing public architecture. Under EP-0023 you target a **frame** (a process-local frame id in mounted code, or a direct frame object in tests); the frame determines the image generation used for registration resolution. The old `(realm, frame)` two-part address collapses to one public frame target.
 
-The EP-0013 public names are now **migration-only / internal** — superseded by the image vocabulary:
+The EP-0013 public names are **removed from the `re-frame.core` facade** — superseded by the image vocabulary. The realm machinery survives only as the internal installation substrate (`re-frame.realm` / `re-frame.app-value`), not a public surface:
 
 | EP-0013 surface | EP-0023 disposition | Use instead |
 |---|---|---|
 | `rf/app` (app value) | publicly replaced | `rf/image` — construct an image and supply it via `:images` instead of composing modules into an app value |
 | `rf/module` (module descriptor) | re-expressed | image fragment — a feature ns registers ordinary `reg-*` forms; an `rf/image` selects them by `:include-ns` provenance glob |
-| `rf/realm` (runtime-realm container) | retained internal | target a **frame** (frame id, or direct frame object for tests) |
-| `rf/install!` / `rf/reinstall!` | retained internal | `make-frame` with `:images` / `reload-images!` against a frame target |
-| `rf/installed-app` | retained internal | inspect a frame's resolved image generation |
+| `rf/realm` / `rf/dispose-realm!` | retained-internal substrate (off facade) | target a **frame**; `rf/make-frame` / `rf/destroy-frame!` are the lifecycle pair |
+| `rf/install!` / `rf/reinstall!` | retained-internal substrate (off facade) | `rf/make-frame` with `:images` / `rf/reload-images!` against a frame target |
+| `rf/installed-app` / `rf/realm-ids` / `rf/frame-realm` | retained-internal substrate (off facade) | inspect a frame's resolved image generation; the public address is the frame id |
 | `(realm, frame)` address | publicly replaced | a single frame target |
 
-The framework ships these dispositions as **inspectable data**: `rf/migration-map` (`{surface-kw {:status … :replacement … :guidance …}}`) and `rf/migration-explain` (one-line guidance for an EP-0013 surface keyword). When more than one realm exists, realms are carried, never ambient — the same EP-0002 rule, one level up: a frame is registered into a realm and an operation runs under that frame's scope; absence fails loud (the no-frame-context family), never selects a realm. A single-product SPA never reaches for any of this.
+When more than one installation container exists, the runtime carries it internally, never ambient — the same EP-0002 rule, one level up: a frame is seated in a container and an operation runs under that frame's scope; absence fails loud (the no-frame-context family). A single-product SPA never reaches for any of this — it just targets its one frame.
 
-One hardening break to know: EP-0023's process-local frame-id space is stricter than EP-0013's `(realm, frame)` addressing, which let the same public frame id coexist in two realms. A codebase migrating off that address calls `rf/assert-process-local-frame-id!` to surface — with an actionable `:rf.error/cross-realm-frame-id` — a frame id already live in another realm; the fix is distinct frame ids, or a direct frame object kept in local scope.
+One hardening break to know: EP-0023's process-local frame-id space is stricter than EP-0013's internal `(realm, frame)` addressing, which let the same frame id coexist in two containers. A codebase migrating off that addressing must give its live frames distinct public ids — a frame id already live in another container surfaces as `:rf.error/cross-realm-frame-id`; the fix is distinct frame ids, or a direct frame object kept in local scope.
 
 ## Deeper material
 
