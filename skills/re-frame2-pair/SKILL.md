@@ -47,6 +47,15 @@ allowed-tools:
   # validated read of a single subscription's current value.
   - mcp__re-frame2-pair__orient
   - mcp__re-frame2-pair__read-sub
+  # Frame image-generation read (EP-0023 Use-Case 7) — one
+  # round-trip "what behaviour does THIS frame run, and where did each
+  # piece come from?" over the public `rf/frame-generation` read. Reports
+  # the composed image ids, registrar kinds, declared capability requires,
+  # and per-kind selected-registration counts; `:include-ns true` adds the
+  # per-(kind, id) provenance coordinate. Read-only; frame resolution
+  # mirrors every read op (operating frame default, `:ambiguous-frame` on
+  # an unselected multi-frame session).
+  - mcp__re-frame2-pair__describe-image
   # Operating-frame ops — read/set/reset the session's
   # default operating frame for the multi-frame model (Spec 002). See
   # the "Multi-frame model — set the operating frame" section below.

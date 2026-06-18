@@ -192,6 +192,7 @@ MAPPINGS: list[Mapping] = [
             # `discover-app`. This skill operates on a transcript / recap;
             # all live-operation tools belong to the re-frame2-pair skill.
             "orient",
+            "describe-image",
             "eval-cljs",
             "dispatch",
             "dispatch-dry-run",
