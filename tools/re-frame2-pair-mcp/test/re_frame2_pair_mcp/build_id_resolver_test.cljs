@@ -172,21 +172,21 @@
   (async done
     (let [conn      (fresh-conn)
           orig-cljs nrepl/cljs-eval-value
-          orig-jvm  nrepl/jvm-eval]
-      ;; Marker probe false (so the ladder runs); JVM reachable; the build
-      ;; the operator targeted (:genuinely-absent) is NOT in active-builds.
-      (set! nrepl/cljs-eval-value
-            (fn ([_ _ _] (js/Promise.resolve false))
-              ([_ _ _ _] (js/Promise.resolve false))))
-      (set! nrepl/jvm-eval
-            (fn ([_ form] (js/Promise.resolve
-                            (if (re-find #"active-builds" form)
-                              {:value "[:examples/machine-epochs]"}
-                              {:value "1"})))
-              ([_ form _] (js/Promise.resolve
-                            (if (re-find #"active-builds" form)
-                              {:value "[:examples/machine-epochs]"}
-                              {:value "1"})))))
+          orig-jvm  nrepl/jvm-eval
+          ;; Marker probe false (so the ladder runs); JVM reachable; the build
+          ;; the operator targeted (:genuinely-absent) is NOT in active-builds.
+          cljs-stub (fn ([_ _ _] (js/Promise.resolve false))
+                      ([_ _ _ _] (js/Promise.resolve false)))
+          jvm-stub  (fn ([_ form] (js/Promise.resolve
+                                    (if (re-find #"active-builds" form)
+                                      {:value "[:examples/machine-epochs]"}
+                                      {:value "1"})))
+                      ([_ form _] (js/Promise.resolve
+                                    (if (re-find #"active-builds" form)
+                                      {:value "[:examples/machine-epochs]"}
+                                      {:value "1"}))))]
+      (set! nrepl/cljs-eval-value cljs-stub)
+      (set! nrepl/jvm-eval jvm-stub)
       (-> (probe/ensure-runtime! conn :genuinely-absent)
           (.then (fn [_] (is false "must reject for a non-running build")))
           (.catch (fn [err]
@@ -203,8 +203,8 @@
                                              (tu/args->js {:build (first (:running-builds-arg-forms data))})))
                           "the listed form pastes straight back into :build"))))
           (.finally (fn []
-                      (set! nrepl/cljs-eval-value orig-cljs)
-                      (set! nrepl/jvm-eval orig-jvm)))
+                      (tu/restore-eval! cljs-stub orig-cljs)
+                      (tu/restore-jvm-eval! jvm-stub orig-jvm)))
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------

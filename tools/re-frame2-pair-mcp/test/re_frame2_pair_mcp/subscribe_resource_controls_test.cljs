@@ -22,6 +22,7 @@
   queue-cap tests + the rf2-3ijbl bead's manual smoke."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.resource-controls :as resource]
             [re-frame2-pair-mcp.tools.subscribe :as sub]))
 
@@ -191,12 +192,12 @@
                         (swap! evald conj form)
                         (js/Promise.resolve {:ok? true :sub-id "sub-ok"
                                              :events [] :gone? false}))
+          eval-stub   (fn ([_c _b form] (record-eval form))
+                        ([_c _b form _o] (record-eval form)))
           restore!    (fn []
-                        (set! nrepl/cljs-eval-value orig-eval)
+                        (tu/restore-eval! eval-stub orig-eval)
                         (set! js/setTimeout orig-set-to))]
-      (set! nrepl/cljs-eval-value
-            (fn ([_c _b form] (record-eval form))
-              ([_c _b form _o] (record-eval form))))
+      (set! nrepl/cljs-eval-value eval-stub)
       (set! js/setTimeout (fn [& _] 0))
       (resource/reset-for-tests!) ; fresh bucket at default cap — first check passes
       (let [{:keys [poll]}

@@ -33,7 +33,8 @@
   LAST `:results` entry (itself an EDN-encoded string), and reads THAT
   to get the value. Two EDN reads, nested."
   (:require [cljs.test :refer-macros [deftest is async]]
-            [re-frame2-pair-mcp.nrepl :as nrepl]))
+            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]))
 
 ;; ---------------------------------------------------------------------------
 ;; Seam — stub the lower-level `cljs-eval` so the real `cljs-eval-value`
@@ -55,7 +56,7 @@
     (set! nrepl/cljs-eval stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval orig))))))
+        (.finally (fn [] (tu/restore-cljs-eval! stub orig))))))
 
 (defn- fresh-conn [] (nrepl/make-conn 0 "127.0.0.1"))
 

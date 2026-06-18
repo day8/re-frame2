@@ -55,7 +55,7 @@
     (raw-state/reset-runtime-signal-cache!)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (defn- dispatch-form
   "The recorded form that mentions the runtime `dispatch-dry-run` call."

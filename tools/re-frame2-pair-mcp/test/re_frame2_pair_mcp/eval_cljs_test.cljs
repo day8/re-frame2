@@ -88,8 +88,8 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
-                    (set! nrepl/jvm-eval orig-jvm)
-                    (set! nrepl/cljs-eval-value orig-cljs))))))
+                    (tu/restore-jvm-eval! jvm-stub orig-jvm)
+                    (tu/restore-eval! cljs-stub orig-cljs))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fail-loud — the headline regression (rf2-ivlb3).
@@ -405,12 +405,12 @@
                          "structured compile-error reason surfaces to the agent")
                      (is (re-find #"undeclared Var re-frame.core/frame-db" (:err edn))
                          "the analyzer warning text is carried through to the agent"))
-                   (set! nrepl/jvm-eval orig-jvm)
-                   (set! nrepl/cljs-eval orig-cljs)
+                   (tu/restore-jvm-eval! jvm-stub orig-jvm)
+                   (tu/restore-cljs-eval! cljs-stub orig-cljs)
                    (done))
                  (fn [e]
-                   (set! nrepl/jvm-eval orig-jvm)
-                   (set! nrepl/cljs-eval orig-cljs)
+                   (tu/restore-jvm-eval! jvm-stub orig-jvm)
+                   (tu/restore-cljs-eval! cljs-stub orig-cljs)
                    (is false (str "tool promise rejected: " e))
                    (done)))))))
 
@@ -509,8 +509,8 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
-                    (set! nrepl/jvm-eval orig-jvm)
-                    (set! nrepl/cljs-eval-value orig-cljs))))))
+                    (tu/restore-jvm-eval! jvm-stub orig-jvm)
+                    (tu/restore-eval! cljs-stub orig-cljs))))))
 
 (deftest await-direct-passthrough
   ;; :await true on a form that returns a non-thenable: the wrapper's
@@ -614,19 +614,19 @@
   (async done
     (let [forms-seen (atom [])
           orig-cljs  nrepl/cljs-eval-value
-          orig-jvm   nrepl/jvm-eval]
-      (set! nrepl/jvm-eval
-            (fn
-              ([_ _] (js/Promise.resolve {:value "[:app]"}))
-              ([_ _ _] (js/Promise.resolve {:value "[:app]"}))))
-      (set! nrepl/cljs-eval-value
-            (fn
-              ([_conn _build form-str]
-               (swap! forms-seen conj form-str)
-               (js/Promise.resolve (if (sentinel-probe? form-str) true 99)))
-              ([_conn _build form-str _opts]
-               (swap! forms-seen conj form-str)
-               (js/Promise.resolve (if (sentinel-probe? form-str) true 99)))))
+          orig-jvm   nrepl/jvm-eval
+          jvm-stub   (fn
+                       ([_ _] (js/Promise.resolve {:value "[:app]"}))
+                       ([_ _ _] (js/Promise.resolve {:value "[:app]"})))
+          cljs-stub  (fn
+                       ([_conn _build form-str]
+                        (swap! forms-seen conj form-str)
+                        (js/Promise.resolve (if (sentinel-probe? form-str) true 99)))
+                       ([_conn _build form-str _opts]
+                        (swap! forms-seen conj form-str)
+                        (js/Promise.resolve (if (sentinel-probe? form-str) true 99))))]
+      (set! nrepl/jvm-eval jvm-stub)
+      (set! nrepl/cljs-eval-value cljs-stub)
       (-> (eval-cljs/eval-cljs-tool (fresh-conn)
                                     #js {:form "(+ 90 9)" :build "app"})
           (.then (fn [r]
@@ -636,8 +636,8 @@
                      (is (= 99 (:value edn))))
                    (is (not-any? await-wrap-form? @forms-seen)
                        "default :await false MUST NOT emit the await wrapper")
-                   (set! nrepl/cljs-eval-value orig-cljs)
-                   (set! nrepl/jvm-eval orig-jvm)
+                   (tu/restore-eval! cljs-stub orig-cljs)
+                   (tu/restore-jvm-eval! jvm-stub orig-jvm)
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -671,8 +671,8 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
-                    (set! nrepl/jvm-eval orig-jvm)
-                    (set! nrepl/cljs-eval-value orig-cljs))))))
+                    (tu/restore-jvm-eval! jvm-stub orig-jvm)
+                    (tu/restore-eval! cljs-stub orig-cljs))))))
 
 (deftest frame-arg-wraps-form-in-with-frame
   ;; The headline rf2-ntuzf assertion: with :frame :rf/xray the user
@@ -759,27 +759,27 @@
   (async done
     (let [forms     (atom [])
           orig-jvm  nrepl/jvm-eval
-          orig-cljs nrepl/cljs-eval-value]
-      (set! nrepl/jvm-eval
-            (fn
-              ([_ _] (js/Promise.resolve {:value "[:app]"}))
-              ([_ _ _] (js/Promise.resolve {:value "[:app]"}))))
-      (set! nrepl/cljs-eval-value
-            (fn
-              ([_conn _build form-str]
-               (swap! forms conj form-str)
-               (js/Promise.resolve
-                 (cond
-                   (sentinel-probe? form-str)    true
-                   (await-wrap-form? form-str)   {:rf.mcp/await-direct 7}
-                   :else                          nil)))
-              ([_conn _build form-str _opts]
-               (swap! forms conj form-str)
-               (js/Promise.resolve
-                 (cond
-                   (sentinel-probe? form-str)    true
-                   (await-wrap-form? form-str)   {:rf.mcp/await-direct 7}
-                   :else                          nil)))))
+          orig-cljs nrepl/cljs-eval-value
+          jvm-stub  (fn
+                      ([_ _] (js/Promise.resolve {:value "[:app]"}))
+                      ([_ _ _] (js/Promise.resolve {:value "[:app]"})))
+          cljs-stub (fn
+                      ([_conn _build form-str]
+                       (swap! forms conj form-str)
+                       (js/Promise.resolve
+                         (cond
+                           (sentinel-probe? form-str)    true
+                           (await-wrap-form? form-str)   {:rf.mcp/await-direct 7}
+                           :else                          nil)))
+                      ([_conn _build form-str _opts]
+                       (swap! forms conj form-str)
+                       (js/Promise.resolve
+                         (cond
+                           (sentinel-probe? form-str)    true
+                           (await-wrap-form? form-str)   {:rf.mcp/await-direct 7}
+                           :else                          nil))))]
+      (set! nrepl/jvm-eval jvm-stub)
+      (set! nrepl/cljs-eval-value cljs-stub)
       (-> (eval-cljs/eval-cljs-tool
             (fresh-conn)
             #js {:form "(+ 3 4)" :await true :frame ":rf/xray" :build "app"})
@@ -793,8 +793,8 @@
                      (is (re-find #"with-frame :rf/xray" wrap)
                          "with-frame wraps the await wrapper too — both
                           surfaces appear in the same emitted form"))
-                   (set! nrepl/cljs-eval-value orig-cljs)
-                   (set! nrepl/jvm-eval orig-jvm)
+                   (tu/restore-eval! cljs-stub orig-cljs)
+                   (tu/restore-jvm-eval! jvm-stub orig-jvm)
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

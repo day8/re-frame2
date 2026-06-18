@@ -68,15 +68,16 @@
         orig-port     probe/resolve-build-by-port
         orig-eval     nrepl/cljs-eval-value
         orig-jvm      nrepl/jvm-eval
-        orig-get-path get-path/get-path-tool]
+        orig-get-path get-path/get-path-tool
+        eval-stub     (fn ([_c _b _f] (js/Promise.resolve healthy-health))
+                        ([_c _b _f _o] (js/Promise.resolve healthy-health)))
+        jvm-stub      (fn [& _] (js/Promise.resolve {:value ""}))]
     ;; Pre-probe so runtime-preloaded? short-circuits without a round-trip.
     (swap! conn update :probed-builds conj running-build)
     (set! probe/running-builds (fn [_] (js/Promise.resolve [running-build])))
     (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve running-build)))
-    (set! nrepl/cljs-eval-value
-          (fn ([_c _b _f] (js/Promise.resolve healthy-health))
-              ([_c _b _f _o] (js/Promise.resolve healthy-health))))
-    (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value ""})))
+    (set! nrepl/cljs-eval-value eval-stub)
+    (set! nrepl/jvm-eval jvm-stub)
     ;; The probe of the second call: capture what build the no-`build`
     ;; get-path resolved. (get-path's real body reads wire/arg-build conn
     ;; raw-args — we read it the same way the body would.)
@@ -93,8 +94,8 @@
         (.finally (fn []
                     (set! probe/running-builds orig-running)
                     (set! probe/resolve-build-by-port orig-port)
-                    (set! nrepl/cljs-eval-value orig-eval)
-                    (set! nrepl/jvm-eval orig-jvm)
+                    (tu/restore-eval! eval-stub orig-eval)
+                    (tu/restore-jvm-eval! jvm-stub orig-jvm)
                     (set! get-path/get-path-tool orig-get-path))))))
 
 ;; ---------------------------------------------------------------------------
@@ -143,15 +144,16 @@
           orig-running  probe/running-builds
           orig-port     probe/resolve-build-by-port
           orig-get-path get-path/get-path-tool
-          captured      (atom nil)]
+          captured      (atom nil)
+          eval-stub     (fn ([_c _b _f] (js/Promise.resolve healthy-health))
+                          ([_c _b _f _o] (js/Promise.resolve healthy-health)))
+          jvm-stub      (fn [& _] (js/Promise.resolve {:value ""}))]
       (swap! conn update :probed-builds conj :examples/machine-epochs)
       (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve :examples/machine-epochs)))
       (set! probe/running-builds
             (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
-      (set! nrepl/cljs-eval-value
-            (fn ([_c _b _f] (js/Promise.resolve healthy-health))
-                ([_c _b _f _o] (js/Promise.resolve healthy-health))))
-      (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value ""})))
+      (set! nrepl/cljs-eval-value eval-stub)
+      (set! nrepl/jvm-eval jvm-stub)
       (set! get-path/get-path-tool
             (fn [c args]
               (reset! captured (wire/arg-build c args))
@@ -176,8 +178,8 @@
                    (is (= :examples/standard-epochs @captured)
                        "subsequent no-build call inherits the updated sticky default")))
           (.finally (fn []
-                      (set! nrepl/cljs-eval-value orig-eval)
-                      (set! nrepl/jvm-eval orig-jvm)
+                      (tu/restore-eval! eval-stub orig-eval)
+                      (tu/restore-jvm-eval! jvm-stub orig-jvm)
                       (set! probe/running-builds orig-running)
                       (set! probe/resolve-build-by-port orig-port)
                       (set! get-path/get-path-tool orig-get-path)))

@@ -39,26 +39,26 @@
   ;; side and returns a keyword; the helper reads it back as EDN.
   (async done
     (let [conn (fresh-conn)
-          orig nrepl/jvm-eval]
-      (set! nrepl/jvm-eval
-            (fn
-              ([_c form] (js/Promise.resolve
-                           ;; sanity: the form references the port + the
-                           ;; :dev-http / :output-dir matcher.
-                           (if (and (re-find #"8031" form)
-                                    (re-find #":dev-http" form)
-                                    (re-find #":output-dir" form))
-                             {:value ":examples/step-deck"}
-                             {:value "nil"})))
-              ([_c form _o] (js/Promise.resolve
-                              (if (re-find #"8031" form)
+          orig nrepl/jvm-eval
+          stub (fn
+                 ([_c form] (js/Promise.resolve
+                              ;; sanity: the form references the port + the
+                              ;; :dev-http / :output-dir matcher.
+                              (if (and (re-find #"8031" form)
+                                       (re-find #":dev-http" form)
+                                       (re-find #":output-dir" form))
                                 {:value ":examples/step-deck"}
-                                {:value "nil"})))))
+                                {:value "nil"})))
+                 ([_c form _o] (js/Promise.resolve
+                                 (if (re-find #"8031" form)
+                                   {:value ":examples/step-deck"}
+                                   {:value "nil"}))))]
+      (set! nrepl/jvm-eval stub)
       (-> (probe/resolve-build-by-port conn 8031)
           (.then (fn [bid]
                    (is (= :examples/step-deck bid)
                        "resolves the build serving port 8031")))
-          (.finally (fn [] (set! nrepl/jvm-eval orig)))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
 
 (deftest resolve-build-by-port-nil-on-no-match
@@ -66,11 +66,12 @@
   ;; caller turns that into :port-unresolved).
   (async done
     (let [conn (fresh-conn)
-          orig nrepl/jvm-eval]
-      (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value "nil"})))
+          orig nrepl/jvm-eval
+          stub (fn [& _] (js/Promise.resolve {:value "nil"}))]
+      (set! nrepl/jvm-eval stub)
       (-> (probe/resolve-build-by-port conn 9999)
           (.then (fn [bid] (is (nil? bid))))
-          (.finally (fn [] (set! nrepl/jvm-eval orig)))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
 
 (deftest resolve-build-by-port-coerces-string-port
@@ -78,17 +79,17 @@
   (async done
     (let [conn (fresh-conn)
           orig nrepl/jvm-eval
-          seen (atom nil)]
-      (set! nrepl/jvm-eval
-            (fn
-              ([_c form] (reset! seen form) (js/Promise.resolve {:value ":examples/step-deck"}))
-              ([_c form _o] (reset! seen form) (js/Promise.resolve {:value ":examples/step-deck"}))))
+          seen (atom nil)
+          stub (fn
+                 ([_c form] (reset! seen form) (js/Promise.resolve {:value ":examples/step-deck"}))
+                 ([_c form _o] (reset! seen form) (js/Promise.resolve {:value ":examples/step-deck"})))]
+      (set! nrepl/jvm-eval stub)
       (-> (probe/resolve-build-by-port conn "8031")
           (.then (fn [bid]
                    (is (= :examples/step-deck bid))
                    (is (re-find #"\b8031\b" @seen)
                        "string port coerced to the integer 8031 in the JVM form")))
-          (.finally (fn [] (set! nrepl/jvm-eval orig)))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
 
 (deftest resolve-build-by-port-nil-on-non-numeric
@@ -104,17 +105,17 @@
 
 (defn- with-port-resolution! [resolved health body-fn]
   (let [orig-port probe/resolve-build-by-port
-        orig-eval nrepl/cljs-eval-value]
+        orig-eval nrepl/cljs-eval-value
+        eval-stub (fn
+                    ([_c _b _f] (js/Promise.resolve health))
+                    ([_c _b _f _o] (js/Promise.resolve health)))]
     (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve resolved)))
-    (set! nrepl/cljs-eval-value
-          (fn
-            ([_c _b _f] (js/Promise.resolve health))
-            ([_c _b _f _o] (js/Promise.resolve health))))
+    (set! nrepl/cljs-eval-value eval-stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
                     (set! probe/resolve-build-by-port orig-port)
-                    (set! nrepl/cljs-eval-value orig-eval))))))
+                    (tu/restore-eval! eval-stub orig-eval))))))
 
 (deftest discover-app-port-resolves-to-the-serving-build
   ;; {:port 8031} -> probes :examples/step-deck, succeeds, caches it.

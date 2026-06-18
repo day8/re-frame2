@@ -63,7 +63,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — a machine-epochs-shaped frame-state value with sets at the

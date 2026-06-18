@@ -67,6 +67,7 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
@@ -185,8 +186,8 @@
      (-> (js/Promise.resolve nil)
          (.then (fn [_] (body-fn)))
          (.finally (fn []
-                     (set! nrepl/cljs-eval-value orig-cljs)
-                     (set! nrepl/jvm-eval         orig-jvm)))))))
+                     (tu/restore-eval! cljs-stub orig-cljs)
+                     (tu/restore-jvm-eval! jvm-stub orig-jvm)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-shape matchers — partial / submap matching against the parsed EDN

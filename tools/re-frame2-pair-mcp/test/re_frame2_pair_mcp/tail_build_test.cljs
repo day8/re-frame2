@@ -45,7 +45,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (defn- with-rejecting-eval!
   "Install a stub `cljs-eval-value` that REJECTS every call with an
@@ -62,7 +62,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Soft delay — no probe supplied; envelope is unchanged from pre-rf2-36awg.
