@@ -79,6 +79,18 @@
     "register"
     "unregister"
     "run"
+    "describe"    ; rf2-srobm0 — `describe-<thing>` reads the COMPOSED /
+                  ; derived behaviour a frame runs PLUS where each piece
+                  ; resolved from. `describe-image` (re-frame2-pair) is the
+                  ; EP-0023 Use-Case 7 read over a frame's running image
+                  ; generation (images / kinds / capability requires /
+                  ; per-kind counts / optional per-registration provenance).
+                  ; Distinct from `get-` (stored body), `read-` (no-recompute
+                  ; reflection of an already-run artefact) and `list-`
+                  ; (enumeration): `describe-` answers "what behaviour does
+                  ; THIS frame run, and which source won each resolution".
+                  ; Lock #11 in pair-mcp DESIGN-RATIONALE.md; NAMING.md §The
+                  ; verb table `describe-<thing>` row.
     "preview"
     "explain"     ; rf2-ba86n.17 — `explain-variant` (story-mcp; the agent
                   ; mirror of the human Explain panel over `story/explain`)

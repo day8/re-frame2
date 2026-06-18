@@ -272,7 +272,7 @@ opt-in under the same flag name.
   state-mutating tools `restore-epoch` (time-travel undo) and
   `replace-app-db` (state injection). Default **OFF**; without it both
   return `{:ok? false :reason :rf.error/writes-disabled}` without
-  touching the runtime. Both tools ARE allow-listed by the skill (all 29
+  touching the runtime. Both tools ARE allow-listed by the skill (all 30
   server tools are reachable) and are the canonical named-write path —
   the **server's gate, not the allow-list**, is the write-authority
   boundary, so allow-listing them is safe. The eval forms

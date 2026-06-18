@@ -39,7 +39,7 @@ Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s n
 
 ### L3 — MCP is the only skill-facing transport
 
-- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **29** tools and **all 29 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf/restore-epoch! …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
+- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **30** tools and **all 30 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf/restore-epoch! …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
 - **Bash shims** — `scripts/discover-app.sh` and friends predate the MCP server and are **retired from the skill's tool surface**. They remain on disk only for the project's own e2e test harness and ad-hoc shell use; no shell tool is in `allowed-tools:`, so the skill cannot reach them.
 
 The MCP tool reference lives in `references/mcp-transport.md`.
@@ -148,7 +148,7 @@ The `description` is "pushy" and lists every surface the live-app workflow expos
 
 - **No patterns/ directory.** The skill is an op catalogue and a recipe library, not a pattern catalogue.
 - **No decision-trees/ directory.** The decisions are operational ("which op for which task?") and live in the `references/ops.md` and `references/recipes.md` tables.
-- **First-class `allowed-tools` frontmatter.** The MCP transport requires explicit tool listing — **all 29** server tools are allow-listed, including the two `--allow-writes`-gated write tools (`restore-epoch` / `replace-app-db`), which the server's gate fences at runtime rather than the allow-list excluding.
+- **First-class `allowed-tools` frontmatter.** The MCP transport requires explicit tool listing — **all 30** server tools are allow-listed, including the two `--allow-writes`-gated write tools (`restore-epoch` / `replace-app-db`), which the server's gate fences at runtime rather than the allow-list excluding.
 - **`scripts/` directory.** Holds the retired bash shims — kept on disk for the project's e2e harness, not a skill-facing transport.
 - **`STATUS.md` + `RELEASING.md`** — the skill ships as both a Claude plugin (`.claude-plugin/plugin.json`) and an npm package (`package.json`), so per-release metadata is load-bearing.
 

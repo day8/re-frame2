@@ -201,7 +201,7 @@ resolve-fn}` pending map).
 
 **Locked 2026-05-12 (Mike).** **Seven ops at v0.1.0**, mirroring the
 bash-shim catalogue exactly. The catalogue has since grown to
-**twenty-nine ops** via successive additive drops (canonical count:
+**thirty ops** via successive additive drops (canonical count:
 the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs),
 catalogued in [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md)); see
 *Subsequent evolution* below.
@@ -287,7 +287,7 @@ ops** (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
 `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`,
 `unsubscribe`, `list-subscriptions`, `handler-meta`, `list-handlers`,
 `get-re-frame2-pair-instructions`); subsequent additive drops (below)
-carried the catalogue to **twenty-nine ops** total — canonical count in
+carried the catalogue to **thirty ops** total — canonical count in
 the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs),
 full listing at [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 The bash shims ship six. The shim catalogue is a strict subset of the
@@ -833,6 +833,79 @@ take?
 
 ---
 
+## Lock #11 — Image-description verb shape (`describe-<thing>` prefix)
+
+**Locked 2026-06-11 (rf2-srobm0, EP-0023 Use-Case 7).** **`describe-`
+is a catalogued verb prefix for a per-context read of COMPOSED /
+derived behaviour plus its provenance.** The tool is `describe-image`
+— the per-frame read over a frame's running image generation.
+
+### Question
+
+EP-0023 Use-Case 7 wants a one-round-trip read of the **composed
+image** a frame actually runs — the selected universe of registrations
+(across namespaces / inline sections / framework standards), the kinds
+present, the union of capability `:rf.gen/requires`, per-kind counts,
+and (opt-in) the per-registration provenance coordinate that shows
+*which source won* each `(kind, id)` resolution. The same `(kind, id)`
+resolves differently per frame, so this is a per-frame COMPOSITION
+read, not a registrar-union enumeration. What verb does it take?
+
+### Options considered
+
+- **`describe-<thing>` as a new catalogued prefix** (the pick).
+  `describe-image` reads as "describe the behaviour this frame runs and
+  where each piece came from" — the exact gesture, and it generalises
+  (a future `describe-frame` / `describe-machine` composition read
+  would ride the same prefix).
+- **`get-image`.** Rejected: `get-` returns ONE addressed stored
+  record/value (Lock-adjacent NAMING.md row). `describe-image` returns
+  a multi-axis COMPOSITION projection (images + kinds + requires +
+  counts + provenance), not a single stored record — the `get-`
+  semantic under-describes it.
+- **`read-image`.** Rejected: `read-` is reserved for a no-recompute
+  reflection of an **already-executed** artefact (`read-sub`,
+  `read-dom`, `read-recording` — "the run already happened; cheap
+  reflection"). The image composition is the *live resolved generation*,
+  not a replay of a prior run.
+- **`list-image` / a mega-op bare verb.** Rejected: `list-` is a flat
+  enumeration with no composition axis; a bare mega-op verb is reserved
+  for cross-REGISTRY round-trips (`snapshot`, `orient`). `describe-image`
+  is a single coherent per-frame composition read — a named verb shape
+  reads truer than another opaque bare verb.
+
+### Pick
+
+`describe-image` under a new catalogued `describe-<thing>` prefix.
+
+### Why
+
+- **`describe-` names the gesture precisely.** Per-context composed
+  behaviour + provenance — distinct from `get-` (one stored record),
+  `read-` (no-recompute reflection of a past run), `list-` (flat
+  enumeration), and `explain-` (derivation *reasoning* for one
+  definition).
+- **It is a pure read** through the public facade
+  `(re-frame.core/frame-generation frame)` (rf2-wkw8na) — no
+  `re-frame.live-frame` / `re-frame.image-assembly` internals, no
+  mutation, no `--allow-writes` gate.
+- **It generalises** to future composition reads without overloading an
+  existing verb.
+
+### Date locked
+
+2026-06-11 (rf2-srobm0; EP-0023 Use-Case 7, Ref-Plan item 17).
+
+### Trail-of-thought citations
+
+- `tools/mcp-conformance/NAMING.md` §The verb table (the
+  `describe-<thing>` row) + §re-frame2-pair alignment table.
+- `tools/mcp-conformance/wire-vocab/test/.../verb_vocab_test.clj`
+  (`verb-prefixes` gains `describe`).
+- `tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md` §describe-image.
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -840,18 +913,19 @@ take?
 | 1 | Implementation language | **ClojureScript + shadow-cljs → Node** | 2026-05-12 |
 | 2 | Agent-host transport | **MCP over stdio** | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** | 2026-05-12 |
-| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown additively to twenty-nine** (canonical count: the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs); full listing: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md); see Lock #4 *Subsequent evolution* for the drop-by-drop lineage) | 2026-05-12 |
+| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown additively to thirty** (canonical count: the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs); full listing: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md); see Lock #4 *Subsequent evolution* for the drop-by-drop lineage) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
 | 8 | Recorder verb shapes | **`record` bare mega-op; `read-recording` (`read-`); `watch-until` (new `watch-` prefix)** | 2026-05-31 |
 | 9 | Orientation verb shape | **`orient` bare mega-op; `read-sub` (`read-`)** | 2026-06-02 |
 | 10 | State-injection verb shape | **`replace-app-db` under a catalogued `replace-<thing>` prefix; renamed from `reset-frame-db` (EP-0001)** | 2026-06-09 |
+| 11 | Image-description verb shape | **`describe-image` under a new catalogued `describe-<thing>` prefix (EP-0023 Use-Case 7)** | 2026-06-11 |
 
-These ten locks together define re-frame2-pair-mcp's shipped surface.
+These eleven locks together define re-frame2-pair-mcp's shipped surface.
 Anything outside these decisions is up for design discussion;
 anything inside is direction-set and shipped. Lock #4's
-cardinality has since grown additively from seven to twenty-nine
+cardinality has since grown additively from seven to thirty
 (see its *Subsequent evolution* note); the load-bearing direction
 — mirror the shim catalogue, prefer mode flags over op decomposition,
 keep the surface bounded — still holds. Lock #7 sets the wire-budget

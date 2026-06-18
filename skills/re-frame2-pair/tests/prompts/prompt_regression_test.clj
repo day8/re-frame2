@@ -294,25 +294,28 @@
 ;; MCP-surface conformance drift (rf2-ojo3z)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The skill-facing docs MUST describe the MCP-primary 29-tool surface, NOT
-;; the retired bash/Babashka shim world or v1-style op names. These guards
-;; assert the current surface IS named and the specific retired-as-primary
-;; phrasings the rf2-ojo3z review caught do NOT come back. They are scoped to
-;; the user-facing prose docs (README / capabilities / LOCAL_DEV / TESTING) —
-;; the legitimate harness appendix in references/ops.md is out of scope here.
-;; The "29" count is the live catalogue cardinality (rf2-sdudwy): the
-;; descriptor manifest tools/re-frame2-pair-mcp/tool-descriptors.edn carries
-;; :meta :tool-count 29. The `catalogue-count-matches-live-manifest` guard
-;; below keeps every count-stating doc's prose number in lockstep with that
-;; manifest, so this README assertion is one facet of a fuller sweep.
+;; The skill-facing docs MUST describe the MCP-primary tool surface at its
+;; LIVE cardinality, NOT the retired bash/Babashka shim world or v1-style op
+;; names. These guards assert the current surface IS named and the specific
+;; retired-as-primary phrasings the rf2-ojo3z review caught do NOT come back.
+;; They are scoped to the user-facing prose docs (README / capabilities /
+;; LOCAL_DEV / TESTING) — the legitimate harness appendix in references/ops.md
+;; is out of scope here. The count is the live catalogue cardinality
+;; (rf2-sdudwy): the descriptor manifest
+;; tools/re-frame2-pair-mcp/tool-descriptors.edn carries :meta :tool-count
+;; (30 after describe-image landed, rf2-srobm0). This assertion reads that
+;; live `@tool-count` rather than a hardcoded literal so the README pin stays
+;; in lockstep with the catalogue; the `catalogue-count-matches-live-manifest`
+;; guard below is the fuller cross-doc sweep.
 
 (deftest readme-names-mcp-primary-tool-surface
-  (testing "README names the 29-tool MCP-primary surface, not 'fourteen ops'"
-    (is (str/includes? @readme-md "29")
-        "README must state the MCP server catalogues 29 tools.")
+  (testing "README names the live-cardinality MCP-primary surface, not 'fourteen ops'"
+    (is (str/includes? @readme-md (str @tool-count))
+        (str "README must state the MCP server catalogues " @tool-count
+             " tools (the live :tool-count)."))
     (is (not (str/includes? @readme-md "fourteen ops"))
         (str "README carries the stale 'fourteen ops' count — the MCP surface "
-             "is 29 tools (rf2-ojo3z).")))
+             "is " @tool-count " tools (rf2-ojo3z).")))
   (testing "README does not claim the skill is un-exercised end-to-end"
     (is (not (str/includes? @readme-md "not yet exercised against a running"))
         (str "README carries the stale 'not yet exercised against a running "
