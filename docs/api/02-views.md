@@ -1,6 +1,6 @@
 # 02 — Views
 
-Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `frame-handle` and `frame-bound-fn` helpers compose across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
+Views are where the cascade ends and pixels begin. The view layer in re-frame2 is **substrate-agnostic** — the shared dataflow (frames, subscriptions, dispatch, source metadata, registry ids) is uniform across Reagent, UIx, and Helix, and the same `frame-handle` carry primitive composes across all three. The substrates differ in how they emit React calls; the re-frame2 contract sits above that and stays uniform.
 
 There are **two registration lanes**, and you almost certainly want only one of them:
 
@@ -9,7 +9,7 @@ There are **two registration lanes**, and you almost certainly want only one of 
 
 If you're not sure, you're an application author: use the app-facing lane and skip the tooling lane entirely.
 
-This chapter also covers the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
+This chapter also covers the substrate-agnostic ergonomic surface (`frame-handle`, `with-frame`, `with-new-frame`, `frame-provider`), and points at the per-adapter chapters for the substrate-specific hooks. If you want the Reagent vs UIx vs Helix conventions, see [13 — Lifecycle](13-lifecycle.md) and [14 — Adapters](14-adapters.md).
 
 ## App-facing view registration
 
@@ -112,7 +112,7 @@ A tool's own chrome — Story's panel grid, Xray's inspector views — is regist
 
 ## The substrate-agnostic ergonomic surface
 
-These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope** (`frame-provider`, `with-frame` / `with-new-frame`), **hold** (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope** (`frame-provider`, `with-frame` / `with-new-frame`), **hold** (`frame-handle` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ### `frame-provider`
 
@@ -150,50 +150,20 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
       [:div "streaming…"]))
   ```
 
-### `frame-bound-fn`
+> **`frame-bound-fn` / `frame-bound-fn*` are internal under EP-0024.** Earlier
+> re-frame2 also shipped `frame-bound-fn` (a `fn`-syntax macro) and
+> `frame-bound-fn*` (its `*`-twin) for wrapping an arbitrary fn whose body
+> re-establishes the frame. EP-0024 Open Issue #8 retiered both to internal
+> (`:tier :implementation`) — `frame-handle` (or an explicit `{:frame …}` opt)
+> expresses the real use cases, and the empirical backbone found no app or tool
+> calling them. They are no longer app API; author async / tooling paths with
+> `frame-handle`.
 
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (frame-bound-fn [args] body)
-  ```
-- **Description**: The `fn`-syntax twin of `frame-handle` for the case where the value you carry across the boundary isn't a dispatch/subscribe op but an arbitrary fn whose body re-establishes the frame (an async result handler, an interval handle, a fn that calls `current-frame-id` internally). Captures the active frame at the lexical-binding moment; when the returned fn is later invoked, it runs in a `binding [*current-frame* <captured-frame>]` block, so plain `dispatch` / `subscribe` inside the body pick up the right frame regardless of when the call fires. CLJS-only macro.
-- **Example**:
-  ```clojure
-  (rf/reg-view alert-widget []
-    [:button {:on-click (rf/frame-bound-fn [_]                ;; captures NOW
-                          (.then (fetch "/notify")
-                                 (fn [_] (rf/dispatch [::notified]))))} ;; runs LATER, but bound
-     "Notify"])
-  ```
-
-### `frame-bound-fn*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (frame-bound-fn* f)          → frame-bound fn
-  (frame-bound-fn* frame-id f) → frame-bound fn
-  ```
-- **Description**: The `*`-twin of `frame-bound-fn` — wraps an existing fn value (or one returned by another helper / library) rather than taking `fn`-syntax. The 2-arity form takes an explicit `frame-id`, so no surrounding `with-frame` / `frame-provider` is needed at wrap time — useful at module top level, in `install!` routines, and in module helpers.
-- **Example**:
-  ```clojure
-  ;; wrap an existing fn — captures the ambient frame
-  (rf/frame-bound-fn* (fn [msg] (rf/dispatch [::incoming msg])))
-
-  ;; wrap with an explicit frame-id — no ambient frame needed
-  (rf/frame-bound-fn* :rf/xray
-    (fn [_e mode] (rf/dispatch [::set-mode mode])))
-  ```
-
-### When to reach for `frame-handle` / `frame-bound-fn`
+### When to reach for `frame-handle`
 
 The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), the runtime never synthesises `:rf/default` from absence — frame identity is *carried*, not *found*).
 
-The fix is to capture the frame *at the point you have it* and carry it as a value:
-
-- **`frame-handle`** — the common case. You need a `:dispatch` / `:subscribe` op to hand to a callback or an async library. Build it inside a render body or under `with-frame`; store the bundle; invoke its ops from any later async context.
-- **`frame-bound-fn` / `frame-bound-fn*`** — when the value crossing the boundary is an arbitrary fn whose body must re-establish the frame (so plain `dispatch` / `subscribe` *inside that fn* resolve correctly), not a single dispatch/subscribe op. The macro takes `fn`-syntax; the `*`-twin wraps an existing fn and accepts an explicit `frame-id`.
+The fix is to capture the frame *at the point you have it* and carry it as a value with **`frame-handle`**: build the operation bundle inside a render body or under `with-frame`, store it, and invoke its `:dispatch` / `:subscribe` ops from any later async context.
 
 ```clojure
 ;; frame-handle composes inside with-frame

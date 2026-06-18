@@ -91,7 +91,7 @@ Regime C (library-bridged: Framer Motion, React-Spring, GSAP, AutoAnimate) **is*
 
 ## Anti-patterns
 
-- **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; capture a `frame-handle` (or `frame-bound-fn`) for any dispatch the listener fires after commit.
+- **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; capture a `frame-handle` for any dispatch the listener fires after commit.
 - **Owning the library lifecycle in a render body.** `(js/MyLib. el opts)` from a Form-1 builds a fresh instance every render — leaking at the rate of reactive updates. Build it once in the mount hook.
 - **`@(subscribe …)` inside a lifecycle hook.** No reactive context after commit. Subscribe in the outer; pass the value as a prop.
 - **Stashing the instance in `defonce` / top-level `def`.** Leaks across mounts and hot-reloads; breaks when the component mounts twice (two frames). The instance is per-mount — closure cell only.

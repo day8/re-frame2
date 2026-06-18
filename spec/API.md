@@ -57,7 +57,7 @@ Every public-surface row in this document is either **supported** — a document
 
 **Tier vs Status.** Tier and Status are orthogonal axes. *Status* records shipping lineage (`v1` / `v1 (preserved)` / `post-v1 lib` / …). *Tier* records who-reaches-for-it. A surface can be `v1` and `advanced` (`register-epoch-listener!`), or `post-v1 lib` and `front-porch` (the Story `run` verb is `post-v1 lib`/`tooling`; a hypothetical post-v1 ergonomic core helper would be `post-v1 lib`/`front-porch`). Read the two columns together.
 
-**The front-porch / back-room split is the first instance, generalised.** The multi-frame surface (§View ergonomics, per [002 §The multi-frame surface](002-Frames.md#the-multi-frame-surface--choose-by-intent)) was already organised as a *front-porch / back-room* split — `dispatch` / `subscribe` / `with-frame` on the porch, `frame-bound-fn*` and the `{:frame …}` override in the back room. The Tier column generalises that split across the whole API: front-porch is the porch; advanced / tooling / adapter / testing / internal-public are the back rooms (all still *supported*); `implementation` is below the floorboards — exported but off the supported surface entirely.
+**The front-porch / back-room split is the first instance, generalised.** The multi-frame surface (§View ergonomics, per [002 §The multi-frame surface](002-Frames.md#the-multi-frame-surface--choose-by-intent)) was already organised as a *front-porch / back-room* split — `dispatch` / `subscribe` / `with-frame` on the porch, the `{:frame …}` override in the back room (and the retiered `frame-bound-fn*` below the floorboards). The Tier column generalises that split across the whole API: front-porch is the porch; advanced / tooling / adapter / testing / internal-public are the back rooms (all still *supported*); `implementation` is below the floorboards — exported but off the supported surface entirely.
 
 **Closed vocabulary, restrictive-by-default.** The eight values above are the complete set — no ninth tier is added without an explicit governance decision. When a surface is genuinely ambiguous between two tiers, pick the **more restrictive** one (advanced over front-porch; internal-public over advanced; `implementation` over internal-public when the var is not actually a host/tool *integration* point but merely an exported helper) and note the call in the row's Notes. The downstream manifest consumes `Tier` as a first-class field, so the value must come from this closed set. **The `internal-public` / `implementation` boundary**: ask "is this a surface a host or tool legitimately embeds against?" — if yes, `internal-public` (the Xray mount family); if it is exported only so the framework's own namespaces / tests can reach it across a boundary, `implementation`. The two were previously conflated under an over-broad `internal-public`; the split keeps the *supported* surface honest.
 
@@ -177,7 +177,6 @@ The scalar query-vector rejection is deliberate: `[:x :y]` is ambiguous at this 
 | `dispatch-sync` | M | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended); macro captures call-site for `:rf.trace/call-site` | front-porch | 002 |
 | `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | — fn form for HoF / programmatic sync dispatch | advanced | 002 |
 | `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro captures call-site for `:rf.trace/call-site` | front-porch | 002 |
-| `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | — fn form for HoF / programmatic subscribe | advanced | 002 |
 | `subscribe-once` | Fn | `(subscribe-once query-v)` / `(subscribe-once frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | advanced | 006 |
 | `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period). Carved out from the [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement), so `un-` is reserved as the singular form for the sub-cache ref-count decrement. | v1 | advanced | 006 |
 
@@ -205,7 +204,7 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 
 - **Single-frame** (no frames in play): `dispatch`, `dispatch-sync`, `subscribe`.
 - **Scope:** `with-frame`, `with-new-frame`, `frame-provider`.
-- **Hold** (carry a frame's ops as a value, across async): `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced).
+- **Hold** (carry a frame's ops as a value, across async): `frame-handle` — the one public carry primitive. (`frame-bound-fn` / `frame-bound-fn*` were retiered to internal under EP-0024 Open Issue #8 — `frame-handle` or an explicit `{:frame …}` opt expresses the real use cases.)
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
 - **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `frame-value->id`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
 
@@ -215,13 +214,11 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 | `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | front-porch | 002 |
 | `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | front-porch | 002 |
 | `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | front-porch | 002, 004 |
-| `frame-bound-fn` | M | `(frame-bound-fn [args] body)` → frame-rebinding closure (`fn`-syntax sugar over `frame-bound-fn*`). Re-establishes `*current-frame*` (captured at lex-binding) for the body | v1 | advanced | 002 |
-| `frame-bound-fn*` | Fn | `(frame-bound-fn* f)` *or* `(frame-bound-fn* frame-id f)` → frame-rebinding closure. The `*`-twin of the `frame-bound-fn` macro — wrap an existing callback so its body always runs with `*current-frame*` re-bound. Advanced; prefer `frame-handle` for the common dispatch / subscribe case | v1 | advanced | 002 |
 | `view` | Fn | `(view view-id)` → **render-fn** (runtime-lookup handle; returns the registered render-fn, *not* hiccup). Use in hiccup as `[(rf/view :id) args...]` — the lookup form for late-binding a registered view by id. | v1 | advanced | 001, 004 |
 
 `with-frame` (pin) and `with-new-frame` (eval-bind-run-destroy) are documented in [002 §with-frame and with-new-frame](002-Frames.md#with-frame-and-with-new-frame). The macros are non-overlapping: each rejects the other's argument shape at compile time, with `:recovery` pointing the caller at the right sibling.
 
-`frame-handle` is the keystone affordance — it replaces the removed `dispatcher` / `subscriber` nouns and is the single answer to "carry a frame's dispatch/subscribe ops across an async boundary." **The handle is locked:** a per-call `:frame` opt MUST NOT override the frame captured at handle creation — the captured frame always wins (per [002 §`frame-handle`](002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference)). `frame-bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/frame-bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [frame-bound-fn]]`. `frame-bound-fn*` is a plain fn, available on both CLJS and JVM (no macro indirection).
+`frame-handle` is the keystone affordance — it replaces the removed `dispatcher` / `subscriber` nouns and is the single answer to "carry a frame's dispatch/subscribe ops across an async boundary." **The handle is locked:** a per-call `:frame` opt MUST NOT override the frame captured at handle creation — the captured frame always wins (per [002 §`frame-handle`](002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference)). The older `frame-bound-fn` / `frame-bound-fn*` frame-rebinding closures were retiered to internal (`:tier :implementation`) under EP-0024 Open Issue #8 — `frame-handle` (or an explicit `{:frame …}` opt) expresses the real use cases, so they are no longer taught as app API.
 
 ---
 
@@ -977,10 +974,9 @@ These surfaces are **removed or renamed** — not part of the public projection 
 | `dispatch-to` (proposed earlier) | Use `(dispatch event {:frame :todo})` | 002 |
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
 | `frame-dispatcher` / `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Use `(rf/frame-handle)` (the keystone OPERATION BUNDLE — captures the frame at creation; safe during render and from async callbacks) | 002 |
-| `bound-fn` (CLJS macro) | Use `frame-bound-fn` (the macro is renamed; same `fn`-syntax + frame-capture) | 002 |
+| `bound-fn` (CLJS macro) | Use `(rf/frame-handle)` — the keystone OPERATION BUNDLE captures the frame and carries `dispatch` / `subscribe` across the boundary. (The `frame-bound-fn` / `frame-bound-fn*` closures still exist but are retiered to internal under EP-0024 Open Issue #8 — not app API.) | 002 |
 | `dispatcher` | Use `(:dispatch (rf/frame-handle))` *or* the `dispatch` injected in a `reg-view` body | 002 |
 | `subscriber` | Use `(:subscribe (rf/frame-handle))` *or* the `subscribe` injected in a `reg-view` body | 002 |
-| `frame-bound-fn` (fn form, 1- and 2-arity) | Renamed to `frame-bound-fn*` (the `*`-twin); `frame-bound-fn` is now the macro | 002 |
 | `current-frame` | Renamed to `current-frame-id` (returns a frame-id keyword) | 002 |
 | `get-frame-db` | Renamed to `app-db-value` (returns the app-db VALUE, a plain map) | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |

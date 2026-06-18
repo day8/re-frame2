@@ -105,8 +105,8 @@
   {:namespace "re-frame.core", :var "epoch-history", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "feature-loaded?", :tier :advanced, :kind :fn, :owner "Conventions", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "features", :tier :advanced, :kind :fn, :owner "Conventions", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "frame-bound-fn", :tier :advanced, :kind :macro, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "frame-bound-fn*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "frame-bound-fn", :tier :implementation, :kind :macro, :owner "002", :status "EP-0024 (internal carry helper)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "frame-bound-fn*", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal carry helper)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-generation", :tier :tooling, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-handle", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-ids", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
@@ -128,7 +128,7 @@
   {:namespace "re-frame.core", :var "install-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "machine-has-tag?", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame", :tier :advanced, :kind :fn, :owner "002", :status "EP-0024", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "make-frame-handle", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "make-frame-handle", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal frame-handle constructor)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "migration-explain", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "migration-map", :tier :advanced, :kind :var, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-meta", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
@@ -185,7 +185,7 @@
   {:namespace "re-frame.core", :var "sensitive?", :tier :tooling, :kind :fn, :owner "009", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "snapshot-of", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "subscribe", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "subscribe*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "subscribe*", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal HoF/macro-reach only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "subscribe-once", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "trace-buffer", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unregister-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}

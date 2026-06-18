@@ -2,7 +2,7 @@
 
 An adapter is the seam between re-frame2's substrate-agnostic core and a specific React-flavoured reactive system. Reagent ships as the default. UIx and Helix are hooks-first React substrates with their own idioms; their adapters live in separate artefacts and expose a small, parallel surface that matches the React/hooks convention without forcing it onto the Reagent path.
 
-This chapter is the per-substrate surface reference. The substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`) is rowed in [02 — Views](02-views.md) because those compose across all three substrates. This chapter is for the per-substrate hooks and the adapter-spec map.
+This chapter is the per-substrate surface reference. The substrate-agnostic ergonomic surface (`frame-handle`, `with-frame`, `with-new-frame`, `frame-provider`) is rowed in [02 — Views](02-views.md) because those compose across all three substrates. This chapter is for the per-substrate hooks and the adapter-spec map.
 
 Architecturally, the dependency direction is one-way: the adapter artefacts depend on `re-frame.core`; `re-frame.core` does not depend on any adapter. That's why UIx and Helix surfaces live in `re-frame.adapter.uix` / `re-frame.adapter.helix` rather than being re-exported from core — apps require the adapter they want and pass its `adapter` Var into `init!`.
 
@@ -10,7 +10,7 @@ Architecturally, the dependency direction is one-way: the adapter artefacts depe
 
 The CLJS reference's default substrate. Reagent ships in `re-frame.adapter.reagent` (full) and `re-frame.adapter.reagent-slim` (without the React server-rendering tax, for SSR pipelines that don't want to ship `react-dom/server`).
 
-There's no per-substrate hook surface — Reagent's idiom is "views are plain functions returning hiccup," and `reg-view` is the typed sugar over that pattern. The substrate-agnostic surface (`frame-handle`, `frame-bound-fn`, `with-frame`, `frame-provider`) is the full Reagent-side API; everything else flows through `reg-view*` and `dispatch` / `subscribe`.
+There's no per-substrate hook surface — Reagent's idiom is "views are plain functions returning hiccup," and `reg-view` is the typed sugar over that pattern. The substrate-agnostic surface (`frame-handle`, `with-frame`, `frame-provider`) is the full Reagent-side API; everything else flows through `reg-view*` and `dispatch` / `subscribe`.
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -220,7 +220,7 @@ There's a fourth adapter — Plain Atom — that ships in core and exists for tw
 
 ## See also
 
-- [02 — Views](02-views.md) — the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`).
+- [02 — Views](02-views.md) — the substrate-agnostic ergonomic surface (`frame-handle`, `with-frame`, `with-new-frame`, `frame-provider`).
 - [13 — Lifecycle](13-lifecycle.md) — `init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`, `adapter-disposed?`.
 - [Spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md) — the adapter contract.
 - [Guide ch.21 — Adapters](../guide/how-to/use-uix-helix-or-slim.md) — narrative coverage with worked examples.
