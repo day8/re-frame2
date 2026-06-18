@@ -306,8 +306,8 @@
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
 ;; Per Spec 005 §Subscribing to machines via sub-machine: the framework
-;; ships `:rf/machine` as the canonical entry point. `(rf/sub-machine id)`
-;; in `re-frame.core` is sugar over `(subscribe [:rf/machine id])`.
+;; ships `:rf/machine` as the canonical entry point — read a machine's
+;; snapshot with the subscription vector `(subscribe [:rf/machine id])`.
 ;;
 ;; Registered at the façade (rather than in `re-frame.machines.lifecycle-
 ;; fx`) so the smoke-test fixture's `(require 're-frame.machines :reload)`

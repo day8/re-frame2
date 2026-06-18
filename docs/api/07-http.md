@@ -220,25 +220,25 @@ Tests want to drive the cascade without hitting the network. The test-support su
   ```
 - **Description**: Plain-fn surface beneath the macro. Use for computed route-maps or non-literal bodies. Like the macro, it installs the `:rf.http/managed` override for `body-fn`'s dynamic extent, so dispatches inside auto-route with no manual `:fx-overrides`.
 
-### `install-managed-request-stubs!`
+### `re-frame.http-test-support/install-managed-request-stubs!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (install-managed-request-stubs! route-map)
   ```
-- **Description**: Lower-level than `with-managed-request-stubs`: registers the `:rf.http/managed-test-stub` fx that persists until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. Unlike the wrapper, this does NOT install the `:rf.http/managed` override — dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it.
+- **Description**: Lower-level than `with-managed-request-stubs`: registers the `:rf.http/managed-test-stub` fx that persists until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. Unlike the wrapper, this does NOT install the `:rf.http/managed` override — dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http-test-support`.
 
-### `uninstall-managed-request-stubs!`
+### `re-frame.http-test-support/uninstall-managed-request-stubs!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (uninstall-managed-request-stubs!)
   ```
-- **Description**: Drop installed stubs; restore real-request routing. Idempotent.
+- **Description**: Drop installed stubs; restore real-request routing. Idempotent. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http-test-support`.
 
-All the test-support surfaces live in `re-frame.http-test-support` (the single home per audit of audits #15). One namespace; same artefact (`day8/re-frame2-http`) as the production code.
+All the test-support surfaces live in `re-frame.http-test-support` (the single home per audit of audits #15). One namespace; same artefact (`day8/re-frame2-http`) as the production code. The ergonomic `with-managed-request-stubs` macro is re-exported on the `re-frame.core` façade; the raw `install`/`uninstall` pair is reached only through the home namespace (rf2-ntwwyt).
 
 ```clojure
 (deftest cart-loads

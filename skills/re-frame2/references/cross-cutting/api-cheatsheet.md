@@ -49,7 +49,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 
 | Surface | Shape |
 |---|---|
-| `rf/sub-machine` | `(machine-id)` → reaction `{:state :data :tags}` |
+| `[:rf/machine machine-id]` | subscription vector → reaction `{:state :data :tags}` (the canonical machine read) |
 | `rf/machine-has-tag?` | `(machine-id tag)` → reaction (boolean) |
 | `re-frame.machines/machines` / `re-frame.machines/machine-meta` | id list / registered spec — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/machine-by-system-id` | `(system-id)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade |
@@ -99,7 +99,7 @@ Production fx surface: `re-frame.http-managed`. Test surfaces (canned-stub fxs +
 |---|---|
 | `rf/with-managed-request-stubs` | macro: `(stubs & body)` — needs `re-frame.http-test-support` in require closure |
 | `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` — needs `re-frame.http-test-support` |
-| `rf/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — needs `re-frame.http-test-support` |
+| `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http-test-support` |
 | `rf/clear-http-interceptor` | `(id)` / `(frame id)` — production surface, `re-frame.http-managed` |
 
 ## Test support — `re-frame.test-support` (see `cross-cutting/testing.md`)

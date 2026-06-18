@@ -241,11 +241,6 @@
   a frame under `id` with the given metadata. See
   `re-frame.frame/reg-frame` and spec/API.md §Registration."}
        reg-frame       frame/reg-frame)
-     (def ^{:doc "Fn-alias of the `reg-flow` macro for HoF / programmatic
-  registration (no source-coord capture). Register a flow. Implementation
-  ships in `day8/re-frame2-flows`; require `re-frame.flows` at boot. See
-  `re-frame.core-flows/reg-flow` and spec/API.md §Registration."}
-       reg-flow        rf-flows/reg-flow)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture). Register a route under `id`;
   `metadata` carries `:path` at minimum. Implementation ships in
@@ -260,16 +255,6 @@
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
        reg-resource    rf-resources/reg-resource)
-     (def ^{:doc "Fn-alias of the `reg-mutation` macro for HoF / programmatic
-  registration (no source-coord capture). Register a mutation — a named,
-  causal WRITE to remote state that, on success, invalidates / patches /
-  populates cached resource reads — under `mutation-id`; `mutation-spec`
-  carries the REQUIRED `:request` (a Spec 014 managed-HTTP args map) and
-  `:params-schema` plus optional `:invalidates` / `:patches` / `:populates`
-  / `:scope` / `:invalidate-timing`. Implementation ships in
-  `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
-  `re-frame.core-resources/reg-mutation` and spec/API.md §Registration."}
-       reg-mutation    rf-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
   programmatic registration (no source-coord capture). Register a PURE named
   scope resolver under `scope-id`; `resolver` is the declared-inputs map
@@ -660,27 +645,6 @@
                           *file*
                           sym
                           more)))
-
-;; ---- CLJS reg-error-projector / reg-head fn-aliases --------------------
-
-(def ^:private -reg-error-projector rf-ssr/-reg-error-projector)
-(def ^:private -reg-head            rf-ssr/-reg-head)
-
-#?(:cljs
-   (do
-     (def ^{:doc "Fn-alias of the `reg-error-projector` macro for HoF /
-  programmatic registration (no source-coord capture). Register an
-  error projector — `(trace-event) -> public-error-map`. Frames opt in
-  via the `:ssr` config's `:public-error-id` key. Implementation ships
-  in `day8/re-frame2-ssr`. See `re-frame.core-ssr/-reg-error-projector`
-  and spec/API.md §Registration."}
-       reg-error-projector -reg-error-projector)
-     (def ^{:doc "Fn-alias of the `reg-head` macro for HoF / programmatic
-  registration (no source-coord capture). Register a head-fragment
-  producer `(fn [db route] head-model)` under a namespaced `id`.
-  Implementation ships in `day8/re-frame2-ssr`. See
-  `re-frame.core-ssr/-reg-head` and spec/API.md §Registration."}
-       reg-head            -reg-head)))
 
 ;; ---- SSR re-exports (Spec 011, rf2-uo7v) ---------------------------------
 
@@ -1555,20 +1519,16 @@
 ;; public home: reach them through `re-frame.machines` (which already
 ;; publishes them). The `reg-machine` / `defmachine` REGISTRATION MACROS stay
 ;; on the façade (above; per-element source-coord stamping, no owned-ns macro
-;; form). The `dispatch-to-system` / `sub-machine` / `machine-has-tag?`
+;; form). The `dispatch-to-system` / `machine-has-tag?`
 ;; subscription-and-dispatch sugar stays on the façade — it has no classified
-;; owned-namespace peer.
+;; owned-namespace peer. The `sub-machine` snapshot sugar is REMOVED (rf2-wh7xip
+;; — zero adopters); the canonical machine read is the `[:rf/machine machine-id]`
+;; subscription vector.
 
 (def ^{:doc "Sugar: dispatch `event` to the spawned-machine bound to
   `system-id` in the active frame; no-op fall-through when the
   system-id is unbound. Per Spec 005 §Cross-machine messaging by name."}
   dispatch-to-system     rf-machines/dispatch-to-system)
-
-(def ^{:doc "Subscribe to a machine's snapshot. Sugar over
-  `(subscribe [:rf/machine machine-id])`. Returns a reaction whose value
-  is `{:state <kw> :data <map>}`, or `nil` if uninitialised. Per
-  Spec 005 §Subscribing to machines via sub-machine."}
-  sub-machine            rf-machines/sub-machine)
 
 (def ^{:doc "Subscribe to a machine's `:fsm/tags` containment-bit for
   `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`
@@ -2962,21 +2922,12 @@
   projected-history  rf-epoch/projected-history)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
-
-(def ^{:doc "Install per-call fx-overrides for `:rf.http/managed` that
-  synthesise the configured replies. `stubs` is `{[method url]
-  {:reply <:ok|:failure>}}`. Implementation ships in
-  `day8/re-frame2-http` under the `re-frame.http-test-support` namespace
-  (per rf2-lwmgw — tests opt in by requiring that ns). Per Spec 014
-  §Testing. Late-bound via `:http/install-managed-request-stubs!`."}
-  install-managed-request-stubs!   rf-http/install-managed-request-stubs!)
-
-(def ^{:doc "Remove the per-call fx-override installed by
-  `install-managed-request-stubs!`. Implementation ships in
-  `day8/re-frame2-http` under `re-frame.http-test-support` (rf2-lwmgw).
-  Per Spec 014 §Testing. Late-bound via
-  `:http/uninstall-managed-request-stubs!`."}
-  uninstall-managed-request-stubs! rf-http/uninstall-managed-request-stubs!)
+;;
+;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
+;; pair is NO LONGER a `re-frame.core` façade export (rf2-ntwwyt — test-support
+;; infrastructure, not app-facing core surface). Reach the pair through its
+;; home namespace `re-frame.http-test-support` (require it from your test ns).
+;; The ergonomic `with-managed-request-stubs` macro stays on the façade.
 
 (def ^{:doc "Fn-form: install stubs, run `thunk`, uninstall. The plumbing
   the `with-managed-request-stubs` macro routes through. Implementation

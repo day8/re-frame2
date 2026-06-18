@@ -179,7 +179,8 @@ The scalar query-vector rejection is deliberate: `[:x :y]` is ambiguous at this 
 | `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | — fn form for HoF / programmatic subscribe | advanced | 002 |
 | `subscribe-once` | Fn | `(subscribe-once query-v)` / `(subscribe-once frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | advanced | 006 |
 | `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period). Carved out from the [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-) — `clear-sub` is already taken by the symmetric inverse of `reg-sub` (the registrar decrement), so `un-` is reserved as the singular form for the sub-cache ref-count decrement. | v1 | advanced | 006 |
-| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | advanced | 005 |
+
+To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector (see [§Standard registered subs (machines)](#standard-registered-subs-machines)).
 
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
 
@@ -391,8 +392,6 @@ SSR error-projection policy is **per-frame metadata** (see [Conventions §Config
 | `:rf.http/managed-canned-failure` | fx | `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]` — synthesises the canonical failure reply. Same registration gate (`re-frame.http-test-support`) and same co-location with the stubbing macros. | v1 (optional capability, dev/test) | — (fx-id; test) | 014 |
 | `with-managed-request-stubs` | M | `(with-managed-request-stubs route-map body+)` — route-map `{[<method> <url>] {:reply ...}}` per [014 §Testing](014-HTTPRequests.md#testing). Lives in `re-frame.http-test-support` (the single home for HTTP test surfaces — audit-of-audits #15 closed the prior split that placed the macros in `re-frame.http-managed`); see [Spec 008 §HTTP test surfaces](008-Testing.md#http-test-surfaces--single-namespace). | v1 (optional capability, dev/test) | testing | 014 |
 | `with-managed-request-stubs*` | Fn | `(with-managed-request-stubs* route-map body-fn)` — plain-fn surface beneath `with-managed-request-stubs`; the `*` follows the Clojure `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). Ships in `re-frame.http-test-support`. Use for computed route-maps or non-literal bodies. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | testing | 014 |
-| `install-managed-request-stubs!` | Fn | `(install-managed-request-stubs! route-map)` — install the stub routes; persists until `uninstall-managed-request-stubs!` is called. Lower-level than `with-managed-request-stubs`; use when stubs span multiple `deftest`s. Ships in `re-frame.http-test-support`. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | testing | 014 |
-| `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` — drop any installed stubs and restore real-request routing. Idempotent. Ships in `re-frame.http-test-support`. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | testing | 014 |
 | `reg-http-interceptor` | Fn | `(reg-http-interceptor id interceptor-map)` — register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain (per [014 §Middleware](014-HTTPRequests.md#middleware)). `id` is a keyword; `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus optional `:frame` (the EP-0002 *override*; absent, the carried scope it registers under resolves it — registering under no scope raises `:rf.error/no-frame-context`, never `:rf/default`) and any `:rf/registration-metadata` (`:doc` / `:tags` / `:schema` / `:sensitive?`). The surface mirrors the event-interceptor `{:id :before :after}` shape — symmetric request/response sides; `:before` chain in registration order, `:after` chain in reverse. | v1 (optional capability) | advanced | 014 |
 | `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` / `(clear-http-interceptor frame id)` — unregister an interceptor by id (per [014 §Middleware](014-HTTPRequests.md#middleware)). Single-arity resolves the frame from the carried scope; two-arity names it explicitly. Either raises `:rf.error/no-frame-context` when the frame is absent — no `:rf/default` fallback (EP-0002). | v1 (optional capability) | advanced | 014 |
 | `re-frame.http/get`     | Fn | `(rf.http/get url)` / `(rf.http/get url args)` — build a `[:rf.http/managed {:request {:method :get :url url} ...}]` fx vector (per [014 §Call-site helpers](014-HTTPRequests.md#call-site-helpers)). | v1 (optional capability) | advanced | 014 |
@@ -404,6 +403,8 @@ SSR error-projection policy is **per-frame metadata** (see [Conventions §Config
 | `re-frame.http/options` | Fn | `(rf.http/options url)` / `(rf.http/options url args)` — OPTIONS helper. | v1 (optional capability) | advanced | 014 |
 
 Public API surface in `re-frame.core` for ports that ship Spec 014. Ports that omit it MUST NOT register `:rf.http/*` for any other purpose (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+
+The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core` façade export — it is test-support infrastructure reached through its home namespace `re-frame.http-test-support` (`(:require [re-frame.http-test-support :as http-test-support])`). The ergonomic `with-managed-request-stubs` macro is the façade surface; use the raw pair only when stubs must span multiple `deftest`s.
 
 The verb helpers (`get` / `post` / `put` / `delete` / `patch` / `head` / `options`) live in `re-frame.http` — users `(:require [re-frame.http :as rf.http])` alongside `re-frame.core`. They're pure synthesis fns that produce the canonical `[:rf.http/managed args-map]` fx vector; the namespace ships in `day8/re-frame2-http` (same artefact as the fx they reference) so loading the helpers and the fx are a single dep decision.
 
@@ -901,7 +902,6 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 | `defmachine` | M | `(defmachine name [docstring] spec)` — `def`-shape that walks the literal `spec` at the definition site and co-locates per-element source onto the def'd value, for the `def`-then-register shape `(defmachine m {…})` / `(reg-machine :id m)`. Does not register. | v1 | advanced | 005 |
 | `make-machine-handler` | Fn | `(make-machine-handler spec)` → event-handler fn | v1 | advanced | 005 |
 | `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | advanced | 005 |
-| `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | advanced | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | tooling | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; `:guards` / `:actions` entries carry co-located `:source-coords` / `:source-code` and each `:states`-tree map node carries its own reference-site `:source-coords` when registered via the macro | v1 | tooling | 005 |
 | `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` / `(machine-by-system-id system-id frame-id)` → spawned-machine id bound to `system-id` in the frame's `[:rf.runtime/machines :system-ids]` reverse index (or `nil`). Per [005 §Named addressing via `:system-id`](005-StateMachines.md). | v1 | advanced | 005 |
@@ -926,7 +926,7 @@ v1 transition-table grammar subset is enumerated in [005 §Capability matrix](00
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data}` (or `nil` if not yet initialised) | 005 |
 
-`sub-machine` is sugar over the registered `:rf/machine` sub — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
 ---
 

@@ -291,7 +291,7 @@ Do **not** silently rewrite these; present the call site, the reason, and wait f
 - **`:halt-fns?` / `:rules` predicates closing over state outside `:data`** (the engine's seen-event history, an app-db slice, a sub value). Machine guards / actions are encapsulated to `:data` (per [§Guards](../../../spec/005-StateMachines.md#guards)); the rewrite restructures the signal to arrive as a dispatched event the machine records, or escalates as a design conversation.
 - **`:events` as a predicate fn** (matched against each observed event) rather than a keyword / vector. The machine's `:on` is keyword-indexed; arbitrary-predicate matching has no direct equivalent — restructure the upstream dispatches to carry distinguishing ids, or escalate.
 - **A `:rules` vector computed at runtime** (`(into base (when flag? extra))`). The machine spec is declarative and stamped at registration. Conditional behaviour belongs in `:guard` / `:always` branches, not a computed rule list.
-- **A flow whose `:db-path` is read by other code.** The snapshot is a different location and shape; every reader must move to `(rf/sub-machine <id>)`. Escalate so the operator can locate them.
+- **A flow whose `:db-path` is read by other code.** The snapshot is a different location and shape; every reader must move to `(rf/subscribe [:rf/machine <id>])`. Escalate so the operator can locate them.
 
 ## Reporting
 

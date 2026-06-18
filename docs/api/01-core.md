@@ -480,14 +480,9 @@ Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, 
   ```
 - **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** (per Spec 006 §Reference counting and disposal, rf2-cmfln). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount.
 
-### `sub-machine`
+### Reading a machine's snapshot
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sub-machine machine-id) → reaction over snapshot
-  ```
-- **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. See [04 — Machines](04-machines.md).
+To read a machine's snapshot, subscribe to the canonical `[:rf/machine machine-id]` vector — `@(rf/subscribe [:rf/machine machine-id])` yields a reaction over `{:state :data}` (or `nil` if uninitialised). See [04 — Machines](04-machines.md).
 
 **The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics live in [002 §Routing: the dispatch envelope](../../spec/002-Frames.md#routing-the-dispatch-envelope). The most common pattern is `(rf/dispatch [::save x] {:frame :todo})` to target a non-default frame.
 

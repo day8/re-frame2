@@ -51,17 +51,18 @@
   This namespace ships in `day8/re-frame2-http`, separate from the core
   artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
   re-exports of HTTP surface (`reg-http-interceptor`,
-  `clear-http-interceptor`, plus the stub family that lives in
-  `re-frame.http-test-support` per rf2-lwmgw — `install-managed-request-stubs!`,
-  `uninstall-managed-request-stubs!`, `with-managed-request-stubs*`,
-  `with-managed-request-stubs`) look the entry points up via the
-  `re-frame.late-bind` hook table. Loading THIS namespace publishes the
+  `clear-http-interceptor`, plus the `with-managed-request-stubs` macro and
+  its `with-managed-request-stubs*` plumbing, which live in
+  `re-frame.http-test-support` per rf2-lwmgw) look the entry points up via
+  the `re-frame.late-bind` hook table. Loading THIS namespace publishes the
   middleware / registry hooks AND registers the `:rf.http/managed` and
-  `:rf.http/managed-abort` fxs. The stub-surface hooks publish from
+  `:rf.http/managed-abort` fxs. The stub-surface hook publishes from
   `re-frame.http-test-support` per rf2-lwmgw — a test calling
-  `rf/install-managed-request-stubs!` without requiring `re-frame.http-test-support`
+  `rf/with-managed-request-stubs*` without requiring `re-frame.http-test-support`
   surfaces `:rf.error/http-artefact-missing`, the same shape every
-  other test-support entry point uses.
+  other test-support entry point uses. The raw `install-managed-request-stubs!`
+  / `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core` re-export
+  (rf2-ntwwyt) — tests call it directly from `re-frame.http-test-support`.
 
   Apps that don't issue any managed-HTTP requests don't drag the
   in-flight request registry, the Fetch / HttpClient transport

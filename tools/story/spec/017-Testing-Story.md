@@ -2434,8 +2434,8 @@ capture's `re-frame.story.determinism/->artifact`), its
 `[:world :network]` route map is carried onto the artifact's `:network`
 slot alongside the `[:world :frame :fx-overrides]` redirect on
 `:fx-decisions`. `replay-run-artifact` then **re-installs** those route
-stubs (`re-frame.core/install-managed-request-stubs!`, the same seam a
-live run uses) around the replay, so a replayed `:network` request
+stubs (`re-frame.http-test-support/install-managed-request-stubs!`, the
+same seam a live run uses) around the replay, so a replayed `:network` request
 matches its route and synthesises the recorded reply rather than
 fail-closing on "no stub matched". Carrying only the `:fx-decisions`
 redirect would point the replay at a stub fx registered with NO routes,
@@ -2885,8 +2885,8 @@ Replay MUST:
   policy is inert (zero ceremony).
 - **Re-install the `:network` route stubs** (when the artifact carries a
   non-empty `:network` map) — replay calls
-  `re-frame.core/install-managed-request-stubs!` with the route map for the
-  duration of the replay (then uninstalls in a `finally`), the SAME seam a
+  `re-frame.http-test-support/install-managed-request-stubs!` with the route
+  map for the duration of the replay (then uninstalls in a `finally`), the SAME seam a
   live `:network` run uses. This registers `:rf.http/managed-test-stub`
   WITH the routes, so the `:fx-decisions` redirect resolves to a stub that
   matches each request and synthesises the recorded reply. Without this a

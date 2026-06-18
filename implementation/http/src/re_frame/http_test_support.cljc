@@ -14,10 +14,16 @@
    - load-time registration of the two canned-stub fxs:
       - `:rf.http/managed-canned-success`
       - `:rf.http/managed-canned-failure`
-   - the late-bind hook publications the `re-frame.core` re-exports
-     (`rf/with-managed-request-stubs`, `rf/install-managed-request-stubs!`,
-     `rf/uninstall-managed-request-stubs!`, `rf/with-managed-request-stubs*`)
-     resolve through.
+   - the late-bind hook publication the `re-frame.core` re-export
+     `rf/with-managed-request-stubs` (and its `with-managed-request-stubs*`
+     plumbing) resolves through.
+
+  The ergonomic `with-managed-request-stubs` macro is the `re-frame.core`
+  façade surface. The raw `install-managed-request-stubs!` /
+  `uninstall-managed-request-stubs!` pair is NOT a façade export (rf2-ntwwyt
+  — test-support infrastructure, not app-facing core surface): tests call
+  these two defns directly from this namespace, so they carry no late-bind
+  hook.
 
   The previous arrangement split these across two namespaces — the macros
   lived in `re-frame.http-managed`, and `re-frame.http-test-support` was a
@@ -33,9 +39,10 @@
 
   ## Adoption
 
-  Test files / dev demos that exercise any HTTP stub surface — the macros,
-  the canned-stub fx ids via `:fx-overrides`, or the `re-frame.core`
-  re-exports — add this namespace to their require closure:
+  Test files / dev demos that exercise any HTTP stub surface — the
+  `with-managed-request-stubs` macro, the raw install/uninstall pair, or the
+  canned-stub fx ids via `:fx-overrides` — add this namespace to their
+  require closure:
 
   ```clojure
   (ns my-app.tests
@@ -75,8 +82,8 @@
   - `:rf.http/managed-canned-failure` — synthesised failure reply.
 
   Plus the four stub macros / fns listed above (and the matching late-bind
-  hook publications under `:http/install-managed-request-stubs!`,
-  `:http/uninstall-managed-request-stubs!`, `:http/with-managed-request-stubs*`)."
+  hook publication under `:http/with-managed-request-stubs*` for the façade
+  `with-managed-request-stubs` macro)."
   (:require [re-frame.events               :as events]
             [re-frame.frame                :as frame]
             [re-frame.fx                   :as fx]
@@ -604,15 +611,16 @@
 
 ;; ---- late-bind hook publication ------------------------------------------
 ;;
-;; The `re-frame.core` re-exports of the stub surface
-;; (`install-managed-request-stubs!`, `uninstall-managed-request-stubs!`,
-;; `with-managed-request-stubs*`) resolve through the late-bind hook
-;; table — see `re-frame.core-http`. Publishing the hooks from THIS
-;; namespace (per rf2-lwmgw) means `rf/install-managed-request-stubs!`
-;; and friends raise `:rf.error/http-artefact-missing` until a test
-;; opts in by `:require`-ing `re-frame.http-test-support` — symmetric
-;; with the canned-stub fx ids' registration gate above.
+;; The `re-frame.core` `with-managed-request-stubs` macro (and its
+;; `with-managed-request-stubs*` plumbing) resolves through the late-bind
+;; hook table — see `re-frame.core-http`. Publishing the hook from THIS
+;; namespace (per rf2-lwmgw) means `with-managed-request-stubs*` raises
+;; `:rf.error/http-artefact-missing` until a test opts in by `:require`-ing
+;; `re-frame.http-test-support` — symmetric with the canned-stub fx ids'
+;; registration gate above.
+;;
+;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
+;; pair is NOT a `re-frame.core` façade export (rf2-ntwwyt), so it publishes no
+;; late-bind hook — tests call these two defns directly from this namespace.
 
-(late-bind/set-fn! :http/install-managed-request-stubs!   install-managed-request-stubs!)
-(late-bind/set-fn! :http/uninstall-managed-request-stubs! uninstall-managed-request-stubs!)
 (late-bind/set-fn! :http/with-managed-request-stubs*      with-managed-request-stubs*)

@@ -19,13 +19,13 @@
   Per Spec 002 §The late-bind seam, rf2-5kpd (http split), and the
   prose at the call sites in `re-frame.core`.
 
-  Per rf2-lwmgw the stub-family late-bind hooks
-  (`:http/install-managed-request-stubs!`, `:http/uninstall-managed-request-stubs!`,
-  `:http/with-managed-request-stubs*`) publish from
-  `re-frame.http-test-support` (alongside the stub macros themselves) —
-  this ns requires `re-frame.http-test-support` so the hooks resolve,
-  and the `with-hook-as-nil` helper still flips them to nil to simulate
-  the absent-artefact state."
+  Per rf2-lwmgw the `:http/with-managed-request-stubs*` late-bind hook
+  publishes from `re-frame.http-test-support` (alongside the stub macros
+  themselves) — this ns requires `re-frame.http-test-support` so the hook
+  resolves, and the `with-hook-as-nil` helper still flips it to nil to
+  simulate the absent-artefact state. The raw install/uninstall pair is no
+  longer a `re-frame.core` façade export (rf2-ntwwyt) and carries no hook /
+  throw contract, so it is not exercised here."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
@@ -49,51 +49,11 @@
       (finally
         (late-bind/set-fn! hook-key original)))))
 
-(deftest install-managed-request-stubs-raises-when-http-artefact-missing
-  (testing "rf/install-managed-request-stubs! raises :rf.error/http-artefact-missing when the :http/install-managed-request-stubs! hook is nil"
-    (with-hook-as-nil :http/install-managed-request-stubs!
-      (fn []
-        (let [thrown (try (rf/install-managed-request-stubs! {})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "install-managed-request-stubs! throws when the http artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/http-artefact-missing] token")
-          (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/install-managed-request-stubs! (:where data))
-                "ex-data carries :where = 'rf/install-managed-request-stubs!")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")
-            (is (string? (:reason data))
-                "ex-data carries :reason as a string")))))))
-
-(deftest uninstall-managed-request-stubs-raises-when-http-artefact-missing
-  (testing "rf/uninstall-managed-request-stubs! raises :rf.error/http-artefact-missing when the :http/uninstall-managed-request-stubs! hook is nil"
-    (with-hook-as-nil :http/uninstall-managed-request-stubs!
-      (fn []
-        (let [thrown (try (rf/uninstall-managed-request-stubs!)
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "uninstall-managed-request-stubs! throws when the http artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
-          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
-          ;; not exact keyword-equality.
-          (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
-              "the message carries the [:rf.error/http-artefact-missing] token")
-          (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
-              "ex-data carries the canonical :rf.error/id discriminator")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/uninstall-managed-request-stubs! (:where data))
-                "ex-data carries :where = 'rf/uninstall-managed-request-stubs!")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
+;; The raw install/uninstall pair is no longer a `re-frame.core` façade
+;; export (rf2-ntwwyt) — it carries no late-bind hook and no missing-artefact
+;; throw contract; tests call `re-frame.http-test-support/install-managed-
+;; request-stubs!` / `uninstall-managed-request-stubs!` directly. Only the
+;; `with-managed-request-stubs*` façade plumbing retains the throw contract.
 
 (deftest with-managed-request-stubs-fn-raises-when-http-artefact-missing
   (testing "rf/with-managed-request-stubs* (fn form) raises :rf.error/http-artefact-missing when the :http/with-managed-request-stubs* hook is nil"

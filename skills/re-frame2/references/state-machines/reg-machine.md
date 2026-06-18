@@ -30,7 +30,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **delayed transitions** (`after`) | `:after {<ms> transition-spec}` | Convergence on the name. No recurring timers / pause-resume in v1. |
 | **`raise` (self-event)** | `:raise` inside an action's `:fx` | **Divergence:** sugar for atomic self-dispatch — there is no per-actor mailbox to insert in front of. |
 | **`sendTo` / `sender` (reply to a request)** | include the reply event in the request vector | **Divergence:** no new API; the event vector carries its own reply target. |
-| **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `sub-machine`. |
+| **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `(subscribe [:rf/machine <id>])`. |
 | **`setup({actors, guards, actions})`** | per-machine `:guards` / `:actions` maps in the spec | **Divergence:** machine-scoped (not globally registered) — each machine has its own guard/action namespace, validated at registration; cross-machine reuse is via plain Clojure vars. |
 | **three creation modes** (`createActor` / `invoke` / `spawn`) | one mechanism, two patterns: singleton via `reg-event`, dynamic via `:spawn` / `[:rf.machine/spawn ...]` | **Divergence:** lifetime is encoded by the snapshot's presence in the runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) + registration lifetime, not by which constructor you call. |
 
@@ -194,11 +194,11 @@ See Spec 005 §Schema validation and §`:data-schema` is the re-frame2 analog of
 The framework ships two subs:
 
 ```clojure
-@(rf/sub-machine :my/feature)                  ;; the whole snapshot
+@(rf/subscribe [:rf/machine :my/feature])              ;; the whole snapshot
 @(rf/machine-has-tag? :my/feature :loading)            ;; tag containment-bit
 ```
 
-`sub-machine` is sugar over `(subscribe [:rf/machine machine-id])` and returns the snapshot map `{:state ... :data ... :tags ...}`. `machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` — see `tags.md`. Both live in `re-frame.core-machines` (re-exported from `re-frame.core`).
+The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` — see `tags.md` — and is re-exported from `re-frame.core`.
 
 Project off the snapshot with ordinary `reg-sub`:
 
@@ -245,4 +245,4 @@ For the full transition-table grammar, guard/action effect-map shape, hierarchic
 
 ---
 
-*Derived from the `re-frame.machines.*` sub-namespaces (`transition`, `lifecycle-fx.registration`, …) and `re-frame.core` / `re-frame.core-machines` (the `reg-machine` macro + `sub-machine` / `machine-has-tag?` sugar) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split into sub-namespaces); re-verify symbol homes after machine-registration refactors.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`transition`, `lifecycle-fx.registration`, …) and `re-frame.core` / `re-frame.core-machines` (the `reg-machine` macro + the `[:rf/machine machine-id]` subscription vector + `machine-has-tag?` sugar) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split into sub-namespaces); re-verify symbol homes after machine-registration refactors.*

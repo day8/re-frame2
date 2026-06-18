@@ -90,16 +90,13 @@
 
 (deftest stub-family-late-bind-hooks-publish-on-test-support-load
   (testing "rf2-lwmgw — loading re-frame.http-test-support publishes the
-            stub-family late-bind hooks that re-frame.core-http resolves
-            through. Without this ns required, rf/install-managed-request-stubs!
-            and siblings raise :rf.error/http-artefact-missing — verified
-            by re-frame.late-bind-missing-test."
-    (is (identical? http-test-support/install-managed-request-stubs!
-                    (late-bind/get-fn :http/install-managed-request-stubs!))
-        ":http/install-managed-request-stubs! → http-test-support/install-managed-request-stubs!")
-    (is (identical? http-test-support/uninstall-managed-request-stubs!
-                    (late-bind/get-fn :http/uninstall-managed-request-stubs!))
-        ":http/uninstall-managed-request-stubs! → http-test-support/uninstall-managed-request-stubs!")
+            :http/with-managed-request-stubs* late-bind hook that
+            re-frame.core-http resolves through. Without this ns required,
+            rf/with-managed-request-stubs* raises :rf.error/http-artefact-missing
+            — verified by re-frame.late-bind-missing-test. The raw
+            install/uninstall pair is no longer a re-frame.core façade export
+            (rf2-ntwwyt) and carries no late-bind hook — it is reached directly
+            via this namespace."
     (is (identical? http-test-support/with-managed-request-stubs*
                     (late-bind/get-fn :http/with-managed-request-stubs*))
         ":http/with-managed-request-stubs* → http-test-support/with-managed-request-stubs*")))

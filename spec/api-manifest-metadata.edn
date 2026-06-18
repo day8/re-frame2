@@ -537,7 +537,6 @@
   ["re-frame.core" "subscribe*"]          {:tier :advanced    :owner "002" :status "v1"}
   ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1"}
   ["re-frame.core" "unsubscribe"]         {:tier :advanced    :owner "006" :status "v1"}
-  ["re-frame.core" "sub-machine"]         {:tier :advanced    :owner "005" :status "v1"}
   ;; View ergonomics (spec/API.md §View ergonomics).
   ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "with-new-frame"]      {:tier :front-porch :owner "002" :status "v1"}
@@ -700,11 +699,13 @@
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
-  ;; HTTP test-support re-exports (canonical home: re-frame.http-test-support).
+  ;; HTTP test-support façade surface (canonical home: re-frame.http-test-support).
+  ;; Only the ergonomic `with-managed-request-stubs` macro + its `*` plumbing
+  ;; stay on the façade; the raw install/uninstall pair is reached through the
+  ;; home namespace `re-frame.http-test-support` (rf2-ntwwyt — test-support
+  ;; infrastructure, not app-facing core surface), so it carries no façade row.
   ["re-frame.core" "with-managed-request-stubs"]      {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
   ["re-frame.core" "with-managed-request-stubs*"]     {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
-  ["re-frame.core" "install-managed-request-stubs!"]  {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
-  ["re-frame.core" "uninstall-managed-request-stubs!"] {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
   ;; Event-emit / error-emit (always-on, production-survivable) — §009.
   ["re-frame.core" "register-event-listener!"]   {:tier :tooling :owner "009" :status "v1"}
   ["re-frame.core" "unregister-event-listener!"] {:tier :tooling :owner "009" :status "v1"}
