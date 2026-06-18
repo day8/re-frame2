@@ -600,12 +600,14 @@ item-reach needs vector traversal) is bounded and is itself the open question.
 
 ## Backwards Compatibility
 
-Pre-alpha; additive. `:infinite` is a reserved-but-unused key today
-([Spec 016 §Resource registration spec](../../spec/016-Resources.md#resource-registration-spec)),
-so no resource declares it. Numbered pagination (`:keep-previous?`) is untouched.
-No existing subscription or event changes shape. The only migration is
-*opportunity*: hand-rolled app-db feeds in examples (if any) may move to the
-primitive once it lands.
+Pre-alpha; additive. `:infinite` was a reserved key in Spec 016 before this EP;
+it is **now a live `reg-resource` key**
+([Spec 016 §Infinite resources and load-more feeds](../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)),
+opt-in per feed. Numbered pagination (`:keep-previous?`) is untouched.
+No existing subscription or event changed shape (the infinite subscription
+family — `:rf.resource/items` / `:rf.resource/pages` / `:rf.resource/infinite-state`
+— and the `:rf.resource/load-more` event are purely additive). The only migration
+is *opportunity*: hand-rolled app-db feeds may move to the primitive.
 
 ## Bead Plan / Reference Implementation
 

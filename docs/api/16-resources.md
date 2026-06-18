@@ -50,9 +50,9 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
 | `:request` | For `:transport :rf.http/managed`, returns a [Spec 014](../../spec/014-HTTPRequests.md) args map. MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
 | `:data-schema` | Validates successful data when transport decode supports it. |
 
-**Optional keys**: `:doc`, `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
+**Optional keys**: `:doc`, `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:infinite` + the infinite-only keys (`:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, `:refetch` — see [Infinite resources](#infinite-resources)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
 
-**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, `:infinite`, transport extension protocols. (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling.) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
+**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, transport extension protocols. (Interval polling landed as `:poll-interval-ms`, not the originally-reserved `:poll-ms` spelling; the `:infinite` load-more kind landed via EP-0021 — see [Infinite resources](#infinite-resources).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
 
 ### Scope policy
 
@@ -124,6 +124,12 @@ Resource events take a **map payload**, not a positional argument vector.
 - **Payload**: `{:resource :scope :params}`
 - **Description**: Remove a single resource instance's cache entry.
 
+### `[:rf.resource/load-more {…}]`
+
+- **Kind**: event (infinite resources only — see [Infinite resources](#infinite-resources))
+- **Payload**: `{:resource :scope :params :cause}` — **ownerless** (carries a `:cause`, never an `:owner`)
+- **Description**: Extend an `:infinite` feed by one page. Computes the next page param from the entry's tail via `:next-page-param`, fetches that page through the same managed transport, and appends it to the feed's accumulated page vector (the feed stays `:loaded`; the pages stay visible — a load-more in flight is the derived `:fetching-next?` sub, distinct from a whole-feed `:fetching?` refresh). A load-more with no next page (`:next-page-param` → `nil`) is a no-op trace; a load-more while a page fetch is already in flight dedupes. A supplied `:owner` is warn-and-ignored — the route (or whatever first-loaded the feed) already owns the one feed entry, and load-more never changes the active-owner set.
+
 ### Focus/reconnect revalidation
 
 Active-stale revalidation is expressed as **resource events**, never subscription-driven fetching (rf2-vtblcq, landed). On window focus / tab-return / network reconnect, the frame's active-owner **stale** entries are rescanned and refetched by policy — a stale entry with no active owner is left alone (revalidation creates no liveness).
@@ -168,6 +174,47 @@ Semantics (per [016 §Polling](../../spec/016-Resources.md#polling)):
 - **Background-failure resilient.** A failed poll keeps prior `:data` + records `:refresh-error`, and the next poll still fires.
 
 A "just polling" view with no natural route/machine owner needs an app-minted `[:lease …]` owner (with a matching `[:rf.resource/release-owner {…}]`) to keep the poll alive — an owner-free entry never polls.
+
+### Infinite resources
+
+An **infinite resource** is the load-more / infinite-scroll feed counterpart of TanStack Query's `useInfiniteQuery` / SWR's `useSWRInfinite` (landed via [EP-0021](../EP/EP-0021-infinite-resources.md); normative source [016 §Infinite resources and load-more feeds](../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`; the user accumulates pages (1, then 1+2, then 1+2+3) rendered as one growing list, with the *next* page param derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal — an app picks per feed.
+
+```clojure
+(rf/reg-resource :feed/timeline
+  {:doc "Infinite home timeline (load-more)."
+   :infinite         true
+   :params-schema    [:map [:filter :keyword]]   ;; FEED identity (filter/sort) — NOT the page cursor
+   :scope            {:from-db :app/session}
+   :page-data-schema :app/timeline-page          ;; validates ONE page (decode target + per-page egress)
+   :request                                       ;; reserved ctx carries the page context (R8 — no new arity)
+   (fn [{:keys [filter]} {:rf.resource/keys [page-param]}]
+     {:request {:method :get :url "/api/timeline"
+                :params (cond-> {:filter filter :limit 20} page-param (assoc :cursor page-param))}
+      :decode  :app/timeline-page})
+   :next-page-param  (fn [last-page _all-pages]    ;; REQUIRED; nil = the single terminal
+                       (get-in last-page [:page-info :next-cursor]))
+   :page->items      :items                        ;; REQUIRED when a page is non-vector/enveloped (loud over guessing)
+   :tags             (fn [{:keys [filter]} _] #{[:feed filter]})})
+```
+
+Key semantics:
+
+- **`:infinite true` makes `:next-page-param` required** (a loud `:rf.error/infinite-missing-next-page-param` otherwise). It is pure `(last-page all-pages) → next-param-or-nil`; returning `nil` is the single canonical terminal, exposed as the derived `:has-next-page?`.
+- **One scoped entry per feed.** Pages accumulate as an ordered vector inside the one `:rf.runtime/resources` entry — **not** N per-page entries, **not** an app-db slice — so the feed has one owner set / freshness clock / GC clock / SSR-restore unit / Xray row. The per-page param is internal sequencing state, **never** part of the cache key; changing the identity params yields a different feed instance.
+- **`:page-data-schema` validates one page** and is the per-page egress/classification contract (applied per page on SSR/tool projection); `:data-schema` is not used for the accumulated vector.
+- **Other infinite-only keys**: `:prev-page-param` (the bidirectional derivation mirror — defined, but the `load-prev` prepend event is deferred; v1 ships next-direction load-more only), `:initial-page-param` (the first-page param, default `nil`), `:page->items` (required for non-vector pages), and `:refetch` (`{:refetch-all-pages? false}` by default — the conservative window-preserving refetch policy, with `:refetch-all-pages?` / `:refetch-window` opt-ins).
+
+A view reads the merged list and dispatches the causal `[:rf.resource/load-more {…}]`:
+
+```clojure
+[:rf.resource/items          {:resource :feed/timeline :scope … :params …}]   ;; merged flat list — the headline read
+[:rf.resource/pages          {…}]   ;; raw page boundaries
+[:rf.resource/has-next-page? {…}]   [:rf.resource/fetching-next? {…}]
+[:rf.resource/page-count     {…}]   [:rf.resource/page-error     {…}]
+[:rf.resource/infinite-state {…}]   ;; combined view-model (the feed analogue of :rf.resource/state)
+```
+
+`:rf.resource/items`, `:rf.resource/pages`, and `:rf.resource/infinite-state` are framework-owned memoised subscriptions; `:rf.resource/ensure` (and a route entry) loads **page 0 only**, and a mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct; in-place item patching is on the deferred optimistic/patch axis).
 
 ## Subscriptions (passive)
 
