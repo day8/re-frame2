@@ -3158,9 +3158,13 @@ installation's registrar — it is **not a public address**. **Omit it for the
 default container** — the overwhelming single-realm common case, where the
 response is byte-identical (no `:realm` key, no behaviour change; absence =
 the default container). When supplied, the lookup routes through the
-**map-shaped** form `(re-frame.core/handler-meta {:realm r :kind k :id id})`
-and reads **only that container's** registrar; the resolved container is
-stamped onto the response as `:realm`. `realm` is **not valid with
+**internal generation-bypass seam** `(re-frame.realm/realm-handler-meta r kind
+id)` and reads **only that container's** registrar; the resolved container is
+stamped onto the response as `:realm`. rf2-10nggz REMOVED the public `:realm`
+registrar-query map arity from the facade (a registrar-query map is now ALWAYS
+frame-targeted); the honestly-named `re-frame.realm/realm-*` readers survive as
+the internal/tooling seam (the same host-registry seam Xray reads). `realm` is
+**not valid with
 `kind=machine`** (machine specs derive from the default container's `:event`
 handlers) — that combination returns
 `{:ok? false :reason :realm-unsupported-for-machine …}` rather than silently
@@ -3185,10 +3189,11 @@ consumes the **public** facade read `(re-frame.core/handler-meta {:frame f
 ```
 
 `frame` and `realm` are **distinct address families** (EP-0023 §Id Spaces):
-`realm` reads an installation container's flat registrar atom, `frame`
-resolves through a live frame's sealed generation. Passing **both** is
-rejected — `{:ok? false :reason :frame-realm-mixed-address …}` — the same
-fail-loud the facade enforces, surfaced before the eval round-trip. `frame`
+`realm` reads an installation container's flat registrar atom (via the internal
+`re-frame.realm/realm-*` seam), `frame` resolves through a live frame's sealed
+generation. Passing **both** is rejected by a tool-local guard —
+`{:ok? false :reason :frame-and-realm-mutually-exclusive …}` — two different
+reads, only one can apply, surfaced before the eval round-trip. `frame`
 is **not valid with `kind=machine`** (machines are not in the image
 generation resolver — they derive from `:event` handlers; Spec 005), and
 that combination returns `{:ok? false :reason :frame-unsupported-for-machine
@@ -3252,7 +3257,7 @@ On a miss:
 - `{:ok? false :reason :invalid-id-edn :id <raw> :hint "..."}` — `id` failed `cljs.reader/read-string`.
 - `{:ok? false :reason :invalid-realm-edn :realm <raw> :hint "..."}` — non-blank `realm` failed to read as EDN.
 - `{:ok? false :reason :realm-unsupported-for-machine :realm <r> :kind :machine :hint "..."}` — `realm` given with `kind=machine`.
-- `{:ok? false :reason :frame-realm-mixed-address :frame <f> :realm <r> :hint "..."}` — both `frame` and `realm` supplied (distinct address families, EP-0023 §Id Spaces).
+- `{:ok? false :reason :frame-and-realm-mutually-exclusive :frame <f> :realm <r> :hint "..."}` — both `frame` and `realm` supplied (distinct address families, EP-0023 §Id Spaces).
 - `{:ok? false :reason :frame-unsupported-for-machine :frame <f> :kind :machine :hint "..."}` — `frame` given with `kind=machine` (machines are not in the image generation resolver).
 - `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw (including the facade's `:rf.error/frame-no-generation` when `frame` names no live frame carrying a generation).
 
@@ -3288,7 +3293,7 @@ running image generation carries** for the kind — routing through
 the public `(re-frame.core/handler-ids {:frame f :kind k})` read (rf2-wkw8na).
 This is the **selected universe** that frame actually runs, not the
 realm-wide namespace-union the flat registrar holds. `frame` and `realm` are
-mutually exclusive (`:frame-realm-mixed-address`); `frame` is not valid with
+mutually exclusive (`:frame-and-realm-mutually-exclusive`); `frame` is not valid with
 `kind=machine` (`:frame-unsupported-for-machine`). The resolved frame is
 stamped onto the response as `:frame`. Omit it for the default-registrar path.
 
@@ -3296,9 +3301,9 @@ stamped onto the response as `:frame`. Omit it for the default-registrar path.
 contract as `handler-meta`. The optional `realm` arg names an internal
 installation container (not a public address); omit it for the default
 container (byte-identical). When supplied, the enumeration routes through the
-map-shaped `(re-frame.core/registrations {:realm r :kind k})` form and lists
-**only that container's** ids, stamping `:realm` on the response. Not valid
-with `kind=machine`.
+internal generation-bypass seam `(re-frame.realm/realm-registrations r kind)`
+and lists **only that container's** ids, stamping `:realm` on the response. Not
+valid with `kind=machine`.
 
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
 (including the resources-artefact `:resource` / `:mutation` /
@@ -3335,7 +3340,7 @@ empty case.
 - `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` — unrecognised / missing `kind` arg.
 - `{:ok? false :reason :invalid-realm-edn :realm <raw> :hint "..."}` — non-blank `realm` failed to read as EDN.
 - `{:ok? false :reason :realm-unsupported-for-machine :realm <r> :kind :machine :hint "..."}` — `realm` given with `kind=machine`.
-- `{:ok? false :reason :frame-realm-mixed-address :frame <f> :realm <r> :hint "..."}` — both `frame` and `realm` supplied.
+- `{:ok? false :reason :frame-and-realm-mutually-exclusive :frame <f> :realm <r> :hint "..."}` — both `frame` and `realm` supplied.
 - `{:ok? false :reason :frame-unsupported-for-machine :frame <f> :kind :machine :hint "..."}` — `frame` given with `kind=machine`.
 - `{:ok? false :reason :list-handlers-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation`).
 
