@@ -3,6 +3,26 @@
   accepted 2026-06-11, stage 6 public constructors + composition added on top
   of it; sequenced behind the merged D1 `re-frame.realm`).
 
+  ## EP-0023: this is INTERNAL substrate, NOT current public composition vocabulary
+
+  EP-0023 (graduated 2026-06-16) moves the PUBLIC model to
+  `image -> frame -> event stream`. The app/module construction surface this ns
+  ships is **superseded at the public surface, NOT deleted**: `rf/app` (the
+  app value) is publicly REPLACED by `rf/image`, and `rf/module` is RE-EXPRESSED
+  as an image fragment (EP-0023 §Surface dispositions). The `install!` /
+  `reinstall!` / `installed-app` seating + inspection surface is RETAINED as the
+  internal installation / migration / tooling substrate the realm registrar
+  backs — \"Tooling may still expose the internal installation boundary, but
+  should label it as such\" (EP-0023 §Surface dispositions). So where the
+  staging narrative below calls `rf/app` / `rf/module` / `rf/install!` \"PUBLIC\",
+  read that as the EP-0013 disposition: under EP-0023 these are retained-internal
+  / migration surfaces, NOT the current public composition vocabulary a new
+  reader should reach for. The public path is `rf/image` (select a
+  registration set by provenance) + `rf/make-frame` (load it into a frame); see
+  `re-frame.migration/migration-map` for the per-name EP-0013 -> EP-0023
+  disposition + replacement. The EP-0013 staging narrative below is preserved as
+  the design record of this retained substrate.
+
   > The program is a value; the runtime is a container you install it into.
 
   Per [EP-0013](docs/EP/EP-0013-app-values-and-runtime-realms.md) §D2 (the
@@ -28,7 +48,13 @@
       surface large-SPA code uses to compose + inspect a program before it is
       installed (see §Public construction + composition below).
 
-  ## Stage 5 (projection) is INTERNAL; stage 6 (construction) is PUBLIC
+  ## Stage 5 (projection) is INTERNAL; stage 6 (construction) is PUBLIC (EP-0013)
+
+  (EP-0023 re-classifies stage-6 construction as retained-internal / migration
+  vocabulary — `rf/app` is publicly replaced by `rf/image`, `rf/module` is
+  re-expressed as an image fragment; see the EP-0023 banner above. The
+  \"PUBLIC\" labels in this section are the EP-0013 disposition, preserved as the
+  design record.)
 
   Stage 5 shipped an internal app-value descriptor format + the projection
   seam, for the registrations that ALREADY exist in the default realm's
@@ -363,7 +389,11 @@
 
 (defn module
   "Construct a MODULE value — a composable app-value fragment (EP-0013 §Module
-  Values And Feature Ownership), as INERT data. PUBLIC (`rf/module`).
+  Values And Feature Ownership), as INERT data. EP-0013-PUBLIC (`rf/module`);
+  EP-0023 re-expresses `rf/module` as an image fragment, so this is now a
+  retained-internal / migration surface, not the current public vocabulary
+  (the public path is an `rf/image` `:include-ns` selector — see the EP-0023
+  banner + `re-frame.migration/migration-map`).
 
   `descriptor-map` carries:
 
@@ -490,7 +520,11 @@
 
 (defn app
   "Construct an APP value by composing module values (EP-0013 §App Values +
-  §Composition), as INERT data. PUBLIC (`rf/app`).
+  §Composition), as INERT data. EP-0013-PUBLIC (`rf/app`); EP-0023 publicly
+  REPLACES `rf/app` with `rf/image`, so this is now a retained-internal /
+  migration surface, not the current public vocabulary (construct an
+  `rf/image` and load it into a frame via `rf/make-frame` `:images` — see the
+  EP-0023 banner + `re-frame.migration/migration-map`).
 
   `app-map` carries:
 
@@ -592,14 +626,19 @@
 ;; The three inspectors the EP's "A Whole App As Data" example shows — read an
 ;; app value WITHOUT installing it: enumerate its registrations by kind, find
 ;; the module that owns an app-db path, read its capability requirements. Pure
-;; readers over the app-value data; no realm, no registrar. PUBLIC.
+;; readers over the app-value data; no realm, no registrar. EP-0013-PUBLIC;
+;; under EP-0023 these inspect a retained-internal / migration surface (the
+;; app value, superseded at the public surface by `rf/image`), not the current
+;; public composition vocabulary.
 
 (defn app-registrations
   "Return the registration descriptors an app value carries for `kind`
   (`kind → {id descriptor}` for that one kind), or `nil` when the app declares
   none of that kind. The enumerable registration view that makes static
   dispatch-coverage checks possible WITHOUT installing the app (EP-0013
-  §Validation/Conformance). PUBLIC (`rf/app-registrations`).
+  §Validation/Conformance). EP-0013-PUBLIC (`rf/app-registrations`) — under
+  EP-0023 a retained-internal / migration inspector over the app value
+  (superseded at the public surface by `rf/image`).
 
   Works over both constructed apps (`app`) and projected apps (`app-value`) —
   the `:registrations` shape is the same for both. Pure."
@@ -610,8 +649,10 @@
   "Return the set of `:rf.capability/*` requirements an app value declares —
   the union of its modules' `:rf.module/requires` (EP-0013 §Capability Maps),
   read off the app value's `:rf.app/requires` slot. The explicit dependency
-  surface a realm must satisfy before a stage-7 `install!` succeeds. PUBLIC
-  (`rf/app-requires`). Pure — returns `#{}` for a projected app (load-order
+  surface a realm must satisfy before a stage-7 `install!` succeeds.
+  EP-0013-PUBLIC (`rf/app-requires`) — under EP-0023 a retained-internal /
+  migration inspector over the app value (superseded at the public surface by
+  `rf/image`). Pure — returns `#{}` for a projected app (load-order
   registrations declare no requirements)."
   [app-value]
   (get app-value :rf.app/requires #{}))
@@ -619,7 +660,9 @@
 (defn app-owns
   "Return the module id that owns app-db `path` in an app value, or `nil` when
   no module declares it (EP-0013 §Module Values And Feature Ownership /
-  §Examples `(rf/app-owns app [:cart])`). PUBLIC (`rf/app-owns`).
+  §Examples `(rf/app-owns app [:cart])`). EP-0013-PUBLIC (`rf/app-owns`) —
+  under EP-0023 a retained-internal / migration inspector over the app value
+  (superseded at the public surface by `rf/image`).
 
   Resolves against the modules' `:rf.module/owns {:app-db [...]}` declarations:
   returns the id of the module whose `:rf.module/owns :app-db` vector contains
@@ -885,7 +928,11 @@
 (defn install!
   "Seat an immutable app VALUE into a realm — make `app`'s registrations the
   program `realm-or-id` dispatches/subscribes/resolves against (EP-0013 D2
-  stage 7, §Installation). PUBLIC (`rf/install!`).
+  stage 7, §Installation). EP-0013-PUBLIC (`rf/install!`); EP-0023 RETAINS
+  `rf/install!` as the internal installation / migration / tooling surface —
+  it is no longer the taught public vocabulary (the public path is
+  `rf/make-frame` with `:images`; the realm registrar remains the backing
+  installation substrate during migration — EP-0023 §Surface dispositions).
 
   Steps, in order:
 
@@ -1119,7 +1166,10 @@
 (defn reinstall!
   "Hot-reload a realm by replacing its installed app VALUE with `new-app` —
   diff the new app value against the installed one and apply the delta
-  (EP-0013 D2 stage 7, §Hot Reload And Reinstall). PUBLIC (`rf/reinstall!`).
+  (EP-0013 D2 stage 7, §Hot Reload And Reinstall). EP-0013-PUBLIC
+  (`rf/reinstall!`); EP-0023 RETAINS `rf/reinstall!` as the internal /
+  migration surface — the public hot-reload path is `rf/reload-images!`
+  against a frame target (EP-0023 §Surface dispositions).
 
   Unlike `install!` (which seats a program into a realm that has none),
   `reinstall!` REPLACES the realm's current program with a minimal delta:
