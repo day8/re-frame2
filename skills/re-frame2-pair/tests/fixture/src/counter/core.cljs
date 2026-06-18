@@ -67,7 +67,7 @@
 (defn ^:export run []
  ;; Force source-coord DOM annotation on so re-frame2-pair's DOM bridge has
  ;; something to find. Spec 006 §Source-coord annotation.
- (rf/configure! :source-coord {:annotate-dom? true})
+ (rf/configure! {:source-coord {:annotate-dom? true}})
  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
  ;; absence — `:rf/default` is this fixture's app frame, registered
  ;; explicitly here (init! installs only the adapter). The boot dispatch
