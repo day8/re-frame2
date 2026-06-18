@@ -12,7 +12,7 @@ A view is a **pure function `(state, props) → render-tree`**. The pattern-leve
 
 These are pattern-level commitments; they hold across the eight in-scope JS-cross-compile-to-React+VDOM languages (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) — ClojureScript, TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS).
 
-The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `frame-provider`, `frame-handle` / `frame-bound-fn`) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
+The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `with-frame` scoping, the UI-owned `frame-provider` lifecycle boundary, `frame-handle` carry) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
 
 ### What is server-renderable, what is client-only
 
@@ -178,7 +178,7 @@ Both lanes write into the same view registry; the split is about *who registers 
 
 - **Auto-id derivation.** The registered id is `(keyword (str *ns*) (str sym))` — the same shape Clojure uses for `defn` Vars. Override by attaching `^{:rf/id :explicit/id}` metadata to the symbol.
 - **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/view :id)` results — both resolve to the same wrapped fn.
-- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to the `:dispatch` / `:subscribe` ops of a single `frame-handle` (`(rf/make-frame-handle (rf/current-frame-id) …)`) capturing the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically. The macro also threads the view's definition-site source-coord into the handle (via `:dispatch-opts` / `:subscribe-call-site`) so a view's `#(dispatch [...])` classifies as `:source :ui` and carries the reg-view's `:rf.trace/call-site` for "go to code" — view-level precision, dev-only-elidable. See [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line).
+- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to the `:dispatch` / `:subscribe` ops of a single `frame-handle` (`(rf/frame-handle)`) capturing the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically. The macro also threads the view's definition-site source-coord into the handle (via `:dispatch-opts` / `:subscribe-call-site`) so a view's `#(dispatch [...])` classifies as `:source :ui` and carries the reg-view's `:rf.trace/call-site` for "go to code" — view-level precision, dev-only-elidable. See [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line).
 
 ```clojure
 (rf/reg-view counter [label]
@@ -221,7 +221,7 @@ The `*` suffix is the standard Clojure idiom for the unsweetened, runtime-callab
 
 Both `reg-view` and `reg-view*` return the registered **id** per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). For `reg-view`, the macro also defs the supplied symbol as a side effect (per §The canonical form below) — that's an additional behaviour, not a substitute for the return value. Programmatic callers that need both the id and the Var have the id via the return value and the Var via the auto-def.
 
-**Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from the surrounding frame** — the injected closures resolve to whatever frame the surrounding `frame-provider` puts in scope. The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
+**Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from the surrounding frame** — the injected closures resolve to whatever frame the surrounding scope puts in context (a `with-frame` or a `frame-provider`). The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
 
 The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects](002-Frames.md#what-reg-view-injects).
 
@@ -293,7 +293,7 @@ Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** f
 
 ## Plain Reagent fns: staged adoption (the footgun is now a loud error)
 
-Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection — they carry no `:contextType` wiring, so a plain fn **cannot read the surrounding `frame-provider`'s frame from React context**.
+Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection — they carry no `:contextType` wiring, so a plain fn **cannot read the surrounding frame scope from React context** (whether that scope was established by a `with-frame` or a `frame-provider`).
 
 Under the EP-0002 carried invariant ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) there is **no `:rf/default` floor**. A plain fn that cannot read the context resolves to *nil*, and its `subscribe`/`dispatch` (qualified `rf/`, the ambient 1-arity form) raises `:rf.error/no-frame-context` — the operation **fails fast** rather than silently routing to a conventional default. This is the sharper successor to the old warn-and-fall-through behaviour: a bare reagent fn that depends on the surrounding frame now errors loudly at the call site rather than reading the wrong frame's app-db.
 
@@ -435,18 +435,18 @@ Registered views referenced from hiccup inherit the surrounding frame from React
 (rf/reg-view outer []
   [:div
    [counter "Inner"]                  ;; or [(rf/view :counter) "Inner"] for late-binding by id
-   [rf/frame-provider {:frame :other}
-    [counter "Other-frame inner"]]])  ;; nested provider re-points
+   (rf/with-frame :other
+     [counter "Other-frame inner"])]) ;; nested scope re-points to an existing frame
 ```
 
-Nested `frame-provider`s re-point children. The deepest provider in scope wins.
+To re-point children to an **already-existing** frame, scope them with `rf/with-frame` (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), pure scoping is `with-frame`; the dropped scope-only `frame-provider` shape is no longer used). The deepest scope in context wins. (A nested `frame-provider` instead **owns** a new frame's lifetime — create-on-mount / destroy-on-unmount — rather than scoping to an existing one; see [002 §What `frame-provider` is](002-Frames.md#what-frame-provider-is-cljs-reference).)
 
 ## Reusable components
 
 Reusable-component concerns are addressed by:
 
 1. **Reusable widgets need to subscribe and dispatch** — `reg-view`'s frame-bound injection.
-2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — [002's `frame-provider`](002-Frames.md#what-frame-provider-is-cljs-reference) plus user-defined React contexts for non-frame state.
+2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — the frame scope established by a `with-frame` or a [UI-owned `frame-provider`](002-Frames.md#what-frame-provider-is-cljs-reference) plus user-defined React contexts for non-frame state.
 
 ## View antipatterns
 
