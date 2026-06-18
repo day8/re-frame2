@@ -981,8 +981,10 @@
     (derivation-graph/install!)
     ;; Module-view tab (EP-0013 disposition 6, rf2-wtg9z4) — Dynamic L4
     ;; tab: the (realm, frame) address space of the running process
-    ;; (`rf/realm-ids` × `rf/frame-realm`, the EP-0013 disposition-3
-    ;; public address halves). The disposition-6 demand-trigger surface
+    ;; (`re-frame.realm/realm-ids` × `re-frame.frame/frame-realm`, the EP-0013
+    ;; disposition-3 address halves, read off the internal substrate —
+    ;; EP-0023 retained-internal, pl97nd.2). The disposition-6 demand-trigger
+    ;; surface
     ;; for per-module ownership/capability/classification/provenance —
     ;; the MODULES section is scaffolded behind the awaiting-seam caption
     ;; until the public realm→installed-app provenance read seam

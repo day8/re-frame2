@@ -39,8 +39,10 @@
   (EP-0023 §Backwards Compatibility). The Module-view tab is already the
   cohesive home for the EP-0013 `(realm, frame)` / module inspection; this
   helper extends that same tab with the EP-0023 PUBLIC model. The two read
-  DIFFERENT surfaces: the realm/module projection reads `rf/realm-ids` /
-  `rf/installed-app` (the retained internal substrate); this image/frame
+  DIFFERENT surfaces: the realm/module projection reads
+  `re-frame.realm/realm-ids` / `re-frame.realm/installed-app` (the retained
+  internal substrate, read off the owning namespace directly — EP-0023 removed
+  the `rf/*` facade arities, pl97nd.2); this image/frame
   projection reads the EP-0023 live-frame registry + sealed generations (the
   public model). A process using one and not the other renders only the
   section it has (each is fail-soft and demand-gated, like the realm

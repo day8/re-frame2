@@ -320,9 +320,11 @@
    :rf.xray/derivation-graph-mode
    :rf.xray/derivation-graph-tab-data
    ;; rf2-wtg9z4 — Module-view tab (EP-0013 disposition 6): the projected
-   ;; (realm, frame) address space (`rf/realm-ids` × `rf/frame-realm`).
-   ;; The disposition-6 demand-trigger surface; the per-module provenance
-   ;; section is scaffolded behind the awaiting-seam caption.
+   ;; (realm, frame) address space (`re-frame.realm/realm-ids` ×
+   ;; `re-frame.frame/frame-realm`, the internal substrate — EP-0023
+   ;; retained-internal, pl97nd.2). The disposition-6 demand-trigger surface;
+   ;; the per-module provenance section is scaffolded behind the awaiting-seam
+   ;; caption.
    :rf.xray/module-view
    ;; rf2-32siq3.12 — EP-0023 image/frame model on the Module-view tab: the
    ;; live image-loaded frames as execution contexts, each carrying its

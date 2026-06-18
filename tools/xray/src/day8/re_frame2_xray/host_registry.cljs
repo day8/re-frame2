@@ -29,9 +29,14 @@
 
   ## The mechanism
 
-  The realm-targeted query form `(rf/registrations {:realm <realm> :kind k})`
-  resolves through the realm's OWN registrar atom directly
-  (`re-frame.realm/realm-registrar`), BYPASSING any bound `*generation*`. The
+  The default realm's OWN registrar atom is read DIRECTLY via the internal
+  substrate seam `re-frame.realm/realm-registrations` (and its `[kind id]`
+  sibling `realm-handler-meta`), BYPASSING any bound `*generation*`. EP-0023
+  retained the realm machinery as the internal installation substrate and
+  removed the `rf/registrations`/`rf/handler-meta` realm-targeted facade arities
+  (pl97nd.2); a TOOL reads the owning `re-frame.realm` namespace directly, just
+  as it already reads `re-frame.frame` / `re-frame.live-frame` (bundle isolation
+  forbids `implementation/` requiring from `tools/`, not the reverse). The
   default realm (`nil` ⇒ absence-is-default) is the process-global registrar the
   host app's `reg-event` / `reg-route` / `reg-resource` write into — the
   registry the inspector wants regardless of which image-loaded frame its sub
@@ -41,21 +46,22 @@
   ## Multi-realm note
 
   Single-realm apps (the overwhelming common case) read the default realm and
-  this is byte-identical to the old `(rf/registrations kind)`. A genuinely
-  multi-realm host's non-default registrations are surfaced by the Static
-  panels' realm-qualified browse (`static.shared.realm`), which already iterates
-  `(rf/realm-ids)` via the same generation-bypassing map form; the dynamic
-  inspection panels follow the OBSERVED frame, whose realm is the default in
-  every shipped substrate, so reading the default realm here matches what those
-  panels observe.
+  this is byte-identical to the bare keyword read. A genuinely multi-realm
+  host's non-default registrations are surfaced by the Static panels'
+  realm-qualified browse (`static.shared.realm`), which iterates
+  `re-frame.realm/realm-ids` via the same internal generation-bypassing seam;
+  the dynamic inspection panels follow the OBSERVED frame, whose realm is the
+  default in every shipped substrate, so reading the default realm here matches
+  what those panels observe.
 
   ## Fail-soft
 
-  A core too old for the map-shaped query form (or any throw) degrades to the
-  bare `(rf/registrations kind)` / `(rf/handler-meta kind id)` — the
+  Any throw in the internal substrate read degrades to the bare
+  `(rf/registrations kind)` / `(rf/handler-meta kind id)` facade reads — the
   pre-image-loaded behaviour. An inspector catalogue must never throw on a
   runtime that cannot answer."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [re-frame.realm :as realm]))
 
 (defn registrations
   "`(rf/registrations kind)` for the HOST app — the process-global DEFAULT-REALM
@@ -66,11 +72,13 @@
   registry; a view-body read (no generation bound) may use the bare form, but
   this is always safe.
 
-  Fail-soft: a core too old for the realm-targeted map form degrades to the bare
+  Reads the default realm's registrar directly via the internal substrate seam
+  `re-frame.realm/realm-registrations` (the generation-bypass home EP-0023
+  retains internally). Fail-soft: any throw degrades to the bare
   `(rf/registrations kind)`."
   [kind]
   (try
-    (rf/registrations {:realm nil :kind kind})
+    (realm/realm-registrations nil kind)
     (catch :default _
       (try (rf/registrations kind) (catch :default _ {})))))
 
@@ -80,9 +88,11 @@
   lookup). Returns the registration metadata map or `nil`. Use INSIDE any
   `:rf.xray/*` sub that resolves host-app registration meta.
 
-  Fail-soft: degrades to the bare `(rf/handler-meta kind id)`."
+  Reads the default realm's registrar directly via the internal substrate seam
+  `re-frame.realm/realm-handler-meta`. Fail-soft: any throw degrades to the bare
+  `(rf/handler-meta kind id)`."
   [kind id]
   (try
-    (rf/handler-meta {:realm nil :kind kind :id id})
+    (realm/realm-handler-meta nil kind id)
     (catch :default _
       (try (rf/handler-meta kind id) (catch :default _ nil)))))

@@ -95,10 +95,12 @@
 ;; neither does its devtool). The grouping appears ONLY when more than
 ;; one distinct realm is present across the pickable frames.
 ;;
-;; The frame→realm map is the public `re-frame.frame/frame-realm`
-;; (re-exported `rf/frame-realm`) — the frame-side half of the (realm,
-;; frame) address. Pairing it with `rf/realm-ids` (the installed realms)
-;; is the full address-space walk EP-0013 disposition 3 documents. The
+;; The frame→realm map is the internal substrate seam
+;; `re-frame.frame/frame-realm` — the frame-side half of the (realm,
+;; frame) address (EP-0023 retained-internal; pl97nd.2 removed the
+;; `rf/frame-realm` facade alias). Pairing it with `re-frame.realm/realm-ids`
+;; (the installed realms) is the full address-space walk EP-0013 disposition 3
+;; documents. The
 ;; grouping helper takes the resolver as an argument so the pure
 ;; data-shape logic runs under the unit-test target without a live
 ;; frame registry.
@@ -169,7 +171,7 @@
   "Pure helper — group `frames` (a first-seen-order vec from
   `distinct-frames`) by the runtime realm each frame belongs to, using
   `realm-of` (a `frame-id → realm-id` resolver, normally
-  `rf/frame-realm`). Returns a vector of `{:realm <realm-id> :frames
+  `re-frame.frame/frame-realm`). Returns a vector of `{:realm <realm-id> :frames
   [<frame-id> …]}` groups in first-realm-seen order, each group's
   `:frames` preserving the input frame order.
 
@@ -597,8 +599,9 @@
   ;; `:rf.xray/available-frame-realm-groups` (rf2-3caq85) — the same
   ;; pickable frames, grouped by the runtime realm each belongs to
   ;; (EP-0013 disposition 3). Composes off `:rf.xray/available-frames`
-  ;; and resolves each frame's realm through the PUBLIC `rf/frame-realm`
-  ;; (the frame-side half of the (realm, frame) address). In a
+  ;; and resolves each frame's realm through the internal substrate seam
+  ;; `re-frame.frame/frame-realm` (the frame-side half of the (realm, frame)
+  ;; address; EP-0023 retained-internal). In a
   ;; single-realm process every frame resolves to the default realm, so
   ;; the result is ONE group and the picker renders the flat option list
   ;; (byte-identical to the pre-bead render — `multi-realm?` is false);

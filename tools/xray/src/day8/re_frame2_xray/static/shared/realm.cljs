@@ -24,15 +24,21 @@
   panels (schemas / flows / interceptors / routes / machines) make reads
   ONLY the default realm's table — so xray could not show WHICH realm owns a
   registration, nor flag a cross-realm id conflict (the same id registered
-  in two realms). EP-0013 stage 8 added the map-shaped
-  `(rf/registrations {:realm r :kind k})` query form + `rf/realm-ids` (the
-  installed-realm enumeration) that this helper composes into the static
-  surfaces.
+  in two realms). The realm-scoped reads here compose the internal-substrate
+  seams `re-frame.realm/realm-registrations` (per-realm `{id metadata}`) +
+  `re-frame.realm/realm-ids` (the installed-realm enumeration) into the static
+  surfaces. EP-0023 removed the `rf/registrations {:realm …}` / `rf/realm-ids`
+  facade arities (pl97nd.2) and retained the realm machinery as the internal
+  installation substrate; a TOOL reads the owning `re-frame.realm` namespace
+  directly, just as it already reads `re-frame.frame` / `re-frame.live-frame`
+  (bundle isolation forbids `implementation/` requiring from `tools/`, not the
+  reverse).
 
   ## Absence is the default realm — single-realm renders unchanged
 
-  The OVERWHELMING common case is a single-realm app: `(rf/realm-ids)`
-  returns exactly `#{:rf.realm/default}`. In that case:
+  The OVERWHELMING common case is a single-realm app:
+  `(re-frame.realm/realm-ids)` returns exactly `#{:rf.realm/default}`. In that
+  case:
 
     - `multi-realm?` is false;
     - `realm-qualified-registrations` returns one `[default-realm-id
@@ -55,10 +61,10 @@
       ONLY when the browse spans more than one realm.
 
   Pure-read + fail-soft: a browse catalogue must never throw on a runtime
-  that can't answer (an older core without `realm-ids` / the map-shaped
-  query form), so every registry touch is `try`-guarded and degrades to the
-  default-realm path."
+  that can't answer, so every registry touch is `try`-guarded and degrades to
+  the default-realm path."
   (:require [re-frame.core :as rf]
+            [re-frame.realm :as realm]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -71,13 +77,14 @@
   :rf.realm/default)
 
 (defn realm-ids
-  "Return the set of installed realm ids via the public `(rf/realm-ids)`
-  (EP-0013 stage 9, tier `:tooling`). Fail-soft: a core too old to expose
-  it (or any throw) degrades to `#{default-realm-id}` so the browse always
-  has at least the default realm. Always includes the default realm."
+  "Return the set of installed realm ids via the internal substrate seam
+  `re-frame.realm/realm-ids` (EP-0023 retained-internal; the `rf/realm-ids`
+  facade arity was removed in pl97nd.2). Fail-soft: any throw degrades to
+  `#{default-realm-id}` so the browse always has at least the default realm.
+  Always includes the default realm."
   []
   (try
-    (let [ids (rf/realm-ids)]
+    (let [ids (realm/realm-ids)]
       (if (and (set? ids) (seq ids))
         (conj ids default-realm-id)
         #{default-realm-id}))
@@ -94,15 +101,15 @@
 ;; ---- realm-qualified registrations ---------------------------------------
 
 (defn registrations-in-realm
-  "Return `(rf/registrations {:realm realm-id :kind kind})` — the
-  `{id metadata}` map registered under `kind` in `realm-id`'s OWN registrar
-  (EP-0013 stage 8). Fail-soft: a core too old for the map-shaped form (or
-  any throw) falls back to the default-realm `(rf/registrations kind)` for
-  the default realm, and `{}` for any other realm (an old core has no other
-  realm to read). Pure-read."
+  "Return the `{id metadata}` map registered under `kind` in `realm-id`'s OWN
+  registrar via the internal substrate seam
+  `re-frame.realm/realm-registrations` (EP-0023 retained-internal; the
+  `rf/registrations {:realm …}` facade arity was removed in pl97nd.2).
+  Fail-soft: any throw falls back to the default-realm `(rf/registrations
+  kind)` for the default realm, and `{}` for any other realm. Pure-read."
   [realm-id kind]
   (try
-    (rf/registrations {:realm realm-id :kind kind})
+    (realm/realm-registrations realm-id kind)
     (catch :default _
       (if (= realm-id default-realm-id)
         (try (rf/registrations kind) (catch :default _ {}))
