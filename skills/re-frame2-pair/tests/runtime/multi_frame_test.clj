@@ -46,9 +46,12 @@
 
 ;; The internal installation-container substrate (EP-0023 §Surface
 ;; dispositions — the retained EP-0013 realm, implementation structure not a
-;; public address). The CLJS runtime reads `(rf/realm-ids)` (the installation
-;; containers) + `(rf/frame-realm frame-id)` (a frame's container); we model
-;; both with a frame->container map and a container set. `default-realm-id`
+;; public address). The CLJS runtime reads the INTERNAL substrate
+;; `(re-frame.realm/realm-ids)` (the installation containers) +
+;; `(re-frame.frame/frame-realm frame-id)` (a frame's container) — pl97nd.2
+;; removed the `rf/realm-ids` / `rf/frame-realm` facade aliases, so a tool now
+;; reads the owning internal namespaces directly (rf2-ph752s). We model both
+;; with a frame->container map and a container set. `default-realm-id`
 ;; is :rf.realm/default (absence = default container).
 (def default-realm-id :rf.realm/default)
 
