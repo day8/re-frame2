@@ -131,6 +131,32 @@
         "frame-capability-requires reports the image-declared :rf.gen/requires set.")))
 
 ;; ---------------------------------------------------------------------------
+;; describe-image guards the no-generation fail-loud (EP-0024 contract).
+;;
+;; Post-EP-0024 only an EXPLICIT :images key triggers image resolution, so an
+;; imageless frame carries NO generation and the public rf/frame-generation
+;; read FAILS LOUD (:rf.error/frame-no-generation) for it. describe-image must
+;; GUARD that call — catch the no-generation fail-loud for a LIVE frame and
+;; report it gracefully (:no-generation?), rather than letting it escape up the
+;; eval boundary — while still failing loud on a genuinely unresolvable target.
+;; ---------------------------------------------------------------------------
+
+(deftest describe-image-guards-no-generation-fail-loud
+  (let [f (defn-form 'describe-image)]
+    (is (calls? f 'try)
+        "describe-image MUST wrap the rf/frame-generation read in a `try` so the EP-0024 no-generation fail-loud can be guarded.")
+    (is (calls? f 'catch)
+        "describe-image MUST `catch` the rf/frame-generation throw rather than letting an imageless frame's fail-loud escape the eval boundary.")
+    (is (form-contains? (fn [n] (= :rf.error/frame-no-generation n)) f)
+        "describe-image MUST discriminate on :rf.error/frame-no-generation — the EP-0024 no-generation error id — so only the no-generation case is softened (any other throw re-raises).")
+    (is (form-contains? (fn [n] (= :live-frame-ids n)) f)
+        "describe-image MUST check the error's :live-frame-ids so a LIVE imageless frame degrades gracefully while a target naming NO live frame still fails loud.")
+    (is (form-contains? (fn [n] (= :no-generation? n)) f)
+        "describe-image MUST surface a :no-generation? graceful result for an imageless frame (it runs no composed image — not a read error).")
+    (is (calls? f 'throw)
+        "describe-image MUST re-`throw` any non-no-generation error so a genuinely unresolvable :frame target still fails loud up the eval boundary.")))
+
+;; ---------------------------------------------------------------------------
 ;; No internal-namespace leakage (EP-0023 forbids tools consuming these).
 ;; ---------------------------------------------------------------------------
 

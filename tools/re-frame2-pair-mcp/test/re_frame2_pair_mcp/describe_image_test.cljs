@@ -156,6 +156,38 @@
                        "each selected (kind, id) carries its provenance coordinate"))
                  (done))))))
 
+(def ^:private no-generation-summary
+  ;; A frame configured with NO :images runs no composed image (EP-0024 — the
+  ;; no-generation contract). The runtime's describe-image guards the
+  ;; rf/frame-generation fail-loud for that case and returns this graceful
+  ;; summary instead of letting the read throw. It must ride through the wire
+  ;; as a successful, empty-image envelope (NOT a degraded error).
+  {:ok?            true
+   :frame          :main
+   :images         []
+   :kinds          []
+   :requires       []
+   :counts         {}
+   :no-generation? true})
+
+(deftest no-generation-frame-rides-through-as-ok
+  (async done
+    (stub-eval! nil no-generation-summary)
+    (-> (di/describe-image-tool (fresh-conn) (args-js {:frame ":main"}))
+        (.then (fn [r]
+                 (is (not (err? r))
+                     "an imageless frame is not a read error — it runs no image")
+                 (let [edn (read-result-text r)]
+                   (is (true? (:ok? edn)))
+                   (is (= :main (:frame edn)))
+                   (is (true? (:no-generation? edn))
+                       "the no-generation? flag tells the agent the frame runs no composed image")
+                   (is (= [] (:images edn)) "no images on an imageless frame")
+                   (is (= [] (:kinds edn)))
+                   (is (= [] (:requires edn)))
+                   (is (= {} (:counts edn))))
+                 (done))))))
+
 (deftest ambiguous-frame-rides-through-as-error
   (async done
     ;; The runtime returns the :ambiguous-frame refusal (a map with :ok?
