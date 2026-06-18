@@ -23,9 +23,11 @@
       the `:rf.size/large-elided` marker) inside `:before` / `:after` /
       `:snapshot` `:data` on a machine-snapshot trace.
 
-   3. **UNION with manual register-marks! (Mike ruling #3).** A machine with
-      BOTH a `:data-schema` and a manually-registered mark set gets the UNION
-      of both — neither clobbers the other (Spec 015 §union-by-source).
+   3. **UNION with author marks on the machine's reg meta (Mike ruling #3).** A
+      machine with BOTH a `:data-schema` and author marks on its `:event`
+      registration meta (rf2-ehexnw — derived from the registrar, not a deleted
+      `register-marks!`) gets the UNION of both — neither clobbers the other
+      (Spec 015 §union-by-source).
 
    4. **Precision.** A machine with no `:data-schema` (or a schema with no
       marked slot) registers no schema marks; a non-sensitive sibling slot
@@ -33,8 +35,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
-            ;; (`:machines/reg-machine` etc.) so `rf/reg-machine` resolves.
-            [re-frame.machines]
+            ;; (`:machines/reg-machine` etc.) so `rf/reg-machine` resolves;
+            ;; aliased so the tests can carry author marks onto a machine's
+            ;; `:event` reg meta via `reg-machine*`'s opts arity (rf2-ehexnw).
+            [re-frame.machines :as machines]
             [re-frame.marks :as marks]
             ;; The schemas artefact ships the walker the bridge consults via
             ;; late-bind (`extract-sensitive-paths-from-schema` /
@@ -61,15 +65,24 @@
    [:blob    {:large? true}     [:maybe :string]]])
 
 (defn- reg-auth-machine!
-  "Register a machine carrying `auth-schema` as its `:data-schema`."
-  ([] (reg-auth-machine! auth-id))
-  ([machine-id]
-   (rf/reg-machine machine-id
+  "Register a machine carrying `auth-schema` as its `:data-schema`.
+
+  The 3-arity `opts` map (rf2-ehexnw) carries AUTHOR marks (`:sensitive` /
+  `:large`) onto the machine's `:event` registration meta — the way a manual
+  machine mark is now expressed (author marks are DERIVED from the registrar
+  meta at `marks-for` read time, not stashed via a deleted `register-marks!`).
+  `marks-for :event <id>` unions these registrar-derived author marks with the
+  `:data-schema`-sourced marks held in the separate schema-marks table."
+  ([] (reg-auth-machine! auth-id nil))
+  ([machine-id] (reg-auth-machine! machine-id nil))
+  ([machine-id opts]
+   (machines/reg-machine* machine-id
      {:initial     :anon
       :data        {:retries 0 :token nil :blob nil}
       :data-schema auth-schema
       :states      {:anon  {:on {:login :authed}}
-                    :authed {}}})))
+                    :authed {}}}
+     opts)))
 
 (defn- machine-transition-event*
   "Build a `:rf.machine/transition` trace event whose `:before` / `:after`
@@ -482,17 +495,17 @@
           "redacted via the PREFERRED :actor-id (marked), not the :machine-id sibling")
       (is (not (.contains (pr-str out) "secret-jwt"))))))
 
-;; ---- (3) UNION with a manual register-marks! (Mike ruling #3) -------------
+;; ---- (3) UNION with author marks on the machine's reg meta (Mike ruling #3)
 
 (deftest schema-marks-union-manual-register-marks
-  (testing "a machine with BOTH a :data-schema AND a manual register-marks!
-            gets the UNION of both mark sets — neither clobbers the other"
-    ;; Manual marks first (the spec-realistic order: an author declares the
-    ;; non-schema'd path manually, then the schema bridge unions its slots on
-    ;; top — mirroring reg-app-schema + add-marks composition for app-db).
-    (marks/register-marks! :event auth-id
-                           {:sensitive [[:data :session-id]]})
-    (reg-auth-machine!)
+  (testing "a machine with BOTH a :data-schema AND author marks on its :event
+            reg meta gets the UNION of both mark sets — neither clobbers the
+            other"
+    ;; Author marks ride the machine's `:event` registration meta (rf2-ehexnw):
+    ;; the schema-sourced slots (held in the separate schema-marks table) union
+    ;; with the registrar-derived author marks at `marks-for` read time —
+    ;; mirroring reg-app-schema + add-marks composition for app-db.
+    (reg-auth-machine! auth-id {:sensitive [[:data :session-id]]})
     (let [m (marks/marks-for :event auth-id)]
       (is (= #{[:data :session-id] [:data :token]} (set (:sensitive m)))
           "schema-sourced :token UNIONs with the manual :session-id")
@@ -516,48 +529,51 @@
       (is (not (.contains (pr-str out) "sess-abc-123"))))))
 
 (deftest manual-marks-preserved-when-registered-after-schema
-  (testing "the schema bridge is additive: re-running a manual register-marks!
-            after registration replaces only that manual write — but the
-            spec-realistic + bridge composition is the union-first order
-            asserted above. Here we confirm union-marks! itself does not drop
-            schema paths when invoked a second time."
+  (testing "re-registering the machine with NEW author marks replaces the
+            registrar :event slot but does NOT drop the schema-sourced marks
+            (they live in the separate schema-marks table) — the schema-vs-
+            author union holds across a re-registration (rf2-ehexnw)."
     (reg-auth-machine!)
-    ;; A second union (e.g. another feature contributing a mark) must keep the
-    ;; schema-sourced :token.
-    (marks/union-marks! :event auth-id {:sensitive [[:data :extra]]})
+    ;; Re-register the machine carrying an author mark on its reg meta (e.g.
+    ;; another feature contributing a non-schema'd sensitive path). The schema
+    ;; bridge re-runs (same schema → same :token), and the registrar-derived
+    ;; author mark unions with it at read time.
+    (reg-auth-machine! auth-id {:sensitive [[:data :extra]]})
     (let [m (marks/marks-for :event auth-id)]
       (is (= #{[:data :token] [:data :extra]} (set (:sensitive m)))
-          "union-marks! preserves the schema-sourced path"))))
+          "the schema-sourced path survives alongside the author mark"))))
 
 ;; ---- (3b) ORDER-INDEPENDENT union via the real reg-machine path (rf2-qpibk0)
 ;;
-;; The bead's core failure: a `register-marks!` (not `union-marks!`) called
-;; AFTER `reg-machine` previously REPLACED the `:event` entry and dropped the
-;; schema-derived `[:data …]` marks. The separate schema-marks table + read-
-;; time union (plus skipping `reg-event`'s bare-meta clear for machines)
-;; makes BOTH orders yield the identical union.
+;; The bead's original failure: a separate marks write AFTER `reg-machine`
+;; REPLACED the `:event` entry and dropped the schema-derived `[:data …]`
+;; marks. Post-rf2-ehexnw the author marks are DERIVED from the registrar
+;; `:event` meta (carried on the machine's reg opts) while the schema marks
+;; live in the separate schema-marks table — `marks-for :event <id>` unions
+;; the two at read time, so the union is order-independent regardless of
+;; whether the author marks rode the FIRST or a LATER (re-)registration.
 
 (deftest manual-register-marks-before-reg-machine-unions
-  (testing "register-marks! BEFORE reg-machine: the manual path survives
-            reg-machine (no bare-meta clobber) and unions with the schema marks"
-    (marks/register-marks! :event auth-id {:sensitive [[:data :session-id]]})
-    (reg-auth-machine!)
+  (testing "author marks on the machine's reg meta union with the schema marks
+            — carried at registration, derived + unioned at read time"
+    (reg-auth-machine! auth-id {:sensitive [[:data :session-id]]})
     (let [m (marks/marks-for :event auth-id)]
       (is (= #{[:data :session-id] [:data :token]} (set (:sensitive m)))
-          "manual-before unions with schema-sourced :token")
+          "author marks union with schema-sourced :token")
       (is (= #{[:data :blob]} (set (:large m)))))))
 
 (deftest manual-register-marks-after-reg-machine-unions
-  (testing "register-marks! AFTER reg-machine: the schema marks are NOT
-            dropped by the later full-replace register-marks! (the rf2-qpibk0
-            leak) — they live in a separate table and union at read time"
+  (testing "a LATER re-registration carrying the author marks does NOT drop the
+            schema marks (the rf2-qpibk0 leak) — they live in a separate table
+            and re-union at read time after the registrar :event slot replace"
     (reg-auth-machine!)
-    ;; The harder case the bead names: register-marks! (full-replace), not
-    ;; union-marks!, AFTER reg-machine. Previously this clobbered :token.
-    (marks/register-marks! :event auth-id {:sensitive [[:data :session-id]]})
+    ;; The harder case the bead names: a LATER registrar :event write (full
+    ;; slot replace), carrying the author marks, AFTER reg-machine. Previously
+    ;; the separate-write path clobbered :token.
+    (reg-auth-machine! auth-id {:sensitive [[:data :session-id]]})
     (let [m (marks/marks-for :event auth-id)]
       (is (= #{[:data :session-id] [:data :token]} (set (:sensitive m)))
-          "schema-sourced :token survives the later register-marks!")
+          "schema-sourced :token survives the later re-registration")
       (is (= #{[:data :blob]} (set (:large m)))
           "schema-sourced :large slot survives too"))
     ;; And both redact at egress, regardless of order.

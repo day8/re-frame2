@@ -235,22 +235,26 @@
                                          :recovery  :no-recovery}))
                    (throw e)))
         {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
+    ;; Per Spec 015 §Derived sensitivity — VALIDATE declarations fail-loud
+    ;; BEFORE the registrar write (rf2-ehexnw):
+    ;;   :sensitive / :large — per-output-path marks
+    ;;   :rf.egress/output-sensitivity — the derived-output declassification
+    ;;     enum (:rf.egress/inherit | :rf.egress/sensitive | :rf.egress/public,
+    ;;     EP-0015 issue 9; the rejected :sensitive? overload throws here for
+    ;;     the :sub kind)
+    ;;   :large? — whole-output size override
+    ;; The marks themselves are DERIVED from the registrar meta at `marks-for`
+    ;; read time (no imperative stash). The propagation table
+    ;; (`re-frame.marks/mark-sub-output!`) is updated on each sub-cache compute
+    ;; pass — see `compute-and-cache!`.
+    (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+      (validate! :sub meta))
     (registrar/register! :sub id
       (cond-> (assoc (source-coords/merge-coords meta)
                      :handler-fn    handler-fn
                      :input-kind    input-kind
                      :input-signals (or input-signals []))
         input-fn (assoc :input-fn input-fn)))
-    ;; Per Spec 015 §Derived sensitivity — stash declarations:
-    ;;   :sensitive / :large — per-output-path marks
-    ;;   :rf.egress/output-sensitivity — the derived-output declassification
-    ;;     enum (:rf.egress/inherit | :rf.egress/sensitive | :rf.egress/public,
-    ;;     EP-0015 issue 9; the rejected :sensitive? overload is gone)
-    ;;   :large? — whole-output size override
-    ;; The propagation table (`re-frame.marks/mark-sub-output!`) is
-    ;; updated on each sub-cache compute pass — see `compute-and-cache!`.
-    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-      (register! :sub id meta))
     ;; Per Spec 009 §:op-type vocabulary: :sub/create marks subscription
     ;; materialisation — emitted at registration time so tools see when
     ;; the sub becomes available in the registry.
@@ -277,13 +281,15 @@
   `reg-sub`. Returns `id`."
   ([id handler-fn] (reg-runtime-sub id {} handler-fn))
   ([id meta handler-fn]
+   ;; rf2-ehexnw — VALIDATE marks fail-loud before the registrar write; marks
+   ;; are DERIVED from the registrar meta at read time, no imperative stash.
+   (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+     (validate! :sub meta))
    (registrar/register! :sub id
      (assoc (source-coords/merge-coords meta)
             :handler-fn    handler-fn
             :input-kind    :runtime-db
             :input-signals []))
-   (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-     (register! :sub id meta))
    (trace/emit! :rf.sub :rf.sub/create
                 {:rf.sub/id            id
                  :rf.sub/input-kind    :runtime-db
@@ -315,13 +321,15 @@
   `reg-sub` / `reg-runtime-sub`. Returns `id`."
   ([id handler-fn] (reg-frame-state-sub id {} handler-fn))
   ([id meta handler-fn]
+   ;; rf2-ehexnw — VALIDATE marks fail-loud before the registrar write; marks
+   ;; are DERIVED from the registrar meta at read time, no imperative stash.
+   (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+     (validate! :sub meta))
    (registrar/register! :sub id
      (assoc (source-coords/merge-coords meta)
             :handler-fn    handler-fn
             :input-kind    :frame-state
             :input-signals []))
-   (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-     (register! :sub id meta))
    (trace/emit! :rf.sub :rf.sub/create
                 {:rf.sub/id            id
                  :rf.sub/input-kind    :frame-state

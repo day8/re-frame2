@@ -91,13 +91,15 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
+    ;; Per Spec 015 §4. Effects — VALIDATE any declared `:sensitive` / `:large`
+    ;; marks fail-loud BEFORE the registrar write (rf2-ehexnw); the marks
+    ;; themselves are DERIVED from the registrar meta at `marks-for` read time
+    ;; (emit-time projection redacts `:fx-args` slots on `:rf.fx/handled`
+    ;; traces), no imperative stash.
+    (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+      (validate! :fx meta))
     (registrar/register! :fx id (assoc (source-coords/merge-coords meta)
                                        :handler-fn handler-fn))
-    ;; Per Spec 015 §4. Effects — stash `:sensitive` / `:large` path
-    ;; declarations so emit-time projection redacts `:fx-args` slots
-    ;; on `:rf.fx/handled` traces.
-    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-      (register! :fx id meta))
     id))
 
 (defn clear-fx
