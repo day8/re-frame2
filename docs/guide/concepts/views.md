@@ -61,9 +61,9 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
 
 Every live cell in this guide uses the `defn` spelling, because the cells run in a functions-only environment. `reg-view` isn't available there, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell environment supplies the frame scope that makes the qualified forms resolve. So when a cell and a prose listing differ in this one way, this section is why: same component, two spellings. In project code, write `reg-view`.
 
-??? note "Computed ids, library views, and class components"
+??? note "The other lane: tooling and library registration"
 
-    For computed ids, library-generated views, or Reagent class components there is `reg-view*`, the plain-fn surface beneath the macro — see [spec 004](../../../spec/004-Views.md).
+    `reg-view` and Var references are the whole app-facing story — register a screen, render it by name. There's a second, separate lane you'll only meet if you write *tooling* or *library* code: `reg-view*`, the plain-fn surface beneath the macro, which registers a view from a **computed id** or a non-`defn` render fn, and `(rf/view id)`, which resolves a registered view by id at render time. That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../../api/02-views.md#tooling--host-view-registration); the contract is in [spec 004](../../../spec/004-Views.md).
 
 ## A view, live
 
