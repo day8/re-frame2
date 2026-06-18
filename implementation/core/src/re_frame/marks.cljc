@@ -577,6 +577,38 @@
 ;; alongside the `:source :marks` entries, unioned at lookup. (The former
 ;; schema→app-db-egress route — `:source :schema` — is gone post-EP-0015 §8;
 ;; schemas describe shape, not durable app-db egress policy.)
+;;
+;; KEPT AS-IS, NOT folded into `reg-frame` (rf2-jk4vky assessment, the
+;; rf2-ehexnw follow-on). The Codex finding named these the "internal twins of
+;; the removed public marks surface" and asked whether the only app-db
+;; mark-authoring path should be `reg-frame` `:sensitive` / `:large`. It should
+;; NOT — they are a genuinely DISTINCT, load-bearing declaration source, not a
+;; redundant twin:
+;;   1. Different source, deliberately unioned. `reg-frame` writes `:source
+;;      :frame` declarations once at registration time (frame-class
+;;      `install!`, which writes the elision slot DIRECTLY — it does not call
+;;      these fns). `add-marks` / `set-marks` write the SEPARATE `:source
+;;      :marks` entries imperatively/post-registration. The two sources are
+;;      preserved side-by-side and unioned at `marks-for` read time; the
+;;      conformance fixtures specifically pin that union. Folding them away
+;;      would collapse a distinction the model relies on.
+;;   2. No registrar-derivable equivalent. The rf2-ehexnw derivation that
+;;      retired the imperative kind->id->marks side-table worked because those
+;;      marks were per-(kind,id) registration metadata, READABLE BACK from the
+;;      registrar. These are per-FRAME app-db PATH marks keyed by frame-id —
+;;      there is no registration to derive them from, so the "read it back from
+;;      the registrar" pattern does not apply.
+;;   3. Load-bearing test/conformance authoring path. ~40 call sites across
+;;      `marks_test`, `frame_classification_cljs_test`, `flows_output_marks_
+;;      test`, and the `conformance_test` / `conformance_corpus_cljs_test`
+;;      harnesses (which drive `:add-marks` / `:set-marks` EDN fixture ops).
+;;      Folding into `reg-frame` would delete the imperative authoring path
+;;      these depend on and balloon test churn — with NO data-over-functions
+;;      win (the kind->id->marks fold's payoff was eliminating a redundant
+;;      imperative MIRROR of derivable data; here the data is not derivable).
+;; They are already off the public façade (item 1, EP-0015 §3) and `^:no-doc`
+;; / internal — the assessment's accept criterion ("kept as internal" or
+;; "folded") lands on kept-internal.
 
 (defn- without-marks-sourced
   "Drop entries whose `:source` is `:marks` from a declaration map.
