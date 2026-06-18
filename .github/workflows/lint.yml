@@ -332,6 +332,20 @@ jobs:
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.api-md-check
 
+      # Public-facade manifest-hygiene gate (rf2-gqa7yv — the enforcement half
+      # of the rf2-ebbpia pre-alpha facade-REMOVAL discipline). FAILS if any
+      # `:facade? true` manifest row names a re-frame.core export whose
+      # EP-0013 -> EP-0023 disposition (re-frame.migration/migration-map)
+      # marks it superseded / retained-for-compat. A superseded export must
+      # become INTERNAL (its home namespace, :facade? false) or be REMOVED
+      # outright; there is no retained-for-migration facade tier. The manifest-
+      # data counterpart to the doc-surface retired-vocab grep
+      # (scripts/check_retired_composition_vocab.py) — complementary, not
+      # duplicative.
+      - name: Assert public-facade manifest hygiene (no superseded facade exports)
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.facade-hygiene-check
+
       # Secondary projection drift-checks (rf2-gkp0t). Each validates a
       # surface's public-var references against the same manifest the way
       # api-md-check validates spec/API.md: Story API spec, Xray API spec
