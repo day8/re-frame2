@@ -124,7 +124,7 @@ The canonical machine read is the framework-registered subscription vector `[:rf
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data}` (or `nil` if not yet initialised) | 005 |
 
-This subscription vector is the canonical machine read — see [005 §Subscribing to machines](../../spec/005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+This subscription vector is the canonical machine read — see [005 §Subscribing to machines](../../spec/005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub).
 
 ## Cross-machine messaging
 

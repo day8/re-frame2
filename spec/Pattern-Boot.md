@@ -357,9 +357,9 @@ Cross-references: this section is the worked example referenced from [Spec 014 �
 
 ### Boot UI — reading progress from the snapshot
 
-A view subscribes to the machine snapshot via `sub-machine` (per [005 §Reading the snapshot](005-StateMachines.md)) and renders the visible-progress slice carried in `:data`:
+A view subscribes to the machine snapshot via the `[:rf/machine <id>]` vector (per [005 §Reading the snapshot](005-StateMachines.md)) and renders the visible-progress slice carried in `:data`:
 
-A view reads the machine snapshot through the framework-shipped `:rf/machine` sub (or its `sub-machine` wrapper, per [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)), which resolves the snapshot from runtime-db at `[:rf.runtime/machines :snapshots <id>]` — never an app-db path. Derive the visible-progress slices from that snapshot:
+A view reads the machine snapshot through the framework-shipped `:rf/machine` sub (the `[:rf/machine <id>]` subscription vector, per [005 §Subscribing to machines via the `:rf/machine` sub](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub)), which resolves the snapshot from runtime-db at `[:rf.runtime/machines :snapshots <id>]` — never an app-db path. Derive the visible-progress slices from that snapshot:
 
 ```clojure
 (rf/reg-sub :app.boot/phase
