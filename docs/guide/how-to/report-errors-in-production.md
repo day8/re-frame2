@@ -4,9 +4,9 @@ Your production build compiles out re-frame2's trace surface entirely — no tra
 
 Coming from a plain JS app, you already know the shape of this: `Sentry.init` plus the global `window.onerror` hook. That combination gives you the exception and its stack, which is useful, but it doesn't tell you what the app was actually doing when things went sideways. re-frame2 gives you more. On every production-reachable `:rf.error/*` failure, the runtime fans one structured record out to every registered error listener. Each record carries the event that was in flight (the data describing what the user asked for), the frame it ran in (a frame is one isolated instance of your app, with its own state), and the raw host exception. **The error substrate is always on: production keeps the dossiers, not the firehose.**
 
-!!! warning "register-listener! is not a production wire"
+!!! warning "the :trace stream is not a production wire"
 
-    This trips people up. The trace stream ([Observability](../concepts/observability.md)) is dev-only — it's dead-code-eliminated under `:advanced` + `goog.DEBUG=false`. A monitor bridge built on it works beautifully in dev and ships *nothing* in production, which means you find out the hard way. The production surface is a different function, `register-error-listener!`, a separate always-on substrate that survives elision on purpose. Reach for that one.
+    This trips people up. The trace stream ([Observability](../concepts/observability.md)) — `register-listener! :trace` — is dev-only: it's dead-code-eliminated under `:advanced` + `goog.DEBUG=false`. A monitor bridge built on it works beautifully in dev and ships *nothing* in production, which means you find out the hard way. The production surface is a different stream of the same verb, `register-listener! :errors`, a separate always-on substrate that survives elision on purpose. Reach for that one.
 
 ## 1. Wire the bridge, belt-and-braces gated
 
@@ -23,7 +23,7 @@ Coming from a plain JS app, you already know the shape of this: `Sentry.init` pl
              (not ^boolean interop/debug-enabled?)     ;; belt-and-braces
              config/sentry-dsn)                        ;; no DSN, no bridge
     (Sentry/init #js {:dsn config/sentry-dsn})
-    (rf/register-error-listener! ::sentry-bridge
+    (rf/register-listener! :errors ::sentry-bridge
       (fn [record]
         (case (:error record)
           ;; The frame-teardown report: frame-keyed, NO :event, NO :exception.
@@ -66,8 +66,8 @@ Two rules keep this branch correct for the long haul. First, branch structurally
 
 It's worth being precise about what's still running in production, because the line isn't obvious.
 
-- **Gone** from an `:advanced` + `goog.DEBUG=false` bundle: every trace emit, `register-listener!` delivery, the per-frame trace rings, epoch history and time-travel, dispatch-id correlation, source-coords, Xray, and the pair tooling. Zero code, zero cost.
-- **Still firing:** this error substrate; its event-emit sibling `register-event-listener!`, which delivers one tight `{:event :event-id :frame :time :outcome :elapsed-ms}` record per processed event (throughput and latency, ready for an APM dashboard); and an opt-in Performance API channel behind its own compile-time flag.
+- **Gone** from an `:advanced` + `goog.DEBUG=false` bundle: every trace emit, `register-listener! :trace` delivery, the per-frame trace rings, epoch history and time-travel, dispatch-id correlation, source-coords, Xray, and the pair tooling. Zero code, zero cost.
+- **Still firing:** this error substrate; its event-emit sibling `register-listener! :events`, which delivers one tight `{:event :event-id :frame :time :outcome :elapsed-ms}` record per processed event (throughput and latency, ready for an APM dashboard); and an opt-in Performance API channel behind its own compile-time flag.
 - **The listener observes; it never steers.** Recovery is the framework's typed per-category default ([Errors: dossiers, not log lines](../concepts/errors.md)). There is no error hook that swallows, substitutes, or re-runs — the listener is a read-only seat.
 
 !!! note "JVM caveat: flip the gate on an SSR host"
@@ -90,7 +90,7 @@ The substrate is live in dev too — only your gates keep the bridge off — whi
 
 You can now:
 
-- bridge production errors to Sentry through `register-error-listener!`, with belt-and-braces gating that fails safe on a mis-deployed dev bundle
+- bridge production errors to Sentry through `register-listener! :errors`, with belt-and-braces gating that fails safe on a mis-deployed dev bundle
 - branch on `(:error record)` structurally, handling the frame-teardown report's no-exception shape correctly
 - say exactly which observability surfaces survive elision, and set the JVM gate on an SSR host
 - choose between the corpus-wide raw listener and a projected frame `:observability` sink

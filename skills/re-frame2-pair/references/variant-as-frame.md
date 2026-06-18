@@ -55,10 +55,10 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 
 - **`app-db`** — each variant starts with `{}` (or whatever loaders + events populate). `(rf/app-db-value :story.counter/loaded)` and `:story.counter/empty` return independent values.
 - **Epoch history** — `(rf/epoch-history :story.counter/loaded)` is its own ring. Dispatches into one variant never appear in another's history.
-- **Sub cache** — `(rf/sub-cache)` is per-frame; `[:count]` materialised in `:story.counter/loaded` is independent of `[:count]` materialised in `:story.counter/empty`.
+- **Sub cache** — the live sub-cache snapshot (`re-frame.subs.tooling/sub-cache-snapshot`, alias `subs/sub-cache-snapshot`) is per-frame; `[:count]` materialised in `:story.counter/loaded` is independent of `[:count]` materialised in `:story.counter/empty`.
 - **Trace events** — `:frame` is stamped on every emitted trace event (Spec 009 §Per-frame stamping). Filter raw trace by `{:frame :story.counter/loaded}` to scope.
 - **`[:rf.runtime/elision :declarations]`** — the elision registry lives in the **runtime-db** partition under the reserved `:rf.runtime/elision` child (Spec 009 §Nomination paths), so large-path nominations are per-frame too. A variant that declares `[:cart :inventory]` as a large-path doesn't affect another variant's elision behaviour.
-- **Error observability** — `:frame` is stamped on every `:rf.error/*` record, so filtering the always-on `register-error-listener!` stream (or the trace buffer) by `{:frame :story.counter/loaded}` scopes errors to one variant. Recovery is framework-owned (the per-category typed default); there is no per-frame recovery policy.
+- **Error observability** — `:frame` is stamped on every `:rf.error/*` record, so filtering the always-on `register-listener! :errors` stream (or the trace buffer) by `{:frame :story.counter/loaded}` scopes errors to one variant. Recovery is framework-owned (the per-category typed default); there is no per-frame recovery policy.
 - **`:fx-overrides`** — Story's `:fx-override`-kind decorators stub fx per-variant (e.g. `:http → :stub-http`). Calls into one variant's stub do not affect another.
 
 ## What's NOT per-variant (registry-scoped)

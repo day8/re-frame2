@@ -17,7 +17,7 @@ The **normal** way an app ships event + error records to Datadog / Sentry / Hone
   (fn [record] (sentry/capture! record)))
 ```
 
-Both routes ride the **same two always-on substrates** that survive `goog.DEBUG=false` and `:advanced` compilation — they are **parallel to** (not a fallback from) the dev-only trace bus, which DCEs in CLJS production builds. The frame `:observability` path is the projection-and-routing layer **on top of** those substrates; the listener APIs below (`register-event-listener!` / `register-error-listener!`) are the **advanced low-level hooks beneath** the frame policy. Documented here so you know what the declarative path lowers onto — and for the cases where you bypass it.
+Both routes ride the **same two always-on substrates** that survive `goog.DEBUG=false` and `:advanced` compilation — they are **parallel to** (not a fallback from) the dev-only trace bus, which DCEs in CLJS production builds. The frame `:observability` path is the projection-and-routing layer **on top of** those substrates; the listener APIs below (`register-listener!` on the `:events` / `:errors` streams) are the **advanced low-level hooks beneath** the frame policy. Documented here so you know what the declarative path lowers onto — and for the cases where you bypass it.
 
 Authoring rule: prefer frame `:observability` + `register-observability-sink!`. Drop to a raw listener only for lower-level control. Either way the framework runs `elide-wire-value` against each record's `:event` vector before fan-out — neither sinks nor listeners re-walk for privacy / size. See [`privacy-and-elision.md`](privacy-and-elision.md) (§Choosing where observations go) for the egress composition.
 
@@ -26,28 +26,28 @@ Authoring rule: prefer frame `:observability` + `register-observability-sink!`. 
 Frame everything below against the **three observability channels** the runtime has. They answer three different questions and survive production differently — naming all three is what makes "what survives to production?" precise:
 
 1. **The causal channel** — effects-as-data (`:dispatch`, `:fx`). It *is* the program, not a log line about it. **Never elided** — deleting it deletes the app.
-2. **The diagnostic channel** — `register-listener!` and the whole trace bus (every trace event, the per-frame rings, source-coord enrichment, correlation ids). Ambient, for dev eyes and tools. **Production-elided**: Closure-DCE'd under `:advanced` + `goog.DEBUG=false`; runtime-gated on the JVM (see below).
-3. **The always-on error axis** — `register-error-listener!`. Deliberately **production-survivable**: NOT gated by `debug-enabled?`, so it survives elision on purpose, fanning one tight `:rf.error/*` record per production-reachable failure to your shipper (Sentry / Rollbar / Honeybadger). `register-event-listener!` is the throughput/latency sibling on the same survives-production footing.
+2. **The diagnostic channel** — `register-listener!` on the `:trace` stream and the whole trace bus (every trace event, the per-frame rings, source-coord enrichment, correlation ids). Ambient, for dev eyes and tools. **Production-elided**: Closure-DCE'd under `:advanced` + `goog.DEBUG=false`; runtime-gated on the JVM (see below).
+3. **The always-on error axis** — `register-listener!` on the `:errors` stream. Deliberately **production-survivable**: NOT gated by `debug-enabled?`, so it survives elision on purpose, fanning one tight `:rf.error/*` record per production-reachable failure to your shipper (Sentry / Rollbar / Honeybadger). The `:events` stream is the throughput/latency sibling on the same survives-production footing.
 
 The JS-ecosystem anchor: this is the equivalent of "Sentry/Rollbar SDK for the error axis, an APM SDK for the event axis, and a Redux-DevTools-style time-travel bus for the diagnostic channel" — except the diagnostic bus is compiled *out* of production rather than tree-shaken at the edges, and the error axis is a first-class framework substrate rather than a global `window.onerror` hook. **Divergence to flag:** unlike a JS error SDK, you do not steer recovery from the listener (see below); recovery is framework-owned.
 
 ## When to load
 
-Wiring a production observability shipper, declaring a frame `:observability` sink, writing a `register-event-listener!` / `register-error-listener!` body, or asking "what's the prod-survivable equivalent of `register-listener!`?".
+Wiring a production observability shipper, declaring a frame `:observability` sink, writing a `register-listener! :events` / `register-listener! :errors` body, or asking "what's the prod-survivable equivalent of the `:trace` stream?".
 
-## `register-event-listener!` — one record per dispatched event (advanced low-level hook)
+## `register-listener! :events` — one record per dispatched event (advanced low-level hook)
 
 > The sections below document the always-on listener substrate the frame `:observability` path lowers onto. Prefer the declarative frame-owned sinks above for the normal app; reach for these raw registries only for lower-level control (e.g. you need a record the frame policy doesn't route, or a non-frame-scoped global hook).
 
 Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per `:event/db-changed`. Registration is idempotent (re-registering the same id replaces); listener exceptions are caught (cascade continues).
 
 ```clojure
-(rf/register-event-listener!
+(rf/register-listener! :events
   :datadog/events
   (fn [event-record]
     (datadog/track-event! event-record)))
 
-(rf/unregister-event-listener! :datadog/events)
+(rf/unregister-listener! :events :datadog/events)
 ```
 
 **Record shape (tight — Spec 009 §Event-emit listener):**
@@ -72,12 +72,12 @@ No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-
 
 **Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; classified sensitive paths → `:rf/redacted`) *before* listeners run. Sensitivity is owner-classified (the registration's `:sensitive` paths for transient event args; the frame's `:sensitive {:app-db …}` for durable app-db slices). There is **no** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (in runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted; it was removed from the runtime — see `event_emit.cljc` ns docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta, which is **framework-internal** (Xray / Story bookkeeping handlers) and not a user privacy knob.
 
-## `register-error-listener!` — one record per runtime error (advanced low-level hook)
+## `register-listener! :errors` — one record per runtime error (advanced low-level hook)
 
 Fires once per catalogued production-reachable `:rf.error/*` event the runtime emits through the error-emit substrate. This is the single error-observability surface; per-listener exceptions are isolated (one bad listener cannot affect siblings or the cascade).
 
 ```clojure
-(rf/register-error-listener!
+(rf/register-listener! :errors
   :sentry/errors
   (fn [error-record]
     (sentry/capture-exception
@@ -85,7 +85,7 @@ Fires once per catalogued production-reachable `:rf.error/*` event the runtime e
       {:tags {:event-id (:event-id error-record)
               :frame    (:frame error-record)}})))
 
-(rf/unregister-error-listener! :sentry/errors)
+(rf/unregister-listener! :errors :sentry/errors)
 ```
 
 The listener payload is an **error-keyed union** of several record shapes — the per-event error record below, the frame-teardown report (§The first promoted category), and the EP-0008-promoted **non-event SSR records** (§The promoted-SSR records). **Always branch on `(:error record)` — never assume `:event` / `:event-id` / `:exception` are present.** Only the per-event records carry those slots; the teardown report and the SSR records do not (a teardown report carries `:hook-failures`; the SSR records carry `:frame` + category-specific slots, some with no `:event` at all). A listener that destructures `:event-id` / `:exception` off every record will NPE on a non-event record.
@@ -106,7 +106,7 @@ Verified: `re-frame.error-emit/dispatch-on-error!`; record shape per the ns docs
 
 ### Recovery is framework-owned — there is no app-steering policy
 
-Error **recovery** is not an app-config concern. The runtime applies a **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app, no-such-handler / no-such-sub no-op. There is no per-frame `:on-error` recovery policy — it was removed (errors are not generically recoverable by an app policy; the policy's return value was never read or applied). Genuine recovery for **expected** failures is handled at the source — managed-HTTP `:retry`, optional-read fallback — where "recovery" actually has meaning. Off-box **observability** is `register-error-listener!` (above). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
+Error **recovery** is not an app-config concern. The runtime applies a **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app, no-such-handler / no-such-sub no-op. There is no per-frame `:on-error` recovery policy — it was removed (errors are not generically recoverable by an app policy; the policy's return value was never read or applied). Genuine recovery for **expected** failures is handled at the source — managed-HTTP `:retry`, optional-read fallback — where "recovery" actually has meaning. Off-box **observability** is `register-listener! :errors` (above). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
 
 ### What rides the always-on axis: the promotion criterion
 
@@ -116,11 +116,11 @@ The error axis is deliberately small — an alert on it should *mean something*.
 2. **A contract breach or resource leak the caller can't already see** — the load-bearing leg. A bad event vector throws at the call site; the caller sees it. A *leaked handle / skipped teardown / suppressed write / corrupted invariant* leaves the process in a state the next operation can't observe — that needs an off-box record.
 3. **Silence compounds** — the cost of nobody hearing grows with process lifetime / request volume / retries. A leaked timer per SSR request is cheap once and fatal at ten million.
 
-**The `:rf.error/*` namespace is framework-owned — do not mint app/domain categories under it.** `register-error-listener!` is a *consume* surface, not an *emit* surface: app code does not raise its own `:rf.error/*` records through it, and the `:rf/*` namespace is reserved for the framework (Cardinal rule 7; `spec/Conventions.md`). The catalogue of error categories on this axis is fixed and framework-defined. App/domain telemetry has its own homes: an **app-owned namespace** for any custom trace/log keys (e.g. `:myapp.error/payment-declined`), a framework-provided **public API** where one exists for the concern, or your ordinary application logging / observability surface (the same Datadog / Sentry pipeline, addressed directly from your handler). Keep domain failures off `:rf.error/*` and the framework error stream stays pure signal — every record on it is a framework-recognised production-reachable failure. The axis is `:rf.error/*`-only (never widened to `:rf.warning/*`), and carries **structured data only** (ids/keys/frame, never raw values — the egress redaction applies).
+**The `:rf.error/*` namespace is framework-owned — do not mint app/domain categories under it.** `register-listener! :errors` is a *consume* surface, not an *emit* surface: app code does not raise its own `:rf.error/*` records through it, and the `:rf/*` namespace is reserved for the framework (Cardinal rule 7; `spec/Conventions.md`). The catalogue of error categories on this axis is fixed and framework-defined. App/domain telemetry has its own homes: an **app-owned namespace** for any custom trace/log keys (e.g. `:myapp.error/payment-declined`), a framework-provided **public API** where one exists for the concern, or your ordinary application logging / observability surface (the same Datadog / Sentry pipeline, addressed directly from your handler). Keep domain failures off `:rf.error/*` and the framework error stream stays pure signal — every record on it is a framework-recognised production-reachable failure. The axis is `:rf.error/*`-only (never widened to `:rf.warning/*`), and carries **structured data only** (ids/keys/frame, never raw values — the egress redaction applies).
 
 ### The first promoted category: `:rf.error/frame-teardown-failed`
 
-One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs best-effort cleanup hooks; a throwing hook is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed hook, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Your `register-error-listener!` body must handle this shape (note `:hook-failures` + `:reason`, and `:error` — not `:operation` — as the discriminator, same as every error-emit record):
+One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs best-effort cleanup hooks; a throwing hook is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed hook, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Your `register-listener! :errors` body must handle this shape (note `:hook-failures` + `:reason`, and `:error` — not `:operation` — as the discriminator, same as every error-emit record):
 
 ```clojure
 {:error         :rf.error/frame-teardown-failed
@@ -136,7 +136,7 @@ In **development** the per-hook detail still surfaces as `:rf.warning/teardown-h
 
 ### The promoted-SSR records: `:rf.error/ssr-*` (non-event)
 
-EP-0008 promoted the production-reachable **SSR error categories** onto this same always-on axis. On a long-lived JVM SSR host, a shipper registered via `register-error-listener!` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The six categories:
+EP-0008 promoted the production-reachable **SSR error categories** onto this same always-on axis. On a long-lived JVM SSR host, a shipper registered via `register-listener! :errors` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The six categories:
 
 - **`:rf.error/ssr-render-failed`** — a render-time `Throwable` while building the response body (slots: `:frame`, `:exception`, `:exception-message`, `:ex-class`). Projection-eligible (the wire status is stamped), so promotion does not double-stamp.
 - **`:rf.error/ssr-streaming-writer-failed`** — a streaming-SSR writer thread threw on a post-commit chunk (slots: `:frame`, `:exception`, `:ex-class`, `:phase`, `:boundary-id` on continuation phases, `:committed? true`). Non-projecting (the 200 already committed).
@@ -155,11 +155,11 @@ The substrate is always-on; **registration sites** should belt-and-braces gate o
 (when (and (= "production" (:env config))
            (not ^boolean re-frame.interop/debug-enabled?)
            (:api-key config))
-  (rf/register-event-listener!
+  (rf/register-listener! :events
     :datadog/events
     (fn [event-record]
       (datadog/track-event! event-record)))
-  (rf/register-error-listener!
+  (rf/register-listener! :errors
     :sentry/errors
     (fn [error-record]
       (sentry/capture-exception (:exception error-record)
@@ -171,9 +171,9 @@ Three independent conditions: **config env tag** (the app knows it's production)
 
 ## Why production has no trace bus
 
-`re-frame.trace/emit!` and the `register-listener!` plumbing are gated by `re-frame.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`, the Closure compiler DCEs the entire trace surface — registrations, the ring buffer, the per-event allocation, every `tag/value` map. The bundle savings (~12-15 KB gzipped) and per-event allocation savings are part of re-frame2's "production debugging is opt-out, not opt-in" stance.
+`re-frame.trace/emit!` and the `register-listener! :trace` plumbing are gated by `re-frame.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`, the Closure compiler DCEs the entire trace surface — registrations, the ring buffer, the per-event allocation, every `tag/value` map. The bundle savings (~12-15 KB gzipped) and per-event allocation savings are part of re-frame2's "production debugging is opt-out, not opt-in" stance.
 
-The two always-on listener APIs carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
+The two always-on listener streams (`:events` / `:errors`) carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
 
 ### The JVM production gate (`re-frame.debug` / `RE_FRAME_DEBUG`)
 
@@ -182,7 +182,7 @@ The two always-on listener APIs carve a minimal substrate that **survives** that
 - **`-Dre-frame.debug=false`** — the Java system property on the JVM command line, or
 - **`RE_FRAME_DEBUG`** — the process environment variable.
 
-**The JVM default is ON** ("production-elided" means *elidable*, not *elided by default*). A production JVM SSR / tooling process that does not set `-Dre-frame.debug=false` runs the **full dev diagnostic surface** — retaining user input in per-frame trace rings and epoch history. EP-0008 calls this out: a JVM artefact shipped for production **MUST set `-Dre-frame.debug=false` explicitly** in its deployment (the audit-finding posture — an SSR/headless process should not retain user input by default). These are build-time / process-start gates that select the posture; apps do not toggle them per-request. Critically, the gate suppresses the **diagnostic trace** surface only — the **always-on error-emit axis (surface #4) survives it**, so `register-error-listener!` shippers (including the promoted SSR records above) keep delivering under `-Dre-frame.debug=false`. That is the whole point of the always-on split: event/error observability survives the production posture; the dev trace surface does not.
+**The JVM default is ON** ("production-elided" means *elidable*, not *elided by default*). A production JVM SSR / tooling process that does not set `-Dre-frame.debug=false` runs the **full dev diagnostic surface** — retaining user input in per-frame trace rings and epoch history. EP-0008 calls this out: a JVM artefact shipped for production **MUST set `-Dre-frame.debug=false` explicitly** in its deployment (the audit-finding posture — an SSR/headless process should not retain user input by default). These are build-time / process-start gates that select the posture; apps do not toggle them per-request. Critically, the gate suppresses the **diagnostic trace** surface only — the **always-on error-emit axis (surface #4) survives it**, so `register-listener! :errors` shippers (including the promoted SSR records above) keep delivering under `-Dre-frame.debug=false`. That is the whole point of the always-on split: event/error observability survives the production posture; the dev trace surface does not.
 
 Full rationale: [`docs/guide/concepts/observability.md`](../../../../docs/guide/concepts/observability.md), [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production), and [`spec/009-Instrumentation.md §JVM builds`](../../../../spec/009-Instrumentation.md#jvm-builds).
 
@@ -191,7 +191,7 @@ Full rationale: [`docs/guide/concepts/observability.md`](../../../../docs/guide/
 The record shapes are tight enough to ship verbatim — every observability vendor's wire format is a strict subset of "event-id + timestamp + tags + payload". The pattern:
 
 ```clojure
-(rf/register-event-listener!
+(rf/register-listener! :events
   :observability/events
   (fn [{:keys [event-id event time outcome elapsed-ms frame]}]
     (forward!
@@ -212,7 +212,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 - **Don't re-run elision unless widening.** The record already has off-box defaults applied. A listener that re-walks with defaults is a no-op; one that flips `:include-large?` / `:include-sensitive?` to `true` exposes data you'd otherwise hide.
 - **Sensitivity redacts the payload, it does NOT drop the record.** There is no handler-level "drop the whole record" privacy gate — every event record fans out, and classified sensitive paths (the registration's `:sensitive` event-arg paths; frame `:sensitive {:app-db …}` slices) in its `:event` payload arrive as `:rf/redacted` (per `elide-wire-value` egress). You always get the event-id, frame, outcome, and timing — a built-in audit trail of sensitive events without their secret values. The only whole-record drop (`:rf.trace/no-emit?`) is framework-internal and not yours to set.
 - **Listener exceptions are swallowed.** The cascade catches; sibling listeners still run. You will NOT see a thrown listener error in the console; log inside the listener body if you want visibility.
-- **Don't use `register-listener!` for production observability.** It dies under `:advanced` + `goog.DEBUG=false`. The two `*-emit-listener!` surfaces are the prod-survivable channel.
+- **Don't use the `:trace` stream for production observability.** `register-listener! :trace` dies under `:advanced` + `goog.DEBUG=false`. The `:events` / `:errors` streams are the prod-survivable channel.
 
 ## Cross-references
 
@@ -222,4 +222,4 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 ---
 
-*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: `register-event-listener!` / `dispatch-on-event!` (`event_emit.cljc`), `register-error-listener!` / `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); record shapes and the `:outcome` enum per each ns docstring §Record shape.*
+*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: the `:events` stream / `dispatch-on-event!` (`event_emit.cljc`), the `:errors` stream / `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); registration is via the stream-parameterized `register-listener!` / `unregister-listener!` / `clear-listeners!` verb; record shapes and the `:outcome` enum per each ns docstring §Record shape.*
