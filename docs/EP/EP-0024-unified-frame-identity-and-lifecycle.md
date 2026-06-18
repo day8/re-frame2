@@ -1,11 +1,13 @@
 # EP-0024: Unified Frame Identity And Lifecycle
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes the post-EP-0023 frame cleanup: one live frame value backed by
+> Accepted 2026-06-18: this EP records the operator's rulings on `rf2-kz2vfp`,
+> `rf2-uc6ebw`, and `rf2-um1jcq`; all open issues below are now resolved.
+> The EP defines the post-EP-0023 frame cleanup: one live frame value backed by
 > one registry, one public operation-target grammar, and one explicit UI-owned
-> lifecycle boundary. Normative homes, if accepted, are `spec/002-Frames.md`,
+> lifecycle boundary (`rf/frame-provider`). Normative homes are `spec/002-Frames.md`,
 > `spec/API.md`, `spec/001-Registration.md`, `spec/Runtime-Subsystems.md`, and
 > `spec/Conventions.md`.
 
@@ -56,9 +58,10 @@ Goals:
 - keep frame ids as the public routing address for dispatch, subscribe, reads,
   providers, and tooling;
 - keep frame values as lifecycle tokens returned by creation APIs;
-- make view-owned frame lifetime explicit with one UI boundary that creates,
-  provides, and destroys;
-- keep `frame-provider` scope-only: it provides an already existing frame;
+- make view-owned frame lifetime explicit with one UI boundary, `rf/frame-provider`,
+  that creates, provides, and destroys;
+- keep scoping to an existing frame served by `rf/with-frame` alone (the old
+  scope-only `frame-provider` is dropped);
 - keep `frame-handle` as the callback carry primitive;
 - remove or retier public spellings that duplicate the target/carry/lifecycle
   roles;
@@ -96,12 +99,23 @@ Non-goals:
   - `ai/findings/API-review/codex/frame-object-record-unification.md`
   - `ai/findings/API-review/codex/frame-targeting-and-lifecycle.md`
   - `ai/findings/API-review/codex/registrar-query-addressing.md`
+  - `ai/findings/API-review/claude/frame-targeting-and-carrying.md` — the
+    empirical 0-caller backbone (`frame-first` `(dispatch f ev)`,
+    `frame-bound-fn`/`frame-bound-fn*`, `subscribe*` have zero real call sites in
+    examples and tools) that grounds the helper-removal slices below.
 - **Related beads already filed**:
   - `rf2-ts3fuk` fixes unsubscribe target normalization symmetry.
   - `rf2-az1ct6` factors an internal frame-record resolver if not absorbed by
     this EP.
   - `rf2-ntwwyt` moves HTTP test-support helpers out of the core facade.
-  - `rf2-10nggz` decides registrar query/read address grammar after EP-0023.
+  - `rf2-10nggz` is the **home** for the registrar query/read address grammar
+    after EP-0023 (ruled: drop `:realm`, keep `:frame`). EP-0024 references it as
+    the home and does not re-decide it (see §Registrar and generation reads).
+  - `rf2-kgdk03` recorded the `spec/002-Frames.md` ↔ `spec/API.md` `make-frame`
+    contradiction (002-Frames still documented the pre-EP-0023 keyword-returning
+    `make-frame`). This EP's §One constructor partially resolves it by unifying
+    `make-frame`; the spec-graduation wave for `spec/002-Frames.md` subsumes or
+    hands off to the kgdk03 fix.
 
 ## Specification
 
@@ -159,17 +173,41 @@ not depend on the representation.
 create an image-loaded object for the same id. A Story, test, SSR request, or
 comparison page creates one frame with one call.
 
+This unified single constructor **adopts the previously-deferred option-(a)** —
+extend the object constructor so it honours record-config keys
+(`:fx-overrides`, `:on-create`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`)
+alongside the image-selection keys (`:images`, `:id`, `:initial-db`,
+`:capabilities`, `:adapter`) — and thereby **reverses the `rf2-32siq3.45`
+option-(b) disposition** that currently ships: the fail-loud redirect
+(`:rf.error/make-frame-record-only-key`) that rejects record-config keys on the
+object constructor and points callers at the advanced `re-frame.frame/make-frame`.
+Under today's implementation the illustrative shape above throws.
+
+The reversal is legitimate, not incidental. Option-(a) was deferred only because
+`re-frame.live-frame` was owned by a concurrent EP-0023 slice — it was *not*
+rejected on the merits. This EP's core (one frame value backed by one registry)
+removes the two-constructor split that motivated the redirect in the first place,
+so the fail-loud redirect no longer has a reason to exist. The advanced
+`re-frame.frame/make-frame` becomes internal or disappears. (Resolves Open
+Issue #1.)
+
 ### Duplicate id policy
 
-The accepted EP must choose one duplicate-id policy for `make-frame`.
+This EP adopts hot-reload-friendly **idempotent replacement** for `make-frame`:
+re-evaluating the same frame declaration updates frame configuration and resolved
+image generation without destroying durable state unless the caller explicitly
+asks for reset or destroy. Conflict cases that cannot be reconciled must fail
+loud.
 
-The proposal recommends hot-reload-friendly idempotent replacement: re-evaluating
-the same frame declaration should update frame configuration and resolved image
-generation without destroying durable state unless the caller explicitly asks
-for reset or destroy. Conflict cases that cannot be reconciled must fail loud.
-
-The alternative is fail-loud duplicate refusal for every live id. That is
-simpler, but it makes hot reload and Story re-evaluation more ceremonial.
+**This is a deliberate behaviour change, not a neutral choice.** The current
+`make-frame` fails loud on a duplicate live id (the docstring states "a duplicate
+live id fails loud"). The EP replaces that blanket fail-loud refusal with
+idempotent replacement, because the fail-loud rule makes hot reload and Story
+re-evaluation needlessly ceremonial. The change is bounded: re-mount under the
+same id (hot reload, Story re-evaluation) **must preserve durable state**, and
+the fail-loud path is retained for irreconcilable conflicts. The
+fail-loud-on-every-live-id alternative was considered and rejected. (Resolves
+Open Issue #5; couples to the UI-owned boundary's idempotent re-mount contract.)
 
 ### Operation target grammar
 
@@ -184,15 +222,15 @@ Canonical explicit forms:
 (rf/subscribe [:todo/items] {:frame :todo/left})
 ```
 
-Canonical ambient forms:
+Canonical ambient forms scope to an existing frame with `rf/with-frame`:
 
 ```clojure
 (rf/with-frame :todo/left
   (rf/dispatch [:todo/add "A"]))
-
-[rf/frame-provider {:frame :todo/left}
- [todo-root]]
 ```
+
+(`rf/frame-provider` is the UI-owned *lifecycle* boundary — it creates and
+destroys — not a pure scoping form; see §Scope, carry, and ownership.)
 
 Frame-first operation arities such as `(rf/dispatch target [:event])` are not a
 second public grammar. If retained internally for macro expansion or advanced
@@ -210,37 +248,55 @@ The public API has three different jobs, and each job gets one spelling.
 
 | Job | Public spelling | Contract |
 |---|---|---|
-| Scope descendants to an existing frame | `frame-provider`, `with-frame` | Does not create or destroy the frame. Establishes context. |
-| Carry a frame across async callback boundaries | `frame-handle` | Captures operations targeted at the current or explicit frame. |
-| Own a frame lifetime | `make-frame` plus `destroy-frame!`, `with-new-frame`, and one UI-owned boundary | Creation and teardown are explicit ownership operations. |
+| **Scope** descendants to an existing frame | `with-frame` | Does not create or destroy the frame. Establishes context only. |
+| **Carry** a frame across async callback boundaries | `frame-handle` | Captures operations targeted at the current or explicit frame. |
+| **Own** a frame lifetime | `make-frame` + `destroy-frame!`, `with-new-frame`, and the UI-owned boundary `frame-provider` | Creation and teardown are explicit ownership operations. |
 
-The proposal adds one UI-owned boundary for view-created frames. The working name
-is `owned-frame`.
+Note the naming. The old scope-only `frame-provider` is **dropped**: scoping to an
+already-existing frame is served by `rf/with-frame` alone. The name
+`rf/frame-provider` is reused for the UI-owned *lifecycle* boundary — the
+component that creates a frame on mount, provides its id to descendants, and
+destroys it on unmount.
 
 Illustrative shape:
 
 ```clojure
-[rf/owned-frame {:id :todo/left
-                 :images [todo-image]
-                 :initial-db {}}
+[rf/frame-provider {:id :todo/left
+                    :images [todo-image]
+                    :initial-db {}}
  [todo-root]]
 ```
 
-`owned-frame` creates the frame on mount, provides its frame id to descendants,
-and destroys the frame on unmount. It is the answer for comparison pages, Story
-canvases, embedded widgets, and hot-reload-safe view-owned frame lifetimes.
+`frame-provider` creates the frame on mount, provides its frame id to
+descendants, and destroys the frame on unmount. It is the answer for comparison
+pages, Story canvases, embedded widgets, and hot-reload-safe view-owned frame
+lifetimes.
 
-`frame-provider` remains scope-only:
+**`frame-provider` is realized per-adapter, against a shared contract.** It is
+not a single component: each substrate (Reagent / UIx / Helix) ships its own
+`frame-provider` that hooks the substrate's native lifecycle, exactly as the
+scope-only provider was handled before this EP. The EP-0024 spec-graduation wave
+specifies the shared contract — **create-on-mount**, **provide the frame id to
+descendants**, **destroy-on-unmount**, and **idempotent re-mount** (per the
+duplicate-id policy above) — and each adapter implements its native hook. The
+per-adapter spec must cover the substrate lifecycle concerns:
 
-```clojure
-[rf/frame-provider {:frame :todo/left}
- [todo-root]]
-```
+- React effect-cleanup timing (when `destroy-frame!` actually runs);
+- StrictMode double-invoke in dev (mount → unmount → mount): the create/destroy
+  pair must be tolerant of an extra cycle;
+- `destroy-frame!`-on-unmount ordering against in-flight subscriptions and event
+  drains, so teardown does not race outstanding per-frame work;
+- hot-reload-under-the-same-id **must not destroy durable state** — re-mount is
+  idempotent replacement, not destroy-then-recreate.
+
+This is the EP's only net-new public surface; the rest of the EP trims or
+unifies. It stays included (it was not split out into a separate EP). (Resolves
+Open Issue #6.)
 
 This split keeps the user's question small:
 
-- "I already have a frame; how do I scope children?" Use `frame-provider`.
-- "This component owns a frame lifetime." Use `owned-frame`.
+- "I already have a frame; how do I scope children?" Use `with-frame`.
+- "This component owns a frame lifetime." Use `frame-provider`.
 - "This callback will fire later." Use `frame-handle`.
 
 ### Carry primitive
@@ -262,10 +318,14 @@ namespace if implementation code still needs them.
 
 ### Registrar and generation reads
 
-Registrar reads should name their data source. This EP reserves the right to
-add public frame-generation reads if `rf2-10nggz` decides they are needed.
+The registrar read grammar (the source-store reads and any frame-generation
+reads) is **owned and settled by `rf2-10nggz`**, not by this EP. That decision is
+ruled — the read address keeps `:frame` and drops `:realm`. EP-0024 references
+`rf2-10nggz` as the home and does not re-decide it; there is **no
+fold-in-before-acceptance dependency**. This scoping keeps EP-0024 to one
+decision surface (frame identity and lifecycle).
 
-The source-store read remains a source-store read:
+The source-store reads remain source-store reads, illustrative only:
 
 ```clojure
 (rf/registrations :event)
@@ -273,16 +333,10 @@ The source-store read remains a source-store read:
 (rf/handler-ids :event)
 ```
 
-Frame-generation reads, if public, must be separately named rather than hidden
-behind retired target maps:
-
-```clojure
-(rf/frame-registrations :todo/left {:kind :event})
-(rf/frame-handler-meta :todo/left {:kind :event :id :todo/add})
-```
-
-The exact names are open. The rule is not open: argument shape must not smuggle
-"which data source am I reading?" through a retired composition map.
+The standing rule EP-0024 still relies on — argument shape must not smuggle
+"which data source am I reading?" through a retired composition map — is the
+substance `rf2-10nggz` settles. (Open Issue #7 is resolved by scoping this out to
+`rf2-10nggz`.)
 
 ### Teardown
 
@@ -318,9 +372,12 @@ order: "dispatch this event to that frame." The frame is routing metadata, so it
 belongs in opts. Lifecycle is not routing metadata, so it belongs in creation
 and teardown APIs.
 
-Keeping `frame-provider` scope-only also avoids a second ambiguity. A provider
+Separating scope from ownership also avoids a second ambiguity. A single provider
 that sometimes creates and sometimes scopes would make cleanup depend on how the
-frame arrived. `owned-frame` says the ownership fact out loud.
+frame arrived. So scoping is `with-frame` only, and `frame-provider` is the
+explicitly UI-*owned* boundary — it says the ownership fact (create on mount,
+destroy on unmount) out loud, and is realized per-adapter against the shared
+lifecycle contract.
 
 ## Backwards Compatibility
 
@@ -329,11 +386,16 @@ off-pattern public spellings. The migration is source-level:
 
 - replace frame-first operation arities with event/query plus opts-map forms;
 - replace view-created `make-frame` plus manual provider lifetimes with the
-  accepted owned UI boundary;
+  UI-owned `rf/frame-provider` boundary;
+- replace scope-only uses of the old `frame-provider` with `rf/with-frame`;
 - replace `frame-bound-fn` use with `frame-handle`;
 - replace any create-twice frame setup with one `make-frame` call;
-- replace retired registrar target maps with source-store reads or named
-  frame-generation reads.
+- migrate registrar target-map reads per `rf2-10nggz` (the home for the read
+  grammar).
+
+One behaviour change is intentional: `make-frame` moves from fail-loud on a
+duplicate live id to idempotent replacement that preserves durable state on
+re-mount (irreconcilable conflicts still fail loud). See §Duplicate id policy.
 
 Historical EP prose remains historical. Current docs, examples, tools, tests,
 and API manifests move to the accepted vocabulary.
@@ -351,13 +413,19 @@ and API manifests move to the accepted vocabulary.
 
 Update:
 
-- `spec/002-Frames.md` for unified frame identity, target grammar, provider vs
-  owned lifecycle, carry primitive, and teardown;
-- `spec/API.md` for the public facade rows and removed/retiered spellings;
-- `spec/001-Registration.md` if frame-generation registrar reads are accepted;
+- `spec/002-Frames.md` for unified frame identity, the single `make-frame`
+  constructor (subsuming or handing off the `rf2-kgdk03` make-frame
+  contradiction fix), the `with-frame` scope vs `frame-provider` owned-lifecycle
+  split, the carry primitive, and teardown;
+- `spec/API.md` for the public facade rows and removed/retiered spellings
+  (including the `frame-provider` re-purpose and the dropped scope-only
+  provider);
 - `spec/Runtime-Subsystems.md` for the unified frame ownership of runtime
   subsystem state;
 - `spec/Conventions.md` for the vocabulary distinctions if needed.
+
+The registrar read grammar is NOT graduated by this wave — it is owned by
+`rf2-10nggz` (which updates `spec/001-Registration.md` as needed).
 
 ### Implementation wave
 
@@ -366,18 +434,27 @@ Expected slices:
 1. Add resolved generation to the unified frame value and route all per-frame
    reads through one registry.
 2. Collapse `make-frame` to one constructor over image options plus frame
-   configuration options.
+   configuration options — adopting option-(a) and removing the
+   `rf2-32siq3.45` option-(b) fail-loud redirect; folds into `rf2-tu2vr7` (the
+   make-frame backing collapse, which already owns `re-frame.live-frame`). The
+   advanced `re-frame.frame/make-frame` becomes internal or disappears.
 3. Migrate Story, tests, SSR, and examples off create-twice setup.
-4. Implement the accepted duplicate-id/hot-reload policy.
-5. Add the accepted UI-owned frame boundary.
+4. Implement the idempotent-replacement duplicate-id/hot-reload policy (behaviour
+   change from fail-loud; preserve durable state on re-mount).
+5. Add the UI-owned `frame-provider` boundary as a per-adapter affordance
+   (Reagent / UIx / Helix) against the shared create/provide/destroy/idempotent
+   contract.
 6. Retier or remove frame-first operation arities, `frame-bound-fn`,
-   `frame-bound-fn*`, `subscribe*`, and direct `make-frame-handle` exposure as
-   decided.
-7. Implement registrar frame-generation reads if accepted by `rf2-10nggz`.
-8. Remove the second live-frame registry and any teardown hook whose only job was
+   `frame-bound-fn*`, `subscribe*`, and direct `make-frame-handle` exposure
+   (move to internal namespaces; keep `frame-handle` public) — grounded by the
+   0-caller backbone in `ai/findings/API-review/claude/frame-targeting-and-carrying.md`.
+7. Remove the second live-frame registry and any teardown hook whose only job was
    keeping it coherent.
-9. Run the docs guide-impact tail and final correctness/completeness review,
+8. Run the docs guide-impact tail and final correctness/completeness review,
    per the EP wave-end standing rule.
+
+The registrar frame-generation reads are out of scope for this wave — they are
+owned by `rf2-10nggz`.
 
 Existing beads that can land independently or be absorbed:
 
@@ -387,44 +464,59 @@ Existing beads that can land independently or be absorbed:
 
 ## Open Issues
 
+All open issues are resolved as of the 2026-06-18 acceptance (operator rulings on
+`rf2-kz2vfp`, `rf2-uc6ebw`, `rf2-um1jcq`).
+
 1. **Was the two-layer implementation deliberately transitional?**
-   Recommendation: treat it as unrealized collapse debt and converge now.
+   **Resolved:** treat it as unrealized collapse debt and converge now. The
+   single unified `make-frame` adopts the deferred option-(a) and reverses the
+   `rf2-32siq3.45` option-(b) fail-loud redirect (see §One constructor).
 
 2. **What is the exact public accessor from frame value to frame id?**
-   Recommendation: provide one accessor and do not expose the representation.
+   **Resolved:** provide one accessor frame-value → id; do not expose the
+   representation.
 
 3. **What is the final live frame representation?**
-   Recommendation: choose the smallest representation that lets the frame value
-   own the resolved generation and lifecycle without reintroducing a second
-   registry. It may be the existing record, a frozen handle over it, or an object
-   wrapper only if the wrapper is the single registry value.
+   **Resolved:** choose the smallest single-registry representation that lets the
+   frame value own the resolved generation and lifecycle without reintroducing a
+   second registry. It may be the existing record, a frozen handle over it, or an
+   object wrapper only if the wrapper is the single registry value.
 
 4. **Should public operations accept frame values, or only frame ids plus ambient
    context?**
-   Recommendation: teach frame ids as the app-facing target grammar. Direct
-   frame values may remain accepted for tests/harnesses only if that does not
-   create a second public spelling.
+   **Resolved:** teach frame **ids** as the routing address; frame values stay
+   internal/tests-and-harnesses only and must not create a second public
+   spelling.
 
 5. **What duplicate-id policy should `make-frame` use?**
-   Recommendation: hot-reload-friendly idempotent replacement with fail-loud
-   irreconcilable conflicts.
+   **Resolved:** hot-reload-friendly idempotent replacement (preserving durable
+   state on re-mount) with fail-loud irreconcilable conflicts. Flagged as a
+   deliberate **behaviour change** from current fail-loud-on-every-live-id (see
+   §Duplicate id policy).
 
 6. **What is the final name for the UI-owned lifecycle boundary?**
-   Recommendation: `owned-frame`, because the name states the missing fact.
+   **Resolved:** `rf/frame-provider`, realized per-adapter (Reagent / UIx /
+   Helix) against the shared create/provide/destroy/idempotent contract. The old
+   scope-only `frame-provider` is dropped; scoping is `rf/with-frame` (see
+   §Scope, carry, and ownership).
 
 7. **Should frame-generation registrar reads be public, and what are their
    names?**
-   Recommendation: decide in `rf2-10nggz`; if public names land, fold them into
-   this EP before acceptance.
+   **Resolved by scoping out:** the read grammar is owned and settled by
+   `rf2-10nggz` (drop `:realm`, keep `:frame`). EP-0024 references it as the home
+   and does not re-decide it; the prior fold-in-before-acceptance dependency is
+   removed (see §Registrar and generation reads).
 
 8. **Which helper spellings are removed vs retiered?**
-   Recommendation: remove app-facing documentation for frame-first arities,
-   `frame-bound-fn`, `frame-bound-fn*`, and `subscribe*`; keep any needed
-   implementation helpers in internal namespaces with `*` names.
+   **Resolved:** keep `frame-handle` public; move `make-frame-handle`,
+   `frame-bound-fn`, `frame-bound-fn*`, `subscribe*`, and the frame-first
+   operation arities to internal namespaces. Grounded by the 0-caller backbone in
+   `ai/findings/API-review/claude/frame-targeting-and-carrying.md`.
 
 ## Recommendation
 
-Accept this EP after resolving the open issues. It is the smallest durable
-decision surface that matches the findings: one frame value, one registry, one
-target grammar, and one explicit owned UI lifecycle boundary. That is the
-post-EP-0023 frame model the public API already wants to teach.
+Accepted 2026-06-18. This is the smallest durable decision surface that matches
+the findings: one frame value, one registry, one target grammar, and one
+explicit UI-owned lifecycle boundary (`rf/frame-provider`). That is the
+post-EP-0023 frame model the public API already wants to teach. The
+implementation wave is filed under this EP and gated on this acceptance.
