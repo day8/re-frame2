@@ -818,12 +818,7 @@ Reserved fx-ids for runtime flow management via `:fx`:
 
 ## Interceptor / context plumbing
 
-| API | M/Fn | Signature | Status | Tier |
-|---|---|---|---|---|
-| `get-coeffect` | Fn | `(get-coeffect ctx)` / `(get-coeffect ctx key)` / `(get-coeffect ctx key not-found)` | v1 (preserved) | advanced |
-| `assoc-coeffect` | Fn | `(assoc-coeffect ctx key value)` | v1 (preserved) | advanced |
-| `get-effect` | Fn | `(get-effect ctx)` / `(get-effect ctx key)` / `(get-effect ctx key not-found)` | v1 (preserved) | advanced |
-| `assoc-effect` | Fn | `(assoc-effect ctx key value)` | v1 (preserved) | advanced |
+The interceptor context accessors `get-coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` are **removed** from the public `re-frame.core` façade and carry **no API-manifest row** (a removed surface is not part of the canonical public API). Post-EP-0017/EP-0022 they lost their audience — the setters had zero callers, the getters one. The intended interceptor model is to author with `reg-interceptor` and let the `:before` / `:after` fns receive and return the context map directly: read coeffects with `(get-in ctx [:coeffects k])` and write effects with `(assoc-in ctx [:effects k] v)`. The underlying `re-frame.interceptor/{get,assoc}-{coeffect,effect}` fns remain in their owning namespace as framework-internal context helpers; they are not a public surface. See [§Removed / not shipped](#removed--not-shipped).
 
 ---
 
@@ -983,6 +978,8 @@ These surfaces are **removed or renamed** — not part of the public projection 
 | `reg-event-db` | Use `reg-event` (EP-0018, no alias) — destructure `:db` from the coeffects map and wrap the return in `{:db …}`: `(reg-event id (fn [{:keys [db]} ev] {:db BODY}))`. A stale call raises the always-on hard error `:rf.error/reg-event-db-removed` naming `reg-event`. The `^:no-doc` facade throwing stub carries no API-manifest row. | [001 §The retired event-registration names](001-Registration.md#the-retired-event-registration-names) |
 | `reg-event-fx` | Use `reg-event` (EP-0018, no alias) — `reg-event` IS the identical shape under the bare name (coeffects in, effects out); just rename the call. A stale call raises `:rf.error/reg-event-fx-removed` naming `reg-event`. | [001 §The retired event-registration names](001-Registration.md#the-retired-event-registration-names) |
 | `reg-event-ctx` | Demoted to a framework-internal primitive (EP-0018). Express application full-context work as a **registered interceptor** (`reg-interceptor` with `:before`/`:after`, referenced by id from a `reg-event` chain — EP-0022). A stale public call raises `:rf.error/reg-event-ctx-removed`. | [001 §The retired event-registration names](001-Registration.md#the-retired-event-registration-names) |
+| `get-coeffect` / `get-effect` | Removed from the façade (no audience post-EP-0017/EP-0022; carry no manifest row). Inside a `reg-interceptor` `:before`/`:after` fn read the context map directly: `(get-in ctx [:coeffects k])` / `(get-in ctx [:effects k])`. The owning-namespace `re-frame.interceptor/get-coeffect` / `get-effect` fns remain framework-internal. | 001, 002 |
+| `assoc-coeffect` / `assoc-effect` | Removed from the façade (zero callers; carry no manifest row). Inside a `reg-interceptor` `:before`/`:after` fn write the context map directly: `(assoc-in ctx [:coeffects k] v)` / `(assoc-in ctx [:effects k] v)`. The owning-namespace `re-frame.interceptor/assoc-coeffect` / `assoc-effect` fns remain framework-internal. | 001, 002 |
 | `re-frame.alpha/reg` | The shipped per-kind registrars: `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow`. (The v1 event trio `reg-event-db` / `reg-event-fx` / `reg-event-ctx` is **not** a v2 target — those are removed/withdrawn throwing stubs and migration inputs only, see the rows above and EP-0018; `reg-event` is the single event-registration form.) | MIGRATION M-23 |
 | `re-frame.alpha/sub` | Vector-form `(rf/subscribe [::id arg])`. | MIGRATION M-23 |
 | `re-frame.alpha/reg-sub-lifecycle` and built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) | Sub-cache uses a single algorithm — synchronous ref-counting (dispose on derefer-count → 0), per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For specific edge cases file a follow-up bead. | MIGRATION M-23 |

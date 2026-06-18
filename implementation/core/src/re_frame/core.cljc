@@ -2383,26 +2383,18 @@
      (csm/build-interceptor-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                  kwargs)))
 
-(def ^{:doc "Read from the context's `:coeffects` map. Used inside
-  interceptor `:before` / `:after` fns and handler bodies that receive
-  the full context. Per spec/API.md §Interceptors."}
-  get-coeffect    interceptor/get-coeffect)
-
-(def ^{:doc "Set the value at `k` in the context's `:coeffects` map;
-  returns the updated context. Use from a `:before` interceptor when
-  injecting an input the handler will read via `get-coeffect`. Per
-  spec/API.md §Interceptors."}
-  assoc-coeffect  interceptor/assoc-coeffect)
-
-(def ^{:doc "Read from the context's `:effects` map. Used inside
-  interceptor `:after` fns inspecting what the handler returned. Per
-  spec/API.md §Interceptors."}
-  get-effect      interceptor/get-effect)
-
-(def ^{:doc "Set the value at `k` in the context's `:effects` map;
-  returns the updated context. Use from a handler-wrapper interceptor
-  to inject an effect into the cascade. Per spec/API.md §Interceptors."}
-  assoc-effect    interceptor/assoc-effect)
+;; Interceptor CONTEXT ACCESSORS — `get-coeffect` / `assoc-coeffect` /
+;; `get-effect` / `assoc-effect` — are NO LONGER re-exported from the
+;; `re-frame.core` façade. Post-EP-0017/EP-0022 they lost their audience: the
+;; setters (`assoc-coeffect` / `assoc-effect`) had zero callers, the getters
+;; one. The intended interceptor model is to author with `reg-interceptor` and
+;; let the `:before` / `:after` fns receive and return the context map directly
+;; (ordinary `(get-in ctx [:coeffects k])` / `assoc-in` map work) — there is no
+;; façade-blessed accessor layer. The underlying `re-frame.interceptor/get-
+;; coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` fns remain in
+;; their owning namespace as the framework-internal context helpers (used by
+;; `events` / `privacy` / `router` / `spec` and the interceptor tests); they are
+;; simply not a public surface.
 
 ;; EP-0022 (accepted) removed the public `rf/path` VALUE constructor
 ;; (EP-0022:552 "There is no public rf/path value constructor."; :932 lists the
