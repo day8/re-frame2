@@ -838,10 +838,18 @@
   ["re-frame.schemas" "app-schema-at"]           {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schema-meta-at"]      {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schemas-digest"]      {:tier :tooling :owner "010" :status "v1"}
+  ;; Schema-fns configuration surface. `set-schema-fns!` is the PREFERRED
+  ;; (blessed) path — one atomic bundle setter so a substitute-Malli port's
+  ;; validator/explainer/printer never drift mid-boot (API.md §Schemas). The
+  ;; three per-fn singletons are RETAINED as lower-level convenience setters for
+  ;; adjusting one fn in isolation; all are genuinely used + supported so they
+  ;; stay `advanced` (the closed tier vocabulary has no sub-advanced slot, and
+  ;; they are NOT `implementation` — that tier is the unsupported surface). The
+  ;; preferred-vs-lower-level distinction is carried in the API.md row prose.
+  ["re-frame.schemas" "set-schema-fns!"]         {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "set-schema-validator!"]   {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "set-schema-explainer!"]   {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "set-schema-printer!"]     {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.schemas" "set-schema-fns!"]         {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reset-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schema"]          {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schemas"]         {:tier :implementation :owner "010" :status "v1"}
