@@ -29,6 +29,8 @@ reagent/
   ssr/                         <-- CP-9 worked example (Spec 011)
   ssr_streaming/               <-- streaming SSR worked example (Spec 011 §Streaming)
   resources/                   <-- Spec 016 Resources worked example (route/event/machine-owned)
+  infinite_feed/               <-- EP-0021 infinite resource (load-more / infinite-scroll feed)
+  linearlite/                  <-- EP-0019 optimistic mutation + rollback (Linearlite issue board)
   resources_ssr/               <-- Spec 016 §SSR resource preload + hydration
   managed_http_counter/        <-- compact Spec 014 demo
   state_machine_walkthrough/   <-- runnable companion to docs/guide/11-machines
@@ -85,6 +87,8 @@ The maintained map below records the highest coverage layer pinning each example
 | `resources_ssr/` | Direct semantic fixture (JVM) | `re-frame.examples-test` (`resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch`) |
 | `realworld_resources/` | Direct semantic fixture | `re-frame.realworld-resources-cljs-test` (session scope / bearer / mutation populates+invalidates+reply-to / editor flow+can-leave / logout clear-scope / auth machine) |
 | `realworld/` | Direct semantic fixture | `re-frame.realworld-cljs-test` |
+| `infinite_feed/` | Direct semantic fixture | `re-frame.infinite-feed-example-cljs-test` (route page-0 ensure / causal load-more append+cursor / nil terminal / page-error third channel / page-0 first-load error) |
+| `linearlite/` | Direct semantic fixture | `re-frame.linearlite-example-cljs-test` (route board ensure / `:optimistic` apply before reply / `:populates` commit / failure rollback for create+edit-title+change-status) |
 
 The direct fixtures live under `implementation/adapters/reagent/test/re_frame/*_cljs_test.cljs` (CLJS) and `implementation/core/test/re_frame/examples_test.clj` (JVM) — never under `examples/` (rf2-8cevm). The `resources/` machine-owned-resource ENSURE step is intentionally left to the artefact runtime + compile coverage (driving the live machine spawn/destroy deterministically in a shared headless bundle is brittle); its start/stop EVENT glue is the pinned example-specific assertion.
 

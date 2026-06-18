@@ -501,6 +501,14 @@
             8043 {:roots   ["../tools/story/testbeds/login_form"
                             "out/examples/login-form"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
+            ;; Linearlite optimistic-board example (rf2-tideyl). Source dir
+            ;; first so the hand-written index.html resolves at `/`; the
+            ;; compiled main.js falls through to out/examples/linearlite per
+            ;; the same cascade as the entries above. Port 8044 is the next
+            ;; free slot in the example/story 804x band.
+            8044 {:roots   ["../examples/reagent/linearlite"
+                            "out/examples/linearlite"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
             ;; The 806x band for top-level testbeds/<surface>/ dev-http
             ;; servers (Xray testbeds own 803x + 8765, Story 804x, the
@@ -1396,6 +1404,26 @@
    :output-dir "out/examples/infinite-feed"
    :asset-path "."
    :modules    {:main {:init-fn infinite-feed.core/run}}}
+
+  ;; EP-0019 — OPTIMISTIC MUTATION + ROLLBACK flagship worked example
+  ;; (rf2-tideyl). A Linearlite-class issue board where every write
+  ;; (create / edit-title / change-status) is a `reg-mutation` with an
+  ;; `:optimistic` exact-target patch over the board resource: the board
+  ;; updates at phase 1.5 (before the request), then COMMITS (`:populates`)
+  ;; on :ok or ROLLS BACK (runtime-recorded snapshot inverse) on :error. A
+  ;; 'fail the next write' demo seam arms the canned `:rf.http/managed` stub
+  ;; to answer the next write with a 503 so the rollback is the headline
+  ;; demonstration. `../examples/reagent` is already on :source-paths above,
+  ;; so the mutation runtime + `:rf.mutation/*` / `:rf.resource/*` subs
+  ;; resolve without per-build deps. Served at http://localhost:8044 via the
+  ;; top-level `:dev-http` map. Complements `:examples/realworld-resources`
+  ;; (`:optimistic-tags` favorite) + `:examples/infinite-feed` (read-side
+  ;; load-more).
+  :examples/linearlite
+  {:target     :browser
+   :output-dir "out/examples/linearlite"
+   :asset-path "."
+   :modules    {:main {:init-fn linearlite.core/run}}}
 
   ;; Spec 016 §SSR — resource SSR preload + hydration worked example
   ;; (rf2-jxmb4p). The page's server-state is a RESOURCE preloaded under an
