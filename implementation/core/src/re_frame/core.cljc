@@ -2648,94 +2648,58 @@
 ;; shape, not durable app-db egress policy; durable app-db classification is
 ;; installed once at `reg-frame` time by `re-frame.frame-classification`.
 
-(def ^{:doc "Return the frame-owned `:large` `:app-db` declarations for a
-  frame as a `{path -> decl}` map (installed by `reg-frame` `:large
-  {:app-db …}`). Per Spec 015 §Frame-owned durable classification."}
-  elision-declarations             elision/declarations)
+;; Derived-tree value-based egress — the SINGLE composed multi-slot helper
+;; (rf2-leggev Option B2, rf2-j7qbhm). The nine granular gears that USED to
+;; sit here — `elision-declarations` / `elision-sensitive-declarations` (the
+;; introspection readers) and the sensitive + large value-match trios
+;; (`redact-derived-values`, `elision-sensitive-value-set`,
+;; `elision-collect-sensitive-values`, `redact-matching-values`,
+;; `redact-derived-large-values`, `elision-large-value-marker-map`,
+;; `redact-matching-large-values`) — are NO LONGER `re-frame.core` façade
+;; exports. They were the disassembled gears of derived-tree value redaction,
+;; leaked onto the façade for ONE assembling consumer (Story-MCP egress). Spec
+;; 015 names the boundary/operation, not the gearbox: this one composed helper
+;; subsumes them. The low-level arms (and the two declaration readers) remain
+;; in `re-frame.elision` for the rare bespoke caller — reach them through that
+;; home namespace. (KEPT on the façade: `elide-wire-value` — the path walker —
+;; and `project-egress` — the record-level boundary; those ARE the boundary
+;; language, not derived-value gears.)
 
-(def ^{:doc "Return the frame-owned `:sensitive` `:app-db` declarations for
-  a frame as a `{path -> decl}` map (installed by `reg-frame` `:sensitive
-  {:app-db …}`). Per Spec 015 §Frame-owned durable classification."}
-  elision-sensitive-declarations   elision/sensitive-declarations)
+(def ^{:doc "Redact a frame's app-db-sensitive / -large values out of one or
+  more DERIVED value slots before off-box egress — the single composed
+  multi-slot egress helper (EP-0015, rf2-leggev). The value-based DUAL of the
+  path-based `elide-wire-value`: where the walker redacts a frame's declared
+  `:sensitive` / `:large` app-db slots BY PATH, a derived tree (rendered
+  hiccup, a resolved `:effective-args` map, a snapshot body, a plan-resolved
+  value slot) re-surfaces the SAME values at non-app-db positions the
+  path-based walker can never reach — so they must be redacted BY VALUE.
 
-(def ^{:doc "Value-redact a DERIVED tree (rendered hiccup, a resolved
-  `:effective-args` map, a snapshot body, a plan-resolved value slot) against
-  the live values at the frame's declared-`:sensitive?` app-db paths, before
-  wire egress (EP-0015 issue 2). The value-based DUAL of `elide-wire-value`:
-  where the path-based walker redacts by app-db PATH, this collects the
-  sensitive VALUES from the source db and substitutes any matching leaf in the
-  derived tree (a sensitive value re-surfaces at a non-app-db position the
-  path-based walker can't reach) with `:rf/redacted`. Includes the
-  non-unique-secret guard (a candidate already disclosed on the wire is
-  dropped, classified against the elided db). `(redact-derived-values tree
-  source-db frame-id wire-opts)` — `wire-opts` is the `elide-wire-value` opts
-  the path-based `:app-db` slot ships under (the egress floor; `:frame` is
-  supplied automatically). Per Spec 015 §Projection and Security.md §Off-box
-  egress."}
-  redact-derived-values            elision/redact-derived-values)
+  `(redact-derived-slots m slot-keys source-db frame-id wire-opts)`:
 
-(def ^{:doc "The set of live values at the frame's declared-`:sensitive?`
-  app-db paths, read from a raw db, MINUS any value already disclosed on the
-  wire (the non-unique-secret guard, classified against the elided db). The
-  candidate secret set `redact-derived-values` substitutes; exposed for tools
-  that drive the value-match over MULTIPLE derived slots from one collection
-  pass. `(elision-sensitive-value-set app-db frame-id wire-opts)`. Per
-  Spec 015 §Projection."}
-  elision-sensitive-value-set      elision/sensitive-value-set)
+    - `m` carries the derived value(s).
+    - `slot-keys` `nil` (or empty) ⇒ the SINGLE-TREE case: `m` *is* the
+      derived tree, scrubbed wholesale. A seq of keys ⇒ `m` is a MAP and each
+      PRESENT key's value is scrubbed (absent keys untouched) — the one
+      collection pass drives every slot.
+    - `source-db` is the raw db the derived values were produced from (the
+      source of the secret / large candidate sets).
+    - `wire-opts` is the `elide-wire-value` egress floor the path-based
+      `:app-db` slot ships under (`:frame frame-id` supplied automatically, so
+      the helper stays egress-profile-agnostic). It also accepts
+      `:rf.elision/extra-sensitive-source` — an extra raw db whose unguarded
+      governed-sensitive values join the candidate union, the FAIL-CLOSED
+      pre-frame source for a documented no-run path (e.g. a plan's authored
+      `:db-seed` read before any run allocates the frame).
 
-(def ^{:doc "The set of values at the frame's declared-`:sensitive?` app-db
-  paths, read from a raw source db, with NO wire-disclosure guard — the
-  fail-SAFE base candidate set. Use for a source that is NOT the live wire
-  `:app-db` (e.g. a plan's authored `:db-seed` slot), where every governed
-  value must stay redacted; for the live source use
-  `elision-sensitive-value-set`. `(elision-collect-sensitive-values source-db
-  frame-id)`. Per Spec 015 §Projection."}
-  elision-collect-sensitive-values elision/collect-sensitive-values)
-
-(def ^{:doc "Walk a derived tree, substituting any leaf `=` to a member of a
-  pre-collected `secrets` set with the `:rf/redacted` sentinel (the redaction
-  arm of the value-match primitive). Recurses maps/vectors/sets/seqs; map keys
-  walked too; returns the tree unchanged when `secrets` is empty. Use with a
-  set from `elision-sensitive-value-set` /
-  `elision-collect-sensitive-values` to redact MULTIPLE derived slots from one
-  collection pass. `(redact-matching-values tree secrets)`. Per Spec 015
-  §Projection."}
-  redact-matching-values           elision/redact-matching-values)
-
-(def ^{:doc "Value-elide a DERIVED tree against the live values at the frame's
-  declared-`:large` app-db paths, before wire egress (rf2-9o5ixx). The
-  LARGE-axis dual of `redact-derived-values` (EP-0015: sensitive + large are
-  peer egress axes): where `elide-wire-value` elides a large slot by app-db
-  PATH, this collects the large VALUES from the source db and substitutes any
-  matching leaf in the derived tree (a large blob re-keyed into rendered
-  hiccup / snapshot / evidence / explain value slots at a non-app-db position)
-  with the `:rf.size/large-elided` marker. No non-unique-secret guard (a large
-  payload has no short-scalar collateral hazard; a re-keyed copy must elide
-  wherever it lands); a sensitive-declared value is left to the sensitive
-  engine (sensitive wins — run sensitive redaction FIRST). `(redact-derived-
-  large-values tree source-db frame-id wire-opts)` — `wire-opts` is the egress
-  floor (`:frame` supplied automatically). Per Spec 015 §Projection."}
-  redact-derived-large-values      elision/redact-derived-large-values)
-
-(def ^{:doc "The `{large-value marker}` map for the frame's declared-`:large`
-  app-db paths, read from a raw source db: each key the whole blob, each value
-  the `:rf.size/large-elided` marker `elide-wire-value` would emit for it under
-  `wire-opts`. The large-axis dual of `elision-collect-sensitive-values`,
-  exposed for tools driving the large value-match over MULTIPLE derived slots
-  from one collection pass (pair it with `redact-matching-large-values`).
-  `(elision-large-value-marker-map source-db frame-id wire-opts)`. Per Spec 015
-  §Projection."}
-  elision-large-value-marker-map   elision/large-value-marker-map)
-
-(def ^{:doc "Walk a derived tree, substituting any leaf `=` to a key of a
-  pre-collected `{large-value marker}` map with that key's `:rf.size/large-
-  elided` marker (the redaction arm of the large value-match dual, rf2-9o5ixx).
-  Recurses maps/vectors/sets/seqs; map keys walked too; returns the tree
-  unchanged when the map is empty. Use with a map from
-  `elision-large-value-marker-map` to elide MULTIPLE derived slots from one
-  collection pass. `(redact-matching-large-values tree marker-map)`. Per
-  Spec 015 §Projection."}
-  redact-matching-large-values     elision/redact-matching-large-values)
+  Both egress axes run in `elide-wire-value`'s composition order — SENSITIVE
+  first (it wins; the large collector skips sensitive-declared nodes), then
+  LARGE over the survivors. The sensitive candidate set (with the
+  non-unique-secret guard) AND the large `{value marker}` map are each
+  collected ONCE from `source-db` and reused across every slot. Returns `m`
+  unchanged when there is no candidate source or the frame declares nothing.
+  The trusted-local raw opt-out belongs to the caller. Per Spec 015
+  §Projection and Security.md §Off-box egress."}
+  redact-derived-slots             elision/redact-derived-slots)
 
 (def ^{:doc "Project a sequence of raw trace events into one cascade
   record per `:dispatch-id`. Pure data — JVM and CLJS. Used by

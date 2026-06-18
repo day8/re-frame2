@@ -177,7 +177,7 @@
 
 ;; Read the elision-declarations slot directly so the view shows the
 ;; registrar's view of what's been nominated. A spec asserts this
-;; reads the same shape as `(rf/elision-declarations frame-id)`.
+;; reads the same shape as `(re-frame.elision/declarations frame-id)`.
 (rf/reg-sub :elision-decls
   (fn [db _] (get-in db [:rf/elision :declarations])))
 

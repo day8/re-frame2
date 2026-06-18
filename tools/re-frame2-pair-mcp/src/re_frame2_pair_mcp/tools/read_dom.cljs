@@ -96,7 +96,7 @@
   declared-sensitive app-db slot — a non-app-db position the path-based
   `elide-wire-value` walker can never reach. Under the off-box egress
   posture (the published-build default) the runtime value-redacts the
-  matched nodes through `re-frame.core/redact-derived-values` against the
+  matched nodes through `re-frame.core/redact-derived-slots` against the
   operating frame's declared-`:sensitive?` values, so a rendered secret
   lands as `:rf/redacted` before crossing the off-box wire. The optional
   `:frame` arg names the source frame; raw rendered content is the trusted-

@@ -645,12 +645,14 @@
   The path-based `elide-wire-value` walker redacts by DECLARED app-db path —
   but rendered DOM text / attribute values sit at a NON-app-db position the
   path walker can never reach, so a secret copied from a declared-sensitive
-  app-db slot into the DOM would ride off-box RAW. `re-frame.core/redact-
-  derived-values` is the value-based DUAL: it collects the live values at the
-  frame's declared-`:sensitive?` paths from `source-db` (with the non-unique-
-  secret guard, classified against the elided wire bytes) and substitutes any
-  matching leaf in `tree` with `:rf/redacted`. This is the SAME engine
-  Story-MCP routes its rendered hiccup / `:effective-args` through.
+  app-db slot into the DOM would ride off-box RAW. The framework composed
+  helper `re-frame.core/redact-derived-slots` is the value-based DUAL: it
+  collects the live values at the frame's declared-`:sensitive?` (and
+  -`:large`) paths from `source-db` (with the non-unique-secret guard,
+  classified against the elided wire bytes) and substitutes any matching leaf
+  in `tree` with `:rf/redacted` (or the `:rf.size/large-elided` marker). This
+  is the SAME engine Story-MCP routes its rendered hiccup / `:effective-args`
+  through.
 
   Gate posture mirrors `maybe-elide-sample` / the MCP read surfaces:
 
@@ -672,7 +674,7 @@
   [tree frame-id]
   (if (:allow-raw-state? @raw-state-config)
     tree
-    (rf/redact-derived-values tree (rf/app-db-value frame-id) frame-id {})))
+    (rf/redact-derived-slots tree nil (rf/app-db-value frame-id) frame-id {})))
 
 (declare attach-cascade db-diff-summary machine-transitions-summary cascade-summary)
 
@@ -3570,7 +3572,7 @@
    position the path-based `elide-wire-value` walker can never reach. Under
    the off-box egress posture (raw-state gate OFF — the published-build
    default) the matched nodes are value-redacted via `maybe-redact-derived`
-   (`re-frame.core/redact-derived-values`) against the operating frame's
+   (`re-frame.core/redact-derived-slots`) against the operating frame's
    secrets, so a rendered secret lands as `:rf/redacted` before crossing
    the off-box wire. Gate ON (`--allow-sensitive-reads`) passes the nodes
    through verbatim (the operator's deliberate trusted-local raw read). When
@@ -3739,7 +3741,7 @@
    a no-op for this leak class, and attrs were never touched at all). Under
    the off-box egress posture (raw-state gate OFF — the published-build
    default) the whole `:content` is value-redacted via `maybe-redact-derived`
-   (`re-frame.core/redact-derived-values`) against the frame's secrets, so a
+   (`re-frame.core/redact-derived-slots`) against the frame's secrets, so a
    rendered secret lands as `:rf/redacted`. The hard per-node `max-text` cap
    still trims the common large case first. Gate ON (`--allow-sensitive-
    reads`) passes the content through verbatim (trusted-local raw). When the
@@ -3820,7 +3822,7 @@
                    ;; string — but that walker redacts by app-db PATH, and
                    ;; rendered text has none, so it never caught a secret
                    ;; copied INTO the DOM, and attrs were untouched entirely.
-                   ;; `redact-derived-values` is the value-based dual: it
+                   ;; `redact-derived-slots` is the value-based dual: it
                    ;; substitutes any leaf `=` to a frame secret. Off-box
                    ;; default redacts; gate ON passes verbatim (trusted-local).
                    content   (maybe-redact-derived base frame-id)]
@@ -3959,7 +3961,7 @@
    textContent / attribute / focus descriptor can carry a secret copied out
    of a declared-sensitive app-db slot, a NON-app-db position the path-based
    elider can't reach. They are now value-redacted via `maybe-redact-derived`
-   (`re-frame.core/redact-derived-values`) against the frame's secrets under
+   (`re-frame.core/redact-derived-slots`) against the frame's secrets under
    the off-box gate — the value-based dual of the `:app-db` / `:sub` elision.
    `start-recording!` / `watch-until` refuse a `:dom` / `:focus` signal under
    the off-box gate when no frame resolves (the secret source can't be

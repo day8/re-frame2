@@ -1082,6 +1082,117 @@
                        tree
                        (large-value-marker-map source-db frame-id wire-opts))))
 
+;; ---------------------------------------------------------------------------
+;; Composed multi-slot derived-tree egress — the SINGLE public assembling
+;; helper (rf2-leggev Option B2, rf2-j7qbhm).
+;;
+;; The sensitive + large value-match arms above are the disassembled GEARS of
+;; one operation: "redact a frame's app-db-sensitive / -large values out of a
+;; derived tree (or a set of derived value slots) before off-box egress". The
+;; one assembling consumer — Story-MCP's `scrub-rendered` (single tree, both
+;; axes) and `scrub-explain-values` (one collection pass over many value
+;; slots) — previously reached the gears piecemeal through the `re-frame.core`
+;; façade. Spec 015 names the BOUNDARY / OPERATION, not the gearbox, so the
+;; gears no longer crowd the façade: this one helper subsumes them, and the
+;; low-level arms stay in this namespace for the rare bespoke caller.
+;;
+;; The one-pass property the gears were carved to provide is preserved: the
+;; sensitive candidate set AND the large marker-map are each collected ONCE
+;; from `source-db`, then substituted across EVERY slot. Sensitive runs FIRST
+;; (it wins — the large collector already skips sensitive-declared nodes), and
+;; the large pass sees only the sensitive-survived slots.
+;; ---------------------------------------------------------------------------
+
+(defn redact-derived-slots
+  "Redact a frame's app-db-sensitive / -large values out of one or more
+  DERIVED value slots before off-box egress — the SINGLE composed multi-slot
+  egress helper (rf2-leggev Option B2). The value-based DUAL of the path-based
+  `elide-wire-value`, assembled so a consumer names the BOUNDARY (\"scrub these
+  derived slots for `frame-id`'s egress\") instead of hand-wiring the
+  sensitive / large value-match gears.
+
+  `m` carries the derived value(s). `slot-keys` selects which slots of `m` to
+  scrub:
+
+    - `nil` (or `()` / `[]`) — the SINGLE-TREE case: `m` *is* the derived tree
+      (rendered hiccup, a resolved `:effective-args` map, a snapshot body) and
+      is scrubbed wholesale. Subsumes Story-MCP's `scrub-rendered`.
+    - a seq of keys — `m` is a MAP and each PRESENT key's value is scrubbed
+      (absent keys are left untouched). Subsumes Story-MCP's
+      `scrub-explain-values` over its enumerated value-slot keys.
+
+  Both axes run, in `elide-wire-value`'s composition order — SENSITIVE first
+  (it wins), then LARGE over the survivors:
+
+    1. The sensitive candidate set is collected ONCE from `source-db` via
+       `sensitive-value-set` (with the non-unique-secret guard, classified
+       against the wire bytes `source-db` ships under `wire-opts`). A nil
+       leaf matching a candidate becomes `:rf/redacted`.
+    2. The `{large-value marker}` map is collected ONCE from `source-db` via
+       `large-value-marker-map`. A matching leaf becomes the
+       `:rf.size/large-elided` marker.
+
+  Both collections are done a SINGLE time and reused across every slot — the
+  one-pass property the low-level gears were carved to expose.
+
+  `wire-opts` is the `elide-wire-value` egress floor the path-based `:app-db`
+  slot ships under (e.g. an off-box-tool profile's `:rf.size/*` opt-set);
+  `:frame frame-id` is supplied automatically, so the helper stays
+  egress-profile-agnostic (the `:rf.egress/*` profile vocabulary stays in the
+  tool / mcp-base layer). `wire-opts` additionally accepts:
+
+    - `:rf.elision/extra-sensitive-source` — an EXTRA raw db whose UNGUARDED
+      governed-sensitive values join the candidate union (no
+      wire-disclosure subtraction). This is the FAIL-CLOSED pre-frame source:
+      a documented no-run path (e.g. Story-MCP `explain-variant` reading a
+      plan's authored `:db-seed` before any run allocates the frame) can seed
+      candidates with no live app-db, so a secret authored into the seed and
+      re-surfaced in a value slot still redacts. Defaults to none.
+
+  Short-circuits: returns `m` unchanged when `source-db` is nil (no source of
+  values — unless an `:rf.elision/extra-sensitive-source` is supplied, which
+  then becomes the sole candidate source), and when the frame declares nothing
+  sensitive / large (or every candidate is already disclosed) so there is
+  nothing to substitute. The opt-out (trusted-local raw) belongs to the
+  caller — pass the value through directly when the operator has waived
+  redaction."
+  [m slot-keys source-db frame-id wire-opts]
+  (let [extra-src   (:rf.elision/extra-sensitive-source wire-opts)
+        ;; Collect ONCE, reuse across every slot. Sensitive: the guarded live
+        ;; candidates (against the wire bytes) UNIONed with the unguarded
+        ;; pre-frame seed candidates (fail-closed, no wire subtraction).
+        secrets     (into (if source-db
+                            (sensitive-value-set source-db frame-id wire-opts)
+                            #{})
+                          (if extra-src
+                            (collect-sensitive-values extra-src frame-id)
+                            #{}))
+        marker-map  (if source-db
+                      (large-value-marker-map source-db frame-id wire-opts)
+                      {})
+        scrub       (fn [v]
+                      ;; Sensitive FIRST (it wins), then large over survivors.
+                      (-> v
+                          (redact-matching-values secrets)
+                          (redact-matching-large-values marker-map)))]
+    (cond
+      ;; Nothing collected from any source ⇒ identity (no walk).
+      (and (empty? secrets) (empty? marker-map))
+      m
+
+      ;; Single-tree case: `m` IS the derived tree.
+      (empty? slot-keys)
+      (scrub m)
+
+      ;; Multi-slot case: scrub each PRESENT slot of the map `m`.
+      :else
+      (reduce (fn [acc k]
+                (if (contains? acc k)
+                  (update acc k scrub)
+                  acc))
+              m
+              slot-keys))))
+
 ;; EP-0015 §8 (rf2-d2r3um): no `:elision/populate-from-schemas!` hook —
 ;; schemas no longer feed the app-db egress registry (frame policy owns it).
 (late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
