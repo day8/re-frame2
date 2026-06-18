@@ -146,19 +146,17 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (make-frame opts)             ; → live frame object
-  (make-frame opts descriptors) ; → live frame object
+  (make-frame opts) ; → live frame value
   ```
-- **Description**: The EP-0023 **object constructor**: builds a live frame from an `:images` vector and **returns the runnable live frame object** (not a gensym keyword). `dispatch` / `subscribe` / `destroy-frame!` accept the object directly (or its `:id`). Useful for per-mount lifecycles — devcards, modal stacks, multiple live instances of a widget, dynamic tabs, tests, and the SSR per-request frame pattern. The `reg-frame` named path is the front-porch surface; `make-frame` is the advanced per-instance one. Opts: `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the process-local live-frame registry, fail-loud on a duplicate id), `:initial-db` (seed `app-db` state), `:capabilities`, and `:adapter`. A frame created **without** an `:id` bypasses the registry — a direct local reference for tests and harnesses. Lifecycle is the caller's responsibility — pair `make-frame` with a `destroy-frame!` in the `:finally` of `r/with-let` (or an equivalent unmount hook). **Record-only config keys fail loud.** `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, and the like raise `:rf.error/make-frame-record-only-key` rather than silently dropping. That record-config surface (with the gensym-id behaviour the old per-instance helper had) lives on the advanced `re-frame.frame/make-frame`; the front-porch `reg-frame` carries it for named frames. See [spec/002 §Per-instance frames](../../spec/002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0023](../EP/EP-0023-image-loaded-frames.md).
+- **Description**: The **single public constructor** for a live frame (per [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md)). It accepts image-selection options *and* frame-configuration options in **one** call and **returns the live frame value** — one frame value backed by one registry. There is no separate object-vs-record constructor split, and no caller has to create a backing frame first and then an image-loaded object for the same id. Useful for per-mount lifecycles — devcards, modal stacks, multiple live instances of a widget, dynamic tabs, tests, and the SSR per-request frame pattern. The `reg-frame` named path is the front-porch surface; `make-frame` is the advanced per-instance one. Opts: the image-selection keys `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the one process-local live-frame registry; a duplicate live id is **idempotent replacement** that preserves durable state on re-mount, not a blanket fail-loud — irreconcilable conflicts still fail loud), `:initial-db` (seed `app-db` state), `:capabilities`, `:adapter` — **and**, in the same call, the frame-configuration keys `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`. A frame created **without** an `:id` bypasses the registry — a direct local reference for tests and harnesses. **Route by id, not by value:** the frame value's representation is not an app-facing contract — read its id via the one accessor `rf/frame-id` and pass the **id** to `dispatch` / `subscribe` / providers / tools. Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!` in the `:finally` of `r/with-let`, or use the UI-owned `rf/frame-provider` boundary (below) for view-owned lifetimes. See [spec/002 §Per-instance frames](../../spec/002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
 - **Example**:
   ```clojure
+  ;; A component that OWNS a frame lifetime uses the UI-owned provider,
+  ;; which creates-on-mount and destroys-on-unmount for you (EP-0024):
   (defn counter-widget [label]
-    (r/with-let [f (rf/make-frame {:images     [counter-image]
-                                   :initial-db {:count 0}})]
-      [rf/frame-provider {:frame f}
-       [counter-view label]]
-      (finally
-        (rf/destroy-frame! f))))
+    [rf/frame-provider {:images     [counter-image]
+                        :initial-db {:count 0}}
+     [counter-view label]])
   ```
 - **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
@@ -375,7 +373,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
 
 ### See also
 
-- [02 — Views](02-views.md) for `reg-view*` in detail, the `view` lookup form, and the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn`, `with-frame`).
+- [02 — Views](02-views.md) for `reg-view*` in detail, the `view` lookup form, and the substrate-agnostic ergonomic surface (`frame-handle`, `with-frame`, `frame-provider`).
 - [03 — Effects and interceptors](03-effects.md) for what the `reg-event` handler's return value can carry.
 - [12 — Registrar](12-registrar.md) for the read-side of the registrar — `registrations`, `handler-ids`, `handler-meta`.
 
@@ -383,7 +381,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
 
 These are the two verbs that drive the cascade. `dispatch` says "an event happened, run it through the cascade"; `subscribe` says "give me a reactive handle on this query's value." Every other surface in re-frame2 either composes them or sits beside them.
 
-Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like re-frame-10x and Xray can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`, `subscribe*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs.
+`dispatch` and `dispatch-sync` come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like re-frame-10x and Xray can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs. (There is no app-facing `subscribe*` twin: the `subscribe`-with-explicit-frame fn form is internal under [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md); subscribe with `{:frame …}` opts instead.)
 
 ### `dispatch`
 
@@ -441,24 +439,14 @@ Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, 
 - **Signature**:
   ```clojure
   (subscribe query-v)
-  (subscribe frame-id query-v)
+  (subscribe query-v opts)
   ```
-- **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Use inside views, inside other subs, and (carefully) inside event handlers via the cofx wrapper.
+- **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Use inside views, inside other subs, and (carefully) inside event handlers via the cofx wrapper. Target a non-ambient frame via the `{:frame …}` opt — `(rf/subscribe [:counter/value] {:frame :other})`; the frame **id** is the public routing address (per [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md)). The frame-first `(subscribe frame-id query-v)` arity and the `subscribe*` fn form are **internal**, not app-facing.
 - **Example**:
   ```clojure
   [:span @(rf/subscribe [:counter/value])]
   ```
 - **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
-
-### `subscribe*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (subscribe* query-v)
-  (subscribe* frame-id query-v)
-  ```
-- **Description**: Fn variant of `subscribe`.
 
 ### `subscribe-once`
 
@@ -466,9 +454,9 @@ Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, 
 - **Signature**:
   ```clojure
   (subscribe-once query-v) → value
-  (subscribe-once frame-id query-v) → value
+  (subscribe-once query-v opts) → value
   ```
-- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views.
+- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Use in handler bodies, machine actions, REPL — anywhere you want the *current* value without the reactive plumbing. Not for views. Target a non-ambient frame via `{:frame …}`.
 
 ### `unsubscribe`
 
@@ -476,9 +464,9 @@ Both come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, 
 - **Signature**:
   ```clojure
   (unsubscribe query-v) → nil
-  (unsubscribe frame-id query-v) → nil
+  (unsubscribe query-v opts) → nil
   ```
-- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** (per Spec 006 §Reference counting and disposal, rf2-cmfln). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount.
+- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** (per Spec 006 §Reference counting and disposal). Most callers don't reach for this directly — Reagent / UIx / Helix adapters wire it on unmount. Target a non-ambient frame via `{:frame …}`.
 
 ### Reading a machine's snapshot
 
@@ -508,12 +496,12 @@ The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, 
 
 ### See also
 
-- [02 — Views](02-views.md) — `frame-handle` and `frame-bound-fn` capture the current frame at creation time and return frame-bound ops/fns that survive callbacks where the dynamic-var binding has unwound.
+- [02 — Views](02-views.md) — `frame-handle` captures the current frame at creation time and returns frame-bound ops that survive callbacks where the dynamic-var binding has unwound.
 - [03 — Effects and interceptors](03-effects.md) — the effect map's `:fx` vector is how event handlers schedule more dispatches.
 
 ## Frames: the scoping primitive
 
-A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame, which you register and establish at your root with a `frame-provider`; `init!` does **not** create one for you (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), frame identity is carried, not synthesised from absence). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — register additional frames and dispatch / subscribe against them via `{:frame :other}`.
+A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame. You establish it at your root one of two ways (per [EP-0024](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent)): scope an already-registered frame with `(rf/with-frame :app …)`, or let a `rf/frame-provider` **own** the lifetime — it creates the frame on mount, provides its id to descendants, and destroys it on unmount. `init!` does **not** create one for you (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), frame identity is carried, not synthesised from absence). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — register additional frames and dispatch / subscribe against them via `{:frame :other}` (the frame **id** is the public routing address).
 
 `reg-frame` and `make-frame` are rowed in **Registration** above. The two read-side surfaces:
 
