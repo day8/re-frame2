@@ -12,7 +12,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 |---|---|
 | Design spec | Complete (see `docs/initial-spec.md`) — superseded as the *transport* description by the MCP server |
 | Transport | **MCP server (`tools/re-frame2-pair-mcp/`) is the ONLY skill-facing transport.** `allowed-tools:` carries no shell tool. |
-| Tool catalogue | **29 MCP tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`). All 29 reachable from `allowed-tools:`; the two write tools `restore-epoch` + `replace-app-db` are the canonical named-write path and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag (the server's gate, not the allow-list, is the write boundary). |
+| Tool catalogue | **30 MCP tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`). All 30 reachable from `allowed-tools:`; the two write tools `restore-epoch` + `replace-app-db` are the canonical named-write path and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag (the server's gate, not the allow-list, is the write boundary). |
 | `SKILL.md` + `references/*.md` | Written — the full vocabulary Claude learns; the routed leaves carry the live surface. |
 | `preload/re_frame2_pair/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces. Loaded into the app via shadow-cljs `:devtools :preloads`. |
 | Bash shims (`scripts/*.sh` + `ops.clj`) | **Retired from the skill surface** — kept on disk only for the project's own e2e harness and ad-hoc shell use. See [`ops.md` §Bash-shim appendix](references/ops.md#bash-shim-appendix-not-reachable-from-this-skill). |
