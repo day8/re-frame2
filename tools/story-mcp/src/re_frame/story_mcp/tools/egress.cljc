@@ -68,28 +68,31 @@
   Value-matching is a heuristic; its one collateral hazard is a
   sensitive path holding a SHORT/COMMON scalar (`0`, `200`, `:ok`),
   which would scrub every benign leaf that equals it. The framework
-  `re-frame.core/elision-sensitive-value-set` guards that (rf2-g7cd1,
-  hardened rf2-f3kf7; centralized rf2-i783h0) by dropping any candidate
-  that ALSO appears, VERBATIM, in the POST-elision `:app-db` (the actual
-  wire bytes) — such a value is already disclosed by the path-based
-  `:app-db` egress, so excluding it leaks nothing new while restoring the
-  benign leaves. Classifying against the elided db (not the raw db) is
-  load-bearing: a secret aliased into a `:large?`-declared subtree is
-  replaced by the `:rf.size/large-elided` marker on the wire, so it is NOT
-  disclosed and MUST stay redacted. See the framework helper for the
+  composed helper `re-frame.core/redact-derived-slots` guards that
+  (rf2-g7cd1, hardened rf2-f3kf7; centralized rf2-i783h0; composed
+  rf2-leggev) by dropping any candidate that ALSO appears, VERBATIM, in the
+  POST-elision `:app-db` (the actual wire bytes) — such a value is already
+  disclosed by the path-based `:app-db` egress, so excluding it leaks nothing
+  new while restoring the benign leaves. Classifying against the elided db
+  (not the raw db) is load-bearing: a secret aliased into a `:large?`-declared
+  subtree is replaced by the `:rf.size/large-elided` marker on the wire, so it
+  is NOT disclosed and MUST stay redacted. See the framework helper for the
   fail-SAFE argument.
 
-  ## Centralized value-match engine (rf2-i783h0)
+  ## Centralized + composed value-match engine (rf2-i783h0, rf2-leggev)
 
   The value-match-redaction ENGINE — candidate collection, the
-  non-unique-secret guard, and the matching-leaf substitution — lives ONCE
-  in `re-frame.elision` (the value-based DUAL of `elide-wire-value`), exposed
-  through the `re-frame.core` facade as `redact-derived-values` /
-  `elision-sensitive-value-set` / `elision-collect-sensitive-values` /
-  `redact-matching-values`. The scrubbers below are ORCHESTRATION only —
-  resolve the egress floor from the posture, read the source app-db, apply
-  the `:include-sensitive` opt-out. This removes the SECOND place EP-0015
-  egress semantics could drift (EP-0015 best-practice review issue 2)."
+  non-unique-secret guard, and the matching-leaf substitution, across BOTH
+  the sensitive and large egress axes — lives ONCE in `re-frame.elision` (the
+  value-based DUAL of `elide-wire-value`), assembled behind the SINGLE
+  composed multi-slot helper `re-frame.core/redact-derived-slots`
+  (rf2-leggev). The nine granular gears that used to be reached piecemeal
+  through the facade are no longer facade exports. The scrubbers below are
+  ORCHESTRATION only — resolve the egress floor from the posture, read the
+  source app-db (and, for the no-run explain path, pass the plan's `:db-seed`
+  as the helper's `:rf.elision/extra-sensitive-source`), apply the
+  `:include-sensitive` opt-out. This keeps the SECOND place EP-0015 egress
+  semantics could drift removed (EP-0015 best-practice review issue 2)."
   (:require [re-frame.core :as rf]
             [re-frame.mcp-base.egress :as base-egress]
             [re-frame.mcp-base.elision :as base-elision]
@@ -234,21 +237,23 @@
   "Value-redact AND value-elide a DERIVED tree (rendered hiccup,
   `:effective-args`, a snapshot body) before wire egress, keyed to
   `variant-id`'s frame. EP-0015 treats `:sensitive` + `:large` as PEER egress
-  axes, so the derived-tree scrub runs BOTH (rf2-9o5ixx):
+  axes, so the derived-tree scrub runs BOTH (rf2-9o5ixx) — in ONE call to the
+  framework composed helper `re-frame.core/redact-derived-slots`
+  (rf2-leggev), the SINGLE-TREE form (`slot-keys nil`):
 
-    1. SENSITIVE (`re-frame.core/redact-derived-values`, rf2-i783h0): collect
-       the live values at `variant-id`'s declared-`:sensitive?` paths from
-       `app-db` — with the non-unique-secret guard, classified against the
-       elided db under the `:rf.egress/off-box-tool` floor — and substitute any
-       matching leaf in `tree` with `:rf/redacted` (rf2-ee38b.17).
-    2. LARGE (`re-frame.core/redact-derived-large-values`, rf2-9o5ixx): collect
-       the live values at `variant-id`'s declared-`:large` paths and substitute
-       any matching leaf with the `:rf.size/large-elided` marker — so a large
-       blob declared at `[:blob]` and re-keyed into `[:pre blob]` / a snapshot
-       / evidence echo elides on the wire rather than crossing raw, and the
-       `:elided-large` indicator count (`count-elided`) sees the markers.
+    1. SENSITIVE: collect the live values at `variant-id`'s
+       declared-`:sensitive?` paths from `app-db` — with the
+       non-unique-secret guard, classified against the elided db under the
+       `:rf.egress/off-box-tool` floor — and substitute any matching leaf in
+       `tree` with `:rf/redacted` (rf2-ee38b.17).
+    2. LARGE: collect the live values at `variant-id`'s declared-`:large`
+       paths and substitute any matching leaf with the `:rf.size/large-elided`
+       marker — so a large blob declared at `[:blob]` and re-keyed into
+       `[:pre blob]` / a snapshot / evidence echo elides on the wire rather
+       than crossing raw, and the `:elided-large` indicator count
+       (`count-elided`) sees the markers.
 
-  SENSITIVE WINS: the sensitive pass runs FIRST and the framework large-value
+  SENSITIVE WINS: the helper runs the sensitive pass FIRST and its large
   collector skips any node also declared sensitive, so a value that is both
   redacts to `:rf/redacted` (never the large marker). The large pass then
   sees only the sensitive-survived tree.
@@ -258,7 +263,7 @@
     - `include? true` returns `tree` unchanged (the opt-out escape hatch —
       covers BOTH axes, matching the `:rf.egress/local-raw` floor).
     - A nil `tree` or nil `app-db` returns `tree` (handled by the framework
-      helpers — nothing to scrub / no source of values).
+      helper — nothing to scrub / no source of values).
     - No declared-sensitive/large (or all-disclosed) values ⇒ `tree` is
       returned unwalked."
   [tree app-db variant-id include?]
@@ -266,91 +271,57 @@
     tree
     ;; Classify against the SAME `:rf.egress/off-box-tool` floor `elide-app-db`
     ;; ships under (rf2-qus09h) so the wire-classification reasons about the
-    ;; identical bytes the `:app-db` egress actually emits. Sensitive first
-    ;; (it wins), then large over what survives.
-    (let [opts (posture->elision-opts false)]
-      (-> tree
-          (rf/redact-derived-values app-db variant-id opts)
-          (rf/redact-derived-large-values app-db variant-id opts)))))
-
-(defn- plan-sensitive-values
-  "The candidate-secret set derived from a PLAN-side seed source `seed-db`
-  (the explain map's `:db-seed` slot — the authored seed data that BECOMES
-  the variant frame's app-db on the next run) at `variant-id`'s declared-
-  `:sensitive` `:app-db` paths. The pre-RUN source for `explain-variant`
-  (rf2-tag30h): `explain-variant` is a documented no-run path, so the live
-  app-db may be unseeded — but a secret authored into `:db-seed` (and
-  re-surfaced in `:effective-args` / `:network` / a step payload) must still
-  be value-matched.
-
-  Delegates the unguarded governed-value collection to the framework
-  `re-frame.core/elision-collect-sensitive-values` (rf2-i783h0) — the SAME
-  candidate-collection engine `scrub-rendered`'s guarded path uses. No
-  public-against-the-wire subtraction here: this seed source is the authored
-  plan, not the live wire `:app-db` egress, so every governed seed value stays
-  in the set (fail-SAFE — over-scrub at worst, never under-scrub)."
-  [seed-db variant-id]
-  (rf/elision-collect-sensitive-values seed-db variant-id))
+    ;; identical bytes the `:app-db` egress actually emits. The composed helper
+    ;; runs sensitive first (it wins), then large over what survives, off ONE
+    ;; collection pass.
+    (rf/redact-derived-slots tree nil app-db variant-id
+                             (posture->elision-opts false))))
 
 (defn scrub-explain-values
   "Value-redact the runtime/seeded VALUE slots `value-slot-keys` of an
-  `explain` map against `variant-id`'s declared-sensitive values, before
-  the explain payload crosses the AI/off-box boundary (rf2-12f2q,
-  rf2-q8ebq.1, pre-frame hardening rf2-tag30h).
+  `explain` map against `variant-id`'s declared-sensitive / -large values,
+  before the explain payload crosses the AI/off-box boundary (rf2-12f2q,
+  rf2-q8ebq.1, pre-frame hardening rf2-tag30h) — in ONE call to the framework
+  composed helper `re-frame.core/redact-derived-slots` (rf2-leggev), the
+  MULTI-SLOT form (each present key of `value-slot-keys` scrubbed off one
+  collection pass).
 
-  Candidate secrets come from BOTH sources, unioned:
+  Candidate sensitive secrets come from BOTH sources, unioned by the helper:
 
-    - the LIVE variant-frame app-db (via the framework
-      `re-frame.core/elision-sensitive-value-set` — the guarded live reader,
-      classified against the elided db under the `:rf.egress/off-box-tool`
-      floor) — the source once `run-variant` / `preview-variant` has
-      allocated and seeded the frame; AND
-    - the PLAN's OWN `:db-seed` slot (via `plan-sensitive-values`) — the
-      FAIL-CLOSED pre-frame source. `explain-variant` is a documented
-      no-run path: a caller can read it BEFORE any run allocates the frame.
-      With only the live reader, a secret authored into `:db-seed` and
-      re-surfaced in `:effective-args` / `:network` / a step payload would
-      cross raw (the live app-db is nil ⇒ no candidates). Walking the
-      plan's seed at the frame's declared-sensitive paths recovers those
-      candidates with no live frame.
-
-  The matching-leaf substitution over the value slots uses the framework
-  `re-frame.core/redact-matching-values` (rf2-i783h0) — the SAME redaction arm
-  `scrub-rendered` drives, run once per slot against the unioned secret set.
+    - the LIVE variant-frame app-db (the `source-db` arg — the guarded live
+      reader, classified against the elided db under the
+      `:rf.egress/off-box-tool` floor) — the source once `run-variant` /
+      `preview-variant` has allocated and seeded the frame; AND
+    - the PLAN's OWN `:db-seed` slot (passed as the helper's
+      `:rf.elision/extra-sensitive-source`) — the FAIL-CLOSED pre-frame
+      source. `explain-variant` is a documented no-run path: a caller can
+      read it BEFORE any run allocates the frame. With only the live reader,
+      a secret authored into `:db-seed` and re-surfaced in `:effective-args`
+      / `:network` / a step payload would cross raw (the live app-db is nil
+      ⇒ no candidates). The helper walks the seed at the frame's
+      declared-sensitive paths (unguarded — fail-SAFE) and unions those
+      candidates, so the no-run secret still redacts with no live frame.
 
   LARGE axis (rf2-9o5ixx): EP-0015 treats `:large` as a PEER egress axis, so
   each value slot is ALSO value-elided against `variant-id`'s declared-`:large`
   values — a large blob re-surfaced into `:effective-args` / `:network` / a
   step payload elides to the `:rf.size/large-elided` marker rather than
-  crossing raw. The marker map is collected ONCE (from the live app-db) and
-  substituted per slot via `re-frame.core/redact-matching-large-values`.
-  Sensitive runs FIRST (it wins); the large pass sees the sensitive-survived
-  slots. The large source is the live frame app-db only — the pre-frame
-  `:db-seed` source feeds the SENSITIVE union (a fail-closed no-run secret),
-  while a large classification's value-match is driven from the live values.
+  crossing raw. The marker map is collected ONCE (from the live app-db
+  `source-db`) and substituted per slot. Sensitive runs FIRST (it wins); the
+  large pass sees the sensitive-survived slots. The large source is the live
+  frame app-db only — the pre-frame `:db-seed` source feeds the SENSITIVE
+  union (a fail-closed no-run secret), while a large classification's
+  value-match is driven from the live values.
 
   `include?` opts out (the `--allow-sensitive-reads` + per-call escape
   hatch) — when true the raw values cross (the operator signed off; BOTH axes)."
   [explain variant-id value-slot-keys include?]
   (if (or include? (nil? explain))
     explain
-    (let [opts         (posture->elision-opts false)
-          app-db       (rf/app-db-value variant-id)
-          live-secrets (rf/elision-sensitive-value-set app-db variant-id opts)
-          seed-secrets (plan-sensitive-values (:db-seed explain) variant-id)
-          secrets      (into live-secrets seed-secrets)
-          large-markers (rf/elision-large-value-marker-map app-db variant-id opts)]
-      (if (and (empty? secrets) (empty? large-markers))
-        explain
-        (reduce (fn [m k]
-                  (cond-> m
-                    (contains? m k)
-                    (update k (fn [slot]
-                                (-> slot
-                                    (rf/redact-matching-values secrets)
-                                    (rf/redact-matching-large-values large-markers))))))
-                explain
-                value-slot-keys)))))
+    (let [app-db (rf/app-db-value variant-id)
+          opts   (assoc (posture->elision-opts false)
+                        :rf.elision/extra-sensitive-source (:db-seed explain))]
+      (rf/redact-derived-slots explain value-slot-keys app-db variant-id opts))))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime/captured value scrub (rf2-12f2q)

@@ -758,32 +758,18 @@
   ;; primitive), owned by Spec 015.
   ["re-frame.core" "register-observability-sink!"]      {:tier :tooling  :owner "015" :status "v1"}
   ["re-frame.core" "unregister-observability-sink!"]    {:tier :tooling  :owner "015" :status "v1"}
-  ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
-  ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"}
-  ;; Derived-tree value-match redaction (EP-0015 — rf2-i783h0). The
-  ;; value-based DUAL of the path-based `elide-wire-value` / record-level
-  ;; `project-egress` egress surface — same Spec 015 §Projection ownership.
-  ;; A framework-owned primitive Story-MCP consumes through the façade
-  ;; (the engine centralized in `re-frame.elision`); :tooling, like its
-  ;; egress siblings, not a front-porch app primitive.
-  ["re-frame.core" "redact-derived-values"]             {:tier :tooling  :owner "015" :status "v1"}
-  ["re-frame.core" "elision-sensitive-value-set"]       {:tier :tooling  :owner "015" :status "v1"}
-  ["re-frame.core" "elision-collect-sensitive-values"]  {:tier :tooling  :owner "015" :status "v1"}
-  ["re-frame.core" "redact-matching-values"]            {:tier :tooling  :owner "015" :status "v1"}
-  ;; Large-axis DUAL of the sensitive value-match redaction trio above
-  ;; (EP-0015/EP-0017 — rf2-9o5ixx). Same Spec 015 §Projection ownership:
-  ;; the path-based `elide-wire-value` elides a declared-`:large` slot by
-  ;; app-db path, but a re-keyed large blob in a DERIVED tree (rendered
-  ;; hiccup, snapshot/evidence/explain value slot) crosses the wire raw —
-  ;; these collect the live large values and substitute the matching leaves
-  ;; with the `:rf.size/large-elided` marker. Framework-owned primitives
-  ;; centralized in `re-frame.elision`, consumed by Story-MCP through the
-  ;; façade; :tooling like their egress siblings, not a front-porch app
-  ;; primitive.
-  ["re-frame.core" "redact-derived-large-values"]       {:tier :tooling  :owner "015" :status "v1"}
-  ["re-frame.core" "elision-large-value-marker-map"]    {:tier :tooling  :owner "015" :status "v1"}
-  ["re-frame.core" "redact-matching-large-values"]      {:tier :tooling  :owner "015" :status "v1"}
+  ;; Derived-tree value-based egress — the SINGLE composed multi-slot helper
+  ;; (rf2-leggev Option B2, rf2-j7qbhm). The value-based DUAL of the
+  ;; path-based `elide-wire-value` / record-level `project-egress` egress
+  ;; surface — same Spec 015 §Projection ownership. It subsumes the nine
+  ;; granular gears that USED to sit on the façade (the two `:source :frame`
+  ;; declaration readers + the sensitive/large value-match trios); those now
+  ;; live ONLY in `re-frame.elision` (not façade exports). A framework-owned
+  ;; primitive Story-MCP consumes through the façade; :tooling, like its
+  ;; egress siblings (`elide-wire-value`, `project-egress`), not a
+  ;; front-porch app primitive.
+  ["re-frame.core" "redact-derived-slots"]              {:tier :tooling  :owner "015" :status "v1"}
 
   ;; --- Individually-named extra-vars (generator `extra-vars`) ---
   ;; The two dev-gate Vars rowed in spec/API.md §Tracing whose home

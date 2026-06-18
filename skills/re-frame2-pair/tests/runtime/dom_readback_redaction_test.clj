@@ -34,7 +34,7 @@
 ;;;;
 ;;;; Why a parallel implementation lives here. `runtime.cljs` is CLJS-only
 ;;;; (a shadow-cljs `:devtools :preloads` file) and depends on the live
-;;;; re-frame2 frame registry / `rf/redact-derived-values`, none of which
+;;;; re-frame2 frame registry / `rf/redact-derived-slots`, none of which
 ;;;; run under bb. This file MIRRORS the pure value-match + gate logic and
 ;;;; asserts behaviour against a canned sensitive frame; a structural pin
 ;;;; (below) keeps the mirror honest against the source so a regression in
@@ -56,12 +56,13 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Mirror of the runtime's value-based derived-tree redaction. KEEP IN SYNC
-;; with `re-frame.core/redact-derived-values` + `maybe-redact-derived`.
+;; with `re-frame.core/redact-derived-slots` + `maybe-redact-derived`.
 ;;
-;; `redact-derived-values` collects the live values at the frame's declared-
+;; The framework helper collects the live values at the frame's declared-
 ;; `:sensitive?` app-db paths from the source db and substitutes any matching
-;; leaf in the derived tree with `:rf/redacted`. We mirror the value-match
-;; engine + the off-box gate posture.
+;; leaf in the derived tree with `:rf/redacted` (and declared-`:large` leaves
+;; with the `:rf.size/large-elided` marker). We mirror the sensitive
+;; value-match arm + the off-box gate posture.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private raw-state-config (atom {:allow-raw-state? true}))
@@ -86,8 +87,8 @@
     (walk/postwalk (fn [x] (if (contains? secrets x) :rf/redacted x)) tree)))
 
 (defn- redact-derived-values
-  "Mirror of `re-frame.core/redact-derived-values`. nil tree / nil source-db
-  short-circuit unchanged."
+  "Mirror of the sensitive arm of `re-frame.core/redact-derived-slots`. nil
+  tree / nil source-db short-circuit unchanged."
   [tree source-db sensitive-paths]
   (cond
     (nil? tree)      tree
@@ -219,8 +220,8 @@
 (deftest runtime-defines-the-derived-redaction-helper
   (let [f (defn-form 'maybe-redact-derived)]
     (is (some? f) "runtime must define maybe-redact-derived")
-    (is (mentions? f 'rf/redact-derived-values)
-        "maybe-redact-derived must delegate to re-frame.core/redact-derived-values")
+    (is (mentions? f 'rf/redact-derived-slots)
+        "maybe-redact-derived must delegate to re-frame.core/redact-derived-slots")
     (is (mentions? f 'rf/app-db-value)
         "maybe-redact-derived must read the frame's app-db as the secret source")))
 

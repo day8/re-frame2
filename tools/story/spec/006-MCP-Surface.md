@@ -89,12 +89,13 @@ data, so the egress classifies each payload as runtime/captured VALUE
   is run through the egress scrubbers (path-based
   `re-frame.core/elide-wire-value` for `:app-db`; value-based redaction
   for derived / non-live trees). EP-0015 treats `:sensitive` and `:large`
-  as PEER egress axes, so a derived tree is scrubbed on BOTH: the
-  framework `re-frame.core/redact-derived-values` substitutes any leaf
-  equal to a declared-`:sensitive?` value with `:rf/redacted`, and
-  `re-frame.core/redact-derived-large-values` substitutes any leaf equal
-  to a declared-`:large` value with the `:rf.size/large-elided` marker —
-  so a large blob declared at, e.g., `[:blob]` and re-keyed into
+  as PEER egress axes, so a derived tree is scrubbed on BOTH in ONE call
+  to the framework composed helper `re-frame.core/redact-derived-slots`:
+  it substitutes any leaf equal to a declared-`:sensitive?` value with
+  `:rf/redacted`, and any leaf equal to a declared-`:large` value with
+  the `:rf.size/large-elided` marker (sensitive collected and substituted
+  first, then large over the survivors) — so a large blob declared at,
+  e.g., `[:blob]` and re-keyed into
   `:rendered-hiccup` / `:snapshot` / evidence / `:effective-args` elides
   on the wire rather than crossing raw, and the `:elided-large` indicator
   count sees those derived-slot markers. Sensitive WINS over large (the

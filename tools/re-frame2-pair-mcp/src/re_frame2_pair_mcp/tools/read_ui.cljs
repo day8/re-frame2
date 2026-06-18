@@ -72,7 +72,7 @@
   ## Privacy — value-redact derived content (rf2-p9scds)
 
   The runtime value-redacts the WHOLE rendered `:content` (text AND attrs)
-  through `re-frame.core/redact-derived-values` against the frame's declared-
+  through `re-frame.core/redact-derived-slots` against the frame's declared-
   `:sensitive?` app-db values, under the off-box egress posture (the
   published-build default). Rendered DOM text / attrs sit at a non-app-db
   position the path-based `elide-wire-value` walker can never reach — a bare

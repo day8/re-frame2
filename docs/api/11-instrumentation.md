@@ -247,15 +247,14 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: Walk `v` consulting `[:rf.runtime/elision :declarations]` and `[:rf.runtime/elision :sensitive-declarations]` of the named frame's **runtime-db**. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots.
 
-### `elision-declarations`
+### `redact-derived-slots`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (elision-declarations)
-  (elision-declarations frame-id)
+  (redact-derived-slots m slot-keys source-db frame-id wire-opts)
   ```
-- **Description**: Read the current `[:rf.runtime/elision :declarations]` map (from runtime-db) for the frame (or `{}`). Pair-tool / introspection reader.
+- **Description**: The single composed multi-slot egress helper — the value-based DUAL of `elide-wire-value`. Where the walker redacts a frame's declared `:sensitive` / `:large` app-db slots by *path*, a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body) re-surfaces those values at non-app-db positions the path walker can't reach, so they must be redacted by *value*. `slot-keys` `nil`/empty ⇒ `m` *is* the derived tree (scrubbed wholesale); a seq of keys ⇒ `m` is a map and each present key's value is scrubbed off one collection pass. Sensitive runs first (it wins), then large over the survivors. The granular value-match arms and the `[:rf.runtime/elision]` declaration readers (`re-frame.elision/declarations` / `sensitive-declarations`) it composes live in `re-frame.elision` — reach them through that home namespace.
 
 ### `populate-elision-from-schemas!`
 

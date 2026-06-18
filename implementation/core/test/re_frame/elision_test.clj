@@ -74,7 +74,7 @@
 
 (deftest frame-large-path-emits-marker
   (install-class! [] [[:user :uploaded-pdf]])
-  (let [decls (rf/elision-declarations)
+  (let [decls (elision/declarations)
         out   (rf/elide-wire-value
                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         slot  (get-in out [:user :uploaded-pdf])]
@@ -284,7 +284,7 @@
   (install-class! [] [[:blob]])
   (let [blob (vec (range 3000))
         db   {:public "ok" :blob blob}
-        m    (rf/elision-large-value-marker-map db :rf/default {})]
+        m    (elision/large-value-marker-map db :rf/default {})]
     (is (= 1 (count m)) "one declared-large path ⇒ one entry")
     (is (contains? m blob) "keyed by the whole blob value")
     (is (elision/marker? (get m blob)) "value is the :rf.size/large-elided marker")
@@ -297,14 +297,14 @@
         db     {:blob blob}
         ;; the blob re-keyed into a derived tree at a non-app-db position
         tree   [:div [:pre blob] [:span "label"]]
-        out    (rf/redact-derived-large-values tree db :rf/default {})]
+        out    (elision/redact-derived-large-values tree db :rf/default {})]
     (is (elision/marker? (get-in out [1 1]))
         "the re-keyed large blob is replaced with the marker")
     (is (= "label" (get-in out [2 1])) "benign leaves survive")))
 
 (deftest redact-derived-large-values-noop-without-declaration
   (let [tree [:pre (vec (range 3000))]
-        out  (rf/redact-derived-large-values tree {:blob (vec (range 3000))} :rf/default {})]
+        out  (elision/redact-derived-large-values tree {:blob (vec (range 3000))} :rf/default {})]
     (is (identical? tree out) "no declared-large path ⇒ tree returned unwalked")))
 
 (deftest large-marker-map-skips-sensitive-node
@@ -312,7 +312,7 @@
   ;; sensitive engine, so the large marker map does not claim it.
   (install-class! [[:both]] [[:both]])
   (let [blob (vec (range 3000))
-        m    (rf/elision-large-value-marker-map {:both blob} :rf/default {})]
+        m    (elision/large-value-marker-map {:both blob} :rf/default {})]
     (is (empty? m) "a sensitive-declared node is excluded from the large marker map")))
 
 (deftest redact-matching-large-values-is-idempotent-on-marker
@@ -321,9 +321,9 @@
   (install-class! [] [[:blob]])
   (let [blob   (vec (range 3000))
         db     {:blob blob}
-        m      (rf/elision-large-value-marker-map db :rf/default {})
-        once   (rf/redact-matching-large-values [:pre blob] m)
-        twice  (rf/redact-matching-large-values once m)]
+        m      (elision/large-value-marker-map db :rf/default {})
+        once   (elision/redact-matching-large-values [:pre blob] m)
+        twice  (elision/redact-matching-large-values once m)]
     (is (= once twice) "a re-projection pass is byte-identical")))
 
 (deftest walker-is-idempotent-on-large-marker
@@ -369,25 +369,25 @@
 
 (deftest nested-frame-classification
   (install-class! [[:root :a :b :token]] [[:root :a :b :c]])
-  (is (contains? (rf/elision-declarations) [:root :a :b :c]))
-  (is (contains? (rf/elision-sensitive-declarations) [:root :a :b :token]))
+  (is (contains? (elision/declarations) [:root :a :b :c]))
+  (is (contains? (elision/sensitive-declarations) [:root :a :b :token]))
   (is (= {:source :frame}
-         (get (rf/elision-declarations) [:root :a :b :c]))))
+         (get (elision/declarations) [:root :a :b :c]))))
 
 (deftest frame-reclassification-replaces-frame-entries
   ;; Re-classifying a frame REPLACES its `:source :frame` declarations
   ;; (the declaration IS the frame's policy — EP-0015 §3).
   (install-class! [] [[:user :pdf]])
-  (is (contains? (rf/elision-declarations) [:user :pdf]))
+  (is (contains? (elision/declarations) [:user :pdf]))
   (install-class! [] [])
-  (is (not (contains? (rf/elision-declarations) [:user :pdf]))))
+  (is (not (contains? (elision/declarations) [:user :pdf]))))
 
 (deftest registries-are-frame-isolated
   (frame/reg-frame :elision-test/other {})
   (install-class! :rf/default [] [[:blob]])
   (install-class! :elision-test/other [] [])
-  (is (contains? (rf/elision-declarations :rf/default) [:blob]))
-  (is (not (contains? (rf/elision-declarations :elision-test/other) [:blob]))))
+  (is (contains? (elision/declarations :rf/default) [:blob]))
+  (is (not (contains? (elision/declarations :elision-test/other) [:blob]))))
 
 (deftest streamed-cascades-elide-per-element-frame
   ;; rf2-1we9fa defect 2 — the streaming subscribe drain walks several
@@ -824,3 +824,90 @@
     (is (= :rf/redacted slot))
     (is (not (elision/marker? slot))
         "sensitive suppresses the large marker even when nested in a vector")))
+
+;; ---------------------------------------------------------------------------
+;; redact-derived-slots — the SINGLE composed multi-slot egress helper
+;; (rf2-leggev Option B2, rf2-j7qbhm). The nine granular gears that USED to be
+;; reached piecemeal through the `re-frame.core` façade collapse behind this
+;; one assembling helper; these pin the composed behaviour (single-tree +
+;; multi-slot, both egress axes, sensitive-wins, the fail-closed pre-frame
+;; seed union, and the short-circuits).
+;; ---------------------------------------------------------------------------
+
+(deftest redact-derived-slots-single-tree-sensitive
+  ;; slot-keys nil ⇒ the tree IS the value; a sensitive value re-keyed into a
+  ;; non-app-db position redacts.
+  (install-class! [[:auth :token]] [])
+  (let [db   {:auth {:token "SECRET"}}
+        tree [:input {:value "SECRET"} [:span "label"]]
+        out  (elision/redact-derived-slots tree nil db :rf/default {})]
+    (is (= :rf/redacted (get-in out [1 :value]))
+        "a sensitive value re-keyed into the derived tree redacts")
+    (is (= "label" (get-in out [2 1])) "benign leaves survive")))
+
+(deftest redact-derived-slots-single-tree-large
+  ;; slot-keys nil ⇒ a re-keyed large blob elides to the marker on the large
+  ;; axis (the composed helper runs both axes).
+  (install-class! [] [[:blob]])
+  (let [blob (vec (range 3000))
+        db   {:blob blob}
+        tree [:div [:pre blob] [:span "label"]]
+        out  (elision/redact-derived-slots tree nil db :rf/default {})]
+    (is (elision/marker? (get-in out [1 1]))
+        "the re-keyed large blob elides to the :rf.size/large-elided marker")
+    (is (= "label" (get-in out [2 1])) "benign leaves survive")))
+
+(deftest redact-derived-slots-sensitive-wins-over-large
+  ;; a value that is BOTH sensitive and large redacts to :rf/redacted, never
+  ;; the large marker (sensitive runs first; the large collector skips it).
+  (install-class! [[:both]] [[:both]])
+  (let [blob (vec (range 3000))
+        db   {:both blob}
+        tree [:pre blob]
+        out  (elision/redact-derived-slots tree nil db :rf/default {})]
+    (is (= :rf/redacted (get-in out [1]))
+        "sensitive wins — the re-keyed both-declared value redacts, no marker")
+    (is (not (elision/marker? (get-in out [1]))))))
+
+(deftest redact-derived-slots-multi-slot-scrubs-present-keys
+  ;; slot-keys = a seq ⇒ m is a MAP; each PRESENT key's value is scrubbed off
+  ;; ONE collection pass; absent keys are untouched.
+  (install-class! [[:auth :token]] [])
+  (let [db   {:auth {:token "SECRET"}}
+        m    {:effective-args {:t "SECRET"}
+              :network        ["SECRET" "public"]
+              :structure      {:t "SECRET"}}        ; not in slot-keys → untouched
+        out  (elision/redact-derived-slots m [:effective-args :network :absent]
+                                           db :rf/default {})]
+    (is (= :rf/redacted (get-in out [:effective-args :t])))
+    (is (= :rf/redacted (get-in out [:network 0])))
+    (is (= "public" (get-in out [:network 1])))
+    (is (= "SECRET" (get-in out [:structure :t]))
+        "a slot NOT named in slot-keys is left verbatim")
+    (is (not (contains? out :absent)) "an absent slot-key adds nothing")))
+
+(deftest redact-derived-slots-seed-union-fail-closed-pre-frame
+  ;; rf2-tag30h — the fail-closed pre-frame source. With NO live app-db
+  ;; (source-db nil), a secret authored into the :db-seed (passed as the
+  ;; :rf.elision/extra-sensitive-source) and re-surfaced in a value slot must
+  ;; STILL redact (unguarded — every governed seed value stays).
+  (install-class! [[:auth :token]] [])
+  (let [seed {:auth {:token "SEEDED-SECRET"}}
+        m    {:effective-args {:t "SEEDED-SECRET"}}
+        out  (elision/redact-derived-slots
+               m [:effective-args] nil :rf/default
+               {:rf.elision/extra-sensitive-source seed})]
+    (is (= :rf/redacted (get-in out [:effective-args :t]))
+        "a no-run :db-seed secret redacts with no live app-db")))
+
+(deftest redact-derived-slots-short-circuits-identity
+  ;; nothing declared / nothing collected ⇒ m returned unchanged (identity).
+  (install-class! [] [])
+  (let [m {:effective-args {:t "ordinary"}}]
+    (is (identical? m (elision/redact-derived-slots m [:effective-args]
+                                                    {:a 1} :rf/default {}))
+        "no declarations ⇒ m returned unwalked"))
+  (install-class! [[:auth :token]] [])
+  (let [tree [:span "ordinary"]]
+    (is (identical? tree (elision/redact-derived-slots tree nil nil :rf/default {}))
+        "nil source-db + no extra source ⇒ tree returned unwalked")))
