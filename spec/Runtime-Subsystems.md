@@ -15,6 +15,14 @@ Each child independently re-implements the **same five properties**: it owns a r
 
 Naming the shape turns the ad-hoc child list into **gradeable instances**: a new subtree is admitted by answering all five clauses, and the framework-authority question ("who may write runtime-db?") becomes enumerable — *whoever registers a runtime subsystem* — rather than a special-case carve-out per feature.
 
+### One frame value owns every per-frame subsystem — one registry, one teardown path
+
+> **[EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) (accepted 2026-06-18).** This subsection records the EP-0024 ownership backbone the five-clause contract sits on. The vocabulary it leans on — `frame value`, `frame id`, `resolved image generation` — is defined in [Conventions §Frame vocabulary](Conventions.md#frame-vocabulary--one-name-per-frame-fact).
+
+A live frame is **one value** — the [frame value](Conventions.md#frame-vocabulary--one-name-per-frame-fact), the lifecycle token `make-frame` returns — found in **one live frame registry** that maps a [frame id](Conventions.md#frame-vocabulary--one-name-per-frame-fact) to that value. The frame value is the single conceptual owner of, or reaches through one registry entry, **every** per-frame runtime fact: both durable partitions (`:rf.db/app`, `:rf.db/runtime`), every `:rf.runtime/*` subsystem subtree the five-clause contract grades, the event queue and drain state, the subscription cache and topology, the epoch/history projection state, the host-transient subsystem state keyed beside it, the lifecycle hooks, and the [resolved image generation](Conventions.md#frame-vocabulary--one-name-per-frame-fact) the frame runs against.
+
+There is **no second public "live frame" registry** — no separate object registry kept coherent with a backing-record registry, no two-constructor split that creates one half and then the other in a load-bearing order. The implementation MAY split storage internally for layering or performance, but there is exactly one public and conceptual owner (the frame value found by frame id), reached through `make-frame` as the single public constructor (per [EP-0024 §One constructor](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)). This is the substrate the five-clause subsystem grading assumes: a subsystem's subtree, its host-transient side tables, and its teardown hook all hang off the **same** frame value, so destroying a frame runs **one teardown path** (see [clause 5](#5-teardown)) rather than two registries whose cleanups can succeed or fail independently.
+
 ## Scope — this is NOT the generic N-partition design
 
 This doc organizes the runtime-db partition's **own children**. It does **not** add partitions to the frame value, and it does **not** revisit the two-partition app/runtime split.
@@ -57,6 +65,8 @@ A subsystem MUST name which of its slots are durable-and-shipped vs transient-an
 ### 5. Teardown
 
 On `destroy-frame!`, the subsystem distinguishes **durable facts** (which ride frame-state serialization, hydration, restore, and time-travel) from **transient handles** (host handles, in-flight registries, caches — torn down and never serialized), per [002 §Durable vs transient](002-Frames.md#durable-vs-transient). The subsystem hangs its frame-scoped cleanup off the single normative teardown boundary — a published teardown hook the core invokes in the strict order of [002 §Destroy](002-Frames.md#destroy). A subsystem holding frame-scoped state without a teardown hook leaks definitions and cached state on every `destroy-frame!`. A subsystem MUST name its teardown hook and what it releases.
+
+**One teardown path, not two ([EP-0024 §Teardown](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)).** Because the frame value is the single owner of every per-frame subsystem (see [§One frame value owns every per-frame subsystem](#one-frame-value-owns-every-per-frame-subsystem--one-registry-one-teardown-path)), destroying a frame removes **one** unified value from **one** live registry and runs each subsystem's teardown hook exactly once. Teardown stays best-effort where individual hooks are host-transient — a host handle that fails to release does not abort the others — but the **ownership path is one path**: there is no separate object registry whose cleanup can succeed or fail independently of a backing frame-record registry. A subsystem's durable subtree, its host-transient side tables, and its teardown hook are released against the same frame value, so the strict destroy order of [002 §Destroy](002-Frames.md#destroy) is the only teardown sequence a grader (or a tool reconstructing teardown) has to reason about.
 
 ## Two derived rules
 
