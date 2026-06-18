@@ -125,3 +125,13 @@ The Clojure-friendly API is the one where commands are data vectors, reads are
 data query vectors, and metadata inspection is a registrar read. A direct helper
 function can exist for tooling, but it should not compete with the data-shaped
 language that makes replay, inspection, and tests work.
+
+## Implementation
+
+- **Vehicle: docs-first beads, + one decision bead** for `clear-resource` /
+  `clear-mutation` naming (`unreg-*` vs keep-and-relocate). No EP - the surface is
+  large but mostly justified.
+- Beads: (1) docs - the three lanes (authoring / command / app-read); label direct
+  `resource-state` / `mutation-state` as tool/test projections; (2) decision -
+  reserve "clear" for one domain.
+- Independent of the frame-grammar EP.

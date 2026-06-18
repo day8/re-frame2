@@ -99,3 +99,13 @@ native component and hook idioms.
 The simpler API respects host idiom instead of forcing one view abstraction to
 pretend it covers every substrate. The shared re-frame2 contract remains the
 dataflow: frames, subscriptions, dispatch, source metadata, and registry ids.
+
+## Implementation
+
+- **Vehicle: docs/tooling beads.** No EP; do NOT remove `reg-view*` (real
+  Story/Xray pressure).
+- Beads: (1) docs - the two-lane split (registered Reagent view vs programmatic
+  tooling view via `reg-view*`); (2) keep internal panel components out of
+  app-facing view docs; (3) document host mount/registry entry points separately
+  for tools.
+- Independent of the frame-grammar EP.

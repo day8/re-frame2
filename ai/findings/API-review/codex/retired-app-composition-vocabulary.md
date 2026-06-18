@@ -138,3 +138,15 @@ history recovery before writing code.
 This cleanup is also the most direct way to honor "one name per fact". The fact
 is not an app installed into a realm. The public fact is an image loaded into a
 frame.
+
+## Implementation
+
+- **Vehicle: existing epic `rf2-pl97nd`** (the EP-0023 vocabulary scrub). No EP.
+- **The open facade ruling is resolved (Mike, 2026-06-18, pre-alpha -> remove):**
+  strip the EP-0013 construction/install/query family from re-frame.core, the
+  api-manifest* rows, and the current spec/API.md rows. The realm machinery stays
+  as internal substrate (its own ns) only where the live design uses it (SSR
+  routing) - never a facade/manifest/spec surface.
+- **Migration shims deleted with the scrub**, not preserved - see
+  [facade-accretion-and-removal.md](facade-accretion-and-removal.md).
+- Hot-zone: core.cljc, api-manifest*.edn, several specs; Xray is its own slice.
