@@ -357,10 +357,13 @@
 ;; registrar queries retained as tooling surface, labeled as such).
 ;;
 ;; The OPTIONAL `:realm` arg names an INTERNAL installation container (not a
-;; public address) and threads its id into the map-shaped query forms
-;; `(rf/handler-meta {:realm r :kind k :id id})` / `(rf/registrations
-;; {:realm r :kind k})`. ABSENT ⇒ the byte-identical default-container path
-;; (no `:realm` key on the response).
+;; public address) and threads its id into the INTERNAL generation-bypass seam
+;; `(re-frame.realm/realm-handler-meta r kind id)` /
+;; `(re-frame.realm/realm-registrations r kind)` — rf2-10nggz removed the public
+;; `:realm` registrar-query map arity from the facade; the honestly-named
+;; `re-frame.realm/realm-*` readers are the surviving internal/tooling seam.
+;; ABSENT ⇒ the byte-identical default-container path (no `:realm` key on the
+;; response).
 ;; ---------------------------------------------------------------------------
 
 (defn- with-form-capture!
@@ -402,8 +405,8 @@
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
-(deftest handler-meta-explicit-realm-uses-map-shaped-core-form
-  (testing "an explicit :realm ⇒ the form uses the public (rf/handler-meta {:realm … :kind … :id …}) form and stamps :realm"
+(deftest handler-meta-explicit-realm-uses-internal-seam-form
+  (testing "an explicit :realm ⇒ the form uses the internal (re-frame.realm/realm-handler-meta r kind id) seam and stamps :realm"
     (async done
       (let [form (atom nil)
             canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
@@ -414,10 +417,12 @@
                                                         :realm ":shop/realm"}))
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
-                               (is (str/includes? @form "re-frame.core/handler-meta")
-                                   "realm path routes through the public core map-shaped form")
-                               (is (str/includes? @form ":realm :shop/realm")
-                                   "the realm-id is threaded into the query map")
+                               (is (str/includes? @form "re-frame.realm/realm-handler-meta")
+                                   "realm path routes through the internal generation-bypass seam")
+                               (is (not (str/includes? @form "re-frame.core/handler-meta"))
+                                   "the removed public {:realm …} facade arity is no longer emitted")
+                               (is (str/includes? @form ":shop/realm")
+                                   "the realm-id is threaded as a positional arg")
                                (is (true? (:ok? edn)))
                                (is (= :shop/realm (:realm edn))
                                    "the resolved realm is stamped on the response"))
@@ -449,8 +454,8 @@
                      (is (= :invalid-realm-edn (:reason edn))))
                    (done)))))))
 
-(deftest list-handlers-explicit-realm-uses-map-shaped-core-form
-  (testing "list-handlers with :realm ⇒ (rf/registrations {:realm … :kind …}) form and stamps :realm"
+(deftest list-handlers-explicit-realm-uses-internal-seam-form
+  (testing "list-handlers with :realm ⇒ (re-frame.realm/realm-registrations r kind) internal seam and stamps :realm"
     (async done
       (let [form (atom nil)]
         (-> (with-form-capture! form [:a :b]
@@ -458,9 +463,11 @@
                 (-> (hm/list-handlers-tool nil (args-js {:kind "event" :realm ":shop/realm"}))
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
-                               (is (str/includes? @form "re-frame.core/registrations")
-                                   "realm path routes through the public core map-shaped form")
-                               (is (str/includes? @form ":realm :shop/realm"))
+                               (is (str/includes? @form "re-frame.realm/realm-registrations")
+                                   "realm path routes through the internal generation-bypass seam")
+                               (is (not (str/includes? @form "re-frame.core/registrations"))
+                                   "the removed public {:realm …} facade arity is no longer emitted")
+                               (is (str/includes? @form ":shop/realm"))
                                (is (true? (:ok? edn)))
                                (is (= :shop/realm (:realm edn))))
                              (done))))))
@@ -743,7 +750,7 @@
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
 (deftest handler-meta-rejects-frame-plus-realm
-  (testing ":frame + :realm ⇒ structured :frame-realm-mixed-address (distinct address families)"
+  (testing ":frame + :realm ⇒ structured :frame-and-realm-mutually-exclusive (distinct address families)"
     (async done
       (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
                                               :id    ":counter/inc"
@@ -752,7 +759,7 @@
           (.then (fn [result]
                    (is (is-error? result))
                    (let [edn (extract-edn result)]
-                     (is (= :frame-realm-mixed-address (:reason edn)))
+                     (is (= :frame-and-realm-mutually-exclusive (:reason edn)))
                      (is (= :blue/main (:frame edn)))
                      (is (= :shop/realm (:realm edn))))
                    (done)))))))
@@ -789,7 +796,7 @@
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
 (deftest list-handlers-rejects-frame-plus-realm
-  (testing "list-handlers :frame + :realm ⇒ :frame-realm-mixed-address"
+  (testing "list-handlers :frame + :realm ⇒ :frame-and-realm-mutually-exclusive"
     (async done
       (-> (hm/list-handlers-tool nil (args-js {:kind  "event"
                                                :frame ":blue/main"
@@ -797,7 +804,7 @@
           (.then (fn [result]
                    (is (is-error? result))
                    (let [edn (extract-edn result)]
-                     (is (= :frame-realm-mixed-address (:reason edn))))
+                     (is (= :frame-and-realm-mutually-exclusive (:reason edn))))
                    (done)))))))
 
 (deftest list-handlers-rejects-frame-with-machine

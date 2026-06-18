@@ -1717,8 +1717,8 @@
                                                         "naming WHICH source won. Omit for the default "
                                                         "registrar (byte-identical). Distinct from "
                                                         ":realm — passing both is rejected "
-                                                        "(:frame-realm-mixed-address). Not valid with "
-                                                        "kind=machine.")}
+                                                        "(:frame-and-realm-mutually-exclusive). Not valid "
+                                                        "with kind=machine.")}
                               :realm {:type "string"
                                       :description (str "OPTIONAL internal installation-container id "
                                                         "keyword, e.g. \":shop/realm\". This is the "
@@ -1729,9 +1729,10 @@
                                                         "installation's registrar. Omit for the default "
                                                         "container (the common single-realm case — byte-"
                                                         "identical). When given, reads ONLY that "
-                                                        "container's registrar via the map-shaped "
-                                                        "(rf/handler-meta {:realm r :kind k :id id}) "
-                                                        "form. Not valid with kind=machine.")}
+                                                        "container's registrar via the internal "
+                                                        "generation-bypass seam "
+                                                        "(re-frame.realm/realm-handler-meta r kind id). "
+                                                        "Not valid with kind=machine.")}
                               :build {:type "string"}}
                  :required ["kind" "id"]
                  :additionalProperties false}})
@@ -1792,8 +1793,8 @@
                                                         "namespace-union the flat registrar holds. Omit "
                                                         "for the default registrar (byte-identical). "
                                                         "Distinct from :realm — passing both is rejected "
-                                                        "(:frame-realm-mixed-address). Not valid with "
-                                                        "kind=machine.")}
+                                                        "(:frame-and-realm-mutually-exclusive). Not valid "
+                                                        "with kind=machine.")}
                               :realm {:type "string"
                                       :description (str "OPTIONAL internal installation-container id "
                                                         "keyword, e.g. \":shop/realm\". This is the "
@@ -1804,8 +1805,9 @@
                                                         "installation's registrar. Omit for the default "
                                                         "container (the common single-realm case — byte-"
                                                         "identical). When given, enumerates ONLY that "
-                                                        "container's registrar via the map-shaped "
-                                                        "(rf/registrations {:realm r :kind k}) form. "
+                                                        "container's registrar via the internal "
+                                                        "generation-bypass seam "
+                                                        "(re-frame.realm/realm-registrations r kind). "
                                                         "Not valid with kind=machine.")}
                               :build {:type "string"}}
                  :required ["kind"]
