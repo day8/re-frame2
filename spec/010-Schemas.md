@@ -538,31 +538,34 @@ Validation always goes through a registered **validator fn**. The CLJS reference
 (fn explain  [schema value] explanation-or-nil)
 ```
 
-Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-bearing `reg-*` lands:
+Both fns are registered at boot, before the first `reg-app-schema` or `:schema`-bearing `reg-*` lands. **`set-schema-fns!` is the preferred path** — one atomic bundle setter so a port's validator/explainer/printer never drift mid-boot. The per-fn singletons (`set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!`) are the lower-level alternative, for adjusting one fn in isolation:
 
 ```clojure
-;; (1) Just the validator — the explainer and printer are untouched.
+;; (1) PREFERRED — atomic bundle: install any subset of validator/explainer/
+;;     printer in one call so the three never drift mid-boot. The honest
+;;     bundle setter — its name says it sets all three fns, not just the
+;;     validator. Absent keys leave the existing registration in place;
+;;     a nil :print coerces to the default EDN canonicaliser.
+(rf/set-schema-fns! {:validate my-validator-fn
+                     :explain  my-explainer-fn
+                     :print    my-printer-fn})
+
+;; Lower-level single-fn setters — reach for these only to adjust one fn
+;; in isolation; install a full port through set-schema-fns! at boot.
+
+;; (2) Just the validator — the explainer and printer are untouched.
 (rf/set-schema-validator! my-validator-fn)
 
-;; (2) Just the explainer — validator stays at its current value.
+;; (3) Just the explainer — validator stays at its current value.
 (rf/set-schema-explainer! my-explainer-fn)
 
-;; (3) Install the schema-print companion the digest pipeline hashes
+;; (4) Install the schema-print companion the digest pipeline hashes
 ;;     (see §Schema digest below). Non-Malli ports register their own
 ;;     serialiser so the digest reflects the port's own validation
 ;;     contract. Last-write-wins; passing nil reinstalls the default
 ;;     EDN canonicaliser so the digest is never undefined for a present
 ;;     schema set.
 (rf/set-schema-printer! my-printer-fn)
-
-;; (4) Atomic bundle: install any subset of validator/explainer/printer
-;;     in one call so the three never drift mid-boot. The honest bundle
-;;     setter — its name says it sets all three fns, not just the
-;;     validator. Absent keys leave the existing registration in place;
-;;     a nil :print coerces to the default EDN canonicaliser.
-(rf/set-schema-fns! {:validate my-validator-fn
-                     :explain  my-explainer-fn
-                     :print    my-printer-fn})
 
 ;; (5) Hard no-op: passing nil disables validation everywhere.
 ;;     Every validate-*! site short-circuits without inspecting the

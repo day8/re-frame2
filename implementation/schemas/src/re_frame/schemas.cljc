@@ -105,16 +105,21 @@
 ;; encapsulated API; a re-export of any of the four atoms is a public-facade
 ;; change a reviewer catches at diff-time.
 
-;; Validator / explainer / printer (rf2-froe + rf2-wla45). Each fn has
-;; its own single-purpose setter (returning the single fn it installs);
-;; `set-schema-fns!` installs the bundle atomically (rf2-13meg — the
-;; honest bundle name) and returns the installed bundle map
-;; `{:validate … :explain … :print …}` (rf2-qdtcx2 — a bundle setter
-;; returns its bundle, not just the validator).
+;; Validator / explainer / printer (rf2-froe + rf2-wla45). `set-schema-fns!`
+;; is the PREFERRED schema-fns configuration path (rf2-13meg — the honest
+;; bundle name): it installs any subset of the validator / explainer / printer
+;; bundle atomically from one map and returns the installed bundle map
+;; `{:validate … :explain … :print …}` (rf2-qdtcx2 — a bundle setter returns
+;; its bundle, not just the validator), so a substitute-Malli port installs all
+;; three together and they never drift mid-boot. The three per-fn singletons
+;; below are RETAINED as lower-level convenience setters for adjusting one fn in
+;; isolation (each returns the single fn it installs); they are not the
+;; preferred boot path — reach for the bundle. `reset-schema-validator!`
+;; restores the default Malli validator.
+(def set-schema-fns!         validator/set-schema-fns!)
 (def set-schema-validator!   validator/set-schema-validator!)
 (def set-schema-explainer!   validator/set-schema-explainer!)
 (def set-schema-printer!     validator/set-schema-printer!)
-(def set-schema-fns!         validator/set-schema-fns!)
 (def reset-schema-validator! validator/reset-schema-validator!)
 
 ;; Bundle-level snapshot / restore (rf2-l4ljvr). The validator/explainer/
