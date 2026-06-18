@@ -4,8 +4,8 @@
 
   Stage 6 graduates the CONSTRUCTION half of the app value: build a program
   as INERT data from explicit feature modules, then inspect it before any
-  realm. The public surface (re-exported from `re-frame.core` as `rf/module`
-  / `rf/app` / `rf/app-registrations` / `rf/app-owns` / `rf/app-requires`):
+  realm. The public surface (re-exported from `re-frame.core` as `av/module`
+  / `av/app` / `av/app-registrations` / `av/app-owns` / `av/app-requires`):
 
     (1) `module` lowers a module-descriptor map into a module value — the
         descriptor-grouped shape, owner-stamped, with `:rf.module/owns` /
@@ -53,7 +53,7 @@
             with the module id as :owner, carries :rf.module/owns /
             :rf.module/requires (owner-qualified FACT keys, EP-0007 / EP-0017
             v5), and is keyed by the singular registry kind"
-    (let [m (rf/module
+    (let [m (av/module
               {:id :shop/cart
                :rf.module/owns {:app-db [[:cart]] :resources [:shop.cart/items]}
                :rf.module/requires #{:rf.capability/http}
@@ -79,7 +79,7 @@
 
 (deftest module-requires-defaults-empty
   (testing "a module with no :rf.module/requires gets #{}"
-    (let [m (rf/module {:id :m :events {:e {:handler cart-add}}})]
+    (let [m (av/module {:id :m :events {:e {:handler cart-add}}})]
       (is (= #{} (:rf.module/requires m)))
       (is (= {} (:rf.module/owns m)) ":rf.module/owns defaults to {}"))))
 
@@ -89,7 +89,7 @@
             supply coords); the module's own :source is carried top-level"
     (let [src {:ns 'shop.cart.events :file "src/shop/cart/events.cljs" :line 22 :column 1}
           msrc {:ns 'shop.cart :file "src/shop/cart.cljs" :line 12 :column 1}
-          m (rf/module
+          m (av/module
               {:id :shop/cart
                :source msrc
                :events {:cart/add {:doc "Add." :handler cart-add :source src}}})
@@ -103,9 +103,9 @@
   (testing "module throws :rf.error/invalid-module on a missing :id (the one
             construction precondition) and on an unknown section key"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (rf/module {:events {:e {:handler cart-add}}}))
+                 (av/module {:events {:e {:handler cart-add}}}))
         "missing :id throws")
-    (let [ed (try (rf/module {:id :m :bogus {:x {:handler cart-add}}})
+    (let [ed (try (av/module {:id :m :bogus {:x {:handler cart-add}}})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/invalid-module (:rf.error/id ed)))
@@ -119,7 +119,7 @@
   ;; spellings are no longer reserved module keys, so they are rejected loudly
   ;; as unknown section keys (fail-closed — never silently honoured nor dropped).
   (testing "the QUALIFIED keys carry the fact onto the module value"
-    (let [m (rf/module {:id :shop/cart
+    (let [m (av/module {:id :shop/cart
                         :rf.module/owns     {:app-db [[:cart]]}
                         :rf.module/requires #{:rf.capability/http}
                         :events {:cart/add {:handler cart-add}}})]
@@ -132,7 +132,7 @@
       (is (not (contains? m :requires)) "no bare :requires slot on the module value")))
   (testing "the BARE :owns key is REJECTED as an unknown section (not silently
             honoured, not silently dropped) — the rename is fail-closed"
-    (let [ed (try (rf/module {:id :m :owns {:app-db [[:cart]]}})
+    (let [ed (try (av/module {:id :m :owns {:app-db [[:cart]]}})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/invalid-module (:rf.error/id ed))
@@ -140,7 +140,7 @@
       (is (= :owns (:unknown-section ed))
           "the bare key is named as the offending unknown section")))
   (testing "the BARE :requires key is likewise REJECTED"
-    (let [ed (try (rf/module {:id :m :requires #{:rf.capability/http}})
+    (let [ed (try (av/module {:id :m :requires #{:rf.capability/http}})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/invalid-module (:rf.error/id ed))
@@ -149,16 +149,16 @@
           "the bare key is named as the offending unknown section")))
   (testing "the app value's union capability set is the owner-qualified
             :rf.app/requires — and no bare :requires slot survives on the app"
-    (let [a (rf/app {:id :shop/app
-                     :modules [(rf/module {:id :shop/cart
+    (let [a (av/app {:id :shop/app
+                     :modules [(av/module {:id :shop/cart
                                            :rf.module/requires #{:rf.capability/http}
                                            :events {:cart/add {:handler cart-add}}})]})]
       (is (= #{:rf.capability/http} (:rf.app/requires a))
           ":rf.app/requires carries the union capability set")
       (is (not (contains? a :requires))
           "no bare :requires slot on the app value")
-      (is (= #{:rf.capability/http} (rf/app-requires a))
-          "rf/app-requires reads it off the qualified slot"))))
+      (is (= #{:rf.capability/http} (av/app-requires a))
+          "av/app-requires reads it off the qualified slot"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) app — composes module values into an app value
@@ -168,15 +168,15 @@
   (testing "app composes module values: :registrations is the union of every
             module's descriptors, :rf.app/requires is the union of the modules'
             :rf.module/requires, and :modules is keyed by module id"
-    (let [auth (rf/module {:id :shop/auth
+    (let [auth (av/module {:id :shop/auth
                            :rf.module/requires #{:rf.capability/http}
                            :events {:auth/login {:handler auth-login}}})
-          cart (rf/module {:id :shop/cart
+          cart (av/module {:id :shop/cart
                            :rf.module/owns {:app-db [[:cart]]}
                            :rf.module/requires #{:rf.capability/schemas}
                            :events {:cart/add {:handler cart-add}}
                            :subs   {:cart/items {:handler cart-items}}})
-          a (rf/app {:id :shop/app :modules [auth cart]})]
+          a (av/app {:id :shop/app :modules [auth cart]})]
       (is (= :shop/app (:rf.app/id a)) "the app carries the declared id")
       (is (= #{:shop/auth :shop/cart} (set (keys (:modules a))))
           ":modules is keyed by module id")
@@ -189,7 +189,7 @@
 
 (deftest app-of-zero-modules-is-valid-empty-app
   (testing "an app of zero modules is a valid, empty app value"
-    (let [a (rf/app {:id :empty/app})]
+    (let [a (av/app {:id :empty/app})]
       (is (= :empty/app (:rf.app/id a)))
       (is (= {} (:modules a)))
       (is (= {} (:registrations a)))
@@ -199,9 +199,9 @@
   (testing "app throws :rf.error/invalid-app on a missing :id or a :modules
             entry that is not a module value"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (rf/app {:modules []}))
+                 (av/app {:modules []}))
         "missing :id throws")
-    (let [ed (try (rf/app {:id :a :modules [{:not :a-module}]})
+    (let [ed (try (av/app {:id :a :modules [{:not :a-module}]})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/invalid-app (:rf.error/id ed))
@@ -217,9 +217,9 @@
             sources (never last-writer-wins) — EP-0013 §Composition"
     (let [a-src {:ns 'a :file "a.cljs" :line 1 :column 1}
           b-src {:ns 'b :file "b.cljs" :line 9 :column 1}
-          ma (rf/module {:id :a :events {:shared/save {:handler cart-add :source a-src}}})
-          mb (rf/module {:id :b :events {:shared/save {:handler auth-login :source b-src}}})
-          ed (try (rf/app {:id :bad/app :modules [ma mb]})
+          ma (av/module {:id :a :events {:shared/save {:handler cart-add :source a-src}}})
+          mb (av/module {:id :b :events {:shared/save {:handler auth-login :source b-src}}})
+          ed (try (av/app {:id :bad/app :modules [ma mb]})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/app-composition-collision (:rf.error/id ed)))
@@ -234,9 +234,9 @@
 (deftest app-collision-is-cross-kind-safe
   (testing "the SAME id under DIFFERENT kinds is NOT a collision — collision
             is per-(kind,id)"
-    (let [ma (rf/module {:id :a :events {:shared/x {:handler cart-add}}})
-          mb (rf/module {:id :b :subs   {:shared/x {:handler cart-items}}})
-          a (rf/app {:id :ok/app :modules [ma mb]})]
+    (let [ma (av/module {:id :a :events {:shared/x {:handler cart-add}}})
+          mb (av/module {:id :b :subs   {:shared/x {:handler cart-items}}})
+          a (av/app {:id :ok/app :modules [ma mb]})]
       (is (identical? cart-add   (get-in a [:registrations :event :shared/x :handler])))
       (is (identical? cart-items (get-in a [:registrations :sub   :shared/x :handler]))
           "same id, different kind — both compose without collision"))))
@@ -251,9 +251,9 @@
             :rf.error/app-composition-collision (:kind :module) — module id is
             the provenance key, so silently keeping one would make composition
             order-dependent (rf2-c6armm.1 #4)"
-    (let [ma (rf/module {:id :dup/m :events {:dup/a {:handler cart-add}}})
-          mb (rf/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
-          ed (try (rf/app {:id :dup/app :modules [ma mb]})
+    (let [ma (av/module {:id :dup/m :events {:dup/a {:handler cart-add}}})
+          mb (av/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
+          ed (try (av/app {:id :dup/app :modules [ma mb]})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/app-composition-collision (:rf.error/id ed)))
@@ -265,12 +265,12 @@
             both orderings throw, so composition is not last-writer-wins
             (rf2-c6armm.3 #3 — would have silently kept whichever module came
             last in the vector)"
-    (let [ma (rf/module {:id :dup/m :events {:dup/a {:handler cart-add}}})
-          mb (rf/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
-          ed-ab (try (rf/app {:id :dup/app :modules [ma mb]}) :no-throw
+    (let [ma (av/module {:id :dup/m :events {:dup/a {:handler cart-add}}})
+          mb (av/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
+          ed-ab (try (av/app {:id :dup/app :modules [ma mb]}) :no-throw
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                        (:rf.error/id (ex-data e))))
-          ed-ba (try (rf/app {:id :dup/app :modules [mb ma]}) :no-throw
+          ed-ba (try (av/app {:id :dup/app :modules [mb ma]}) :no-throw
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                        (:rf.error/id (ex-data e))))]
       (is (= :rf.error/app-composition-collision ed-ab) "[ma mb] throws")
@@ -281,8 +281,8 @@
             re-listing is harmless) — the same module value contributes its
             registrations once, not a spurious same-(kind,id) collision
             (rf2-c6armm.1 #4)"
-    (let [m (rf/module {:id :idem/m :events {:idem/e {:handler cart-add}}})
-          a (rf/app {:id :idem/app :modules [m m]})]
+    (let [m (av/module {:id :idem/m :events {:idem/e {:handler cart-add}}})
+          a (av/app {:id :idem/app :modules [m m]})]
       (is (= #{:idem/m} (set (keys (:modules a))))
           "the deduped module appears once in :modules")
       (is (identical? cart-add (get-in a [:registrations :event :idem/e :handler]))
@@ -295,10 +295,10 @@
 (deftest law-empty-module-is-identity
   (testing "composing with an empty module is identity — the app value equals
             the app value composed without it"
-    (let [cart  (rf/module {:id :cart :events {:cart/add {:handler cart-add}}})
-          empty (rf/module {:id :empty})
-          with    (rf/app {:id :app :modules [cart empty]})
-          without (rf/app {:id :app :modules [cart]})]
+    (let [cart  (av/module {:id :cart :events {:cart/add {:handler cart-add}}})
+          empty (av/module {:id :empty})
+          with    (av/app {:id :app :modules [cart empty]})
+          without (av/app {:id :app :modules [cart]})]
       (is (= (:registrations without) (:registrations with))
           "an empty module contributes no registrations")
       (is (= (:rf.app/requires without) (:rf.app/requires with))
@@ -307,12 +307,12 @@
 (deftest law-grouping-order-does-not-change-the-value
   (testing "grouping modules in a different ORDER does not change the resulting
             app value — composition is order-stable (EP-0013 §Composition)"
-    (let [auth (rf/module {:id :auth :rf.module/requires #{:rf.capability/http}
+    (let [auth (av/module {:id :auth :rf.module/requires #{:rf.capability/http}
                            :events {:auth/login {:handler auth-login}}})
-          cart (rf/module {:id :cart :rf.module/requires #{:rf.capability/schemas}
+          cart (av/module {:id :cart :rf.module/requires #{:rf.capability/schemas}
                            :events {:cart/add {:handler cart-add}}})
-          a1 (rf/app {:id :app :modules [auth cart]})
-          a2 (rf/app {:id :app :modules [cart auth]})]
+          a1 (av/app {:id :app :modules [auth cart]})
+          a2 (av/app {:id :app :modules [cart auth]})]
       (is (= (:registrations a1) (:registrations a2))
           "registrations are independent of module order")
       (is (= (:rf.app/requires a1) (:rf.app/requires a2))
@@ -322,10 +322,10 @@
 (deftest law-every-input-descriptor-preserved-once
   (testing "successful composition preserves every input descriptor exactly
             once — the composed event set is the union of the modules' ids"
-    (let [auth (rf/module {:id :auth :events {:auth/login {:handler auth-login}}})
-          cart (rf/module {:id :cart :events {:cart/add {:handler cart-add}
+    (let [auth (av/module {:id :auth :events {:auth/login {:handler auth-login}}})
+          cart (av/module {:id :cart :events {:cart/add {:handler cart-add}
                                               :cart/clear {:handler cart-add}}})
-          a (rf/app {:id :app :modules [auth cart]})]
+          a (av/app {:id :app :modules [auth cart]})]
       (is (= #{:auth/login :cart/add :cart/clear}
              (set (keys (get-in a [:registrations :event]))))
           "every input event descriptor is present, exactly once"))))
@@ -338,20 +338,20 @@
   (testing "app-registrations / app-requires / app-owns read a constructed app
             value without installing it (EP-0013 §Examples 'A Whole App As
             Data')"
-    (let [cart (rf/module {:id :shop/cart
+    (let [cart (av/module {:id :shop/cart
                            :rf.module/owns {:app-db [[:cart]]}
                            :rf.module/requires #{:rf.capability/http}
                            :events {:cart/add {:handler cart-add}}})
-          a (rf/app {:id :shop/app :modules [cart]})]
-      (is (= #{:cart/add} (set (keys (rf/app-registrations a :event))))
+          a (av/app {:id :shop/app :modules [cart]})]
+      (is (= #{:cart/add} (set (keys (av/app-registrations a :event))))
           "app-registrations enumerates the app's events by kind")
-      (is (nil? (rf/app-registrations a :route))
+      (is (nil? (av/app-registrations a :route))
           "app-registrations is nil for a kind the app declares none of")
-      (is (= #{:rf.capability/http} (rf/app-requires a))
+      (is (= #{:rf.capability/http} (av/app-requires a))
           "app-requires reads the capability dependency surface")
-      (is (= :shop/cart (rf/app-owns a [:cart]))
+      (is (= :shop/cart (av/app-owns a [:cart]))
           "app-owns resolves the module owning an app-db path")
-      (is (nil? (rf/app-owns a [:unowned]))
+      (is (nil? (av/app-owns a [:unowned]))
           "app-owns is nil for an unowned path"))))
 
 ;; ---------------------------------------------------------------------------
@@ -364,8 +364,8 @@
             is inert data per EP-0013 issue 10)"
     (is (nil? (registrar/lookup :event :cart/add))
         "no :cart/add in the registrar before construction")
-    (let [m (rf/module {:id :cart :events {:cart/add {:handler cart-add}}})]
-      (rf/app {:id :app :modules [m]})
+    (let [m (av/module {:id :cart :events {:cart/add {:handler cart-add}}})]
+      (av/app {:id :app :modules [m]})
       (is (nil? (registrar/lookup :event :cart/add))
           "STILL no :cart/add in the registrar after module + app — construction
            registered nothing"))))
@@ -377,8 +377,8 @@
             :owner (which the projection never carries)"
     (rf/reg-event :av/proj {:doc "projected"} cart-add)
     (let [proj-d (get-in (av/app-value) [:registrations :event :av/proj])
-          cons-d (get-in (rf/app {:id :a :modules
-                                  [(rf/module {:id :m :events
+          cons-d (get-in (av/app {:id :a :modules
+                                  [(av/module {:id :m :events
                                                {:av/cons {:doc "constructed"
                                                           :handler cart-add}}})]})
                          [:registrations :event :av/cons])]

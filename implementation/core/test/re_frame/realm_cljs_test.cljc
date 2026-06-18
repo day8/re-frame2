@@ -4,7 +4,7 @@
   rf2-gkddyq), and the realm-owned adapter SELECTION + host-transient
   subsystem inventory (stage 4, rf2-0lq5cd).
 
-  D1 is INTERNAL: no public `rf/realm` constructor and no realm-targeted
+  D1 is INTERNAL: no public `realm/construct-realm` constructor and no realm-targeted
   public query ship. The headline acceptance is **zero ergonomic regression**
   — everything routes through one default realm so a single-realm app's
   surface is byte-identical. These tests pin:
@@ -468,9 +468,9 @@
         "a default-realm mutation still seats (absence resolves to the default)")
     (realm/clear-host-transient!)
     ;; (b) an explicitly constructed realm.
-    (let [r (rf/realm {:id :known/realm})]
+    (let [r (realm/construct-realm {:id :known/realm})]
       (try
         (realm/set-installed-app! :known/realm {:rf.app/id :seated})
         (is (= {:rf.app/id :seated} (:app (realm/realm :known/realm)))
             "a constructed realm's :app mutates normally — only UNKNOWN ids throw")
-        (finally (rf/dispose-realm! :known/realm))))))
+        (finally (realm/dispose-realm! :known/realm))))))

@@ -65,6 +65,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.image          :as image]
             [re-frame.image-assembly :as asm]
+            [re-frame.app-value      :as av]
             [re-frame.source-store   :as ss]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
@@ -86,7 +87,7 @@
 ;; live-frame registry) — these are this wave's own defonces, not framework
 ;; ns-load state a sibling depends on, so a direct reset is safe and gives every
 ;; case a known baseline. The plain-atom adapter is installed so the migration
-;; section's `rf/install!` realm path works (it mirrors `migration-cljs-test`);
+;; section's `av/install!` realm path works (it mirrors `migration-cljs-test`);
 ;; the assembly/selection sections never render.
 
 (defn- drop-non-default-realms! []
@@ -790,8 +791,8 @@
   "An EP-0013 app value carrying a single :frames section for `frame-id` — the
   shape install! lowers into a realm-owned :frame descriptor."
   [frame-id]
-  (rf/app {:id :mig/app
-           :modules [(rf/module {:id :mig/m
+  (av/app {:id :mig/app
+           :modules [(av/module {:id :mig/m
                                  :frames {frame-id {:doc "migration shared id"}}})]}))
 
 (deftest s8-cross-realm-frame-id-fails-loud
@@ -799,11 +800,11 @@
             EP-0013 (realm, frame) addressing is rejected
             :rf.error/cross-realm-frame-id by the EP-0023 process-local frame-id
             contract; the same realm in-place case does NOT collide"
-    (let [ra (rf/realm {:id :mig/a})
-          rb (rf/realm {:id :mig/b})]
+    (let [ra (realm/construct-realm {:id :mig/a})
+          rb (realm/construct-realm {:id :mig/b})]
       (try
-        (rf/install! ra (app-with-frame :mig/shared))
-        (rf/install! rb (app-with-frame :mig/shared))
+        (av/install! ra (app-with-frame :mig/shared))
+        (av/install! rb (app-with-frame :mig/shared))
         (is (= #{:mig/a :mig/b} (migration/frame-id-realms :mig/shared))
             "the shared id is live in both realms (the EP-0013 affordance)")
         (is (= :rf.error/cross-realm-frame-id
@@ -813,8 +814,8 @@
                   does not collide"
           (is (= :mig/never-live (migration/assert-process-local-frame-id! :mig/never-live))))
         (finally
-          (rf/dispose-realm! :mig/a)
-          (rf/dispose-realm! :mig/b))))))
+          (realm/dispose-realm! :mig/a)
+          (realm/dispose-realm! :mig/b))))))
 
 (deftest s8-make-frame-repointed-to-the-object-constructor
   (testing "EP-0023 collapse FINALE (rf2-32siq3.48): rf/make-frame is REPOINTED

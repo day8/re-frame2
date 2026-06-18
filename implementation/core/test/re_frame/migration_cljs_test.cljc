@@ -25,13 +25,14 @@
   message bytes — Spec 009 §The thrown-error shape rule 3).
 
   The cross-realm case builds the EP-0013 `(realm, frame)` scenario the same way
-  `realm-conformance-cljs-test` does: `rf/install!` an app carrying a `:frames`
+  `realm-conformance-cljs-test` does: `av/install!` an app carrying a `:frames`
   section into two constructed realms so the SAME frame id is a real frame in
   each. `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND
   `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core       :as rf]
+            [re-frame.app-value  :as av]
             [re-frame.migration  :as migration]
             [re-frame.live-frame :as lf]
             [re-frame.image      :as image]
@@ -73,8 +74,8 @@
   shape `install!` lowers into a realm-owned `:frame` descriptor (mirrors
   realm-conformance-cljs-test's `app-for`)."
   [frame-id]
-  (rf/app {:id :mig/app
-           :modules [(rf/module {:id     :mig/m
+  (av/app {:id :mig/app
+           :modules [(av/module {:id     :mig/m
                                  :frames {frame-id {:doc "migration shared id"}}})]}))
 
 ;; ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@
     (doseq [surface [:rf/app :rf/module :rf/install! :rf/reinstall!
                      :rf/installed-app :rf/realm
                      :rf.realm/frame-address :rf.realm/scoped-query]]
-      (let [entry (get rf/migration-map surface)]
+      (let [entry (get migration/migration-map surface)]
         (is (some? entry) (str surface " has a migration disposition"))
         (is (contains? #{:publicly-replaced :re-expressed :retained-internal}
                        (:status entry))
@@ -99,16 +100,16 @@
 
 (deftest migration-explain-returns-the-guidance-string
   (testing "explain reads the guidance for a known surface and nil for unknown"
-    (is (= (get-in rf/migration-map [:rf/app :guidance])
-           (rf/migration-explain :rf/app))
+    (is (= (get-in migration/migration-map [:rf/app :guidance])
+           (migration/explain :rf/app))
         "explain returns the :rf/app guidance verbatim")
-    (is (re-find #"rf/image" (rf/migration-explain :rf/app))
+    (is (re-find #"rf/image" (migration/explain :rf/app))
         "the :rf/app guidance points at the rf/image replacement")
-    (is (re-find #"image fragment" (rf/migration-explain :rf/module))
+    (is (re-find #"image fragment" (migration/explain :rf/module))
         "the :rf/module guidance points at the image-fragment re-expression")
-    (is (re-find #"frame" (rf/migration-explain :rf.realm/frame-address))
+    (is (re-find #"frame" (migration/explain :rf.realm/frame-address))
         "the (realm, frame) address guidance points at the frame target")
-    (is (nil? (rf/migration-explain :rf/not-a-surface))
+    (is (nil? (migration/explain :rf/not-a-surface))
         "an unknown surface returns nil")))
 
 ;; ---------------------------------------------------------------------------
@@ -119,11 +120,11 @@
   (testing "EP-0023 §Id Spaces: a frame id already live in ANOTHER realm under
             EP-0013 (realm, frame) addressing is rejected by the EP-0023
             process-local frame-id contract"
-    (let [ra (rf/realm {:id :mig/a})
-          rb (rf/realm {:id :mig/b})]
+    (let [ra (realm/construct-realm {:id :mig/a})
+          rb (realm/construct-realm {:id :mig/b})]
       (try
-        (rf/install! ra (app-with-frame :mig/shared))
-        (rf/install! rb (app-with-frame :mig/shared))
+        (av/install! ra (app-with-frame :mig/shared))
+        (av/install! rb (app-with-frame :mig/shared))
         ;; The same frame id is now live in BOTH :mig/a and :mig/b (the EP-0013
         ;; affordance the EP-0023 model removes).
         (is (= #{:mig/a :mig/b} (migration/frame-id-realms :mig/shared))
@@ -131,10 +132,10 @@
         ;; Asserting the EP-0023 process-local contract for a NEW realm target
         ;; surfaces the collision the new model forbids.
         (is (= :rf.error/cross-realm-frame-id
-               (err-id #(rf/assert-process-local-frame-id! :mig/shared :mig/c)))
+               (err-id #(migration/assert-process-local-frame-id! :mig/shared :mig/c)))
             "a frame id live in other realms fails the process-local assertion")
         ;; The ex-data names the conflicting realms (actionable diagnostic).
-        (let [data (try (rf/assert-process-local-frame-id! :mig/shared :mig/c)
+        (let [data (try (migration/assert-process-local-frame-id! :mig/shared :mig/c)
                         nil
                         (catch #?(:clj clojure.lang.ExceptionInfo
                                   :cljs cljs.core/ExceptionInfo) e
@@ -142,30 +143,30 @@
           (is (= #{:mig/a :mig/b} (set (:other-realms data)))
               "the ex-data names every realm the id is already live in"))
         (finally
-          (rf/dispose-realm! :mig/a)
-          (rf/dispose-realm! :mig/b))))))
+          (realm/dispose-realm! :mig/a)
+          (realm/dispose-realm! :mig/b))))))
 
 (deftest same-realm-reassertion-is-not-a-collision
   (testing "re-asserting a frame id in the realm it already lives in is the
             in-place case, not a cross-realm collision"
-    (let [ra (rf/realm {:id :mig/solo})]
+    (let [ra (realm/construct-realm {:id :mig/solo})]
       (try
-        (rf/install! ra (app-with-frame :mig/only))
+        (av/install! ra (app-with-frame :mig/only))
         (is (= #{:mig/solo} (migration/frame-id-realms :mig/only))
             "the id is live only in :mig/solo")
         ;; Targeting the SAME realm — the id is allowed to remain live there.
-        (is (= :mig/only (rf/assert-process-local-frame-id! :mig/only :mig/solo))
+        (is (= :mig/only (migration/assert-process-local-frame-id! :mig/only :mig/solo))
             "re-asserting in the same realm returns the id (no collision)")
         (finally
-          (rf/dispose-realm! :mig/solo))))))
+          (realm/dispose-realm! :mig/solo))))))
 
 (deftest a-fresh-frame-id-passes-the-process-local-assertion
   (testing "a frame id live in no realm passes the process-local assertion"
     (is (= #{} (migration/frame-id-realms :mig/never-live))
         "an unregistered id is live in no realm")
-    (is (= :mig/never-live (rf/assert-process-local-frame-id! :mig/never-live))
+    (is (= :mig/never-live (migration/assert-process-local-frame-id! :mig/never-live))
         "a fresh id passes and is returned")
-    (is (= :mig/never-live (rf/assert-process-local-frame-id! :mig/never-live :mig/x))
+    (is (= :mig/never-live (migration/assert-process-local-frame-id! :mig/never-live :mig/x))
         "a fresh id passes for any target realm")))
 
 ;; ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 (ns re-frame.realm-conformance-cljs-test
-  "EP-0013 D1 stage 9 (rf2-swrf4k) — the PUBLIC `rf/realm` constructor +
+  "EP-0013 D1 stage 9 (rf2-swrf4k) — the PUBLIC `realm/construct-realm` constructor +
   MULTI-REALM / MULTI-ADAPTER-ROOT conformance (the LAST EP-0013 impl slice).
 
-  Stage 9 graduates the reserved `rf/realm` vocabulary (EP-0013 issue 1; ruled
-  `rf/realm`, NEVER `rf/runtime`) into a public BUILD-AND-REGISTER constructor:
+  Stage 9 graduates the reserved `realm/construct-realm` vocabulary (EP-0013 issue 1; ruled
+  `realm/construct-realm`, NEVER `rf/runtime`) into a public BUILD-AND-REGISTER constructor:
   a caller stands up an explicit realm to `install!` an app value into and
   target the stage-8 `{:realm …}` queries against. A constructed realm is
 
@@ -102,8 +102,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest realm-requires-an-id
-  (testing "rf/realm throws :rf.error/invalid-realm when :id is missing"
-    (let [ed (try (rf/realm {})
+  (testing "realm/construct-realm throws :rf.error/invalid-realm when :id is missing"
+    (let [ed (try (realm/construct-realm {})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/invalid-realm (:rf.error/id ed)))
@@ -112,7 +112,7 @@
 (deftest realm-is-hermetic-and-registered
   (testing "a constructed realm gets its OWN fresh registrar atom (not the
             process-global one) and joins the process realm registry under :id"
-    (let [r (rf/realm {:id :conf/r1})]
+    (let [r (realm/construct-realm {:id :conf/r1})]
       (is (= :conf/r1 (:rf.realm/id r)) "the realm carries its id")
       (is (= r (realm/realm :conf/r1)) "it resolves by id through the registry")
       ;; Its registrar is its OWN atom, not the process-global default.
@@ -127,8 +127,8 @@
 (deftest realm-id-must-be-unique
   (testing "constructing a realm whose id is already registered throws
             :rf.error/realm-id-conflict (no silent clobber of a live realm)"
-    (rf/realm {:id :conf/dup})
-    (let [ed (try (rf/realm {:id :conf/dup})
+    (realm/construct-realm {:id :conf/dup})
+    (let [ed (try (realm/construct-realm {:id :conf/dup})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/realm-id-conflict (:rf.error/id ed)))
@@ -137,47 +137,47 @@
 (deftest dispose-realm-drops-it-default-is-never-disposed
   (testing "dispose-realm! drops a constructed realm from the registry; the
             default realm is never disposed (a no-op)"
-    (rf/realm {:id :conf/temp})
+    (realm/construct-realm {:id :conf/temp})
     (is (some? (realm/realm :conf/temp)))
-    (rf/dispose-realm! :conf/temp)
+    (realm/dispose-realm! :conf/temp)
     (is (nil? (realm/realm :conf/temp)) "the constructed realm is gone")
     ;; Disposing the default realm is a no-op — it backs the single-realm path.
-    (rf/dispose-realm! realm/default-realm-id)
+    (realm/dispose-realm! realm/default-realm-id)
     (is (some? (realm/default-realm)) "the default realm survives a dispose call")))
 
 ;; ---------------------------------------------------------------------------
 ;; the PUBLIC realm-enumeration surface (rf2-f1xa3k) — the (realm, frame)
-;; address read halves: rf/realm-ids enumerates the installed realms,
-;; rf/frame-realm reads the realm a frame lives in.
+;; address read halves: realm/realm-ids enumerates the installed realms,
+;; frame/frame-realm reads the realm a frame lives in.
 ;; ---------------------------------------------------------------------------
 
 (deftest realm-ids-enumerates-the-installed-realms
-  (testing "rf/realm-ids returns the set of installed realm ids — always
+  (testing "realm/realm-ids returns the set of installed realm ids — always
             including the default realm; constructed realms join, disposed
             realms drop out (the live enumeration)"
     ;; A single-realm app sees exactly the default realm.
-    (is (= #{realm/default-realm-id} (rf/realm-ids))
+    (is (= #{realm/default-realm-id} (realm/realm-ids))
         "with no constructed realms, realm-ids is exactly the default realm")
-    (rf/realm {:id :conf/e1})
-    (rf/realm {:id :conf/e2})
-    (is (= #{realm/default-realm-id :conf/e1 :conf/e2} (rf/realm-ids))
+    (realm/construct-realm {:id :conf/e1})
+    (realm/construct-realm {:id :conf/e2})
+    (is (= #{realm/default-realm-id :conf/e1 :conf/e2} (realm/realm-ids))
         "constructed realms join the enumeration")
-    (rf/dispose-realm! :conf/e1)
-    (is (= #{realm/default-realm-id :conf/e2} (rf/realm-ids))
+    (realm/dispose-realm! :conf/e1)
+    (is (= #{realm/default-realm-id :conf/e2} (realm/realm-ids))
         "a disposed realm drops out of the enumeration")
     ;; The default realm is never disposed, so it never leaves the set.
-    (rf/dispose-realm! realm/default-realm-id)
-    (is (contains? (rf/realm-ids) realm/default-realm-id)
+    (realm/dispose-realm! realm/default-realm-id)
+    (is (contains? (realm/realm-ids) realm/default-realm-id)
         "the default realm is always present (never disposed)")))
 
 (deftest frame-realm-reads-a-frames-realm
-  (testing "rf/frame-realm reads the realm a frame belongs to — the default
+  (testing "frame/frame-realm reads the realm a frame belongs to — the default
             realm for a frame registered with no explicit realm, nil for an
             unknown frame"
     (rf/reg-frame :conf/frame-a {:doc "a frame"})
-    (is (= realm/default-realm-id (rf/frame-realm :conf/frame-a))
+    (is (= realm/default-realm-id (frame/frame-realm :conf/frame-a))
         "a frame with no explicit realm lives in the default realm")
-    (is (nil? (rf/frame-realm :conf/never-registered))
+    (is (nil? (frame/frame-realm :conf/never-registered))
         "an unknown frame has no realm")
     (rf/destroy-frame! :conf/frame-a)))
 
@@ -185,14 +185,14 @@
   (testing "the two read halves compose into the (realm, frame) address —
             every frame's realm is an installed realm id"
     (rf/reg-frame :conf/addr-frame {:doc "addr frame"})
-    (let [rid (rf/frame-realm :conf/addr-frame)]
-      (is (contains? (rf/realm-ids) rid)
+    (let [rid (frame/frame-realm :conf/addr-frame)]
+      (is (contains? (realm/realm-ids) rid)
           "a frame's realm is always one of the installed realm ids"))
     (rf/destroy-frame! :conf/addr-frame)))
 
 (deftest realm-carries-its-capabilities
   (testing "a constructed realm carries the :capabilities map it was built with"
-    (let [r (rf/realm {:id :conf/caps
+    (let [r (realm/construct-realm {:id :conf/caps
                        :capabilities {:rf.capability/http {:request! identity}}})]
       (is (contains? (:capabilities r) :rf.capability/http)
           "the capability map rides the realm"))))
@@ -209,7 +209,7 @@
           ;; shape substrate.adapter/dispose-adapter! runs for the default realm.
           adapter {:kind            :rf.adapter/conformance-teardown
                    :dispose-adapter! (fn [] (reset! adapter-disposed? true))}
-          r       (rf/realm {:id :conf/teardown :adapter adapter})]
+          r       (realm/construct-realm {:id :conf/teardown :adapter adapter})]
       ;; Seat a host-transient inventory of two subsystems, each with a
       ;; :teardown token the realm-dispose walk must run (one :frame-scoped,
       ;; one :realm-scoped) — Spec-Schemas §:rf/host-transient-descriptor.
@@ -228,7 +228,7 @@
              (set (keys (realm/host-transient :conf/teardown))))
           "the host-transient inventory carries both subsystems before dispose")
       ;; Dispose: the teardown seams fire.
-      (rf/dispose-realm! :conf/teardown)
+      (realm/dispose-realm! :conf/teardown)
       (is (true? @adapter-disposed?)
           "dispose-realm! ran the seated adapter's own :dispose-adapter! fn")
       (is (= #{:rf.test/in-flight :rf.test/timers} @torn-down-subsystems)
@@ -254,8 +254,8 @@
         {:id            :rf.test/default-guard
          :storage-class :host-transient :scope :realm :durability :none
          :teardown      (fn [_rid] (reset! default-torn-down? true))})
-      (rf/dispose-realm! realm/default-realm-id)
-      (rf/dispose-realm! nil)
+      (realm/dispose-realm! realm/default-realm-id)
+      (realm/dispose-realm! nil)
       (is (false? @default-torn-down?)
           "the default realm's host-transient teardown never ran (dispose is a no-op)")
       (is (some? (realm/realm-adapter realm/default-realm-id))
@@ -272,11 +272,11 @@
 (deftest install-into-a-realm-seats-only-that-realms-registrar
   (testing "install! into a constructed realm seats descriptors into that
             realm's OWN registrar — the default realm + sibling realms see none"
-    (let [r1   (rf/realm {:id :conf/r1})
-          app  (rf/app {:id :conf/app1 :modules
-                        [(rf/module {:id :m :events {:e/x {:handler add-a}}
+    (let [r1   (realm/construct-realm {:id :conf/r1})
+          app  (av/app {:id :conf/app1 :modules
+                        [(av/module {:id :m :events {:e/x {:handler add-a}}
                                      :subs {:s/y {:handler read-who}}})]})]
-      (rf/install! r1 app)
+      (av/install! r1 app)
       ;; The realm's own registrar holds the program.
       (is (= add-a (get-in @(realm/registrar r1) [:event :e/x :handler-fn]))
           "the event handler is seated in the realm's own registrar")
@@ -305,13 +305,13 @@
   (testing "the SAME event/sub id installed into two realms carries genuinely
             different handlers, resolved per-realm — the EP-0013 §Realm
             Conformance headline (no collision, no cross-realm bleed)"
-    (let [ra (rf/realm {:id :conf/a})
-          rb (rf/realm {:id :conf/b})
-          app-of (fn [h] (rf/app {:id :conf/shared :modules
-                                  [(rf/module {:id :m
+    (let [ra (realm/construct-realm {:id :conf/a})
+          rb (realm/construct-realm {:id :conf/b})
+          app-of (fn [h] (av/app {:id :conf/shared :modules
+                                  [(av/module {:id :m
                                                :events {:shared/e {:handler h}}})]}))]
-      (rf/install! ra (app-of add-a))
-      (rf/install! rb (app-of add-b))
+      (av/install! ra (app-of add-a))
+      (av/install! rb (app-of add-b))
       ;; Each realm resolves ITS OWN handler for the shared id.
       (is (= add-a (:handler-fn (rf/handler-meta {:realm :conf/a :kind :event :id :shared/e})))
           "realm a holds add-a for :shared/e")
@@ -331,15 +331,15 @@
 (deftest realm-targeted-queries-isolate-across-the-matrix
   (testing "across an N-realm matrix, {:realm r …} registrations / handler-ids
             return ONLY realm r's registrations — no realm sees another's ids"
-    (let [r1 (rf/realm {:id :conf/m1})
-          r2 (rf/realm {:id :conf/m2})
-          r3 (rf/realm {:id :conf/m3})]
-      (rf/install! r1 (rf/app {:id :a1 :modules
-                               [(rf/module {:id :m :events {:only/e1 {:handler add-a}}})]}))
-      (rf/install! r2 (rf/app {:id :a2 :modules
-                               [(rf/module {:id :m :events {:only/e2 {:handler add-a}}})]}))
-      (rf/install! r3 (rf/app {:id :a3 :modules
-                               [(rf/module {:id :m :events {:only/e3 {:handler add-a}}})]}))
+    (let [r1 (realm/construct-realm {:id :conf/m1})
+          r2 (realm/construct-realm {:id :conf/m2})
+          r3 (realm/construct-realm {:id :conf/m3})]
+      (av/install! r1 (av/app {:id :a1 :modules
+                               [(av/module {:id :m :events {:only/e1 {:handler add-a}}})]}))
+      (av/install! r2 (av/app {:id :a2 :modules
+                               [(av/module {:id :m :events {:only/e2 {:handler add-a}}})]}))
+      (av/install! r3 (av/app {:id :a3 :modules
+                               [(av/module {:id :m :events {:only/e3 {:handler add-a}}})]}))
       ;; Each realm's id set is exactly its own one id.
       (is (= #{:only/e1} (rf/handler-ids {:realm :conf/m1 :kind :event})))
       (is (= #{:only/e2} (rf/handler-ids {:realm :conf/m2 :kind :event})))
@@ -362,8 +362,8 @@
 (deftest each-realm-carries-its-own-adapter-selection
   (testing "N realms can each carry their OWN :adapter selection — the
             multi-adapter-root direction (a realm owns its adapter/root)"
-    (let [r-plain (rf/realm {:id :conf/plain :adapter plain-atom/adapter})
-          r-fake  (rf/realm {:id :conf/fake  :adapter fake-adapter})]
+    (let [r-plain (realm/construct-realm {:id :conf/plain :adapter plain-atom/adapter})
+          r-fake  (realm/construct-realm {:id :conf/fake  :adapter fake-adapter})]
       (is (= plain-atom/adapter (realm/realm-adapter :conf/plain))
           "the plain realm carries the plain-atom adapter selection")
       (is (= fake-adapter (realm/realm-adapter :conf/fake))
@@ -386,9 +386,9 @@
     ;; Seed the default realm via the ordinary sugar path.
     (rf/reg-event :default/seed {:doc "seed"} add-a)
     (let [before (registrar/registrations :event)
-          r      (rf/realm {:id :conf/hermetic})]
-      (rf/install! r (rf/app {:id :h :modules
-                              [(rf/module {:id :m :events {:hermetic/e {:handler add-b}}})]}))
+          r      (realm/construct-realm {:id :conf/hermetic})]
+      (av/install! r (av/app {:id :h :modules
+                              [(av/module {:id :m :events {:hermetic/e {:handler add-b}}})]}))
       ;; The default realm's event registrations are byte-identical — the
       ;; hermetic install wrote only the constructed realm's own registrar.
       (is (= before (registrar/registrations :event))
@@ -403,12 +403,12 @@
 (deftest install-capability-check-on-a-constructed-realm
   (testing "install! into a constructed realm capability-checks FIRST — an unmet
             requirement throws before any mutation to the realm's own registrar"
-    (let [r  (rf/realm {:id :conf/needs-caps})
-          a  (rf/app {:id :c :modules
-                      [(rf/module {:id :m
+    (let [r  (realm/construct-realm {:id :conf/needs-caps})
+          a  (av/app {:id :c :modules
+                      [(av/module {:id :m
                                    :rf.module/requires #{:rf.capability/http}
                                    :events {:c/e {:handler add-a}}})]})
-          ed (try (rf/install! r a)
+          ed (try (av/install! r a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/missing-capability (:rf.error/id ed)))
@@ -418,10 +418,10 @@
       (is (= {} @(realm/registrar r))
           "the realm's own registrar is empty — the failed install was atomic"))
     (testing "and it succeeds once the realm provides the capability"
-      (let [r (rf/realm {:id :conf/has-caps
+      (let [r (realm/construct-realm {:id :conf/has-caps
                          :capabilities {:rf.capability/http {:request! identity}}})]
-        (rf/install! r (rf/app {:id :c2 :modules
-                                [(rf/module {:id :m
+        (av/install! r (av/app {:id :c2 :modules
+                                [(av/module {:id :m
                                              :rf.module/requires #{:rf.capability/http}
                                              :events {:c/e {:handler add-a}}})]}))
         (is (= add-a (get-in @(realm/registrar r) [:event :c/e :handler-fn]))
@@ -435,8 +435,8 @@
   (testing "install! against the default realm seats into the process-global
             registrar exactly as before (the realm-scoped seam is a no-op rebind
             to the same atom when the realm IS the default)"
-    (rf/install! (rf/app {:id :d :modules
-                          [(rf/module {:id :m :events {:default/e {:handler add-a}}})]}))
+    (av/install! (av/app {:id :d :modules
+                          [(av/module {:id :m :events {:default/e {:handler add-a}}})]}))
     ;; The default-realm install resolves through the ordinary global lookup.
     (is (= add-a (registrar/handler :event :default/e))
         "the default-realm install seats the process-global registrar")
@@ -463,15 +463,15 @@
 (deftest reinstall-into-a-realm-touches-only-that-realm
   (testing "reinstall! diffs + applies the delta against the constructed realm's
             OWN registrar — the default realm and siblings are untouched"
-    (let [r  (rf/realm {:id :conf/reload})
-          v1 (rf/app {:id :rl :modules
-                      [(rf/module {:id :m :events {:rl/keep {:handler add-a}
+    (let [r  (realm/construct-realm {:id :conf/reload})
+          v1 (av/app {:id :rl :modules
+                      [(av/module {:id :m :events {:rl/keep {:handler add-a}
                                                    :rl/drop {:handler add-a}}})]})
-          v2 (rf/app {:id :rl :modules
-                      [(rf/module {:id :m :events {:rl/keep {:handler add-b}
+          v2 (av/app {:id :rl :modules
+                      [(av/module {:id :m :events {:rl/keep {:handler add-b}
                                                    :rl/new  {:handler add-b}}})]})]
-      (rf/install! r v1)
-      (let [diff (rf/reinstall! r v2 {:reason :hot-reload})]
+      (av/install! r v1)
+      (let [diff (av/reinstall! r v2 {:reason :hot-reload})]
         (is (= :conf/reload (:realm diff)) "the diff names the constructed realm")
         (is (= [[:event :rl/new]] (:added diff)))
         (is (= [[:event :rl/keep]] (:changed diff)))
@@ -512,27 +512,27 @@
             realms with realm-owned :frame descriptors creates two isolated live
             frames — frame-realm matches the owning realm, dispatch runs that
             realm's handler, and subs resolve that realm's sub"
-    (let [ra (rf/realm {:id :live/a})
-          rb (rf/realm {:id :live/b})
+    (let [ra (realm/construct-realm {:id :live/a})
+          rb (realm/construct-realm {:id :live/b})
           app-for (fn [tag]
-                    (rf/app {:id :live/app :modules
-                             [(rf/module
+                    (av/app {:id :live/app :modules
+                             [(av/module
                                 {:id :m
                                  :frames {:live/f {:doc "shared id"}}
                                  :events {:live/set {:handler (fn [{:keys [db]} _] {:db (assoc db :who tag)})}}
                                  :subs   {:live/who {:handler (fn [db _] [tag (:who db)])}}})]}))]
       (try
-        (rf/install! ra (app-for :a))
-        (rf/install! rb (app-for :b))
+        (av/install! ra (app-for :a))
+        (av/install! rb (app-for :b))
         ;; The same frame id is a REAL frame in each realm — owned by that realm.
         ;; A bare `frame-realm` read (no realm scope) finds NO default-realm
         ;; :live/f, so it returns nil — the id is unambiguous only WITHIN a realm.
-        (is (nil? (rf/frame-realm :live/f))
+        (is (nil? (frame/frame-realm :live/f))
             "no default-realm :live/f exists, so the bare read is nil (id unique within a realm)")
         ;; frame-realm with the realm scope reads the realm's own frame.
-        (is (= :live/a (frame/call-with-realm :live/a (fn [] (rf/frame-realm :live/f))))
+        (is (= :live/a (frame/call-with-realm :live/a (fn [] (frame/frame-realm :live/f))))
             "realm a owns :live/f")
-        (is (= :live/b (frame/call-with-realm :live/b (fn [] (rf/frame-realm :live/f))))
+        (is (= :live/b (frame/call-with-realm :live/b (fn [] (frame/frame-realm :live/f))))
             "realm b owns :live/f")
         ;; DISPATCH the SAME event id into each realm's frame: each runs ITS
         ;; realm's handler (realm-routed event resolution).
@@ -554,8 +554,8 @@
         (is (not (contains? (realm/realm-frames realm/default-realm-id) :live/f))
             "the default realm owns no :live/f frame (no global collision)")
         (finally
-          (rf/dispose-realm! :live/a)
-          (rf/dispose-realm! :live/b))))))
+          (realm/dispose-realm! :live/a)
+          (realm/dispose-realm! :live/b))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (9b) dispose-realm! ends the LIFECYCLE of the frames the realm OWNS
@@ -577,24 +577,24 @@
   (testing "rf2-yueuvi: dispose-realm! destroys the frames the realm OWNS, so
             post-dispose neither (frame realm-id id) nor realm/realm-frames
             exposes them — while a SIBLING realm's same-id frame is untouched"
-    (let [ra (rf/realm {:id :disp/a})
-          rb (rf/realm {:id :disp/b})
+    (let [ra (realm/construct-realm {:id :disp/a})
+          rb (realm/construct-realm {:id :disp/b})
           app-for (fn [tag]
-                    (rf/app {:id :disp/app :modules
-                             [(rf/module
+                    (av/app {:id :disp/app :modules
+                             [(av/module
                                 {:id :m
                                  :frames {:disp/f {:doc "shared id"}}
                                  :events {:disp/set {:handler (fn [{:keys [db]} _] {:db (assoc db :who tag)})}}})]}))]
       (try
-        (rf/install! ra (app-for :a))
-        (rf/install! rb (app-for :b))
+        (av/install! ra (app-for :a))
+        (av/install! rb (app-for :b))
         ;; Both realms own a live :disp/f frame, addressable by their address.
         (is (some? (frame/frame :disp/a :disp/f)) "realm a's frame is live pre-dispose")
         (is (some? (frame/frame :disp/b :disp/f)) "realm b's frame is live pre-dispose")
         (is (contains? (realm/realm-frames :disp/a) :disp/f) "realm a owns :disp/f")
         (is (contains? (realm/realm-frames :disp/b) :disp/f) "realm b owns :disp/f")
         ;; Dispose realm a ONLY.
-        (rf/dispose-realm! :disp/a)
+        (realm/dispose-realm! :disp/a)
         ;; realm a's frame is no longer addressable — fail-closed, not a stale
         ;; resolve of a dead frame.
         (is (nil? (frame/frame :disp/a :disp/f))
@@ -609,8 +609,8 @@
         (is (contains? (realm/realm-frames :disp/b) :disp/f)
             "realm b still owns :disp/f")
         (finally
-          (rf/dispose-realm! :disp/a)
-          (rf/dispose-realm! :disp/b))))))
+          (realm/dispose-realm! :disp/a)
+          (realm/dispose-realm! :disp/b))))))
 
 (deftest recreating-disposed-realm-and-frame-starts-fresh
   (testing "rf2-yueuvi: after dispose-realm!, recreating the same realm id and
@@ -618,46 +618,46 @@
             app-db state from the disposed realm (not a re-registration that
             keeps the dead realm's runtime state)"
     (let [app-with (fn [seed]
-                     (rf/app {:id :recr/app :modules
-                              [(rf/module
+                     (av/app {:id :recr/app :modules
+                              [(av/module
                                  {:id :m
                                   :frames {:recr/f {:doc "x"}}
                                   :events {:recr/seed {:handler (fn [{:keys [db]} _]
                                                                   {:db (assoc db :seed seed)})}}})]}))]
       (try
         ;; First incarnation: install, then write state into the frame's app-db.
-        (let [r1 (rf/realm {:id :recr/r})]
-          (rf/install! r1 (app-with :first))
+        (let [r1 (realm/construct-realm {:id :recr/r})]
+          (av/install! r1 (app-with :first))
           (rf/dispatch-sync [:recr/seed] {:realm :recr/r :frame :recr/f})
           (is (= :first (frame/call-with-realm :recr/r
                           (fn [] (:seed (frame/frame-app-db-value :recr/f)))))
               "the first incarnation's handler wrote :seed :first"))
         ;; Dispose the realm — this MUST end the frame's lifecycle.
-        (rf/dispose-realm! :recr/r)
+        (realm/dispose-realm! :recr/r)
         (is (nil? (frame/frame :recr/r :recr/f))
             "the disposed realm's frame is unaddressable")
         ;; Recreate the SAME realm id + install the SAME frame id WITHOUT
         ;; re-running the seed event: a fresh frame must start with EMPTY app-db,
         ;; NOT the disposed realm's preserved {:seed :first}.
-        (let [r2 (rf/realm {:id :recr/r})]
-          (rf/install! r2 (app-with :second))
+        (let [r2 (realm/construct-realm {:id :recr/r})]
+          (av/install! r2 (app-with :second))
           (is (nil? (frame/call-with-realm :recr/r
                       (fn [] (:seed (frame/frame-app-db-value :recr/f)))))
               "the recreated frame starts FRESH — no preserved :seed from the
                disposed realm (a re-registration would have kept :first)"))
         (finally
-          (rf/dispose-realm! :recr/r))))))
+          (realm/dispose-realm! :recr/r))))))
 
 (deftest child-dispatch-and-fx-preserve-the-realm
   (testing "EP-0013 step 4 (rf2-a15n62): a child dispatch emitted from a handler's
             :fx [[:dispatch …]] STAYS in the parent's realm — the child resolves
             its event handler in the SAME realm, not the default (realm preserved
             across the cascade continuation)"
-    (let [r (rf/realm {:id :child/r})]
+    (let [r (realm/construct-realm {:id :child/r})]
       (try
-        (rf/install! r
-          (rf/app {:id :child/app :modules
-                   [(rf/module
+        (av/install! r
+          (av/app {:id :child/app :modules
+                   [(av/module
                       {:id :m
                        :frames {:child/f {:doc "x"}}
                        ;; :parent emits a child :dispatch (NO explicit realm) — it
@@ -669,7 +669,7 @@
         (is (= :child/r (frame/call-with-realm :child/r
                           (fn [] (:child-ran (frame/frame-app-db-value :child/f)))))
             "the :fx-dispatched child stayed in the parent's realm and ran its handler")
-        (finally (rf/dispose-realm! :child/r))))))
+        (finally (realm/dispose-realm! :child/r))))))
 
 (deftest non-default-realm-handlers-do-not-leak-into-default-live-dispatch
   (testing "rf2-c6armm.3 #1: a handler installed ONLY into a constructed realm is
@@ -677,10 +677,10 @@
             isolation half that holds today (a default-realm frame dispatching
             the id is recovered as a no-op, not silently running the constructed
             realm's handler)"
-    (let [r (rf/realm {:id :leak/r})]
+    (let [r (realm/construct-realm {:id :leak/r})]
       (try
-        (rf/install! r (rf/app {:id :leak/app :modules
-                                [(rf/module {:id :m
+        (av/install! r (av/app {:id :leak/app :modules
+                                [(av/module {:id :m
                                              :events {:leak/only-in-r {:handler add-a}}})]}))
         ;; The handler lives in the constructed realm's own registrar.
         (is (= add-a (:handler-fn (rf/handler-meta {:realm :leak/r :kind :event :id :leak/only-in-r})))
@@ -691,7 +691,7 @@
             "the constructed realm's handler does not leak into the default registrar")
         (is (nil? (rf/handler-meta :event :leak/only-in-r))
             "the default-realm query also does not see it (live dispatch resolves here)")
-        (finally (rf/dispose-realm! :leak/r))))))
+        (finally (realm/dispose-realm! :leak/r))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (10) reinstall! APPLY-PHASE rollback into a constructed realm (rf2-c6armm.3 #2)
@@ -704,15 +704,15 @@
             state — the seat-into-realm! snapshot/restore covers reinstall too,
             not just install. Old slots, removed slots, and installed-app all
             stay unchanged"
-    (let [r  (rf/realm {:id :rb/r})
-          v1 (rf/app {:id :rb/app :modules
-                      [(rf/module {:id :m :events {:rb/keep {:handler add-a}
+    (let [r  (realm/construct-realm {:id :rb/r})
+          v1 (av/app {:id :rb/app :modules
+                      [(av/module {:id :m :events {:rb/keep {:handler add-a}
                                                    :rb/drop {:handler add-a}}})]})
-          v2 (rf/app {:id :rb/app :modules
-                      [(rf/module {:id :m :events {:rb/keep {:handler add-b}
+          v2 (av/app {:id :rb/app :modules
+                      [(av/module {:id :m :events {:rb/keep {:handler add-b}
                                                    :rb/new  {:handler add-b}}})]})]
       (try
-        (rf/install! r v1)
+        (av/install! r v1)
         (let [reg-before @(realm/registrar r)
               calls (atom 0)
               real-register! registrar/register!
@@ -727,7 +727,7 @@
                                        (throw (ex-info "boom mid-apply"
                                                        {:error/id :rb.test/boom})))
                                    (real-register! kind id metadata)))]
-                   (try (rf/reinstall! r v2)
+                   (try (av/reinstall! r v2)
                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                           (ex-data e))))]
           (is (= :rb.test/boom (:error/id ed)) "the mid-apply throw propagated")
@@ -750,4 +750,4 @@
           (is (= #{:rb/keep :rb/drop}
                  (set (keys (get-in (realm/installed-app r) [:registrations :event]))))
               "installed-app reconciles to v1's program (no partial v2 :rb/new seating)"))
-        (finally (rf/dispose-realm! :rb/r))))))
+        (finally (realm/dispose-realm! :rb/r))))))

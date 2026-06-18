@@ -78,7 +78,7 @@
             resolve."
     (let [rid :nu5w48/err-realm
           fid :nu5w48/err-frame]
-      (rf/realm {:id rid :adapter ssr/adapter})
+      (realm/construct-realm {:id rid :adapter ssr/adapter})
       (try
         ;; Seat a per-request SERVER frame + the realm-only error view into
         ;; the realm's registrar, under the realm scope.
@@ -114,7 +114,7 @@
           (is (not (str/includes? body "internal-render-boom"))
               "rf2-kzvwq: the throwable message never reaches the wire"))
         (finally
-          (rf/dispose-realm! rid))))))
+          (realm/dispose-realm! rid))))))
 
 (deftest default-realm-error-view-still-resolves-byte-identically
   (testing "rf2-nu5w48: the realm binding is a no-op for a default-realm
@@ -171,7 +171,7 @@
             realm-registrar binding is what resolves it cross-thread."
     (let [rid :nu5w48/stream-realm
           fid :nu5w48/stream-frame]
-      (rf/realm {:id rid :adapter ssr/adapter})
+      (realm/construct-realm {:id rid :adapter ssr/adapter})
       (try
         (with-realm-registrar rid
           (fn []
@@ -249,7 +249,7 @@
             (frame/call-with-realm rid
               (fn [] (lifecycle/destroy-frame-quietly! fid)))))
         (finally
-          (rf/dispose-realm! rid))))))
+          (realm/dispose-realm! rid))))))
 
 ;; ===========================================================================
 ;; (3) FINAL __rf_payload reflects the NON-DEFAULT realm frame's app-db /
@@ -280,7 +280,7 @@
             HTML came from the realm frame."
     (let [rid :tbr67x/payload-realm
           fid :tbr67x/payload-frame]
-      (rf/realm {:id rid :adapter ssr/adapter})
+      (realm/construct-realm {:id rid :adapter ssr/adapter})
       (try
         (with-realm-registrar rid
           (fn []
@@ -334,7 +334,7 @@
         (finally
           (frame/call-with-realm rid
             (fn [] (lifecycle/destroy-frame-quietly! fid)))
-          (rf/dispose-realm! rid))))))
+          (realm/dispose-realm! rid))))))
 
 (deftest streaming-final-payload-default-realm-unchanged
   (testing "rf2-tbr67x: the final-payload realm rebinding is a no-op for a

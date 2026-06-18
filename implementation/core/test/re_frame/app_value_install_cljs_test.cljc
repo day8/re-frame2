@@ -5,7 +5,7 @@
 
   Stage 7 closes the D2 loop — the program is a value (stage 6 construction),
   and the runtime is a container you install it into (stage 7). The public
-  surface (re-exported from `re-frame.core` as `rf/install!` / `rf/reinstall!`):
+  surface (re-exported from `re-frame.core` as `av/install!` / `av/reinstall!`):
 
     (1) `install!` seats an app value as a realm's program — lowers every
         descriptor back into the realm's registrar (the inverse of the stage-5/6
@@ -85,11 +85,11 @@
             module under :owner"
     (is (nil? (registrar/lookup :event :cart/add))
         "no :cart/add in the registrar before install")
-    (let [cart (rf/module {:id :shop/cart
+    (let [cart (av/module {:id :shop/cart
                            :events {:cart/add {:doc "Add." :handler cart-add}}
                            :subs   {:cart/items {:doc "Items." :handler cart-items}}})
-          a    (rf/app {:id :shop/app :modules [cart]})]
-      (rf/install! a)
+          a    (av/app {:id :shop/app :modules [cart]})]
+      (av/install! a)
       ;; The handler is resolvable through the ordinary registrar lookup — the
       ;; program is now installed (not merely constructed).
       (is (identical? cart-add (registrar/handler :event :cart/add))
@@ -106,9 +106,9 @@
             value verbatim) so the call composes, and installed-app reconciles
             that seated value with the live projection — reporting the seated
             identity + :modules provenance over the live registrar (rf2-77ewnm)"
-    (let [cart (rf/module {:id :shop/cart :events {:cart/add {:handler cart-add}}})
-          a    (rf/app {:id :shop/app :modules [cart]})
-          ret  (rf/install! a)]
+    (let [cart (av/module {:id :shop/cart :events {:cart/add {:handler cart-add}}})
+          a    (av/app {:id :shop/app :modules [cart]})
+          ret  (av/install! a)]
       (is (= a (:app ret)) "install! returns the realm with the app in :app (verbatim)")
       (is (= :shop/app (:rf.app/id (realm/installed-app)))
           "installed-app reports the seated app's identity")
@@ -126,11 +126,11 @@
             naming the realm + capability, and registers NOTHING (the under-
             provisioned app never becomes partially visible)"
     (clear-default-realm-capabilities!)
-    (let [needs-http (rf/module {:id :shop/cart
+    (let [needs-http (av/module {:id :shop/cart
                                  :rf.module/requires #{:rf.capability/http}
                                  :events {:cart/add {:handler cart-add}}})
-          a  (rf/app {:id :shop/app :modules [needs-http]})
-          ed (try (rf/install! a)
+          a  (av/app {:id :shop/app :modules [needs-http]})
+          ed (try (av/install! a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/missing-capability (:rf.error/id ed))
@@ -152,7 +152,7 @@
             (rf2-9swh84, EP-0013 §Installation step 4 'attach atomically')"
     ;; A hermetic constructed realm so its OWN registrar is cleanly inspectable
     ;; (empty before install; rollback must return it to empty).
-    (let [r (rf/realm {:id :atomic/r})]
+    (let [r (realm/construct-realm {:id :atomic/r})]
       (try
         (is (= {} @(realm/registrar r))
             "the hermetic realm's registrar starts empty")
@@ -162,8 +162,8 @@
         ;; force a throw on the SECOND register! so the first descriptor has
         ;; ALREADY landed in the realm's registrar when the loop blows up — the
         ;; exact partial-install edge: registrar half-populated, :app not yet set.
-        (let [a (rf/app {:id :atomic/app :modules
-                         [(rf/module {:id :m
+        (let [a (av/app {:id :atomic/app :modules
+                         [(av/module {:id :m
                                       :events {:atomic/e1 {:handler cart-add}
                                                :atomic/e2 {:handler cart-add}
                                                :atomic/e3 {:handler cart-add}}})]})
@@ -179,7 +179,7 @@
                                    (throw (ex-info "boom: malformed descriptor mid-loop"
                                                    {:error/id :atomic.test/boom :kind kind :id id}))
                                    (real-register! kind id metadata)))]
-                   (try (rf/install! r a)
+                   (try (av/install! r a)
                         (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                           (ex-data e))))]
           (is (= :atomic.test/boom (:error/id ed))
@@ -201,17 +201,17 @@
           ;; program (the rolled-back registrar), confirming no leak.
           (is (= {} (:registrations (realm/installed-app r)))
               "the realm's installed-app projects an empty program after rollback"))
-        (finally (rf/dispose-realm! :atomic/r))))))
+        (finally (realm/dispose-realm! :atomic/r))))))
 
 (deftest install-succeeds-when-the-realm-satisfies-requires
   (testing "install! succeeds once the realm provides the required capability"
     (with-default-realm-capabilities! {:rf.capability/http {:request! identity}})
     (try
-      (let [needs-http (rf/module {:id :shop/cart
+      (let [needs-http (av/module {:id :shop/cart
                                    :rf.module/requires #{:rf.capability/http}
                                    :events {:cart/add {:handler cart-add}}})
-            a (rf/app {:id :shop/app :modules [needs-http]})]
-        (rf/install! a)
+            a (av/app {:id :shop/app :modules [needs-http]})]
+        (av/install! a)
         (is (identical? cart-add (registrar/handler :event :cart/add))
             "the descriptor is seated once the capability is satisfied"))
       (finally (clear-default-realm-capabilities!)))))
@@ -220,9 +220,9 @@
   (testing "an app that requires nothing installs into a realm with no
             capabilities — the check is a no-op"
     (clear-default-realm-capabilities!)
-    (let [a (rf/app {:id :shop/app
-                     :modules [(rf/module {:id :m :events {:e {:handler cart-add}}})]})]
-      (rf/install! a)
+    (let [a (av/app {:id :shop/app
+                     :modules [(av/module {:id :m :events {:e {:handler cart-add}}})]})]
+      (av/install! a)
       (is (identical? cart-add (registrar/handler :event :e))
           "no :rf.module/requires means no capability gate"))))
 
@@ -237,8 +237,8 @@
     ;; Sugar path: ordinary reg-event writes the default realm's registrar.
     (rf/reg-event :sugar/inc {:doc "sugar"} cart-add)
     ;; Explicit path: install! seats a descriptor into the SAME registrar.
-    (rf/install! (rf/app {:id :a :modules
-                          [(rf/module {:id :m :events {:installed/inc {:handler cart-add}}})]}))
+    (av/install! (av/app {:id :a :modules
+                          [(av/module {:id :m :events {:installed/inc {:handler cart-add}}})]}))
     ;; Both resolve identically through registrar/handler — one registrar, two
     ;; ways to populate it.
     (is (identical? cart-add (registrar/handler :event :sugar/inc))
@@ -252,26 +252,26 @@
           "the projection reflects the sugar-path registration")
       (is (contains? (get-in proj [:registrations :event]) :installed/inc)
           "the projection reflects the installed registration"))
-    ;; rf2-77ewnm: the PUBLIC read seam (rf/installed-app) must see BOTH too —
+    ;; rf2-77ewnm: the PUBLIC read seam (realm/installed-app) must see BOTH too —
     ;; not just av/app-value. After a stored :app exists, the reconciled read is
     ;; the live projection enriched with provenance, so it agrees with
     ;; av/app-value on the registration set (no public-vs-internal desync).
-    (let [public-events (get-in (rf/installed-app) [:registrations :event])]
+    (let [public-events (get-in (realm/installed-app) [:registrations :event])]
       (is (contains? public-events :sugar/inc)
-          "rf/installed-app reflects the coexisting sugar registration")
+          "realm/installed-app reflects the coexisting sugar registration")
       (is (contains? public-events :installed/inc)
-          "rf/installed-app reflects the installed registration")
+          "realm/installed-app reflects the installed registration")
       (is (= (set (keys (get-in (av/app-value) [:registrations :event])))
              (set (keys public-events)))
-          "rf/installed-app and av/app-value agree on the event set (no desync)"))))
+          "realm/installed-app and av/app-value agree on the event set (no desync)"))))
 
 (deftest install-fires-the-registration-trace-like-the-sugar-path
   (testing "install! routes through registrar/register!, so a seated descriptor
             is dispatchable exactly as a reg-* one — full end-to-end through the
             default-realm frame (the zero-ergonomic-regression headline)"
     (rf/reg-frame :install/app {:doc "install app"})
-    (rf/install! (rf/app {:id :a :modules
-                          [(rf/module {:id :m
+    (av/install! (av/app {:id :a :modules
+                          [(av/module {:id :m
                                        :events {:install/set {:handler (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)})}}
                                        :subs   {:install/read {:handler (fn [db _] (:n db))}}})]}))
     (rf/dispatch-sync [:install/set 42] {:frame :install/app})
@@ -290,16 +290,16 @@
             applies the delta: :added registered, :changed re-registered,
             :removed unregistered (the EP's hot-reload diff value)"
     ;; v1: cart/add + cart/legacy.
-    (rf/install! (rf/app {:id :shop/app :modules
-                          [(rf/module {:id :shop/cart
+    (av/install! (av/app {:id :shop/app :modules
+                          [(av/module {:id :shop/cart
                                        :events {:cart/add    {:handler cart-add}
                                                 :cart/legacy {:handler cart-add}}})]}))
     (is (identical? cart-add (registrar/handler :event :cart/legacy)))
     ;; v2: cart/add CHANGED (new handler), cart/remove ADDED, cart/legacy REMOVED.
-    (let [diff (rf/reinstall!
+    (let [diff (av/reinstall!
                  realm/default-realm-id
-                 (rf/app {:id :shop/app :modules
-                          [(rf/module {:id :shop/cart
+                 (av/app {:id :shop/app :modules
+                          [(av/module {:id :shop/cart
                                        :events {:cart/add    {:handler cart-remove}
                                                 :cart/remove {:handler cart-remove}}})]})
                  {:reason :hot-reload})]
@@ -330,17 +330,17 @@
     ;; dispatch raises :rf.error/no-frame-context earlier).
     (rf/reg-frame :q4x5zz/app {:doc "drop-then-dispatch"})
     ;; v1: install an event id that mutates app-db, and prove it dispatches.
-    (rf/install! :rf.realm/default
-                 (rf/app {:id :q4x5zz/app :modules
-                          [(rf/module {:id :m
+    (av/install! :rf.realm/default
+                 (av/app {:id :q4x5zz/app :modules
+                          [(av/module {:id :m
                                        :events {:q4x5zz/ev {:handler (fn [{:keys [db]} _] {:db (assoc db :ran? true)})}}})]}))
     (rf/dispatch-sync [:q4x5zz/ev] {:frame :q4x5zz/app})
     (is (true? (:ran? (rf/app-db-value :q4x5zz/app)))
         "the installed handler ran while registered")
     ;; v2: reinstall WITHOUT :q4x5zz/ev — it is :removed (unregistered).
-    (let [diff (rf/reinstall! :rf.realm/default
-                              (rf/app {:id :q4x5zz/app :modules
-                                       [(rf/module {:id :m
+    (let [diff (av/reinstall! :rf.realm/default
+                              (av/app {:id :q4x5zz/app :modules
+                                       [(av/module {:id :m
                                                     :events {:q4x5zz/other {:handler (fn [_ _] {})}}})]}))]
       (is (= [[:event :q4x5zz/ev]] (:removed diff)) ":q4x5zz/ev is dropped"))
     ;; Structural proxy (what the existing test asserts): the slot is gone.
@@ -379,16 +379,16 @@
             :on-destroy / machine teardown / sub-cache disposal SKIPPED)."
     ;; v1: install an app whose only registration is a :frame — a real live
     ;; container exists in the core frame registry after install.
-    (rf/install! :rf.realm/default
-                 (rf/app {:id :fr0/app :modules
-                          [(rf/module {:id :m :frames {:fr0/live {:doc "live frame"}}})]}))
+    (av/install! :rf.realm/default
+                 (av/app {:id :fr0/app :modules
+                          [(av/module {:id :m :frames {:fr0/live {:doc "live frame"}}})]}))
     (is (some? (frame/frame :fr0/live)) "the installed :frame is a live container")
     (is (contains? (frame/frame-ids) :fr0/live) "and appears in the live registry")
     ;; v2: reinstall WITHOUT :fr0/live — the diff would :removed it, but the
     ;; container is live → refuse loudly before any mutation.
-    (let [ed (try (rf/reinstall! :rf.realm/default
-                                 (rf/app {:id :fr0/app :modules
-                                          [(rf/module {:id :m2
+    (let [ed (try (av/reinstall! :rf.realm/default
+                                 (av/app {:id :fr0/app :modules
+                                          [(av/module {:id :m2
                                                        :events {:fr0/ev {:handler (fn [_ _] {})}}})]}))
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
@@ -410,17 +410,17 @@
             frame is explicitly destroyed (destroy-frame!, the proper teardown),
             its container is no longer live, so a reinstall! that removes the
             :frame descriptor succeeds and the slot is dropped cleanly."
-    (rf/install! :rf.realm/default
-                 (rf/app {:id :fr1/app :modules
-                          [(rf/module {:id :m :frames {:fr1/live {:doc "to be destroyed"}}})]}))
+    (av/install! :rf.realm/default
+                 (av/app {:id :fr1/app :modules
+                          [(av/module {:id :m :frames {:fr1/live {:doc "to be destroyed"}}})]}))
     (is (some? (frame/frame :fr1/live)) "the frame is live after install")
     ;; The documented recovery: destroy the frame first (full teardown), THEN
     ;; reinstall without it.
     (frame/destroy-frame! :fr1/live)
     (is (nil? (frame/frame :fr1/live)) "destroy-frame! tore the container down")
-    (let [diff (rf/reinstall! :rf.realm/default
-                              (rf/app {:id :fr1/app :modules
-                                       [(rf/module {:id :m2
+    (let [diff (av/reinstall! :rf.realm/default
+                              (av/app {:id :fr1/app :modules
+                                       [(av/module {:id :m2
                                                     :events {:fr1/ev {:handler (fn [_ _] {})}}})]}))]
       ;; The :frame is :removed (its registrar slot dropped) — no live container
       ;; blocks it, so the reinstall applies the delta cleanly.
@@ -471,9 +471,9 @@
         ;; sibling slot's, nor the :frame refusal) is the one whose :removed we
         ;; assert below — every previously-seeded slot survived its own refusal so
         ;; it would ALSO be :removed, so we assert membership, not equality.
-        (let [ed (try (rf/reinstall! :rf.realm/default
-                                     (rf/app {:id :cquy9u/app :modules
-                                              [(rf/module {:id :m
+        (let [ed (try (av/reinstall! :rf.realm/default
+                                     (av/app {:id :cquy9u/app :modules
+                                              [(av/module {:id :m
                                                            :events {ev-id {:handler (fn [_ _] {})}}})]}))
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                         (ex-data e)))]
@@ -516,7 +516,7 @@
     ;; cleanest expression: reinstall the SAME projected app (a no-op diff).
     (registrar/register! :resource :cquy9u/feed {:handler-fn (fn [& _] nil)})
     (let [current (av/app-value :rf.realm/default)
-          diff    (rf/reinstall! :rf.realm/default current)]
+          diff    (av/reinstall! :rf.realm/default current)]
       (is (= [] (:removed diff))
           "reinstalling the current projection removes nothing — no step-8 kind in :removed")
       (is (some? (registrar/lookup :resource :cquy9u/feed))
@@ -536,16 +536,16 @@
             — proving the live cache refreshed, not that app-db moved."
     (rf/reg-frame :s7dcu8/app {:doc "live-sub-reload"})
     ;; v1: a sub that yields a constant :v1.
-    (rf/install! :rf.realm/default
-                 (rf/app {:id :s7dcu8/app :modules
-                          [(rf/module {:id :m :subs {:s7dcu8/read {:handler (fn [_db _] :v1)}}})]}))
+    (av/install! :rf.realm/default
+                 (av/app {:id :s7dcu8/app :modules
+                          [(av/module {:id :m :subs {:s7dcu8/read {:handler (fn [_db _] :v1)}}})]}))
     ;; Hold an ACTIVE subscription and deref it — this POPULATES the live cache.
     (let [reaction (rf/subscribe :s7dcu8/app [:s7dcu8/read])]
       (is (= :v1 @reaction) "the active subscription yields v1 (cache populated)")
       ;; v2: the SAME sub id, a CHANGED handler yielding :v2 — :changed in the diff.
-      (let [diff (rf/reinstall! :rf.realm/default
-                                (rf/app {:id :s7dcu8/app :modules
-                                         [(rf/module {:id :m :subs {:s7dcu8/read {:handler (fn [_db _] :v2)}}})]}))]
+      (let [diff (av/reinstall! :rf.realm/default
+                                (av/app {:id :s7dcu8/app :modules
+                                         [(av/module {:id :m :subs {:s7dcu8/read {:handler (fn [_db _] :v2)}}})]}))]
         (is (= [[:sub :s7dcu8/read]] (:changed diff))
             ":s7dcu8/read is :changed (a different handler descriptor)"))
       ;; Registrar slot rotated (the assertion the existing tests already make).
@@ -560,10 +560,10 @@
 (deftest reinstall-one-arity-defaults-to-the-default-realm
   (testing "the 1-arity (reinstall! new-app) targets the default realm and
             defaults :reason to :hot-reload"
-    (rf/install! (rf/app {:id :app :modules
-                          [(rf/module {:id :m :events {:e {:handler cart-add}}})]}))
-    (let [diff (rf/reinstall! (rf/app {:id :app :modules
-                                       [(rf/module {:id :m :events {:e2 {:handler cart-add}}})]}))]
+    (av/install! (av/app {:id :app :modules
+                          [(av/module {:id :m :events {:e {:handler cart-add}}})]}))
+    (let [diff (av/reinstall! (av/app {:id :app :modules
+                                       [(av/module {:id :m :events {:e2 {:handler cart-add}}})]}))]
       (is (= :rf.realm/default (:realm diff)) "defaults to the default realm")
       (is (= :hot-reload (:reason diff)) ":reason defaults to :hot-reload")
       (is (= [[:event :e2]] (:added diff)))
@@ -573,16 +573,16 @@
   (testing "reinstall! records the new app value in the realm's :app slot — the
             stored slot is the new value verbatim, and installed-app reflects the
             reloaded handler through the live projection (rf2-77ewnm)"
-    (let [v1 (rf/app {:id :app :modules
-                      [(rf/module {:id :m :events {:e {:handler cart-add}}})]})
-          v2 (rf/app {:id :app :modules
-                      [(rf/module {:id :m :events {:e {:handler cart-remove}}})]})]
-      (rf/install! v1)
+    (let [v1 (av/app {:id :app :modules
+                      [(av/module {:id :m :events {:e {:handler cart-add}}})]})
+          v2 (av/app {:id :app :modules
+                      [(av/module {:id :m :events {:e {:handler cart-remove}}})]})]
+      (av/install! v1)
       (is (= v1 (:app (realm/realm realm/default-realm-id)))
           "the stored :app slot holds v1 verbatim after install")
       (is (identical? cart-add (registrar/handler :event :e))
           "and v1's handler resolves")
-      (rf/reinstall! v2)
+      (av/reinstall! v2)
       (is (= v2 (:app (realm/realm realm/default-realm-id)))
           "the realm's stored :app slot now holds the reinstalled value verbatim")
       (is (= :app (:rf.app/id (realm/installed-app)))
@@ -594,13 +594,13 @@
   (testing "reinstall! re-runs the capability check — a reload that adds an
             unmet requirement throws before any mutation"
     (clear-default-realm-capabilities!)
-    (rf/install! (rf/app {:id :app :modules
-                          [(rf/module {:id :m :events {:e {:handler cart-add}}})]}))
-    (let [v2 (rf/app {:id :app :modules
-                      [(rf/module {:id :m
+    (av/install! (av/app {:id :app :modules
+                          [(av/module {:id :m :events {:e {:handler cart-add}}})]}))
+    (let [v2 (av/app {:id :app :modules
+                      [(av/module {:id :m
                                    :rf.module/requires #{:rf.capability/http}
                                    :events {:e {:handler cart-remove}}})]})
-          ed (try (rf/reinstall! v2)
+          ed (try (av/reinstall! v2)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/missing-capability (:rf.error/id ed))
@@ -617,7 +617,7 @@
     (rf/reg-event :boot/a {:doc "a"} cart-add)
     ;; Reinstall a new app value derived FROM the live projection: drop the
     ;; sugar-booted :boot/a event and add :boot/b, leaving every other projected
-    ;; slot in place. Building from the projection (rather than a fresh `rf/app`)
+    ;; slot in place. Building from the projection (rather than a fresh `av/app`)
     ;; keeps the fixture's live `:rf/default` :frame AND the artefact-load step-8
     ;; slots (`:view :route/link`, `:error-projector …`) present in BOTH old and
     ;; new — so they are NEITHER :removed (which would correctly refuse: a live
@@ -628,7 +628,7 @@
                         (update-in [:registrations :event] dissoc :boot/a)
                         (assoc-in  [:registrations :event :boot/b]
                                    {:kind :event :id :boot/b :handler cart-add}))
-          diff      (rf/reinstall! new-app)]
+          diff      (av/reinstall! new-app)]
       (is (some #{[:event :boot/b]} (:added diff))
           ":boot/b is added relative to the projected installed app")
       (is (some #{[:event :boot/a]} (:removed diff))
@@ -648,12 +648,12 @@
             the same handler / metadata / source — descriptor->registration-
             metadata is the inverse of the projection's normalisation"
     (let [src {:ns 'shop.cart :file "cart.cljs" :line 9 :column 1}
-          a   (rf/app {:id :app :modules
-                       [(rf/module {:id :m
+          a   (av/app {:id :app :modules
+                       [(av/module {:id :m
                                     :events {:rt/e {:doc "round-trip"
                                                     :handler cart-add
                                                     :source src}}})]})]
-      (rf/install! a)
+      (av/install! a)
       (let [proj-d (get-in (av/app-value) [:registrations :event :rt/e])]
         (is (identical? cart-add (:handler proj-d))
             "the handler survives the lower→register→project round-trip")
@@ -703,7 +703,7 @@
     (let [full   (av/app-value :rf.realm/default)
           proj-d (get-in full [:registrations :event :untip9/sugar])
           proj   (assoc full :registrations {:event {:untip9/sugar proj-d}})
-          ed     (try (rf/install! proj) nil
+          ed     (try (av/install! proj) nil
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                         (ex-data e)))]
       (is (nil? ed)
@@ -736,14 +736,14 @@
     (let [full      (av/app-value :rf.realm/default)
           proj-d    (get-in full [:registrations :event :untip9.re/e])
           installed (assoc full :registrations {:event {:untip9.re/e proj-d}})]
-      (rf/install! installed)
+      (av/install! installed)
       ;; Build a new app that CHANGES :untip9.re/e by swapping its handler — the
       ;; descriptor still carries the PROJECTED :metadata (effective interceptor
       ;; chain + the inline wrapper). Exactly a projected registrar-shaped event
       ;; descriptor fed back through reinstall! on the :changed path.
       (let [changed (assoc proj-d :handler cart-remove)
             new-app (assoc-in installed [:registrations :event :untip9.re/e] changed)
-            ed      (try (rf/reinstall! new-app) nil
+            ed      (try (av/reinstall! new-app) nil
                          (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                            (ex-data e)))]
         (is (nil? ed)
@@ -782,8 +782,8 @@
           sub-h  (fn [_db _] :sub-val)
           fx-h   (fn [_] nil)
           cofx-h (fn [coeffects] coeffects)]
-      (rf/install! (rf/app {:id :xms/wired :modules
-                            [(rf/module {:id :m
+      (av/install! (av/app {:id :xms/wired :modules
+                            [(av/module {:id :m
                                          :events {:xms/ev   {:handler ev-h}}
                                          :subs   {:xms/sub  {:handler sub-h}}
                                          :fx     {:xms/fx   {:handler fx-h}}
@@ -808,8 +808,8 @@
             `:event/kind` sub-discriminator is gone, so every module event seats
             through the one shape with the unified `:rf/event-handler` wrapper
             and the interceptor chain (rf2-xmslkr × EP-0018 Z)"
-    (rf/install! (rf/app {:id :xms/evfx :modules
-                          [(rf/module {:id :m
+    (av/install! (av/app {:id :xms/evfx :modules
+                          [(av/module {:id :m
                                        :events {:xms/evfx {:handler (fn [_cofx _ev] {})}}})]}))
     (is (some? (registrar/handler :event :xms/evfx))
         "the event descriptor is seated as a resolvable event handler")
@@ -829,8 +829,8 @@
       (with-redefs [events/reg-event (fn [id & args]
                                        (swap! calls inc)
                                        (apply real-reg-event id args))]
-        (rf/install! (rf/app {:id :xhfxcs/d :modules
-                              [(rf/module {:id :m
+        (av/install! (av/app {:id :xhfxcs/d :modules
+                              [(av/module {:id :m
                                            :events {:xhfxcs/ev {:handler (fn [{:keys [db]} _] {:db db})}}})]})))
       (is (= 1 @calls)
           "the install seam lowered the event descriptor through events/reg-event")
@@ -847,8 +847,8 @@
             re-introduced a per-kind wrapper or the `:event/kind` tag would fail
             here, and the handler is proven dispatch-ready end-to-end."
     (rf/reg-frame :xhfxcs.d/app {:doc "event-lowering app"})
-    (rf/install! (rf/app {:id :xhfxcs.d/app :modules
-                          [(rf/module {:id :m
+    (av/install! (av/app {:id :xhfxcs.d/app :modules
+                          [(av/module {:id :m
                                        :events {:xhfxcs.d/set
                                                 {:handler (fn [{:keys [db]} [_ v]]
                                                             {:db (assoc db :n v)})}}})]}))
@@ -873,12 +873,12 @@
             an arbitrary unknown explicit id; the old fallback polluted the
             default registrar while recording no installed app on the requested
             realm."
-    ;; :xms/ghost was never `rf/realm`-constructed, so it has no registry entry.
+    ;; :xms/ghost was never `realm/construct-realm`-constructed, so it has no registry entry.
     (is (nil? (realm/realm :xms/ghost)) "the realm id was never constructed")
     (let [h  (fn [db _] db)
-          a  (rf/app {:id :xms/ghost-app :modules
-                      [(rf/module {:id :m :events {:xms/ghost-ev {:handler h}}})]})
-          ed (try (rf/install! :xms/ghost a)
+          a  (av/app {:id :xms/ghost-app :modules
+                      [(av/module {:id :m :events {:xms/ghost-ev {:handler h}}})]})
+          ed (try (av/install! :xms/ghost a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/unknown-realm (:rf.error/id ed))
@@ -896,24 +896,24 @@
             sugar and the realm-map compose form — only an EXPLICIT unknown id
             throws"
     ;; (a) nil / absent realm → the default realm (the byte-identical sugar path).
-    (rf/install! (rf/app {:id :ok/default :modules
-                          [(rf/module {:id :m :events {:ok/absent {:handler cart-add}}})]}))
+    (av/install! (av/app {:id :ok/default :modules
+                          [(av/module {:id :m :events {:ok/absent {:handler cart-add}}})]}))
     (is (identical? cart-add (registrar/handler :event :ok/absent))
         "absent realm seats into the default realm (sugar preserved)")
     ;; (b) explicit default-realm id → also fine (seeded at boot).
-    (rf/install! :rf.realm/default
-                 (rf/app {:id :ok/expl :modules
-                          [(rf/module {:id :m :events {:ok/explicit {:handler cart-add}}})]}))
+    (av/install! :rf.realm/default
+                 (av/app {:id :ok/expl :modules
+                          [(av/module {:id :m :events {:ok/explicit {:handler cart-add}}})]}))
     (is (identical? cart-add (registrar/handler :event :ok/explicit))
         "explicit default realm id seats fine")
     ;; (c) a constructed realm MAP composes through.
-    (let [r (rf/realm {:id :ok/constructed})]
+    (let [r (realm/construct-realm {:id :ok/constructed})]
       (try
-        (rf/install! r (rf/app {:id :ok/c :modules
-                                [(rf/module {:id :m :events {:ok/in-realm {:handler cart-add}}})]}))
+        (av/install! r (av/app {:id :ok/c :modules
+                                [(av/module {:id :m :events {:ok/in-realm {:handler cart-add}}})]}))
         (is (identical? cart-add (get-in @(realm/registrar r) [:event :ok/in-realm :handler-fn]))
             "a constructed realm map seats into its own registrar")
-        (finally (rf/dispose-realm! :ok/constructed))))))
+        (finally (realm/dispose-realm! :ok/constructed))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (5b) :frame descriptors into a non-default realm SEAT into that realm
@@ -932,17 +932,17 @@
   (testing "EP-0013 step 4 (rf2-a15n62): a :frame descriptor seated into a
             NON-default realm creates a REAL frame stamped + keyed by that realm
             — not a default-stamped, globally-keyed mis-seat"
-    (let [r (rf/realm {:id :rf-frame/r})]
+    (let [r (realm/construct-realm {:id :rf-frame/r})]
       (try
-        (rf/install! r (rf/app {:id :rf-frame/app :modules
-                                [(rf/module {:id :m :frames {:rf-frame/f {:doc "realm-owned frame"}}})]}))
+        (av/install! r (av/app {:id :rf-frame/app :modules
+                                [(av/module {:id :m :frames {:rf-frame/f {:doc "realm-owned frame"}}})]}))
         ;; The frame is owned by the constructed realm (not default-stamped).
         ;; `frame-realm` resolves the frame id WITHIN its realm scope (the bare
         ;; id is unique only within a realm — no default-realm :rf-frame/f exists).
         (is (= :rf-frame/r (frame/call-with-realm :rf-frame/r
-                             (fn [] (rf/frame-realm :rf-frame/f))))
+                             (fn [] (frame/frame-realm :rf-frame/f))))
             "the seated frame's realm is the constructed realm, not the default")
-        (is (nil? (rf/frame-realm :rf-frame/f))
+        (is (nil? (frame/frame-realm :rf-frame/f))
             "the bare (default-scope) read finds no default-realm frame of that id")
         ;; The realm's membership view includes it.
         (is (contains? (realm/realm-frames :rf-frame/r) :rf-frame/f)
@@ -951,15 +951,15 @@
         (is (not (contains? (realm/realm-frames realm/default-realm-id) :rf-frame/f))
             "no default-realm frame of the same id was created (no global collision)")
         (finally
-          (rf/dispose-realm! :rf-frame/r))))))
+          (realm/dispose-realm! :rf-frame/r))))))
 
 (deftest same-frame-id-in-two-realms-stays-isolated
   (testing "EP-0013 step 4 (rf2-a15n62) — the headline: the SAME frame id +
             SAME event/sub/fx/cofx ids installed into two realms stay ISOLATED
             across event dispatch, subscription, fx AND cofx — each frame
             resolves its OWN realm's program"
-    (let [ra (rf/realm {:id :iso/a})
-          rb (rf/realm {:id :iso/b})
+    (let [ra (realm/construct-realm {:id :iso/a})
+          rb (realm/construct-realm {:id :iso/b})
           ;; realm-distinguishing handler / sub / fx / cofx bodies
           fx-log (atom [])
           ;; A per-realm cofx supplier (`:iso/c` → the realm tag), DECLARED on the
@@ -969,8 +969,8 @@
           ;; the effect-map police gate. Both `:iso/c` (cofx) and `:iso/fx` (fx)
           ;; are realm-installed — resolution must route to the owning realm.
           app-for (fn [tag]
-                    (rf/app {:id :iso/app :modules
-                             [(rf/module
+                    (av/app {:id :iso/app :modules
+                             [(av/module
                                 {:id :m
                                  :frames {:iso/f {:doc "shared id"}}
                                  :events {:iso/e {:rf.cofx/requires [:iso/c]
@@ -982,8 +982,8 @@
                                                               (swap! fx-log conj [tag args]))}}
                                  :cofx   {:iso/c {:handler (fn [] tag)}}})]}))]
       (try
-        (rf/install! ra (app-for :a))
-        (rf/install! rb (app-for :b))
+        (av/install! ra (app-for :a))
+        (av/install! rb (app-for :b))
         ;; EVENT + COFX: dispatch the SAME event id into each realm's frame;
         ;; each runs ITS realm's handler + injects ITS realm's cofx supplier.
         (rf/dispatch-sync [:iso/e] {:realm :iso/a :frame :iso/f})
@@ -1009,46 +1009,46 @@
                          (fn [] (rf/subscribe-once :iso/f [:iso/s]))))
             "realm b's frame resolves realm b's :iso/s")
         (finally
-          (rf/dispose-realm! :iso/a)
-          (rf/dispose-realm! :iso/b))))))
+          (realm/dispose-realm! :iso/a)
+          (realm/dispose-realm! :iso/b))))))
 
 (deftest install-frame-into-default-realm-still-works
   (testing "rf2-c6armm.1 #3: the refusal is scoped to NON-default realms — a
             :frame descriptor into the DEFAULT realm still lowers through
             reg-frame (the rf2-chc8vs wiring is unchanged)"
-    (rf/install! (rf/app {:id :df-frame/app :modules
-                          [(rf/module {:id :m :frames {:df-frame/f {:doc "default frame"}}})]}))
+    (av/install! (av/app {:id :df-frame/app :modules
+                          [(av/module {:id :m :frames {:df-frame/f {:doc "default frame"}}})]}))
     (is (contains? (frame/frame-ids) :df-frame/f)
         "a default-realm :frame install creates a real frame container as before")))
 
 ;; ---------------------------------------------------------------------------
-;; (5c) rf/realm rejects a public :app (no false installed-app state)
+;; (5c) realm/construct-realm rejects a public :app (no false installed-app state)
 ;;      (rf2-c6armm.2 #1)
 ;; ---------------------------------------------------------------------------
 
 (deftest realm-rejects-public-app-key
-  (testing "rf2-c6armm.2 #1: rf/realm with an :app key THROWS :rf.error/invalid-realm
+  (testing "rf2-c6armm.2 #1: realm/construct-realm with an :app key THROWS :rf.error/invalid-realm
             — :app is install-owned state, not a constructor input. A public :app
             would record an installed-app VALUE without seating its descriptors,
             so installed-app would report a program the registrar does not hold
             and the first reinstall! would diff against that phantom"
-    (let [app (rf/app {:id :false/app :modules
-                       [(rf/module {:id :m :events {:false/e {:handler cart-add}}})]})
-          ed  (try (rf/realm {:id :false/r :app app})
+    (let [app (av/app {:id :false/app :modules
+                       [(av/module {:id :m :events {:false/e {:handler cart-add}}})]})
+          ed  (try (realm/construct-realm {:id :false/r :app app})
                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                      (ex-data e)))]
       (is (= :rf.error/invalid-realm (:rf.error/id ed))
-          "a public :app on rf/realm is rejected")
+          "a public :app on realm/construct-realm is rejected")
       (is (= :false/r (:realm ed)) "the diagnostic names the realm")
       (is (nil? (realm/realm :false/r))
           "no realm was registered — the constructor threw before register-realm!")
-      ;; The bead's exact phantom scenario — (rf/realm {:app app}) then reinstall!
+      ;; The bead's exact phantom scenario — (realm/construct-realm {:app app}) then reinstall!
       ;; — is structurally IMPOSSIBLE: the constructor threw, so :false/r has no
       ;; registry entry, and a follow-up reinstall! against it would itself throw
       ;; :rf.error/unknown-realm (it never reaches a diff against a phantom :app).
-      (let [v2 (rf/app {:id :false/v2 :modules
-                        [(rf/module {:id :m :events {:false/e2 {:handler cart-add}}})]})
-            re-ed (try (rf/reinstall! :false/r v2)
+      (let [v2 (av/app {:id :false/v2 :modules
+                        [(av/module {:id :m :events {:false/e2 {:handler cart-add}}})]})
+            re-ed (try (av/reinstall! :false/r v2)
                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                          (ex-data e)))]
         (is (= :rf.error/unknown-realm (:rf.error/id re-ed))
@@ -1060,14 +1060,14 @@
             install! — seats descriptors AND records the app, so installed-app
             and the registrar AGREE (no phantom installed-app, no reinstall! that
             skips registrar population)"
-    (let [r   (rf/realm {:id :seat/r})
-          app (rf/app {:id :seat/app :modules
-                       [(rf/module {:id :m :events {:seat/e {:handler cart-add}}})]})]
+    (let [r   (realm/construct-realm {:id :seat/r})
+          app (av/app {:id :seat/app :modules
+                       [(av/module {:id :m :events {:seat/e {:handler cart-add}}})]})]
       (try
         ;; A fresh realm has no installed app beyond its empty projection.
         (is (= {} (:registrations (realm/installed-app r)))
             "a fresh realm projects an empty program (no false :app)")
-        (rf/install! r app)
+        (av/install! r app)
         ;; install! seated the descriptor into the registrar AND recorded the app.
         (is (identical? cart-add (get-in @(realm/registrar r) [:event :seat/e :handler-fn]))
             "install! actually seated the descriptor into the realm's registrar")
@@ -1076,15 +1076,15 @@
         (is (contains? (get-in (realm/installed-app r) [:registrations :event]) :seat/e)
             "and the seated registration is visible in the reconciled read")
         ;; reinstall! now diffs against a REAL installed app, not a phantom.
-        (let [v2   (rf/app {:id :seat/app :modules
-                            [(rf/module {:id :m :events {:seat/e2 {:handler cart-items}}})]})
-              diff (rf/reinstall! r v2)]
+        (let [v2   (av/app {:id :seat/app :modules
+                            [(av/module {:id :m :events {:seat/e2 {:handler cart-items}}})]})
+              diff (av/reinstall! r v2)]
           (is (= [[:event :seat/e2]] (:added diff)) ":seat/e2 added")
           (is (= [[:event :seat/e]] (:removed diff))
               ":seat/e removed — the diff saw the genuinely-seated base program")
           (is (identical? cart-items (get-in @(realm/registrar r) [:event :seat/e2 :handler-fn]))
               "the reinstall actually populated the registrar with the new program"))
-        (finally (rf/dispose-realm! :seat/r))))))
+        (finally (realm/dispose-realm! :seat/r))))))
 
 (deftest install-wires-the-frame-kind-through-reg-frame
   (testing "rf2-chc8vs: :frame is an EP-0013 step-7 FIRST-format kind, so a
@@ -1094,8 +1094,8 @@
             appears in `frame-ids`, `frame/frame` resolves a live container, and
             it is dispatchable. This FLIPS the rf2-xmslkr characterization test
             that pinned `frame/frame -> nil` as a known limitation."
-    (rf/install! (rf/app {:id :xms/frame-app :modules
-                          [(rf/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})]}))
+    (av/install! (av/app {:id :xms/frame-app :modules
+                          [(av/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})]}))
     ;; The registrar slot is written (reg-frame's first step) — the frame kind is
     ;; a registrar kind, so the (kind,id) table carries the config.
     (is (some? (registrar/lookup :frame :xms/frame))
@@ -1116,9 +1116,9 @@
     ;; so the diff leaves it untouched; dropping it would correctly refuse, as the
     ;; live frame is not orphanable through install! any more than through
     ;; reinstall!) and ADDS the handlers in a second module :m2.
-    (rf/install! (rf/app {:id :xms/frame-prog :modules
-                          [(rf/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})
-                           (rf/module {:id :m2
+    (av/install! (av/app {:id :xms/frame-prog :modules
+                          [(av/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})
+                           (av/module {:id :m2
                                        :events {:xms/frame-set {:handler (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)})}}
                                        :subs   {:xms/frame-read {:handler (fn [db _] (:n db))}}})]}))
     (rf/dispatch-sync [:xms/frame-set 7] {:frame :xms/frame})
@@ -1143,10 +1143,10 @@
                             [:views :view]
                             [:heads :head]
                             [:error-projectors :error-projector]]]
-      (let [a  (rf/app {:id :xms/deferred-app :modules
-                        [(rf/module (assoc {:id :m}
+      (let [a  (av/app {:id :xms/deferred-app :modules
+                        [(av/module (assoc {:id :m}
                                            section {:xms/deferred {:handler (fn [& _] nil)}}))]})
-            ed (try (rf/install! a)
+            ed (try (av/install! a)
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                       (ex-data e)))]
         (is (= :rf.error/unsupported-descriptor-kind (:rf.error/id ed))
@@ -1181,14 +1181,14 @@
             leaks."
     (is (not (contains? (frame/frame-ids) :leak/frame))
         "the frame does not exist before the failed install")
-    (let [a  (rf/app {:id :leak/app :modules
-                      [(rf/module {:id :m
+    (let [a  (av/app {:id :leak/app :modules
+                      [(av/module {:id :m
                                    ;; A :frame (wired — would lower through reg-frame
                                    ;; and create a live container) AND a deferred
                                    ;; :route in the SAME app.
                                    :frames {:leak/frame {:doc "would-leak frame"}}
                                    :routes {:leak/route {:handler (fn [& _] nil)}}})]})
-          ed (try (rf/install! a)
+          ed (try (av/install! a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/unsupported-descriptor-kind (:rf.error/id ed))
@@ -1223,11 +1223,11 @@
             truth for the realm registrar. Full replacement (EP-0013 §Installation
             'derive the realm registrar from the app value' / 'value replacement
             at the realm boundary') restores it."
-    (let [r (rf/realm {:id :stale/r})]
+    (let [r (realm/construct-realm {:id :stale/r})]
       (try
         ;; app1: two events.
-        (rf/install! r (rf/app {:id :stale/app1 :modules
-                                [(rf/module {:id :m
+        (av/install! r (av/app {:id :stale/app1 :modules
+                                [(av/module {:id :m
                                              :events {:stale/keep {:handler cart-add}
                                                       :stale/drop {:handler cart-add}}})]}))
         (is (identical? cart-add (get-in @(realm/registrar r) [:event :stale/keep :handler-fn]))
@@ -1236,8 +1236,8 @@
             "app1's :stale/drop is seated")
         ;; app2: re-declares :stale/keep (changed handler), DROPS :stale/drop,
         ;; ADDS :stale/new.
-        (rf/install! r (rf/app {:id :stale/app2 :modules
-                                [(rf/module {:id :m
+        (av/install! r (av/app {:id :stale/app2 :modules
+                                [(av/module {:id :m
                                              :events {:stale/keep {:handler cart-remove}
                                                       :stale/new  {:handler cart-items}}})]}))
         ;; THE FIX: :stale/drop (in app1, not app2) is CLEARED — no longer resolvable.
@@ -1256,7 +1256,7 @@
             "the realm registrar's events equal app2's exactly — no stale leak")
         (is (= :stale/app2 (:rf.app/id (realm/installed-app r)))
             "installed-app reports app2 (and the registrar matches it)")
-        (finally (rf/dispose-realm! :stale/r))))))
+        (finally (realm/dispose-realm! :stale/r))))))
 
 (deftest repeated-install-preserves-coexisting-sugar-registrations
   (testing "rf2-c6armm.7 #1: replacement is scoped to the PRIOR INSTALLED app, not
@@ -1267,10 +1267,10 @@
     ;; Sugar registration into the default realm (NOT an installed app value).
     (rf/reg-event :coexist/sugar {:doc "sugar"} cart-add)
     ;; install! app1 (its own event), then install! app2 dropping app1's event.
-    (rf/install! (rf/app {:id :coexist/app1 :modules
-                          [(rf/module {:id :m :events {:coexist/a1 {:handler cart-add}}})]}))
-    (rf/install! (rf/app {:id :coexist/app2 :modules
-                          [(rf/module {:id :m :events {:coexist/a2 {:handler cart-add}}})]}))
+    (av/install! (av/app {:id :coexist/app1 :modules
+                          [(av/module {:id :m :events {:coexist/a1 {:handler cart-add}}})]}))
+    (av/install! (av/app {:id :coexist/app2 :modules
+                          [(av/module {:id :m :events {:coexist/a2 {:handler cart-add}}})]}))
     ;; app1's :coexist/a1 was cleared (the stale-replacement fix)...
     (is (nil? (registrar/lookup :event :coexist/a1))
         "app1's dropped event was cleared by the replacement")
