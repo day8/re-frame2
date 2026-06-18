@@ -27,9 +27,11 @@
   in two realms). The realm-scoped reads here compose the internal-substrate
   seams `re-frame.realm/realm-registrations` (per-realm `{id metadata}`) +
   `re-frame.realm/realm-ids` (the installed-realm enumeration) into the static
-  surfaces. EP-0023 removed the `rf/registrations {:realm …}` / `rf/realm-ids`
-  facade arities (pl97nd.2) and retained the realm machinery as the internal
-  installation substrate; a TOOL reads the owning `re-frame.realm` namespace
+  surfaces. EP-0023 removed the `rf/realm-ids` facade arity (pl97nd.2) and the
+  `rf/registrations {:realm …}` registrar-query map arity (rf2-10nggz — a
+  registrar-query map is now ALWAYS a frame-targeted read), and retained the
+  realm machinery as the internal installation substrate; a TOOL reads the
+  owning `re-frame.realm` namespace
   directly, just as it already reads `re-frame.frame` / `re-frame.live-frame`
   (bundle isolation forbids `implementation/` requiring from `tools/`, not the
   reverse).
@@ -104,7 +106,7 @@
   "Return the `{id metadata}` map registered under `kind` in `realm-id`'s OWN
   registrar via the internal substrate seam
   `re-frame.realm/realm-registrations` (EP-0023 retained-internal; the
-  `rf/registrations {:realm …}` facade arity was removed in pl97nd.2).
+  `rf/registrations {:realm …}` facade arity was removed in rf2-10nggz).
   Fail-soft: any throw falls back to the default-realm `(rf/registrations
   kind)` for the default realm, and `{}` for any other realm. Pure-read."
   [realm-id kind]

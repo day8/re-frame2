@@ -22,12 +22,12 @@
       image's descriptor (with the descriptor's `:rf.provenance/ns` carried);
     * `:frame` accepts a registered frame ID and a direct frame OBJECT alike;
     * `frame-generation` returns the four `:rf.gen/*` keys;
-    * BOTH fail-loud cases — an unresolvable `:frame`
-      (`:rf.error/frame-no-generation`, NO realm/default fallback) and a map
-      mixing `:frame` + `:realm` (`:rf.error/frame-realm-mixed-address`);
-    * the existing keyword + `{:realm}` arities stay BYTE-IDENTICAL (no
-      regression — a caller that never spells `:frame` reaches the unchanged
-      registrar-atom / realm path).
+    * the fail-loud cases — an unresolvable `:frame`
+      (`:rf.error/frame-no-generation`, NO default fallback) and a map WITHOUT
+      `:frame` (`:rf.error/registrar-query-needs-frame`, rf2-10nggz — a map is
+      ALWAYS a frame-targeted read);
+    * the existing keyword arity stays BYTE-IDENTICAL (no regression — a caller
+      that never spells a map reaches the unchanged default source-store path).
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
   message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -43,7 +43,6 @@
             [re-frame.image          :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.live-frame     :as lf]
-            [re-frame.realm          :as realm]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support   :as ts]))
 
@@ -247,35 +246,34 @@
     (is (= :rf.error/frame-no-generation
            (err-id #(rf/handler-ids {:frame {:totally :fake} :kind :event}))))))
 
-(deftest frame-plus-realm-mixed-address-fails-loud
-  (testing "a registrar-query map mixing :frame + :realm fails loud
-            (:rf.error/frame-realm-mixed-address) — distinct address families,
-            no silent priority rule"
-    (let [_blue (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)]
-      (is (= :rf.error/frame-realm-mixed-address
-             (err-id #(rf/registrations {:frame :blue/main :realm :tenant/x :kind :event}))))
-      (is (= :rf.error/frame-realm-mixed-address
-             (err-id #(rf/handler-meta {:frame :blue/main :realm :tenant/x
-                                        :kind :event :id :counter/inc}))))
-      (is (= :rf.error/frame-realm-mixed-address
-             (err-id #(rf/handler-ids {:frame :blue/main :realm :tenant/x :kind :event})))))))
+(deftest map-without-frame-fails-loud
+  (testing "a registrar-query map WITHOUT :frame fails loud
+            (:rf.error/registrar-query-needs-frame, rf2-10nggz) — post-EP-0023 a
+            map is ALWAYS a frame-targeted read; the retired :realm / absence-as-
+            default spellings are removed"
+    (rf/reg-event :ff/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/registrations {:kind :event}))))
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta {:kind :event :id :ff/inc}))))
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-ids {:kind :event}))))
+    ;; the retired :realm spelling is now the same missing-:frame error
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/registrations {:realm nil :kind :event}))))))
 
 ;; ===========================================================================
-;; 5. NO REGRESSION — the existing keyword + {:realm} arities stay byte-identical
+;; 5. NO REGRESSION — the existing keyword arity stays byte-identical
 ;; ===========================================================================
 
-(deftest keyword-and-realm-arities-stay-byte-identical
-  (testing "a caller that never spells :frame reaches the UNCHANGED registrar /
-            realm path — the frame-arity addition is purely additive"
+(deftest keyword-arity-stays-byte-identical
+  (testing "a caller that never spells a map reaches the UNCHANGED default
+            source-store path — the frame-arity addition is purely additive"
     (rf/reg-event :ff/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/reg-sub :ff/n {:doc "n"} (fn [db _] (:n db)))
-    (testing "(registrations kind) — the default-realm keyword arity is unchanged"
+    (testing "(registrations kind) — the default source-store keyword arity is unchanged"
       (is (contains? (rf/registrations :event) :ff/inc)))
     (testing "(handler-meta kind id) — unchanged"
       (is (some? (rf/handler-meta :event :ff/inc))))
     (testing "(handler-ids kind) — unchanged"
-      (is (contains? (rf/handler-ids :event) :ff/inc)))
-    (testing "the {:realm} map form (no :frame) still routes to the realm path —
-              the default realm equals the keyword arity (absence-is-default)"
-      (is (= (rf/registrations :event) (rf/registrations {:kind :event})))
-      (is (= (rf/handler-ids :event)   (rf/handler-ids {:kind :event}))))))
+      (is (contains? (rf/handler-ids :event) :ff/inc)))))

@@ -312,13 +312,15 @@
                                                :events {:shared/e {:handler h}}})]}))]
       (av/install! ra (app-of add-a))
       (av/install! rb (app-of add-b))
-      ;; Each realm resolves ITS OWN handler for the shared id.
-      (is (= add-a (:handler-fn (rf/handler-meta {:realm :conf/a :kind :event :id :shared/e})))
+      ;; Each realm resolves ITS OWN handler for the shared id. The facade no
+      ;; longer exposes a realm-targeted query (rf2-10nggz); realm isolation is
+      ;; read through the internal substrate `re-frame.realm/realm-handler-meta`.
+      (is (= add-a (:handler-fn (realm/realm-handler-meta :conf/a :event :shared/e)))
           "realm a holds add-a for :shared/e")
-      (is (= add-b (:handler-fn (rf/handler-meta {:realm :conf/b :kind :event :id :shared/e})))
+      (is (= add-b (:handler-fn (realm/realm-handler-meta :conf/b :event :shared/e)))
           "realm b holds add-b for :shared/e")
-      (is (not= (rf/handler-meta {:realm :conf/a :kind :event :id :shared/e})
-                (rf/handler-meta {:realm :conf/b :kind :event :id :shared/e}))
+      (is (not= (realm/realm-handler-meta :conf/a :event :shared/e)
+                (realm/realm-handler-meta :conf/b :event :shared/e))
           "the two realms hold genuinely different handlers for the same id")
       ;; The default realm never saw :shared/e at all.
       (is (nil? (rf/handler-meta :event :shared/e))
@@ -329,8 +331,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest realm-targeted-queries-isolate-across-the-matrix
-  (testing "across an N-realm matrix, {:realm r …} registrations / handler-ids
-            return ONLY realm r's registrations — no realm sees another's ids"
+  (testing "across an N-realm matrix, the internal realm-scoped readers
+            (`re-frame.realm/realm-registrations` / `realm-handler-ids`) return
+            ONLY realm r's registrations — no realm sees another's ids. The
+            facade no longer exposes a realm-targeted query (rf2-10nggz); realm
+            isolation is a substrate property read through `re-frame.realm`."
     (let [r1 (realm/construct-realm {:id :conf/m1})
           r2 (realm/construct-realm {:id :conf/m2})
           r3 (realm/construct-realm {:id :conf/m3})]
@@ -341,18 +346,18 @@
       (av/install! r3 (av/app {:id :a3 :modules
                                [(av/module {:id :m :events {:only/e3 {:handler add-a}}})]}))
       ;; Each realm's id set is exactly its own one id.
-      (is (= #{:only/e1} (rf/handler-ids {:realm :conf/m1 :kind :event})))
-      (is (= #{:only/e2} (rf/handler-ids {:realm :conf/m2 :kind :event})))
-      (is (= #{:only/e3} (rf/handler-ids {:realm :conf/m3 :kind :event})))
+      (is (= #{:only/e1} (realm/realm-handler-ids :conf/m1 :event)))
+      (is (= #{:only/e2} (realm/realm-handler-ids :conf/m2 :event)))
+      (is (= #{:only/e3} (realm/realm-handler-ids :conf/m3 :event)))
       ;; No realm's registrations contain a sibling's id.
-      (is (not (contains? (rf/registrations {:realm :conf/m1 :kind :event}) :only/e2)))
-      (is (not (contains? (rf/registrations {:realm :conf/m2 :kind :event}) :only/e3)))
-      (is (not (contains? (rf/registrations {:realm :conf/m3 :kind :event}) :only/e1)))
+      (is (not (contains? (realm/realm-registrations :conf/m1 :event) :only/e2)))
+      (is (not (contains? (realm/realm-registrations :conf/m2 :event) :only/e3)))
+      (is (not (contains? (realm/realm-registrations :conf/m3 :event) :only/e1)))
       ;; A sibling's id resolves to nil in another realm.
-      (is (nil? (rf/handler-meta {:realm :conf/m1 :kind :event :id :only/e2})))
+      (is (nil? (realm/realm-handler-meta :conf/m1 :event :only/e2)))
       ;; The realm map (not just the id keyword) reads the same realm.
-      (is (= (rf/handler-ids {:realm :conf/m1 :kind :event})
-             (rf/handler-ids {:realm (realm/realm :conf/m1) :kind :event}))
+      (is (= (realm/realm-handler-ids :conf/m1 :event)
+             (realm/realm-handler-ids (realm/realm :conf/m1) :event))
           "the realm-map form reads the same realm as the id form"))))
 
 ;; ---------------------------------------------------------------------------
@@ -393,7 +398,7 @@
       ;; hermetic install wrote only the constructed realm's own registrar.
       (is (= before (registrar/registrations :event))
           "the default realm's registrar is unchanged by the hermetic install")
-      (is (contains? (rf/registrations {:realm :conf/hermetic :kind :event}) :hermetic/e)
+      (is (contains? (realm/realm-registrations :conf/hermetic :event) :hermetic/e)
           "the hermetic realm holds its own installed event"))))
 
 ;; ---------------------------------------------------------------------------
@@ -682,8 +687,9 @@
         (av/install! r (av/app {:id :leak/app :modules
                                 [(av/module {:id :m
                                              :events {:leak/only-in-r {:handler add-a}}})]}))
-        ;; The handler lives in the constructed realm's own registrar.
-        (is (= add-a (:handler-fn (rf/handler-meta {:realm :leak/r :kind :event :id :leak/only-in-r})))
+        ;; The handler lives in the constructed realm's own registrar (read
+        ;; through the internal substrate; the facade :realm query is gone).
+        (is (= add-a (:handler-fn (realm/realm-handler-meta :leak/r :event :leak/only-in-r)))
             "the handler is in the constructed realm's registrar")
         ;; But the DEFAULT realm's registrar (the live-dispatch resolution path)
         ;; does NOT see it — no cross-realm leak into live behavior.

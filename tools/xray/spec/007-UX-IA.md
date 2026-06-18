@@ -463,8 +463,10 @@ present, and where it does it reads as the internal installation realm.**
   registrations via `(rf/registrations :kind)` — the DEFAULT realm only —
   so a multi-realm host could not see which realm owns a registration nor
   flag a cross-realm id conflict (the same id registered in two realms).
-  The shared `static/shared/realm.cljs` helper composes the EP-0013 stage-8
-  map-shaped query form `(rf/registrations {:realm r :kind k})` + the
+  The shared `static/shared/realm.cljs` helper composes the internal
+  realm-scoped reader `re-frame.realm/realm-registrations` (the public
+  `{:realm r :kind k}` facade arity was removed in rf2-10nggz — a registrar-query
+  map is now ALWAYS a frame-targeted read) + the
   installed-realm enumeration `re-frame.realm/realm-ids` into the browse: it returns
   realm-qualified `[realm-id reg-map]` pairs (`realm-qualified-registrations`),
   attributes each row to its owning `:rf.realm/id` (`realm-of` blanks the

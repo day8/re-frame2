@@ -32,11 +32,14 @@
   The default realm's OWN registrar atom is read DIRECTLY via the internal
   substrate seam `re-frame.realm/realm-registrations` (and its `[kind id]`
   sibling `realm-handler-meta`), BYPASSING any bound `*generation*`. EP-0023
-  retained the realm machinery as the internal installation substrate and
-  removed the `rf/registrations`/`rf/handler-meta` realm-targeted facade arities
-  (pl97nd.2); a TOOL reads the owning `re-frame.realm` namespace directly, just
-  as it already reads `re-frame.frame` / `re-frame.live-frame` (bundle isolation
-  forbids `implementation/` requiring from `tools/`, not the reverse). The
+  retained the realm machinery as the internal installation substrate; the
+  public `:realm` registrar-query map arity on `rf/registrations` /
+  `rf/handler-meta` / `rf/handler-ids` was REMOVED from the facade (rf2-10nggz —
+  a registrar-query map is now ALWAYS a frame-targeted read). This generation-
+  bypass is the honestly-named INTERNAL seam that replaces it: a TOOL reads the
+  owning `re-frame.realm` namespace directly, just as it already reads
+  `re-frame.frame` / `re-frame.live-frame` (bundle isolation forbids
+  `implementation/` requiring from `tools/`, not the reverse). The
   default realm (`nil` ⇒ absence-is-default) is the process-global registrar the
   host app's `reg-event` / `reg-route` / `reg-resource` write into — the
   registry the inspector wants regardless of which image-loaded frame its sub

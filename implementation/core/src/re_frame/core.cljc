@@ -103,12 +103,17 @@
             ;; neutral. The alias is no longer referenced directly now the facade
             ;; re-exports are gone; the require is load-side-effect-only.
             [re-frame.app-value :as app-value]
-            ;; EP-0013 D1 stage 8 (rf2-blibek): the realm-targeted QUERY
-            ;; readers — `realm/realm-registrations` / `realm-handler-meta` /
-            ;; `realm-handler-ids` back the public map-shaped facade forms
-            ;; `(rf/registrations {:realm r :kind k})` etc. (open-issue 11).
-            ;; A leaf on the registrar/late-bind spine; bundle-isolation
-            ;; neutral. The default-realm keyword arities are byte-identical.
+            ;; EP-0023 (rf2-10nggz): the realm machinery is RETAINED INTERNAL
+            ;; substrate (the registrar-backed installation/resolution spine);
+            ;; the public `:realm` registrar-query map arity has been REMOVED
+            ;; from the facade (a registrar-query map is now ALWAYS a
+            ;; frame-targeted read). The alias survives here only for
+            ;; `realm/default-realm-id` (the migration default-realm guard
+            ;; below); the realm-scoped readers `realm/realm-registrations` /
+            ;; `realm-handler-meta` / `realm-handler-ids` remain in
+            ;; `re-frame.realm` for INTERNAL/TOOLING callers (e.g. Xray's
+            ;; host-registry generation-bypass) that require the ns directly.
+            ;; A leaf on the registrar/late-bind spine; bundle-isolation neutral.
             [re-frame.realm :as realm]
             ;; EP-0023 (rf2-32siq3.17): the public `rf/image` constructor —
             ;; an IMAGE value, the selected registration-set value a frame
@@ -1604,41 +1609,43 @@
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;
-;; The registrar query workhorses. Each grows a REALM-TARGETED map-shaped form
-;; alongside its existing process-global keyword arities (EP-0013 D1 stage 8,
-;; rf2-blibek; open-issue 11 — map-shaped is the ruled public form, unambiguous
-;; against the keyword arities and extensible). The map-shaped form reads ONLY
-;; the specified realm's registrar (`realm-registrations` / `realm-handler-meta`
-;; / `realm-handler-ids` over the realm's OWN `(kind, id) → metadata` atom), so
-;; "realm-targeted registrar queries return only that realm's registrations"
-;; (EP-0013 §Realm Conformance). The default-realm keyword arities are
-;; BYTE-IDENTICAL — a single-realm caller never spells a realm (the absence-is-
-;; default rule); only a caller that passes an explicit `{:realm …}` map reaches
-;; the realm-scoped path.
+;; The registrar query workhorses. Post-EP-0023 (rf2-10nggz) the public read
+;; grammar has exactly TWO shapes per trio member:
 ;;
-;; EP-0023 (rf2-wkw8na) — the FRAME-TARGETED map form. Each of the trio ALSO
-;; grows a `{:frame f :kind k …}` form that reads the registrations resolved
-;; through a live frame's OWN sealed image generation (EP-0023 §Frame-derived
-;; live registration resolution — "target frame -> resolved image generation ->
-;; registration resolution"), surfacing the `:rf.provenance/ns` + inline/image +
-;; replacement/standard facts the resolved descriptors already carry. This is
-;; the promised-but-unshipped READ of the EP-0023 model: the public tooling
-;; surface over a frame's generation, for tools (Pair MCP, Xray) that EP-0023
-;; forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly`
-;; internals. The thin, no-duplication path: resolve the frame target ONCE to a
-;; live frame object, then run the EXISTING registrar reads inside
-;; `re-frame.live-frame/call-with-frame-resolution`, which binds
-;; `registrar/*generation*` so the registrar's ALREADY generation-aware
-;; `lookup` / `registrations` / `ids` do the resolution — byte-identical
-;; descriptor shape, no resolver-walk duplicated here. The realm/default paths
-;; stay byte-identical: only a caller that passes `{:frame …}` reaches it.
+;;   * the POSITIONAL-KEYWORD arity — the UNFRAMED default source-store read
+;;     `(registrations :event)` / `(handler-meta :event id)` / `(handler-ids
+;;     :event)` over the process-global registrar;
+;;   * the `{:frame f :kind k …}` MAP arity — the FRAME-TARGETED read resolved
+;;     through a live frame's OWN sealed image generation.
 ;;
-;; FAIL-LOUD (rf2-wkw8na, EP-0023 §Id Spaces — the address families are
-;; distinct): a `:frame` that does not resolve to a live frame carrying a
-;; generation throws (NO fallback to the default/realm registrar — the read
-;; needs a live EP-0023 frame), and a map mixing `:frame` + `:realm` throws (a
-;; silent priority rule would re-introduce the (realm, frame) ambiguity EP-0023
-;; removes). `:frame` accepts a REGISTERED FRAME ID (keyword, looked up in the
+;; A MAP argument is ALWAYS a frame-targeted read: a registrar-query map WITHOUT
+;; `:frame` is an error (`:rf.error/registrar-query-needs-frame`,
+;; `assert-registrar-query-has-frame!`). The retired pre-EP-0023 `:realm` map
+;; arity (and the absence-as-default `{:kind …}` / `{:realm nil …}` spelling it
+;; implied) is REMOVED — there is no realm coordinate in the public read
+;; grammar. The realm machinery survives as INTERNAL substrate
+;; (`re-frame.realm/realm-registrations` etc.) for tooling that requires the ns
+;; directly (e.g. Xray's host-registry generation-bypass), not as a facade arity.
+;;
+;; EP-0023 (rf2-wkw8na) — the FRAME-TARGETED map form reads the registrations
+;; resolved through a live frame's OWN sealed image generation (EP-0023
+;; §Frame-derived live registration resolution — "target frame -> resolved image
+;; generation -> registration resolution"), surfacing the `:rf.provenance/ns` +
+;; inline/image + replacement/standard facts the resolved descriptors already
+;; carry. This is the public tooling surface over a frame's generation, for tools
+;; (Pair MCP, Xray) that EP-0023 forbids from consuming `re-frame.live-frame` /
+;; `re-frame.image-assembly` internals. The thin, no-duplication path: resolve
+;; the frame target ONCE to a live frame object, then run the EXISTING registrar
+;; reads inside `re-frame.live-frame/call-with-frame-resolution`, which binds
+;; `registrar/*generation*` so the registrar's ALREADY generation-aware `lookup`
+;; / `registrations` / `ids` do the resolution — byte-identical descriptor shape,
+;; no resolver-walk duplicated here. The default source-store path stays
+;; byte-identical: only a caller that passes `{:frame …}` reaches the generation.
+;;
+;; FAIL-LOUD (rf2-wkw8na, EP-0023 §Id Spaces): a `:frame` that does not resolve
+;; to a live frame carrying a generation throws `:rf.error/frame-no-generation`
+;; (NO fallback to the default registrar — the read needs a live EP-0023 frame).
+;; `:frame` accepts a REGISTERED FRAME ID (keyword, looked up in the
 ;; process-local live-frame registry — the same path `reload-images!` uses) OR a
 ;; direct live frame OBJECT (`make-frame`'s return value).
 
@@ -1682,29 +1689,30 @@
          :extra    {:frame          frame-target
                     :live-frame-ids (vec (live-frame/live-frame-ids))}}))))
 
-(defn- assert-not-frame-realm-mixed!
-  "Fail loud (`:rf.error/frame-realm-mixed-address`) when a registrar-query map
-  carries BOTH `:frame` and `:realm`. They are DISTINCT address families
-  (EP-0023 §Id Spaces — `:rf.realm/frame-address`): `:realm` targets a realm's
-  OWN registrar atom, `:frame` resolves through a live frame's sealed image
-  generation. A silent priority rule would re-introduce the (realm, frame)
-  ambiguity EP-0023 removes, so the façade rejects the mixed address rather than
-  pick one. Returns `arg` unchanged when at most one of the two is present."
+(defn- assert-registrar-query-has-frame!
+  "Fail loud (`:rf.error/registrar-query-needs-frame`) when a map-shaped
+  registrar query (`rf/registrations` / `rf/handler-meta` / `rf/handler-ids`)
+  carries NO `:frame`. Post-EP-0023 (rf2-10nggz) the public read grammar has
+  exactly two shapes per trio member: the POSITIONAL-KEYWORD arity is the
+  unframed default source-store read, and a MAP is ALWAYS a frame-targeted read
+  resolved through a live frame's sealed image generation. There is no realm
+  coordinate — the retired pre-EP-0023 `:realm` map arity (and the
+  absence-as-default `{:kind …}` spelling it implied) is GONE — so a registrar
+  query map without `:frame` is an error, not a default-realm read. Never
+  returns normally."
   [arg where-sym]
-  (when (and (map? arg) (contains? arg :frame) (contains? arg :realm))
-    (error/throw-error!
-      :rf.error/frame-realm-mixed-address
-      where-sym
-      (str where-sym ": a registrar-query map carries BOTH :frame and :realm, "
-           "but they are DISTINCT address families (EP-0023 §Id Spaces). :realm "
-           "reads a realm's OWN registrar atom; :frame resolves through a live "
-           "frame's sealed image generation. Pick ONE — a silent priority rule "
-           "would re-introduce the (realm, frame) addressing ambiguity EP-0023 "
-           "removes.")
-      {:recovery :pass-frame-or-realm-not-both
-       :extra    {:frame (:frame arg)
-                  :realm (:realm arg)}}))
-  arg)
+  (error/throw-error!
+    :rf.error/registrar-query-needs-frame
+    where-sym
+    (str where-sym ": a map-shaped registrar query MUST carry :frame. "
+         "Post-EP-0023 a map is ALWAYS a frame-targeted read resolved through "
+         "a live frame's sealed image generation; the default source store is "
+         "read by the positional-keyword arity (e.g. (" where-sym " :event)), "
+         "and the retired :realm map arity has been removed — there is no realm "
+         "coordinate in the public read grammar. Pass {:frame f :kind k …} for a "
+         "frame-targeted read, or the bare kind for the default source store.")
+    {:recovery :pass-a-frame-or-use-the-keyword-arity
+     :extra    {:received-keys (vec (keys arg))}}))
 
 (defn frame-generation
   "Return the SEALED, resolved image GENERATION a live frame is running — the
@@ -1745,18 +1753,10 @@
 
   Arities:
     `(registrations kind)`        — the full `{id metadata}` for `kind` in the
-                                     default realm (process-global registrar),
-                                     `{}` if none.
+                                     default source store (process-global
+                                     registrar), `{}` if none.
     `(registrations kind pred-fn)` — same, filtered to entries whose metadata
                                      satisfies `pred-fn`.
-    `(registrations {:realm r :kind k})` — REALM-TARGETED (EP-0013 stage 8):
-                                     the `{id metadata}` for `:kind` in realm
-                                     `:realm`'s OWN registrar — only THAT
-                                     realm's registrations. `:realm` is a realm
-                                     map, a realm-id keyword, or absent/nil for
-                                     the default realm. An optional `:pred`
-                                     filters by metadata as the positional
-                                     `pred-fn` does.
     `(registrations {:frame f :kind k})` — FRAME-TARGETED (EP-0023, rf2-wkw8na):
                                      the `{id metadata}` for `:kind` resolved
                                      through live frame `:frame`'s OWN sealed
@@ -1770,19 +1770,20 @@
                                      `:pred` filters by metadata as above. FAILS
                                      LOUD when `:frame` does not resolve to a live
                                      frame generation (`:rf.error/frame-no-
-                                     generation` — NO default/realm fallback), or
-                                     when the map ALSO carries `:realm`
-                                     (`:rf.error/frame-realm-mixed-address` —
-                                     distinct address families).
+                                     generation` — NO default fallback).
 
-  The map-shaped form is unambiguous against the keyword arities (a `kind` is a
-  keyword, never a map) — the byte-identical default-realm path is unchanged
-  for every existing caller."
+  A map argument is ALWAYS a frame-targeted read (EP-0023, rf2-10nggz): a map
+  WITHOUT `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The
+  retired pre-EP-0023 `:realm` map arity is GONE — there is no realm coordinate
+  in the public read grammar; the keyword arity reads the default source store
+  and the map arity reads a frame's resolved generation. The map-shaped form is
+  unambiguous against the keyword arities (a `kind` is a keyword, never a map) —
+  the byte-identical default source-store path is unchanged for every existing
+  keyword caller."
   ([arg]
    (cond
      (and (map? arg) (contains? arg :frame))
-     (let [_     (assert-not-frame-realm-mixed! arg 'rf/registrations)
-           frame (resolve-live-frame-object (:frame arg) 'rf/registrations)
+     (let [frame (resolve-live-frame-object (:frame arg) 'rf/registrations)
            {:keys [kind pred]} arg]
        (live-frame/call-with-frame-resolution
          frame
@@ -1791,11 +1792,7 @@
             (registrar/registrations kind))))
 
      (map? arg)
-     (let [{:keys [realm kind pred]} arg
-           base (realm/realm-registrations realm kind)]
-       (if pred
-         (into {} (filter (fn [[_id meta]] (pred meta))) base)
-         base))
+     (assert-registrar-query-has-frame! arg 'rf/registrations)
 
      :else
      (registrar/registrations arg)))
@@ -1814,13 +1811,6 @@
       :view :frame :route :head :error-projector :flow :resource`) this is
       `registrar/lookup`. For `:interceptor` the metadata carries the registered
       `:rf/interceptor-descriptor` plus source coords + `:doc` (EP-0022).
-    `(handler-meta {:realm r :kind k :id id})` — REALM-TARGETED (EP-0013 stage
-      8): the metadata for `[k id]` in realm `r`'s OWN registrar — only THAT
-      realm's registration. `:realm` is a realm map, a realm-id keyword, or
-      absent/nil for the default realm. (The machine kinds are derived from
-      the default realm's machine specs, so the realm-targeted form is for the
-      registrar kinds; a machine kind through the map form resolves against
-      the default-realm derivation.)
     `(handler-meta {:frame f :kind k :id id})` — FRAME-TARGETED (EP-0023,
       rf2-wkw8na): the metadata for `[k id]` resolved through live frame `f`'s
       OWN sealed image generation (surfacing `:rf.provenance/ns` + inline/image +
@@ -1831,8 +1821,14 @@
       (the machine kinds are not registrar kinds and are not in the generation
       resolver — a machine kind through the frame form is `nil`). FAILS LOUD when
       `:frame` does not resolve to a live frame generation
-      (`:rf.error/frame-no-generation` — NO default/realm fallback) or when the
-      map ALSO carries `:realm` (`:rf.error/frame-realm-mixed-address`).
+      (`:rf.error/frame-no-generation` — NO default fallback).
+
+  A map argument is ALWAYS a frame-targeted read (rf2-10nggz): a map WITHOUT
+  `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The retired
+  pre-EP-0023 `:realm` map arity is GONE — there is no realm coordinate in the
+  public read grammar. A machine-kind read uses the positional
+  `(handler-meta :machine-guard [machine-id guard-id])` arity (machine kinds are
+  not frame-targeted).
 
   The two machine kinds `:machine-guard` / `:machine-action` are NOT
   registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `id` is
@@ -1846,20 +1842,16 @@
   `:source-*` slots are absent).
 
   The map-shaped form is unambiguous against the `(kind id)` arity (a `kind`
-  is a keyword, never a map) — the byte-identical default-realm path is
-  unchanged for every existing caller."
+  is a keyword, never a map) — the byte-identical default source-store path is
+  unchanged for every existing keyword caller."
   ([arg]
    (if (contains? arg :frame)
-     (let [_     (assert-not-frame-realm-mixed! arg 'rf/handler-meta)
-           frame (resolve-live-frame-object (:frame arg) 'rf/handler-meta)
+     (let [frame (resolve-live-frame-object (:frame arg) 'rf/handler-meta)
            {:keys [kind id]} arg]
        (live-frame/call-with-frame-resolution
          frame
          #(registrar/handler-meta kind id)))
-     (let [{:keys [realm kind id]} arg]
-       (case kind
-         (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
-         (realm/realm-handler-meta realm kind id)))))
+     (assert-registrar-query-has-frame! arg 'rf/handler-meta)))
   ([kind id]
    (case kind
      (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
@@ -1869,34 +1861,35 @@
   "Return the set of registered ids under `kind` (no metadata). Per Spec 002
   §The public registrar query API.
 
+  `handler-ids` is a PROJECTION over `registrations` (`(-> (registrations …)
+  keys set)`), not a separate addressing axis — it has the same two read shapes.
+
   Arities:
-    `(handler-ids kind)` — the id set under `kind` in the default realm.
-    `(handler-ids {:realm r :kind k})` — REALM-TARGETED (EP-0013 stage 8): the
-      id set under `:kind` in realm `:realm`'s OWN registrar — only THAT
-      realm's ids. `:realm` is a realm map, a realm-id keyword, or absent/nil
-      for the default realm.
+    `(handler-ids kind)` — the id set under `kind` in the default source store.
     `(handler-ids {:frame f :kind k})` — FRAME-TARGETED (EP-0023, rf2-wkw8na):
       the id set under `:kind` resolved through live frame `:frame`'s OWN sealed
       image generation — only the ids that frame's image carries. `:frame` is a
       REGISTERED frame id (keyword) OR a direct live frame OBJECT (the same
       target shapes `rf/reload-images!` accepts). FAILS LOUD when `:frame` does
       not resolve to a live frame generation (`:rf.error/frame-no-generation` —
-      NO default/realm fallback) or when the map ALSO carries `:realm`
-      (`:rf.error/frame-realm-mixed-address`).
+      NO default fallback).
 
-  The map-shaped form is unambiguous against the keyword arity (a `kind` is a
-  keyword, never a map) — the default-realm path is byte-identical."
+  A map argument is ALWAYS a frame-targeted read (rf2-10nggz): a map WITHOUT
+  `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The retired
+  pre-EP-0023 `:realm` map arity is GONE — there is no realm coordinate in the
+  public read grammar. The map-shaped form is unambiguous against the keyword
+  arity (a `kind` is a keyword, never a map) — the default source-store path is
+  byte-identical for every existing keyword caller."
   [arg]
   (cond
     (and (map? arg) (contains? arg :frame))
-    (let [_     (assert-not-frame-realm-mixed! arg 'rf/handler-ids)
-          frame (resolve-live-frame-object (:frame arg) 'rf/handler-ids)]
+    (let [frame (resolve-live-frame-object (:frame arg) 'rf/handler-ids)]
       (live-frame/call-with-frame-resolution
         frame
         #(registrar/ids (:kind arg))))
 
     (map? arg)
-    (realm/realm-handler-ids (:realm arg) (:kind arg))
+    (assert-registrar-query-has-frame! arg 'rf/handler-ids)
 
     :else
     (registrar/ids arg)))
