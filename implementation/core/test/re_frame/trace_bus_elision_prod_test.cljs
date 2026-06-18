@@ -96,8 +96,8 @@
 (deftest trace-configure-is-noop-under-prod
   (testing "Per Spec 009 §Production builds: the generic `configure`
             dispatch (currently `:trace-buffer`) is also gated. Apps
-            that boot via `(re-frame.core/configure! :trace-buffer ...)`
+            that boot via `(re-frame.core/configure! {:trace-buffer ...})`
             do not crash under :advanced; the requested config is
             silently dropped."
-    (is (nil? (rf/configure! :trace-buffer {:cascades-retained 64}))
+    (is (nil? (rf/configure! {:trace-buffer {:cascades-retained 64}}))
         "configure :trace-buffer returns nil under prod")))

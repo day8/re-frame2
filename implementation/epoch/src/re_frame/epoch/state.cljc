@@ -82,14 +82,14 @@
   ;; entries; well within browser tolerance).
   ;;
   ;; Memory-conscious hosts can still set a lower cap via
-  ;; `(rf/configure! :epoch-history {:trace-events-keep N})`. Setting
+  ;; `(rf/configure! {:epoch-history {:trace-events-keep N}})`. Setting
   ;; the slot to `0` drops every record's `:trace-events`.
   50)
 
 (def ^:private default-config
   ;; The shipped baseline config. Three keys today (:depth,
   ;; :trace-events-keep, :redact-fn). Map shape kept open so future
-  ;; (rf/configure! :epoch-history {...}) extensions don't break the
+  ;; (rf/configure! {:epoch-history {...}}) extensions don't break the
   ;; shape. Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook +
   ;; Security.md §Epoch privacy posture: :redact-fn defaults to nil —
   ;; apps that record sensitive material into app-db opt in by
@@ -210,7 +210,7 @@
   append actually transitions, so the O(n) walk was wasted work. The
   steady-state invariant holds because every prior append already
   elided its own just-crossed record; runtime reductions of `keep`
-  via `(rf/configure! :epoch-history ...)` will take full effect on
+  via `(rf/configure! {:epoch-history ...})` will take full effect on
   subsequent appends rather than retroactively rewriting the buffer
   (pre-alpha posture)."
   [history keep]
@@ -260,7 +260,7 @@
 (defn record!
   "Append a record into the frame's history. The depth cap and the
   `:trace-events-keep` cap are read from the config atom on each
-  append so runtime `(rf/configure! :epoch-history ...)` takes effect
+  append so runtime `(rf/configure! {:epoch-history ...})` takes effect
   immediately."
   [record]
   (let [d    (depth)

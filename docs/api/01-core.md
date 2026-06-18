@@ -526,7 +526,7 @@ See [12 — Registrar](12-registrar.md) for the rest of the registrar-query surf
 
 ## Runtime configuration: `configure`
 
-Process-level data knobs live behind `(rf/configure! <key> <opts>)`. The vocabulary of keys is closed-and-additive — existing keys cannot be renamed; new keys are added by extending the table. Currently three keys ship:
+Process-level data knobs live behind `(rf/configure! {<key> <opts>})`. The vocabulary of keys is closed-and-additive — existing keys cannot be renamed; new keys are added by extending the table. Currently three keys ship:
 
 | Key | Opts | Default | Status | What it tunes |
 |---|---|---|---|---|

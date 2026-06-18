@@ -54,10 +54,10 @@
   ;; projects a full per-event narrative (each beat carries full :db /
   ;; trace-events), ballooning the wire payload past the MCP token cap (the
   ;; whole run-result is replaced by a `:rf.mcp/overflow` marker, failing the
-  ;; shape assertions). `(rf/configure! :epoch-history {:depth 0})` reproduces
+  ;; shape assertions). `(rf/configure! {:epoch-history {:depth 0}})` reproduces
   ;; the artefact's own epoch-free posture: it is a core-facade knob that
   ;; no-ops when epoch is absent and disables ring recording when present.
-  (rf/configure! :epoch-history {:depth 0})
+  (rf/configure! {:epoch-history {:depth 0}})
   (story/reg-story :story.cart
     {:doc "A cart." :component :app.ui/cart :tags #{:dev :test} :args {}})
   ;; A variant carrying a REAL failing assertion (a path-equals against a
@@ -72,7 +72,7 @@
     (finally
       ;; Restore the shipped epoch-ring default so a story namespace running
       ;; after this one in the aggregate sees the normal depth-50 posture.
-      (rf/configure! :epoch-history {:depth 50}))))
+      (rf/configure! {:epoch-history {:depth 50}}))))
 
 (use-fixtures :each reset-story)
 

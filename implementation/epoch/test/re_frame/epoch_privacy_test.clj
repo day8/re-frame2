@@ -62,7 +62,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -983,7 +983,7 @@
 (deftest retention-cap-zero-drops-every-trace-events
   (testing ":trace-events-keep 0 drops :trace-events from every
             record — the structured projections survive"
-    (rf/configure! :epoch-history {:trace-events-keep 0})
+    (rf/configure! {:epoch-history {:trace-events-keep 0}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -1002,7 +1002,7 @@
 (deftest retention-cap-explicit-large-keeps-all
   (testing "an explicit :trace-events-keep value >= the depth cap
             keeps every record's :trace-events — the opt-back-in path"
-    (rf/configure! :epoch-history {:trace-events-keep 100})
+    (rf/configure! {:epoch-history {:trace-events-keep 100}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))

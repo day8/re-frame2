@@ -414,8 +414,8 @@
 ;; ---- epoch history (rf2-3zyyx — spec/021 §10.7, §13) -------------------
 ;;
 ;; The Epoch history slider in Settings → General writes through to the
-;; substrate's per-frame ring depth via `(rf/configure! :epoch-history
-;; {:depth N})` — the same runtime knob `re-frame.epoch.state/merge-config!`
+;; substrate's per-frame ring depth via `(rf/configure! {:epoch-history
+;; {:depth N}})` — the same runtime knob `re-frame.epoch.state/merge-config!`
 ;; gates on. The substrate reads the depth on every `record!` so the new
 ;; cap takes effect on the next drain settle; existing oversize histories
 ;; are NOT retroactively trimmed (pre-alpha posture — the substrate
@@ -450,15 +450,15 @@
   [n]
   (when (and (number? n) (pos? n))
     (try
-      (rf/configure! :epoch-history {:depth             (long n)
-                                    :trace-events-keep (long n)})
+      (rf/configure! {:epoch-history {:depth             (long n)
+                                      :trace-events-keep (long n)}})
       (catch :default _ nil)))
   nil)
 
 (defn apply-cascades-retained!
   "Write `n` (the cascades-retained count) through to the substrate's
-  per-frame trace ring via `(rf/configure! :trace-buffer
-  {:cascades-retained N})`. This caps how many cascades each frame's
+  per-frame trace ring via `(rf/configure! {:trace-buffer
+  {:cascades-retained N}})`. This caps how many cascades each frame's
   trace ring retains. Mirrors `apply-epoch-history!`: the published
   `re-frame.core/configure!` API late-binds through the hook table so
   production builds that DCE the trace artefact silently no-op.
@@ -472,7 +472,7 @@
   [n]
   (when (and (number? n) (pos? n))
     (try
-      (rf/configure! :trace-buffer {:cascades-retained (long n)})
+      (rf/configure! {:trace-buffer {:cascades-retained (long n)}})
       (catch :default _ nil)))
   nil)
 

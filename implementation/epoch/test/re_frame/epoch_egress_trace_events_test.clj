@@ -66,7 +66,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 

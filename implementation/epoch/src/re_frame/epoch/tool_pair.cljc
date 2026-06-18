@@ -1654,7 +1654,7 @@
        This is the normal answer; ordinary apps need nothing more.
 
     2. **`:redact-fn` advanced override.** If the app installed a
-       `(rf/configure! :epoch-history {:redact-fn …})`, it is applied to
+       `(rf/configure! {:epoch-history {:redact-fn …}})`, it is applied to
        the already-projected record (`assembly/apply-redact-fn`) as the
        rare advanced escape for material the frame/profile projection
        cannot prove. It runs ONLY here, on the off-box egress copy — the

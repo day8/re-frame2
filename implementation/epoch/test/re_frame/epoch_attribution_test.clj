@@ -109,7 +109,7 @@
 ;;
 ;; The `:init-fn` adds two suite-specific steps the shared fixture
 ;; doesn't own:
-;;   - `(rf/configure! :epoch-history {:trace-events-keep 5})` — the
+;;   - `(rf/configure! {:epoch-history {:trace-events-keep 5}})` — the
 ;;     suite's non-default keep (NOT the shipped 50 = :depth; Mike
 ;;     pair-debug 2026-05-27), through the public boundary so no test ns
 ;;     reaches into the private `state/config` var.
@@ -121,7 +121,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn (fn []
-                (rf/configure! :epoch-history {:trace-events-keep 5})
+                (rf/configure! {:epoch-history {:trace-events-keep 5}})
                 (trace/clear-frame-no-emit!))}))
 
 ;; ---- shared post-settle-emit fixture --------------------------------------
@@ -622,7 +622,7 @@
             was mis-attributed to the mount/default epoch. The fix consults the
             structured `:sub-runs` (learned dep + `:value-changed? true`) when
             the raw stream is absent, so the render lands on the CURRENT epoch."
-    (rf/configure! :epoch-history {:trace-events-keep 0})
+    (rf/configure! {:epoch-history {:trace-events-keep 0}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))

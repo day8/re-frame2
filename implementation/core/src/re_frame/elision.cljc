@@ -38,7 +38,7 @@
 ;; runtime auto-detect threshold for the `:rf.warning/large-value-unschema'd`
 ;; advisory is configurable. Precedence (normative, API.md L507):
 ;;
-;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure! :elision …)`  >  default
+;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure! {:elision …})`  >  default
 ;;
 ;; A threshold of 0 disables runtime auto-detect entirely (only
 ;; frame-declared `:large` entries elide); the unschema'd-large warning

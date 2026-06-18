@@ -2900,7 +2900,7 @@
 ;; ---- configure / substrate adapter / boot --------------------------------
 
 (defn configure!
-  "Configure a process-level runtime knob. v1 keys:
+  "Configure process-level runtime knobs from a single nested map. v1 keys:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
     :trace-buffer  {:cascades-retained N}           per-frame trace-ring cascade count
                                                     (default 50; 0 disables retention).
@@ -2912,8 +2912,21 @@
                                                     (default 16384; 0 disables runtime
                                                     auto-detect — only declared / schema
                                                     entries elide)
-  Unknown keys silently no-op. Per-frame settings live on frame metadata.
-  Per Tool-Pair §How AI tools attach.
+
+  One composable configuration value rather than several near-equivalent
+  spellings:
+
+      (configure! {:epoch-history {:depth 100}
+                   :trace-buffer  {:cascades-retained 25}
+                   :elision       {:rf.size/threshold-bytes 8192}})
+
+  The argument MUST be a map (a non-map arg fails loudly). A missing
+  top-level key leaves that subsystem untouched; a present key delegates
+  to that subsystem's configurator in API-table order
+  (`:epoch-history`, `:trace-buffer`, `:elision`), preserving each one's
+  existing slot-merge semantics. Unknown top-level keys silently no-op
+  (closed-and-additive contract). Per-frame settings live on frame
+  metadata. Per Tool-Pair §How AI tools attach.
 
   Per rf2-cmfln: the prior `:sub-cache {:grace-period-ms N}` knob is
   retired. Sub disposal is **synchronous on derefer-count → 0** —
@@ -2923,14 +2936,18 @@
   ns (per rf2-qwm0a). Production builds that never load the tooling
   sibling silently no-op on this key — the ring + listener machinery
   is DCE'd anyway."
-  [knob opts]
-  (case knob
-    :epoch-history (when-let [f (late-bind/get-fn :epoch/configure!)]
-                     (f opts))
-    :trace-buffer  (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
-                     (f opts))
-    :elision       (elision/configure! opts)
-    nil))
+  [config-map]
+  (assert (map? config-map)
+          "re-frame.core/configure! expects a single nested config map, e.g. (configure! {:epoch-history {:depth 100}})")
+  (when-let [opts (:epoch-history config-map)]
+    (when-let [f (late-bind/get-fn :epoch/configure!)]
+      (f opts)))
+  (when-let [opts (:trace-buffer config-map)]
+    (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
+      (f opts)))
+  (when-let [opts (:elision config-map)]
+    (elision/configure! opts))
+  nil)
 
 (def ^{:doc "Install the substrate adapter for this process. Once. A
   second call without an intervening `destroy-adapter!` raises

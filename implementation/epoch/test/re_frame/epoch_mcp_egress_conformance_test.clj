@@ -77,7 +77,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -598,9 +598,8 @@
             and assert it lands even with the sensitive opt-in on."
     (rf/reg-frame :test/mcp {})
     (install-fx-and-runtime-schemas! :test/mcp)
-    (rf/configure! :epoch-history
-                   {:redact-fn (fn [record]
-                                 (assoc record :rf.test/redact-fn-ran true))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [record]
+                                 (assoc record :rf.test/redact-fn-ran true))}})
     (rf/reg-event :seed-sensitive
                      (fn [{:keys [db]} _] {:db {:auth {:password secret-password}}}))
     (rf/dispatch-sync [:seed-sensitive] {:frame :test/mcp})

@@ -74,7 +74,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Restore an epoch | *done* | `restore-epoch` (dedicated tool, `--allow-writes`-gated) over `rf/restore-epoch!` |
 | Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `rf/replace-app-db!` — the JSON-loaded-bug-repro case |
 | Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer {:op-type :error})` carries the structured tags |
-| Configure ring depth | *done* | `(rf/configure! :epoch-history {:depth N})` |
+| Configure ring depth | *done* | `(rf/configure! {:epoch-history {:depth N}})` |
 | Reverse side effects | *guardrail* | Restore rewinds durable **frame-state** (both partitions); it does NOT reverse side effects or transient host state. `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
 
 ---

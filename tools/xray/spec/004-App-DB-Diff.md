@@ -562,8 +562,8 @@ observed frame declared `:sensitive` is substituted by the `:rf/redacted`
 sentinel through **egress projection** (`project-egress` keyed on the
 observed frame) — never by mutating the stored record. Per Spec 015 §6
 (Epoch projection — no storage-side mutation), raw epoch records remain
-in-process and the legacy storage-side `(rf/configure! :epoch-history
-{:redact-fn …})` hook is gone; projection at the export / on-box-render
+in-process and the legacy storage-side `(rf/configure! {:epoch-history
+{:redact-fn …}})` hook is gone; projection at the export / on-box-render
 boundary is the normal answer. When the underlying value at a redacted
 path actually changed across a cascade, the structural diff correctly sees
 `:rf/redacted` = `:rf/redacted` and emits no row — the elision

@@ -63,7 +63,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **low-level value walker** for tree-shaped values; `project-egress` delegates to it per tree-shaped slot. Sinks and tools should rarely call it directly. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `redact-derived-slots` | composed multi-slot egress helper | `(rf/redact-derived-slots m slot-keys source-db frame-id wire-opts)` → `m` with the selected derived slot(s) value-redacted. The value-based DUAL of `elide-wire-value` — collects a frame's declared-`:sensitive` / `:large` app-db values ONCE from `source-db` and substitutes any matching leaf in the derived tree(s) (`:rf/redacted` / `:rf.size/large-elided`), since a derived tree re-surfaces those values at non-app-db positions the path walker can't reach. The single façade egress assembler; the granular value-match arms + the `[:rf.runtime/elision]` declaration readers (`re-frame.elision/declarations` / `sensitive-declarations`) it composes live in `re-frame.elision` (not façade exports). | [API.md](API.md), [015 §Projection](015-Data-Classification.md#projection) |
 | `populate-elision-from-schemas!` / `populate-sensitive-from-schemas!` | internal migration importer | Walk app-schemas and lower `:large?` / `:sensitive?` slot props into the runtime-db `[:rf.runtime/elision …]` registries. Per EP-0015 §8 schema metadata is **not** the public route for durable *app-db* classification (the frame owns that); these hydrators survive only as an **internal compatibility bridge** for migration import, not as a co-equal public façade. Idempotent; no-op when the schemas artefact is absent. | [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy) |
-| `(configure! :elision ...)` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
+| `(configure! {:elision ...})` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
 
 ### `re-frame.http`
 
@@ -93,7 +93,7 @@ Per EP-0015 issue 6 (graduated), epoch records are **causal replay material** (p
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `(configure! :epoch-history {:redact-fn fn})` | runtime config | **Projection-side advanced override.** Invoked **once per record at the off-box egress boundary** — inside the projected-record helper, **after** the frame/profile `project-egress` projection — and MUST NOT mutate the record at storage time. The in-process ring + every listener therefore deliver the **raw** record (mutating replay material at rest corrupts the EP-0010 replay contract). Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the projected record for that egress only. Production-elided (the whole epoch surface rides `debug-enabled?`). | [015 §Epoch projection](015-Data-Classification.md#epoch-projection-no-storage-side-mutation), [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
+| `(configure! {:epoch-history {:redact-fn fn}})` | runtime config | **Projection-side advanced override.** Invoked **once per record at the off-box egress boundary** — inside the projected-record helper, **after** the frame/profile `project-egress` projection — and MUST NOT mutate the record at storage time. The in-process ring + every listener therefore deliver the **raw** record (mutating replay material at rest corrupts the EP-0010 replay contract). Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the projected record for that egress only. Production-elided (the whole epoch surface rides `debug-enabled?`). | [015 §Epoch projection](015-Data-Classification.md#epoch-projection-no-storage-side-mutation), [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
 | `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event / declared-sensitive leaf in the record was sensitive. Computed at build-time from the raw record's schema-declared sensitive leaves, so it stays an accurate off-box-branch signal on the raw ring record. | [Tool-Pair §Time-travel](Tool-Pair.md) |
 | `projected-record` | projection fn | `(rf/projected-record record)` — off-box-safe projection of a `:rf/epoch-record`. Routes each tree slot through `project-egress` (over `elide-wire-value`), strips raw `:db-before` / `:db-after`, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The single projection site when shipping epoch data off-box; then applies the `:redact-fn` advanced override. Idempotent. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
 | `projected-history` | projection fn | `(rf/projected-history frame-id)` — `(mapv projected-record (epoch-history frame-id))`. Off-box-safe equivalent of `epoch-history`. | [Tool-Pair §Time-travel](Tool-Pair.md) |
@@ -155,7 +155,7 @@ Machine **transition payloads** are transient payloads classified by the transit
 
 ### Runtime config — epoch redact hook
 
-- `(rf/configure! :epoch-history {:redact-fn (fn [record] ...)})` — single-pass record-in / record-out hook at the epoch boundary.
+- `(rf/configure! {:epoch-history {:redact-fn (fn [record] ...)}})` — single-pass record-in / record-out hook at the epoch boundary.
 
 ---
 
@@ -337,7 +337,7 @@ Both default to suppress per Spec 009's default-private posture. A sixth consume
 
 Per [API.md §Configure keys](API.md) and [015](015-Data-Classification.md):
 
-| `(rf/configure! <key> {...})` | Privacy-relevant opt | Default | Purpose |
+| `(rf/configure! {<key> {...}})` | Privacy-relevant opt | Default | Purpose |
 |---|---|---|---|
 | `:elision` | `:rf.size/threshold-bytes N` | `16384` | Wire-elision size cap. Non-negative integer; 0 disables runtime auto-detect (only declared / schema-marked entries elide). |
 | `:epoch-history` | `:redact-fn fn` | `nil` | **Projection-side** advanced override — runs at off-box egress (inside `projected-record`, after the frame/profile projection), never at storage (EP-0015 issue 6). See [Tool-Pair §Redaction hook](Tool-Pair.md). |
@@ -430,7 +430,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 ;;    hook runs at off-box EGRESS (inside projected-record, after the
 ;;    frame/profile projection), NEVER at storage — the in-process ring
 ;;    stays raw (causal replay material).
-(rf/configure! :epoch-history
+(rf/configure! {:epoch-history
   {:redact-fn (fn [record]
                 ;; Scrub :exception-message on any captured trace event.
                 (update record :trace-events
@@ -438,7 +438,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
                                  (cond-> ev
                                    (= :error (:op-type ev))
                                    (update :tags dissoc :exception-message)))
-                               %)))})
+                               %)))}})
 ```
 
 **What every observation surface sees after the cascade settles:**
@@ -503,7 +503,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
 - [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — per-slot schema props for owner-local schema'd data and schema-validation error-trace redaction.
 - [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists, frame-local carriers, and the per-call `:sensitive?` request arg.
-- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the projection-side `:redact-fn` config key on `(rf/configure! :epoch-history ...)`; the `projected-record` / `projected-history` off-box egress pair.
+- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the projection-side `:redact-fn` config key on `(rf/configure! {:epoch-history ...})`; the `projected-record` / `projected-history` off-box egress pair.
 - [Tool-Pair §Direct-read privacy posture](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) — the MCP wire-egress contract for direct-read tools.
 
 ### Cross-cutting conventions

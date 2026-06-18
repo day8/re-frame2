@@ -281,7 +281,7 @@
                                        registry.
     :epoch/reset-config!             — restore epoch-history config to the
                                        shipped default baseline (rf2-yw1w1u).
-                                       `(rf/configure! :epoch-history ...)`
+                                       `(rf/configure! {:epoch-history ...})`
                                        MERGES, so without this a prior test's
                                        `:depth` / `:trace-events-keep` /
                                        `:redact-fn` would leak into the next.

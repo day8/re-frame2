@@ -141,7 +141,7 @@
 
         ;; rf2-3zyyx — Epoch history slider. Writes through to the
         ;; substrate's per-frame ring depth via
-        ;; `(rf/configure! :epoch-history {:depth N})`. See
+        ;; `(rf/configure! {:epoch-history {:depth N}})`. See
         ;; `settings/effects.cljs §apply-epoch-history!` for the
         ;; late-bind contract; non-positive values are dropped at the
         ;; effect boundary.
@@ -150,7 +150,7 @@
 
         ;; rf2-5u03ig — Cascades-retained field. Writes through to the
         ;; substrate's per-frame trace ring via
-        ;; `(rf/configure! :trace-buffer {:cascades-retained N})`. See
+        ;; `(rf/configure! {:trace-buffer {:cascades-retained N}})`. See
         ;; `settings/effects.cljs §apply-cascades-retained!` for the
         ;; late-bind contract; non-positive values are dropped at the
         ;; effect boundary.

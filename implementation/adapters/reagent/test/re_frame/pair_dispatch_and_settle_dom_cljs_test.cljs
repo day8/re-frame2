@@ -89,7 +89,7 @@
         ;; Recording must be ON for the epoch to be assembled + re-read
         ;; (the default depth is 50; pin it explicitly so the test does
         ;; not depend on ambient config).
-        (rf/configure! :epoch-history {:depth 50})
+        (rf/configure! {:epoch-history {:depth 50}})
         (rf/reg-frame frame-kw {:doc "dispatch-and-settle! probe frame"})
         (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:show? false}}))
         (rf/reg-event ::show (fn [{:keys [db]} _] {:db (assoc db :show? true)}))
@@ -209,7 +209,7 @@
     ;; shares one process).
     (let [frame-kw :rf.pair-settle/no-record-frame]
       (try
-        (rf/configure! :epoch-history {:depth 0}) ;; recording OFF (process-global)
+        (rf/configure! {:epoch-history {:depth 0}}) ;; recording OFF (process-global)
         (rf/reg-frame frame-kw {:doc "no-epoch probe frame"})
         (rf/reg-event ::noop (fn [{:keys [db]} _] {:db db}))
         (let [settled (pair/dispatch-and-settle! [::noop] {:frame frame-kw})]
@@ -222,4 +222,4 @@
         (finally
           ;; Restore the framework default so the global knob does not
           ;; leak into sibling tests.
-          (rf/configure! :epoch-history {:depth 50}))))))
+          (rf/configure! {:epoch-history {:depth 50}}))))))

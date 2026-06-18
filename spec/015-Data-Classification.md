@@ -408,7 +408,7 @@ Per **EP-0015 issue 6**, epoch records are **causal replay material** (post-[EP-
 - frame-level epoch projection policy replaces the process-global `:redact-fn` for ordinary use;
 - **storage-side mutation is removed**, not merely discouraged. A surviving custom-transform hook, if retained, is **projection-side only** (export / egress) and explicitly advanced.
 
-The old `(rf/configure! :epoch-history {:redact-fn …})` storage-side hook is gone; projection at the export boundary is the normal answer.
+The old `(rf/configure! {:epoch-history {:redact-fn …}})` storage-side hook is gone; projection at the export boundary is the normal answer.
 
 ## Derived sensitivity
 

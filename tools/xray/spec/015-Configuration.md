@@ -558,8 +558,8 @@ Buffer tab:
 - `:cascades-retained` — count of cascades retained in each frame's
   trace ring. Mirrors
   `re-frame.trace.tooling/default-cascades-retained` (`50`). Writes
-  through to the runtime ring via `(rf/configure! :trace-buffer
-  {:cascades-retained N})` — `settings/effects.cljs
+  through to the runtime ring via `(rf/configure! {:trace-buffer
+  {:cascades-retained N}})` — `settings/effects.cljs
   §apply-cascades-retained!` resizes the live ring and `apply-all!`
   replays the persisted value on boot (rf2-5u03ig). Renamed from
   `:trace-buffer/keep` (events) at rf2-43koh — the unit changed from

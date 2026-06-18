@@ -126,7 +126,7 @@
   (story/reg-variant :story.xray.settings-popup/buffer
     {:doc        "Settings popup open on Buffer tab. A single
                  `cascades-retained` numeric input (writes through to
-                 `(rf/configure! :trace-buffer {:cascades-retained N})`
+                 `(rf/configure! {:trace-buffer {:cascades-retained N}})`
                  per rf2-5u03ig) plus a destructive 'Clear buffer now'
                  button. Clicking Clear opens a confirmation modal
                  (Cancel / Clear). The epoch-history slider lives in

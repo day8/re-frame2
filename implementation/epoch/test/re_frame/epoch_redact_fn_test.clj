@@ -70,7 +70,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -104,41 +104,41 @@
 ;; ============================================================================
 
 (deftest configure-accepts-fn
-  (testing "(rf/configure! :epoch-history {:redact-fn f}) — fn? accepted
+  (testing "(rf/configure! {:epoch-history {:redact-fn f}}) — fn? accepted
             and the slot lands in current-config"
     (let [f (fn [r] r)]
-      (rf/configure! :epoch-history {:redact-fn f})
+      (rf/configure! {:epoch-history {:redact-fn f}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           ":redact-fn lands by identity — no wrapping"))))
 
 (deftest configure-accepts-nil-to-clear
-  (testing "(rf/configure! :epoch-history {:redact-fn nil}) clears a
+  (testing "(rf/configure! {:epoch-history {:redact-fn nil}}) clears a
             previously-installed fn"
-    (rf/configure! :epoch-history {:redact-fn (fn [r] r)})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] r)}})
     (is (some? (:redact-fn (epoch/current-config))))
 
-    (rf/configure! :epoch-history {:redact-fn nil})
+    (rf/configure! {:epoch-history {:redact-fn nil}})
     (is (nil? (:redact-fn (epoch/current-config)))
         "explicit nil clears the slot")))
 
 (deftest configure-rejects-non-fn
-  (testing "(rf/configure! :epoch-history {:redact-fn <bad>}) silently
+  (testing "(rf/configure! {:epoch-history {:redact-fn <bad>}}) silently
             drops other shapes; a previously-installed fn survives"
     (let [f (fn [r] r)]
-      (rf/configure! :epoch-history {:redact-fn f})
-      (rf/configure! :epoch-history {:redact-fn "not-a-fn"})
+      (rf/configure! {:epoch-history {:redact-fn f}})
+      (rf/configure! {:epoch-history {:redact-fn "not-a-fn"}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "string silently dropped — prior fn survives")
 
-      (rf/configure! :epoch-history {:redact-fn 42})
+      (rf/configure! {:epoch-history {:redact-fn 42}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "number silently dropped")
 
-      (rf/configure! :epoch-history {:redact-fn {:k :v}})
+      (rf/configure! {:epoch-history {:redact-fn {:k :v}}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "map silently dropped")
 
-      (rf/configure! :epoch-history {:redact-fn [:a :b]})
+      (rf/configure! {:epoch-history {:redact-fn [:a :b]}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           "vector silently dropped"))))
 
@@ -147,8 +147,8 @@
             the previously-installed fn intact (the configure semantics
             are 'merge present keys' — absence is a no-op)"
     (let [f (fn [r] r)]
-      (rf/configure! :epoch-history {:redact-fn f})
-      (rf/configure! :epoch-history {:depth 17})
+      (rf/configure! {:epoch-history {:redact-fn f}})
+      (rf/configure! {:epoch-history {:depth 17}})
       (is (identical? f (:redact-fn (epoch/current-config)))
           ":redact-fn slot preserved across a :depth-only update")
       (is (= 17 (:depth (epoch/current-config)))
@@ -157,9 +157,9 @@
 (deftest configure-partial-update-mixed-validity
   (testing "a configure call carrying a valid :redact-fn and an
             invalid :depth applies the fn and drops the depth"
-    (rf/configure! :epoch-history {:depth 9})
+    (rf/configure! {:epoch-history {:depth 9}})
     (let [f (fn [r] r)]
-      (rf/configure! :epoch-history {:depth nil :redact-fn f})
+      (rf/configure! {:epoch-history {:depth nil :redact-fn f}})
       (is (identical? f (:redact-fn (epoch/current-config))))
       (is (= 9 (:depth (epoch/current-config)))
           ":depth nil dropped; prior 9 survives"))))
@@ -175,8 +175,7 @@
             fidelity is preserved by construction."
     (rf/reg-frame :test/main {})
     ;; A :redact-fn that WOULD wipe :db-after if it ran at storage time.
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
@@ -192,8 +191,7 @@
             the off-box egress boundary, inside projected-record)."
     (rf/reg-frame :test/main {})
     (let [seen (atom nil)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+      (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
       (rf/register-epoch-listener! ::watch (fn [r] (reset! seen r)))
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -212,8 +210,7 @@
             called; see invariant 2.)"
     (rf/reg-frame :test/main {})
     (let [invocations (atom 0)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r] (swap! invocations inc) r)})
+      (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
       (rf/register-epoch-listener! ::watch (fn [_] nil))
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -232,10 +229,9 @@
             ONCE per projection call, after the frame/profile projection."
     (rf/reg-frame :test/main {})
     (let [invocations (atom 0)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r]
+      (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                   (swap! invocations inc)
-                                  (assoc r :rf/test-tag :redacted))})
+                                  (assoc r :rf/test-tag :redacted))}})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -259,14 +255,13 @@
     (let [observed (atom nil)]
       ;; The override records what it SEES at [:db-after :auth :password]
       ;; and scrubs a NON-frame-declared slot the projection left raw.
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r]
+      (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                   (reset! observed
                                           (get-in r [:db-after :auth :password]))
                                   (cond-> r
                                     (get-in r [:db-after :session :token])
                                     (assoc-in [:db-after :session :token]
-                                              :rf/redacted)))})
+                                              :rf/redacted)))}})
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw tok]]
                          {:db (-> db
@@ -293,8 +288,7 @@
             override, applied per projection call, not cached."
     (rf/reg-frame :test/main {})
     (let [invocations (atom 0)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r] (swap! invocations inc) r)})
+      (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -342,8 +336,7 @@
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
 
     (let [warnings (record-warnings!)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [_] (throw (ex-info "boom" {:why :test})))})
+      (rf/configure! {:epoch-history {:redact-fn (fn [_] (throw (ex-info "boom" {:why :test})))}})
       ;; Settle does NOT invoke the redact-fn (storage-side) — no warning yet.
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
       (is (empty? @warnings)
@@ -382,10 +375,9 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [call-count (atom 0)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [_]
+      (rf/configure! {:epoch-history {:redact-fn (fn [_]
                                   (swap! call-count inc)
-                                  (throw (ex-info "boom" {})))})
+                                  (throw (ex-info "boom" {})))}})
       (let [r (last-record :test/main)]
         (epoch/projected-record r)
         (epoch/projected-record r)
@@ -442,8 +434,7 @@
             the :redact-fn does not run at this seam (it runs
             projection-side, in projected-record)."
     (rf/reg-frame :test/main {})
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (not (contains? (last-record :test/main) :rf/test-tag))
@@ -460,8 +451,7 @@
     (rf/reg-frame :test/main {})
     (let [synthetic (atom nil)]
       (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
+      (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
       (rf/replace-app-db! :test/main {:injected :state})
       (is (not (contains? @synthetic :rf/test-tag))
           "replace-app-db! path: listener received the RAW synthetic record")
@@ -486,8 +476,7 @@
                              (fn [r]
                                (when (= :halted-destroy (:outcome r))
                                  (swap! halted-records conj r))))
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
+      (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
       (rf/reg-event :destroy-self
                        (fn [_ _]
                          (frame/destroy-frame! :test/main)
@@ -514,7 +503,7 @@
             redact-fn' — the projection is the plain frame/profile shape,
             no override stage."
     (rf/reg-frame :test/main {})
-    (rf/configure! :epoch-history {:redact-fn nil})
+    (rf/configure! {:epoch-history {:redact-fn nil}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
@@ -560,8 +549,7 @@
             ring is causal replay material; no storage-side redaction runs."
     (rf/reg-frame :test/main {})
     ;; A :redact-fn that WOULD scrub the value if it ran at storage time.
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r] (assoc r :rf/scrubbed true))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/scrubbed true))}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -599,8 +587,7 @@
     (install-sensitive-schema! :test/main)
     ;; The override scrubs the :secret sub-run's :value (a non-frame-
     ;; declared, non-app-db-rooted slot the projection cannot prove).
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r]
+    (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                 (cond-> r
                                   (vector? (:sub-runs r))
                                   (update :sub-runs
@@ -609,7 +596,7 @@
                                                     (if (= :secret (:sub-id row))
                                                       (assoc row :value :rf/redacted)
                                                       row))
-                                                  rows)))))})
+                                                  rows)))))}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -685,8 +672,7 @@
     ;; projection-side :redact-fn — BOTH redaction routes active. Neither may
     ;; corrupt the stored ring the restore replays from.
     (install-sensitive-schema! :test/main)
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/reg-event :logout

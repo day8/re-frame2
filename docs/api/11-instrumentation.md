@@ -122,12 +122,12 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
   ```
 - **Description**: Empty the ring.
 
-### `(rf/configure! :trace-buffer …)`
+### `(rf/configure! {:trace-buffer …})`
 
 - **Kind**: config key
 - **Signature**:
   ```clojure
-  (rf/configure! :trace-buffer {:cascades-retained N})
+  (rf/configure! {:trace-buffer {:cascades-retained N}})
   ```
 - **Description**: Per-frame ring cascade-slot count knob (0 disables retention). See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
@@ -208,12 +208,12 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: The inverse.
 
-### `(rf/configure! :epoch-history …)`
+### `(rf/configure! {:epoch-history …})`
 
 - **Kind**: config key
 - **Signature**:
   ```clojure
-  (rf/configure! :epoch-history {:depth N :trace-events-keep N :redact-fn fn})
+  (rf/configure! {:epoch-history {:depth N :trace-events-keep N :redact-fn fn}})
   ```
 - **Description**: Buffer-depth and redactor knobs. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 

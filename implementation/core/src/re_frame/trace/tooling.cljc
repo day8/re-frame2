@@ -608,7 +608,7 @@
       (emit-error! :rf.warning/trace-buffer-unrecognised-opts
                    {:category :rf.warning/trace-buffer-unrecognised-opts
                     :opts     opts
-                    :reason   (str "(configure! :trace-buffer ...) accepts only "
+                    :reason   (str "(configure! {:trace-buffer ...}) accepts only "
                                    "{:cascades-retained N} where N is a non-negative "
                                    "integer; got " (pr-str opts) ". Retention is "
                                    "unchanged. The retired {:depth N} shape is not "
@@ -680,7 +680,7 @@
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
-;; `re-frame.core/configure! :trace-buffer` routes through this hook so
+;; `re-frame.core/configure!`'s `:trace-buffer` key routes through this hook so
 ;; consumer call sites don't have to thread the tooling-ns require
 ;; into the host's boot path. Keeping just THIS one knob hook (vs the
 ;; full set the listener / ring surface uses) is deliberate: the
