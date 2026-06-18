@@ -610,14 +610,10 @@
     :description "Cross-feature LATE-BOUND epoch-restore trace COMMIT hook (Spec 016 §Restore and replay / §Xray and AI tooling) — the post-install half of :resources/reconcile-on-restore. The reconcile runs BEFORE the atomic replace-frame-state! install and defers its success rows (:rf.resource/restored + :rf.resource/owner-released), riding the trace intents back as metadata; epoch perform-restore! consults this hook with the reconciled runtime-db ONLY on the install-success branch so those success rows fire exactly once the restore truly installed — never for a destroyed-frame install (the rf2-s93722 post-liveness teardown race) that returns nil and writes nothing. Resources is the first consumer; consulted by re-frame.epoch.tool-pair/commit-resources-restore-traces! inside perform-restore!. No-op when no resources artefact is loaded, when the frame-state carries no runtime-db partition, or when the runtime-db carries no deferred intents (a resource-free restore)."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
-   ;; The three stub-family hooks publish from `re-frame.http-test-support`
+   ;; The stub-family hook publishes from `re-frame.http-test-support`
    ;; per rf2-lwmgw — single discoverable home for HTTP test surfaces.
-   {:key         :http/install-managed-request-stubs!
-    :producer-ns 're-frame.http-test-support
-    :description "Install request stubs for managed HTTP testing."}
-   {:key         :http/uninstall-managed-request-stubs!
-    :producer-ns 're-frame.http-test-support
-    :description "Uninstall previously-installed managed-request stubs."}
+   ;; The raw install/uninstall pair has no façade wrapper (rf2-ntwwyt), so it
+   ;; carries no late-bind hook — tests call it directly via the home namespace.
    {:key         :http/with-managed-request-stubs*
     :producer-ns 're-frame.http-test-support
     :description "Function form of the with-managed-request-stubs macro."}

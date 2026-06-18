@@ -12,8 +12,8 @@
   framework state and live in the frame's RUNTIME-DB partition at
   `[:rf.runtime/machines :snapshots <machine-id>]`, NOT the retired
   app-db `:rf/runtime` root. App code reads a machine's snapshot through
-  the framework `:rf/machine` sub (`(rf/sub-machine :login/flow)` is the
-  sugar) rather than reaching into the runtime-db partition by raw path;
+  the framework `:rf/machine` sub (`(rf/subscribe [:rf/machine :login/flow])`)
+  rather than reaching into the runtime-db partition by raw path;
   the framework sub reads the right partition for us. Each projection sub
   below is a layer-2 sub deriving off `:rf/machine` via the `:<-` chain —
   it re-computes only when the snapshot's relevant slice changes."

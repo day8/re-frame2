@@ -81,7 +81,15 @@
   (:require [re-frame.core                        :as rf]
             [re-frame.story.play.evidence         :as evidence]
             [re-frame.story.play.runner           :as runner]
-            [re-frame.story.play.settled-boundary :as boundary]))
+            [re-frame.story.play.settled-boundary :as boundary]
+            ;; The raw HTTP stub pair lives in `re-frame.http-test-support`
+            ;; (rf2-ntwwyt — no longer a `re-frame.core` façade re-export).
+            ;; CLJS requires it directly; on the JVM it is resolved LAZILY at
+            ;; call time (`with-network-stubs!`) so requiring this ns from the
+            ;; `re-frame.story` MACRO-ns does NOT drag the http artefact's
+            ;; JVM-only transitive deps (e.g. cheshire) onto the macro
+            ;; classpath. CLJS pulls only the CLJS-clean `.cljc` surface.
+            #?(:cljs [re-frame.http-test-support :as http-test-support])))
 
 ;; ===========================================================================
 ;; THE :rf.test/run-artifact SCHEMA
@@ -234,8 +242,8 @@
   installed, then uninstall them (spec/017 §The network surface). When the
   artifact carries a non-empty `:network` route map, this installs the
   managed-request stub fx (`:rf.http/managed-test-stub`) with those routes
-  via `re-frame.core/install-managed-request-stubs!` — the SAME seam a live
-  run uses — so the `:fx-decisions` redirect (`{:rf.http/managed
+  via `re-frame.http-test-support/install-managed-request-stubs!` — the SAME
+  seam a live run uses — so the `:fx-decisions` redirect (`{:rf.http/managed
   :rf.http/managed-test-stub}`) resolves to a stub that matches the routes
   rather than fail-closing on \"no stub matched\". The stubs are
   uninstalled in a `finally` so a replay never leaks the stub fx into a
@@ -243,21 +251,25 @@
 
   When the artifact carries no `:network` routes, `thunk` runs unchanged
   (no install, no uninstall) — so an artifact without HTTP stays clear of
-  the test-support surface entirely. `re-frame.core/install-managed-
-  request-stubs!` is late-bound (Spec 014 §Testing): the call routes
-  through `re-frame.http-test-support`, which a caller exercising a
-  `:network` artifact already has on its require closure (exactly as the
-  live `:network` run path requires), and raises
-  `:rf.error/http-artefact-missing` if it does not — never silently
-  fail-closing the request."
+  the test-support surface entirely. The install/uninstall pair lives in
+  `re-frame.http-test-support` (rf2-ntwwyt — no longer a `re-frame.core`
+  façade export; reached through its home namespace), which Story already
+  carries on its require closure via the `day8/re-frame2-http` dep."
   [artifact thunk]
   (let [network (:network artifact)]
     (if (seq network)
-      (try
-        (rf/install-managed-request-stubs! network)
-        (thunk)
-        (finally
-          (rf/uninstall-managed-request-stubs!)))
+      ;; JVM resolves the home-ns fns lazily so requiring this ns from the
+      ;; story MACRO-ns never hard-loads the http artefact's JVM deps; CLJS
+      ;; calls the directly-required surface.
+      (let [install   #?(:clj  (requiring-resolve 're-frame.http-test-support/install-managed-request-stubs!)
+                         :cljs http-test-support/install-managed-request-stubs!)
+            uninstall #?(:clj  (requiring-resolve 're-frame.http-test-support/uninstall-managed-request-stubs!)
+                         :cljs http-test-support/uninstall-managed-request-stubs!)]
+        (try
+          (install network)
+          (thunk)
+          (finally
+            (uninstall))))
       (thunk))))
 
 (defn- epoch-count

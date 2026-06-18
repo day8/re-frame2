@@ -6,7 +6,7 @@
   `reg-machine` / `reg-machine*` keep a bespoke shape (they share the
   `:where`-symbol parameter via `reg-machine-impl` so the macro and the
   plain-fn surface raise with their own faithful `:where` symbol). Sugar
-  fns (`dispatch-to-system`, `sub-machine`, `machine-has-tag?`) are not late-
+  fns (`dispatch-to-system`, `machine-has-tag?`) are not late-
   bind surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
@@ -213,20 +213,6 @@
   ([system-id event frame-id]
    (when-let [machine-id (machine-by-system-id system-id frame-id)]
      (router/dispatch! [machine-id event] {:frame frame-id}))))
-
-(defn sub-machine
-  "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine
-  machine-id]). Returns a reaction whose value is the snapshot
-  {:state <kw> :data <map>} or nil if the machine is not yet
-  initialised.
-
-  The `sub-` prefix is re-frame's subscription-family verb (sibling of
-  `subscribe`, `subscribe-once`, `subscriber`). It does NOT denote a
-  child-machine relationship — declarative child-machine binding uses
-  `:spawn` per rf2-5r4q2. Per audit-of-audits (rf2-cthfn) state-machines
-  #11 and Spec 005 §Subscribing to machines via sub-machine."
-  [machine-id]
-  (subs/subscribe [:rf/machine machine-id]))
 
 (defn machine-has-tag?
   "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Sugar

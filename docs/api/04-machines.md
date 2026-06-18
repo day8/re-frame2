@@ -4,7 +4,7 @@ A state machine in re-frame2 is registered with one call (`reg-machine`) and *is
 
 The point of the machine surface isn't novelty — Statecharts have been around since 1987 — it's that the same trace bus, time-travel, and override surfaces that work for plain event handlers also work for machines, *because the machine is an event handler*. There's no parallel runtime to debug, no second store to inspect, no separate event log. Xray shows the machine state alongside `app-db`; the epoch buffer captures the snapshot the same way it captures everything else.
 
-This chapter covers the registration surface (`reg-machine`, `reg-machine*`, `make-machine-handler`), the inspection / subscription surface (`sub-machine`, `machines`, `machine-meta`, `machine-by-system-id`), the dispatch sugar (`dispatch-to-system`, `:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.machine/dispatch-to-system`), and the post-v1 tooling exports (`machine->xstate-json`, `machine->mermaid`).
+This chapter covers the registration surface (`reg-machine`, `reg-machine*`, `make-machine-handler`), the inspection / subscription surface (the `[:rf/machine machine-id]` subscription vector, `machines`, `machine-meta`, `machine-by-system-id`, `machine-has-tag?`), the dispatch sugar (`dispatch-to-system`, `:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.machine/dispatch-to-system`), and the post-v1 tooling exports (`machine->xstate-json`, `machine->mermaid`).
 
 For the *why* — the design rationale, the v1 vs post-v1 split, the capability matrix — see [005-StateMachines.md](../../spec/005-StateMachines.md).
 
@@ -66,21 +66,17 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
 (rf/dispatch [:session [:login {:user "alice" :pass "..."}]])
 ```
 
-The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via `sub-machine` or directly with `subscribe-once`.
+The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via the `[:rf/machine machine-id]` subscription vector, or directly with `subscribe-once`.
 
 ## Inspection and subscription
 
-### `sub-machine`
+### Reading a machine's snapshot — `[:rf/machine machine-id]`
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sub-machine machine-id) → reaction over snapshot
-  ```
-- **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. Use inside views — gives you a reaction over `{:state :data}`.
+The canonical machine read is the framework-registered subscription vector `[:rf/machine machine-id]` — subscribe to it the same way you subscribe to anything else. It returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised.
+
 - **Example**:
   ```clojure
-  (let [{:keys [state data]} @(rf/sub-machine :auth.login/flow)]
+  (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
     [:div "State: " (name state)])
   ```
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
@@ -128,7 +124,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data}` (or `nil` if not yet initialised) | 005 |
 
-`sub-machine` is sugar over this — see [005 §Subscribing to machines](../../spec/005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+This subscription vector is the canonical machine read — see [005 §Subscribing to machines](../../spec/005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
 ## Cross-machine messaging
 

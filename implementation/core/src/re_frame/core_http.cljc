@@ -27,21 +27,13 @@
    :maven         "day8/re-frame2-http"
    :require-ns    "re-frame.http-test-support"})
 
-(defwrapper install-managed-request-stubs!
-  "Spec 014 §Testing — install per-call fx-overrides for `:rf.http/managed`
-  that synthesise the configured replies. Late-bound via
-  `:http/install-managed-request-stubs!` (published from
-  `re-frame.http-test-support` per rf2-lwmgw)."
-  {:hook :http/install-managed-request-stubs! :artefact http-test-support-artefact :on-absent :throw}
-  ([stubs] :delegate))
-
-(defwrapper uninstall-managed-request-stubs!
-  "Spec 014 §Testing — remove the per-call fx-override installed by
-  `install-managed-request-stubs!`. Late-bound via
-  `:http/uninstall-managed-request-stubs!` (published from
-  `re-frame.http-test-support` per rf2-lwmgw)."
-  {:hook :http/uninstall-managed-request-stubs! :artefact http-test-support-artefact :on-absent :throw}
-  ([] :delegate))
+;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
+;; pair is NOT re-exported from `re-frame.core` (rf2-ntwwyt — test-support
+;; infrastructure, not app-facing core surface). Tests reach it directly through
+;; the home namespace `re-frame.http-test-support`, so there is no core wrapper
+;; (and no `:http/install-managed-request-stubs!` / `:http/uninstall-managed-
+;; request-stubs!` late-bind hook) for it. The ergonomic `with-managed-request-
+;; stubs` macro keeps its `with-managed-request-stubs*` façade plumbing below.
 
 (defwrapper with-managed-request-stubs*
   "Function form: install stubs, run thunk, uninstall. Late-bound via
