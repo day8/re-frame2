@@ -2,7 +2,7 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or carrying the current frame into an async callback via `frame-handle` / `frame-bound-fn`.
+Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or carrying the current frame into an async callback via `frame-handle`.
 
 ## The teaching model: frame identity is carried, not found
 
@@ -14,14 +14,14 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | Pin a lexical scope to an existing frame | `with-frame` |
 | Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
 | Scope a React subtree to a frame | `frame-provider` |
-| Hold a frame's ops as a value (async / closures) | `frame-handle` (common); `frame-bound-fn` / `frame-bound-fn*` (advanced) |
+| Hold a frame's ops as a value (async / closures) | `frame-handle` — the one public carry primitive |
 | One-off explicit routing (`dispatch`) | `{:frame …}` trailing opt on `dispatch` / `dispatch-sync` |
 | One-off explicit routing (`subscribe`) | leading `frame-id` arg — `(rf/subscribe :frame-id query-v)` (NOT a `{:frame …}` opt) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
 | Read a frame's runtime-db / whole frame-state (tools, SSR) | `runtime-db-value` / `frame-state-value` |
 | Install state from outside a cascade (tools, tests, SSR) | `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` |
 
-A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback uses `frame-bound-fn`.
+A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback captures `(rf/frame-handle)` in scope and calls its `:dispatch` / `:subscribe` ops.
 
 ## What a frame is
 
@@ -99,17 +99,7 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic 
 
 `(rf/frame-handle)` captures `(current-frame-id)`; `(rf/frame-handle :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}`. The handle is an OPERATION BUNDLE, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, never off the handle. A per-call `:frame` opt cannot override the captured frame; the handle is locked to one frame.
 
-For an arbitrary callback body (not just dispatch / subscribe), wrap it so `*current-frame*` is re-established inside:
-
-```clojure
-;; macro: fn-syntax sugar
-(.then promise (rf/frame-bound-fn [result] (rf/dispatch [:result-arrived result])))
-
-;; *-twin: wrap an existing fn value (HoF / programmatic)
-(.then promise (rf/frame-bound-fn* on-result))
-```
-
-`frame-bound-fn*` takes `(f)` (capture `current-frame-id` at wrap time) or `(frame-id f)` (explicit). Prefer `frame-handle` for the common dispatch / subscribe case; reach for `frame-bound-fn` / `frame-bound-fn*` when the callback body itself needs the ambient binding (e.g. it calls `current-frame-id` or nested registrations).
+`frame-handle` is the **one public carry primitive** — every async / callback / tooling boundary captures it (or routes with an explicit `{:frame …}` opt). (The older `frame-bound-fn` / `frame-bound-fn*` closures were retiered to internal under EP-0024 Open Issue #8 and are no longer app API.)
 
 ## Canonical mini-example
 

@@ -163,21 +163,7 @@ The fix is always the same move: capture the frame as a value while it's still i
 
 `(rf/frame-handle)` reads the frame in scope *at creation time* and returns a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame; trigger it from the right pane and they land in the right one. Same code.
 
-Two companions round out the surface:
-
-```clojure
-;; frame-bound-fn: fn syntax + capture in one step (a CLJS-only macro).
-;; The body runs with the captured frame re-established, so plain
-;; rf/dispatch inside it resolves.
-(rf/frame-bound-fn [msg]
-  (rf/dispatch [:ws/incoming msg]))
-
-;; frame-bound-fn*: wrap a fn value you already hold. A plain fn,
-;; available on both CLJS and the JVM (SSR, tests).
-(rf/frame-bound-fn* on-message)
-```
-
-Reach for `frame-handle` for the common dispatch/subscribe case. Reach for `frame-bound-fn` / `frame-bound-fn*` when you're wrapping an arbitrary function whose *body* needs the frame re-established around it.
+`frame-handle` is the one public carry primitive — reach for it (or an explicit `{:frame …}` opt) for every async / callback / tooling boundary.
 
 And there's one important case where you need none of this: scheduling from inside an event handler. A handler that wants a later dispatch returns effect data — a description of work for the runtime to perform — and the effects carry the frame for you:
 
@@ -219,5 +205,5 @@ If you feel the need for one, you've answered the discriminator question wrongly
 - say what a frame owns (app-db, event queue, sub cache) and what it doesn't (the registrations — those live in the frame's [image](images.md), one shared image by default),
 - register one frame and establish it at your root, and explain why `init!` doesn't do it for you,
 - mount one app N times — split panes, Story canvases, SSR requests, test fixtures — with `reg-frame` + `frame-provider`, nothing shared,
-- read `:rf.error/no-frame-context` as "this callback lost its frame" and fix it with `frame-handle` / `frame-bound-fn` — or with `:fx` when the work starts in a handler,
+- read `:rf.error/no-frame-context` as "this callback lost its frame" and fix it with `frame-handle` — or with `:fx` when the work starts in a handler,
 - state the hard rule: subscriptions never reach across frames; things that share state are one frame.

@@ -63,7 +63,7 @@ These are the broad shapes of breakage. The skill identifies and resolves them; 
    [app-root]])
 ```
 
-Inside that tree, every bare `dispatch` / `subscribe` you already wrote works unchanged. The frame rides along ambiently. Only rootless calls need attention: async callbacks that lost their scope, and top-level boot code with no provider. Those are exactly the wrong-frame footguns v1 used to swallow silently. The migration skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit `frame-handle` / `frame-bound-fn` capture.
+Inside that tree, every bare `dispatch` / `subscribe` you already wrote works unchanged. The frame rides along ambiently. Only rootless calls need attention: async callbacks that lost their scope, and top-level boot code with no provider. Those are exactly the wrong-frame footguns v1 used to swallow silently. The migration skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit `frame-handle` capture.
 
 **Removed surfaces.** A handful of v1 affordances are gone, each with a defined replacement. `dispatch-with` / `dispatch-sync-with` fold into a two-arg `dispatch` with an opts map. `reg-global-interceptor` is gone because interceptors are frame-scoped in v2 — register the behaviour with `reg-interceptor` and reference it from a frame's `:interceptors`. `reg-sub-raw` gives way to `reg-sub` or the substrate adapter. The `^:flush-dom` event metadata becomes `:dispatch-later {:ms 0}`. None of these is a capability loss — they're consolidations: the same job done through one shape instead of several.
 

@@ -35,9 +35,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
 | `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |
 | `rf/frame-provider` | (CLJS) Reagent component `[frame-provider {:frame ...} & children]` |
-| `rf/frame-handle` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — operation bundle captured at creation; survives async |
-| `rf/frame-bound-fn` | `([args] body+)` — macro: fn that re-binds the captured frame in its body (async callbacks) |
-| `rf/frame-bound-fn*` | `(f)` / `(frame-id f)` — `*`-twin of the macro; wraps an existing fn value |
+| `rf/frame-handle` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; operation bundle captured at creation, survives async |
 | `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
 | `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
 | `rf/runtime-db-value` | `(frame-id)` — value-form **runtime-db** partition read (framework state; tools / privileged runtime) |
