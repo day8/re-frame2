@@ -10,12 +10,20 @@ crowded because addressing, scoping, callback capture, and lifecycle ownership
 are currently close enough in spelling that users are forced to ask "do I pass
 the frame id or the frame object?"
 
+There are two real jobs here:
+
+1. target an operation at a frame;
+2. carry a frame across an async callback boundary.
+
+Most of the crowding comes from offering several spellings for each job.
+
 Current similar spellings:
 
 - `(rf/dispatch [:event] {:frame target})`
 - `(rf/dispatch target [:event])`
 - ambient `dispatch` / `subscribe` under `with-frame` or `frame-provider`
 - `(:dispatch (rf/frame-handle))`
+- `frame-bound-fn` / `frame-bound-fn*`
 - `(rf/with-frame frame-id body+)`
 - `(rf/with-new-frame [f (rf/make-frame opts)] body+)`
 - `[rf/frame-provider {:frame frame-id} ...]`
@@ -28,6 +36,11 @@ Implementation evidence:
   event-first opts form.
 - `implementation/core/src/re_frame/core.cljc:1205-1388` contains
   `current-frame-id`, `frame-handle`, `with-frame`, and `with-new-frame`.
+- `implementation/core/src/re_frame/core.cljc:1398-1479` exposes
+  `frame-bound-fn*` and `frame-bound-fn`, even though `frame-handle` is the
+  richer carry primitive.
+- `implementation/core/src/re_frame/core.cljc:1104` exposes `subscribe*`, the
+  fn twin of `subscribe`.
 - `implementation/core/src/re_frame/core.cljc:1502-1512` re-exports
   `frame-provider`.
 - `docs/api/15-removed.md:51` says the older frame affordance surface was
@@ -60,6 +73,11 @@ Implementation evidence:
 7. SSR request frames. `spec/011-SSR.md:719-899` creates request-local frames
    and serializes/hydrates their state.
 
+8. Unused or near-unused surfaces in examples/tools: frame-first dispatch,
+   `frame-bound-fn`, `frame-bound-fn*`, `subscribe*`, and direct
+   `make-frame-handle`. Claude's sweep found real code converging on
+   `{:frame f}` and `frame-handle`.
+
 ## Proposed Cleanup
 
 Use one public concept for addressing:
@@ -74,6 +92,21 @@ Do not teach or extend frame-first operation arities. Deprecate
 `(rf/dispatch target [:event])` and its sync/subscription siblings. The event
 or query vector is the primary datum; the frame is an option on routing that
 datum.
+
+Use one public carry primitive:
+
+```clojure
+(let [{:keys [dispatch subscribe]} (rf/frame-handle)]
+  ...)
+```
+
+Retire `frame-bound-fn` and `frame-bound-fn*` from the app-facing facade.
+Anything they do for dispatch/subscribe is a subset of `frame-handle`; anything
+more general can be an internal helper if the implementation still needs it.
+
+Stop advertising `subscribe*` unless a real higher-order caller appears. The
+front-door read shape should be `subscribe`, `subscribe-once`, or the
+`:subscribe` operation from a `frame-handle`.
 
 Separate frame id from frame object:
 

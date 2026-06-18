@@ -5,8 +5,10 @@ Status: draft finding.
 ## Crowding Signal
 
 The frame value is a product of app-db and runtime-db, with epoch history over
-the whole frame state. The public read/write surface exposes several
-near-projections of that same state.
+the whole frame state. The earlier Codex pass treated the partition readers as
+mostly redundant. The Claude pass is more precise: the three partition reads
+are distinct and heavily used. The real crowding is around sugar, privileged
+tooling readers, and retired address vocabulary.
 
 Current similar spellings:
 
@@ -20,6 +22,9 @@ Current similar spellings:
 - `(rf/reset-app-db! frame)`
 - `(rf/replace-runtime-db! frame runtime-db)`
 - `(rf/replace-frame-state! frame state)`
+- `sub-cache` / `sub-topology` facade aliases for tooling reads
+- retired address reads covered in
+  [registrar-query-addressing.md](registrar-query-addressing.md)
 
 Implementation evidence:
 
@@ -27,6 +32,9 @@ Implementation evidence:
   `app-db-value`, `runtime-db-value`, `frame-state-value`, and `snapshot-of`.
 - `implementation/core/src/re_frame/core.cljc:2807-2914` re-exports epoch
   history, restore, and replacement operations.
+- `implementation/core/src/re_frame/core.cljc` also exposes `sub-cache` and
+  `sub-topology` facade aliases, while CLJS tool consumers generally import
+  `re-frame.subs.tooling/*` directly.
 - `implementation/epoch/test/re_frame/*` uses these functions heavily for
   restore, concurrency, and production-elision assertions.
 - `tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md` exposes restore and
@@ -51,7 +59,20 @@ Implementation evidence:
 7. User code occasionally wants a path read for convenience, but that is just a
    projection of app-db.
 
+8. Subscription tooling needs cache and topology reads, but those are tooling
+   surfaces, not app-author front-door surfaces.
+
 ## Proposed Cleanup
+
+Do not collapse the three primary partition readers:
+
+```clojure
+(rf/app-db-value frame)       ;; app partition
+(rf/runtime-db-value frame)   ;; runtime partition
+(rf/frame-state-value frame)  ;; coherent whole frame-state projection
+```
+
+They answer different questions and have substantial test/tool adoption.
 
 Separate app/test convenience from privileged tool state surgery.
 
@@ -62,31 +83,32 @@ The small app/test surface:
 (rf/subscribe-once [:some/query] {:frame :app/main})
 ```
 
-The privileged frame-state surface should be one map-shaped read and one
-map-shaped write:
+`snapshot-of` should be documented as sugar over `app-db-value` plus frame
+context resolution:
 
 ```clojure
-(rf/frame-state :app/main {:part :app-db})
-(rf/frame-state :app/main {:part :runtime-db})
-(rf/frame-state :app/main {:part :all})
-(rf/frame-state :app/main {:part :app-db :path [:todos]})
-
-(rf/replace-frame-state! :app/main {:part :app-db :value db})
-(rf/replace-frame-state! :app/main {:part :runtime-db :value runtime-db})
-(rf/replace-frame-state! :app/main {:part :all :value frame-state})
+(rf/snapshot-of [:todos] :app/main)
+;; roughly
+(get-in (rf/app-db-value :app/main) [:todos])
 ```
 
 Keep `epoch-history` and `restore-epoch!` because they are semantic operations,
-not mere projections. Treat `snapshot-of`, `runtime-db-value`,
-`reset-app-db!`, and partition-specific replacement functions as compatibility
-or convenience projections over the two primitives.
+not mere projections. Keep `replace-app-db!`, `replace-runtime-db!`, and
+`replace-frame-state!` as privileged tool/test writes, but document them in one
+state-surgery section rather than scattering them as everyday app APIs.
+
+Move `sub-cache` and `sub-topology` off the app-facing facade if their only
+real callers are tests/REPLs and tooling namespaces. The owning tooling
+namespace is the clearer home.
 
 ## Why This Is Better
 
 The first-principles model says there is one frame state with two partitions.
-The current API makes that feel like several independent stores. A map-shaped
-read/write pair says what is actually true: the caller is reading or replacing a
-selected part of one value.
+That does not mean every partition reader is redundant. `app-db-value`,
+`runtime-db-value`, and `frame-state-value` are the three useful projections of
+the model.
 
-Clojure APIs age well when a small function accepts a clear value describing
-the operation. A growing family of nearly identical names does not age as well.
+The cleanup target is the front porch: app authors should see the small read
+surface they actually use; tools can import deeper state and cache readers from
+tooling namespaces. That keeps the public API small without flattening real
+semantic distinctions.

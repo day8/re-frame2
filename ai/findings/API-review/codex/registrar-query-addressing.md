@@ -4,12 +4,12 @@ Status: draft finding.
 
 ## Crowding Signal
 
-The registrar query API is doing three jobs through adjacent spellings:
+The registrar query API is doing too many jobs through adjacent spellings:
 
-- default process registrar queries;
-- realm-targeted queries from the EP-0013 runtime substrate;
-- the newer image/frame world where a frame runs a resolved generation assembled
-  from images.
+- ordinary source-store queries;
+- resolved image/frame queries;
+- retired realm-targeted queries;
+- app-value inspectors inherited from the retired composition model.
 
 Current similar spellings:
 
@@ -22,16 +22,19 @@ Current similar spellings:
 - `(rf/handler-ids {:realm r :kind :event})`
 - sibling app-value inspectors like `(rf/app-registrations app kind)` and
   `(rf/app-registrations {:app app :kind kind})`
+- retired address readers like `frame-realm` and `realm-ids`
 
 Implementation evidence:
 
 - `implementation/core/src/re_frame/core.cljc:1695-1788` implements both
-  positional default-realm forms and map-shaped realm forms for
+  positional source-store forms and map-shaped retired target forms for
   `registrations`, `handler-meta`, and `handler-ids`.
 - `implementation/core/src/re_frame/core.cljc:1950-1964` repeats the positional
   plus map split for `app-registrations`.
-- `spec/Spec-Schemas.md:3648-3667` describes runtime realms, but the current
-  front-door model has moved toward images loaded into frames.
+- `implementation/core/src/re_frame/core.cljc:1801-1808` exposes
+  `frame-realm`, a retired address read.
+- `spec/API.md:491-532` still documents the retired map forms and app-value
+  inspectors as current; that is spec drift after EP-0023.
 - `tools/re-frame2-pair-mcp/tool-descriptors.edn:17-18` exposes
   `handler-meta` and list-handlers as agent-facing discovery operations.
 - `tools/xray/spec/026-Module-View-Panel.md` documents Xray pressure for
@@ -53,51 +56,66 @@ Implementation evidence:
 5. Machine tooling: read machine handler metadata through the event registrar
    while preserving machine guard/action metadata.
 
-6. Multi-image frames: inspect the program a frame actually runs after image
-   selection, replacement, and duplicate detection.
+6. Multi-image frames: inspect the registration generation a frame actually
+   runs after image selection, replacement, and duplicate detection.
 
-7. Historical realm tests and internal relocation seams: read a non-default
-   registrar without installing it into the global process.
+7. Xray currently exploits `{:realm nil ...}` as a generation-bypass read: it
+   wants the default source-store registrations rather than the generation its
+   own frame runs. The use case is real; the spelling is wrong.
 
 ## Proposed Cleanup
 
-Make the map form the only documented query shape:
+Split the public source-store query from image/frame generation queries.
+
+Keep one front-door source-store shape:
 
 ```clojure
-(rf/registrations {:kind :event})
-(rf/handler-meta  {:kind :event :id :todo/add})
-(rf/handler-ids   {:kind :event})
+(rf/registrations :event)
+(rf/registrations :event pred)
+(rf/handler-meta :event :todo/add)
+(rf/handler-ids :event)
 ```
 
-Then make the target dimension explicit and current:
+Add or expose separately named image/frame generation reads if tools need them:
 
 ```clojure
-(rf/registrations {:kind :event :image todo-image})
-(rf/registrations {:kind :event :frame :todo/left})
-(rf/handler-meta  {:kind :event :id :todo/add :frame :todo/left})
+(rf/image-registrations image {:kind :event})
+(rf/frame-registrations :todo/left {:kind :event})
+(rf/frame-handler-meta :todo/left {:kind :event :id :todo/add})
 ```
 
-Rules:
+The exact names are placeholders; the design point is not. Do not overload
+`registrations` with retired target maps. If the semantics are "read the source
+store", "read an image", or "read the resolved generation for this frame", give
+those semantics distinct names.
 
-- absence of `:image` / `:frame` means the default source store view;
-- `:image` reads an immutable image value;
-- `:frame` reads the resolved generation that frame is actually using;
-- `:realm` remains an implementation/advanced substrate concern, not the
-  public teaching path;
-- reject calls that provide more than one target axis.
+Retire these public shapes:
 
-`handler-ids` can remain a projection if it has substantial call-site value, but
-it should be specified as a projection over the same map-shaped target rather
-than as a separate positional API family.
+```clojure
+(rf/registrations {:realm ...})
+(rf/handler-meta {:realm ...})
+(rf/handler-ids {:realm ...})
+(rf/app-registrations ...)
+(rf/frame-realm ...)
+(rf/realm-ids)
+```
+
+For Xray's generation-bypass need, add an honestly named internal/tooling seam,
+for example `re-frame.source-store/registrations` or
+`re-frame.tools/source-registrations`. Do not keep `{:realm nil}` as the magic
+route to that behavior.
+
+`handler-ids` can remain if completion/listing callers value it, but it should
+be documented as a projection over `registrations`, not as a separate addressing
+axis.
 
 ## Why This Is Better
 
-Registrar queries are not commands. They are reads over a data source. A
-single map-shaped query lets the source, kind, id, and predicate sit in one
-data value. That fits tooling, serialization, and future axes better than
-positional arities.
+Registrar queries are not commands. They are reads over a data source. The API
+should name which data source it reads instead of using argument shape to smuggle
+that distinction.
 
-It also matches the current re-frame2 ethos: the app program is now an image
-loaded into a frame, not a vague ambient realm. If the public API says "realm"
-when the conceptual model says "image" and "frame generation", the API teaches
-the wrong model.
+The retired map form is especially expensive because it teaches a model EP-0023
+replaced. If the public model is image/frame, a registrar query should either
+read the default source store, an image, or a frame's resolved generation. Those
+are three facts. Clojure is better when three facts get three honest names.

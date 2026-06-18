@@ -17,7 +17,7 @@ Current similar or confusing surfaces:
 - `reg-machine`, `reg-machine*`, and `defmachine`;
 - `reg-interceptor`, `reg-interceptor*`, and `->interceptor`;
 - CLJS fn aliases for registration macros in `re-frame.core`;
-- app-value/image installation surfaces that also lower registrations.
+- retired app-composition installation surfaces that also lower registrations.
 
 Implementation evidence:
 
@@ -33,6 +33,9 @@ Implementation evidence:
   registration names follow the same user-facing need.
 - `docs/EP/EP-0018-one-event-registration.md` already gives the right
   direction for events: one event registration surface.
+- Claude's usage sweep found zero example call sites for the value-position
+  fn aliases of the core `reg-*` names. The clearest dead aliases are
+  `reg-error-projector`, `reg-flow`, `reg-mutation`, and `reg-head`.
 
 ## Observed Use Cases
 
@@ -56,6 +59,15 @@ Implementation evidence:
 7. Images aggregate registrations as data; they should not feel like a second
    authoring API for the same individual registration.
 
+8. Some variants are empirically justified:
+   `reg-view*` has Story/Xray runtime generated-id callers; `defmachine` is the
+   source-faithful Var path for machine definitions; `reg-app-schemas` is used
+   as intended for bulk path-schema maps.
+
+9. Some variants are not justified on the facade: the same-named CLJS fn aliases
+   for macro registration names have no app-example adoption, and several have
+   no value-position callers even in tests.
+
 ## Proposed Cleanup
 
 Use one naming law:
@@ -67,6 +79,26 @@ Use one naming law:
 - removed legacy names stay as throwing migration stubs, outside the live API;
 - image installation composes registrations but is not another way to author a
   single registration in ordinary code.
+
+Shrink the `re-frame.core` facade to the registration forms app authors use.
+Programmatic callers can reach owning namespaces:
+
+```clojure
+re-frame.events/reg-event
+re-frame.subs/reg-sub
+re-frame.resources/reg-resource
+re-frame.resources/reg-mutation
+```
+
+Start with aliases that have zero or near-zero value-position callers:
+
+- `reg-error-projector`
+- `reg-flow`
+- `reg-mutation`
+- `reg-head`
+
+This follows the precedent already set by moving `reg-machine*` and other
+lowering helpers off the front porch.
 
 For interceptors, pick one public authoring story. The clean version is:
 
