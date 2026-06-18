@@ -66,6 +66,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.app-value :as av]
             [re-frame.cofx :as cofx]
             [re-frame.error-emit :as error-emit]
             [re-frame.event-emit :as event-emit]
@@ -1369,12 +1370,12 @@
             reg-event id installed into two realms carries genuinely different
             handlers, each resolved through ITS realm's registrar — no
             cross-realm bleed, and the default realm never sees them"
-    (let [_ra (rf/realm {:id :evt-conf/ra})
-          _rb (rf/realm {:id :evt-conf/rb})
-          app-of (fn [h] (rf/app {:id :evt-conf/shared :modules
-                                  [(rf/module {:id :m :events {:shared/e {:handler h}}})]}))]
-      (rf/install! (realm/realm :evt-conf/ra) (app-of add-a))
-      (rf/install! (realm/realm :evt-conf/rb) (app-of add-b))
+    (let [_ra (realm/construct-realm {:id :evt-conf/ra})
+          _rb (realm/construct-realm {:id :evt-conf/rb})
+          app-of (fn [h] (av/app {:id :evt-conf/shared :modules
+                                  [(av/module {:id :m :events {:shared/e {:handler h}}})]}))]
+      (av/install! (realm/realm :evt-conf/ra) (app-of add-a))
+      (av/install! (realm/realm :evt-conf/rb) (app-of add-b))
       (is (= add-a (:handler-fn (rf/handler-meta {:realm :evt-conf/ra :kind :event :id :shared/e})))
           "realm ra resolves ITS handler for the shared reg-event id")
       (is (= add-b (:handler-fn (rf/handler-meta {:realm :evt-conf/rb :kind :event :id :shared/e})))
@@ -1390,7 +1391,7 @@
             routes to the active realm registrar — calling `rf/reg-event` inside
             a non-default realm's registrar binding seats the handler into THAT
             realm's own registrar, invisible to the default realm"
-    (let [r (rf/realm {:id :evt-conf/bound})]
+    (let [r (realm/construct-realm {:id :evt-conf/bound})]
       ;; Bind the active registrar to the constructed realm's OWN atom — the
       ;; exact seam (`registrar/*registrar*`) the router's
       ;; `call-with-frame-realm-registrar` binds around a realm-routed dispatch

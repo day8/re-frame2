@@ -30,6 +30,7 @@
       head / route registrations."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.app-value :as av]
             [re-frame.frame :as frame]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
@@ -48,9 +49,9 @@
 ;; "same frame id in two realms" shape). `:shared/frame` mirrors the bead's
 ;; `:shared/frame` example.
 (defn- shared-app [tag]
-  (rf/app {:id :addr/app
+  (av/app {:id :addr/app
            :modules
-           [(rf/module
+           [(av/module
               {:id     :m
                :frames {:shared/frame {:doc "shared id across realms"}}
                :events {:addr/touch
@@ -83,11 +84,11 @@
 (deftest request-slots-isolate-by-realm
   (testing "the same frame id in two realms carries INDEPENDENT request data —
             and round-trips through set-request!→get-request with its realm"
-    (let [ra (rf/realm {:id :addr/a})
-          rb (rf/realm {:id :addr/b})]
+    (let [ra (realm/construct-realm {:id :addr/a})
+          rb (realm/construct-realm {:id :addr/b})]
       (try
-        (rf/install! ra (shared-app :a))
-        (rf/install! rb (shared-app :b))
+        (av/install! ra (shared-app :a))
+        (av/install! rb (shared-app :b))
         ;; The side-channel ops run UNDER the frame's realm scope, exactly as the
         ;; router binds `*current-realm*` around a real drain.
         (frame/call-with-realm :addr/a
@@ -109,8 +110,8 @@
         (is (contains? @request/request-slots [:addr/b :shared/frame])
             "realm b's slot is keyed by the [realm frame] address")
         (finally
-          (rf/dispose-realm! :addr/a)
-          (rf/dispose-realm! :addr/b))))))
+          (realm/dispose-realm! :addr/a)
+          (realm/dispose-realm! :addr/b))))))
 
 ;; ---- two realms, same frame id: response slot isolation + teardown ----------
 
@@ -118,11 +119,11 @@
   (testing "the same frame id in two realms accumulates INDEPENDENT responses,
             and tearing down one realm's frame leaves the other realm's same-id
             response intact"
-    (let [ra (rf/realm {:id :addr/a})
-          rb (rf/realm {:id :addr/b})]
+    (let [ra (realm/construct-realm {:id :addr/a})
+          rb (realm/construct-realm {:id :addr/b})]
       (try
-        (rf/install! ra (shared-app :a))
-        (rf/install! rb (shared-app :b))
+        (av/install! ra (shared-app :a))
+        (av/install! rb (shared-app :b))
         (frame/call-with-realm :addr/a
           (fn [] (response/swap-response! :shared/frame (fn [r] (assoc r :status 418)))))
         (frame/call-with-realm :addr/b
@@ -146,8 +147,8 @@
                      (fn [] (:status (response/response-of :shared/frame)))))
             "realm b's response is untouched by realm a's teardown")
         (finally
-          (rf/dispose-realm! :addr/a)
-          (rf/dispose-realm! :addr/b))))))
+          (realm/dispose-realm! :addr/a)
+          (realm/dispose-realm! :addr/b))))))
 
 ;; ---- two realms, same frame id: error-trace buffer isolation ----------------
 ;;
@@ -158,11 +159,11 @@
 (deftest pending-error-traces-isolate-by-realm
   (testing "the pending-error-traces buffer keys by the (realm, frame) address —
             clearing one realm's frame leaves the other realm's buffered traces"
-    (let [ra (rf/realm {:id :addr/a})
-          rb (rf/realm {:id :addr/b})]
+    (let [ra (realm/construct-realm {:id :addr/a})
+          rb (realm/construct-realm {:id :addr/b})]
       (try
-        (rf/install! ra (shared-app :a))
-        (rf/install! rb (shared-app :b))
+        (av/install! ra (shared-app :a))
+        (av/install! rb (shared-app :b))
         ;; Seed each realm's buffer directly at its address (mirrors what the
         ;; always-on error listener does under the realm-bound drain).
         (swap! error-listener/pending-error-traces
@@ -181,8 +182,8 @@
                        [:addr/b :shared/frame])
             "realm b's error-trace buffer survives realm a's teardown")
         (finally
-          (rf/dispose-realm! :addr/a)
-          (rf/dispose-realm! :addr/b))))))
+          (realm/dispose-realm! :addr/a)
+          (realm/dispose-realm! :addr/b))))))
 
 ;; ---- two realms, same frame id: head-snapshot isolation ---------------------
 
@@ -200,12 +201,12 @@
   (testing "render-head records the produced head-model under the (realm, frame)
             address, so the same frame id in two realms keeps independent head
             snapshots — and resolves each realm's OWN head registration"
-    (let [ra (rf/realm {:id :addr/a})
-          rb (rf/realm {:id :addr/b})]
+    (let [ra (realm/construct-realm {:id :addr/a})
+          rb (realm/construct-realm {:id :addr/b})]
       (try
         ;; install! seats the frame (a wired kind) into each realm.
-        (rf/install! ra (shared-app :a))
-        (rf/install! rb (shared-app :b))
+        (av/install! ra (shared-app :a))
+        (av/install! rb (shared-app :b))
         ;; Each realm registers a DIFFERENT head fn under the SAME head id into
         ;; its OWN registrar — proves the render-head lookup is realm-scoped.
         (reg-head-in-realm! :addr/a :addr/title (fn [_db _route] {:title "realm-a"}))
@@ -234,17 +235,17 @@
         (is (contains? @head-registry/head-snapshots [:addr/b :shared/frame])
             "realm b's snapshot keys by the [realm frame] address")
         (finally
-          (rf/dispose-realm! :addr/a)
-          (rf/dispose-realm! :addr/b))))))
+          (realm/dispose-realm! :addr/a)
+          (realm/dispose-realm! :addr/b))))))
 
 ;; ---- frame-address resolution semantics ------------------------------------
 
 (deftest frame-address-resolves-carried-then-frame-realm
   (testing "frame-address keys a non-default-realm frame by [realm frame] under
             the carried realm, and a default-realm frame by the bare id"
-    (let [ra (rf/realm {:id :addr/a})]
+    (let [ra (realm/construct-realm {:id :addr/a})]
       (try
-        (rf/install! ra (shared-app :a))
+        (av/install! ra (shared-app :a))
         ;; Under the carried realm: the [realm frame] address.
         (is (= [:addr/a :shared/frame]
                (frame/call-with-realm :addr/a
@@ -254,4 +255,4 @@
         (is (= :rf/default (frame/frame-address :rf/default))
             "a default-realm frame keys by its bare id (no realm key)")
         (finally
-          (rf/dispose-realm! :addr/a))))))
+          (realm/dispose-realm! :addr/a))))))

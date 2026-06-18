@@ -36,6 +36,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.app-value :as av]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.source-store :as source-store]
@@ -69,8 +70,8 @@
 (defn- add-b [{:keys [db]} _] {:db (assoc db :who :b)})
 
 (defn- app-of [id handler]
-  (rf/app {:id id :modules
-           [(rf/module {:id :m :events {:shared/e {:handler handler}}})]}))
+  (av/app {:id id :modules
+           [(av/module {:id :m :events {:shared/e {:handler handler}}})]}))
 
 ;; ---------------------------------------------------------------------------
 ;; (b) A constructed realm OWNS its own source-store atom, distinct from default
@@ -80,14 +81,14 @@
   (testing "rf2-9fn4is — a hermetic constructed realm resolves to its OWN
             source-store atom (not the process-default), mirroring its OWN
             registrar atom"
-    (let [r (rf/realm {:id :ss/r1})]
+    (let [r (realm/construct-realm {:id :ss/r1})]
       (is (not (identical? (realm/source-store r)
                            source-store/kind->id->ns->descriptor))
           "the constructed realm's source store is NOT the process-default atom")
       (is (not (identical? (realm/registrar r)
                            registrar/kind->id->metadata))
           "the constructed realm's registrar is NOT the process-default atom (control)")
-      (rf/dispose-realm! :ss/r1))))
+      (realm/dispose-realm! :ss/r1))))
 
 ;; ---------------------------------------------------------------------------
 ;; (a) Installing the same (kind, id) into two realms does NOT pollute default
@@ -97,12 +98,12 @@
   (testing "rf2-9fn4is — installing the SAME (kind, id) into two hermetic realms
             adds NEITHER descriptor to the process-default source store; each
             realm's own source store holds only its own descriptor"
-    (let [ra (rf/realm {:id :ss/a})
-          rb (rf/realm {:id :ss/b})]
+    (let [ra (realm/construct-realm {:id :ss/a})
+          rb (realm/construct-realm {:id :ss/b})]
       (is (empty? (source-store/descriptors-for :event :shared/e))
           "the process-default source store has no :shared/e before any install")
-      (rf/install! ra (app-of :ss/app-a add-a))
-      (rf/install! rb (app-of :ss/app-b add-b))
+      (av/install! ra (app-of :ss/app-a add-a))
+      (av/install! rb (app-of :ss/app-b add-b))
       ;; THE BUG: pre-fix the realm installs wrote :shared/e into the
       ;; process-default source store (the *source-store* binding was missing),
       ;; so this map was non-empty.
@@ -122,8 +123,8 @@
           (is (= 1 (count descs)) "realm b's own source store holds one :shared/e slot")
           (is (= add-b (-> descs vals first :handler-fn))
               "realm b's own source store holds add-b's descriptor")))
-      (rf/dispose-realm! :ss/a)
-      (rf/dispose-realm! :ss/b))))
+      (realm/dispose-realm! :ss/a)
+      (realm/dispose-realm! :ss/b))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) A non-default reinstall/removal does NOT delete a default source descriptor
@@ -139,19 +140,19 @@
     (rf/reg-event :shared/e add-a)
     (is (seq (source-store/descriptors-for :event :shared/e))
         "the default realm's source store holds the sugar-registered :shared/e")
-    (let [r (rf/realm {:id :ss/reinst})]
+    (let [r (realm/construct-realm {:id :ss/reinst})]
       ;; Install :shared/e into the hermetic realm, then reinstall an app that
       ;; DROPS it (the removal path that previously deleted the default slot).
-      (rf/install!   r (app-of :ss/reinst-app add-b))
-      (rf/reinstall! r (rf/app {:id :ss/reinst-app :modules
-                                [(rf/module {:id :m :events {:other/e {:handler add-a}}})]}))
+      (av/install!   r (app-of :ss/reinst-app add-b))
+      (av/reinstall! r (av/app {:id :ss/reinst-app :modules
+                                [(av/module {:id :m :events {:other/e {:handler add-a}}})]}))
       ;; THE BUG: pre-fix the reinstall's `forget-id!` for the removed :shared/e
       ;; ran against the process-default source store, deleting the default
       ;; realm's own :shared/e descriptor.
       (is (seq (source-store/descriptors-for :event :shared/e))
           "the default realm's :shared/e source descriptor SURVIVES the
            non-default realm's removal of the same (kind, id)")
-      (rf/dispose-realm! :ss/reinst))))
+      (realm/dispose-realm! :ss/reinst))))
 
 ;; ---------------------------------------------------------------------------
 ;; (d) Failed install seating is ATOMIC for the source store too
@@ -161,15 +162,15 @@
   (testing "rf2-9fn4is — a throw PART-WAY through install seating leaves no
             partial writes in the realm's source store (atomic across BOTH the
             registrar and the source store)"
-    (let [r (rf/realm {:id :ss/atomic})
+    (let [r (realm/construct-realm {:id :ss/atomic})
           ;; An app whose second descriptor names a step-8-DEFERRED kind so the
           ;; seating throws AFTER the first descriptor would otherwise land.
           ;; install! preflights the kinds and throws before lowering anything,
           ;; so to force a MID-LOOP throw we install a good app first, then a
           ;; reinstall whose apply loop throws part-way.
-          good (rf/app {:id :ss/atomic-app :modules
-                        [(rf/module {:id :m :events {:ok/e1 {:handler add-a}}})]})]
-      (rf/install! r good)
+          good (av/app {:id :ss/atomic-app :modules
+                        [(av/module {:id :m :events {:ok/e1 {:handler add-a}}})]})]
+      (av/install! r good)
       ;; Sanity: the good descriptor is in the realm's own source store.
       (binding [source-store/*source-store* (realm/source-store r)]
         (is (seq (source-store/descriptors-for :event :ok/e1))
@@ -178,12 +179,12 @@
             ;; A reinstall whose NEW app adds a descriptor of a deferred kind —
             ;; the apply loop throws part-way. (Deferred kinds throw
             ;; :rf.error/unsupported-descriptor-kind on lowering.)
-            bad (rf/app {:id :ss/atomic-app :modules
-                         [(rf/module {:id :m
+            bad (av/app {:id :ss/atomic-app :modules
+                         [(av/module {:id :m
                                       :events {:ok/e1 {:handler add-a}
                                                :ok/e2 {:handler add-b}}
                                       :flows  {:bad/flow {:output (fn [_] nil)}}})]})
-            threw? (try (rf/reinstall! r bad) false
+            threw? (try (av/reinstall! r bad) false
                         (catch #?(:clj Throwable :cljs :default) _ true))]
         (is threw? "the reinstall threw on the deferred-kind descriptor")
         (binding [source-store/*source-store* (realm/source-store r)]
@@ -199,7 +200,7 @@
         ;; unchanged store is a safe cache false-miss, never a stale hit).
         (is (= store-value-before @(realm/source-store r))
             "the realm source store value is restored after the rolled-back reinstall"))
-      (rf/dispose-realm! :ss/atomic))))
+      (realm/dispose-realm! :ss/atomic))))
 
 ;; ---------------------------------------------------------------------------
 ;; (e) The realm store's generation bumps on its OWN mutations, default's does not
@@ -210,14 +211,14 @@
             generation while leaving the process-default store's generation
             untouched (image assembly reads the intended store under the binding)"
     (let [default-gen-before (source-store/store-generation)
-          r                  (rf/realm {:id :ss/gen})
+          r                  (realm/construct-realm {:id :ss/gen})
           realm-gen-before   (binding [source-store/*source-store* (realm/source-store r)]
                                (source-store/store-generation))]
-      (rf/install! r (app-of :ss/gen-app add-a))
+      (av/install! r (app-of :ss/gen-app add-a))
       (is (= default-gen-before (source-store/store-generation))
           "the process-default source store's generation is UNCHANGED by the realm install")
       (let [realm-gen-after (binding [source-store/*source-store* (realm/source-store r)]
                               (source-store/store-generation))]
         (is (> realm-gen-after realm-gen-before)
             "the realm source store's OWN generation bumped on its install"))
-      (rf/dispose-realm! :ss/gen))))
+      (realm/dispose-realm! :ss/gen))))

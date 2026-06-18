@@ -7,7 +7,7 @@
     (rf/registrations {:realm r :kind :event})
     (rf/handler-meta   {:realm r :kind :event :id :cart/add})
     (rf/handler-ids    {:realm r :kind :event})
-    (rf/app-registrations {:app app :kind :event})
+    (av/app-registrations app :event)   ; retained-internal positional inspector
 
   ruled map-shaped in EP-0013 open-issue 11 (unambiguous against the existing
   keyword arities, extensible). The headline acceptance, mirroring D1 §Realm
@@ -34,6 +34,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.app-value :as av]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -191,20 +192,22 @@
         "handler-ids on an unknown realm is empty")))
 
 ;; ---------------------------------------------------------------------------
-;; (5) app-registrations grows the map-shaped form
+;; (5) app-registrations enumerates a constructed app's descriptors
+;;
+;; EP-0023 (rf2-pl97nd.4): the facade-only `{:app :kind}` map-shaped arity is
+;; removed with the public facade; the retained-internal
+;; `re-frame.app-value/app-registrations` keeps the positional `[app kind]`
+;; substrate inspector, which this exercises.
 ;; ---------------------------------------------------------------------------
 
-(deftest app-registrations-map-form
-  (testing "(app-registrations {:app app :kind k}) parallels the positional
-            form and the realm-targeted registrar queries"
-    (let [m   (rf/module {:id :rq/mod
+(deftest app-registrations-positional-form
+  (testing "(app-value/app-registrations app kind) enumerates a constructed
+            app value's descriptors for a kind, nil for a kind it declares none of"
+    (let [m   (av/module {:id :rq/mod
                           :events {:rq/m-evt {:doc "mod event"
                                               :handler (fn [db _] db)}}})
-          app (rf/app {:id :rq/app :modules [m]})]
-      (is (= (rf/app-registrations app :event)
-             (rf/app-registrations {:app app :kind :event}))
-          "the map form equals the positional form")
-      (is (contains? (rf/app-registrations {:app app :kind :event}) :rq/m-evt)
-          "the map form enumerates the constructed app's descriptors")
-      (is (nil? (rf/app-registrations {:app app :kind :sub}))
-          "a kind the app declares none of is nil, as the positional form"))))
+          app (av/app {:id :rq/app :modules [m]})]
+      (is (contains? (av/app-registrations app :event) :rq/m-evt)
+          "the positional form enumerates the constructed app's descriptors")
+      (is (nil? (av/app-registrations app :sub))
+          "a kind the app declares none of is nil"))))
