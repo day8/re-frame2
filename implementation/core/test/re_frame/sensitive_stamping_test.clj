@@ -141,7 +141,7 @@
             top-level `:sensitive?` field. The stamp is frame-classification
             -derived: a frame-sensitive app-db path drives it (EP-0015 §8)."
   (rf/clear-trace-buffer! :rf/default)
-  (rf/configure! :trace-buffer {:cascades-retained 100})
+  (rf/configure! {:trace-buffer {:cascades-retained 100}})
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event :sensitive/buf
                    {:interceptors [[:rf.interceptor/path [:auth]]]}

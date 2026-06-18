@@ -3,7 +3,7 @@
 ;;
 ;; Per Tool-Pair §Time-travel and Spec-Schemas §`:rf/epoch-record` the
 ;; epoch surface — the per-frame `:rf/epoch-record` ring buffer
-;; (`epoch-history`), the `(rf/configure! :epoch-history {:depth N})`
+;; (`epoch-history`), the `(rf/configure! {:epoch-history {:depth N}})`
 ;; knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the
 ;; `restore-epoch!` rewind with its seven documented failure modes
 ;; (`:rf.epoch/restore-unknown-epoch`,
@@ -41,7 +41,7 @@
 ;;
 ;; And require `re-frame.epoch` in any namespace that calls
 ;; `rf/epoch-history`, `rf/restore-epoch!`, `rf/register-epoch-listener!`,
-;; `rf/unregister-epoch-listener!`, or `(rf/configure! :epoch-history ...)` —
+;; `rf/unregister-epoch-listener!`, or `(rf/configure! {:epoch-history ...})` —
 ;; loading the namespace publishes the artefact's late-bind contract via
 ;; a single `(late-bind/set-fns! { ... })` map in `re-frame.epoch`.
 ;;
@@ -70,7 +70,7 @@
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to epoch (`re-frame.core`'s `epoch-history` /
 ;; `restore-epoch!` / `register-epoch-listener!` / `unregister-epoch-listener!` re-exports
-;; and the `(rf/configure! :epoch-history ...)` knob) flow through
+;; and the `(rf/configure! {:epoch-history ...})` knob) flow through
 ;; `re-frame.late-bind` exactly as the schemas / machines / routing /
 ;; flows / http / ssr hooks already do.
 {:paths ["src"]

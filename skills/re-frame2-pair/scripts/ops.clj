@@ -735,7 +735,7 @@
                        :note (str "The id we were tracking fell off the frame's "
                                   "epoch-history ring between polls — some matching "
                                   "epochs may have been missed. Bump depth via "
-                                  "(rf/configure! :epoch-history {:depth N}).")}))
+                                  "(rf/configure! {:epoch-history {:depth N}}).")}))
               (doseq [m matches]
                 (swap! emitted inc)
                 (reset! last-hit (System/currentTimeMillis))

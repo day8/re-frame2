@@ -51,7 +51,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -92,8 +92,7 @@
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (let [observed (atom :unset)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r]
+      (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                   (reset! observed
                                           (get-in r [:db-after :auth :password]))
                                   ;; Scrub a non-declared slot the projection
@@ -101,7 +100,7 @@
                                   (cond-> r
                                     (get-in r [:db-after :session :token])
                                     (assoc-in [:db-after :session :token]
-                                              :rf/redacted)))})
+                                              :rf/redacted)))}})
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw tok]]
                          {:db (-> db
@@ -134,8 +133,7 @@
             the same collapse) — structural equality across passes."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
@@ -163,13 +161,12 @@
             becomes :rf/redacted, the benign sibling is unchanged."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)            ;; only :password declared
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r]
+    (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                 ;; The override scrubs a NON-declared slot.
                                 (cond-> r
                                   (get-in r [:db-after :session :token])
                                   (assoc-in [:db-after :session :token]
-                                            :rf/redacted)))})
+                                            :rf/redacted)))}})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw tk]]
                        {:db (-> db
@@ -203,8 +200,7 @@
             MUST still read true — both stages preserve the bookkeeping."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
@@ -446,12 +442,11 @@
     (rf/dispatch-sync [:login "secret-1"]  {:frame :test/main})
     ;; Install an override mid-session — it only affects the PROJECTION,
     ;; never the already-raw ring.
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r]
+    (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                 (cond-> r
                                   (get-in r [:db-after :session :token])
                                   (assoc-in [:db-after :session :token]
-                                            :rf/redacted)))})
+                                            :rf/redacted)))}})
     (rf/dispatch-sync [:login "secret-2"]  {:frame :test/main})
     (rf/dispatch-sync [:login "secret-3"]  {:frame :test/main})
 
@@ -486,7 +481,7 @@
   (testing "with a redact-fn installed but no cascades recorded,
             projected-history is the empty vector — the override is inert
             until a record exists to project"
-    (rf/configure! :epoch-history {:redact-fn (fn [r] r)})
+    (rf/configure! {:epoch-history {:redact-fn (fn [r] r)}})
     (is (= [] (epoch/projected-history :rf/no-such-frame)))))
 
 ;; ============================================================================
@@ -501,13 +496,12 @@
             produces no further change."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)          ;; :password declared
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r]
+    (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                 ;; The override scrubs a non-declared slot.
                                 (cond-> r
                                   (get-in r [:db-after :session :token])
                                   (assoc-in [:db-after :session :token]
-                                            :rf/redacted)))})
+                                            :rf/redacted)))}})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw tk]]
                        {:db (-> db

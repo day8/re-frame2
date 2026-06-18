@@ -43,7 +43,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 (deftest epoch-history-inert-when-debug-disabled
   (testing "Per rf2-0la4f: when the JVM debug gate reads false, the
@@ -155,10 +155,9 @@
             pays zero invocation cost."
     (with-redefs [interop/debug-enabled? false]
       (let [invocations (atom 0)]
-        (rf/configure! :epoch-history
-                      {:redact-fn (fn [r]
+        (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                     (swap! invocations inc)
-                                    r)})
+                                    r)}})
         (rf/reg-event :prod-gate.redact/inc
                          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate.redact/inc])
@@ -169,7 +168,7 @@
              projection-side hook, and record assembly is elided anyway")
         (is (empty? (epoch/epoch-history :rf/default))
             "no record assembled under the disabled gate")
-        (rf/configure! :epoch-history {:redact-fn nil})))))
+        (rf/configure! {:epoch-history {:redact-fn nil}})))))
 
 (deftest redact-fn-not-invoked-at-storage-under-default-gate
   (testing "Per EP-0015 §15 + open-issue 6: even under the DEFAULT-TRUE
@@ -178,8 +177,7 @@
             override fires only when `projected-record` is called."
     (let [invocations (atom 0)]
       (rf/reg-frame :prod-gate.dev/frame {})
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [r] (swap! invocations inc) r)})
+      (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
       (rf/reg-event :prod-gate.redact/dev-inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.redact/dev-inc] {:frame :prod-gate.dev/frame})
@@ -190,7 +188,7 @@
       (is (pos? @invocations)
           ":redact-fn fires when projected-record is called (the egress
            override), under the default gate")
-      (rf/configure! :epoch-history {:redact-fn nil}))))
+      (rf/configure! {:epoch-history {:redact-fn nil}}))))
 
 (deftest redact-fn-not-invoked-on-replace-app-db-under-disabled-gate
   (testing "`replace-app-db!` returns false under the disabled gate — the
@@ -199,16 +197,15 @@
             regardless; the early-return false is preserved."
     (with-redefs [interop/debug-enabled? false]
       (let [invocations (atom 0)]
-        (rf/configure! :epoch-history
-                      {:redact-fn (fn [r]
+        (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                     (swap! invocations inc)
-                                    r)})
+                                    r)}})
         (is (false? (rf/replace-app-db! :rf/default {:any "db"}))
             "replace-app-db! refuses under the disabled gate")
         (is (zero? @invocations)
             ":redact-fn was never reached — no synthetic record recorded
              (and the fn is projection-side anyway)")
-        (rf/configure! :epoch-history {:redact-fn nil})))))
+        (rf/configure! {:epoch-history {:redact-fn nil}})))))
 
 (deftest redact-fn-warning-not-emitted-on-storage-path
   (testing "Per EP-0015 §15 + open-issue 6: a throwing :redact-fn cannot
@@ -223,8 +220,7 @@
                              (fn [ev]
                                (when (= :warning (:op-type ev))
                                  (swap! warnings conj ev))))
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [_r] (throw (ex-info "boom" {})))})
+      (rf/configure! {:epoch-history {:redact-fn (fn [_r] (throw (ex-info "boom" {})))}})
       (rf/reg-event :prod-gate.redact/throw
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
@@ -237,7 +233,7 @@
             ":rf.warning/epoch-redact-fn-exception never fires on the
              storage path — apply-redact-fn runs only at projection time"))
       (rf/unregister-listener! :trace ::warn-watch)
-      (rf/configure! :epoch-history {:redact-fn nil}))))
+      (rf/configure! {:epoch-history {:redact-fn nil}}))))
 
 (deftest projected-record-pure-transform-survives-disabled-gate
   (testing "Per rf2-vq5o0: projected-record is a pure data transform

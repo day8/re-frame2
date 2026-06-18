@@ -225,7 +225,7 @@ const ENABLE_REQUIRE_FORM = `(require 're-frame.epoch)`;
 // echo the live depth + hook state so seedRuntime can assert both landed.
 const ENABLE_CONFIGURE_FORM = `
 (do
-  (re-frame.core/configure! :epoch-history {:depth 50})
+  (re-frame.core/configure! {:epoch-history {:depth 50}})
   {:hook-installed? (some? (re-frame.late-bind/get-fn :epoch/settle!))
    :depth (:depth (re-frame.epoch/current-config))})`;
 

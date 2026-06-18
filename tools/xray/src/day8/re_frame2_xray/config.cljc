@@ -1023,7 +1023,7 @@
 
   - `:epoch-history` (integer, default 50) — depth of the per-frame
     epoch ring buffer (per rf2-3zyyx / spec/021 §10.7, §13). Maps 1:1
-    to `(rf/configure! :epoch-history {:depth N})` — Xray's settings
+    to `(rf/configure! {:epoch-history {:depth N}})` — Xray's settings
     write through to that runtime knob via `apply-epoch-history!` so
     the live substrate ring resizes immediately on change AND the
     persisted value is restored on next page-load BEFORE first paint.
@@ -1040,8 +1040,8 @@
   - `:cascades-retained` (default 50) — count of cascades retained
     in each frame's trace ring. Mirrors
     `re-frame.trace.tooling/default-cascades-retained`. Writes through
-    to the runtime ring via `(rf/configure! :trace-buffer
-    {:cascades-retained N})` — `apply-cascades-retained!` resizes the
+    to the runtime ring via `(rf/configure! {:trace-buffer
+    {:cascades-retained N}})` — `apply-cascades-retained!` resizes the
     live ring and `apply-all!` replays the persisted value on boot
     (rf2-5u03ig). Renamed from `:trace-buffer/keep` per the rf2-3g9nw
     D1=a ruling: the unit changed from events (1000) to cascades (50)

@@ -47,7 +47,7 @@ Synchronous delivery has a catch. If you weren't listening when an event fired, 
 So each [frame](frames.md) (an isolated runtime instance with its own app-db) also keeps a ring buffer of recent history. The unit of retention is the **cascade**, not the individual trace event, and that choice matters: one dispatch takes one slot whether its cascade emitted five events or fifty thousand, so a chatty cascade can't flood out the one you care about. One knob, one read:
 
 ```clojure
-(rf/configure! :trace-buffer {:cascades-retained 50})   ;; the default
+(rf/configure! {:trace-buffer {:cascades-retained 50}})   ;; the default
 
 (rf/trace-buffer :app)
 ;; => vector of cascade bundles, oldest first — each one already grouped:
@@ -58,7 +58,7 @@ So each [frame](frames.md) (an isolated runtime instance with its own app-db) al
 
 This is how a late-attaching tool bootstraps itself. Read the buffer to learn where the app just came from, then register a listener to stay current. The buffer is "what just happened"; the live stream is "what's happening now." It's per-frame on purpose, so a devtool mounted in its own frame can storm its own subscriptions without polluting your app frame's history.
 
-Next to the trace ring (what the app *did*) sits the **epoch history** (what the app *was*). That's one assembled record per cascade, carrying `:db-before` and `:db-after` snapshots plus structured `:sub-runs` / `:renders` / `:effects` projections, retained to its own depth (`(rf/configure! :epoch-history {:depth 50})`, the default). Because each record holds real before-and-after state, time travel falls out for free: `(rf/restore-epoch! frame-id epoch-id)` rewinds a frame to exactly the state it held then — application state and runtime state (machine snapshots, the route slice) in one atomic write. This isn't a special debug build; it's the direct consequence of state being one immutable value per frame.
+Next to the trace ring (what the app *did*) sits the **epoch history** (what the app *was*). That's one assembled record per cascade, carrying `:db-before` and `:db-after` snapshots plus structured `:sub-runs` / `:renders` / `:effects` projections, retained to its own depth (`(rf/configure! {:epoch-history {:depth 50}})`, the default). Because each record holds real before-and-after state, time travel falls out for free: `(rf/restore-epoch! frame-id epoch-id)` rewinds a frame to exactly the state it held then — application state and runtime state (machine snapshots, the route slice) in one atomic write. This isn't a special debug build; it's the direct consequence of state being one immutable value per frame.
 
 ## Your listener in eight lines
 

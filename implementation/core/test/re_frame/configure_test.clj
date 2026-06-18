@@ -51,21 +51,22 @@
   (rf/reg-frame :rf/default {})
   (try (rf/with-frame :rf/default (test-fn))
        (finally
-         ;; Restore defaults so we do not leak tweaks into other suites.
-         (rf/configure! :trace-buffer {:cascades-retained 50})
-         (rf/configure! :elision {:rf.size/threshold-bytes 16384}))))
+         ;; Restore defaults so we do not leak tweaks into other suites —
+         ;; one composite config map (rf2-dzxixe single-map entry point).
+         (rf/configure! {:trace-buffer {:cascades-retained 50}
+                         :elision      {:rf.size/threshold-bytes 16384}}))))
 
 (use-fixtures :each reset-runtime)
 
 (deftest configure-known-keys-take-effect
   (testing ":trace-buffer cascades-retained is wired"
-    (rf/configure! :trace-buffer {:cascades-retained 7})
+    (rf/configure! {:trace-buffer {:cascades-retained 7}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 7)
         ":trace-buffer {:cascades-retained 7} caps retained cascades at 7"))
   (testing ":elision is wired (rf2-le2qu)"
-    (rf/configure! :elision {:rf.size/threshold-bytes 4096})
+    (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
     (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
         ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
 
@@ -77,7 +78,7 @@
             :cascades-retained is the SOLE canonical opt — impl, core
             docstring, API.md, and Spec 009 all agree."
     ;; Establish a known retention first.
-    (rf/configure! :trace-buffer {:cascades-retained 9})
+    (rf/configure! {:trace-buffer {:cascades-retained 9}})
     (let [warnings (atom [])]
       (rf/register-listener! :trace ::trace-buffer-opts
                              (fn [ev]
@@ -87,7 +88,7 @@
       (try
         ;; The documented footgun: a user following stale docs passes the
         ;; retired {:depth N} shape.
-        (rf/configure! :trace-buffer {:depth 200})
+        (rf/configure! {:trace-buffer {:depth 200}})
         (is (= 1 (count @warnings))
             "the retired {:depth N} shape emits exactly one warning")
         (let [ev (first @warnings)]
@@ -98,7 +99,7 @@
           (is (string? (-> ev :tags :reason))
               "the :reason names the fix"))
         ;; A negative value is likewise rejected.
-        (rf/configure! :trace-buffer {:cascades-retained -1})
+        (rf/configure! {:trace-buffer {:cascades-retained -1}})
         (is (= 2 (count @warnings))
             "a negative :cascades-retained also warns")
         ;; Retention is still the last GOOD value — the bad calls were
@@ -108,7 +109,7 @@
         (is (<= (count (rf/trace-buffer :rf/default)) 9)
             "retention stayed at the last valid {:cascades-retained 9}")
         ;; The canonical shape still applies cleanly (no warning).
-        (rf/configure! :trace-buffer {:cascades-retained 3})
+        (rf/configure! {:trace-buffer {:cascades-retained 3}})
         (is (= 2 (count @warnings))
             "the canonical {:cascades-retained N} shape does NOT warn")
         (finally
@@ -120,24 +121,51 @@
     ;; API.md §Configure keys must not throw, must not partially apply,
     ;; and must return nil so user code wrapping `configure` can safely
     ;; pass through unknown keys without branching.
-    (is (nil? (rf/configure! :strict-subs true))
+    (is (nil? (rf/configure! {:strict-subs true}))
         ":strict-subs is NOT a v1 configure key (per API.md §Configure keys); call no-ops")
-    (is (nil? (rf/configure! :ssr {:public-error-id :anything}))
+    (is (nil? (rf/configure! {:ssr {:public-error-id :anything}}))
         ":ssr is per-frame metadata, not a configure key (per Conventions §Configuration surfaces)")
-    (is (nil? (rf/configure! :totally-made-up {:foo 1}))
+    (is (nil? (rf/configure! {:totally-made-up {:foo 1}}))
         "any unknown key returns nil")
     ;; rf2-cmfln — :sub-cache is no longer a valid configure key (sync
     ;; dispose has no grace-period to configure). The call must no-op.
-    (is (nil? (rf/configure! :sub-cache {:grace-period-ms 71}))
+    (is (nil? (rf/configure! {:sub-cache {:grace-period-ms 71}}))
         ":sub-cache is retired (rf2-cmfln); the call no-ops"))
   (testing "an unknown key does not perturb the known-key state"
     ;; Set known keys to non-default values, then attempt unknown keys,
     ;; then assert known-key state is unchanged.
-    (rf/configure! :trace-buffer {:cascades-retained 11})
-    (rf/configure! :strict-subs  true)
-    (rf/configure! :ssr          {:public-error-id :nope})
-    (rf/configure! :no-such-key  {})
+    (rf/configure! {:trace-buffer {:cascades-retained 11}})
+    (rf/configure! {:strict-subs true})
+    (rf/configure! {:ssr {:public-error-id :nope}})
+    (rf/configure! {:no-such-key {}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 11)
-        ":trace-buffer cascades-retained survived bracketing unknown-key calls")))
+        ":trace-buffer cascades-retained survived bracketing unknown-key calls"))
+  (testing "rf2-dzxixe — a single map mixing known + unknown top-level
+            keys applies the known subsystems and silently ignores the
+            unknown ones (closed-and-additive)"
+    (rf/configure! {:trace-buffer {:cascades-retained 6}
+                    :elision      {:rf.size/threshold-bytes 2048}
+                    :no-such-key  {:foo 1}
+                    :strict-subs  true})
+    (is (= 2048 (:rf.size/threshold-bytes (elision/current-config)))
+        ":elision applied from the composite map")
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+    (dotimes [_ 20] (rf/dispatch-sync [:ping]))
+    (is (<= (count (rf/trace-buffer :rf/default)) 6)
+        ":trace-buffer applied from the composite map; unknown keys ignored")))
+
+(deftest configure-non-map-arg-fails-loud
+  (testing "rf2-dzxixe — configure! takes a SINGLE nested config map.
+            A non-map argument is a programmer error and fails loudly
+            (assert) rather than silently no-opping."
+    (is (thrown? AssertionError
+                 (rf/configure! :trace-buffer))
+        "a bare keyword (the retired keyed-arity first arg) fails loud")
+    (is (thrown? AssertionError
+                 (rf/configure! [:trace-buffer {:cascades-retained 3}]))
+        "a vector fails loud")
+    (is (thrown? AssertionError
+                 (rf/configure! nil))
+        "nil fails loud")))

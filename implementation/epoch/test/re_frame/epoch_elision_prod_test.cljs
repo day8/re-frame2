@@ -62,7 +62,7 @@
             an `:rf/epoch-record`. The whole settle! body sits inside
             `(when interop/debug-enabled? ...)` — the per-frame
             history vector stays empty."
-    (rf/configure! :epoch-history {:depth 100})
+    (rf/configure! {:epoch-history {:depth 100}})
     (rf/reg-event :prod-epoch/inc
                      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:prod-epoch/inc])

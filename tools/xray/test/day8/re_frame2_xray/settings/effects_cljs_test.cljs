@@ -225,7 +225,7 @@
 
 (deftest apply-epoch-history-writes-substrate-depth
   (testing "rf2-3zyyx — apply-epoch-history! routes through
-            `(rf/configure! :epoch-history {:depth N})` so the
+            `(rf/configure! {:epoch-history {:depth N}})` so the
             substrate's per-frame ring buffer matches the user's
             saved capacity. Reads the live depth from
             `re-frame.epoch.state` to assert the wire actually landed."
@@ -245,7 +245,7 @@
             "zero input is dropped at the effect boundary; substrate
              depth unchanged (the slider's min is 10 anyway)")
         (finally
-          (rf/configure! :epoch-history {:depth orig}))))))
+          (rf/configure! {:epoch-history {:depth orig}}))))))
 
 (deftest update-event-applies-epoch-history-effect
   (testing "rf2-3zyyx — dispatching `:rf.xray/settings-update :general
@@ -262,7 +262,7 @@
         (is (= 150 (epoch-state/depth))
             "substrate ring depth follows the dispatch")
         (finally
-          (rf/configure! :epoch-history {:depth orig}))))))
+          (rf/configure! {:epoch-history {:depth orig}}))))))
 
 (deftest apply-all-restores-epoch-history
   (testing "rf2-3zyyx — the boot path re-applies the persisted depth
@@ -275,29 +275,29 @@
         (is (= 88 (epoch-state/depth))
             "apply-all! routes the persisted value to the substrate")
         (finally
-          (rf/configure! :epoch-history {:depth orig}))))))
+          (rf/configure! {:epoch-history {:depth orig}}))))))
 
 ;; ---- cascades-retained (rf2-5u03ig) ------------------------------------
 ;;
 ;; The Buffer-tab `:cascades-retained` knob writes through to the
-;; framework trace ring via `(rf/configure! :trace-buffer
-;; {:cascades-retained N})`. We spy on `rf/configure!` to assert the
+;; framework trace ring via `(rf/configure! {:trace-buffer
+;; {:cascades-retained N}})`. We spy on `rf/configure!` to assert the
 ;; effect / event / boot paths all reach the published substrate API
-;; with the canonical opts shape — the framework knob itself is proven
-;; by `re-frame.configure-test` (configure_test.clj:60-66), so the
-;; Settings BRIDGE is what these tests guard.
+;; with the canonical config-map shape — the framework knob itself is
+;; proven by `re-frame.configure-test` (configure_test.clj:60-66), so
+;; the Settings BRIDGE is what these tests guard.
 
 (deftest apply-cascades-retained-writes-through-to-configure
   (testing "rf2-5u03ig — apply-cascades-retained! routes through
-            `(rf/configure! :trace-buffer {:cascades-retained N})`.
+            `(rf/configure! {:trace-buffer {:cascades-retained N}})`.
             Non-positive / non-numeric input is a no-op at the effect
             boundary (the UI :min 1 keeps the framework's 0-disables
             behaviour out of reach)."
     (let [calls (atom [])]
-      (with-redefs [rf/configure! (fn [knob opts] (swap! calls conj [knob opts]) nil)]
+      (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
         (effects/apply-cascades-retained! 33)
-        (is (= [[:trace-buffer {:cascades-retained 33}]] @calls)
-            "positive value reaches configure! with the canonical opts shape")
+        (is (= [{:trace-buffer {:cascades-retained 33}}] @calls)
+            "positive value reaches configure! with the canonical config-map shape")
         (effects/apply-cascades-retained! nil)
         (effects/apply-cascades-retained! 0)
         (effects/apply-cascades-retained! -5)
@@ -310,24 +310,24 @@
             the matching effect and persists the value."
     (setup!)
     (let [calls (atom [])]
-      (with-redefs [rf/configure! (fn [knob opts] (swap! calls conj [knob opts]) nil)]
+      (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/settings-update
                              :buffer :cascades-retained 17]))
         (is (= 17 (config/get-setting :buffer :cascades-retained))
             "config slot carries the new value")
-        (is (= [[:trace-buffer {:cascades-retained 17}]] @calls)
-            "the dispatch reaches configure! :trace-buffer")))))
+        (is (= [{:trace-buffer {:cascades-retained 17}}] @calls)
+            "the dispatch reaches configure! with the :trace-buffer key")))))
 
 (deftest apply-all-restores-cascades-retained
   (testing "rf2-5u03ig — the boot path re-applies the persisted
             cascades-retained count so the substrate trace ring matches
             the user's saved capacity BEFORE first dispatch."
     (let [calls (atom [])]
-      (with-redefs [rf/configure! (fn [knob opts] (swap! calls conj [knob opts]) nil)]
+      (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
         (config/update-setting! :buffer :cascades-retained 21)
         (effects/apply-all!)
-        (is (some #{[:trace-buffer {:cascades-retained 21}]} @calls)
+        (is (some #{{:trace-buffer {:cascades-retained 21}}} @calls)
             "apply-all! routes the persisted value to the substrate")))))
 
 ;; ---- panel width (rf2-x8h9y) -------------------------------------------

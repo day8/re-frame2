@@ -9,7 +9,7 @@
        versus event).
     2. Per-frame isolation — two frames, each gets its own ring.
     3. Ring depth cap — dispatch >depth events; oldest get evicted.
-    4. Configurable depth — `(rf/configure! :epoch-history {:depth N})`.
+    4. Configurable depth — `(rf/configure! {:epoch-history {:depth N}})`.
     5. Listener — `register-epoch-listener!` fires per drain-settle with the
        assembled record; same-key replaces; remove unhooks; exception
        isolation.
@@ -121,7 +121,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -543,7 +543,7 @@
 
 (deftest ring-depth-evicts-oldest
   (testing "when the ring fills, oldest records are evicted FIFO"
-    (rf/configure! :epoch-history {:depth 3})
+    (rf/configure! {:epoch-history {:depth 3}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -572,7 +572,7 @@
   ;; evicted records become GC-eligible.
   (testing "ring cap releases evicted records (no SubVector backing-vector leak)"
     (let [depth 3]
-      (rf/configure! :epoch-history {:depth depth})
+      (rf/configure! {:epoch-history {:depth depth}})
       (rf/reg-frame :test/main {})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/reg-event :inc  (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
@@ -602,7 +602,7 @@
 
 (deftest depth-zero-disables-recording
   (testing "depth 0 disables ring recording"
-    (rf/configure! :epoch-history {:depth 0})
+    (rf/configure! {:epoch-history {:depth 0}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
@@ -2189,10 +2189,10 @@
 ;; ---- recording is gated on debug-enabled? ---------------------------------
 
 (deftest configure-roundtrip
-  (testing "(rf/configure! :epoch-history {:depth N}) updates the depth"
-    (rf/configure! :epoch-history {:depth 7})
+  (testing "(rf/configure! {:epoch-history {:depth N}}) updates the depth"
+    (rf/configure! {:epoch-history {:depth 7}})
     (is (= 7 (:depth (epoch/current-config))))
-    (rf/configure! :epoch-history {:depth 12})
+    (rf/configure! {:epoch-history {:depth 12}})
     (is (= 12 (:depth (epoch/current-config))))))
 
 ;; ---- rf2-iegsz / rf2-mrsck: :trace-events elision policy -----------------
@@ -2216,7 +2216,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
-    (rf/configure! :epoch-history {:depth 10 :trace-events-keep 2})
+    (rf/configure! {:epoch-history {:depth 10 :trace-events-keep 2}})
 
     ;; Drive 5 cascades so the buffer has 5 records and only the last 2
     ;; should retain :trace-events.
@@ -2298,7 +2298,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     ;; Opt back into unbounded retention.
-    (rf/configure! :epoch-history {:trace-events-keep 100})
+    (rf/configure! {:epoch-history {:trace-events-keep 100}})
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -4236,43 +4236,43 @@
 ;; dropped, the prior valid config survives.
 
 (deftest configure-rejects-nil-depth
-  (testing "(rf/configure! :epoch-history {:depth nil}) is a no-op; the
+  (testing "(rf/configure! {:epoch-history {:depth nil}}) is a no-op; the
             previously-stored depth survives"
-    (rf/configure! :epoch-history {:depth 7})
+    (rf/configure! {:epoch-history {:depth 7}})
     (is (= 7 (:depth (epoch/current-config))))
 
-    (rf/configure! :epoch-history {:depth nil})
+    (rf/configure! {:epoch-history {:depth nil}})
     (is (= 7 (:depth (epoch/current-config)))
         ":depth nil silently dropped — prior 7 survives")))
 
 (deftest configure-rejects-non-numeric-depth
-  (testing "(rf/configure! :epoch-history {:depth \"five\"}) is a no-op"
-    (rf/configure! :epoch-history {:depth 7})
-    (rf/configure! :epoch-history {:depth "five"})
+  (testing "(rf/configure! {:epoch-history {:depth \"five\"}) is a no-op"
+    (rf/configure! {:epoch-history {:depth 7}})
+    (rf/configure! {:epoch-history {:depth "five"}})
     (is (= 7 (:depth (epoch/current-config)))
-        ":depth non-numeric silently dropped")))
+        ":depth non-numeric silently dropped"))})
 
 (deftest configure-rejects-negative-depth
-  (testing "(rf/configure! :epoch-history {:depth -1}) is a no-op"
-    (rf/configure! :epoch-history {:depth 7})
-    (rf/configure! :epoch-history {:depth -1})
+  (testing "(rf/configure! {:epoch-history {:depth -1}}) is a no-op"
+    (rf/configure! {:epoch-history {:depth 7}})
+    (rf/configure! {:epoch-history {:depth -1}})
     (is (= 7 (:depth (epoch/current-config)))
         ":depth negative silently dropped")))
 
 (deftest configure-rejects-invalid-trace-events-keep
-  (testing "(rf/configure! :epoch-history {:trace-events-keep <bad>}) is a no-op"
-    (rf/configure! :epoch-history {:trace-events-keep 3})
+  (testing "(rf/configure! {:epoch-history {:trace-events-keep <bad>}}) is a no-op"
+    (rf/configure! {:epoch-history {:trace-events-keep 3}})
     (is (= 3 (:trace-events-keep (epoch/current-config))))
 
-    (rf/configure! :epoch-history {:trace-events-keep nil})
+    (rf/configure! {:epoch-history {:trace-events-keep nil}})
     (is (= 3 (:trace-events-keep (epoch/current-config)))
         ":trace-events-keep nil silently dropped")
 
-    (rf/configure! :epoch-history {:trace-events-keep "no"})
+    (rf/configure! {:epoch-history {:trace-events-keep "no"}})
     (is (= 3 (:trace-events-keep (epoch/current-config)))
         ":trace-events-keep non-numeric silently dropped")
 
-    (rf/configure! :epoch-history {:trace-events-keep -5})
+    (rf/configure! {:epoch-history {:trace-events-keep -5}})
     (is (= 3 (:trace-events-keep (epoch/current-config)))
         ":trace-events-keep negative silently dropped")))
 
@@ -4281,18 +4281,18 @@
             and must be accepted (0 has well-defined meaning — depth 0
             disables recording; :trace-events-keep 0 drops every
             record's :trace-events)"
-    (rf/configure! :epoch-history {:depth 0})
+    (rf/configure! {:epoch-history {:depth 0}})
     (is (= 0 (:depth (epoch/current-config))))
 
-    (rf/configure! :epoch-history {:trace-events-keep 0})
+    (rf/configure! {:epoch-history {:trace-events-keep 0}})
     (is (= 0 (:trace-events-keep (epoch/current-config))))))
 
 (deftest configure-partial-update-rejects-bad-key-only
   (testing "a configure call carrying one valid and one invalid key
             applies the valid one and drops the invalid one — failure
             in one key never poisons another"
-    (rf/configure! :epoch-history {:depth 7 :trace-events-keep 4})
-    (rf/configure! :epoch-history {:depth 11 :trace-events-keep nil})
+    (rf/configure! {:epoch-history {:depth 7 :trace-events-keep 4}})
+    (rf/configure! {:epoch-history {:depth 11 :trace-events-keep nil}})
     (let [cfg (epoch/current-config)]
       (is (= 11 (:depth cfg))
           "the valid :depth update was applied")
@@ -4312,7 +4312,7 @@
   (testing "an epoch-id that was evicted by ring-depth-cap restores as
             :rf.epoch/restore-unknown-epoch (app-db unchanged; failure
             tags carry the current history-size, which equals depth)"
-    (rf/configure! :epoch-history {:depth 3})
+    (rf/configure! {:epoch-history {:depth 3}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -4359,7 +4359,7 @@
 (deftest depth-zero-still-fires-listeners
   (testing "depth 0 disables the ring buffer but the assembled record
             still fans out to registered listeners"
-    (rf/configure! :epoch-history {:depth 0})
+    (rf/configure! {:epoch-history {:depth 0}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))

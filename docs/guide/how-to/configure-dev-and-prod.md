@@ -65,17 +65,20 @@ Configuration lives in exactly three places, sorted by how long the configured t
 
 | Lifetime | Surface | What lives there |
 |---|---|---|
-| Process-wide, value is data | `(rf/configure! key opts)` | `:epoch-history`, `:trace-buffer`, `:elision` |
+| Process-wide, value is data | `(rf/configure! {key opts})` | `:epoch-history`, `:trace-buffer`, `:elision` |
 | Slot-level, value is an impl | `set-…!` / `install-…!` | schema validator/explainer, substrate adapter |
 | One frame | `reg-frame` metadata / `dispatch` opts | `:drain-depth`, `:observability`, `:fx-overrides` |
 
-A frame, here, is one isolated app instance — its own `app-db`, its own handlers. The `configure!` vocabulary is just three keys, fixed-and-additive, shown here at their defaults:
+A frame, here, is one isolated app instance — its own `app-db`, its own handlers. `configure!` takes a single nested map; its vocabulary is just three top-level keys, fixed-and-additive, shown here at their defaults:
 
 ```clojure
-(rf/configure! :epoch-history {:depth 50})                       ;; how far time-travel rewinds
-(rf/configure! :trace-buffer  {:cascades-retained 50})           ;; cascades held for dev tools
-(rf/configure! :elision       {:rf.size/threshold-bytes 16384})  ;; "too big for the wire"
+(rf/configure!
+  {:epoch-history {:depth 50}                       ;; how far time-travel rewinds
+   :trace-buffer  {:cascades-retained 50}           ;; cascades held for dev tools
+   :elision       {:rf.size/threshold-bytes 16384}});; "too big for the wire"
 ```
+
+A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:cascades-retained 200}})` — or compose all three in one value.
 
 - **`:epoch-history`** — depth of the per-frame epoch ring that powers Xray's time travel; `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set.
 - **`:trace-buffer`** — how many whole cascades (one dispatch plus everything it fanned into) the dev trace ring retains; bump it for a bug spanning more user actions than 50. Dev-only, same as above.

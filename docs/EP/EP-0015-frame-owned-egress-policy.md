@@ -139,7 +139,7 @@ Today the design asks the author to understand too many overlapping mechanisms:
 (rf/register-error-listener! :app/sentry sentry-sink)
 
 ;; epoch record privacy via process-global config
-(rf/configure! :epoch-history {:redact-fn redact-record})
+(rf/configure! {:epoch-history {:redact-fn redact-record}})
 
 ;; direct wire boundary via low-level value walker
 (rf/elide-wire-value value
@@ -859,8 +859,8 @@ not cross.
 The current epoch hook is powerful:
 
 ```clojure
-(rf/configure! :epoch-history
-  {:redact-fn redact-record})
+(rf/configure! {:epoch-history
+                {:redact-fn redact-record}})
 ```
 
 It also smells. It mutates the record that tools may later restore from, so a

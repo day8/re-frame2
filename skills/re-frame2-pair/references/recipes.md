@@ -121,7 +121,7 @@ Procedure:
 5. If no single epoch is responsible — the state drifted over many events — use `eval-cljs {form: "(re-frame2-pair.runtime/find-all-where <pred>)"}` to get the trajectory. Narrate the 3–5 most relevant transitions rather than all of them.
 6. Propose a fix. Usually one of: a handler that shouldn't have fired, a handler that did fire but was wrong, or a missing guard.
 
-**Retention caveat.** The epoch ring is bounded (default 50, configurable via `(rf/configure! :epoch-history {:depth N})`). Events that happened "a long time ago" may have aged out. If the user describes a state change you can't find in the ring, say so explicitly: *"I can see the last N events but the change you're describing happened before that."* Then propose reproducing the path from a known state — or `(rf/configure! :epoch-history {:depth 500})` and re-trigger.
+**Retention caveat.** The epoch ring is bounded (default 50, configurable via `(rf/configure! {:epoch-history {:depth N}})`). Events that happened "a long time ago" may have aged out. If the user describes a state change you can't find in the ring, say so explicitly: *"I can see the last N events but the change you're describing happened before that."* Then propose reproducing the path from a known state — or `(rf/configure! {:epoch-history {:depth 500}})` and re-trigger.
 
 ## "What effects fired?"
 

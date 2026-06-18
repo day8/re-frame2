@@ -26,7 +26,7 @@
     :effects        structured projection of fx-walk activity
 
   Records are kept in a per-frame ring buffer (default depth 50,
-  configurable via `(rf/configure! :epoch-history {:depth N})`). Older
+  configurable via `(rf/configure! {:epoch-history {:depth N}})`). Older
   records are evicted when the buffer is full.
 
   The entire epoch-history machinery is gated on `interop/debug-enabled?`,
@@ -75,7 +75,7 @@
 ;;     configures a keep < depth) keep only the cheap structured projections.
 ;;     Memory-conscious hosts pass a smaller value (e.g.
 ;;     `{:trace-events-keep 5}`); `0` drops every record's `:trace-events`.
-;;     `(rf/configure! :epoch-history {:trace-events-keep nil})` is a no-op
+;;     `(rf/configure! {:epoch-history {:trace-events-keep nil}})` is a no-op
 ;;     against the explicit-value validation; use a numeric value or omit the
 ;;     slot.
 ;;   * Keys are validated at the boundary (refactor-audit r2 rf2-lwn4t
@@ -1011,10 +1011,10 @@
 ;; core artefact MUST NOT statically `:require` it. Core's public
 ;; re-exports (`rf/epoch-history`, `rf/restore-epoch!`,
 ;; `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`) and the
-;; `(rf/configure! :epoch-history ...)` knob look the producing fns up
+;; `(rf/configure! {:epoch-history ...})` knob look the producing fns up
 ;; through the hook table at call time; when this artefact is not on
 ;; the classpath those queries return nil / empty / false and the
-;; (rf/configure! :epoch-history ...) call is a silent no-op — the
+;; (rf/configure! {:epoch-history ...}) call is a silent no-op — the
 ;; epoch surface is dev-tier so an absent artefact degrades quietly
 ;; rather than throwing.
 

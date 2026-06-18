@@ -142,7 +142,7 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
+     :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
 ;; ---- stress dials ---------------------------------------------------------
 
@@ -190,7 +190,7 @@
     ;; records mid-run — the count / ordering invariants below pin the
     ;; no-cap case. The depth-cap behaviour itself is covered by the
     ;; existing `ring-depth-evicts-oldest` deterministic pin (rf2-shjf).
-    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
     (let [per-thread
           (vec
             (for [i (range n-threads)]
@@ -291,7 +291,7 @@
     ;; Bump the ring depth above iters — invariant 3 below counts the
     ;; final history; the cap behaviour is covered by the deterministic
     ;; `ring-depth-evicts-oldest` pin.
-    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
     (rf/reg-frame :rd7a7.fanout/main {:doc "fanout-stress frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
                              {:db (assoc db :last i)}))
@@ -427,7 +427,7 @@
     ;; the test pins the no-cap case so the count assertion is exact.
     ;; A separate test under the existing depth-evicts pin (rf2-shjf)
     ;; covers the cap behaviour.
-    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
     (rf/reg-frame :rd7a7.race/main {:doc "ring-buffer race frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
                              {:db (assoc db :last i)}))
@@ -580,7 +580,7 @@
                 "histories atom — every RAW back-fill delta lands EXACTLY "
                 "ONCE (no CAS-retry loss / duplication) and the stored rows "
                 "carry the raw value verbatim (EP-0015 §15 / open-issue 6)")
-    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
+    (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
     (let [n      n-threads
           frames (mapv (fn [t] (keyword "ep0015.cas" (str "frame-" t)))
                        (range n))]

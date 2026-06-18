@@ -248,7 +248,7 @@
   ## `:redact-fn` is an advanced PROJECTION-side hook (EP-0015 §15, issue 6)
 
   After the frame/profile projection lands, any app-installed
-  `(rf/configure! :epoch-history {:redact-fn …})` runs over the ALREADY-PROJECTED
+  `(rf/configure! {:epoch-history {:redact-fn …}})` runs over the ALREADY-PROJECTED
   egress copy as the rare advanced escape for material the frame/profile
   projection cannot prove. It is projection-side ONLY — the on-box ring stays
   raw (post-EP-0010 causal replay material), so the hook can never affect

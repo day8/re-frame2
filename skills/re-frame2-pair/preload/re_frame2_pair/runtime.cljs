@@ -2295,7 +2295,7 @@
    `:rf.trace/dispatch-id`, so cross-frame reconstruction iterates
    every registered frame's bundles and merges by `:dispatch-id`.
    Per-frame depth is configurable via
-   `(rf/configure! :trace-buffer {:cascades-retained N})`."
+   `(rf/configure! {:trace-buffer {:cascades-retained N}})`."
   [root-dispatch-id]
   (let [;; Per-frame rings, cascade-bundle reads — merge across
         ;; frames so cross-frame cascades reconstruct correctly. Each

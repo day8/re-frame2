@@ -161,7 +161,7 @@ Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md
 
 (defn ^:export main []
   (rf/init! reagent/adapter)
-  (rf/configure! :trace-buffer {:cascades-retained 200})
+  (rf/configure! {:trace-buffer {:cascades-retained 200}})
   (rf/reg-frame :app/main {:on-create [:app/boot]})        ;; register the app frame
   (rdom/render
     [rf/frame-provider {:frame :app/main}                  ;; establish it at the root

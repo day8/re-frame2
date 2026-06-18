@@ -213,7 +213,7 @@
 
   Buffer (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim)
   surfaces the cascades-retained knob (writes through to
-  `(rf/configure! :trace-buffer {:cascades-retained N})`) plus a
+  `(rf/configure! {:trace-buffer {:cascades-retained N}})`) plus a
   'Clear buffer now' button with a confirmation modal (destructive
   action). The inert `:app-db/inspector-collapse-threshold` input was
   removed (rf2-5u03ig — no runtime consumer; the inspector already
@@ -881,13 +881,13 @@
 ;;
 ;; * Epoch history (rf2-3zyyx, slot `:general :epoch-history`) — wired
 ;;   to the framework's per-frame epoch ring depth via
-;;   `(rf/configure! :epoch-history {:depth N})` (see
+;;   `(rf/configure! {:epoch-history {:depth N}})` (see
 ;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
 ;;   `:general` for back-compat with the persisted settings shape;
 ;;   only the popup home moved here (rf2-pu9sb).
 ;; * Cascades retained (slot `:buffer :cascades-retained`, rf2-5u03ig)
 ;;   — wired to the framework's per-frame trace ring via
-;;   `(rf/configure! :trace-buffer {:cascades-retained N})` (see
+;;   `(rf/configure! {:trace-buffer {:cascades-retained N}})` (see
 ;;   `settings/effects.cljs §apply-cascades-retained!`). The matching
 ;;   `:rf.xray/settings-update :buffer :cascades-retained` event
 ;;   applies it live; `apply-all!` replays the persisted value on boot.

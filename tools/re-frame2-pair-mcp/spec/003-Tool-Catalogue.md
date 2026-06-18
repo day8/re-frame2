@@ -141,8 +141,8 @@ Every tool that ships `:rf/epoch-record` values — `dispatch`
 framework's app-installed `:redact-fn` produced (per [Tool-Pair §Time-travel
 §Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
 and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)).
-When the consuming app has called `(rf/configure! :epoch-history
-{:redact-fn (fn [record] …)})`, the runtime invokes the fn
+When the consuming app has called `(rf/configure! {:epoch-history
+{:redact-fn (fn [record] …)}})`, the runtime invokes the fn
 **once per assembled record at build-time** (between
 `build-record` and ring-append / listener fan-out) — so the
 per-frame ring buffer, every `register-epoch-listener!` listener, and

@@ -150,7 +150,7 @@
         ;; numeric input had no runtime consumer (the inspector already
         ;; auto-collapses on depth/width) and was removed. The
         ;; `:cascades-retained` field stays — it now writes through to
-        ;; `(rf/configure! :trace-buffer ...)`.
+        ;; `(rf/configure! {:trace-buffer ...})`.
         (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-inspector-collapse"))
             "Inert `:buffer :app-db/inspector-collapse-threshold` input is gone")
         (is (find-by-testid rendered "rf-xray-settings-buffer-cascades-retained")
