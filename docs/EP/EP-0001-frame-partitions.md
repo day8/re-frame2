@@ -2,7 +2,14 @@
 
 Status: final
 
-> **`final` means the decisions are settled.** The fourteen deferred calls were
+> **`final` means the decisions are settled.** The two-partition frame contract
+> graduated into its normative home,
+> [`spec/002-Frames.md` §The two-partition frame contract](../../spec/002-Frames.md#the-two-partition-frame-contract);
+> where this EP and the spec differ, the **spec governs**, and this EP remains the
+> design record. (The `:rf.runtime/*` children this partition reserves are
+> organized by the follow-on [Runtime Subsystem Contract EP](EP-0006-runtime-subsystem-contract.md)
+> in [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md), without
+> reopening this contract.) The fourteen deferred calls were
 > ruled by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)).
 > The design-review follow-ups were also closed before finalization: Appendix
 > A's concrete recommendations are disposed by Resolved Decisions 3, 4, 7, and

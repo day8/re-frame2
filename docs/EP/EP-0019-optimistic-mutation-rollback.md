@@ -745,6 +745,24 @@ Proposed sequence (not a one-PR requirement):
    `:optimistic` (forward exact) + `:optimistic-tags` (forward tag-addressed),
    per EP-0007 one-name-per-fact. Operator to confirm the spelling.
 
+## Resolved Decisions
+
+Ruled by Mike at graduation (`proposal → final`, 2026-06-17; bead `rf2-pyahbf`),
+adopting the recommended cut. One row per Open Issue (Open Issue 5 carries its own
+load-bearing inline ruling, `byl7bk`, 2026-06-15). These rows are normative; the
+[§Open Issues](#open-issues) above carry the full rationale, and the §Specification
+body has been reconciled to them.
+
+| # | Decision | Resolution |
+|---|----------|-----------|
+| **R1** | Author-written inverse vs runtime snapshot inverse? (Open Issue 1) | **Runtime snapshot-of-touched-entries inverse** as the only public form — truthful by construction, no author drift. A semantic-inverse opt-in is revisited only if a Linearlite-class entry proves the snapshot cost real. |
+| **R2** | `:on-conflict` default — `:invalidate` vs `:force`? (Open Issue 2) | **`:invalidate` (default):** defer a contested rollback to the read path; never resurrect a stale value. **`:force`** ships as an opt-in (single-writer entries) with a tooling warning. This is the load-bearing correctness divergence from TanStack/SWR's unconditional context restore. |
+| **R3** | Optimistic apply on epoch-restore dangle? (Open Issue 3) | **Yes — a dangle rolls back the optimistic apply.** A `:pending`-on-restore dangle is an accepted-error-shaped terminal, so it triggers the same conflict-aware rollback as an `:error` reply. |
+| **R4** | Per-call optimistic opt-out shape? (Open Issue 4) | Reserve **`{:optimistic? false}`** on `:rf.mutation/execute` as the only per-call override — a boolean disable, not a per-call plan (a per-call forward plan would re-introduce call-site cache logic the EP-0016 doctrine pushes onto the registration). |
+| **R5** | Revision token scope — per-entry vs reuse `:generation`? (Open Issue 5) | **`byl7bk` ruling (load-bearing):** a **distinct `:revision` fact** (NOT a reuse of `:generation`), bumped on **every authoritative durable entry write a rollback could clobber** — unconditionally, never gated on `(= old new)` of `:data`. `:generation` bumps at load *start* and would false-conflict on every in-flight refetch. Bias to over-bump (a false conflict costs one refetch; a missed conflict is silent corruption). |
+| **R6** | Optimistic `:removes` and `:populates`-of-absent? (Open Issue 6) | **Yes — both ship in Decision 1's grammar.** Optimistic remove (vanish on apply, restore on failure) and optimistic seed of an absent entry both fall out of the snapshot inverse (`:absent` sentinel) at no extra mechanism. |
+| **R7** | Naming: `:optimistic` vs `:optimistic-patches`? (Open Issue 7) | **`:optimistic`** (forward exact) + **`:optimistic-tags`** (forward tag-addressed), per EP-0007 one-name-per-fact; reads better at the call site and matches SWR's `optimisticData`. |
+
 ## Recommendation
 
 Accept this EP as the optimistic-rollback follow-on EP-0016 issue 9 defers,
