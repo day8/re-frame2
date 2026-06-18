@@ -17,19 +17,21 @@
   cascade with `call-with-frame-resolution` (rf2-uejnt3). A realm-only / no-image
   frame is unaffected (absence-is-default).
 
-  ## One runnable image-loaded frame (EP-0023 collapse slice 1, rf2-32siq3.32)
+  ## One runnable image-loaded frame (EP-0024 §One live frame registry, rf2-tu2vr7)
 
-  `make-frame` now returns a SINGLE runnable image-loaded frame OBJECT: it
-  creates its own backing runnable record (app-db / queue / sub-cache /
-  lifecycle, via `reg-frame`) keyed by the frame's runnable-id AND carries the
-  resolved image generation, so an event stream runs against an image with no
-  separate `reg-frame` pairing. The cases below still call `reg-frame` first
-  (harmless — `make-frame {:id :counter/main}` surgical-updates the same record);
-  the router drains that record and `process-event!` derives the generation from
-  the live-frame object of the same id. The `two-frames-from-one-image-keep-…`
-  test exercises the collapse directly — two RUNNABLE objects built from ONE
-  image keep INDEPENDENT app-db + sub-cache (the previously-impossible proof, no
-  `reg-frame` in sight).
+  `make-frame` returns a SINGLE runnable image-loaded frame VALUE: it
+  creates/updates its backing runnable record (app-db / queue / sub-cache /
+  lifecycle, via `reg-frame`) keyed by the frame's runnable-id, and the resolved
+  image GENERATION lives ON that record (the `:generation` slot), so an event
+  stream runs against an image with no separate `reg-frame` pairing. EP-0024
+  collapsed the two-registry model to ONE: dispatch / subscribe re-derive the
+  generation from the record by id (a frame VALUE and its id resolve the same
+  generation). The cases below still call `reg-frame` first (harmless —
+  `make-frame {:id :counter/main}` idempotently updates the same record); the
+  router drains that record and `process-event!` derives the generation from the
+  record of the same id. The `two-frames-from-one-image-keep-…` test exercises
+  the collapse directly — two RUNNABLE values built from ONE image keep
+  INDEPENDENT app-db + sub-cache, no `reg-frame` in sight.
 
   Fixtures snapshot/restore the registrar via `make-reset-runtime-fixture`
   (NOT `registrar/clear-all!`, per the .9 isolation note) and clear the
@@ -548,9 +550,14 @@
           runnable (:rf.frame/runnable-id frame)
           reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
       (is (some? runnable) "a no-id object carries a private runnable-id")
-      (is (empty? (lf/live-frame-ids)) "but contributes no PUBLIC id")
-      (is (identical? reloaded (lf/live-frame runnable))
-          "(a) the runnable-id registry slot now holds the RELOADED v2 object")
+      (is (not-any? #(not= "rf.frame" (namespace %)) (lf/live-frame-ids))
+          "but contributes no PUBLIC id — its private :rf.frame/<gensym> id is
+           EXCLUDED from live-frame-ids (no-id frames bypass enumeration /
+           auto-reprojection; the owner reloads them explicitly — EP-0024)")
+      (is (= runnable (rf/frame-value->id (lf/live-frame runnable)))
+          "(a) the runnable-id registry slot now resolves the RELOADED v2 frame
+           (EP-0024: live-frame reconstructs a fresh value from the record;
+           compare by id)")
       (is (= :counter/inc (:id (asm/resolve-descriptor
                                  (lf/frame-generation (lf/live-frame runnable))
                                  :event :counter/inc)))

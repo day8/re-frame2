@@ -1,15 +1,16 @@
 (ns re-frame.live-frame-cljs-test
-  "EP-0023 §Frame / §Public API — the FRAME IMAGE-LOADING slice (rf2-32siq3.8):
-  `rf/make-frame` accepts `:images` (always a vector), resolves them into ONE
-  sealed image generation, and returns the live frame OBJECT; an `:id` registers
-  in the process-local live-frame registry, a duplicate live id fails loud, and a
-  direct (no-id) frame object bypasses the registry.
+  "EP-0024 §One constructor / §One registry — the FRAME IMAGE-LOADING slice
+  (rf2-tu2vr7): `rf/make-frame` is the ONE public constructor. It accepts
+  `:images` (always a vector), resolves them into ONE sealed image generation,
+  and returns the live frame VALUE; an `:id` registers a record in the ONE
+  `frames` registry (the resolved generation lives ON that record, NOT embedded
+  on the returned value), and a no-id (direct) frame value is local-only,
+  bypassing the PUBLIC frame-id space.
 
-  Pins the bead's enumerated coverage:
+  Pins the EP-0024 collapse coverage:
 
-    * `:images` (a vector) resolves to a generation carried on the frame object;
-    * the frame object holds a reference to its resolved generation
-      (`:rf.frame/generation`);
+    * `:images` (a vector) resolves to a generation read by id off the record
+      (`lf/frame-generation` accepts EITHER a frame value or a frame id);
     * the NO-`:images` path (absent or `[]`) runs the DEFAULT IMAGE — the
       implicit selector over the WHOLE source store (rf2-32siq3.33): the
       generation includes the store's `reg-*` descriptors (+ standards), NOT the
@@ -17,9 +18,15 @@
       in that default projection FAILS LOUD at make-frame time
       (`:rf.error/image-duplicate-id`). Covered for both the explicit-pool
       2-arity and the bare live-store 1-arity;
-    * an `:id` registers the object in the live-frame registry;
-    * a duplicate live `:id` FAILS LOUD (`:rf.error/live-frame-id-conflict`);
-    * a direct (no-id) frame object BYPASSES the registry;
+    * an `:id` registers an image-loaded record in the ONE registry — `lf/
+      live-frame` RECONSTRUCTS a fresh value from the record (routing to the same
+      id, NOT `identical?` to the originally-returned value) and the id appears in
+      `lf/live-frame-ids`;
+    * a duplicate live `:id` is IDEMPOTENT REPLACEMENT — re-`make-frame`-ing the
+      same id does NOT throw, refreshes config + generation, and PRESERVES durable
+      state (app-db / sub-cache / queue) — hot-reload / Story re-evaluation
+      friendly (the old fail-loud `:rf.error/live-frame-id-conflict` is GONE);
+    * a direct (no-id) frame value BYPASSES the public registry;
     * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`);
     * the capability frame-boundary check (rf2-32siq3.6): fails loud on a missing
       capability; an image with requirements but NO `:capabilities` map fails
@@ -35,12 +42,14 @@
   uses. The default-image cases additionally exercise the BARE live-store 1-arity
   (`make-frame {}`), which reads the live source store; those snapshot/restore
   the store (never `clear-all!`, which would destroy real authored
-  registrations). The live-frame registry, the standard registry, the generation
+  registrations). The ONE `frames` registry, the standard registry, the generation
   cache, and the source store are all process state, so the fixture
-  snapshot/restores or clears them per case. `.cljc` ends `-cljs-test` so it
-  rides `npm run test:cljs` AND `clojure -M:test`."
+  snapshot/restores or clears them per case (`lf/clear-live-frames!` is now a
+  no-op kept for fixtures — `frame/frames` is reset by the runtime fixture).
+  `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [re-frame.core        :as rf]
             [re-frame.image       :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.live-frame  :as lf]
@@ -155,20 +164,24 @@
       (is (some? (asm/resolve-descriptor gen :event :counter/inc))))))
 
 ;; ===========================================================================
-;; 1b. The no-`:images` path runs the DEFAULT IMAGE — the implicit whole-store
-;;     projection (EP-0023 §Default Image Semantics, rf2-32siq3.33), NOT the
-;;     framework standard set alone. Both the explicit-pool 2-arity and the bare
-;;     live-store 1-arity are covered; a cross-namespace collision in the default
-;;     fails loud at make-frame time.
+;; 1b. The EMPTY-`:images` path (`:images []`) runs the DEFAULT IMAGE — the
+;;     implicit whole-store projection (EP-0023 §Default Image Semantics,
+;;     rf2-32siq3.33), NOT the framework standard set alone. EP-0024
+;;     (rf2-tu2vr7): only an EXPLICIT `:images` key triggers image resolution —
+;;     an ABSENT `:images` is an ordinary configured frame on the shared
+;;     registrar (no generation), so the default-image path is keyed by `[]`.
+;;     Both the explicit-pool 2-arity and the bare live-store 1-arity are
+;;     covered; a cross-namespace collision in the default fails loud at
+;;     make-frame time.
 ;; ===========================================================================
 
-(deftest no-images-runs-the-default-image-over-the-explicit-pool
-  (testing "make-frame with NO :images (and an explicit descriptor pool) runs the
+(deftest empty-images-runs-the-default-image-over-the-explicit-pool
+  (testing "make-frame with :images [] (and an explicit descriptor pool) runs the
             DEFAULT image — the implicit selector over the WHOLE pool — so the
             frame's generation INCLUDES a reg-*'d descriptor from the store, not
             just the framework standards"
     (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-    (let [frame (lf/make-frame {} counter-pool)
+    (let [frame (lf/make-frame {:images []} counter-pool)
           gen   (lf/frame-generation frame)]
       (is (lf/frame-object? frame))
       (is (some? gen))
@@ -181,32 +194,41 @@
       (testing "the framework standard is also unioned in (default = pool + standards)"
         (is (some? (asm/resolve-descriptor gen :fx :rf.nav/push-url)))))))
 
-(deftest empty-images-vector-is-the-default-image-path
-  (testing "make-frame with :images [] is the SAME default-image path as no
-            :images at all (an empty vector ⇒ the implicit whole-store selector)"
-    (let [frame (lf/make-frame {:images []} counter-pool)
-          gen   (lf/frame-generation frame)]
-      (is (lf/frame-object? frame))
-      (is (some? (asm/resolve-descriptor gen :event :counter/inc))
-          "an empty :images vector projects the whole-store default, not standards-only"))))
+(deftest empty-images-vector-runs-default-but-absent-images-carries-no-generation
+  (testing "EP-0024 (rf2-tu2vr7): only an EXPLICIT :images key triggers image
+            resolution. :images [] is the default-image path (the implicit
+            whole-store selector ⇒ a generation), but an ABSENT :images key is an
+            ordinary configured frame on the shared registrar — NO generation"
+    (testing ":images [] resolves the whole-store default (a generation)"
+      (let [frame (lf/make-frame {:images []} counter-pool)
+            gen   (lf/frame-generation frame)]
+        (is (lf/frame-object? frame))
+        (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+            "an empty :images vector projects the whole-store default, not standards-only")))
+    (testing "an ABSENT :images key carries NO generation (ordinary configured
+              frame — the resolution falls through to the shared registrar)"
+      (let [frame (lf/make-frame {} counter-pool)]
+        (is (lf/frame-object? frame))
+        (is (nil? (lf/frame-generation frame))
+            "no :images key ⇒ no image-loaded generation on the record")))))
 
-(deftest no-images-default-cross-namespace-collision-fails-loud
+(deftest empty-images-default-cross-namespace-collision-fails-loud
   (testing "a cross-namespace same-(kind, id) collision in the DEFAULT projection
             makes make-frame FAIL LOUD (:rf.error/image-duplicate-id) — the
-            no-:images default does not guess and does not let load order win"
+            :images [] default does not guess and does not let load order win"
     (let [colliding-pool
           [(reg-desc "examples.todo.boot"    :event :boot/init ::todo-boot)
            (reg-desc "examples.counter.boot" :event :boot/init ::counter-boot)]]
       (is (= :rf.error/image-duplicate-id
-             (err-id #(lf/make-frame {} colliding-pool))))
+             (err-id #(lf/make-frame {:images []} colliding-pool))))
       (testing "the collision fires regardless of pool order (no last-write-wins)"
         (is (= :rf.error/image-duplicate-id
-               (err-id #(lf/make-frame {} (vec (reverse colliding-pool))))))))))
+               (err-id #(lf/make-frame {:images []} (vec (reverse colliding-pool))))))))))
 
 (deftest bare-make-frame-runs-the-default-image-over-the-live-store
   (testing "the BARE 1-arity make-frame (no descriptor pool) resolves the DEFAULT
-            image against the LIVE source store, so a frame created with no
-            :images runs every reg-*-authored registration in the store"
+            image against the LIVE source store, so a frame created with :images
+            [] runs every reg-*-authored registration in the store"
     ;; Drive from a known-clean live store inside a snapshot/restore body so the
     ;; default projection is deterministic; the fixture also restores the store.
     (let [store-before @ss/kind->id->ns->descriptor]
@@ -215,7 +237,7 @@
         (asm/clear-generation-cache!)
         (record! "shop.cart" :event :cart/add   ::cart-add)
         (record! "shop.cart" :sub   :cart/items ::cart-items)
-        (let [frame (lf/make-frame {})
+        (let [frame (lf/make-frame {:images []})
               gen   (lf/frame-generation frame)]
           (is (lf/frame-object? frame))
           (is (some? (asm/resolve-descriptor gen :event :cart/add))
@@ -237,28 +259,30 @@
         (record! "examples.todo.boot"    :event :boot/init ::todo-boot)
         (record! "examples.counter.boot" :event :boot/init ::counter-boot)
         (is (= :rf.error/image-duplicate-id
-               (err-id #(lf/make-frame {}))))
+               (err-id #(lf/make-frame {:images []}))))
         (finally
           (reset! ss/kind->id->ns->descriptor store-before)
           (asm/clear-generation-cache!))))))
 
 ;; ===========================================================================
-;; 2. :id registers the object in the process-local live-frame registry
+;; 2. :id registers an image-loaded record in the ONE `frames` registry
 ;; ===========================================================================
 
-(deftest id-registers-the-object-in-the-live-frame-registry
-  (testing "supplying :id registers the returned object in the process-local
-            live-frame registry under that id (EP-0023 §Id Spaces)"
+(deftest id-registers-an-image-loaded-record-in-the-one-registry
+  (testing "supplying :id registers an image-loaded record in the ONE `frames`
+            registry under that id (EP-0024 §One registry). `lf/live-frame`
+            RECONSTRUCTS a fresh value from the record (routing to the same id,
+            NOT identical? to the originally-returned value)"
     (let [img   (image/image {:include-ns ["examples.counter"]})
           frame (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
-      (is (identical? frame (lf/live-frame :counter/main))
-          "live-frame lookup returns the SAME object make-frame returned")
+      (is (= :counter/main (rf/frame-value->id (lf/live-frame :counter/main)))
+          "live-frame lookup reconstructs a value routing to the same id")
       (is (= :counter/main (:rf.frame/id frame)))
       (is (contains? (lf/live-frame-ids) :counter/main)))))
 
-(deftest initial-db-and-adapter-ride-the-object
-  (testing "creation inputs (:initial-db, :adapter) are carried on the object
-            for the later state/host slices — image is behaviour, frame is state"
+(deftest initial-db-and-adapter-ride-the-value
+  (testing "creation inputs (:initial-db, :adapter) are carried on the frame
+            value for the state/host slices — image is behaviour, frame is state"
     (let [img   (image/image {:include-ns ["examples.counter"]})
           frame (lf/make-frame {:id :counter/seeded
                                 :images [img]
@@ -269,20 +293,37 @@
       (is (= ::reagent (:rf.frame/adapter frame))))))
 
 ;; ===========================================================================
-;; 3. A duplicate live :id FAILS LOUD
+;; 3. A duplicate live :id is IDEMPOTENT REPLACEMENT (hot-reload friendly)
 ;; ===========================================================================
 
-(deftest duplicate-live-id-fails-loud
-  (testing "registering a second live frame under an already-live id throws
-            :rf.error/live-frame-id-conflict (a frame id is unique among live
-            registered frames — EP-0023 §Id Spaces); the FIRST frame keeps its
-            slot, no silent clobber"
+(deftest duplicate-live-id-is-idempotent-replacement
+  (testing "re-`make-frame`-ing an already-live id does NOT throw — EP-0024
+            §Duplicate id policy makes it IDEMPOTENT REPLACEMENT: the
+            record-config + generation refresh while DURABLE STATE (app-db /
+            sub-cache / queue) is PRESERVED (the old fail-loud
+            :rf.error/live-frame-id-conflict is GONE). Seed durable state via
+            :initial-db, re-make under the SAME id with NO :initial-db, and assert
+            the app-db survived (a fresh record would have reset it to {})"
     (let [img    (image/image {:include-ns ["examples.counter"]})
-          first  (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
-      (is (= :rf.error/live-frame-id-conflict
-             (err-id #(lf/make-frame {:id :counter/main :images [img]} counter-pool))))
-      (testing "the original frame still owns the slot after the rejected dupe"
-        (is (identical? first (lf/live-frame :counter/main)))))))
+          first  (lf/make-frame {:id :counter/main :images [img]
+                                 :initial-db {:count 7}}
+                                counter-pool)]
+      (is (lf/frame-object? first))
+      (is (= {:count 7} (rf/app-db-value :counter/main))
+          "the first frame seeded durable app-db")
+      ;; Re-making the SAME id does NOT throw — it returns a frame value routing
+      ;; to the same id (idempotent replacement, NOT a conflict).
+      (let [again (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
+        (is (lf/frame-object? again)
+            "re-making the same id returns a frame value (no throw)")
+        (is (= :counter/main (rf/frame-value->id again))
+            "the re-made frame value routes to the same id")
+        (is (some? (lf/frame-generation :counter/main))
+            "the record is still image-loaded after the replacement")
+        (is (contains? (lf/live-frame-ids) :counter/main))
+        (is (= {:count 7} (rf/app-db-value :counter/main))
+            "durable app-db is PRESERVED across the idempotent replacement
+             (NOT reset to {} — the record's runtime state survives)")))))
 
 (deftest registration-id-reuse-across-images-is-fine
   (testing "two DIFFERENT frame ids may each carry an image reusing the same
@@ -292,7 +333,8 @@
           left  (lf/make-frame {:id :counter/left  :images [img]} counter-pool)
           right (lf/make-frame {:id :counter/right :images [img]} counter-pool)]
       ;; Both live frames resolve the SAME registration id :counter/inc; no
-      ;; conflict because the FRAME ids differ.
+      ;; conflict because the FRAME ids differ. `frame-generation` reads each
+      ;; record's generation by id (EP-0024 — accepts a frame value or an id).
       (is (some? (asm/resolve-descriptor (lf/frame-generation left)  :event :counter/inc)))
       (is (some? (asm/resolve-descriptor (lf/frame-generation right) :event :counter/inc)))
       (is (= #{:counter/left :counter/right} (lf/live-frame-ids))))))
@@ -301,26 +343,47 @@
 ;; 4. A direct (no-id) frame object BYPASSES the registry
 ;; ===========================================================================
 
-(deftest direct-no-id-frame-bypasses-the-registry
-  (testing "a frame created with NO :id is local-only — the object is returned
-            but NOT registered (EP-0023 §Frame — direct frame objects bypass the
-            public frame-id space)"
+(defn- public-frame-id?
+  "A PUBLIC frame id — one NOT minted under the reserved `:rf.frame/` namespace.
+  EP-0024: a no-id (direct) frame is keyed by a private `:rf.frame/<gensym>`
+  runnable-id and is EXCLUDED from `live-frame-ids` (which enumerates only
+  public image-loaded frame ids, as the dissolved registry's `live-frame-ids`
+  did) — so it contributes no public id and the reprojection / enumeration path
+  never touches a harness-local frame the owner reloads explicitly."
+  [id]
+  (not= "rf.frame" (namespace id)))
+
+(deftest direct-no-id-frame-bypasses-the-public-frame-id-space
+  (testing "a frame created with NO :id is local-only — the VALUE carries no
+            public :rf.frame/id and the record is keyed by a PRIVATE
+            :rf.frame/<gensym> runnable-id, so it contributes NO public frame id
+            (EP-0024 §Frame value — direct frame values bypass the PUBLIC
+            frame-id space; the gensym record itself is image-loaded)"
     (let [img   (image/image {:include-ns ["examples.counter"]})
           frame (lf/make-frame {:images [img]} counter-pool)]
       (is (lf/frame-object? frame))
-      (is (nil? (:rf.frame/id frame)) "a no-id frame carries no :rf.frame/id")
-      (is (empty? (lf/live-frame-ids)) "the registry is untouched by a no-id frame"))))
+      (is (nil? (:rf.frame/id frame)) "a no-id frame value carries no public :rf.frame/id")
+      (is (= "rf.frame" (namespace (rf/frame-value->id frame)))
+          "the record is keyed by a private :rf.frame/<gensym> runnable-id")
+      (is (not-any? public-frame-id? (lf/live-frame-ids))
+          "a no-id frame contributes NO public frame id")
+      (is (not (contains? (lf/live-frame-ids) (rf/frame-value->id frame)))
+          "the private gensym id is excluded from live-frame-ids (no-id frames
+           bypass enumeration/auto-reprojection — EP-0024)"))))
 
-(deftest two-direct-frames-coexist-without-ids
-  (testing "two local direct frame objects can coexist with no public ids
-            (EP-0023 conformance — two local direct frame objects can coexist)"
+(deftest two-direct-frames-coexist-without-public-ids
+  (testing "two local direct frame values can coexist with no PUBLIC ids — each
+            gets its own private :rf.frame/<gensym> runnable-id (EP-0024 — two
+            local direct frame values can coexist, distinct records)"
     (let [img (image/image {:include-ns ["examples.counter"]})
           a   (lf/make-frame {:images [img]} counter-pool)
           b   (lf/make-frame {:images [img]} counter-pool)]
       (is (lf/frame-object? a))
       (is (lf/frame-object? b))
-      (is (not (identical? a b)) "each make-frame yields a distinct object")
-      (is (empty? (lf/live-frame-ids))))))
+      (is (not= (rf/frame-value->id a) (rf/frame-value->id b))
+          "each make-frame yields a distinct record (distinct runnable-ids)")
+      (is (not-any? public-frame-id? (lf/live-frame-ids))
+          "neither no-id frame contributes a public frame id"))))
 
 ;; ===========================================================================
 ;; 5. A non-vector :images is REJECTED

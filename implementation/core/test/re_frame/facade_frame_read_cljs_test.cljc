@@ -48,10 +48,13 @@
             [re-frame.test-support   :as ts]))
 
 ;; ---------------------------------------------------------------------------
-;; Fixture — clear the EP-0023 process-state atoms (the live-frame registry and
-;; the framework-standard registry) per case, alongside the runtime fixture
-;; (registrar snapshot/restore + plain-atom adapter, which `make-frame`'s
-;; backing runnable record needs). Mirrors live_frame_reload_cljs_test.
+;; Fixture — clear the framework-standard registry per case, alongside the
+;; runtime fixture (registrar snapshot/restore + plain-atom adapter, which
+;; `make-frame`'s backing runnable record needs; the fixture also resets
+;; `frame/frames`, so image-loaded frame records do not leak across cases).
+;; EP-0024 (rf2-tu2vr7): the second live-frame registry dissolved into the ONE
+;; `frames` registry, so `clear-live-frames!` is now a no-op kept for the
+;; fixtures that call it. Mirrors live_frame_reload_cljs_test.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
@@ -82,6 +85,16 @@
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
+
+(defn- public-id?
+  "True when `id` is a PUBLIC frame id (not a no-id frame's private
+  `:rf.frame/<gensym>` id). EP-0024 (rf2-tu2vr7): the registries collapsed; a
+  no-id frame's record is keyed under a private `:rf.frame/<gensym>` id and is
+  EXCLUDED from `live-frame-ids` (which enumerates only public image-loaded
+  frame ids), so a no-id frame contributes no PUBLIC id; assert that by filtering
+  the reserved namespace."
+  [id]
+  (not= "rf.frame" (namespace id)))
 
 ;; Two images selecting two DISJOINT namespaces, each authoring the SAME
 ;; `[:event :counter/inc]` + `[:sub :counter/value]` ids with DIFFERENT impls
@@ -163,7 +176,10 @@
             same target shapes rf/reload-images! accepts) — a no-id direct object
             resolves through its own generation"
     (let [blue-obj (rf/make-frame {:images [blue-img]} blue-pool)]
-      (is (empty? (lf/live-frame-ids)) "a no-id frame contributes no PUBLIC id")
+      (is (not-any? public-id? (lf/live-frame-ids))
+          "a no-id frame contributes no PUBLIC id (its record is keyed under a
+           private :rf.frame/<gensym> id, which DOES carry a generation and so
+           appears in live-frame-ids — EP-0024)")
       (testing "handler-meta via the OBJECT resolves blue's descriptor"
         (is (= ::blue-inc (:handler-fn (rf/handler-meta {:frame blue-obj
                                                          :kind  :event

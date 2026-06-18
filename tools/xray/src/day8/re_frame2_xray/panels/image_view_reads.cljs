@@ -70,14 +70,17 @@
 ;; ===========================================================================
 
 (defn live-frames
-  "The EP-0023 process-local live-frame registry snapshot
-  `{frame-id frame-object}` (EP-0023 §Frame / §Id Spaces), read via
-  `re-frame.live-frame/live-frames`. Fail-soft: a core too old to expose the
-  EP-0023 registry (or any throw) degrades to `{}`, so an image/frame browse
-  always has a value. Pure-read."
+  "The image-loaded frames as `{frame-id frame-view}` (EP-0024 §One live frame
+  registry, rf2-tu2vr7), read via `re-frame.live-frame/image-view-frames`. With
+  the registries collapsed an image-loaded frame is a single `frames` record
+  carrying a resolved generation; the seam projects each into the inert frame
+  view (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` /
+  `:rf.frame/capabilities` / …) the pure projectors here consume. Fail-soft: a
+  core too old to expose the seam (or any throw) degrades to `{}`, so an
+  image/frame browse always has a value. Pure-read."
   []
   (try
-    (let [reg @live-frame/live-frames]
+    (let [reg (live-frame/image-view-frames)]
       (if (map? reg) reg {}))
     (catch :default _ {})))
 
@@ -272,10 +275,12 @@
      (catch :default _ false))))
 
 (defn xray-frame-seated?
-  "True iff a live frame is already registered under `frame-id` in the EP-0023
-  process-local live-frame registry — the idempotency probe `seat-xray-frame!`
-  reads to avoid the fail-loud duplicate-`:id` gate on re-seat (re-open,
-  hot-reload, repeated testbed mount). Pure read of the registry snapshot."
+  "True iff an image-loaded frame is already registered under `frame-id` (its
+  one-registry record carries a resolved generation) — the idempotency probe
+  `seat-xray-frame!` reads to skip a redundant re-seat (re-open, hot-reload,
+  repeated testbed mount). EP-0024 (rf2-tu2vr7): the registries collapsed and a
+  duplicate `:id` is now idempotent replacement (no fail-loud gate), so this is
+  a benign skip-optimisation rather than a guard against a throw. Pure read."
   [frame-id]
   (some? (live-frame/live-frame frame-id)))
 
@@ -297,9 +302,11 @@
 
   ## Idempotency
 
-  `make-frame {:id …}` is fail-loud on a duplicate live `:id` (EP-0023 §Id
-  Spaces — `:rf.error/live-frame-id-conflict`), so the seating runs ONLY when
-  `frame-id` is not already live (`xray-frame-seated?`). A re-open / hot-reload /
+  EP-0024 (rf2-tu2vr7): `make-frame {:id …}` is IDEMPOTENT REPLACEMENT on a
+  duplicate `:id` (config + generation refresh, durable state preserved) — it no
+  longer fails loud. The seating still runs `make-frame` ONLY when `frame-id` is
+  not already image-loaded (`xray-frame-seated?`), now as a benign
+  skip-optimisation rather than a guard against a throw: a re-open / hot-reload /
   repeated testbed mount that finds the frame already seated SKIPS the
   `make-frame` and just re-asserts the trace-emission gate below (the per-frame
   app-db seeding is the caller's idempotent first-mount-hook chain, not this

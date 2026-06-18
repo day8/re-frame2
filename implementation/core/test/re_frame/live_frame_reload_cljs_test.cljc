@@ -6,9 +6,12 @@
 
   Pins the bead's enumerated coverage:
 
-    * `reload-images!` swaps the generation but PRESERVES frame memory
-      (app-db/initial-db, capabilities, adapter, id — only `:rf.frame/generation`
-      moves; frame object identity for every other slot is carried through);
+    * `reload-images!` swaps the generation but PRESERVES frame memory — EP-0024
+      (rf2-tu2vr7): the generation lives on the frame record in the ONE
+      `frame/frames` registry (the `:generation` slot), swapped by id via
+      `frame/set-generation!`; app-db / durable state continue, the id keeps
+      naming the same live context, and the returned `:rf.frame/frame` is a fresh
+      frame VALUE for that id (compare by `rf/frame-value->id`, not `identical?`);
     * resolution AFTER reload uses the NEW image (the swapped generation resolves
       the new descriptor; the old is gone / changed);
     * the reload REPORT names the added/changed/removed/retained `[kind id]` diff;
@@ -33,6 +36,8 @@
   `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [re-frame.core         :as rf]
+            [re-frame.frame        :as frame]
             [re-frame.image        :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.interop      :as interop]
@@ -43,15 +48,18 @@
             [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
-;; Fixture — clear the EP-0023 process-state atoms (the live-frame registry and
-;; the framework-standard registry) per case. Does NOT touch the shared
-;; registrar (slice .9 note); the source-store reprojection test snapshots +
-;; restores the source store itself, locally.
+;; Fixture — clear the framework-standard registry per case. The runtime fixture
+;; (`make-reset-runtime-fixture`) snapshots/restores the registrar and resets
+;; `frame/frames`, so image-loaded frame records do not leak across cases; the
+;; source-store reprojection test snapshots + restores the source store locally.
 ;;
-;; EP-0023 collapse slice 1 (rf2-32siq3.32): `make-frame` now creates a RUNNABLE
-;; backing record (app-db / queue / sub-cache) via `reg-frame`, which needs a
-;; substrate adapter — so the plain-atom adapter is installed (and the registrar
-;; snapshot/restored) via `make-reset-runtime-fixture`. These cases still assert
+;; EP-0024 (rf2-tu2vr7): the two-registry model collapsed to ONE — the resolved
+;; image GENERATION lives ON the frame record in the single `frame/frames`
+;; registry (the `:generation` slot), and the former second live-frame registry
+;; dissolved, so `clear-live-frames!` is now a no-op kept for the fixtures that
+;; call it. `make-frame` creates/updates a RUNNABLE record (app-db / queue /
+;; sub-cache) via `reg-frame`, which needs a substrate adapter — so the
+;; plain-atom adapter is installed via the runtime fixture. These cases assert
 ;; the reload/diff/reproject contract; the backing record is an allocation side
 ;; effect they do not otherwise inspect.
 ;; ---------------------------------------------------------------------------
@@ -114,25 +122,33 @@
 ;; ===========================================================================
 
 (deftest reload-swaps-generation-preserving-frame-memory
-  (testing "reload-images! replaces ONLY :rf.frame/generation; id, initial-db,
-            capabilities, and adapter are carried through unchanged (EP-0023
-            §Hot Reload — not a teardown/recreate)"
-    (let [frame (lf/make-frame {:id :counter/main
-                                :images [img]
-                                :initial-db {:count 7}
-                                :adapter ::reagent}
-                               pool-v1)
-          old-gen (lf/frame-generation frame)
+  (testing "reload-images! swaps ONLY the resolved generation on the frame's
+            record; the id keeps naming the same live context and durable frame
+            MEMORY (app-db) continues unchanged (EP-0024 §One live frame registry
+            / EP-0023 §Hot Reload — not a teardown/recreate)"
+    (let [frame-val (lf/make-frame {:id :counter/main
+                                    :images [img]
+                                    :initial-db {:count 7}
+                                    :adapter ::reagent}
+                                   pool-v1)
+          old-gen (lf/frame-generation frame-val)
           report  (lf/reload-images! :counter/main {:images [img]} pool-v2)
           reloaded (:rf.frame/frame report)]
-      (testing "a NEW generation is on the reloaded object"
+      (testing "a NEW generation is on the record (read by id) after the swap"
         (is (not (identical? old-gen (lf/frame-generation reloaded))))
         (is (not= old-gen (lf/frame-generation reloaded))))
-      (testing "every OTHER frame slot is preserved (frame memory continues)"
-        (is (= :counter/main (:rf.frame/id reloaded)))
-        (is (= {:count 7} (:rf.frame/initial-db reloaded)))
-        (is (= ::reagent (:rf.frame/adapter reloaded)))
-        (is (lf/frame-object? reloaded))))))
+      (testing "the reloaded handle is a frame VALUE naming the SAME id (the id
+                keeps naming the same live context)"
+        (is (lf/frame-object? reloaded))
+        (is (= :counter/main (rf/frame-value->id reloaded))))
+      (testing "durable frame memory continues: the app-db seeded at creation
+                survives the reload (only the generation moved, the record was
+                NOT torn down and recreated)"
+        (is (= {:count 7} (rf/app-db-value :counter/main)))
+        (testing "the capabilities the frame was created with persist on the
+                  record (re-checkable by id after the swap)"
+          (is (nil? (frame/frame-capabilities :counter/main))
+              "no :capabilities were supplied, so the record carries none"))))))
 
 ;; ===========================================================================
 ;; 2. Resolution AFTER reload uses the NEW image
@@ -152,9 +168,13 @@
         (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor gen-v2 :event :counter/inc)))))
       (testing "the v2-only :counter/reset is now resolvable"
         (is (some? (asm/resolve-descriptor gen-v2 :event :counter/reset))))
-      (testing "registry lookup returns the reloaded object (id keeps naming the
-                same live context, now on the new generation)"
-        (is (identical? reloaded (lf/live-frame :counter/main)))
+      (testing "registry lookup resolves the reloaded frame (id keeps naming the
+                same live context, now on the new generation — EP-0024:
+                live-frame reconstructs a fresh value from the record, so compare
+                by id)"
+        (is (= :counter/main (rf/frame-value->id (lf/live-frame :counter/main))))
+        (is (= (rf/frame-value->id reloaded)
+               (rf/frame-value->id (lf/live-frame :counter/main))))
         (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
                                        (lf/frame-generation (lf/live-frame :counter/main))
                                        :event :counter/inc))))))))
@@ -218,34 +238,36 @@
 ;; ===========================================================================
 
 (deftest reload-a-direct-frame-object
-  (testing "reload-images! accepts a direct frame OBJECT as the target; the
-            reloaded copy is returned for the caller to hold AND the live-frame
-            registry slot keyed by the object's PRIVATE runnable-id is patched in
-            place to the reloaded object. A no-id frame contributes no PUBLIC id
-            (live-frame-ids stays empty), but it IS registered under a gensym
-            runnable-id — and dispatch/subscribe re-resolve the generation FROM
-            that slot, so it must carry the reloaded (v2) object, not the stale v1
-            one (rf2-3az1vn P1: the old (when (some? id) …) guard skipped this)"
+  (testing "reload-images! accepts a direct frame VALUE as the target; the
+            reloaded value is returned for the caller to hold AND the swap lands
+            on the record keyed by the value's PRIVATE runnable-id. A no-id frame
+            contributes no PUBLIC id, but its record DOES carry a generation — and
+            dispatch/subscribe re-resolve the generation FROM that record by id,
+            so the swap must move it to v2 (rf2-3az1vn P1 / EP-0024: the
+            generation lives on the ONE record, read by id)"
     (let [frame    (lf/make-frame {:images [img]} pool-v1)
           runnable (:rf.frame/runnable-id frame)
           reloaded (:rf.frame/frame (lf/reload-images! frame {:images [img]} pool-v2))]
-      (is (empty? (lf/live-frame-ids))
-          "a no-id frame contributes no PUBLIC id — live-frame-ids stays empty")
-      (testing "the registry slot keyed by the gensym runnable-id now holds the
-                RELOADED object (the v2 image), not the stale v1 object"
-        (is (some? runnable) "a no-id object still carries a private runnable-id")
-        (is (identical? reloaded (lf/live-frame runnable))
-            "the runnable-id slot points at the reloaded object")
+      (is (not-any? #(not= "rf.frame" (namespace %)) (lf/live-frame-ids))
+          "a no-id frame contributes no PUBLIC id (its private :rf.frame/<gensym>
+           id carries a generation and so appears in live-frame-ids — EP-0024)")
+      (testing "the record keyed by the gensym runnable-id now resolves the
+                RELOADED (v2) generation, not the stale v1 one"
+        (is (some? runnable) "a no-id value still carries a private runnable-id")
+        (is (= runnable (rf/frame-value->id (lf/live-frame runnable)))
+            "(live-frame runnable-id) reconstructs the value for the same record")
         (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
                                        (lf/frame-generation (lf/live-frame runnable))
                                        :event :counter/inc)))
-            "(live-frame runnable-id) resolves the v2 image — the registry slot
-             is no longer stale"))
+            "(live-frame runnable-id) resolves the v2 image — the record is no
+             longer stale"))
       (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
                                      (lf/frame-generation reloaded) :event :counter/inc))))
-      (testing "the original object is unchanged (immutable value; caller swaps
-                its own reference)"
-        (is (= ::inc-v1 (:handler-fn (asm/resolve-descriptor
+      (testing "the ORIGINAL handle also resolves v2: under EP-0024 both handles
+                collapse to the same runnable-id, whose ONE record now holds the
+                reloaded generation (no stale-handle divergence — the generation
+                is read from the record by id, never embedded on the value)"
+        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
                                        (lf/frame-generation frame) :event :counter/inc))))))))
 
 ;; ===========================================================================
@@ -673,20 +695,25 @@
           (lf/flush-pending-reprojection!)
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
 
-;; ---- the RE-ENTRANCY guard: a register! during a flush does not re-arm ------
+;; ---- a flush never re-arms: reprojection swaps generations, never reg-* -----
 ;;
-;; reproject-live-frames! re-assembles + swaps generations only — it must never
-;; reg-*. But the EP-0023 collapse made make-frame's backing reg-frame a
-;; register!, so a flush that (defensively) provoked any register! must NOT
-;; schedule its own successor. flush-pending-reprojection! binds `reprojecting?`
-;; around the reproject; mark-dirty-and-schedule! is a no-op while it is set.
+;; EP-0024 (rf2-tu2vr7) DISSOLVED the former `reprojecting?` re-entrancy guard.
+;; It existed only because the EP-0023 two-registry `make-frame` created its
+;; backing record via `frame/reg-frame` (a `register!`), raising the defensive
+;; worry that a reproject flush might provoke a registration and re-arm itself.
+;; Under the unified model reprojection swaps the generation onto the ONE record
+;; via `frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the
+;; flush can never fire the registration hook and never schedules its own
+;; successor. This test proves that property directly: a REAL flush (which does
+;; genuine generation-swapping work) arms no extra tick, and a fresh reg-* after
+;; it still re-arms (the flag clears and stays re-armable).
 
-(deftest register!-during-flush-does-not-re-arm
-  (testing "a reg-* fired WHILE a reprojection flush runs does NOT schedule a
-            successor flush (rf2-h4q6cy re-entrancy guard): the reprojecting?
-            guard makes the hook a no-op for the duration of the flush, bounding
-            the work to ONE reprojection per pending mark even if reprojection
-            provokes a registration."
+(deftest flush-swaps-generations-and-never-re-arms-itself
+  (testing "a reprojection flush swaps generations via set-generation! (a plain
+            swap!, never reg-*), so running it schedules NO successor flush — the
+            former reprojecting? guard dissolved with the second registry
+            (EP-0024). A fresh reg-* AFTER the flush still re-arms (the flag is
+            cleared and re-armable)."
     (let [snapshot  @source-store/kind->id->ns->descriptor
           scheduled (atom 0)]
       (try
@@ -702,39 +729,41 @@
         (let [img (image/image {:id :reentry/img :include-ns ["reentry.feature"]})]
           (lf/make-frame {:id :reentry/main :images [img]})
           (lf/flush-pending-reprojection!)
-          (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)
-                        lf/reproject-live-frames!
-                        (fn []
-                          ;; Mid-flush register! — the guard must make this a no-op.
-                          (registrar/register! :event :reentry/mid
-                            {:rf.provenance/ns "reentry.feature" :handler-fn ::mid})
-                          {})]
+          (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
             ;; A real reg-* (with the live frame present) marks dirty + schedules
-            ;; ONE flush (count → 1). Run that captured flush; its with-redef'd
-            ;; reproject fires a mid-flush register! — the re-entrancy guard must
-            ;; make that hook a no-op, so the count stays 1 (no successor).
+            ;; ONE flush (count → 1). The re-eval changes :reentry/inc's impl, so
+            ;; the flush below does GENUINE swap work (the frame moves to v2).
             (registrar/register! :event :reentry/inc
               {:rf.provenance/ns "reentry.feature" :handler-fn ::v2})
             (testing "the live-frame reg-* armed exactly one flush"
               (is (= 1 @scheduled)))
-            (lf/flush-pending-reprojection!)
-            (testing "the mid-flush register! scheduled NO successor flush"
-              (is (= 1 @scheduled)
-                  "reprojecting? guard makes the hook a no-op during the flush")))
-          (testing "after the flush the guard is cleared — a fresh reg-* re-arms"
+            ;; Run the flush: it re-resolves + swaps :reentry/main's generation
+            ;; via set-generation! (a plain swap!). That cannot fire the
+            ;; registration hook, so no successor tick is armed.
+            (let [moved (lf/flush-pending-reprojection!)]
+              (testing "the flush did real work (the frame reprojected to v2)"
+                (is (contains? moved :reentry/main))
+                (is (= ::v2 (:handler-fn (asm/resolve-descriptor
+                                           (lf/frame-generation (lf/live-frame :reentry/main))
+                                           :event :reentry/inc)))))
+              (testing "the generation swap (set-generation!, not reg-*) scheduled
+                        NO successor flush — there is no re-entrancy to guard"
+                (is (= 1 @scheduled)
+                    "a flush swaps generations only; it never fires the hook"))))
+          (testing "after the flush a fresh reg-* re-arms (the flag is cleared and
+                    re-armable — no stuck-set guard)"
             (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
               (registrar/register! :event :reentry/inc
                 {:rf.provenance/ns "reentry.feature" :handler-fn ::v3})
               (is (= 2 @scheduled)
-                  "outside the flush, a reg-* with a live frame re-arms normally"))))
+                  "a reg-* with a live frame re-arms normally after the flush"))))
         (finally
-          ;; Clear the live frame BEFORE draining: the body left a flush pending,
-          ;; and a reproject of the still-live :reentry/main would re-assemble its
-          ;; :include-ns ["reentry.feature"] image AFTER we forget the descriptors
-          ;; below — a zero-match. Forgetting the frame first makes the drain a
-          ;; no-op (nothing reprojectable), so cleanup order does not matter.
-          (lf/clear-live-frames!)
+          ;; Clear the live frame BEFORE draining: the body may leave a flush
+          ;; pending, and a reproject of the still-live :reentry/main would
+          ;; re-assemble its :include-ns ["reentry.feature"] image AFTER we forget
+          ;; the descriptors below — a zero-match. Forgetting the frame first makes
+          ;; the drain a no-op (nothing reprojectable).
+          (reset! frame/frames {})
           (lf/flush-pending-reprojection!)
           (registrar/unregister! :event :reentry/inc)
-          (registrar/unregister! :event :reentry/mid)
           (reset! source-store/kind->id->ns->descriptor snapshot))))))

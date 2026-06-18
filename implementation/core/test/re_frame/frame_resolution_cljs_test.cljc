@@ -44,17 +44,20 @@
 ;; registrations (`:app/boot`, `:global/only`, …) while leaving framework state
 ;; intact, run-order-independently.
 ;;
-;; EP-0023 collapse slice 1 (rf2-32siq3.32): `make-frame` now returns a RUNNABLE
-;; image-loaded frame OBJECT — it creates its backing runnable record (app-db /
-;; queue / sub-cache) via `reg-frame`, which needs a substrate adapter — so the
-;; plain-atom adapter is installed. These cases still exercise pure `(kind, id)`
-;; resolution through the manual `call-with-frame-resolution` seam (they do not
-;; run a cascade), but constructing the frame now allocates a state container.
+;; EP-0024 (rf2-tu2vr7): `make-frame` returns a RUNNABLE image-loaded frame VALUE
+;; — it creates its backing runnable record (app-db / queue / sub-cache) via
+;; `reg-frame`, which needs a substrate adapter — so the plain-atom adapter is
+;; installed. The resolved generation lives ON that record (the `:generation`
+;; slot), read by id; the two-registry model collapsed to ONE, so
+;; `clear-live-frames!` is a no-op and the runtime fixture's `(reset! frames {})`
+;; clears every record's generation. These cases exercise pure `(kind, id)`
+;; resolution through the `call-with-frame-resolution` seam (they do not run a
+;; cascade), but constructing the frame now allocates a state container.
 ;;
-;; The EP-0023 framework-standard registry and the live-frame registry are this
-;; wave's OWN process-state defonce atoms (not framework ns-load state a sibling
-;; depends on), so a direct clear is safe and keeps generation-routing tested
-;; against a known baseline.
+;; The framework-standard registry is this wave's OWN process-state defonce atom
+;; (not framework ns-load state a sibling depends on), so a direct
+;; `clear-standards!` is safe and keeps generation-routing tested against a known
+;; baseline.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each

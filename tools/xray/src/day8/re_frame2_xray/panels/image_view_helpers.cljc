@@ -150,12 +150,12 @@
        :capabilities #{:rf.capability/* …}   ;; the host capability map's keys
        :image        {<project-generation> …}};; the resolved image this frame runs
 
-  `frame-id` is the registry key (or nil for a direct frame object);
-  `frame-object` is the inert map `make-frame` returns
-  (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` / …). The
-  frame's IMAGE is its resolved generation projected via `project-generation`
-  — that is the `frame -> resolved image generation` half of the EP-0023
-  resolution path. Pure `data -> data`; JVM-testable."
+  `frame-id` is the registry key; `frame-object` is the inert FRAME VIEW the
+  `image-view-frames` seam projects per image-loaded record
+  (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` / …, EP-0024
+  rf2-tu2vr7). The frame's IMAGE is its resolved generation projected via
+  `project-generation` — that is the `frame -> resolved image generation` half
+  of the EP-0023 resolution path. Pure `data -> data`; JVM-testable."
   [frame-id frame-object]
   (let [gen (:rf.frame/generation frame-object)]
     {:frame-id     frame-id
@@ -165,12 +165,12 @@
      :image        (project-generation gen)}))
 
 (defn project-frames
-  "Project the live-frame registry `{frame-id frame-object}` into sorted
-  frame-rows (EP-0023 §Frame / §Id Spaces — the process-local live-frame
-  registry). Returns a vector of frame-rows sorted by frame-id str. Only
-  `:id`-bearing frames are in the registry; direct (no-id) frame objects
-  bypass it (EP-0023 §Public API — \"the absence of `:id` is not a default-id
-  path\"). Pure `data -> data`; JVM-testable."
+  "Project the image-loaded frames `{frame-id frame-view}` into sorted
+  frame-rows (EP-0024 §One live frame registry, rf2-tu2vr7 — the `image-view-frames`
+  read over the one `frames` registry). Returns a vector of frame-rows sorted by
+  frame-id str. Only PUBLIC `:id`-bearing image-loaded frames are enumerated;
+  direct (no-id) frames bypass enumeration (their private `:rf.frame/<gensym>` id
+  is excluded). Pure `data -> data`; JVM-testable."
   [live-frames]
   (->> live-frames
        (sort-by (comp str key))
@@ -213,8 +213,10 @@
   image/frame sections of the Module-view tab need (rf2-32siq3.12). Pure
   `data -> data`; JVM-testable.
 
-  `live-frames` is the live-frame registry snapshot `{frame-id frame-object}`
-  (from `re-frame.live-frame/live-frames`, read in `image_view_reads.cljs`).
+  `live-frames` is the image-loaded-frames snapshot `{frame-id frame-view}`
+  (from `re-frame.live-frame/image-view-frames`, read in `image_view_reads.cljs`
+  — EP-0024 §One live frame registry, rf2-tu2vr7: the seam projects each
+  one-registry record carrying a generation into an inert frame view).
   Returns
 
       {:frames        [<frame-row> …]   ;; per live frame, each carrying its

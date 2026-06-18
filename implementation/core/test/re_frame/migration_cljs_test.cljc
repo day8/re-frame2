@@ -14,12 +14,15 @@
       rejected fail-loud `:rf.error/cross-realm-frame-id` under the EP-0023
       process-local frame-id space, while re-asserting the SAME realm (the
       in-place re-registration case) does NOT collide;
-    * `rf/make-frame` is repointed onto the EP-0023 OBJECT constructor (EP-0023
-      collapse FINALE, rf2-32siq3.48): the transition window is CLOSED — the
-      facade exports exactly one `make-frame`, which returns the live frame
-      OBJECT (not the EP-0013 gensym keyword id), and a record-only config key
-      fails loud `:rf.error/make-frame-record-only-key` rather than being
-      silently dropped.
+    * `rf/make-frame` is the ONE EP-0024 public constructor (EP-0024 collapse,
+      rf2-tu2vr7): the facade exports exactly one `make-frame`, which returns the
+      live frame VALUE (not the EP-0013 gensym keyword id). It accepts BOTH
+      image-selection AND record-config opts in one call — a record-config key
+      (`:on-create` / `:doc` / `:preset` / …) is now HONOURED, not rejected. This
+      REVERSES the rf2-32siq3.45 option-(b) fail-loud redirect
+      (`:rf.error/make-frame-record-only-key`), which is GONE: the unified frame
+      value backed by the ONE registry removes the two-constructor split that
+      motivated the redirect (EP-0024 option-(a)).
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -170,31 +173,51 @@
         "a fresh id passes for any target realm")))
 
 ;; ---------------------------------------------------------------------------
-;; The live facade repoint (EP-0023 collapse FINALE, rf2-32siq3.48): rf/make-frame
-;; IS the EP-0023 OBJECT constructor. The transition window is CLOSED — the facade
-;; var resolves to the object path. Asserted against the real facade.
+;; The ONE EP-0024 constructor (EP-0024 collapse, rf2-tu2vr7): rf/make-frame is
+;; the single public constructor. The facade var resolves to the unified path
+;; that accepts BOTH image-selection AND record-config opts and returns the live
+;; frame VALUE. Asserted against the real facade.
 ;; ---------------------------------------------------------------------------
 
-(deftest facade-make-frame-is-the-ep-0023-object-constructor
-  (testing "the live facade exports exactly one make-frame — the EP-0023 OBJECT
-            constructor, post-repoint. rf/make-frame returns the live frame
-            OBJECT, NOT a gensym keyword id. Built against an explicit descriptor
-            pool (the 2-arity) so the pin does not project the live source store."
+(deftest facade-make-frame-is-the-ep-0024-value-constructor
+  (testing "the live facade exports exactly one make-frame — the EP-0024 ONE
+            constructor. rf/make-frame returns the live frame VALUE, NOT a gensym
+            keyword id. Built against an explicit descriptor pool (the 2-arity) so
+            the pin does not project the live source store."
     (let [pool    [{:rf.provenance/ns "examples.counter"
                     :kind :event :id :counter/inc :handler-fn ::inc}]
           img     (image/image {:include-ns ["examples.counter"]})
           created (rf/make-frame {:images [img]} pool)]
       (is (lf/frame-object? created)
-          "rf/make-frame returns the EP-0023 live frame object (the repoint)")
+          "rf/make-frame returns the EP-0024 live frame value")
       (is (not (keyword? created))
           "it is NOT the EP-0013 keyword id anymore")
       (rf/destroy-frame! created)))
-  (testing "a record-only config key fails loud rather than silently dropping
-            (the rf2-32siq3.45 never-silent-drop finding — option-b disposition).
-            The record-config surface lives on re-frame.frame/make-frame"
-    (is (= :rf.error/make-frame-record-only-key
-           (err-id #(rf/make-frame {:preset :test})))
-        ":preset is the EP-0013 record surface — fail loud + redirect")
-    (is (= :rf.error/make-frame-record-only-key
-           (err-id #(rf/make-frame {:on-create [:noop] :images []})))
-        "a record-only key mixed with valid EP-0023 opts still fails loud")))
+  (testing "a record-config key is now HONOURED in the same make-frame call
+            (EP-0024 option-(a)) — REVERSING the rf2-32siq3.45 option-(b) fail-loud
+            redirect (:rf.error/make-frame-record-only-key is GONE). The unified
+            constructor passes record-config verbatim to the frame record, so
+            :doc / :preset land on the frame's metadata, no throw, no silent drop."
+    (let [pool    [{:rf.provenance/ns "examples.counter"
+                    :kind :event :id :counter/inc :handler-fn ::inc}]
+          img     (image/image {:include-ns ["examples.counter"]})
+          ;; A record-config key (:doc) mixed with the EP-0024 image-selection
+          ;; opts in ONE call: accepted, returns a frame value, config lands.
+          created (rf/make-frame {:id :mig/configured
+                                  :images [img]
+                                  :doc "honoured record-config"}
+                                 pool)]
+      (is (lf/frame-object? created)
+          "a record-config key is accepted (no throw) and a frame value returns")
+      (is (= :mig/configured (rf/frame-value->id created)))
+      (is (= "honoured record-config" (:doc (rf/frame-meta :mig/configured)))
+          "the :doc record-config key landed on the frame's metadata")
+      (rf/destroy-frame! created))
+    (testing ":preset is likewise honoured (not redirected) by the unified
+              constructor — the :default preset expands to a no-op config"
+      (let [created (rf/make-frame {:id :mig/preset :preset :default})]
+        (is (lf/frame-object? created)
+            ":preset is an accepted record-config key, no fail-loud redirect")
+        (is (= :default (:preset (rf/frame-meta :mig/preset)))
+            "the :preset key is preserved on the frame metadata")
+        (rf/destroy-frame! created)))))

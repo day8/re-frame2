@@ -95,52 +95,79 @@
 ;; generation it is running").
 ;;
 ;; The PUBLIC target a dispatch / subscribe / destroy / app-db read addresses is
-;; a frame — usually a frame id KEYWORD, sometimes a direct frame OBJECT
-;; (EP-0023 §Frame). Every runnable subsystem resolves per-frame state through a
-;; frame-id ADDRESS keyed into `frames` (the universal chokepoint: the router
-;; queue/drain, `commit-frame-transition!`, the sub-cache, cofx, elision, …).
-;; So an OBJECT target is normalized to its runnable-id ADDRESS at the public
-;; entry, and every bare-`frame-id`-keyed operation downstream stays
-;; byte-identical. `live-frame` discriminates an object from a keyword
-;; STRUCTURALLY (the `:rf.frame/object` marker) so this ns needs no require on
-;; `live-frame` (which would cycle — `live-frame` requires THIS ns).
+;; a frame — usually a frame id KEYWORD (the public routing address), sometimes
+;; a frame VALUE the lifecycle APIs return (EP-0024 Operation target grammar —
+;; "the API teaches one routing address: the frame id"; internal normalization
+;; still accepts a frame value for tests/tools). Every runnable subsystem
+;; resolves per-frame state through a frame-id ADDRESS keyed into `frames` (the
+;; ONE registry — the universal chokepoint: the router queue/drain,
+;; `commit-frame-transition!`, the sub-cache, cofx, elision, …). So a frame
+;; VALUE target is normalized to its id at the public entry, and every
+;; bare-`frame-id`-keyed operation downstream stays byte-identical.
+;;
+;; EP-0024 (rf2-tu2vr7) — the frame VALUE is the live lifecycle token
+;; `make-frame` returns. Its representation is NOT an app-facing data contract:
+;; it carries the `:rf.frame/object` marker (so a value target is discriminated
+;; structurally from a keyword id) and `:rf.frame/runnable-id` (= the frame id
+;; its record is keyed by in the one `frames` registry). The resolved image
+;; generation is NOT embedded on the value — it lives on the record (the
+;; `:generation` slot), read by id. `frame-value->id` is the single public
+;; accessor from a frame value to its id (Open Issue #2 — representation hidden).
 
 (def ^:const object-marker
-  "Reserved frame-object marker key. A `true` value at this key on a map means
-  \"this is a live frame OBJECT\" (EP-0023 §Frame). Mirrors
-  `re-frame.live-frame/object-marker`; held here so the target normalizer can
-  recognize an object structurally without a (cyclic) `live-frame` require."
+  "Reserved frame-value marker key. A `true` value at this key on a map means
+  \"this is a live frame VALUE\" (EP-0024 Term: Frame value) — the structural
+  discriminator a target-resolution site uses to tell a frame value from a
+  frame-id keyword. The frame value's representation is not an app-facing data
+  contract; this marker is internal."
   :rf.frame/object)
 
 (def ^:const runnable-id-key
-  "Reserved key on a runnable frame OBJECT naming the frame-id ADDRESS of its
-  backing runnable record in `frames` (EP-0023 collapse slice 1, rf2-32siq3.32).
-  For an `:id`-bearing object this equals the public `:rf.frame/id`; for a
-  no-id (direct) object it is a process-unique `:rf.frame/<gensym>` so the
-  object is still runnable (its record is addressable) while bypassing the
-  PUBLIC live-frame id space (EP-0023 §Frame — direct frame objects bypass the
-  registry)."
+  "Reserved key on a frame VALUE naming the frame id its record is keyed by in
+  the one `frames` registry (EP-0024, rf2-tu2vr7). For an `:id`-bearing value
+  this equals the public `:rf.frame/id`; for a no-id (direct) value it is a
+  process-unique `:rf.frame/<gensym>` so the value is still runnable (its record
+  is addressable) while bypassing the PUBLIC frame-id space (EP-0024 — direct
+  frame values are local-only tokens)."
   :rf.frame/runnable-id)
 
+(defn frame-value?
+  "True when `x` is a live frame VALUE (`make-frame`'s return token — carries the
+  `:rf.frame/object` marker), as opposed to a frame-id keyword. The structural
+  discriminator a target-resolution site uses (EP-0024 Term: Frame value). Pure."
+  [x]
+  (boolean (and (map? x) (get x object-marker))))
+
+(defn frame-value->id
+  "The single public accessor from a frame VALUE to its frame id (EP-0024 Open
+  Issue #2 — \"provide one accessor frame value → id; do not expose the
+  representation\"). Returns the frame id a frame value routes to (its
+  `:rf.frame/id` when created with one, else its private `:rf.frame/<gensym>`
+  runnable id). Passing a frame-id keyword returns it unchanged, so callers can
+  always pass a value or an id to this accessor. Pure."
+  [frame-value]
+  (if (frame-value? frame-value)
+    (get frame-value runnable-id-key)
+    frame-value))
+
 (defn frame-target->id
-  "Normalize a public frame TARGET — a frame-id KEYWORD or a live frame OBJECT —
-  to the frame-id ADDRESS its runnable record is keyed by in `frames` (EP-0023
-  §Frame, rf2-32siq3.32). A frame OBJECT (carrying `:rf.frame/object true`)
-  yields its `:rf.frame/runnable-id`; any other target (a keyword id, or a nil /
-  malformed value) is returned UNCHANGED — so every existing keyword-target
-  caller is byte-identical. Pure. The single seam dispatch / subscribe / destroy
-  / app-db-read normalize a frame object through before keying `frames`."
+  "Normalize a public frame TARGET — a frame-id KEYWORD or a frame VALUE — to the
+  frame id its record is keyed by in the one `frames` registry (EP-0024,
+  rf2-tu2vr7). A frame VALUE (carrying `:rf.frame/object true`) yields its
+  `:rf.frame/runnable-id`; any other target (a keyword id, or a nil / malformed
+  value) is returned UNCHANGED — so every keyword-target caller is
+  byte-identical. The internal normalization seam dispatch / subscribe / destroy
+  / app-db-read funnel a frame value through before keying `frames`; the public
+  API teaches the frame id, the value is accepted for tests/tools. Pure — the
+  same normalization as `frame-value->id`."
   [target]
-  (if (and (map? target) (get target object-marker))
-    (get target runnable-id-key)
-    target))
+  (frame-value->id target))
 
 (defn anon-frame-id
   "Mint a process-unique anonymous frame-id under the reserved `:rf.frame/`
-  namespace — the address a no-id frame's runnable record is keyed by. Same
-  scheme as the EP-0013 `make-frame` anonymous instance id, so tooling that
-  filters `:rf.frame/*` ids sees runnable-object and EP-0013-anonymous frames
-  uniformly. INTERNAL — used by `re-frame.live-frame/make-frame`."
+  namespace — the address a no-id frame's record is keyed by. So tooling that
+  filters `:rf.frame/*` ids sees no-id frame values + gensym instances
+  uniformly. INTERNAL — used by `make-frame` for a value created without `:id`."
   []
   (keyword "rf.frame" (str (gensym ""))))
 
@@ -855,6 +882,104 @@
                              (clojure.string/starts-with? ns prefix)))))
            @frames))))
 
+(defn image-loaded-frame-ids
+  "Return the set of PUBLIC frame ids whose record currently carries a resolved
+  image GENERATION — the image-loaded frames the hot-reload reprojection path
+  enumerates (EP-0024, rf2-tu2vr7). The derived read that replaced the dissolved
+  second live-frame registry's `live-frame-ids`: an image-loaded frame is now
+  just a `frames`-registry record with a non-nil `:generation` slot, so this is
+  a filter over the ONE registry, not a separate index.
+
+  EXCLUDES no-id (direct) frames — a frame created with no `:id` is keyed by a
+  private `:rf.frame/<gensym>` id; like the dissolved registry's `live-frame-ids`
+  (which kept only `:rf.frame/id`-bearing entries), this enumeration drops the
+  reserved `:rf.frame/` namespace so the reprojection / enumeration path never
+  touches a harness-local frame the spec says its owner reloads explicitly
+  (EP-0023 §Frame — direct frames bypass auto-reprojection). Excludes destroyed
+  frames."
+  []
+  (into #{}
+        (comp (filter (fn [[_ f]] (and (some? (:generation f))
+                                       (not (-> f :lifecycle :destroyed?))
+                                       (not= "rf.frame" (namespace (:id f))))))
+              (map (fn [[_ f]] (:id f))))
+        @frames))
+
+;; ---- the internal value-read frame resolver seam (EP-0024, rf2-az1ct6) ----
+;;
+;; The value-read helpers below all share one shape: resolve the frame record
+;; for an id (honouring the carried realm + the destroyed? guard via `frame`),
+;; take ONE slot off it, and — for the *-value readers — deref that slot's
+;; container through the substrate adapter. rf2-az1ct6 factors that repeated
+;; "resolve record → take slot (→ read container)" mechanics into ONE internal
+;; seam so the readers do not each re-implement it. No public grammar changes:
+;; `frame` is still the record resolver, the per-slot accessors keep their
+;; names + nil-on-unknown/destroyed contract; only the duplication is removed.
+
+(defn frame-slot
+  "Return slot `k` of the frame record for frame ADDRESS `id`, or nil when the
+  frame is not registered or has been destroyed. The single record-resolution
+  seam the per-slot accessors (`frame-state-container` / `app-db-container` /
+  `runtime-db-container` / `frame-generation`) share — `(k (frame id))` with the
+  carried-realm + destroyed? guard already applied by `frame`. INTERNAL."
+  [id k]
+  (k (frame id)))
+
+(defn- frame-slot-value
+  "Read slot `k` of `id`'s frame record AS A VALUE — resolve the slot's
+  substrate container (via `frame-slot`) and deref it through the adapter, or
+  nil when the frame is unknown/destroyed (or the slot is absent). The shared
+  read mechanics the `*-value` readers (`frame-app-db-value` /
+  `frame-runtime-db-value` / `frame-state-value`) funnel through (rf2-az1ct6).
+  INTERNAL."
+  [id k]
+  (when-let [container (frame-slot id k)]
+    (adapter/read-container container)))
+
+(defn frame-generation
+  "Return the resolved IMAGE GENERATION the frame `id` is running — the sealed
+  `image-assembly` generation it resolves `(kind, id)` lookups against (EP-0024
+  Term: Resolved image generation, a slot on the one unified frame value), or
+  nil when the frame carries none (an ordinary configured frame) or is
+  unknown/destroyed. Pure read of the record's `:generation` slot through the
+  single resolver seam. The generation-resolution seam
+  (`re-frame.live-frame/call-with-frame-resolution`) reads through this by id, so
+  a frame-id target and a frame-value target resolve the same generation."
+  [id]
+  (frame-slot id :generation))
+
+(defn frame-capabilities
+  "Return the host capability map frame `id` was created with (EP-0024,
+  rf2-tu2vr7), or nil when the frame supplied none / is unknown. Stored on the
+  record's `:config` under the reserved `:rf.frame/capabilities` key by
+  `make-frame` so `reload-images!` / reprojection can re-check capabilities by id
+  without a second registry holding them. Pure."
+  [id]
+  (:rf.frame/capabilities (frame-slot id :config)))
+
+(defn frame-adapter
+  "Return the active-substrate adapter binding frame `id` was created with
+  (EP-0024, rf2-tu2vr7), or nil when the frame supplied none / is unknown.
+  Stored on the record's `:config` under the reserved `:rf.frame/adapter` key by
+  `make-frame` so tooling (Xray's image/frame view) can read it by id. Pure."
+  [id]
+  (:rf.frame/adapter (frame-slot id :config)))
+
+(defn set-generation!
+  "Swap the resolved image GENERATION on frame `id`'s record IN PLACE,
+  preserving every other (state-bearing) slot by identity — the in-place
+  generation swap `re-frame.live-frame`'s `make-frame` / `reload-images!` /
+  reprojection write through (EP-0024, rf2-tu2vr7). A no-op for an unknown frame
+  (the address is keyed by the carried realm via `frame-key`). Returns nil.
+  INTERNAL — the one mutator of the `:generation` slot."
+  [id generation]
+  (let [fkey (frame-key *current-realm* id)]
+    (swap! frames (fn [m]
+                    (if (contains? m fkey)
+                      (update m fkey assoc :generation generation)
+                      m))))
+  nil)
+
 (defn frame-state-container
   "Return the frame's ONE physical frame-state **container** — the
   substrate-managed reactive cell that holds the frame-state VALUE
@@ -873,7 +998,7 @@
   Per Spec 002 §One physical container, two projection reactions and
   Spec 006 §Frame-state container and partition projections."
   [id]
-  (:frame-state (frame id)))
+  (frame-slot id :frame-state))
 
 (defn app-db-container
   "Return the app-db **projection reaction** for the frame — the read-only
@@ -897,7 +1022,7 @@
   Returns `nil` when the frame is not registered or has been destroyed.
   Per Spec 002 §One physical container, two projection reactions."
   [id]
-  (:app-db (frame id)))
+  (frame-slot id :app-db))
 
 (defn runtime-db-container
   "Return the runtime-db **projection reaction** for the frame — the
@@ -914,14 +1039,13 @@
   Returns `nil` when the frame is not registered or has been destroyed.
   Per Spec 002 §One physical container, two projection reactions."
   [id]
-  (:runtime-db (frame id)))
+  (frame-slot id :runtime-db))
 
 (defn frame-app-db-value
   "Read the current app-db value for a frame as a plain map (deref the
   app-db projection through the substrate adapter)."
   [id]
-  (when-let [container (app-db-container id)]
-    (adapter/read-container container)))
+  (frame-slot-value id :app-db))
 
 ;; ---- EP-0001 two-partition readers (rf2-q4i9ko / rf2-adwcv6) --------------
 ;;
@@ -943,8 +1067,7 @@
   frame's runtime-db starts `{}`. Per Spec 002 §The two-partition frame
   contract."
   [id]
-  (when-let [container (runtime-db-container id)]
-    (adapter/read-container container)))
+  (frame-slot-value id :runtime-db))
 
 (defn frame-state-value
   "Read the coherent frame-state projection for a frame —
@@ -956,8 +1079,7 @@
   the exact coherent snapshot the commit installed. Per Spec 002 §The
   two-partition frame contract."
   [id]
-  (when-let [container (frame-state-container id)]
-    (adapter/read-container container)))
+  (frame-slot-value id :frame-state))
 
 ;; ---- EP-0001 partition commit + write helpers (rf2-adwcv6) ----------------
 ;;
@@ -1283,9 +1405,28 @@
   ;; §One physical container, two projection reactions; EP-0001 decision #3).
   ;; A fresh frame starts with an empty app-db (Spec 002 §Frames always start
   ;; with app-db = {}) and an empty runtime-db.
-  (let [frame-state (adapter/make-state-container {app-partition-key     {}
-                                                   runtime-partition-key {}})]
+  (let [;; EP-0024 (rf2-tu2vr7): `make-frame` threads the resolved generation +
+        ;; the `:initial-db` seed through the config under reserved keys so they
+        ;; are installed on the record BEFORE `reg-frame` fires `:on-create` —
+        ;; an `:on-create` cascade then resolves through the frame's OWN image
+        ;; generation (not the global registrar) and observes the seeded app-db.
+        ;; Both default to absent (an ordinary configured frame).
+        seeded-app-db (get config :rf.frame/initial-db)
+        frame-state (adapter/make-state-container
+                      {app-partition-key     (if (some? seeded-app-db) seeded-app-db {})
+                       runtime-partition-key {}})]
    {:id          id
+    ;; EP-0024 (rf2-tu2vr7) — the resolved IMAGE GENERATION slot. ONE unified
+    ;; frame value owns its resolved generation directly on the single
+    ;; `frames`-registry record (Term: Frame value — "owns … resolved image
+    ;; generation"); there is no second live-frame registry holding it. nil for
+    ;; an ordinary configured frame (no `:images` selection) — the
+    ;; absence-is-default signal that resolution falls through to the registrar
+    ;; atom path. Threaded in via the reserved `:rf.frame/generation` config key
+    ;; so it is live BEFORE `:on-create` runs; `reload-images!` / reprojection
+    ;; swap it in place via `set-generation!`, preserving every other
+    ;; (state-bearing) slot by identity.
+    :generation  (get config :rf.frame/generation)
     ;; EP-0013 (rf2-gkddyq D1 / rf2-a15n62 step 4): the frame REFERENCES the
     ;; runtime realm it belongs to for its lifetime (Spec 002 §Frames reference
     ;; realms). `realm-id` is the OWNING realm — `realm/default-realm-id` for a
@@ -1321,7 +1462,13 @@
     :lifecycle  {:created-at (interop/now-ms)
                  :destroyed? false
                  :listeners  []}
-    :config     config}))
+    ;; The construction-only reserved keys (`:rf.frame/generation` /
+    ;; `:rf.frame/initial-db`) are consumed above into the `:generation` slot +
+    ;; the seeded frame-state; they are stripped from the stored `:config` so
+    ;; `frame-meta` / tooling never surface a one-shot construction input as
+    ;; durable frame config. `:rf.frame/capabilities` stays in `:config` —
+    ;; `reload-images!` / reprojection re-read it by id.
+    :config     (dissoc config :rf.frame/generation :rf.frame/initial-db)}))
 
 (declare destroy-frame!)
 
@@ -1479,14 +1626,27 @@
                 (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
                   (dispatch-sync on-create init-opts)))))
           (trace/emit! :rf.frame :rf.frame/created
-                       {:frame id :config config})
+                       {:frame id :config (dissoc config :rf.frame/generation
+                                                  :rf.frame/initial-db)})
           id)
 
         ;; Re-registration: surgical update of replaceable slots only.
         ;; Per Spec 002 §Re-registration — surgical update.
         :else
-        (do
-          (swap! frames update fkey assoc :config config)
+        (let [;; EP-0024 (rf2-tu2vr7): idempotent replacement — re-`make-frame`
+              ;; threads the freshly-resolved generation under the reserved
+              ;; `:rf.frame/generation` config key. Refresh the `:generation`
+              ;; slot from it (a re-make WITH new `:images` swaps the running
+              ;; generation; a re-make WITHOUT `:images` carries nil and CLEARS
+              ;; it back to an ordinary configured frame — matching the
+              ;; first-creation contract). `:rf.frame/initial-db` is a
+              ;; construction-only seed and is NOT re-applied here — durable
+              ;; app-db is preserved across the idempotent re-mount (EP-0024
+              ;; §Duplicate id policy). Both reserved keys are stripped from the
+              ;; stored `:config`.
+              stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)]
+          (swap! frames update fkey
+                 assoc :config stored-config :generation (get config :rf.frame/generation))
           ;; EP-0015 §3 (rf2-ueg1tn): re-registration REPLACES frame-owned
           ;; classification — the declaration IS the frame's policy (no
           ;; additive merge). `install!` drops the prior `:source :frame`
@@ -1497,16 +1657,41 @@
           ;; state (app-db, sub-cache, queue) is preserved as ever.
           (install-classification!)
           (trace/emit! :rf.frame :rf.frame/re-registered
-                       {:frame id :config config})
+                       {:frame id :config stored-config})
           id)))))
 
 (defn make-frame
-  "Anonymous-instance creation. Generates a gensym'd id under :rf.frame/.
-  Returns the gensym'd id. Per Spec 002 §Per-instance frames."
+  "INTERNAL anonymous-instance creation (EP-0024, rf2-tu2vr7): generate a
+  gensym'd id under `:rf.frame/`, register a configured record under it, and
+  return the gensym'd id. This is NO LONGER a public constructor — the ONE
+  public constructor is `re-frame.live-frame/make-frame` (`rf/make-frame`),
+  which accepts both image-selection AND record-config opts and returns the
+  frame VALUE. This id-returning record helper survives as the internal
+  no-`:id` configured-record path the unified constructor and the test/SSR
+  harnesses build on. Per Spec 002 §Per-instance frames."
   [config]
   (let [id (keyword "rf.frame" (str (gensym "")))]
     (reg-frame id config)
     id))
+
+(defn make-frame-value
+  "Build a live frame VALUE for frame id `runnable-id` (EP-0024, rf2-tu2vr7) —
+  the lifecycle token `make-frame` returns. INTERNAL: the value carries the
+  `:rf.frame/object` marker, its `:rf.frame/runnable-id` (= the id its record is
+  keyed by), and the public `:rf.frame/id` + the creation inputs
+  (`:rf.frame/initial-db` / `:rf.frame/capabilities` / `:rf.frame/adapter`) when
+  present. The resolved generation is NOT embedded on the value — it lives on
+  the record (`:generation`), read by id via `frame-generation`, so a value and
+  its id resolve the same generation and a `reload-images!` swap is observed by
+  every holder of either. Pure map assembly; `id` is the public frame id (nil
+  for a no-id direct value), `runnable-id` the record address."
+  [{:keys [id runnable-id initial-db capabilities adapter]}]
+  (cond-> {object-marker         true
+           runnable-id-key       runnable-id}
+    (some? id)           (assoc :rf.frame/id id)
+    (some? initial-db)   (assoc :rf.frame/initial-db initial-db)
+    (some? capabilities) (assoc :rf.frame/capabilities capabilities)
+    (some? adapter)      (assoc :rf.frame/adapter adapter)))
 
 ;; ---- destruction ----------------------------------------------------------
 ;;
@@ -2072,16 +2257,15 @@
   circuits at the outer `when-let`); the in-flight guard closes the
   RE-ENTRANT window before `mark-frame-destroyed!` flips the flag.
 
-  EP-0023 (rf2-32siq3.32): the target may be a frame-id KEYWORD or a live frame
-  OBJECT (`re-frame.live-frame/make-frame`'s return value). An object is
-  normalized to its runnable-id ADDRESS via `frame-target->id` so the whole
-  recipe keys the backing record unchanged; after teardown the object's PUBLIC
-  live-frame registry entry is forgotten through the `:live-frame/forget!`
-  late-bind hook (a static `live-frame` require would cycle)."
+  EP-0024 (rf2-tu2vr7): the target may be a frame-id KEYWORD or a frame VALUE
+  (`rf/make-frame`'s return token). A value is normalized to its id via
+  `frame-target->id` so the whole recipe keys the ONE registry's record
+  unchanged; `dissoc-frame!` IS the forget (the resolved generation rode the
+  record, dropped with it — no second registry, no `:live-frame/forget!` hook)."
   [target]
-  ;; EP-0023 (rf2-32siq3.32): accept a frame OBJECT or a frame-id keyword.
-  ;; Normalize an object to its runnable-id address so every keyed teardown
-  ;; step below targets the backing record; a keyword passes through unchanged.
+  ;; EP-0024 (rf2-tu2vr7): accept a frame VALUE or a frame-id keyword. Normalize
+  ;; a value to its id so every keyed teardown step below targets the record; a
+  ;; keyword passes through unchanged.
   (let [id (frame-target->id target)]
   ;; Re-entrancy guard: short-circuit if we're already destroying this id.
   ;; Silent no-op (idempotent destroy is already a no-op pattern; no new
@@ -2221,14 +2405,12 @@
         ;; still flows through the live stream cleanly. Routed via
         ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
         (safe-call-hook! :trace.tooling/release-frame-ring! id)
-        ;; EP-0023 (rf2-32siq3.32): forget the PUBLIC live-frame registry entry
-        ;; for this frame so destroying an EP-0023 image-loaded frame frees its
-        ;; public id for re-use (the teardown counterpart of `make-frame`'s
-        ;; registration). Routed via late-bind (`live-frame` requires THIS ns, so
-        ;; a static back-require would cycle); the hook keys by the frame-id, and
-        ;; no-ops for an id that never entered the live-frame registry (every
-        ;; EP-0013 / no-id-object frame). Best-effort, like the cleanup hooks.
-        (safe-call-hook! :live-frame/forget! id)
+        ;; EP-0024 (rf2-tu2vr7): the live-frame collapse removed the second
+        ;; PUBLIC live-frame registry — there is ONE `frames` registry, and
+        ;; `dissoc-frame!` below IS the forget. The frame's resolved generation
+        ;; rode the record's `:generation` slot, so dropping the record drops it
+        ;; too; the former `:live-frame/forget!` teardown hook (whose only job
+        ;; was keeping the second registry coherent) is dissolved.
         (dissoc-frame! fkey)
         (unregister-frame! frame-rid id)
         (notify-epoch-listeners! id cascade-fs-before fs-at-destroy cascade-time-ms)
