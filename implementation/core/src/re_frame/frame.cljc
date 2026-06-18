@@ -660,11 +660,15 @@
   `realm/default-realm-id` for every frame.
 
   The frame-side half of the (realm, frame) addressing model — the (realm,
-  frame) pair is the full address (EP-0013 disposition 3). Re-exported as the
-  PUBLIC `rf/frame-realm`: the realm-targeted query surface needs a public way
-  to learn a frame's realm so a tool can route a `{:realm …}` query to the
-  realm a given frame lives in; the realm enumeration half is
-  `re-frame.realm/realm-ids`."
+  frame) pair is the full address (EP-0013 disposition 3). Re-exported as
+  `rf/frame-realm`: the realm-targeted query surface needs a way to learn a
+  frame's realm so a tool can route a `{:realm …}` query to the realm a given
+  frame lives in; the realm enumeration half is `re-frame.realm/realm-ids`.
+  EP-0023 RETAINS this as an internal / tooling surface over the internal
+  installation boundary, NOT current public composition vocabulary — the
+  (realm, frame) address is publicly replaced by a single process-local frame
+  target (EP-0023 §Surface dispositions / §Id Spaces); a tool may still read a
+  frame's realm but should label it as internal substrate."
   [id]
   (when-let [f (frame id)]
     (or (:realm f) realm/default-realm-id)))

@@ -1039,7 +1039,7 @@
    {:key         :realm/frames-by-realm
     :producer-ns 're-frame.frame
     :design-bead "rf2-gkddyq"
-    :description "EP-0013 D1 realm-owned frame-registry view. Returns `realm-id → #{frame-id …}` over the live (non-destroyed) frames, grouped by each frame record's `:realm` slot. `re-frame.realm/realm-frames` consults it to answer the realm-owned membership query — `re-frame.frame` requires `re-frame.realm` for the frame record's default realm-id, so the back-read is late-bound to avoid a require cycle. Membership is DERIVED from `re-frame.frame/frames` (single source of truth; no separately-stored set), so the `(reset! frame/frames {})` test fixtures reset it for free."}
+    :description "EP-0013 D1 realm-owned frame-registry view (the realm is EP-0023 retained-INTERNAL installation substrate, not current public vocabulary). Returns `realm-id → #{frame-id …}` over the live (non-destroyed) frames, grouped by each frame record's `:realm` slot. `re-frame.realm/realm-frames` consults it to answer the realm-owned membership query — `re-frame.frame` requires `re-frame.realm` for the frame record's default realm-id, so the back-read is late-bound to avoid a require cycle. Membership is DERIVED from `re-frame.frame/frames` (single source of truth; no separately-stored set), so the `(reset! frame/frames {})` test fixtures reset it for free."}
    {:key         :frame/destroy-realm-frames!
     :producer-ns 're-frame.frame
     :design-bead "rf2-yueuvi"

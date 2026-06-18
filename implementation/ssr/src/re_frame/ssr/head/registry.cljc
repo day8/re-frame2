@@ -47,7 +47,10 @@
   so `head-snapshot` reflects the most recent render-head output. Keyed by the
   frame ADDRESS (rf2-bzw8gd) so the same frame id in two realms records
   independent head snapshots — `frame-address` collapses to the bare
-  `frame-id` for the default realm (byte-identical single-realm path)."
+  `frame-id` for the default realm (byte-identical single-realm path). The
+  (realm, frame) address is the EP-0023 retained-INTERNAL routing seam
+  (`re-frame.frame/frame-address`), not current public vocabulary — see
+  `re-frame.realm`'s EP-0023 banner."
   [frame-id head-id head-model]
   (when frame-id
     (swap! head-snapshots assoc-in [(frame/frame-address frame-id) head-id]

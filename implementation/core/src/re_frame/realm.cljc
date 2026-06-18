@@ -2,6 +2,26 @@
   "The runtime realm — the container that owns the non-durable operational
   layer an app runs in (EP-0013 D1, accepted 2026-06-11).
 
+  ## EP-0023: this is INTERNAL substrate, NOT current public composition vocabulary
+
+  EP-0023 (graduated 2026-06-16) moves the PUBLIC model to
+  `image -> frame -> event stream` and **RETAINS this realm machinery as the
+  internal installation substrate** — it is NOT deleted, but it is also no
+  longer the taught public architecture (EP-0023 §Backwards Compatibility:
+  \"This EP retains EP-0013's D1 runtime-realm machinery as the internal
+  installation boundary\"; §Surface dispositions: the D1 realm container is
+  \"Retained internally … It stops being the beginner-facing public
+  architecture\"). The realm remains a valid implementation substrate for
+  registrar seating, adapter/capability storage, host-transient ownership,
+  disposal, and compatibility during migration. Where this ns re-exports names
+  through the `re-frame.core` facade (`rf/realm`, `rf/dispose-realm!`,
+  `rf/realm-ids`, `rf/installed-app`), those are retained-internal / migration
+  / tooling surfaces, NOT current public composition vocabulary — the public
+  path is `rf/image` + `rf/make-frame` (EP-0023 §Surface dispositions; the
+  EP-0013 names below describe the retained substrate, not the model a new
+  reader should compose against). The EP-0013 staging narrative below is
+  preserved as the design record of this retained substrate.
+
   Per [Runtime-Subsystems §Runtime realms](spec/Runtime-Subsystems.md) and
   Spec-Schemas §`:rf/realm`, a runtime realm owns the registrar it
   dispatches/subscribes/resolves against, the installed adapter SELECTION,
@@ -276,10 +296,15 @@
 
   The realm-side half of the (realm, frame) addressing model: a tool reads the
   installed realms here and a frame's realm via `re-frame.frame/frame-realm`,
-  the two together being the full address (EP-0013 disposition 3). PUBLIC
-  (`rf/realm-ids`) — the realm-targeted query surface needs a public way to
-  enumerate realms (the stage-8 `{:realm …}` query forms take a realm id but
-  nothing public told a tool WHICH ids exist)."
+  the two together being the full address (EP-0013 disposition 3).
+  EP-0013-PUBLIC (`rf/realm-ids`) — the realm-targeted query surface needs a
+  public way to enumerate realms (the stage-8 `{:realm …}` query forms take a
+  realm id but nothing public told a tool WHICH ids exist). Under EP-0023 this
+  is a retained-internal / tooling surface over the internal installation
+  boundary, NOT current public composition vocabulary (the `(realm, frame)`
+  address it serves is publicly replaced by a single process-local frame
+  target — EP-0023 §Surface dispositions / §Id Spaces); tooling may still
+  enumerate realms but should label them as internal substrate."
   []
   (set (keys @realms)))
 
@@ -365,9 +390,14 @@
   realm-map)
 
 (defn construct-realm
-  "Construct + register a PUBLIC realm — an explicit container a caller installs
-  an app value into and targets queries against (EP-0013 stage 9). PUBLIC
-  (`rf/realm`).
+  "Construct + register a realm — an explicit container a caller installs
+  an app value into and targets queries against (EP-0013 stage 9).
+  EP-0013-PUBLIC (`rf/realm`); EP-0023 RETAINS `rf/realm` as the INTERNAL
+  installation substrate — it stops being the beginner-facing public
+  architecture (the public model targets a FRAME via `rf/make-frame`, the
+  frame determines the image generation used for registration resolution —
+  EP-0023 §Surface dispositions). Retained-internal / migration / tooling
+  surface, not current public composition vocabulary.
 
   `opts` (a map) carries:
 
@@ -591,11 +621,15 @@
   stable across the stage-6/7 graduation; only its internals change (project,
   then overlay the seated provenance when a stored app exists).
 
-  PUBLICLY RE-EXPORTED as `rf/installed-app` (EP-0013 disposition 6, rf2-imquoq):
+  RE-EXPORTED as `rf/installed-app` (EP-0013 disposition 6, rf2-imquoq):
   the realm→installed-app read seam graduated from internal WHEN the Xray
   Module-view demanded the per-module provenance an `install!`-seated `:app`
   carries (`:modules` + `:rf.module/owns` / `:rf.module/requires` /
-  `:owner`-stamped descriptors).
+  `:owner`-stamped descriptors). EP-0023 RETAINS `rf/installed-app` as a
+  tooling / migration surface, NOT current public composition vocabulary — the
+  public model inspects a frame's resolved image generation; tools may still
+  read this internal installation boundary but should label it as
+  implementation structure (EP-0023 §Surface dispositions).
   A read of the LIVE registration value (provenance from the install-time
   snapshot) — it does NOT route live dispatch through a non-default realm (the
   deferred runtime-routing slice). This var stays the canonical implementation;
@@ -826,8 +860,11 @@
   its own registrar for GC). nil / the default realm id is a NO-OP — the
   default realm is never disposed (it backs the byte-identical single-realm
   path). Returns nil. The teardown counterpart of `construct-realm` for
-  hermetic-test cleanup and multi-tenant realm lifecycle. PUBLIC
-  (`rf/dispose-realm!`).
+  hermetic-test cleanup and multi-tenant realm lifecycle. EP-0013-PUBLIC
+  (`rf/dispose-realm!`); EP-0023 RETAINS `rf/dispose-realm!` as the
+  retained-internal / migration / tooling surface (the realm is the internal
+  installation boundary, not the public model — EP-0023 §Surface
+  dispositions). The public disposal boundary is a frame (`destroy-frame!`).
 
   Per EP-0013 §Realm Conformance disposing a realm MUST release the operational
   resources the realm owns, not merely drop the registry entry (a bare `dissoc`
