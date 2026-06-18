@@ -167,14 +167,13 @@
    under and the writes patch."
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
 
-(defonce ^:private optimistic-id-seq
-  "A monotone counter for client-minted optimistic ids (a demo seam). A NEW
-   issue gets a stable `tmp-N` id the moment its optimistic card appears, so it
-   has a stable React key before the server assigns its own. The success reply
-   re-seeds the whole board with the server's value (carrying the server id),
-   so the temporary id never leaks past commit; a rollback simply removes the
-   never-committed card."
-  (atom 0))
+;; A monotone counter for client-minted optimistic ids (a demo seam). A NEW
+;; issue gets a stable `tmp-N` id the moment its optimistic card appears, so it
+;; has a stable React key before the server assigns its own. The success reply
+;; re-seeds the whole board with the server's value (carrying the server id), so
+;; the temporary id never leaks past commit; a rollback simply removes the
+;; never-committed card.
+(defonce ^:private optimistic-id-seq (atom 0))
 
 (defn- next-issue-id
   "Mint the next client-side optimistic id (`tmp-N`)."
@@ -302,11 +301,11 @@
    demo-seam knob, not a production value."
   220)
 
+;; The canonical server board the stub maintains across requests, so a committed
+;; write persists into the next read (the stub IS the demo server). A NEW write
+;; minting a server id, a retitle, and a status move all mutate this atom on a
+;; successful write so the next board read reflects them.
 (defonce ^:private demo-board
-  "The canonical server board the stub maintains across requests, so a
-   committed write persists into the next read (the stub IS the demo server).
-   A NEW write minting a server id, a retitle, and a status move all mutate
-   this atom on a successful write so the next board read reflects them."
   (atom {:issues [{:id "srv-1" :title "Wire up the optimistic board" :status :in-progress}
                   {:id "srv-2" :title "Render the three status columns" :status :done}
                   {:id "srv-3" :title "Add the create-issue form"       :status :backlog}]}))
