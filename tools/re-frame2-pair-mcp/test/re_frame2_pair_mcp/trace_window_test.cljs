@@ -51,7 +51,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Authoritative-ring read contract (rf2-ertqw).
@@ -75,7 +75,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (deftest reads-the-authoritative-ring
   (testing "the emitted eval form reads (rf/epoch-history) — the runtime's

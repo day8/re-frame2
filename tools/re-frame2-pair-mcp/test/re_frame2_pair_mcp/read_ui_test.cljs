@@ -52,7 +52,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (deftest form-carries-view-id-entry-point
   (async done

@@ -256,11 +256,11 @@
           ;; `...$_invoke$arity$3`, which a `(fn [& a])` doesn't expose —
           ;; same reason `tu/with-stubbed-eval!` spells both arities out.
           canned (js/Promise.resolve {:ok? true :recording-id "r" :status :stopped
-                                      :count 0 :entries []})]
-      (set! nrepl/cljs-eval-value
-            (fn
-              ([_conn _build form] (reset! seen form) canned)
-              ([_conn _build form _opts] (reset! seen form) canned)))
+                                      :count 0 :entries []})
+          stub   (fn
+                   ([_conn _build form] (reset! seen form) canned)
+                   ([_conn _build form _opts] (reset! seen form) canned))]
+      (set! nrepl/cljs-eval-value stub)
       (-> (record/read-recording-tool (fresh-conn)
                                       #js {:recording-id "r" :drain true :stop true})
           (.then (fn [_]
@@ -268,7 +268,7 @@
                    (is (str/includes? @seen ":drain true"))
                    (is (str/includes? @seen ":stop true"))))
           (.finally (fn []
-                      (set! nrepl/cljs-eval-value orig)
+                      (tu/restore-eval! stub orig)
                       (done)))))))
 
 ;; ---- watch-until ------------------------------------------------------------

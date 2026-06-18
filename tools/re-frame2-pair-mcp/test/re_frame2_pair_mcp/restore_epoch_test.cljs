@@ -47,7 +47,7 @@
     (raw-state/reset-runtime-signal-cache!)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (defn- with-captured-all!
   "Record EVERY emitted form (configure + restore) in order, so a test
@@ -67,7 +67,7 @@
     (raw-state/reset-runtime-signal-cache!)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (defn- with-writes-on! [body-fn]
   (let [prev (writes/allow-writes-enabled?)]

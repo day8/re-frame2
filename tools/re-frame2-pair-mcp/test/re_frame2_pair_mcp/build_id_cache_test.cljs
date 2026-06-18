@@ -270,17 +270,17 @@
   health call). Restores both in `.finally`."
   [running-vec health body-fn]
   (let [orig-running probe/running-builds
-        orig-eval    nrepl/cljs-eval-value]
+        orig-eval    nrepl/cljs-eval-value
+        eval-stub    (fn
+                       ([_c _b _f] (js/Promise.resolve health))
+                       ([_c _b _f _o] (js/Promise.resolve health)))]
     (set! probe/running-builds (fn [_conn] (js/Promise.resolve running-vec)))
-    (set! nrepl/cljs-eval-value
-          (fn
-            ([_c _b _f] (js/Promise.resolve health))
-            ([_c _b _f _o] (js/Promise.resolve health))))
+    (set! nrepl/cljs-eval-value eval-stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
                     (set! probe/running-builds orig-running)
-                    (set! nrepl/cljs-eval-value orig-eval))))))
+                    (tu/restore-eval! eval-stub orig-eval))))))
 
 (deftest discover-app-auto-selects-the-single-running-build
   ;; No :build arg, exactly one running build → discover-app selects it,
@@ -577,16 +577,18 @@
           orig-running probe/running-builds
           orig-port    probe/resolve-build-by-port
           orig-eval    nrepl/cljs-eval-value
-          orig-jvm     nrepl/jvm-eval]
+          orig-jvm     nrepl/jvm-eval
+          eval-stub    (live-like-eval-stub healthy-health)
+          jvm-stub     (fn [& _] (js/Promise.resolve {:value ""}))]
       ;; multi-build workspace; the port resolves to machine-epochs.
       (set! probe/running-builds
             (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
       (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve :examples/machine-epochs)))
-      (set! nrepl/cljs-eval-value (live-like-eval-stub healthy-health))
+      (set! nrepl/cljs-eval-value eval-stub)
       ;; freshness JVM-half degrades to :unknown (harmless): this suite's
       ;; fresh-conn carries no :socket, so jvm-build-freshness short-circuits
       ;; to nil without a round-trip. The jvm-eval stub is belt-and-braces.
-      (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value ""})))
+      (set! nrepl/jvm-eval jvm-stub)
       (-> (discover-app/discover-app conn (tu/args->js {:port 8033}))
           (.then
             (fn [result]
@@ -602,8 +604,8 @@
           (.finally (fn []
                       (set! probe/running-builds orig-running)
                       (set! probe/resolve-build-by-port orig-port)
-                      (set! nrepl/cljs-eval-value orig-eval)
-                      (set! nrepl/jvm-eval orig-jvm)))
+                      (tu/restore-eval! eval-stub orig-eval)
+                      (tu/restore-jvm-eval! jvm-stub orig-jvm)))
           (.then (fn [_] (done)))))))
 
 (deftest port-discover-no-pre-probe-sticks-through-invoke
@@ -617,12 +619,14 @@
           orig-port     probe/resolve-build-by-port
           orig-eval     nrepl/cljs-eval-value
           orig-jvm      nrepl/jvm-eval
-          orig-get-path get-path/get-path-tool]
+          orig-get-path get-path/get-path-tool
+          eval-stub     (live-like-eval-stub healthy-health)
+          jvm-stub      (fn [& _] (js/Promise.resolve {:value ""}))]
       (set! probe/running-builds
             (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
       (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve :examples/machine-epochs)))
-      (set! nrepl/cljs-eval-value (live-like-eval-stub healthy-health))
-      (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value ""})))
+      (set! nrepl/cljs-eval-value eval-stub)
+      (set! nrepl/jvm-eval jvm-stub)
       (set! get-path/get-path-tool
             (fn [c args]
               (reset! captured (wire/arg-build c args))
@@ -640,7 +644,7 @@
           (.finally (fn []
                       (set! probe/running-builds orig-running)
                       (set! probe/resolve-build-by-port orig-port)
-                      (set! nrepl/cljs-eval-value orig-eval)
-                      (set! nrepl/jvm-eval orig-jvm)
+                      (tu/restore-eval! eval-stub orig-eval)
+                      (tu/restore-jvm-eval! jvm-stub orig-jvm)
                       (set! get-path/get-path-tool orig-get-path)))
           (.then (fn [_] (done)))))))

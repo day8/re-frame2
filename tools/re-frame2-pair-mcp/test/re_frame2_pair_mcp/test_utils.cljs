@@ -89,13 +89,68 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Stub installer — async-safe `cljs-eval-value` override.
+;;
+;; ## Identity-guarded restore (rf2-j4d5ty)
+;;
+;; `nrepl/cljs-eval-value` is a single shared-mutable global. Every stub
+;; installer across the corpus mutates its root via `set!`. A `.finally`-
+;; scoped restore resolves on a microtask that can land AFTER cljs.test's
+;; `done` has advanced to a NEIGHBOURING namespace's test — which has
+;; ALREADY installed ITS own stub. An unconditional `(set! global orig)`
+;; then clobbers that fresh stub back to a stale fn mid-eval, and the
+;; victim test reaches the real socket (`cached port file disappeared` /
+;; `re-find must match against a string`). The race is order-dependent,
+;; so it migrates with test ordering (rf2-wb06a's fixture-boundary fix
+;; narrowed but did not close it for the `.finally`-restore suites).
+;;
+;; `restore-eval!` makes every restore IDENTITY-GUARDED: it restores
+;; `orig` ONLY when the global is still the exact `stub` this installer
+;; set. A restore that arrives after a neighbour re-stubbed becomes a
+;; no-op — it cannot clobber a global it no longer owns. With every
+;; installer routed through this guard, the suite is order-independent.
 ;; ---------------------------------------------------------------------------
+
+(defn restore-eval!
+  "Identity-guarded restore of `nrepl/cljs-eval-value`. Restores `orig`
+  ONLY when the current global is still `stub` (the fn this installer
+  set). A late restore whose stub has already been superseded by a
+  neighbouring test becomes a no-op, so it can never clobber a fresh
+  stub (rf2-j4d5ty)."
+  [stub orig]
+  (when (identical? nrepl/cljs-eval-value stub)
+    (set! nrepl/cljs-eval-value orig)))
+
+(defn restore-jvm-eval!
+  "Identity-guarded restore of `nrepl/jvm-eval` — the `jvm-eval` twin of
+  `restore-eval!`. Same shared-mutable-global hazard, same guard: a late
+  `.finally` only restores when the global is still this installer's
+  `stub` (rf2-j4d5ty)."
+  [stub orig]
+  (when (identical? nrepl/jvm-eval stub)
+    (set! nrepl/jvm-eval orig)))
+
+(defn restore-cljs-eval!
+  "Identity-guarded restore of `nrepl/cljs-eval` — the lower-level
+  `cljs-eval` twin of `restore-eval!`. Same hazard + guard (rf2-j4d5ty)."
+  [stub orig]
+  (when (identical? nrepl/cljs-eval stub)
+    (set! nrepl/cljs-eval orig)))
+
+(defn restore-freshness!
+  "Identity-guarded restore of `freshness/jvm-build-freshness`. Same
+  hazard + guard as `restore-eval!` (rf2-j4d5ty)."
+  [stub orig]
+  (when (identical? freshness/jvm-build-freshness stub)
+    (set! freshness/jvm-build-freshness orig)))
 
 (defn with-stubbed-eval!
   "Install a stub `nrepl/cljs-eval-value` that resolves to `canned-value`
   on every call (both the 3- and 4-arity), then run `body-fn` (which
   returns a Promise) and restore the original in `.finally` so cleanup
   outlives async resolution.
+
+  Restore is identity-guarded (rf2-j4d5ty): a late `.finally` cannot
+  clobber a neighbouring test's freshly-installed stub.
 
   This is the simple, value-returning variant used by suites that don't
   need to inspect the emitted form. Suites that need to capture / match
@@ -110,7 +165,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (restore-eval! stub orig))))))
 
 (defn with-stubbed-freshness!
   "Stub `freshness/jvm-build-freshness` to resolve to `jvm-half` (a map
@@ -128,11 +183,12 @@
   Composes with `with-stubbed-eval!` — nest them when a test needs both
   the CLJS health read AND the JVM freshness half stubbed."
   [jvm-half body-fn]
-  (let [orig freshness/jvm-build-freshness]
-    (set! freshness/jvm-build-freshness (fn [_conn _bid] (js/Promise.resolve jvm-half)))
+  (let [orig freshness/jvm-build-freshness
+        stub (fn [_conn _bid] (js/Promise.resolve jvm-half))]
+    (set! freshness/jvm-build-freshness stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! freshness/jvm-build-freshness orig))))))
+        (.finally (fn [] (restore-freshness! stub orig))))))
 
 (defn dedup-expand
   "Reverse `tools.dedup/dedup-value`. Given a value possibly wrapped in

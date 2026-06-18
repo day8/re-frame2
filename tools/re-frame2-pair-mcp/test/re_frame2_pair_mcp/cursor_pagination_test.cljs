@@ -452,7 +452,7 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 (deftest watch-epochs-next-cursor-carries-pred
   (testing "first-call :next-cursor round-trips the :pred so page 2 can resume filtered"

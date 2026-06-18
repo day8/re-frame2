@@ -27,6 +27,7 @@
             [cljs.reader :as edn]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
 ;; ---------------------------------------------------------------------------
@@ -71,8 +72,8 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
-                    (set! nrepl/cljs-eval-value orig-cljs)
-                    (set! nrepl/jvm-eval         orig-jvm))))))
+                    (tu/restore-eval! cljs-stub orig-cljs)
+                    (tu/restore-jvm-eval! jvm-stub orig-jvm))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Conn fixture — a real conn-atom (not a stubbed one). The probe
@@ -277,8 +278,8 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn []
-                    (set! nrepl/cljs-eval-value orig-cljs)
-                    (set! nrepl/jvm-eval         orig-jvm))))))
+                    (tu/restore-eval! cljs-stub orig-cljs)
+                    (tu/restore-jvm-eval! jvm-stub orig-jvm))))))
 
 (defn- assert-ladder-rejects-with-reason
   "Drive `ensure-runtime!` to the rejection path and assert the rung's
