@@ -207,7 +207,14 @@ concept (which rule 1 would forbid in reverse).
 failure (the no-floor-lint treatment) where the shape allows it, not a doc note.
 The new-surface review question — *"does this introduce a second spelling for an
 existing fact?"* — belongs on the EP template and the implementor skill: a
-second spelling is then a named violation, not a per-review judgment call.
+second spelling is then a named violation, not a per-review judgment call. The
+EP-0023 retired app/realm/module composition vocabulary is enforced the same
+way on the public teaching surface: `scripts/check_retired_composition_vocab.py`
+fails the docs build if a retired construction/install/inspection symbol (e.g.
+`rf/install!`, `rf/realm`, `installed-app`) reappears as live API in a fenced
+code block outside the narrow historical allowlist (the EP docs, the migration
+skill, the tooling/implementor skills that read the retained-internal realm
+substrate, and the spec meta-docs that map the removal).
 
 ## Reserved fx-ids
 
