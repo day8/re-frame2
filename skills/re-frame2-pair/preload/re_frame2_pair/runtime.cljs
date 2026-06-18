@@ -94,6 +94,20 @@
             ;; causing) epoch before we re-read it. Dev-tier preload, so the
             ;; direct require is bundle-isolation-safe.
             [re-frame.substrate.adapter :as adapter]
+            ;; The realm/frame-realm reads are the INTERNAL installation-
+            ;; container substrate (EP-0023 §Surface dispositions). pl97nd.2
+            ;; REMOVED the `rf/realm-ids` / `rf/frame-realm` facade aliases
+            ;; (EP-0023 collapses the public address to a single frame id),
+            ;; retaining the behaviour ONLY on the owning internal namespaces:
+            ;; `re-frame.realm/realm-ids` (installed-container enumeration) and
+            ;; `re-frame.frame/frame-realm` (a frame's container). A tool may
+            ;; require an internal ns to read retained-internal substrate —
+            ;; exactly the pattern rf2-xopt7b applied to Xray's `frame_switcher`
+            ;; (`re-frame.frame :as frame` + fully-qualified `re-frame.realm/
+            ;; realm-ids`). Dev-tier preload, so the direct require is
+            ;; bundle-isolation-safe (rf2-ph752s).
+            [re-frame.realm :as realm]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [clojure.data :as data]
             [clojure.set :as set]
@@ -276,10 +290,12 @@
 ;; `:realms` / `:operating-realm` / `:frame-realms` slots as the installation
 ;; boundary, never as the central addressing model (EP-0023 §Surface
 ;; dispositions: tooling may expose the internal installation boundary, but
-;; should label it as such). The container reads are `rf/realm-ids` /
-;; `rf/frame-realm` (rf2-f1xa3k), both DEFENSIVELY guarded (`exists?`) so the
-;; preload still loads into an older core that predates them — there it
-;; degrades to the single-container (default) view.
+;; should label it as such). The container reads are the INTERNAL substrate
+;; `re-frame.realm/realm-ids` / `re-frame.frame/frame-realm` (rf2-ph752s;
+;; pl97nd.2 removed the `rf/realm-ids` / `rf/frame-realm` facade aliases, a
+;; tool reads the retained-internal substrate directly — the rf2-xopt7b Xray
+;; pattern). A single-realm app collapses to the single-container (default)
+;; view (`re-frame.realm/realm-ids` always carries `:rf.realm/default`).
 
 (defonce ^:private selected-frame (atom nil))
 
@@ -295,11 +311,13 @@
 ;; A frame is seated in an internal installation CONTAINER (the EP-0013 realm,
 ;; retained as the internal installation substrate — registrar/adapter/
 ;; capability owner). This is implementation structure, not the public
-;; address (the public address is the frame id). The container reads are
-;; `rf/realm-ids` (the installation-container ids) + `rf/frame-realm` (a
-;; frame's container), both from rf2-f1xa3k. Both are guarded with `exists?`
-;; so the preload still loads into an older core that predates them — there it
-;; degrades to the single-container (default) view.
+;; address (the public address is the frame id). The container reads are the
+;; INTERNAL substrate `re-frame.realm/realm-ids` (the installation-container
+;; ids) + `re-frame.frame/frame-realm` (a frame's container) — pl97nd.2 removed
+;; the `rf/realm-ids` / `rf/frame-realm` facade aliases, so the preload reads
+;; the retained-internal owning namespaces directly (rf2-ph752s, the rf2-xopt7b
+;; Xray pattern). A single-realm app collapses to the single-container (default)
+;; view (`re-frame.realm/realm-ids` always carries `:rf.realm/default`).
 
 (def ^:private default-realm-id
   "The process default realm id (re-frame.realm/default-realm-id). A
@@ -310,28 +328,29 @@
   :rf.realm/default)
 
 (defn realm-ids
-  "The installed runtime realm ids, as a sorted vector. Reads the public
-   `rf/realm-ids` (rf2-f1xa3k) — the realm-enumeration half of the (realm,
-   frame) addressing model (EP-0013 disposition 3). Defensively guarded: a
-   core that predates the realm-enumeration API reports the single default
-   realm, matching the single-realm view every frame resolves to there.
+  "The installed runtime realm ids, as a sorted vector. Reads the INTERNAL
+   substrate `re-frame.realm/realm-ids` directly (rf2-ph752s; pl97nd.2 removed
+   the `rf/realm-ids` facade alias) — the realm-enumeration half of the (realm,
+   frame) addressing model (EP-0013 disposition 3, retained as the internal
+   installation boundary under EP-0023). `re-frame.realm/realm-ids` always
+   includes `default-realm-id` (seeded at ns-load, never disposed), so a
+   single-realm app reports exactly `[:rf.realm/default]`.
 
-   Sorted by `pr-str` for a stable listing (the underlying `rf/realm-ids`
-   returns an unordered set)."
+   Sorted by `pr-str` for a stable listing (the underlying
+   `re-frame.realm/realm-ids` returns an unordered set)."
   []
-  (if (exists? rf/realm-ids)
-    (vec (sort-by pr-str (rf/realm-ids)))
-    [default-realm-id]))
+  (vec (sort-by pr-str (realm/realm-ids))))
 
 (defn frame-realm
-  "The realm id a frame lives in. Reads the public `rf/frame-realm`
-   (rf2-f1xa3k) — the frame-side half of the (realm, frame) address (EP-0013
-   disposition 3). Returns `default-realm-id` for an unknown/destroyed frame
-   or when the core predates the public reader (every frame is in the default
-   realm in the single-realm view)."
+  "The realm id a frame lives in. Reads the INTERNAL substrate
+   `re-frame.frame/frame-realm` directly (rf2-ph752s; pl97nd.2 removed the
+   `rf/frame-realm` facade alias) — the frame-side half of the (realm, frame)
+   address (EP-0013 disposition 3, retained as the internal installation
+   boundary under EP-0023). Returns `default-realm-id` for an unknown/destroyed
+   frame (`re-frame.frame/frame-realm` returns nil there); every frame is in the
+   default realm in the single-realm view."
   [frame-id]
-  (or (when (exists? rf/frame-realm)
-        (rf/frame-realm frame-id))
+  (or (frame/frame-realm frame-id)
       default-realm-id))
 
 (defonce ^:private selected-realm (atom nil))
@@ -4714,11 +4733,13 @@
      ;; boundary (the EP-0013 realm substrate, surfaced as implementation
      ;; structure, NOT the public address; the public address is the frame
      ;; id above). `:realms` enumerates the internal installation containers
-     ;; (`rf/realm-ids`); `:operating-realm` is the container tier-3
-     ;; resolution scopes to (the session container pin, else the default);
-     ;; `:frame-realms` maps each registered frame to its container
-     ;; (`rf/frame-realm`). A single-realm app reports `[:rf.realm/default]`
-     ;; and every frame's container as the default — the boundary collapses.
+     ;; (the local `realm-ids` helper over `re-frame.realm/realm-ids`);
+     ;; `:operating-realm` is the container tier-3 resolution scopes to (the
+     ;; session container pin, else the default); `:frame-realms` maps each
+     ;; registered frame to its container (the local `frame-realm` helper over
+     ;; `re-frame.frame/frame-realm`). A single-realm app reports
+     ;; `[:rf.realm/default]` and every frame's container as the default — the
+     ;; boundary collapses.
      :realms                    (realm-ids)
      :operating-realm           (operating-realm)
      :selected-realm            @selected-realm
