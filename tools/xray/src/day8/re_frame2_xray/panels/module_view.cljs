@@ -55,28 +55,38 @@
   EP-0013 disposition 6 kept per-module descriptor PROVENANCE / metadata
   (`:owns` · `:requires` · the owner-stamped descriptors) INTERNAL until a
   Module-view demanded it — and this is that view. The follow-up beads
-  (rf2-imquoq → rf2-at0oen) shipped the public realm→installed-app READ
-  seam `rf/installed-app` (PR #4061): `(rf/installed-app realm)` returns a
-  running realm's installed app value WITHOUT installing anything. A realm
-  seated via `rf/install!` returns the RICH constructed value whose
-  `:modules` map carries each module's `:owns` / `:requires` and its
-  owner-stamped descriptors; a realm on the `reg-*` sugar / load-order path
+  (rf2-imquoq → rf2-at0oen) shipped the realm→installed-app READ
+  seam `re-frame.realm/installed-app`: `(realm/installed-app realm)` returns a
+  running realm's installed app value WITHOUT installing anything (EP-0023
+  retained this as internal substrate; pl97nd.2 removed the `rf/installed-app`
+  facade alias). A realm seated via the install path returns the RICH
+  constructed value whose `:modules` map carries each module's `:owns` /
+  `:requires` and its owner-stamped descriptors; a realm on the `reg-*` sugar /
+  load-order path
   has no `:modules` (the registrar projection declares no module), so the
   MODULES section renders the honest no-module caption rather than
   fabricated rows. (EP-0015 classification is FRAME-owned, declared on
   `reg-frame` — not a per-module fact, so it is not surfaced here.)
 
-  ## Public seams used (all genuinely public today)
+  ## Substrate seams used (internal — EP-0023 retained-internal)
 
-    - `rf/realm-ids`     — the installed realm ids (EP-0013, PR #4038);
-    - `rf/frame-ids`     — the live frame ids;
-    - `rf/frame-realm`   — a frame's realm (the frame-side address half);
-    - `rf/installed-app` — a realm's installed app value, for the per-module
-                           provenance (EP-0013 disposition 6, PR #4061).
+  EP-0023 removed the realm/install/query family from the public facade
+  (pl97nd.2) and retained the realm machinery as the internal installation
+  substrate. This tab reads it through the OWNING internal namespaces directly
+  (a tool may, exactly as it already reads `re-frame.frame` /
+  `re-frame.live-frame`; bundle isolation forbids `implementation/` requiring
+  from `tools/`, not the reverse):
+
+    - `re-frame.realm/realm-ids`     — the installed realm ids;
+    - `rf/frame-ids`                 — the live frame ids (retained PUBLIC);
+    - `re-frame.frame/frame-realm`   — a frame's realm (the frame-side address);
+    - `re-frame.realm/installed-app` — a realm's installed app value, for the
+                                       per-module provenance (EP-0013
+                                       disposition 6).
 
   ## Zero-ceremony (single-realm unchanged)
 
-  A single-realm process resolves `rf/realm-ids` to exactly
+  A single-realm process resolves `re-frame.realm/realm-ids` to exactly
   `#{:rf.realm/default}`; the tab renders one realm with the realm
   dimension implicit (no realm grouping ceremony) — the (realm) axis is
   spelled only when more than one realm exists, exactly as a single-frame
@@ -92,6 +102,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.realm :as realm]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.module-view-helpers :as h]
@@ -387,12 +398,13 @@
   EP-0013 substrate below: the REALMS section (the (realm, frame) address
   space, disposition 3) and the MODULES section (per-module ownership /
   capability / descriptor provenance read off each realm's installed app
-  value via `rf/installed-app`, disposition 6 · rf2-at0oen). Subscribes to
-  `:rf.xray/image-view` (the public model) and `:rf.xray/module-view` (the
-  substrate). A process running entirely on the `reg-*` sugar / load-order
-  path has no constructed app value, so the MODULES section shows the honest
-  no-module caption — which names the retained-internal rf/app · rf/module ·
-  rf/install! remedy and points back at the image/frame public model."
+  value via `re-frame.realm/installed-app`, disposition 6 · rf2-at0oen).
+  Subscribes to `:rf.xray/image-view` (the public model) and
+  `:rf.xray/module-view` (the substrate). A process running entirely on the
+  `reg-*` sugar / load-order path has no constructed app value, so the MODULES
+  section shows the honest no-module caption — which names the retained-internal
+  app-composition substrate remedy and points back at the image/frame public
+  model."
   []
   (let [{:keys [realms multi-realm?] :as _data}
         @(rf/subscribe [:rf.xray/module-view])
@@ -423,7 +435,7 @@
                 (with-meta (realm-row r) {:key (str (:realm r))}))))
       ;; MODULES — the per-module ownership / capability / descriptor
       ;; provenance, read from each realm's installed app value via
-      ;; `rf/installed-app` (EP-0013 disposition 6, rf2-at0oen).
+      ;; `re-frame.realm/installed-app` (EP-0013 disposition 6, rf2-at0oen).
       (section/section-row
         {:label  "Modules"
          :testid "rf-xray-module-view-modules"}
@@ -438,13 +450,15 @@
   []
   ;; `:rf.xray/module-view` — the projected (realm, frame) address space PLUS
   ;; the per-module provenance read off each realm's installed app value.
-  ;; Reads the PUBLIC realm/frame seams (`rf/realm-ids` · `rf/frame-ids` ·
-  ;; `rf/frame-realm`) and the realm→installed-app read seam
-  ;; (`rf/installed-app`, EP-0013 disposition 6, PR #4061), and projects via
-  ;; the pure `module-view-helpers/project-module-view`. Read-only —
-  ;; enumerating realms/frames and reading installed app values pins nothing
-  ;; and dispatches nothing (`rf/installed-app` is a STATIC read of the
-  ;; install-time value, not a routing path).
+  ;; Reads the INTERNAL realm/frame substrate seams (`re-frame.realm/realm-ids`
+  ;; · `re-frame.frame/frame-realm`) + the retained-public `rf/frame-ids`, and
+  ;; the realm→installed-app read seam (`re-frame.realm/installed-app`, EP-0013
+  ;; disposition 6) — EP-0023 retained-internal, read off the owning namespaces
+  ;; directly (pl97nd.2 removed the `rf/*` facade arities). Projects via the
+  ;; pure `module-view-helpers/project-module-view`. Read-only — enumerating
+  ;; realms/frames and reading installed app values pins nothing and dispatches
+  ;; nothing (`installed-app` is a STATIC read of the install-time value, not a
+  ;; routing path).
   ;;
   ;; It does NOT compose off an `:rf.xray/*` app-db slot because the
   ;; address space is a process-global fact (realms + frames live in the
@@ -456,10 +470,10 @@
   ;; Static-style surfaces.)
   (rf/reg-sub :rf.xray/module-view
     (fn [_db _query]
-      (h/project-module-view (rf/realm-ids)
+      (h/project-module-view (realm/realm-ids)
                              (rf/frame-ids)
                              frame/frame-realm
-                             rf/installed-app)))
+                             realm/installed-app)))
 
   ;; `:rf.xray/image-view` — the EP-0023 PUBLIC `image -> frame` model
   ;; (rf2-32siq3.12). Reads the EP-0023 live-frame registry + sealed image

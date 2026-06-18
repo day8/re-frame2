@@ -418,9 +418,13 @@ the `re-frame.migration` disposition map: `rf/realm` → retained-internal,
 `rf/app` → publicly-replaced by `rf/image`). Per EP-0023 Consequence
 #4/#9, tooling MAY show this internal installation boundary but must
 **LABEL it as implementation structure**, not present it as a peer public
-browse dimension. The public realm address API (`rf/realm-ids` — the
-installed realms; `rf/frame-realm` — a frame's realm; PR #4038) is a
-tooling/migration surface. **Zero-ceremony extends to the tooling: a
+browse dimension. The realm address surface is the retained-INTERNAL substrate
+the tool reads directly off its owning namespaces (`re-frame.realm/realm-ids` —
+the installed realms; `re-frame.frame/frame-realm` — a frame's realm; PR #4038):
+EP-0023 retained the realm machinery as the internal installation substrate and
+removed the `rf/*` facade arities (pl97nd.2), so a tool reads the owning
+`re-frame.realm` / `re-frame.frame` namespaces directly, exactly as Xray already
+reads `re-frame.frame` / `re-frame.live-frame`. **Zero-ceremony extends to the tooling: a
 single-realm process renders byte-identically to the pre-EP picker / trace
 rows; the realm dimension is spelled only when more than one realm is
 present, and where it does it reads as the internal installation realm.**
@@ -430,7 +434,7 @@ present, and where it does it reads as the internal installation realm.**
   the EP-0023 public addressing unit; the realm is the retained-internal
   installation boundary. `frame_switcher.cljs` adds
   `:rf.xray/available-frame-realm-groups` (the pickable frames grouped by
-  `rf/frame-realm`) and the pure `group-frames-by-realm` /
+  `re-frame.frame/frame-realm`) and the pure `group-frames-by-realm` /
   `multi-realm?` helpers. When the result spans >1 realm the picker
   renders an `<optgroup>` per realm, **labelled `installation realm
   <realm>`** so the grouping reads as implementation structure
@@ -461,7 +465,7 @@ present, and where it does it reads as the internal installation realm.**
   flag a cross-realm id conflict (the same id registered in two realms).
   The shared `static/shared/realm.cljs` helper composes the EP-0013 stage-8
   map-shaped query form `(rf/registrations {:realm r :kind k})` + the
-  installed-realm enumeration `rf/realm-ids` into the browse: it returns
+  installed-realm enumeration `re-frame.realm/realm-ids` into the browse: it returns
   realm-qualified `[realm-id reg-map]` pairs (`realm-qualified-registrations`),
   attributes each row to its owning `:rf.realm/id` (`realm-of` blanks the
   default realm — absence is the default), flags ids spanning >1 realm
@@ -476,10 +480,10 @@ present, and where it does it reads as the internal installation realm.**
   `collect-interceptors-by-realm` + the `:rf.xray.static.interceptors/realm-pairs`
   sub feeding `tab-data`); the same helper extends to the schemas / flows /
   routes / machines browse panels when multi-realm demand lands. Single-realm
-  hosts (the common case: `(rf/realm-ids)` ⇒ `#{:rf.realm/default}`) read the
+  hosts (the common case: `(re-frame.realm/realm-ids)` ⇒ `#{:rf.realm/default}`) read the
   default-realm path — `realm-badge` renders nothing, no realm column appears,
   the browse is byte-identical to the pre-rf2-dfaey7 surface. Fail-soft: a
-  core too old for the map-shaped query form / `rf/realm-ids` degrades to the
+  core too old for the map-shaped query form / `re-frame.realm/realm-ids` degrades to the
   default-realm read.
 - **Module-view tab — EP-0023 public model first, retained substrate below**
   (rf2-wtg9z4 · rf2-32siq3.12). A Dynamic L4 tab (`panels/module_view.cljs`,
@@ -488,15 +492,15 @@ present, and where it does it reads as the internal installation realm.**
   EP-0023 **FRAMES/IMAGES** section FIRST — the `image -> frame` public
   model (each live image-loaded frame as an execution context carrying its
   resolved image's `[kind id]` descriptors) — then the retained EP-0013
-  internal substrate below: the **REALMS** section (`rf/realm-ids` ×
-  `rf/frame-realm` — the `(realm, frame)` address space) and the
+  internal substrate below: the **REALMS** section (`re-frame.realm/realm-ids` ×
+  `re-frame.frame/frame-realm` — the `(realm, frame)` address space) and the
   **MODULES** section (per-module ownership / capability requirements /
   descriptor provenance, read off each realm's installed app value via the
-  graduated public `rf/installed-app` seam — rf2-at0oen). A process running
-  entirely on the load-order / sugar path shows the honest no-module
-  caption, which names the `rf/app` / `rf/module` / `rf/install!` remedy as
-  the **retained-internal app-composition substrate** and points at the
-  image/frame public model above. See [`026`](./026-Module-View-Panel.md)
+  graduated internal substrate seam `re-frame.realm/installed-app` — rf2-at0oen).
+  A process running entirely on the load-order / sugar path shows the honest
+  no-module caption, which names the remedy — compose an app from modules and
+  install it via the **retained-internal app-composition substrate** — and
+  points at the image/frame public model above. See [`026`](./026-Module-View-Panel.md)
   for the normative contract.
 
 ## The default landing view

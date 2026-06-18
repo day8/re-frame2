@@ -133,13 +133,16 @@ main read**.
   runtime realms (framework
   [`spec/Runtime-Subsystems.md`](../../../spec/Runtime-Subsystems.md) §Runtime
   realms). Renders the **(realm, frame) address space** of the running
-  process — `rf/realm-ids` × `rf/frame-realm` (disposition 3) — as a REALMS
-  section (every installed realm + its frames), zero-ceremony (single-realm
-  implicit). The **disposition-6 demand trigger** for per-module ownership /
-  capability / EP-0015 classification / descriptor provenance is **shipped**
-  (rf2-at0oen): the MODULES section reads real per-module provenance off each
-  realm's installed app value via the public `rf/installed-app` read seam
-  (EP-0013 disposition 6, PR #4061). A process running entirely on the
+  process — `re-frame.realm/realm-ids` × `re-frame.frame/frame-realm`
+  (disposition 3) — as a REALMS section (every installed realm + its frames),
+  zero-ceremony (single-realm implicit). These are internal substrate seams the
+  tool reads directly off their owning namespaces: EP-0023 retained the realm
+  machinery as internal installation substrate and removed the `rf/*` facade
+  arities (pl97nd.2). The **disposition-6 demand trigger** for per-module
+  ownership / capability / EP-0015 classification / descriptor provenance is
+  **shipped** (rf2-at0oen): the MODULES section reads real per-module provenance
+  off each realm's installed app value via the internal substrate seam
+  `re-frame.realm/installed-app` (EP-0013 disposition 6, PR #4061). A process running entirely on the
   `reg-*` sugar / load-order path carries no constructed app value, so its
   MODULES section shows the honest no-module caption. An L4-only Dynamic tab
   (not in `panel-enum`). Read-only.

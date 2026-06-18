@@ -9,15 +9,17 @@
 
 Status: **shipped** — rf2-wtg9z4 (address space) + rf2-at0oen (per-module
 provenance) + **rf2-32siq3.12** (the EP-0023 image/frame model). The realm/frame
-address space renders from public seams, the MODULES section reads real
-per-module provenance off each realm's installed app value via the public
-`rf/installed-app` read seam (EP-0013 disposition 6, PR #4061), and the FRAMES
-section presents each EP-0023 live image-loaded frame as an execution context
-carrying its resolved image (the generation's `[kind id]` descriptors). A
-process running entirely on the `reg-*` sugar / load-order path carries no
-constructed app value, so its MODULES section shows the honest no-module
-caption; a process not using `rf/make-frame` image-loaded frames shows the
-honest no-image caption in the FRAMES section.
+address space renders from internal substrate seams the tool reads directly off
+the owning namespaces, the MODULES section reads real per-module provenance off
+each realm's installed app value via the internal substrate seam
+`re-frame.realm/installed-app` (EP-0013 disposition 6, PR #4061; EP-0023 retained
+the realm machinery as the internal installation substrate and removed the
+`rf/*` facade arities — pl97nd.2), and the FRAMES section presents each EP-0023
+live image-loaded frame as an execution context carrying its resolved image (the
+generation's `[kind id]` descriptors). A process running entirely on the `reg-*`
+sugar / load-order path carries no constructed app value, so its MODULES section
+shows the honest no-module caption; a process not using image-loaded frames shows
+the honest no-image caption in the FRAMES section.
 
 ## EP-0023 partial supersession (rf2-32siq3.12)
 
@@ -91,12 +93,17 @@ uppercase realm header — zero-ceremony.
 ## §3 REALMS section — the (realm, frame) address space
 
 Every installed runtime realm, each followed by the frames it holds. Reads
-the **public** seams:
+the **internal substrate** seams directly off their owning namespaces (EP-0023
+retained these as internal installation substrate and removed the `rf/*` facade
+arities — pl97nd.2; a tool reads the owning namespace, exactly as Xray already
+reads `re-frame.frame` / `re-frame.live-frame`):
 
-- `rf/realm-ids` — the set of installed realm ids (EP-0013 disposition 3 ·
-  PR #4038). A single-realm process returns exactly `#{:rf.realm/default}`.
-- `rf/frame-ids` — the live frame ids.
-- `rf/frame-realm` — a frame's realm (the frame-side address half).
+- `re-frame.realm/realm-ids` — the set of installed realm ids (EP-0013
+  disposition 3 · PR #4038). A single-realm process returns exactly
+  `#{:rf.realm/default}`.
+- `rf/frame-ids` — the live frame ids (retained PUBLIC facade read — NOT part
+  of the retired realm family).
+- `re-frame.frame/frame-realm` — a frame's realm (the frame-side address half).
 
 The pure projection (`module_view_helpers/project-module-view`) groups
 frames by realm (`realm-frames`), produces one realm-row per installed
@@ -116,8 +123,9 @@ realm (`project-realm-row`), and classifies single vs multi-realm
 The per-module facts EP-0013 disposition 6 rules public — **ownership**
 (`:rf.module/owns`), **capability requirements** (`:rf.module/requires`), and
 **descriptor provenance** (which module owns which descriptors, owner-stamped;
-source coords) — read off each realm's installed app value via the public
-`rf/installed-app` read seam (graduated by rf2-imquoq → rf2-at0oen, PR #4061).
+source coords) — read off each realm's installed app value via the internal
+substrate seam `re-frame.realm/installed-app` (graduated by rf2-imquoq →
+rf2-at0oen, PR #4061; EP-0023 retained this as internal substrate — pl97nd.2).
 The module FACT keys are owner-qualified (`:rf.module/*`, EP-0007 / EP-0017 v5 —
 rf2-yk6u2x); the panel's internal module-row shape keeps the bare row keys
 `:owns` / `:requires`.
@@ -125,16 +133,18 @@ rf2-yk6u2x); the panel's internal module-row shape keeps the bare row keys
 The seam yields a running realm's installed app value **without installing
 anything**:
 
-- a realm seated via `rf/install!` returns the **rich constructed value**
-  whose `:modules` map (`{module-id module}`) carries each module's
+- a realm seated by composing an app from modules and installing it (via the
+  retained-internal app-composition substrate) returns the **rich constructed
+  value** whose `:modules` map (`{module-id module}`) carries each module's
   `:rf.module/owns` / `:rf.module/requires` and its `:owner`-stamped
   `:registrations`;
 - a realm seated only through the `reg-*` sugar / load-order path returns the
   registrar **projection** — registrations by kind, but **no `:modules`**
   (load-order registrations declare no module). That is the honest
   no-provenance case: the MODULES section renders the calm **no-module
-  caption** (`module_view_helpers/no-modules-caption`), naming the
-  `rf/app` / `rf/module` / `rf/install!` remedy, rather than fabricating rows.
+  caption** (`module_view_helpers/no-modules-caption`), naming the remedy —
+  compose an app from modules and install it via the retained-internal
+  app-composition substrate — rather than fabricating rows.
 
 ### The three-way empty-state decision (rf2-e0mq7a)
 
@@ -149,7 +159,8 @@ genuinely-installed zero-module app is never mislabelled as the load-order case:
   installed app whose `:modules` projects to a **vector**, `[]` for zero
   modules) but no realm has any modules → render the **zero-module-app caption**
   (`module_view_helpers/zero-module-app-caption`): the honest
-  installed-but-empty state, naming the `rf/module` remedy;
+  installed-but-empty state, naming the remedy — add a module to the composed
+  app (via the retained-internal app-composition substrate);
 - no realm carries provenance at all (every `:modules` nil — load-order /
   sugar-only) → render the **no-module caption** (`no-modules-caption`).
 
@@ -169,9 +180,9 @@ The pure projection (`module_view_helpers`):
   (no provenance), an empty **vector** `[]` when `:modules {}` (constructed,
   zero modules), or a non-empty row vector;
 - `project-realm-row` (3-arity) — fills a realm's `:modules` / `:requires`
-  from `(rf/installed-app realm)`;
+  from `(re-frame.realm/installed-app realm)`;
 - `project-module-view` (4-arity) — takes an `installed-app-of` resolver
-  (`rf/installed-app`) and sets `:provenance-available?` **true**;
+  (`re-frame.realm/installed-app`) and sets `:provenance-available?` **true**;
 - `any-provenance?` — true when some realm's `:modules` is a vector (a
   constructed app, including a zero-module one); separates the zero-module-app
   caption from the no-provenance caption;
@@ -180,7 +191,7 @@ The pure projection (`module_view_helpers`):
 **EP-0015 classification is NOT a per-module fact.** Durable data
 classification is **frame-owned** — declared on `reg-frame` / `make-frame` and
 installed by `re-frame.frame-classification` (Spec 015 §Frame-owned durable
-classification) — not carried on a module value (`rf/module` has no
+classification) — not carried on a module value (a composed module has no
 `:classification` slot). So the MODULES section surfaces ownership, capability
 requirements, and descriptor provenance; the classification dimension lives on
 the frame side, not here. The realm-row keeps a reserved `:classification` slot
@@ -202,12 +213,13 @@ Cmd-K palette picks it up automatically (the palette reads
 
 ## §6 Data sources & privacy
 
-- `:rf.xray/module-view` — the view composite; reads `rf/realm-ids` ·
-  `rf/frame-ids` · `rf/frame-realm` · `rf/installed-app` at recompute time and
-  projects via the pure helper. **Read-only** — enumerating realms/frames and
-  reading installed app values pins nothing and dispatches nothing
-  (`rf/installed-app` is a *static* read of the install-time value, not a
-  routing path).
+- `:rf.xray/module-view` — the view composite; reads
+  `re-frame.realm/realm-ids` · retained-public `rf/frame-ids` ·
+  `re-frame.frame/frame-realm` · `re-frame.realm/installed-app` at recompute
+  time and projects via the pure helper. **Read-only** — enumerating
+  realms/frames and reading installed app values pins nothing and dispatches
+  nothing (`re-frame.realm/installed-app` is a *static* read of the install-time
+  value, not a routing path).
 - The surface carries realm/frame/module **ids and declarations** — realm ids,
   frame ids, module ids, `:rf.module/owns` paths/routes, `:rf.module/requires`
   capability keywords,
@@ -221,7 +233,7 @@ Cmd-K palette picks it up automatically (the palette reads
 ## §7 Implementation
 
 - `panels/module_view.cljs` — the panel view + `install!` (sub + tab); the sub
-  reads `rf/installed-app` per realm.
+  reads `re-frame.realm/installed-app` per realm.
 - `panels/module_view_helpers.cljc` — the pure `data → data` projection
   (`realm-frames` · `project-module-row` · `project-app-modules` ·
   `project-realm-row` · `project-module-view` · `any-provenance?` ·

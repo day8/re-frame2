@@ -26,30 +26,32 @@
   EP-0013 kept descriptor PROVENANCE / module metadata INTERNAL until a
   Module-view demanded it — and this is that view. The graduation was a
   CORE slice: the per-module facts above live on a CONSTRUCTED app value's
-  `:modules` map (`rf/app` / `rf/module`), and a RUNNING realm exposed no
-  public read of its installed app value. The follow-up beads
-  (rf2-imquoq → rf2-at0oen) shipped the public read seam
-  `rf/installed-app` (PR #4061): the realm→installed-app READ that yields
-  a running realm's installed app value WITHOUT installing anything.
+  `:modules` map (the app-composition substrate), and a RUNNING realm exposed
+  no read of its installed app value. The follow-up beads
+  (rf2-imquoq → rf2-at0oen) shipped the realm read seam
+  `re-frame.realm/installed-app`: the realm→installed-app READ that yields a
+  running realm's installed app value WITHOUT installing anything (EP-0023
+  retained this as internal substrate; pl97nd.2 removed the `rf/installed-app`
+  facade alias).
 
-    - `(rf/installed-app realm)` returns the app value the realm runs;
-    - a realm seated via `rf/install!` returns the RICH constructed value —
+    - `(realm/installed-app realm)` returns the app value the realm runs;
+    - a realm seated via the install path returns the RICH constructed value —
       its `:modules` map carries each module's `:owns` / `:requires` and
       its `:owner`-stamped descriptors;
     - a realm seated only through the `reg-*` sugar (load-order, no
-      `install!`) returns the registrar PROJECTION — registrations by kind,
+      install) returns the registrar PROJECTION — registrations by kind,
       but NO `:modules` (load-order registrations declare no module). The
       MODULES section renders the honest no-module caption there, not
       fabricated rows.
 
-  This slice reads `(rf/installed-app realm)` per realm and projects its
+  This slice reads `(realm/installed-app realm)` per realm and projects its
   `:modules` into the module rows below — no reshape from the scaffold: the
   realm-row already carried the `:modules` / `:owns` / `:requires` slots,
   now FILLED from the seam.
 
   ## Zero-ceremony (single-realm unchanged)
 
-  In a single-realm process `rf/realm-ids` returns exactly
+  In a single-realm process `re-frame.realm/realm-ids` returns exactly
   `#{:rf.realm/default}`. The view still renders (a Module-view is a
   browse surface, not an event-coupled lens), but it surfaces ONE realm
   with no realm-grouping ceremony — the (realm) dimension is implicit,
@@ -69,7 +71,8 @@
 
 (defn realm-frames
   "Group `frame-ids` by the realm each belongs to, using `realm-of` (a
-  `frame-id → realm-id` resolver, normally `rf/frame-realm`). Returns
+  `frame-id → realm-id` resolver, normally `re-frame.frame/frame-realm`).
+  Returns
   `{realm-id #{frame-id …}}`. A frame whose `realm-of` resolves to nil
   falls into the `:rf.realm/default` bucket (absence = default realm, the
   EP-0013 D1 rule). Pure data → data; JVM-testable."
@@ -82,8 +85,8 @@
     frame-ids))
 
 (defn project-module-row
-  "Project one MODULE value (from `(rf/installed-app realm) :modules`) into the
-  Module-view's module-row shape:
+  "Project one MODULE value (from `(realm/installed-app realm) :modules`) into
+  the Module-view's module-row shape:
 
       {:module-id          <:rf.module/id>
        :owns               {:app-db [[:cart] …] :routes […] …}  ;; the module's
@@ -118,8 +121,8 @@
      :source             (:source module)}))
 
 (defn project-app-modules
-  "Project a realm's installed APP VALUE (from `rf/installed-app`) into the
-  Module-view's per-realm module rows. Returns
+  "Project a realm's installed APP VALUE (from `re-frame.realm/installed-app`)
+  into the Module-view's per-realm module rows. Returns
 
       {:modules   [<module-row> …]      ;; sorted by module-id str, or nil when
                                         ;; the app carries no `:modules`
@@ -128,8 +131,8 @@
                                         ;; `:rf.app/requires` slot)}
 
   An app value carries `:modules` (a `{module-id module}` map) ONLY when it was
-  CONSTRUCTED (`rf/app` / `rf/install!`); a realm seated through the `reg-*`
-  sugar (load-order, no `install!`) carries NO `:modules` — its installed app is
+  CONSTRUCTED (the app-composition substrate); a realm seated through the `reg-*`
+  sugar (load-order, no install) carries NO `:modules` — its installed app is
   the registrar projection (EP-0013 disposition 6, the honest no-provenance
   case). `nil` app (no seam value) is likewise module-less.
 
@@ -162,7 +165,7 @@
       {:realm          <realm-id>
        :frames         [<frame-id> …]   ;; sorted for stable render
        :frame-count    <int>
-       ;; per-module provenance — filled from `(rf/installed-app realm)`
+       ;; per-module provenance — filled from `(realm/installed-app realm)`
        ;; (EP-0013 disposition 6, rf2-at0oen). `:modules` is nil for a
        ;; load-order (sugar-only / module-less) app — the honest
        ;; no-provenance case; the realm renders its address row but no module
@@ -179,7 +182,8 @@
 
   `realm-id` is the realm; `frames` is the set of frame-ids in that realm
   (from `realm-frames`); `app` is the realm's installed app value
-  (`rf/installed-app realm`), or nil. Pure data → data; JVM-testable."
+  (`re-frame.realm/installed-app realm`), or nil. Pure data → data;
+  JVM-testable."
   ([realm-id frames] (project-realm-row realm-id frames nil))
   ([realm-id frames app]
    (let [{:keys [modules requires]} (project-app-modules app)]
@@ -197,13 +201,13 @@
   per-module provenance read off each realm's installed app value (EP-0013
   disposition 6, rf2-at0oen). Pure data → data; JVM-testable.
 
-  `realm-ids` is the set of installed realm ids (`rf/realm-ids`);
-  `frame-ids` is the set/seq of live frame ids (`rf/frame-ids`);
-  `realm-of` resolves a frame's realm (`rf/frame-realm`);
+  `realm-ids` is the set of installed realm ids (`re-frame.realm/realm-ids`);
+  `frame-ids` is the set/seq of live frame ids (retained-public `rf/frame-ids`);
+  `realm-of` resolves a frame's realm (`re-frame.frame/frame-realm`);
   `installed-app-of` resolves a realm's installed app value
-  (`rf/installed-app`) — a `realm-id → app-value` fn. Optional: the 3-arity
-  (no resolver) renders the address space with no module provenance, which
-  keeps the legacy address-only call site working.
+  (`re-frame.realm/installed-app`) — a `realm-id → app-value` fn. Optional: the
+  3-arity (no resolver) renders the address space with no module provenance,
+  which keeps the legacy address-only call site working.
 
   Returns:
 
@@ -214,9 +218,10 @@
        :multi-realm?  <bool>        ;; >1 realm → the realm dimension is
                                     ;; foregrounded; single-realm renders
                                     ;; with the (realm) dimension implicit
-       :provenance-available? true} ;; rf2-at0oen — the public
+       :provenance-available? true} ;; rf2-at0oen — the
                                     ;; realm→installed-app read seam
-                                    ;; (`rf/installed-app`) has graduated, so
+                                    ;; (`re-frame.realm/installed-app`) has
+                                    ;; graduated, so
                                     ;; the MODULES section reads real module
                                     ;; provenance. A realm whose installed app
                                     ;; carries no `:modules` (a load-order /
@@ -243,7 +248,7 @@
      {:realms                realms
       :realm-count           (count realms)
       :multi-realm?          (> (count realms) 1)
-      ;; rf2-at0oen — the `rf/installed-app` read seam shipped (PR #4061);
+      ;; rf2-at0oen — the `re-frame.realm/installed-app` read seam shipped;
       ;; the MODULES section reads real per-module provenance.
       :provenance-available? true})))
 
@@ -252,18 +257,19 @@
 (def no-modules-caption
   "The calm empty-state caption the MODULES section renders when NO realm's
   installed app carries module provenance (rf2-at0oen). The
-  `rf/installed-app` seam HAS graduated (so `:provenance-available?` is true),
-  but a process running entirely on the `reg-*` sugar / load-order path has no
-  CONSTRUCTED app value — its installed app is the registrar projection, which
-  carries no `:modules`. Names why the section is empty so the operator
-  understands it is the honest no-module state, not a broken surface.
+  `re-frame.realm/installed-app` seam HAS graduated (so `:provenance-available?`
+  is true), but a process running entirely on the `reg-*` sugar / load-order
+  path has no CONSTRUCTED app value — its installed app is the registrar
+  projection, which carries no `:modules`. Names why the section is empty so the
+  operator understands it is the honest no-module state, not a broken surface.
 
   Points the operator at the EP-0023 PUBLIC model (image → frame → event
-  stream, the FRAMES/IMAGES section above) and frames the `rf/app` /
-  `rf/module` / `rf/install!` remedy as the RETAINED-INTERNAL EP-0013
-  installation substrate — not the central public vocabulary (mirrors the
-  `re-frame.migration` disposition map: `rf/app` → publicly-replaced by
-  `rf/image`, `rf/install!` → retained-internal).
+  stream, the FRAMES/IMAGES section above) and frames the app-composition
+  remedy as the RETAINED-INTERNAL EP-0013 installation substrate — NOT the
+  central public vocabulary. EP-0023 removed that substrate's construction /
+  install vocabulary from the public facade (pl97nd.2): the public model is
+  `image → frame`, and the module-provenance facts here come from the internal
+  substrate the public model rides on.
 
   This caption is for the NO-PROVENANCE case ONLY (`:modules` absent/nil on
   every realm). An installed CONSTRUCTED app that simply has zero modules
@@ -272,12 +278,11 @@
   (str "No module provenance — this process is running on the load-order "
        "(reg-* sugar) path, whose installed value carries no modules. Module "
        "ownership / capability / descriptor provenance comes from the "
-       "retained-internal app-composition substrate (rf/app · rf/module · "
-       "rf/install!): compose an app from modules and install it to surface "
-       "those facts here. The PUBLIC model is image → frame → event stream "
-       "(see the FRAMES/IMAGES section above) — this MODULES section reflects "
-       "the EP-0013 installation substrate the public model rides on, kept as "
-       "implementation structure."))
+       "retained-internal app-composition substrate (compose an app from "
+       "modules and install it) to surface those facts here. The PUBLIC model "
+       "is image → frame → event stream (see the FRAMES/IMAGES section above) — "
+       "this MODULES section reflects the EP-0013 installation substrate the "
+       "public model rides on, kept as implementation structure."))
 
 (def zero-module-app-caption
   "The empty-state caption the MODULES section renders when at least one realm
@@ -288,10 +293,10 @@
   the load-order path), it simply owns no modules yet. The honest
   installed-but-empty state, NOT the no-provenance one. Pure data → string."
   (str "Installed app has zero modules — this process's app value was "
-       "constructed and installed (the retained-internal rf/app · rf/install! "
+       "constructed and installed (the retained-internal app-composition "
        "substrate) but composed from no modules, so there is no per-module "
        "ownership, capability, or descriptor provenance to show. Add modules "
-       "(rf/module) to the app to populate this section. The PUBLIC model is "
+       "to the app to populate this section. The PUBLIC model is "
        "image → frame → event stream (see the FRAMES/IMAGES section above); "
        "this section reflects the EP-0013 installation substrate."))
 

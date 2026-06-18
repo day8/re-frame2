@@ -250,7 +250,7 @@ Single-frame apps still get the full `Frame ▾` dropdown — it is interactive 
 └────────────────────────┘
 ```
 
-In a **single-realm process** the grouping collapses to one realm and the picker renders the **flat option list** above — byte-identical to the pre-EP render (zero-ceremony extends to the tooling; the realm dimension is spelled only when more than one realm exists). The grouping reads `:rf.xray/available-frame-realm-groups` (the pickable frames grouped by the public `rf/frame-realm`); the pure helpers `frame_switcher/group-frames-by-realm` + `multi-realm?` decide the branch. A frame whose realm is unknown buckets to `:rf.realm/default` (absence = default realm, the EP-0013 D1 rule).
+In a **single-realm process** the grouping collapses to one realm and the picker renders the **flat option list** above — byte-identical to the pre-EP render (zero-ceremony extends to the tooling; the realm dimension is spelled only when more than one realm exists). The grouping reads `:rf.xray/available-frame-realm-groups` (the pickable frames grouped by the internal substrate seam `re-frame.frame/frame-realm`, read directly off its owning namespace — EP-0023 removed the `rf/*` facade arities, pl97nd.2); the pure helpers `frame_switcher/group-frames-by-realm` + `multi-realm?` decide the branch. A frame whose realm is unknown buckets to `:rf.realm/default` (absence = default realm, the EP-0013 D1 rule).
 
 ### Filter pills
 

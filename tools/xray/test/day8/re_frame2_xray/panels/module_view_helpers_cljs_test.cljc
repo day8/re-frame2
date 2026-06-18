@@ -15,8 +15,8 @@
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.module-view-helpers :as h]))
 
-;; A representative module value (the shape `(rf/module {...})` produces — see
-;; re-frame.app-value/module): `:rf.module/id` · `:rf.module/owns` ·
+;; A representative module value (the shape the internal app-value substrate
+;; produces — see re-frame.app-value/module): `:rf.module/id` · `:rf.module/owns` ·
 ;; `:rf.module/requires` · `:registrations` (kind→id→owner-stamped descriptor) ·
 ;; optional `:source`. The FACT keys are owner-qualified (`:rf.module/*`,
 ;; EP-0007 / EP-0017 v5 — rf2-yk6u2x); the structural slots stay bare.
@@ -28,9 +28,9 @@
                    :sub   {:cart/items {:kind :sub   :id :cart/items :owner :shop/cart}}}
    :source        {:ns "shop.cart" :file "cart.cljs" :line 12 :column 1}})
 
-;; A constructed app value seating that module (the shape `rf/app` / a seated
-;; `rf/installed-app` returns): `:modules` keyed by module id, `:rf.app/requires`
-;; the union capability set.
+;; A constructed app value seating that module (the shape the app-value
+;; substrate / a seated `re-frame.realm/installed-app` returns): `:modules`
+;; keyed by module id, `:rf.app/requires` the union capability set.
 (def ^:private cart-app
   {:rf.app/id       :shop/app
    :modules         {:shop/cart cart-module}
@@ -49,7 +49,7 @@
 ;; app-value contract (app_value.cljc:123-127) is explicit: an app constructed
 ;; from zero modules carries an EMPTY `:modules {}` map — distinct from a
 ;; projected/load-order app, which carries no `:modules` slot at all. Core
-;; tests pin `(rf/app {:id :empty/app})` → `:modules {}` + `:requires #{}`
+;; tests pin a zero-module constructed app → `:modules {}` + `:requires #{}`
 ;; (app_value_compose_cljs_test.cljc:141-147), so this fixture mirrors that
 ;; shape.
 (def ^:private zero-module-app
@@ -177,7 +177,7 @@
       (is (= :rf.realm/default (:realm (first (:realms data)))))
       (is (= [:app/cart :app/main] (:frames (first (:realms data)))))
       (is (true? (:provenance-available? data))
-          "the rf/installed-app read seam has graduated (rf2-at0oen)"))))
+          "the re-frame.realm/installed-app read seam has graduated (rf2-at0oen)"))))
 
 (deftest project-module-view-fills-modules-from-seam
   (testing "project-module-view reads the per-realm installed app value via the
@@ -288,20 +288,27 @@
 
 (deftest no-modules-caption-explains-the-empty-state
   (testing "the no-modules caption names the load-order / sugar reason and the
-            rf/app / rf/module / rf/install! remedy so the operator knows the
-            section is the honest empty state, not broken"
+            app-composition (compose-from-modules / install) remedy so the
+            operator knows the section is the honest empty state, not broken.
+            pl97nd.2 removed the rf/app · rf/module · rf/install! facade
+            symbols, so the caption names the substrate ACTION, not the
+            retired facade vars."
     (let [c h/no-modules-caption]
       (is (re-find #"(?i)load-order" c))
-      (is (re-find #"(?i)rf/module" c))
-      (is (re-find #"(?i)rf/install!" c))))
+      (is (re-find #"(?i)compose an app from modules" c))
+      (is (re-find #"(?i)install" c))
+      (is (not (re-find #"rf/module" c))
+          "the retired rf/module facade symbol must NOT appear (pl97nd.2)")
+      (is (not (re-find #"rf/install!" c))
+          "the retired rf/install! facade symbol must NOT appear (pl97nd.2)")))
   (testing "EP-0023: the caption teaches the image/frame PUBLIC model and
-            frames the rf/app/module/install! remedy as the retained-internal
+            frames the app-composition remedy as the retained-internal
             substrate (not the central public vocabulary)"
     (let [c h/no-modules-caption]
       (is (re-find #"(?i)image\s*(?:→|->)\s*frame" c)
           "names the image → frame public model")
       (is (re-find #"(?i)retained-internal|implementation structure|substrate" c)
-          "frames app/module/install! as the retained-internal substrate"))))
+          "frames app-composition as the retained-internal substrate"))))
 
 (deftest zero-module-app-caption-distinct-from-no-provenance
   ;; rf2-e0mq7a — the caption an installed zero-module app renders. It MUST be
@@ -309,15 +316,18 @@
   ;; the process is on the load-order path (which is false for an installed
   ;; constructed app).
   (testing "the zero-module-app caption names the installed-but-empty state +
-            the rf/module remedy"
+            the add-modules remedy (pl97nd.2 removed the rf/module facade
+            symbol, so the caption names the action, not the retired var)"
     (let [c h/zero-module-app-caption]
       (is (re-find #"(?i)zero modules" c))
       (is (re-find #"(?i)constructed" c))
-      (is (re-find #"(?i)rf/module" c))
+      (is (re-find #"(?i)add modules" c))
+      (is (not (re-find #"rf/module" c))
+          "the retired rf/module facade symbol must NOT appear (pl97nd.2)")
       (is (not (re-find #"(?i)load-order" c))
           "MUST NOT claim the load-order path — the app WAS constructed")))
   (testing "EP-0023: the caption teaches the image/frame PUBLIC model and
-            frames the app/install! substrate as retained-internal"
+            frames the app-composition substrate as retained-internal"
     (let [c h/zero-module-app-caption]
       (is (re-find #"(?i)image\s*(?:→|->)\s*frame" c)
           "names the image → frame public model")
