@@ -527,6 +527,24 @@ they are kept verbatim as the record of what was ruled.
    causes; no further taxonomy needed. (Trivial, listed only for completeness so
    the cause enum stays a closed documented set.)
 
+## Resolved Decisions
+
+Ruled by Mike at graduation (`accepted → final`, 2026-06-17; bead `rf2-7mj7mt`),
+adopting the recommended cut. One row per Open Question. These rows are normative;
+the [§Open Issues](#open-issues) above carry the full rationale, and the
+§Specification body has been reconciled to them.
+
+| # | Decision | Resolution |
+|---|----------|-----------|
+| **R1** | Owner ergonomics for a "just polling" read with no natural owner? (Open Question 1) | Keep the v1 primitive **owner-driven** with the existing `[:lease …]` path; **file a separate adapter-ergonomics bead** for a `use-resource-lease` / `with-resource-lease` mount-lifecycle helper. The runtime contract stays clean; the component-observer model re-enters only at the adapter layer. |
+| **R2** | Hidden-tab polling opt-in — ship in v1 or reserve? (Open Question 2) | **Ship default-pause-when-hidden in v1; reserve `:poll-when-hidden?`** for the first true-background-monitor consumer. Default safe, defer the escape hatch. |
+| **R3** | Is a poll tick unconditional or stale-gated? (Open Question 3) | **(a) unconditional** — every interval refetches an active-owned entry regardless of `:stale?` (matches all prior-art tools; the interval *is* the cadence). `:stale-after-ms` stays the separate "don't refetch on focus/route-entry unless older than X" knob. The single most load-bearing semantic ruling. |
+| **R4** | Data-derived dynamic interval / stop predicate? (Open Question 4) | **Non-Goal for v1, reserved.** When a consumer needs it, shape it as an EP-0014 declared derivation (inputs → next-interval-or-stop), not an anonymous closure. A static integer interval covers the dashboard/notification/presence majority. |
+| **R5** | Repeated poll-failure back-off? (Open Question 5) | **Reserve, do not ship in v1.** A poll that keeps firing on a flaky endpoint is correct (it is a monitor); transport retry belongs to the transport adapter / managed-HTTP retry policy, not the poll timer. |
+| **R6** | Per-use route/ensure override, or resource-level only? (Open Question 6) | **Resource-level `:poll-interval-ms` only in v1;** reserve the per-use override for a follow-up if a consumer proves the resource-level interval too coarse. Keeps the ensure/route resolution path unchanged. |
+| **R7** | Spelling: `:poll-interval-ms` vs reserved `:poll-ms`? (Open Question 7) | Adopt **`:poll-interval-ms`** (reads as an interval, aligns with RTK's `pollingInterval`, parallels `:stale-after-ms` / `:gc-after-ms`); update the reserved-key note. |
+| **R8** | Does polling need its own `:cause` entry? (Open Question 8) | Add the single cause keyword **`:poll`** to the enumerated causes; no further taxonomy. |
+
 ## Recommendation
 
 Accept this EP as a focused, additive Spec 016 amendment that completes the
