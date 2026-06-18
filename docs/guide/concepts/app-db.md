@@ -106,6 +106,32 @@ The two partitions compose into one **frame-state** value — `{:rf.db/app <app-
 
 > **Coming from re-frame v1?** v1 let framework and library bookkeeping colonise app-db; v2 retires that outright — framework state lives in runtime-db, and a leftover `:rf/runtime` root in app-db is a hard error, not a warning.
 
+## Two lanes: the front door, and the surgeon's table
+
+Everything above is the **front door** — the one lane application code ever uses to change state. An event handler returns a new app-db, the runtime swaps it atomically, subscriptions recompute, and a snapshot of any path is yours to read. Handlers, effects, subscriptions, snapshots: that is the whole of how a re-frame2 app moves from one value to the next, and almost nothing you write will ever touch anything else.
+
+There is a second lane, and it is not for app code. The runtime exposes a small set of operations that *overwrite* a frame's state wholesale, bypassing the event pipeline entirely:
+
+```clojure
+(rf/replace-app-db!      frame-id app-db)        ;; swap only the app partition
+(rf/replace-runtime-db!  frame-id runtime-db)    ;; swap only the framework partition
+(rf/replace-frame-state! frame-id frame-state)   ;; swap both, atomically
+(rf/reset-app-db!        frame-id)               ;; clear the app partition
+(rf/restore-epoch!       frame-id epoch-id)      ;; rewind to a captured past state
+```
+
+Call these **state surgery**. They don't run a handler, fire no effects, and carry no event through the cascade — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
+
+- **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. `replace-frame-state!` (not app-db-only) is what an epoch-history test needs, because machine actors and the route slice live in runtime-db.
+- **Tooling.** [Xray](observability.md) time-travel and the pair MCP rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
+- **Framework internals.** Restore, SSR hydration, and frame reset replace whole partitions — privileged runtime code, never your handlers.
+
+!!! warning "Never reach for state surgery in application code"
+
+    These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the epoch ledger has no cascade to show, schema validation never runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop. The surgery lane exists so tools and tests can set up or rewind state *around* your app, not so your app can mutate itself behind its own back.
+
+The contrast is the point. The front door is auditable because every change is an event with a cause; surgery is powerful because it answers to no cause — which is exactly why it belongs to the test harness and the debugger, not the application. Reach for it only when you are *operating on* a frame from outside (a fixture, a tool, the REPL), never when you are *writing* the app that runs inside one. The normative catalogue of these surfaces — what each replaces, and the full-frame-vs-partition split — is [Frames §Frame-state value accessors and mutators](../../../spec/002-Frames.md#frame-state-value-accessors-and-mutators).
+
 ## See it move
 
 Don't take the "one inspectable value" claim on faith. It is the most useful property you now own, so try it on a running app (the [quickstart](../quickstart.md) gives you one in five minutes). At the REPL:
@@ -126,4 +152,5 @@ Your entire application state, printed top to bottom, readable as a map. Now ope
 - explain why a handler returning a new value (instead of mutating) makes changes transactional and time-travel nearly free
 - tell a missing key from a present-`nil` one, and say why the framework preserves the difference
 - apply *read, don't write* to runtime-managed state: subscribe to the route or a machine snapshot, influence it by dispatching, never forge it
+- tell the two state-change lanes apart — the event front door for app code, the `replace*` / `restore-epoch!` surgery lane for tests, tooling, and framework internals — and say why app code never uses the second
 - print and diff a running app-db, at the REPL and in Xray's App-db tab
