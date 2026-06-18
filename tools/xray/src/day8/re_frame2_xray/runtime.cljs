@@ -1627,7 +1627,7 @@
      :ambiguous-frame?          (> (count fids) 1)
      ;; Coord-annotation probe: the framework exposes
      ;; `data-rf2-source-coord` on DOM elements when the user has
-     ;; called `(rf/configure! :source-coords {:annotate-dom? true})`.
+     ;; called `(rf/configure! {:source-coords {:annotate-dom? true}})`.
      ;; The cheapest cross-substrate check is "is at least one
      ;; element annotated?" — a single DOM query, no framework
      ;; introspection ceremony. Browser-only; nil-safe under node-test.
