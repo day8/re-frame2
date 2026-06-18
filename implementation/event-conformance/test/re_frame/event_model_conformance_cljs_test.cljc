@@ -1376,12 +1376,14 @@
                                   [(av/module {:id :m :events {:shared/e {:handler h}}})]}))]
       (av/install! (realm/realm :evt-conf/ra) (app-of add-a))
       (av/install! (realm/realm :evt-conf/rb) (app-of add-b))
-      (is (= add-a (:handler-fn (rf/handler-meta {:realm :evt-conf/ra :kind :event :id :shared/e})))
+      ;; The facade no longer exposes a realm-targeted query (rf2-10nggz); realm
+      ;; isolation is read through the internal `re-frame.realm/realm-handler-meta`.
+      (is (= add-a (:handler-fn (realm/realm-handler-meta :evt-conf/ra :event :shared/e)))
           "realm ra resolves ITS handler for the shared reg-event id")
-      (is (= add-b (:handler-fn (rf/handler-meta {:realm :evt-conf/rb :kind :event :id :shared/e})))
+      (is (= add-b (:handler-fn (realm/realm-handler-meta :evt-conf/rb :event :shared/e)))
           "realm rb resolves ITS handler for the shared reg-event id")
-      (is (not= (rf/handler-meta {:realm :evt-conf/ra :kind :event :id :shared/e})
-                (rf/handler-meta {:realm :evt-conf/rb :kind :event :id :shared/e}))
+      (is (not= (realm/realm-handler-meta :evt-conf/ra :event :shared/e)
+                (realm/realm-handler-meta :evt-conf/rb :event :shared/e))
           "the two realms hold genuinely different handlers for the same id")
       (is (nil? (rf/handler-meta :event :shared/e))
           "the shared id is absent from the default realm (no global bleed)"))))
@@ -1401,8 +1403,8 @@
       ;; It landed in the realm's OWN registrar …
       (is (fn? (get-in @(realm/registrar r) [:event :evt-conf/realm-scoped :handler-fn]))
           "the public reg-event seated the handler into the bound realm's own registrar")
-      (is (fn? (:handler-fn (rf/handler-meta {:realm :evt-conf/bound :kind :event :id :evt-conf/realm-scoped})))
-          "the realm-targeted handler-meta resolves the realm-seated reg-event")
+      (is (fn? (:handler-fn (realm/realm-handler-meta :evt-conf/bound :event :evt-conf/realm-scoped)))
+          "the realm-scoped handler-meta resolves the realm-seated reg-event")
       ;; … and is INVISIBLE to the process-global / default-realm registrar.
       (is (nil? (registrar/lookup :event :evt-conf/realm-scoped))
           "the default-realm registrar did NOT receive the realm-scoped reg-event"))))

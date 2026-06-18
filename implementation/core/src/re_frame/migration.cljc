@@ -134,12 +134,16 @@
    :rf.realm/scoped-query
    {:status      :retained-internal
     :replacement :rf/handler-meta
-    :guidance    (str "EP-0023: the realm-scoped registrar query forms "
-                      "((registrations {:realm r :kind k}), the {:realm …} "
-                      "handler-meta/handler-ids arities) are retained as a "
-                      "tooling/migration surface over the internal realm "
-                      "registrar. The public model resolves registration "
-                      "lookups through the target FRAME's image generation.")}})
+    :guidance    (str "EP-0023 (rf2-10nggz): the public realm-scoped registrar "
+                      "query map arity ((registrations {:realm r :kind k}), the "
+                      "{:realm …} handler-meta/handler-ids forms) was REMOVED "
+                      "from the facade — a registrar-query map is now ALWAYS a "
+                      "frame-targeted read. The realm-scoped readers survive as "
+                      "INTERNAL substrate (re-frame.realm/realm-registrations / "
+                      "realm-handler-meta / realm-handler-ids) for tooling that "
+                      "requires the ns directly. The public model resolves "
+                      "registration lookups through the target FRAME's image "
+                      "generation.")}})
 
 ;; ===========================================================================
 ;; explain — the migration-guidance lookup

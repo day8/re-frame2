@@ -42,10 +42,11 @@
   Stage 8 (rf2-blibek) adds the realm-targeted QUERY readers
   (`realm-registrations` / `realm-handler-meta` / `realm-handler-ids`) — read
   the registrations of a SPECIFIED realm rather than the implicit default.
-  The PUBLIC surface is the map-shaped facade form `(rf/registrations {:realm
-  r :kind k})` / `(rf/handler-meta {:realm r :kind k :id id})` (EP-0013
-  open-issue 11 — map-shaped, unambiguous against the existing keyword
-  arities); the no-arg / keyword-arity default-realm calls stay byte-identical.
+  These are INTERNAL substrate (rf2-10nggz): the public `:realm` registrar-query
+  map arity was REMOVED from the facade (a registrar-query map is now ALWAYS a
+  frame-targeted read — there is no realm coordinate in the public read grammar).
+  The readers survive for INTERNAL/TOOLING callers that require this ns directly
+  (e.g. Xray's host-registry default-realm generation-bypass).
 
   Stage 9 (rf2-swrf4k — the LAST EP-0013 impl slice) graduates the PUBLIC
   realm CONSTRUCTOR `construct-realm` (re-exported as `rf/realm`; ruled
@@ -487,8 +488,10 @@
 ;; it — "realm-targeted registrar queries return ONLY that realm's
 ;; registrations" (EP-0013 §Realm Conformance; open-issue 11). They are the
 ;; realm-scoped counterparts of the process-global `registrar/registrations` /
-;; `registrar/handler-meta` / `registrar/ids` that the public map-shaped facade
-;; forms (`(rf/registrations {:realm r :kind k})`, …) are built on.
+;; `registrar/handler-meta` / `registrar/ids`. INTERNAL substrate (rf2-10nggz):
+;; the public `:realm` registrar-query map arity that once built on them was
+;; REMOVED from the facade; the readers survive for INTERNAL/TOOLING callers
+;; (e.g. Xray's host-registry generation-bypass) that require this ns directly.
 ;;
 ;; Each accepts a realm-or-id (a realm map, a realm-id keyword, or nil for the
 ;; default realm — the absence-is-default rule), resolves it to the realm's
@@ -514,8 +517,10 @@
   registers none of that kind (or the realm is unknown). The realm-scoped
   counterpart of `registrar/registrations` — it reads only THIS realm's
   registrar, so a hermetic realm with its own registrar returns only its
-  registrations (EP-0013 §Realm Conformance). INTERNAL — the public map-shaped
-  `(rf/registrations {:realm r :kind k})` form is built on it."
+  registrations (EP-0013 §Realm Conformance). INTERNAL substrate (rf2-10nggz):
+  the public `:realm` registrar-query map arity has been REMOVED from the facade;
+  this reader survives for INTERNAL/TOOLING callers that require this ns directly
+  (e.g. Xray's host-registry default-realm generation-bypass read)."
   [realm-or-id kind]
   (if-let [reg (realm-registrar realm-or-id)]
     (get @reg kind {})
@@ -525,9 +530,10 @@
   "Return the registration metadata map for `[kind id]` in `realm-or-id`'s OWN
   registrar (defaults to the default realm), or `nil` when that realm has no
   such registration (or the realm is unknown). The realm-scoped counterpart of
-  `registrar/handler-meta` — it reads only THIS realm's registrar. INTERNAL —
-  the public map-shaped `(rf/handler-meta {:realm r :kind k :id id})` form is
-  built on it."
+  `registrar/handler-meta` — it reads only THIS realm's registrar. INTERNAL
+  substrate (rf2-10nggz): the public `:realm` registrar-query map arity has been
+  REMOVED from the facade; this reader survives for INTERNAL/TOOLING callers that
+  require this ns directly (e.g. Xray's host-registry generation-bypass read)."
   [realm-or-id kind id]
   (when-let [reg (realm-registrar realm-or-id)]
     (-> @reg (get kind) (get id))))
@@ -535,8 +541,9 @@
 (defn realm-handler-ids
   "Return the set of ids registered under `kind` in `realm-or-id`'s OWN
   registrar (defaults to the default realm), or `#{}` when none. The
-  realm-scoped counterpart of `registrar/ids`. INTERNAL — the public map-shaped
-  `(rf/handler-ids {:realm r :kind k})` form is built on it."
+  realm-scoped counterpart of `registrar/ids`. INTERNAL substrate (rf2-10nggz):
+  the public `:realm` registrar-query map arity has been REMOVED from the facade;
+  this reader survives for INTERNAL/TOOLING callers that require this ns directly."
   [realm-or-id kind]
   (-> (realm-registrations realm-or-id kind) keys set))
 

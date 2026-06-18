@@ -1,40 +1,37 @@
 (ns re-frame.realm-query-cljs-test
-  "EP-0013 D1 stage 8 (rf2-blibek) — the realm-targeted QUERY surface.
+  "EP-0023 (rf2-10nggz) — the registrar query grammar after the `:realm`
+  map-arity removal.
 
-  The public map-shaped registrar query forms read the registrations of a
-  SPECIFIED realm rather than the implicit default:
+  Post-EP-0023 the public registrar read grammar has exactly TWO shapes per
+  trio member:
 
-    (rf/registrations {:realm r :kind :event})
-    (rf/handler-meta   {:realm r :kind :event :id :cart/add})
-    (rf/handler-ids    {:realm r :kind :event})
-    (av/app-registrations app :event)   ; retained-internal positional inspector
+    (rf/registrations :event)            ; positional-keyword: default source store
+    (rf/registrations {:frame f :kind k}) ; map: frame-targeted (see facade-frame-read)
 
-  ruled map-shaped in EP-0013 open-issue 11 (unambiguous against the existing
-  keyword arities, extensible). The headline acceptance, mirroring D1 §Realm
-  Conformance: \"realm-targeted registrar queries return ONLY that realm's
-  registrations\" AND the default-realm keyword arities stay BYTE-IDENTICAL
-  (a single-realm caller never spells a realm — the absence-is-default rule).
+  The retired pre-EP-0023 `:realm` map arity is REMOVED from the facade — a
+  registrar-query MAP is now ALWAYS a frame-targeted read, so a map WITHOUT
+  `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The realm
+  machinery survives as INTERNAL substrate (`re-frame.realm/realm-registrations`
+  / `realm-handler-meta` / `realm-handler-ids`) for tooling that requires the ns
+  directly (e.g. Xray's host-registry generation-bypass).
 
   These tests pin:
     (1) the default-realm keyword arities are unchanged (the no-regression
         headline) — `(registrations :event)` / `(handler-meta :event id)` /
         `(handler-ids :event)` behave exactly as before;
-    (2) the map-shaped form against the DEFAULT realm equals the keyword
-        arity (absence = default realm, an explicit documented rule);
-    (3) a HERMETIC realm with its OWN registrar atom returns ONLY its own
-        registrations — the same id registered differently in two realms
-        resolves to the per-realm handler (the EP-0013 issue 3 tested legal
-        case);
-    (4) an unknown realm reads as the empty program (never an error);
-    (5) `app-registrations` grows the `{:app … :kind …}` map form parallel to
-        the realm-targeted registrar queries.
+    (2) a registrar-query map WITHOUT `:frame` fails loud
+        (`:rf.error/registrar-query-needs-frame`) — the `:realm` / absence-as-
+        default spellings are gone;
+    (3) the INTERNAL realm-scoped readers still read a hermetic realm's OWN
+        registrar (the retained substrate the facade no longer exposes);
+    (4) an unknown realm reads as the empty program through the internal reader
+        (never an error).
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build AND the JVM `clojure -M:test` runner both pick it up. Pure CLJC."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.app-value :as av]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -57,18 +54,25 @@
     (try (f tenant-rid)
          (finally (swap! realm/realms dissoc tenant-rid)))))
 
+(defn- err-id
+  "The `:rf.error/id` discriminator of a thrown re-frame2 error, or nil."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (:rf.error/id (ex-data e)))))
+
 ;; ---------------------------------------------------------------------------
 ;; (1) the default-realm keyword arities are UNCHANGED — the headline
 ;; ---------------------------------------------------------------------------
 
 (deftest default-realm-keyword-arities-unchanged
-  (testing "the existing keyword arities behave exactly as before — a
-            single-realm caller never spells a realm"
+  (testing "the existing keyword arities behave exactly as before — they read
+            the default source store (process-global registrar)"
     (rf/reg-event :rq/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/reg-sub :rq/n {:doc "n"} (fn [db _] (:n db)))
     ;; (registrations kind)
     (is (contains? (rf/registrations :event) :rq/inc)
-        "(registrations :event) lists the default-realm event")
+        "(registrations :event) lists the default source-store event")
     (is (= (registrar/registrations :event) (rf/registrations :event))
         "the facade keyword arity IS registrar/registrations")
     ;; (registrations kind pred-fn)
@@ -81,133 +85,104 @@
         "(handler-meta :event id) IS registrar/lookup")
     ;; (handler-ids kind)
     (is (contains? (rf/handler-ids :event) :rq/inc)
-        "(handler-ids :event) lists the default-realm id")
+        "(handler-ids :event) lists the default source-store id")
     (is (= (registrar/ids :event) (rf/handler-ids :event))
         "the facade keyword arity IS registrar/ids")))
 
 ;; ---------------------------------------------------------------------------
-;; (2) the map-shaped form against the DEFAULT realm equals the keyword arity
+;; (2) a registrar-query MAP without :frame fails loud — the :realm arity is gone
 ;; ---------------------------------------------------------------------------
 
-(deftest map-form-default-realm-equals-keyword-arity
-  (testing "the {:realm … :kind …} form with an absent / nil / explicit-default
-            realm equals the default-realm keyword arity (absence = default)"
+(deftest map-without-frame-fails-loud
+  (testing "post-EP-0023 (rf2-10nggz) a registrar-query MAP is ALWAYS a
+            frame-targeted read — a map WITHOUT :frame is an error, not a
+            default-realm read; the retired :realm / absence-as-default spellings
+            are removed"
     (rf/reg-event :rq/set {:doc "set"} (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-sub :rq/read {:doc "read"} (fn [db _] (:n db)))
-    ;; :realm absent → default realm
-    (is (= (rf/registrations :event)
-           (rf/registrations {:kind :event}))
-        "{:kind …} with no :realm targets the default realm")
-    ;; :realm nil → default realm
-    (is (= (rf/registrations :event)
-           (rf/registrations {:realm nil :kind :event}))
-        "{:realm nil …} targets the default realm")
-    ;; :realm the explicit default id → default realm
-    (is (= (rf/registrations :event)
-           (rf/registrations {:realm :rf.realm/default :kind :event}))
-        "{:realm :rf.realm/default …} targets the default realm")
-    ;; handler-meta map form vs keyword arity
-    (is (= (rf/handler-meta :event :rq/set)
-           (rf/handler-meta {:realm :rf.realm/default :kind :event :id :rq/set}))
-        "the handler-meta map form equals the keyword arity on the default realm")
-    ;; handler-ids map form vs keyword arity
-    (is (= (rf/handler-ids :event)
-           (rf/handler-ids {:realm :rf.realm/default :kind :event}))
-        "the handler-ids map form equals the keyword arity on the default realm")
-    ;; the :pred filter still composes in the map form
-    (is (= (rf/registrations :event (fn [m] (= "set" (:doc m))))
-           (rf/registrations {:kind :event :pred (fn [m] (= "set" (:doc m)))}))
-        "the map form's :pred filters by metadata as the positional pred does")))
+    ;; the bare {:kind …} absence-as-default spelling is gone
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/registrations {:kind :event})))
+        "{:kind …} with no :frame is an error")
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-ids {:kind :event})))
+        "handler-ids {:kind …} with no :frame is an error")
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta {:kind :event :id :rq/set})))
+        "handler-meta {:kind …} with no :frame is an error")
+    ;; the retired :realm map arity spellings are gone
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/registrations {:realm nil :kind :event})))
+        "the retired {:realm nil …} spelling is now an error, not the default realm")
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/registrations {:realm :rf.realm/default :kind :event})))
+        "the retired {:realm :rf.realm/default …} spelling is an error")
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta {:realm :rf.realm/default :kind :event :id :rq/set})))
+        "the retired handler-meta :realm spelling is an error")
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-ids {:realm :rf.realm/default :kind :event})))
+        "the retired handler-ids :realm spelling is an error")))
 
 ;; ---------------------------------------------------------------------------
-;; (3) a hermetic realm returns ONLY its own registrations
+;; (3) the INTERNAL realm-scoped readers still read a hermetic realm's registrar
+;;
+;; The facade no longer exposes a realm-targeted query; the realm machinery is
+;; retained as internal substrate (rf2-10nggz). Tooling that needs a realm-scoped
+;; read (e.g. Xray's host-registry generation-bypass) reads
+;; `re-frame.realm/realm-registrations` directly. These pin that substrate.
 ;; ---------------------------------------------------------------------------
 
-(deftest realm-targeted-returns-only-that-realms-registrations
-  (testing "the {:realm r …} form reads ONLY realm r's registrar — the same id
-            registered differently in two realms resolves per-realm"
-    ;; Default realm: :shared/handler → default-meta.
+(deftest internal-realm-readers-read-only-that-realms-registrations
+  (testing "re-frame.realm/realm-registrations reads ONLY realm r's registrar —
+            the same id registered differently in two realms resolves per-realm"
     (rf/reg-event :shared/handler {:doc "default"} (fn [{:keys [db]} _] {:db db}))
     (let [default-meta (registrar/lookup :event :shared/handler)
           tenant-meta  {:handler-fn (fn [db _] db) :doc "tenant"}
-          ;; The tenant realm registers the SAME id with DIFFERENT metadata,
-          ;; plus a tenant-only id the default realm never sees.
           seed         {:event {:shared/handler tenant-meta
                                 :tenant/only    {:handler-fn (fn [db _] db)
                                                  :doc "tenant only"}}}]
       (with-tenant-realm seed
         (fn [rid]
-          ;; The realm-targeted query returns ONLY the tenant realm's table.
+          ;; The internal realm-scoped read returns ONLY the tenant realm's table.
           (is (= {:shared/handler tenant-meta
                   :tenant/only    (:tenant/only (:event seed))}
-                 (rf/registrations {:realm rid :kind :event}))
-              "the realm-targeted registrations are exactly the tenant realm's")
-          (is (not (contains? (rf/registrations {:realm rid :kind :event})
-                              :rq/inc))
-              "default-realm-only ids do NOT leak into the realm-targeted view")
+                 (realm/realm-registrations rid :event))
+              "the realm-scoped registrations are exactly the tenant realm's")
+          (is (not (contains? (realm/realm-registrations rid :event) :rq/inc))
+              "default-realm-only ids do NOT leak into the realm-scoped view")
           ;; The same id resolves to the PER-REALM handler-meta.
-          (is (= tenant-meta
-                 (rf/handler-meta {:realm rid :kind :event :id :shared/handler}))
-              "handler-meta resolves the tenant realm's handler for the shared id")
-          (is (= default-meta
-                 (rf/handler-meta :event :shared/handler))
-              "the default-realm keyword arity still resolves the default handler")
-          (is (not= (rf/handler-meta {:realm rid :kind :event :id :shared/handler})
-                    (rf/handler-meta :event :shared/handler))
-              "the two realms hold genuinely different handlers for the same id")
+          (is (= tenant-meta (realm/realm-handler-meta rid :event :shared/handler))
+              "realm-handler-meta resolves the tenant realm's handler for the shared id")
+          (is (= default-meta (registrar/lookup :event :shared/handler))
+              "the default source store still resolves the default handler")
           ;; handler-ids is realm-scoped too.
           (is (= #{:shared/handler :tenant/only}
-                 (rf/handler-ids {:realm rid :kind :event}))
-              "handler-ids returns only the tenant realm's id set")
-          ;; A tenant-only id is absent from the default realm.
-          (is (nil? (rf/handler-meta :event :tenant/only))
-              "a tenant-only id is not in the default realm")
-          (is (nil? (rf/handler-meta {:realm rid :kind :event :id :rq/inc}))
-              "a default-realm-only id is not in the tenant realm"))))))
+                 (realm/realm-handler-ids rid :event))
+              "realm-handler-ids returns only the tenant realm's id set")
+          (is (nil? (realm/realm-handler-meta rid :event :rq/inc))
+              "a default-source-store-only id is not in the tenant realm")))))
 
-(deftest realm-targeted-accepts-a-realm-map
-  (testing "the :realm value may be a realm MAP (not only an id keyword)"
+  (testing "the realm-or-id may be a realm MAP (not only an id keyword)"
     (let [seed {:sub {:t/s {:handler-fn (fn [db _] db) :doc "tenant sub"}}}]
       (with-tenant-realm seed
         (fn [rid]
           (let [realm-map (realm/realm rid)]
-            (is (= (rf/registrations {:realm rid :kind :sub})
-                   (rf/registrations {:realm realm-map :kind :sub}))
-                "passing the realm map resolves the same registrar as the id")
-            (is (contains? (rf/handler-ids {:realm realm-map :kind :sub}) :t/s)
+            (is (= (realm/realm-registrations rid :sub)
+                   (realm/realm-registrations realm-map :sub))
+                "the realm map resolves the same registrar as the id")
+            (is (contains? (realm/realm-handler-ids realm-map :sub) :t/s)
                 "the realm-map form reads the tenant realm's subs")))))))
 
 ;; ---------------------------------------------------------------------------
-;; (4) an unknown realm reads as the empty program
+;; (4) an unknown realm reads as the empty program through the internal reader
 ;; ---------------------------------------------------------------------------
 
-(deftest unknown-realm-reads-empty
-  (testing "querying a realm that was never created is the empty program,
-            not an error"
-    (is (= {} (rf/registrations {:realm :never/created :kind :event}))
-        "registrations on an unknown realm is empty")
-    (is (nil? (rf/handler-meta {:realm :never/created :kind :event :id :x}))
-        "handler-meta on an unknown realm is nil")
-    (is (= #{} (rf/handler-ids {:realm :never/created :kind :event}))
-        "handler-ids on an unknown realm is empty")))
-
-;; ---------------------------------------------------------------------------
-;; (5) app-registrations enumerates a constructed app's descriptors
-;;
-;; EP-0023 (rf2-pl97nd.4): the facade-only `{:app :kind}` map-shaped arity is
-;; removed with the public facade; the retained-internal
-;; `re-frame.app-value/app-registrations` keeps the positional `[app kind]`
-;; substrate inspector, which this exercises.
-;; ---------------------------------------------------------------------------
-
-(deftest app-registrations-positional-form
-  (testing "(app-value/app-registrations app kind) enumerates a constructed
-            app value's descriptors for a kind, nil for a kind it declares none of"
-    (let [m   (av/module {:id :rq/mod
-                          :events {:rq/m-evt {:doc "mod event"
-                                              :handler (fn [db _] db)}}})
-          app (av/app {:id :rq/app :modules [m]})]
-      (is (contains? (av/app-registrations app :event) :rq/m-evt)
-          "the positional form enumerates the constructed app's descriptors")
-      (is (nil? (av/app-registrations app :sub))
-          "a kind the app declares none of is nil"))))
+(deftest unknown-realm-reads-empty-through-internal-reader
+  (testing "the internal realm reader treats a realm that was never created as
+            the empty program, not an error"
+    (is (= {} (realm/realm-registrations :never/created :event))
+        "realm-registrations on an unknown realm is empty")
+    (is (nil? (realm/realm-handler-meta :never/created :event :x))
+        "realm-handler-meta on an unknown realm is nil")
+    (is (= #{} (realm/realm-handler-ids :never/created :event))
+        "realm-handler-ids on an unknown realm is empty")))

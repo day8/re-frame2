@@ -348,10 +348,14 @@ behaviour (a frame resolves its own image) and exactly the wrong thing for an
 INSPECTOR, which reads the registry of the INSPECTED app — the process-global
 DEFAULT-REALM registrar — not its own image's resolver. The fix is the
 `day8.re-frame2-xray.host-registry` helper: it reads the host registry via the
-realm-targeted query form (`(rf/registrations {:realm nil :kind k})` /
-`(rf/handler-meta {:realm nil :kind k :id id})`), which resolves through the
-default realm's OWN registrar atom directly (`re-frame.realm/realm-registrar`),
-BYPASSING any bound `*generation*`. Every Xray host-registry read that happens
+internal substrate seam (`re-frame.realm/realm-registrations` /
+`re-frame.realm/realm-handler-meta` against the default realm), which resolves
+through the default realm's OWN registrar atom directly
+(`re-frame.realm/realm-registrar`), BYPASSING any bound `*generation*`. (The
+former public `(rf/registrations {:realm nil :kind k})` facade spelling was
+removed in rf2-10nggz — a registrar-query map is now ALWAYS a frame-targeted
+read — so the honestly-named internal seam is the generation-bypass home.)
+Every Xray host-registry read that happens
 inside a sub computation routes through it; view-time reads (no generation bound)
 are unaffected. With this in place the production singleton ships flipped and the
 `routes-epochs` gate is green.
@@ -488,11 +492,13 @@ does not flip `:images?` (there is no image content to show).
   production descriptor and assembles without a dup-id).
 - `host_registry.cljs` — the host-app registry read seam that survives Xray
   running in its OWN image-loaded frame (`registrations` · `handler-meta`). Reads
-  the process-global DEFAULT-REALM registrar via the realm-targeted query form
-  (`(rf/registrations {:realm nil :kind k})` /
-  `(rf/handler-meta {:realm nil :kind k :id id})`), which resolves through the
-  default realm's own registrar atom directly, BYPASSING any bound
-  `re-frame.registrar/*generation*`. Every Xray host-registry read INSIDE a sub
+  the process-global DEFAULT-REALM registrar via the internal substrate seam
+  (`re-frame.realm/realm-registrations` / `re-frame.realm/realm-handler-meta`
+  against the default realm), which resolves through the default realm's own
+  registrar atom directly, BYPASSING any bound `re-frame.registrar/*generation*`.
+  (The former public `(rf/registrations {:realm nil :kind k})` facade spelling
+  was removed in rf2-10nggz — a registrar-query map is now ALWAYS a frame-
+  targeted read.) Every Xray host-registry read INSIDE a sub
   computation (the Routing route table, the palette handler index, the
   Static Flows / Interceptors / Schemas registries, the Resources registry, the
   Machine Inspector machine list + definitions, the Epoch pipeline's INTERCEPTORS

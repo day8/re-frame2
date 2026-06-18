@@ -82,7 +82,7 @@ EP-0023 supersedes EP-0013's public app/realm vocabulary. The public composition
 | `rf/app-registrations` / `rf/app-requires` / `rf/app-owns` | inspect a frame's resolved image generation |
 | `(realm, frame)` two-part address | a single frame target |
 
-The EP-0013 realm-targeted **map-shaped** registrar queries (`(rf/registrations {:realm r …})`, etc.) are likewise not part of the public model — public registrar queries resolve through the target frame; a single-frame caller never spells a container.
+The EP-0013 realm-targeted **map-shaped** registrar queries (`(rf/registrations {:realm r …})`, etc.) were **removed from the public facade** — a registrar-query map is now ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})`), and a map without `:frame` is an error. Public registrar queries resolve through the target frame; a single-frame caller never spells a container. A realm-scoped read is internal-only (`re-frame.realm/realm-registrations`, for tooling that requires the ns directly).
 
 ## Routing — `day8/re-frame2-routing`
 
