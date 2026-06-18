@@ -112,3 +112,27 @@ The cleanup target is the front porch: app authors should see the small read
 surface they actually use; tools can import deeper state and cache readers from
 tooling namespaces. That keeps the public API small without flattening real
 semantic distinctions.
+
+## Fresh consolidation pass additions (2026-06-18)
+
+- **Trace-projection facade re-exports have zero callers** (empirical). `rf/group-cascades`,
+  `rf/group-cascades-with-events`, `rf/domino-bucket` are facade re-exports, but
+  every consumer calls `re-frame.trace.projection/<name>` directly (~9 Xray files
+  + pair-mcp); the rf/-prefixed copies are 0 everywhere. The trace-listener trio,
+  `emit-trace-event!`, and `clear-trace-buffer!` are likewise 0. Delete the unused
+  re-exports; keep `trace-buffer` (real JVM-tool alias).
+- **The value-read `frame-target->id` repetition is an internal-resolver refactor,
+  not an API change** (lifecycle + taste). Keep the three partition readers; hoist
+  normalization to one `resolve-frame-record` seam. If the object/record
+  unification lands, normalization disappears. `snapshot-of` app-db-only stays a
+  documented convenience.
+
+## Implementation
+
+- **Vehicle: ordinary beads** (grouping + facade-pruning, not grammar). No EP.
+- Beads: (1) docs - one privileged "state surgery" section for replace-* /
+  restore-epoch!; (2) move sub-cache / sub-topology + the unused trace-projection
+  re-exports off the facade; (3) internal - one resolve-frame-record seam shared
+  by the value reads (no public change). KEEP the three partition readers.
+- The resolver item folds into the frame-grammar EP if the object/record
+  unification lands; the rest is independent.

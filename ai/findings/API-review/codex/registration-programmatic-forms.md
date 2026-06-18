@@ -136,3 +136,28 @@ actually need that distinction.
 The Clojure ethos is not "avoid macros"; it is "use macros where syntax is the
 point". Where syntax is not the point, functions over maps are easier to
 compose, generate, test, and inspect.
+
+## Fresh consolidation pass additions (2026-06-18)
+
+Three deltas in the interceptor/registration boundary:
+1. **Removed-API stubs should be data-table-driven** (taste): collapse the N
+   bespoke `*-removed!` throwers (reg-event-db/-fx/-ctx, path, unwrap-interceptor)
+   into one `defremoved` / removals table; the next removal is a data edit (the
+   migration-map at migration.cljc:57 is already this shape).
+2. **Interceptor context accessors are stale post-EP-0017/0022** (empirical):
+   get-coeffect / assoc-coeffect / get-effect / assoc-effect lost their audience;
+   counts are 0-1 and the setters are fully dead. Remove assoc-coeffect /
+   assoc-effect; reassess the getters.
+3. **`->interceptor` carries a self-contradicting tier** (model): api-manifest
+   rows it `:internal-public`, but API.md says that tier's "sole instance" is the
+   Xray mount family; retier `->interceptor` to `:implementation`.
+
+## Implementation
+
+- **Vehicle: ordinary beads after call-site confirmation, + one small decision
+  bead** for `->interceptor` / `reg-interceptor*`. No EP.
+- Beads: (1) prune zero-adoption `*`-fn aliases (reg-error-projector, reg-flow,
+  reg-mutation, reg-head); keep adopted reg-view* / dispatch*; (2) defremoved
+  data-table; (3) remove stale interceptor context accessors; (4) retier
+  `->interceptor` to `:implementation`.
+- Hot-zone: core.cljc, api-manifest*.edn.

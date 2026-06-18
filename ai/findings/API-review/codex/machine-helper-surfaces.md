@@ -81,3 +81,22 @@ they can be recorded, displayed, analyzed, compared, and generated.
 Clojure APIs become durable when values carry the meaning. Wrapper functions
 can be pleasant, but they should not hide the one algebra all tooling depends
 on.
+
+## Fresh consolidation pass note (2026-06-18)
+
+The fresh empirical lens reconfirms this file's ruling: `machine-has-tag?` = 64
+example hits (keep), `sub-machine` = 0 anywhere (drop or move to re-frame.machines),
+`dispatch-to-system` = 1 test, `defmachine` tests-only. One cross-lens conflict,
+resolved here: the minimalist lens proposed moving all three helpers including
+`machine-has-tag?` off the facade - overruled by adoption; `machine-has-tag?`
+stays, and the minimalist recommendation holds only for `sub-machine`.
+
+## Implementation
+
+- **Vehicle: docs-first beads + one small facade-pruning bead.** No EP.
+- Beads: (1) docs - teach `[:rf/machine ...]` vectors and the
+  `:rf.machine/dispatch-to-system` effect tuple as canonical; label helpers as
+  Reagent convenience; (2) drop `sub-machine` from the facade (0 callers);
+  (3) optional - demote `dispatch-to-system` / `defmachine` to `re-frame.machines`.
+  KEEP `machine-has-tag?`.
+- Low risk; independent of the frame-grammar EP.

@@ -150,3 +150,35 @@ which functions coerce which shape.
 The Clojure move is to keep the value model small: an event vector plus an opts
 map. Optional routing information belongs in the map. Lifecycle belongs in a
 different operation. The result is less clever and easier to reason about.
+
+## Fresh consolidation pass additions (2026-06-18)
+
+**The deeper structural cause has its own file.** This file treats the crowding
+as an addressing-spelling problem ("id or object?"). The fresh lifecycle lens
+traced it to a backing-structure problem - two `make-frame` constructors backed by
+two registries - in
+[frame-object-record-unification.md](frame-object-record-unification.md), the
+highest-leverage frame finding and an EP-level/erratum candidate.
+
+Two smaller deltas:
+- **`make-frame-handle` is an off-pattern, undocumented public var** (minimalist +
+  model). `:facade? true` but unrowed; its docstring says "call `frame-handle`
+  instead"; only macro-expansion calls it. Rename to `frame-handle*` for `*`-twin
+  consistency and row as advanced, or de-fade to `^:no-doc`.
+- **HTTP test-support decomposition leaks onto the facade** (minimalist).
+  `with-managed-request-stubs` (macro) is the ergonomic surface; the raw
+  `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` pair
+  belongs in `re-frame.http-test-support`. Move the pair off the facade.
+
+## Implementation
+
+- **Vehicle: EP** (public frame-target grammar, provider object acceptance,
+  owned-UI lifecycle, dispatch/subscribe spelling policy).
+- **Land as ONE EP with
+  [frame-object-record-unification.md](frame-object-record-unification.md)** (the
+  structural enabler) and the :frame/:realm query split from
+  [registrar-query-addressing.md](registrar-query-addressing.md). One coupled
+  grammar change, not three EPs.
+- Smaller items as beads under/after the EP: make-frame-handle -> frame-handle* +
+  rowing, the HTTP test-support move, unsubscribe target-normalization symmetry.
+- Hot-zone: core.cljc, spec/002-Frames.md, provider/adapter seams.

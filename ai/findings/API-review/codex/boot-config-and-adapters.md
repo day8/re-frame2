@@ -101,3 +101,25 @@ The re-frame2 ethos has been moving away from ambient defaults. Boot should
 reflect that. `init!` should not smell like it might create a hidden default
 frame, and adapter internals should not sit beside the everyday startup call as
 though they are peer choices.
+
+## Fresh consolidation pass additions (2026-06-18)
+
+**Schema validator-extension cluster: bless the bundle, demote the singletons**
+(empirical lens). `re-frame.schemas` offers four ways to install validation fns
+at boot - three single-fn setters `set-schema-validator!` / `set-schema-explainer!`
+/ `set-schema-printer!`, plus the atomic bundle `set-schema-fns!` that does all
+three. API.md notes the bundle is "the honest one-call substitute-Malli boot
+pattern (so they never drift mid-boot)" - i.e. the singletons are the drift-prone
+path the bundle exists to replace. All four are used (set-schema-validator! 68,
+set-schema-fns! 43, set-schema-printer! 29, set-schema-explainer! 9), so this is
+duplicate-idiom, not dead surface. Bless `set-schema-fns!`; demote the singletons.
+
+## Implementation
+
+- **Vehicle: docs/beads first, + one decision bead** if `configure!` moves from
+  keyed-arity to map shape. No EP.
+- Beads: (1) docs - the one boot sentence (init! adapter, then explicit frames);
+  (2) move adapter internals (install-adapter! / current-adapter / ...) to an
+  adapter-author section; (3) bless set-schema-fns!, demote the three schema
+  setter singletons; (4) decision - configure! map shape.
+- Behaviour-preserving; independent of the EP work.

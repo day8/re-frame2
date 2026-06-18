@@ -119,3 +119,16 @@ The retired map form is especially expensive because it teaches a model EP-0023
 replaced. If the public model is image/frame, a registrar query should either
 read the default source store, an image, or a frame's resolved generation. Those
 are three facts. Clojure is better when three facts get three honest names.
+
+## Implementation
+
+- **Vehicle: decision bead, escalating to the frame-grammar EP if new names land.**
+  (a) if `:realm` is dropped and `:frame` kept (the pre-alpha facade ruling removes
+  `:realm` from the public surface regardless), ordinary beads + the `rf2-pl97nd`
+  scrub; (b) if source-store / image / frame-generation reads get distinct names,
+  that is public grammar -> fold into the one frame-grammar EP (with frame-targeting
+  + frame-object-record-unification).
+- **The `:realm` public query arity is removed** under the pre-alpha facade ruling
+  (it re-exposes the (realm, frame) model EP-0023 hid). Xray's `{:realm nil}`
+  generation-bypass gets an honestly-named internal/tooling seam.
+- Hot-zone: core.cljc, spec/API.md.
