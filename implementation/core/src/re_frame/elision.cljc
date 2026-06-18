@@ -723,7 +723,7 @@
 
 (defn- collect-governed-values!
   "Walk the RAW `node` at `path`, conj!ing onto transient set `acc!` every
-  scalar value sitting at (or beneath) a `:sensitive?` prefix — the candidate
+  value sitting at (or beneath) a `:sensitive?` prefix — the candidate
   secrets. Returns `acc!`.
 
   Indexing MIRRORS the path-based walker above so a declared path lands on
@@ -733,16 +733,27 @@
   their own path (set elements have no stable index, so a whole
   sensitive-declared set contributes all its members).
 
-  Only governed positions contribute, and `nil` / boolean leaves are skipped
-  (a `nil`/`false` is not a secret and value-matching it would scrub swathes
-  of benign tree). Collections that ARE governed still recurse so nested
-  scalars under a sensitive subtree are all collected."
+  A governed node that is a NON-EMPTY COLLECTION is collected WHOLE (the
+  subtree itself, not only its scalar leaves) — the value-match dual of the
+  path-based walker, which replaces an entire `:sensitive?`-declared subtree
+  with ONE `:rf/redacted` sentinel rather than descending into it. So a
+  sensitive blob re-keyed into a derived tree collapses to a single
+  `:rf/redacted` (sensitive-wins-over-large parity with `collect-large-
+  markers!`, which collects the whole subtree too), instead of the blob's
+  every element redacting piecemeal. The collection is STILL descended so a
+  partial-prefix / seq-indexed declaration that governs only some descendants
+  also contributes those nested scalars.
+
+  Only governed positions contribute; `nil` / boolean leaves and EMPTY
+  collections are skipped (a `nil`/`false`/`[]`/`{}` is not a secret and
+  value-matching it would scrub swathes of benign tree — every empty
+  collection in the derived tree would otherwise over-redact)."
   [acc! node path sensitive-prefixes]
   (let [governed? (some #(under-prefix? % path) sensitive-prefixes)]
     (when (and governed?
-               (not (coll? node))
-               (not (nil? node))
-               (not (boolean? node)))
+               (some? node)
+               (not (boolean? node))
+               (if (coll? node) (seq node) true))
       (conj! acc! node))
     (cond
       (map? node)
@@ -813,8 +824,11 @@
   are collected by WALKING `source-db` at governed positions (mirroring the
   elider's indexing) rather than by `get-in` on each declared path — `get-in`
   cannot index into a seq, so a seq-indexed declaration (`[:tokens 0]`) would
-  otherwise yield no candidate and the secret would leak. `nil` / boolean
-  leaves are excluded (not secrets, and value-matching them would scrub
+  otherwise yield no candidate and the secret would leak. A governed node that
+  is a non-empty collection is collected WHOLE (so a re-keyed sensitive blob
+  collapses to a single `:rf/redacted`, parity with the path-based walker) as
+  well as descended for its nested scalars; `nil` / boolean leaves and empty
+  collections are excluded (not secrets, and value-matching them would scrub
   swathes of benign tree).
 
   No guard means every governed value stays in the set — over-scrub at worst,
