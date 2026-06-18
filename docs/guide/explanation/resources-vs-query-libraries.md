@@ -1,6 +1,6 @@
 # Resources vs TanStack Query, RTK Query, and SWR
 
-This page is the honest, feature-by-feature comparison between re-frame2 **managed resources** and the JavaScript server-state libraries you may already know — [TanStack Query](https://tanstack.com/query) (the React Query family), [RTK Query](https://redux-toolkit.js.org/rtk-query/overview), and [SWR](https://swr.vercel.app/). The conceptual model is in [Server state: resources](../concepts/server-state.md); this page is the scorecard. It tells you what is matched, what is *deliberately different*, what has *landed*, and — bluntly — what is **not built yet**.
+This page is the honest, feature-by-feature comparison between re-frame2 **managed resources** and the JavaScript server-state libraries you may already know — [TanStack Query](https://tanstack.com/query) (the React Query family), [RTK Query](https://redux-toolkit.js.org/rtk-query/overview), and [SWR](https://swr.vercel.app/). The conceptual model is in [Server state: resources](../concepts/server-state.md); this page is the scorecard. It tells you what is matched, what is *deliberately different*, what has *landed*, and — bluntly — what is **deliberately out of scope** for this phase.
 
 The one sentence to carry through every row:
 
@@ -10,7 +10,7 @@ If you want the design rationale rather than the comparison, read [Inside out: w
 
 !!! note "Resources are an optional artefact, and pre-alpha"
 
-    Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**: the read path, the mutation path, and optimistic mutation rollback have all landed. Two parity-relevant features (polling, infinite feeds) are not built yet and are tracked as design proposals. Every "proposed" row below names its tracking proposal so you can see exactly where the edge is. Nothing here is back-compat-frozen.
+    Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**: the read path, the mutation path, optimistic mutation rollback, active-owner polling, and infinite / load-more feeds have all landed. The remaining query-library features are *deliberately out of scope* for this HTTP-only phase — normalized/GraphQL caches and offline/cross-tab persistence — and each such row below names where that line sits. Nothing here is back-compat-frozen.
 
 ## How to read the status column
 
@@ -20,8 +20,8 @@ Each row carries a status. They mean precisely:
 |---|---|
 | **Landed** | Shipped in the reference implementation (`re-frame.resources`) and pinned by tests. |
 | **Different by design** | A capability the query libraries have, expressed differently here on purpose — usually because re-frame2 already has a more general mechanism (the subscription graph, the event loop) that subsumes it. |
-| **Proposed (EP-00NN)** | A real parity gap, *deferred*, with an open enhancement-proposal PR working out the design. Not in the shipped contract. The proposal numbers below — EP-0020 (active-owner polling), EP-0021 (infinite resources) — are landing as proposal PRs and are tracked under the [pre-alpha resource parity tranche]. Optimistic rollback (EP-0019) has since *landed* and moved out of this column. |
 | **Out of scope** | Deliberately not a resources concern — a different artefact, a different phase, or a non-goal. |
+| **Deferred (later slice)** | A real parity gap, deliberately held for a later slice, with no shipped contract yet. Used here only for offline persistence / cross-tab broadcast. The earlier parity-tranche proposals — optimistic rollback (EP-0019), active-owner polling (EP-0020), and infinite resources (EP-0021) — have all since *landed* and moved to **Landed**. |
 
 ## The parity matrix
 
@@ -40,14 +40,14 @@ Each row carries a status. They mean precisely:
 | **Mutation completion continuation** | `onSuccess` / `onError` callbacks | lifecycle callbacks | promise resolution | call-site `:reply-to` **event** (not a callback); fires only for the accepted terminal reply | **Landed** |
 | **Projection / `select`** | `select` option | `selectFromResult` | derived in component | no `:select` key — projections are ordinary subscriptions layered over `[:rf.resource/data …]` | **Different by design** |
 | **Optimistic updates + rollback** | `onMutate` snapshot + `onError` rollback | `updateQueryData` + `undo` patch | `optimisticData` + `rollbackOnError` | `:optimistic` (exact-target) / `:optimistic-tags` (tag-addressed) plan applied pre-request; runtime records the inverse; deterministic commit / rollback / reconcile on settle, with `:on-conflict` governing a contested rollback | **Landed** |
-| **Polling / refetch interval** | `refetchInterval` | `pollingInterval` | `refreshInterval` | **not built** — focus/reconnect revalidation has landed; *timed* polling has not | **Proposed (EP-0020)** |
+| **Polling / refetch interval** | `refetchInterval` | `pollingInterval` | `refreshInterval` | `:poll-interval-ms` — revalidates every N ms while the entry is *actively owned* and the tab is visible; the third freshness timer beside stale/GC | **Landed** |
 | **Refetch on window focus / reconnect** | `refetchOnWindowFocus` / `refetchOnReconnect` | `refetchOnFocus` / `refetchOnReconnect` | `revalidateOnFocus` / `revalidateOnReconnect` | `install-revalidation-listeners!` per frame; refetches only entries that are *stale AND owned* | **Landed** |
-| **Infinite / load-more** | `useInfiniteQuery` | `infiniteQuery` (recent) | `useSWRInfinite` | **not built** — numbered/cursor pages are ordinary resources with `:keep-previous?`; a canonical accumulating-feed model is deferred | **Proposed (EP-0021)** |
+| **Infinite / load-more** | `useInfiniteQuery` | `infiniteQuery` (recent) | `useSWRInfinite` | `:infinite true` + `:next-page-param` — one scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` extends it; `:rf.resource/items` is the merged read (numbered/cursor pages stay ordinary resources with `:keep-previous?`) | **Landed** |
 | **Keep-previous-data while paging** | `placeholderData: keepPreviousData` | n/a (manual) | `keepPreviousData` | `:keep-previous?` on the route/resource; `:rf.resource/state` projects `:previous-data` / `:previous-key` | **Landed** |
 | **SSR / hydration** | `dehydrate` / `HydrationBoundary` | `getRunningQueries` + preload | fallback data | per-request frames; blocking route resources are the render wait point; allowlist projection serialized + hydrated under freshness rules; fresh hydrated entries are not re-fetched | **Landed** |
 | **Devtools / observability** | React Query Devtools | RTK devtools (Redux) | external | Xray Resources panel + a `:rf.resource/*` / `:rf.mutation/*` trace family; static registry, live instance table, work-ledger table, route/resource graph, scope-audit + orphaned-owner lints | **Landed** |
 | **Normalized / GraphQL cache** | normalizr (external) | partial | external | Apollo/Relay-class — not a resources concern; transport is HTTP-only this phase | **Out of scope** |
-| **Offline persistence / cross-tab** | persister plugins | n/a | external | not built; deferred | **Proposed (later slice)** |
+| **Offline persistence / cross-tab** | persister plugins | n/a | external | not built; held for a later slice | **Deferred (later slice)** |
 
 Every "Landed" claim above is grounded in [Spec 016 — Resources](../../../spec/016-Resources.md) and the reference implementation under `implementation/resources/`. The rest of this page expands the rows that carry the most surprise for someone arriving from a query library.
 
@@ -185,23 +185,21 @@ Three properties are worth holding onto, because they are where re-frame2 differ
 
 A view renders the in-flight optimistic state from the instance sub's derived **`:optimistic?`** flag (true between the pre-request apply and settle). The optimistic surface is exact-key or tag-within-named-scope only, both **fail-closed** on a nil-resolving `{:from-db …}` scope — there is no scope-agnostic optimistic write, so it cannot leak across viewers, tenants, or SSR requests. The normative contract is [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); the worked write is in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
 
-## The honest gaps
+## Polling and infinite feeds — both landed
 
-These are real parity gaps. They are deferred, tracked, and have open design proposals. Do not let the rest of this page's confidence obscure them.
+The two parity-relevant features once tracked as gaps here have since landed; they are recorded below for readers arriving from the query libraries.
 
-### Polling / refetch-interval — proposed (EP-0020)
+### Polling / refetch-interval — landed (EP-0020)
 
-TanStack's `refetchInterval`, RTK's `pollingInterval`, and SWR's `refreshInterval` make timed background refetching a one-line option. re-frame2 has the *adjacent* capability — focus/reconnect revalidation has landed (`install-revalidation-listeners!`, refetching stale-and-owned entries) — but **timed polling is not built**. There is no `:poll-ms` key; it is an explicitly rejected v1 key ([Spec 016 §Resource registration spec](../../../spec/016-Resources.md#resource-registration-spec)).
+TanStack's `refetchInterval`, RTK's `pollingInterval`, and SWR's `refreshInterval` make timed background refetching a one-line option. re-frame2 ships the same as **`:poll-interval-ms`** on `reg-resource` ([Spec 016 §Polling](../../../spec/016-Resources.md#polling)): a positive interval in ms that revalidates the entry while it is *actively owned* and the tab is visible — the third member of the freshness-timer family beside `:stale-after-ms` / `:gc-after-ms`. It is owner-gated by design: an owner-free entry never polls, so opening a devtool or leaving a stale tab cannot drive background traffic. (This is in addition to the focus/reconnect revalidation that landed earlier via `install-revalidation-listeners!`.)
 
-**Until it lands:** drive a refetch from an interval you own (an event dispatched on a timer, ensuring under an explicit owner). The design — how to express interval revalidation while preserving owner leases and stale-only refresh discipline — is under EP-0020 / bead `rf2-byl7bk.2`.
+### Infinite / load-more feeds — landed (EP-0021)
 
-### Infinite / load-more feeds — proposed (EP-0021)
+`useInfiniteQuery` (TanStack) and `useSWRInfinite` accumulate pages into one growing list with cursor management. re-frame2 ships this as a first-class **`:infinite`** resource ([Spec 016 §Infinite resources and load-more feeds](../../../spec/016-Resources.md#infinite-resources-and-load-more-feeds)): a resource registered with `:infinite true` plus a pure `:next-page-param` derivation (returning `nil` is the single terminal). One scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` event extends it; the merged flat list is the headline read at `:rf.resource/items`, with `:rf.resource/pages` for boundaries and `:rf.resource/infinite-state` for the combined view-model. Numbered and cursor pagination stay exactly as before — every page is an ordinary resource keyed by its params, with `:keep-previous?` to avoid skeleton flashes ([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data)) — the infinite kind is the complementary accumulating-feed model, not a replacement.
 
-`useInfiniteQuery` (TanStack) and `useSWRInfinite` accumulate pages into one growing list with cursor management. re-frame2 handles *numbered and cursor pagination* well today — every page is an ordinary resource keyed by its params, with `:keep-previous?` to avoid skeleton flashes ([Spec 016 §Paginated and previous data](../../../spec/016-Resources.md#paginated-and-previous-data)) — but there is **no canonical accumulating-feed primitive**. A load-more feed currently falls back to app-db composition around the per-page resources.
+## The honest gaps — out of scope, on purpose
 
-**Until it lands:** compose pages in app-db (a subscription concatenating the per-page resource data). The canonical model — whether infinite feeds get a dedicated primitive or a documented composition pattern — is under EP-0021 / bead `rf2-byl7bk.3`.
-
-### Out of scope, on purpose
+These remain deliberately outside this HTTP-only phase. Do not let the rest of this page's confidence obscure them.
 
 - **Normalized / GraphQL caches** (Apollo, Relay, normalizr). The transport is HTTP-only this phase; a normalized entity cache is a separate later artefact gated on a GraphQL phase, not a resources gap ([Spec 016 §What Spec 016 does NOT cover](../../../spec/016-Resources.md#what-spec-016-does-not-cover)).
 - **Offline persistence and cross-tab broadcast.** Deferred later slices; not in the public-beta contract.
@@ -221,17 +219,14 @@ Reach for resources when cached server reads start multiplying and the per-read 
 
 **The summary, one more time:**
 
-- **Matched:** keyed cache, staleness, dedupe, GC, tag invalidation, mutations + consequences, optimistic updates with rollback, focus/reconnect revalidation, keep-previous paging, SSR/hydration, devtools — all **landed**.
+- **Matched:** keyed cache, staleness, dedupe, GC, tag invalidation, mutations + consequences, optimistic updates with rollback, focus/reconnect revalidation, active-owner polling, infinite / load-more feeds, keep-previous paging, SSR/hydration, devtools — all **landed**.
 - **Different by design:** per-frame cache, required structural scope, owners-vs-observers, passive views, subscriptions-instead-of-`select`, declarative causal invalidation, `:on-conflict :invalidate` as the contested-rollback default.
-- **Not built yet:** polling (EP-0020), infinite feeds (EP-0021).
-- **Out of scope:** normalized/GraphQL caches, offline/cross-tab.
+- **Out of scope (deliberately):** normalized/GraphQL caches, offline/cross-tab — held for later slices.
 
 ---
 
 **You can now:**
 
-- map any TanStack Query / RTK Query / SWR feature onto its re-frame2 resource counterpart, and read each row's landed / different / not-built status
+- map any TanStack Query / RTK Query / SWR feature onto its re-frame2 resource counterpart, and read each row's landed / different-by-design / out-of-scope status
 - explain the "same problem, different physics" line — a cache wired to causes, not to component lifecycle — and why scope is a required structural key
 - decide when a resource is the wrong tool, reaching instead for managed HTTP or a machine
-
-[pre-alpha resource parity tranche]: ../concepts/server-state.md
