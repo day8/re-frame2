@@ -931,10 +931,10 @@
     ;; (reg-index tiebreak) keeps matching deterministic, but the
     ;; warning surfaces the conflict for tooling.
     (let [traces (atom [])]
-      (rf/register-listener! ::shadow (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::shadow (fn [ev] (swap! traces conj ev)))
       (rf/reg-route :route/a {:path "/x/:id"})
       (rf/reg-route :route/b {:path "/y/:slug"})
-      (rf/unregister-listener! ::shadow)
+      (rf/unregister-listener! :trace ::shadow)
       (is (some (fn [ev]
                   (and (= :rf.warning/route-shadowed-by-equal-score
                           (:operation ev))
@@ -1800,10 +1800,10 @@
             `:rf.registry/handler-replaced` trace; not re-emitted here.
             Mirrors the `:rf.flow/registered` symmetry."
     (let [traces (atom [])]
-      (rf/register-listener! ::reg-trace (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::reg-trace (fn [ev] (swap! traces conj ev)))
       (rf/reg-route :route/home {:path "/"})
       (rf/reg-route :route/home {:path "/"}) ;; re-register (no trace)
-      (rf/unregister-listener! ::reg-trace)
+      (rf/unregister-listener! :trace ::reg-trace)
       (let [reg-events (filter #(= :rf.route/registered (:operation %)) @traces)]
         (is (= 1 (count reg-events))
             "first-time reg-route emits :rf.route/registered exactly once")
@@ -1816,10 +1816,10 @@
   (testing "clear-route emits :rf.route/cleared (rf2-dn26r)"
     (rf/reg-route :route/transient {:path "/transient"})
     (let [traces (atom [])]
-      (rf/register-listener! ::cleared-trace (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::cleared-trace (fn [ev] (swap! traces conj ev)))
       (routing/clear-route :route/transient)
       (routing/clear-route :route/transient) ;; idempotent, no trace
-      (rf/unregister-listener! ::cleared-trace)
+      (rf/unregister-listener! :trace ::cleared-trace)
       (let [cleared-events (filter #(= :rf.route/cleared (:operation %)) @traces)]
         (is (= 1 (count cleared-events))
             "clear-route emits :rf.route/cleared exactly once")

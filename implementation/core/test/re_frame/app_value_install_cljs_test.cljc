@@ -348,7 +348,7 @@
         "the dropped id is unregistered (the structural lookup→nil proxy)")
     ;; ADVERSARIAL assertion: a real dispatch against the dropped id fails loud.
     (let [seen (atom [])]
-      (rf/register-error-listener! :q4x5zz/recorder (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :errors :q4x5zz/recorder (fn [r] (swap! seen conj r)))
       (try
         (rf/dispatch-sync [:q4x5zz/ev] {:frame :q4x5zz/app})
         (let [err (some (fn [r] (when (= :rf.error/no-such-handler (:error r)) r)) @seen)]
@@ -361,7 +361,7 @@
         ;; left app-db untouched (no stale handler firing).
         (is (true? (:ran? (rf/app-db-value :q4x5zz/app)))
             "app-db carries only the pre-removal write — the dropped handler did not run")
-        (finally (rf/unregister-error-listener! :q4x5zz/recorder))))))
+        (finally (rf/unregister-listener! :errors :q4x5zz/recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4b) reinstall! — the ONE reachable live-instance edge: :frame removal

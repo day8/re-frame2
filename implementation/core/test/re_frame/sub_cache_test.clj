@@ -644,11 +644,11 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (rf/register-listener! ::no-such (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::no-such (fn [ev] (swap! traces conj ev)))
       ;; [:missing/sub] is not registered → :rf.error/no-such-sub.
       (let [r (rf/subscribe [:missing/sub])]
         (is (nil? @r) ":replaced-with-default — the reaction yields nil"))
-      (rf/unregister-listener! ::no-such)
+      (rf/unregister-listener! :trace ::no-such)
       (let [hit (some (fn [ev]
                         (when (= :rf.error/no-such-sub (:operation ev)) ev))
                       @traces)]
@@ -700,10 +700,10 @@
     ;; Force the cache to retain the entry by holding a ref via subscribe.
     (let [_pinned (rf/subscribe [:answer])
           traces  (atom [])]
-      (rf/register-listener! ::hot-reload (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::hot-reload (fn [ev] (swap! traces conj ev)))
       ;; Re-register with a transformed body.
       (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
-      (rf/unregister-listener! ::hot-reload)
+      (rf/unregister-listener! :trace ::hot-reload)
       ;; After re-registration, the next subscribe-once sees the new fn.
       (is (= 70 (rf/subscribe-once [:answer]))
           "after re-registration the new sub body is used")

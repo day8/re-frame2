@@ -44,9 +44,9 @@
   [operation body-fn]
   (let [traces (atom [])
         cb-id  (keyword (gensym "capture"))]
-    (rf/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
     (try (body-fn)
-         (finally (rf/unregister-listener! cb-id)))
+         (finally (rf/unregister-listener! :trace cb-id)))
     (filterv #(= operation (:operation %)) @traces)))
 
 ;; ===========================================================================

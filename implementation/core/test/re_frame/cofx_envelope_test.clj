@@ -810,7 +810,7 @@
           trace-times  (atom [])
           run!         (fn [ambient-clock]
                          (let [seen (atom nil)]
-                           (rf/register-listener! ::split-probe
+                           (rf/register-listener! :trace ::split-probe
                              (fn [ev]
                                ;; Capture the diagnostic :time of THIS frame's
                                ;; :wi/note dispatched event — a deterministic
@@ -833,7 +833,7 @@
                              (rf/dispatch-sync [:wi/note]
                                                {:frame :wi/split
                                                 :rf.cofx {:rf/time-ms token-time}}))
-                           (rf/unregister-listener! ::split-probe)
+                           (rf/unregister-listener! :trace ::split-probe)
                            (swap! trace-times conj @seen)
                            ;; the durable :committed-at of the just-settled epoch
                            (:committed-at (last (rf/epoch-history :wi/split)))))

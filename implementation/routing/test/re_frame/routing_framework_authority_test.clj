@@ -37,7 +37,7 @@
   `:rf.warning/app-handler-runtime-effect` event. Returns the capture atom."
   [listener-id]
   (let [a (atom [])]
-    (rf/register-listener!
+    (rf/register-listener! :trace
       listener-id
       (fn [ev]
         (when (and (= :warning (:op-type ev))

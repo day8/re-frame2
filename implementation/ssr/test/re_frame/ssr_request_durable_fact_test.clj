@@ -33,7 +33,7 @@
 
 (defn- collect-traces! [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- shape 1: event payload (the sanitized fact rides :event) -------------
@@ -102,7 +102,7 @@
       (let [ex (try (rf/dispatch-sync [:auth/server-init-strict] {:frame server-frame})
                     nil
                     (catch clojure.lang.ExceptionInfo e e))]
-        (rf/unregister-listener! ::missing)
+        (rf/unregister-listener! :trace ::missing)
         (is (some? ex) "dispatch threw rather than silently delivering nil")
         (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
             "the throw is :rf.error/missing-required-cofx (fail-closed)")

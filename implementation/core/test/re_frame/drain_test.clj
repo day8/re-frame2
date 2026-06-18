@@ -105,14 +105,14 @@
   ;; see implementation/src/re_frame/router.cljc."
   (testing "a self-redispatching handler trips :rf.error/drain-depth-exceeded"
     (let [traces (atom [])]
-      (rf/register-listener! ::depth (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::depth (fn [ev] (swap! traces conj ev)))
       ;; Reg a frame with a small drain-depth so the test runs quickly.
       (rf/reg-frame :drain.test/loop {:drain-depth 8})
       (rf/reg-event :loop-forever
         (fn [_ _]
           {:fx [[:dispatch [:loop-forever]]]}))
       (rf/dispatch-sync [:loop-forever] {:frame :drain.test/loop})
-      (rf/unregister-listener! ::depth)
+      (rf/unregister-listener! :trace ::depth)
       (let [hit (some (fn [ev]
                         (when (= :rf.error/drain-depth-exceeded
                                  (:operation ev))
@@ -133,13 +133,13 @@
 
   (testing "after the abort the queue is cleared (no stuck pending work)"
     (let [traces (atom [])]
-      (rf/register-listener! ::depth-2 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::depth-2 (fn [ev] (swap! traces conj ev)))
       (rf/reg-frame :drain.test/loop2 {:drain-depth 4})
       (rf/reg-event :loop2
         (fn [_ _]
           {:fx [[:dispatch [:loop2]]]}))
       (rf/dispatch-sync [:loop2] {:frame :drain.test/loop2})
-      (rf/unregister-listener! ::depth-2)
+      (rf/unregister-listener! :trace ::depth-2)
       (let [router (:router (frame/frame :drain.test/loop2))]
         (is (zero? (count (:queue @router)))
             "the router queue is drained empty after the depth-exceeded abort")
@@ -166,7 +166,7 @@
       {:on-create   [:seed/init]
        :drain-depth 4})
     (let [traces (atom [])]
-      (rf/register-listener! ::rollback (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::rollback (fn [ev] (swap! traces conj ev)))
       ;; A handler that COMMITS a :db write (advancing :step, bumping
       ;; :counter) AND re-dispatches itself. Each iteration is its own
       ;; dequeued event = its own durable epoch + db write. After the
@@ -176,7 +176,7 @@
           {:db {:step :mid-drain :counter (inc (:counter db 0))}
            :fx [[:dispatch [:overflow]]]}))
       (rf/dispatch-sync [:overflow] {:frame :drain.rollback/main})
-      (rf/unregister-listener! ::rollback)
+      (rf/unregister-listener! :trace ::rollback)
       ;; Per-event durability: the four completed events' writes survive —
       ;; NO whole-drain rollback.
       (is (= {:step :mid-drain :counter 4}
@@ -238,14 +238,14 @@
             runs     (atom 0)
             traces   (atom [])
             event-id (keyword "drain.count" (str "tick-" n))]
-        (rf/register-listener! ::count (fn [ev] (swap! traces conj ev)))
+        (rf/register-listener! :trace ::count (fn [ev] (swap! traces conj ev)))
         (rf/reg-frame frame-id {:drain-depth n})
         (rf/reg-event event-id
           (fn [_ _]
             (swap! runs inc)
             {:fx [[:dispatch [event-id]]]}))
         (rf/dispatch-sync [event-id] {:frame frame-id})
-        (rf/unregister-listener! ::count)
+        (rf/unregister-listener! :trace ::count)
         (is (= n @runs)
             (str "exactly " n " handler bodies ran for drain-depth " n
                  " (got " @runs ")"))
@@ -274,14 +274,14 @@
   ;; equivalent plus the transitive-via-fx case the bead calls out."
   (testing "directly calling rf/dispatch-sync from a handler raises the structured error"
     (let [traces (atom [])]
-      (rf/register-listener! ::dsih-direct (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dsih-direct (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :leaf (fn [{:keys [db]} _] {:db (assoc db :leaf? true)}))
       (rf/reg-event :nested-direct
         (fn [_ _]
           (rf/dispatch-sync [:leaf])
           {}))
       (rf/dispatch-sync [:nested-direct])
-      (rf/unregister-listener! ::dsih-direct)
+      (rf/unregister-listener! :trace ::dsih-direct)
       (is (some (fn [ev]
                   (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                        (= :error (:op-type ev))
@@ -295,7 +295,7 @@
     ;; below the original handler — :in-drain? on the router is the
     ;; primary guard, not the call-stack depth.
     (let [traces (atom [])]
-      (rf/register-listener! ::dsih-fx (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dsih-fx (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :leaf2 (fn [{:keys [db]} _] {:db (assoc db :leaf2? true)}))
       (rf/reg-fx :user.fx/sync-dispatch
         {:platforms #{:server :client}}
@@ -308,7 +308,7 @@
         (fn [_ _]
           {:fx [[:user.fx/sync-dispatch [:leaf2]]]}))
       (rf/dispatch-sync [:nested-via-fx])
-      (rf/unregister-listener! ::dsih-fx)
+      (rf/unregister-listener! :trace ::dsih-fx)
       (is (some (fn [ev]
                   (= :rf.error/dispatch-sync-in-handler (:operation ev)))
                 @traces)
@@ -481,7 +481,7 @@
     ;; Capture :A's pre-dispatch state — this is what we'll compare to.
     (let [a-pre  (rf/app-db-value :drain.iso/A)
           traces (atom [])]
-      (rf/register-listener! ::iso (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::iso (fn [ev] (swap! traces conj ev)))
 
       ;; Register a loop event under :B that infinitely self-dispatches.
       ;; Each iteration writes to :B's :db, so we can see whether the
@@ -523,5 +523,5 @@
         (is (false? (get-in hit [:tags :rollback?]))
             ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback"))
 
-      (rf/unregister-listener! ::iso))))
+      (rf/unregister-listener! :trace ::iso))))
 

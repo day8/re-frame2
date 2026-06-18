@@ -532,7 +532,10 @@
   ["re-frame.core" "dispatch*"]           {:tier :advanced    :owner "002" :status "v1"}
   ["re-frame.core" "dispatch-sync"]       {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "dispatch-sync*"]      {:tier :advanced    :owner "002" :status "v1"}
-  ["re-frame.core" "dispatch-to-system"]  {:tier :advanced    :owner "005" :status "v1"}
+  ;; rf2-gkt25a / rf2-80mmlf: the `dispatch-to-system` FN was DEMOTED off the
+  ;; `re-frame.core` facade and relocated to `re-frame.machines`
+  ;; (:tier :implementation, row below). The canonical action-side surface is
+  ;; the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
   ["re-frame.core" "subscribe"]           {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "subscribe*"]          {:tier :advanced    :owner "002" :status "v1"}
   ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1"}
@@ -675,8 +678,12 @@
   ["re-frame.core" "runtime-db-value"]     {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-state-value"]    {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "snapshot-of"]          {:tier :tooling :owner "002" :status "v1"}
-  ["re-frame.core" "sub-topology"]         {:tier :tooling :owner "002" :status "v1"}
-  ["re-frame.core" "sub-cache"]            {:tier :tooling :owner "002" :status "v1"}
+  ;; rf2-80mmlf: the `sub-topology` / `sub-cache` facade aliases were REMOVED.
+  ;; They are subscription-TOOLING surfaces (not app-author front-porch reads);
+  ;; their callers (tests / REPLs / dev tooling) address the owning
+  ;; `re-frame.subs.tooling` namespace (`sub-topology` / `sub-cache-snapshot`)
+  ;; directly, with `subs/sub-topology` / `subs/sub-cache-snapshot` as the JVM
+  ;; legacy aliases.
   ["re-frame.core" "compute-sub"]          {:tier :testing :owner "008" :status "v1"}
   ;; Schema introspection + validator-install re-exports REMOVED from the
   ;; façade (rf2-wad2fl — front-porch shrink): `app-schemas`, `app-schema-at`,
@@ -713,18 +720,20 @@
   ;; infrastructure, not app-facing core surface), so it carries no façade row.
   ["re-frame.core" "with-managed-request-stubs"]      {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
   ["re-frame.core" "with-managed-request-stubs*"]     {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
-  ;; Event-emit / error-emit (always-on, production-survivable) — §009.
-  ["re-frame.core" "register-event-listener!"]   {:tier :tooling :owner "009" :status "v1"}
-  ["re-frame.core" "unregister-event-listener!"] {:tier :tooling :owner "009" :status "v1"}
-  ["re-frame.core" "register-error-listener!"]   {:tier :tooling :owner "009" :status "v1"}
-  ["re-frame.core" "unregister-error-listener!"] {:tier :tooling :owner "009" :status "v1"}
+  ;; Observation listeners (rf2-ikjmkm / decision rf2-dbo0c9 Option C):
+  ;; ONE stream-parameterized verb across the four pure listener streams.
+  ;; The four `register-(event|error)-listener!` facade pairs were REMOVED
+  ;; (pre-alpha — no compat aliases); the always-on event-emit / error-emit
+  ;; registries are reached via the `:events` / `:errors` stream here, and
+  ;; remain addressable via `re-frame.event-emit` / `re-frame.error-emit` +
+  ;; late-bind for internal consumers.
+  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact)"}
+  ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (stream-parameterized)"}
   ;; Tracing (dev-only) — §009.
-  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (dev-only)"}
-  ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "emit-trace-event!"]     {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "trace-buffer"]          {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "clear-trace-buffer!"]   {:tier :tooling :owner "009" :status "v1 (dev-only)"}
-  ["re-frame.core" "clear-listeners!"]      {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "clear-listeners!"]      {:tier :tooling :owner "009" :status "v1 (stream-parameterized; test-isolation)"}
   ["re-frame.core" "group-cascades"]            {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "group-cascades-with-events"] {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
@@ -896,6 +905,11 @@
   ["re-frame.machines" "destroy-machine-fx"]    {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-schedule-fx"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-cancel-fx"]       {:tier :implementation :owner "005" :status "v1"}
+  ;; rf2-gkt25a / rf2-80mmlf: the `dispatch-to-system` FN demoted off the
+  ;; `re-frame.core` facade lands here as an implementation-tier helper; the
+  ;; canonical action-side surface remains the `:rf.machine/dispatch-to-system`
+  ;; fx tuple (`dispatch-to-system-fx`).
+  ["re-frame.machines" "dispatch-to-system"]    {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "dispatch-to-system-fx"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine!"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :implementation :owner "005" :status "v1"}

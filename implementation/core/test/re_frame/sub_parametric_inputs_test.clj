@@ -65,11 +65,11 @@
   [error-kw]
   (let [errs (atom [])
         k    (keyword "rf2-7brl74" (str (name error-kw) "-" (gensym)))]
-    (rf/register-listener! k
+    (rf/register-listener! :trace k
                            (fn [ev]
                              (when (= error-kw (:operation ev))
                                (swap! errs conj ev))))
-    [errs #(rf/unregister-listener! k)]))
+    [errs #(rf/unregister-listener! :trace k)]))
 
 (use-fixtures :each reset-runtime)
 

@@ -244,9 +244,9 @@
    with `:where :machine-data`. Returns the captured (filtered) vector."
   [thunk]
   (let [traces (atom [])]
-    (rf/register-listener! ::collect (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! :trace ::collect (fn [ev] (swap! traces conj ev)))
     (try (thunk)
-         (finally (rf/unregister-listener! ::collect)))
+         (finally (rf/unregister-listener! :trace ::collect)))
     (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                    (= :machine-data (-> % :tags :where)))
              @traces)))
@@ -311,7 +311,7 @@
     ;; reject it at `:where :app-db` — a DIFFERENT boundary from the
     ;; machine `:data` one above, proving the two surfaces are distinct.
     (let [app-traces (atom [])]
-      (rf/register-listener! ::app
+      (rf/register-listener! :trace ::app
                              (fn [ev]
                                (when (and (= :rf.error/schema-validation-failure (:operation ev))
                                           (= :app-db (-> ev :tags :where)))
@@ -320,7 +320,7 @@
         (with-new-frame [f (frame/make-frame {})]
           (rf/reg-app-schema [:config] [:maybe boot-schema/Config] {:frame f})
           (rf/dispatch-sync [::write-bad-config] {:frame f}))
-        (finally (rf/unregister-listener! ::app)))
+        (finally (rf/unregister-listener! :trace ::app)))
       (is (pos? (count @app-traces))
           "a malformed [:config] app-db slice fails at :where :app-db (slice schema validates app-db only)"))))
 

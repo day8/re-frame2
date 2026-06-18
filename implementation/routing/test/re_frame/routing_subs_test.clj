@@ -158,9 +158,9 @@
                (fn [_ _] nil))
     ;; First nav: no prior route → only :rf.route/activated fires.
     (let [traces (atom [])]
-      (rf/register-listener! ::act1 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::act1 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate :route/from])
-      (rf/unregister-listener! ::act1)
+      (rf/unregister-listener! :trace ::act1)
       (is (= [:route/from]
              (map #(-> % :tags :route-id)
                   (filter #(= :rf.route/activated (:operation %)) @traces)))
@@ -169,9 +169,9 @@
           "first nav (no prior): :rf.route/deactivated does NOT fire"))
     ;; Cross-route nav: both fire in deactivated→activated order.
     (let [traces (atom [])]
-      (rf/register-listener! ::act2 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::act2 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate :route/to])
-      (rf/unregister-listener! ::act2)
+      (rf/unregister-listener! :trace ::act2)
       (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                 (:operation %))
                               @traces)]
@@ -186,9 +186,9 @@
             ":activated carries the next route-id")))
     ;; Same-id navigation: neither fires (route stays active across the transition).
     (let [traces (atom [])]
-      (rf/register-listener! ::act3 (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::act3 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate :route/to])
-      (rf/unregister-listener! ::act3)
+      (rf/unregister-listener! :trace ::act3)
       (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                 (:operation %))
                               @traces)]

@@ -169,7 +169,7 @@
             through unchanged; authors declare large app-db slots in
             schemas instead."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         ::test-recorder
         (fn [record] (swap! seen conj record)))
 
@@ -198,7 +198,7 @@
             record. Per-path elision still applies inside the record's
             `:event` slot."
     (let [seen (atom [])]
-      (rf/register-event-listener!
+      (rf/register-listener! :events
         ::test-recorder
         (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:auth/sign-in

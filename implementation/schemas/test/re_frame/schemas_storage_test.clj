@@ -613,9 +613,9 @@
   [db failing-id frame]
   (let [traces (atom [])
         kw     (keyword "ss06u.3" (name (gensym "l")))]
-    (rf/register-listener! kw (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! :trace kw (fn [ev] (swap! traces conj ev)))
     (let [result (validate/validate-app-schema! db failing-id frame)]
-      (rf/unregister-listener! kw)
+      (rf/unregister-listener! :trace kw)
       {:result result :traces @traces})))
 
 (deftest malformed-schema-no-silent-pass-childless-vector

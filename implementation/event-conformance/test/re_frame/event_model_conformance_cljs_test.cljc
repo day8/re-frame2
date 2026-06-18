@@ -372,9 +372,9 @@
       (rf/reg-event :evt-conf/triggers-gen
         {:rf.cofx/requires [:evt-conf/gen-fact]}
         (fn [_ _] {}))
-      (rf/register-listener! :evt-conf/gen-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/gen-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/triggers-gen])
-      (rf/unregister-listener! :evt-conf/gen-recorder)
+      (rf/unregister-listener! :trace :evt-conf/gen-recorder)
       (let [gen-traces (filter #(= :rf.cofx/generated (:operation %)) @traces)]
         (is (seq gen-traces)
             "the generation step emits the :rf.cofx/generated trace op")
@@ -637,10 +637,10 @@
       (rf/reg-event :evt-conf/needs-boundary
         {:rf.cofx/requires [:evt-conf/required-boundary]}
         (fn [_ _] (reset! fired? true) {}))
-      (rf/register-listener! :evt-conf/missing-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/missing-recorder (fn [ev] (swap! traces conj ev)))
       ;; Dispatch WITHOUT supplying the provided fact on the token.
       (let [thrown (thrown-error-id #(rf/dispatch-sync [:evt-conf/needs-boundary]))]
-        (rf/unregister-listener! :evt-conf/missing-recorder)
+        (rf/unregister-listener! :trace :evt-conf/missing-recorder)
         (is (false? @fired?)
             "the handler never ran — missing-required halts the cascade before the handler")
         (is (= :rf.error/missing-required-cofx thrown)
@@ -788,7 +788,7 @@
             observe it via a trace listener filtering on `:operation`"
     (let [traces (atom [])
           fired? (atom false)]
-      (rf/register-listener! :evt-conf/shape-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/shape-recorder (fn [ev] (swap! traces conj ev)))
       ;; A sentinel the foreign shortcut would dispatch IF the runtime
       ;; wrongly honoured the legacy top-level `:dispatch` — it must NOT.
       (rf/reg-event :evt-conf/shortcut-target (fn [_ _] (reset! fired? true) {}))
@@ -798,7 +798,7 @@
       (rf/reg-event :evt-conf/legacy-shortcut
         (fn [_ _] {:dispatch [:evt-conf/shortcut-target]}))
       (rf/dispatch-sync [:evt-conf/legacy-shortcut])
-      (rf/unregister-listener! :evt-conf/shape-recorder)
+      (rf/unregister-listener! :trace :evt-conf/shape-recorder)
       (is (false? @fired?)
           "the legacy top-level `:dispatch` was NOT silently honoured")
       (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %)) @traces)]
@@ -831,9 +831,9 @@
       ;; top-level effect key, NOT the `{:db …}` write effect.
       (rf/reg-event :evt-conf/bare-db-return (fn [_ _] {:count 1}))
       (rf/dispatch-sync [:evt-conf/bare-seed!])
-      (rf/register-listener! :evt-conf/bare-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/bare-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/bare-db-return])
-      (rf/unregister-listener! :evt-conf/bare-recorder)
+      (rf/unregister-listener! :trace :evt-conf/bare-recorder)
       (is (= :seeded @(rf/subscribe [:evt-conf/bare-count]))
           "the bare `{:count 1}` return was NOT committed as app-db (the db-return convenience is GONE)")
       (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
@@ -866,9 +866,9 @@
       ;; the diagnostic.
       (rf/reg-event :evt-conf/app-writes-runtime
         (fn [_ _] {:rf.db/runtime {:rf.runtime/marker :app-wrote}}))
-      (rf/register-listener! :evt-conf/app-runtime-recorder (fn [ev] (swap! app-traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/app-runtime-recorder (fn [ev] (swap! app-traces conj ev)))
       (rf/dispatch-sync [:evt-conf/app-writes-runtime])
-      (rf/unregister-listener! :evt-conf/app-runtime-recorder)
+      (rf/unregister-listener! :trace :evt-conf/app-runtime-recorder)
       (let [warn-traces (filter #(= :rf.warning/app-handler-runtime-effect (:operation %)) @app-traces)]
         (is (seq warn-traces)
             "an APP handler returning :rf.db/runtime keeps the :rf.warning/app-handler-runtime-effect diagnostic")
@@ -880,9 +880,9 @@
       (rf/reg-event :evt-conf/fw-writes-runtime
         {:rf/framework-authority? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/marker :fw-wrote}}))
-      (rf/register-listener! :evt-conf/fw-runtime-recorder (fn [ev] (swap! fw-traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/fw-runtime-recorder (fn [ev] (swap! fw-traces conj ev)))
       (rf/dispatch-sync [:evt-conf/fw-writes-runtime])
-      (rf/unregister-listener! :evt-conf/fw-runtime-recorder)
+      (rf/unregister-listener! :trace :evt-conf/fw-runtime-recorder)
       (is (empty? (filter #(= :rf.warning/app-handler-runtime-effect (:operation %)) @fw-traces))
           "a FRAMEWORK-AUTHORITY handler writes :rf.db/runtime silently — NO app-handler-runtime-effect diagnostic"))))
 
@@ -906,9 +906,9 @@
       (rf/dispatch-sync [:evt-conf/noop-seed!])
       ;; Listen only across the no-op dispatch so the seed write's db-changed
       ;; does not pollute the assertion.
-      (rf/register-listener! :evt-conf/noop-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/noop-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/noop-rewrite])
-      (rf/unregister-listener! :evt-conf/noop-recorder)
+      (rf/unregister-listener! :trace :evt-conf/noop-recorder)
       (is (= :set @(rf/subscribe [:evt-conf/noop-seed]))
           "the `{:db db}` rewrite left app-db at its prior value (a true no-op)")
       (let [ops (set (map :operation @traces))]
@@ -936,9 +936,9 @@
       ;; never nil — `(:k db)` is absent and `(map? db)` holds.
       (rf/reg-event :evt-conf/inspect-db (fn [{:keys [db]} _] (reset! db-seen db) {}))
       (rf/dispatch-sync [:evt-conf/nil-seed!])
-      (rf/register-listener! :evt-conf/nil-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/nil-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/return-nil-db])
-      (rf/unregister-listener! :evt-conf/nil-recorder)
+      (rf/unregister-listener! :trace :evt-conf/nil-recorder)
       (rf/dispatch-sync [:evt-conf/inspect-db])
       (is (map? @db-seen)
           "app-db after a `{:db nil}` return is a MAP, never nil")
@@ -962,9 +962,9 @@
       (rf/reg-event :evt-conf/clear-seed! (fn [{:keys [db]} _] {:db (assoc db :mark :set)}))
       (rf/reg-event :evt-conf/clear-db    (fn [_ _] {:db {}}))
       (rf/dispatch-sync [:evt-conf/clear-seed!])
-      (rf/register-listener! :evt-conf/clear-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/clear-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/clear-db])
-      (rf/unregister-listener! :evt-conf/clear-recorder)
+      (rf/unregister-listener! :trace :evt-conf/clear-recorder)
       (is (= :untouched @(rf/subscribe [:evt-conf/clear-mark]))
           "the deliberate `{:db {}}` clear emptied app-db (the prior :mark is gone)")
       (is (empty? (filter #(= :rf.warning/db-nil-coerced (:operation %)) @traces))
@@ -991,9 +991,9 @@
           ;; (the documented forgot-the-outer-vector typo).
           {:db (assoc db :committed :yes)
            :fx {:dispatch [:evt-conf/fx-shape-sentinel]}}))
-      (rf/register-listener! :evt-conf/fx-shape-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/fx-shape-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/malformed-fx])
-      (rf/unregister-listener! :evt-conf/fx-shape-recorder)
+      (rf/unregister-listener! :trace :evt-conf/fx-shape-recorder)
       (is (= :yes @(rf/subscribe [:evt-conf/fx-shape-db]))
           "the sibling `:db` write committed — a malformed `:fx` does NOT abort the cascade")
       (is (false? @sentinel?)
@@ -1029,9 +1029,9 @@
       (rf/reg-event :evt-conf/handler-with-after
         {:interceptors [:evt-conf/inject-foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :committed :yes)}))
-      (rf/register-listener! :evt-conf/boundary-recorder (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace :evt-conf/boundary-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/handler-with-after])
-      (rf/unregister-listener! :evt-conf/boundary-recorder)
+      (rf/unregister-listener! :trace :evt-conf/boundary-recorder)
       (is (= :yes @(rf/subscribe [:evt-conf/boundary-db]))
           "the handler's well-formed `:db` write committed")
       (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
@@ -1258,7 +1258,7 @@
             BEFORE the throw escapes. A removal that threw but went silent on
             the channel would turn this RED"
     (let [seen (atom [])]
-      (rf/register-error-listener! :evt-conf/removal-recorder
+      (rf/register-listener! :errors :evt-conf/removal-recorder
         (fn [r] (swap! seen conj (:error r))))
       ;; The call throws; the listener must already have received the record.
       (is (= :rf.error/reg-event-db-removed

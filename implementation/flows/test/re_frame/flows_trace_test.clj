@@ -546,7 +546,7 @@
             `error-emit/dispatch-on-error!`, mirroring the handler-
             exception path."
     (let [seen (atom [])]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :test/flow-eval-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -607,7 +607,7 @@
             `error-emit/dispatch-on-error!`, mirroring the
             handler-exception / flow-eval-exception paths."
     (let [seen (atom [])]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :test/fx-reg-flow-cycle-recorder
         (fn [record] (swap! seen conj record)))
       ;; Register flow :a that depends on :b's path.
@@ -646,7 +646,7 @@
             are unaffected by the substrate addition."
     (let [trace-saw    (atom nil)
           listener-saw (atom nil)]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :test/recorder
         (fn [record] (reset! listener-saw record)))
       (trace/register-listener!
@@ -1094,7 +1094,7 @@
     ;; out — ops monitors still see the failure record even though :fx
     ;; was skipped.
     (let [seen (atom [])]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :test/fx-skip-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :run-with-throwing-flow

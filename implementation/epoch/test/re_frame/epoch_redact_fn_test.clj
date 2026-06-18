@@ -92,7 +92,7 @@
   ;; Capture every `:warning` op-type emission so the failure-
   ;; isolation invariant can assert the documented op-id + tags fire.
   (let [warnings (atom [])]
-    (rf/register-listener! ::warn-watcher
+    (rf/register-listener! :trace ::warn-watcher
                            (fn [ev]
                              (when (= :warning (:op-type ev))
                                (swap! warnings conj ev))))

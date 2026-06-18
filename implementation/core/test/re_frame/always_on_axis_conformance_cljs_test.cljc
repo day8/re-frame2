@@ -264,7 +264,7 @@
             categories are added: each new always-on category is driven
             through the axis the moment it joins the set."
     (let [seen (atom #{})]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :conformance/recorder
         (fn [record] (swap! seen conj (:error record))))
       (doseq [cat always-on-categories]
@@ -290,7 +290,7 @@
     (doseq [cat always-on-categories]
       (error-emit/clear-error-listeners!)
       (let [seen (atom [])]
-        (rf/register-error-listener!
+        (rf/register-listener! :errors
           :conformance/recorder
           (fn [record] (swap! seen conj record)))
         (drive-category! cat)
@@ -310,7 +310,7 @@
             a no-op on an empty `:hook-failures` (no flood) yet fans the
             bounded record out when failures are present."
     (let [seen (atom [])]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :conformance/recorder
         (fn [record] (swap! seen conj record)))
       ;; Empty failures → no record (the no-flood contract).
@@ -362,29 +362,31 @@
 
 #?(:clj
    (deftest corpus-wide-listener-facade-docs-classified-advanced-not-off-box
-     (testing "rf2-2bzwr7 / EP-0015 §9 — the `register-error-listener!` and
-               `register-event-listener!` facade exports document themselves as
-               ADVANCED corpus-wide integration hooks that point off-box
+     (testing "rf2-2bzwr7 / EP-0015 §9 — the unified `register-listener!`
+               facade verb documents its `:events` / `:errors` corpus-wide
+               streams as ADVANCED integration hooks that point off-box
                shippers at the frame-owned `:observability` sink, and do NOT
                present as the off-box shipper API (raw owner-local data can
-               leave a frame through the unprojected corpus listener)."
-       (doseq [v [#'rf/register-error-listener! #'rf/register-event-listener!]]
-         (let [doc (:doc (meta v))]
-           (is (string? doc) (str v " carries a docstring"))
-           ;; POSITIVE: classified advanced + cross-frame, and points at the
-           ;; frame-owned sink as the normal off-box path.
-           (is (re-find #"(?i)advanced" doc)
-               (str v ": docstring classifies the listener as ADVANCED"))
-           (is (re-find #":observability" doc)
-               (str v ": docstring points off-box shippers at the frame-owned "
-                    ":observability sink (EP-0015 §9)"))
-           (is (re-find #"(?i)EP-0015" doc)
-               (str v ": docstring cites EP-0015 (the frame-owned egress model)"))
-           ;; NEGATIVE: the prior off-box-shipper framing — naming Sentry /
-           ;; Honeybadger / Rollbar as THE consumers of THIS surface, or
-           ;; calling it "for off-box observability shippers" — must be gone.
-           ;; The frame sink is the off-box surface; this listener is the
-           ;; advanced fallback only.
-           (is (not (re-find #"(?i)for off-box observability shippers" doc))
-               (str v ": docstring no longer pitches the raw listener AS the "
-                    "off-box shipper API (EP-0015 §9 — the frame sink is)")))))))
+               leave a frame through the unprojected corpus listener).
+               rf2-ikjmkm: the four `register-(event|error)-listener!` pairs
+               were collapsed into this stream-parameterized verb."
+       (let [v   #'rf/register-listener!
+             doc (:doc (meta v))]
+         (is (string? doc) (str v " carries a docstring"))
+         ;; POSITIVE: classified advanced + cross-frame, and points at the
+         ;; frame-owned sink as the normal off-box path.
+         (is (re-find #"(?i)advanced" doc)
+             (str v ": docstring classifies the corpus-wide streams as ADVANCED"))
+         (is (re-find #":observability" doc)
+             (str v ": docstring points off-box shippers at the frame-owned "
+                  ":observability sink (EP-0015 §9)"))
+         (is (re-find #"(?i)EP-0015" doc)
+             (str v ": docstring cites EP-0015 (the frame-owned egress model)"))
+         ;; NEGATIVE: the prior off-box-shipper framing — naming Sentry /
+         ;; Honeybadger / Rollbar as THE consumers of THIS surface, or
+         ;; calling it "for off-box observability shippers" — must be gone.
+         ;; The frame sink is the off-box surface; this listener is the
+         ;; advanced fallback only.
+         (is (not (re-find #"(?i)for off-box observability shippers" doc))
+             (str v ": docstring no longer pitches the raw listener AS the "
+                  "off-box shipper API (EP-0015 §9 — the frame sink is)"))))))

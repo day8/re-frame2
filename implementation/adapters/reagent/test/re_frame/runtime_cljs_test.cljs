@@ -597,9 +597,11 @@
 ;; ---- sub-cache (rf2-vvsh) -------------------------------------------------
 
 (deftest sub-cache-projects-tool-pair-shape
-  (testing "(rf/sub-cache frame-id) returns
+  (testing "(re-frame.subs.tooling/sub-cache-snapshot frame-id) returns
            {query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}
-           for every materialised subscription in the named frame"
+           for every materialised subscription in the named frame
+           (rf2-80mmlf demoted the `rf/sub-cache` facade alias — the
+           tooling-surface home is `re-frame.subs.tooling`)"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :name "ada"}}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :name* (fn [db _] (:name db)))

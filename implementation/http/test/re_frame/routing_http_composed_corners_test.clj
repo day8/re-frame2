@@ -72,8 +72,8 @@
 (defn- record!
   [id]
   (let [a (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(rf/unregister-listener! id)]))
+    (rf/register-listener! :trace id (fn [ev] (swap! a conj ev)))
+    [a #(rf/unregister-listener! :trace id)]))
 
 (defn- stale-suppressed-traces [recorded]
   (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)) @recorded))

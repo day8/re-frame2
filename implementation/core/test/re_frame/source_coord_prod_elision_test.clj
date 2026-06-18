@@ -97,7 +97,7 @@
                        {:db (throw (ex-info "boom" {:cause :test}))}))
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom nil)]
-        (rf/register-error-listener!
+        (rf/register-listener! :errors
           :rf2-3un2g/recorder
           (fn [record] (reset! seen record)))
         (rf/dispatch-sync [:rf2-3un2g/prod-error-handler])
@@ -132,7 +132,7 @@
                 (fn [_cofx _]
                   (throw (ex-info "boom" {})))))
       (let [seen (atom nil)]
-        (rf/register-error-listener!
+        (rf/register-listener! :errors
           :rf2-3un2g/programmatic-recorder
           (fn [record] (reset! seen record)))
         (rf/dispatch-sync [:rf2-3un2g/programmatic])

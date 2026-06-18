@@ -169,9 +169,9 @@
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
     (let [traces (atom [])]
-      (rf/register-listener! ::blocked (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (rf/unregister-listener! ::blocked)
+      (rf/unregister-listener! :trace ::blocked)
       (is (some (fn [ev]
                   (and (= :rf.route/navigation-blocked (:operation ev))
                        (= :editor/can-leave? (-> ev :tags :rejecting-guard))))
@@ -378,9 +378,9 @@
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/set-dirty 42])
     (let [traces (atom [])]
-      (rf/register-listener! ::nb-id (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::nb-id (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (rf/unregister-listener! ::nb-id)
+      (rf/unregister-listener! :trace ::nb-id)
       (let [nb (first (filter #(= :rf.error/can-leave-non-boolean (:operation %))
                               @traces))]
         (is (some? nb) ":rf.error/can-leave-non-boolean fired")
@@ -417,9 +417,9 @@
     ;; polarity bug, so dirty the editor first.
     (rf/dispatch-sync [:editor/set-dirty 42])
     (let [traces (atom [])]
-      (rf/register-listener! ::can-leave-nb (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::can-leave-nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (rf/unregister-listener! ::can-leave-nb)
+      (rf/unregister-listener! :trace ::can-leave-nb)
       (let [db        (rf/runtime-db-value :rf/default)
             pending   (get-in db [:rf.runtime/routing :pending-navigation])
             nb-traces (filter #(= :rf.error/can-leave-non-boolean
@@ -471,9 +471,9 @@
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
     (rf/dispatch-sync [:editor/dirty true] {:frame :route/owner})
     (let [traces (atom [])]
-      (rf/register-listener! ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
-      (rf/unregister-listener! ::dbmj6x-blocked)
+      (rf/unregister-listener! :trace ::dbmj6x-blocked)
       (is (some (fn [ev]
                   (and (= :rf.route/navigation-blocked (:operation ev))
                        (= :editor/can-leave? (-> ev :tags :rejecting-guard))
@@ -500,9 +500,9 @@
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
     (rf/dispatch-sync [:editor/set-dirty 42] {:frame :route/owner})
     (let [traces (atom [])]
-      (rf/register-listener! ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
-      (rf/unregister-listener! ::dbmj6x-nb)
+      (rf/unregister-listener! :trace ::dbmj6x-nb)
       (is (some (fn [ev]
                   (and (= :rf.error/can-leave-non-boolean (:operation ev))
                        (= 42 (-> ev :tags :value))
@@ -530,9 +530,9 @@
       (try
         (late-bind/set-fn! :subs/subscribe-once nil)
         (let [traces (atom [])]
-          (rf/register-listener! ::dbmj6x-missing (fn [ev] (swap! traces conj ev)))
+          (rf/register-listener! :trace ::dbmj6x-missing (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
-          (rf/unregister-listener! ::dbmj6x-missing)
+          (rf/unregister-listener! :trace ::dbmj6x-missing)
           (is (some (fn [ev]
                       (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
                            (= :route/owner (-> ev :tags :frame))))
@@ -555,10 +555,10 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/"] {:frame :route/owner})
     (let [traces (atom [])]
-      (rf/register-listener! ::dbmj6x-external (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dbmj6x-external (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}]
                         {:frame :route/owner})
-      (rf/unregister-listener! ::dbmj6x-external)
+      (rf/unregister-listener! :trace ::dbmj6x-external)
       (is (some (fn [ev]
                   (and (= :rf.route/external-url-requested (:operation ev))
                        (= :route/owner (-> ev :tags :frame))))

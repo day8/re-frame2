@@ -50,10 +50,10 @@
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that accumulates
-  events. Tests must (rf/unregister-listener! id) to detach."
+  events. Tests must (rf/unregister-listener! :trace id) to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ===========================================================================
@@ -296,7 +296,7 @@
       (rf/reg-event :cofx-test/replied (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:cofx-test/request]
                         {:rf.cofx {:rf/time-ms 1781078400123}})
-      (rf/unregister-listener! ::reply-cofx)
+      (rf/unregister-listener! :trace ::reply-cofx)
       (let [dispatched   (filter #(= :rf.event/dispatched (:operation %)) @traces)
             request-env  (first (filter #(= :cofx-test/request
                                             (first (get-in % [:tags :rf.event/v])))
@@ -346,7 +346,7 @@
       ;; Dispatch WITHOUT supplying the provided fact on the token.
       (let [ex (try (rf/dispatch-sync [:cofx-test/needs-boundary]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-        (rf/unregister-listener! ::missing)
+        (rf/unregister-listener! :trace ::missing)
         (is (false? @fired?)
             "the handler never ran — missing-required halts the cascade")
         (is (some? ex)
@@ -375,7 +375,7 @@
         (fn [_ _] {}))
       (let [ex (try (rf/dispatch-sync [:cofx-test/has-typo]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-        (rf/unregister-listener! ::typo)
+        (rf/unregister-listener! :trace ::typo)
         (is (= :rf.error/unregistered-cofx (:rf.error/id (ex-data ex)))
             "an unregistered (typo'd) id is :rf.error/unregistered-cofx, NOT missing-required")
         (let [errs (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
@@ -609,7 +609,7 @@
         {:rf.cofx/requires [[:cofx-test/local-pref "theme"]]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-pref])
-      (rf/unregister-listener! ::run-tags)
+      (rf/unregister-listener! :trace ::run-tags)
       (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)
             run  (first (filter #(= :cofx-test/local-pref
                                     (get-in % [:tags :rf.cofx/id]))
@@ -630,7 +630,7 @@
         {:rf.cofx/requires [:cofx-test/locale2]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-locale2])
-      (rf/unregister-listener! ::run-noarg)
+      (rf/unregister-listener! :trace ::run-noarg)
       (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
                                      (= :cofx-test/locale2
                                         (get-in % [:tags :rf.cofx/id])))
@@ -657,7 +657,7 @@
         {:rf.cofx/requires [:cofx-test/session]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-session])
-      (rf/unregister-listener! ::run-redact)
+      (rf/unregister-listener! :trace ::run-redact)
       (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
                                      (= :cofx-test/session
                                         (get-in % [:tags :rf.cofx/id])))
@@ -746,7 +746,7 @@
               (reset! seen (contains? cofx :cofx-test/browser-locale))
               {}))
           (rf/dispatch-sync [:cofx-test/read-browser-locale])
-          (rf/unregister-listener! ::plat)
+          (rf/unregister-listener! :trace ::plat)
           (is (false? @cofx-fired?) "the client-only supplier did NOT run on :server")
           (is (true? @event-fired?) "the event still ran — only the supplier was skipped")
           (is (false? @seen) "the skipped fact was NOT delivered flat")
@@ -893,7 +893,7 @@
         {:rf.cofx/requires [:gen-test/traced]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:gen-test/traced-evt])
-      (rf/unregister-listener! ::generated)
+      (rf/unregister-listener! :trace ::generated)
       (let [gens (filter #(= :rf.cofx/generated (:operation %)) @traces)
             runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
         (is (= 1 (count gens)) "exactly one :rf.cofx/generated op")
@@ -929,7 +929,7 @@
           (let [ex (try (rf/dispatch-sync [:gen-test/uses-bad]) nil
                         (catch #?(:clj clojure.lang.ExceptionInfo
                                   :cljs cljs.core/ExceptionInfo) e e))]
-            (rf/unregister-listener! ::bad-gen)
+            (rf/unregister-listener! :trace ::bad-gen)
             (is (false? @fired?)
                 "the handler never ran — a schema-invalid generated value halts the cascade")
             (is (some? ex) "the dispatch threw rather than folding the bad value")
@@ -977,7 +977,7 @@
       (let [ex (try (rf/dispatch-sync [:gen-test/uses-host-handle]) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo
                               :cljs cljs.core/ExceptionInfo) e e))]
-        (rf/unregister-listener! ::gen-non-edn)
+        (rf/unregister-listener! :trace ::gen-non-edn)
         (is (= 1 @gen-calls) "the generator ran (the value is checked AFTER it mints)")
         (is (false? @fired?)
             "the handler never ran — a non-EDN generated value halts the cascade")

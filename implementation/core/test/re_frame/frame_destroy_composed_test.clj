@@ -102,13 +102,13 @@
     (let [throw-calls (atom 0)
           survivor    (atom [])]
       ;; Throwing listener — fires for every emit in the cascade.
-      (rf/register-listener! ::thrower
+      (rf/register-listener! :trace ::thrower
                              (fn [_ev]
                                (swap! throw-calls inc)
                                (throw (ex-info "tool blew during destroy" {}))))
       ;; Surviving listener — must still receive every event the
       ;; throwing listener intercepted.
-      (rf/register-listener! ::survivor (fn [ev] (swap! survivor conj ev)))
+      (rf/register-listener! :trace ::survivor (fn [ev] (swap! survivor conj ev)))
 
       ;; Destroy. Must NOT throw despite the listener exception storm.
       (is (nil? (rf/destroy-frame! :composed/scoped))
@@ -141,8 +141,8 @@
       (is (nil? (registrar/lookup :frame :composed/scoped))
           "frame is unregistered from the registrar")
 
-      (rf/unregister-listener! ::thrower)
-      (rf/unregister-listener! ::survivor))))
+      (rf/unregister-listener! :trace ::thrower)
+      (rf/unregister-listener! :trace ::survivor))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Throwing late-bound cleanup hook during the destroy cascade
@@ -283,7 +283,7 @@
     (rf/dispatch-sync [:composed/seed2] {:frame :composed/dispose-emit})
 
     (let [disposes (atom [])]
-      (rf/register-listener! ::dispose-emit
+      (rf/register-listener! :trace ::dispose-emit
                              (fn [ev]
                                (when (= :rf.sub/dispose (:operation ev))
                                  (swap! disposes conj ev))))
@@ -306,7 +306,7 @@
           (is (every? #(= :composed/dispose-emit (-> % :tags :frame)) evs)
               "each emit carries the destroyed frame's id"))
         (finally
-          (rf/unregister-listener! ::dispose-emit))))))
+          (rf/unregister-listener! :trace ::dispose-emit))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3c. Throwing cleanup hook emits a diagnostic, not silence (rf2-x3m8c f3)
@@ -327,7 +327,7 @@
           original-schemas-h (late-bind/get-fn :schemas/on-frame-destroyed!)
           original-flows-h   (late-bind/get-fn :flows/teardown-on-frame-destroy!)
           warnings (atom [])]
-      (rf/register-listener! ::hook-diag
+      (rf/register-listener! :trace ::hook-diag
                              (fn [ev]
                                (when (= :rf.warning/teardown-hook-exception
                                         (:operation ev))
@@ -356,7 +356,7 @@
           (is (some? (-> ev :tags :exception))
               ":exception carries the throwable"))
         (finally
-          (rf/unregister-listener! ::hook-diag)
+          (rf/unregister-listener! :trace ::hook-diag)
           (late-bind/set-fn! :schemas/on-frame-destroyed! original-schemas-h)
           (late-bind/set-fn! :flows/teardown-on-frame-destroy! original-flows-h))))))
 
@@ -391,9 +391,9 @@
                    :on-destroy [:composed/teardown]})
 
     (let [recorded (atom [])]
-      (rf/register-listener! ::xfx (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! :trace ::xfx (fn [ev] (swap! recorded conj ev)))
       (rf/destroy-frame! :composed/child)
-      (rf/unregister-listener! ::xfx)
+      (rf/unregister-listener! :trace ::xfx)
 
       ;; Sibling parent received the notification.
       (is (= :child-gone

@@ -854,7 +854,7 @@
     (rf/reg-view ^{:rf/id :test/stream-head-body} stream-head-body []
       [:main [:h1 "Streamed body rendered fine"]])
     (let [traces  (atom [])
-          _       (rf/register-listener! ::stream-head-fail-watch
+          _       (rf/register-listener! :trace ::stream-head-fail-watch
                     (fn [ev]
                       (when (= :rf.error/ssr-head-resolution-failed
                                (:operation ev))
@@ -866,7 +866,7 @@
           response (try
                      (handler {:uri "/stream-head-throws" :request-method :get})
                      (finally
-                       (rf/unregister-listener! ::stream-head-fail-watch)))
+                       (rf/unregister-listener! :trace ::stream-head-fail-watch)))
           ;; Drain the chunked body — the head trace fires on the request
           ;; thread (before the writer), but draining proves the body chunks
           ;; still ship cleanly after the head degradation.

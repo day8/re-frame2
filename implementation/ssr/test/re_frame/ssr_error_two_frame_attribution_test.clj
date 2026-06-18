@@ -190,10 +190,10 @@
       (try
         (register-routes-and-fx!)
         (let [fa (make-server-frame frame-a)]
-          (rf/register-listener! ::cap (fn [ev] (swap! traces conj ev)))
+          (rf/register-listener! :trace ::cap (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}]
                             {:frame fa})
-          (rf/unregister-listener! ::cap)
+          (rf/unregister-listener! :trace ::cap)
           (let [err (first (filter #(= :rf.error/schema-validation-failure
                                        (:operation %))
                                    @traces))]

@@ -53,12 +53,12 @@
   events."
   [body-fn]
   (let [seen (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (rf/unregister-listener! ::rec)))))
+        (rf/unregister-listener! :trace ::rec)))))
 
 (defn- events-of [evs predicate]
   (filter predicate evs))
@@ -149,7 +149,7 @@
     ;; dispatch fires — `*current-dispatch-id*` is unbound here, so the
     ;; trace event has no :rf.trace/dispatch-id stamped.
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-frame :test/outside {})
         ;; reg-event / reg-fx emit :rf.registry/handler-registered traces
@@ -164,7 +164,7 @@
                 (str "out-of-band event " (:operation ev)
                      " must NOT carry a :rf.trace/dispatch-id"))))
         (finally
-          (rf/unregister-listener! ::rec))))))
+          (rf/unregister-listener! :trace ::rec))))))
 
 (deftest dispatch-id-is-fresh-across-cascade-boundaries
   (testing "two sequential dispatches get distinct :dispatch-ids on every event in their respective cascades"

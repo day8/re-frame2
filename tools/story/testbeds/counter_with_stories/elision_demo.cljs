@@ -195,7 +195,7 @@
 ;;   (when (and (= "production" (:env config))
 ;;              (not ^boolean re-frame.interop/debug-enabled?)
 ;;              (:api-key config))
-;;     (rf/register-event-listener!
+;;     (rf/register-listener! :events
 ;;       :my-app/datadog
 ;;       (fn [record] (ship-to-datadog record))))
 ;;
@@ -225,13 +225,13 @@
   `[:rf.runtime/elision :declarations]` registry is already live before any
   wire consumer asks for it."
   []
-  (rf/register-event-listener! listener-id log-record!))
+  (rf/register-listener! :events listener-id log-record!))
 
 (defn uninstall-listener!
   "Drop the demo console listener. Used by tests to keep the suite
   from logging into the test runner's stdout."
   []
-  (rf/unregister-event-listener! listener-id))
+  (rf/unregister-listener! :events listener-id))
 
 ;; ============================================================================
 ;; APP-DB ELISION INSPECTOR  (the schema-driven branch surface)

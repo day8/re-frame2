@@ -23,12 +23,12 @@
             owns the URL emits :rf.error/duplicate-url-binding
             (Spec 012 §Multi-frame routing)"
     (let [traces (atom [])]
-      (rf/register-listener! ::dup-bind (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dup-bind (fn [ev] (swap! traces conj ev)))
       ;; EP-0002 (rf2-nn0jqa): URL ownership is explicit. This suite's
       ;; fixture registered `:rf/default {:url-bound? true}` as the declared
       ;; owner, so a second frame opting in collides with it.
       (rf/reg-frame :my-frame {:url-bound? true})
-      (rf/unregister-listener! ::dup-bind)
+      (rf/unregister-listener! :trace ::dup-bind)
       (is (some (fn [ev]
                   (and (= :rf.error/duplicate-url-binding (:operation ev))
                        (= :rf/default (-> ev :tags :existing-frame))
@@ -41,10 +41,10 @@
             the documented default for story / devcard / test fixtures
             and emits no duplicate-binding trace"
     (let [traces (atom [])]
-      (rf/register-listener! ::no-dup (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::no-dup (fn [ev] (swap! traces conj ev)))
       (rf/reg-frame :story/variant-A {})              ;; no :url-bound?
       (rf/reg-frame :test/fixture    {:url-bound? false}) ;; explicit off
-      (rf/unregister-listener! ::no-dup)
+      (rf/unregister-listener! :trace ::no-dup)
       (is (empty? (filter #(= :rf.error/duplicate-url-binding (:operation %))
                           @traces))
           "no duplicate-url-binding trace fires for non-URL-bound frames"))))
@@ -178,11 +178,11 @@
     (require 're-frame.routing :reload)
     (require 're-frame.routing :reload)
     (let [traces (atom [])]
-      (rf/register-listener! ::dup-once (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::dup-once (fn [ev] (swap! traces conj ev)))
       ;; :rf/default is implicitly :url-bound? true; one second binding is
       ;; one conflict.
       (rf/reg-frame :my-conflicting-frame {:url-bound? true})
-      (rf/unregister-listener! ::dup-once)
+      (rf/unregister-listener! :trace ::dup-once)
       (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
         (is (= 1 (count dups))
             "one conflict → exactly one duplicate-url-binding diagnostic, regardless of reload count")

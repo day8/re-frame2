@@ -219,7 +219,7 @@
             re-attaches redaction to the storage seam would break visibly."
     (let [warnings (atom [])]
       (rf/reg-frame :prod-gate.throw/frame {})
-      (rf/register-listener! ::warn-watch
+      (rf/register-listener! :trace ::warn-watch
                              (fn [ev]
                                (when (= :warning (:op-type ev))
                                  (swap! warnings conj ev))))
@@ -236,7 +236,7 @@
         (is (empty? redact-warns)
             ":rf.warning/epoch-redact-fn-exception never fires on the
              storage path — apply-redact-fn runs only at projection time"))
-      (rf/unregister-listener! ::warn-watch)
+      (rf/unregister-listener! :trace ::warn-watch)
       (rf/configure! :epoch-history {:redact-fn nil}))))
 
 (deftest projected-record-pure-transform-survives-disabled-gate

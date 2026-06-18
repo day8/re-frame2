@@ -64,7 +64,7 @@
 
 (defn- collect-traces! [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (deftest walker-noop-on-small-values
@@ -107,7 +107,7 @@
       (is (pos-int? (get-in (first warnings) [:tags :bytes])))
       (is (= "Add this path to the frame's `:large {:app-db [...]}` classification (EP-0015)."
              (get-in (first warnings) [:tags :hint]))))
-    (rf/unregister-listener! :elision-test/unschema'd)))
+    (rf/unregister-listener! :trace :elision-test/unschema'd)))
 
 (deftest unschema'd-large-warning-is-once-per-path
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
@@ -118,7 +118,7 @@
     (is (= 1 (count (filter #(= :rf.warning/large-value-unschema'd
                                 (:operation %))
                             @traces))))
-    (rf/unregister-listener! :elision-test/once)))
+    (rf/unregister-listener! :trace :elision-test/once)))
 
 ;; ---------------------------------------------------------------------------
 ;; Runtime size-threshold configuration (rf2-le2qu).
@@ -152,7 +152,7 @@
     (rf/elide-wire-value {:b {:big over}})
     (is (= 1 (count-unschema'd-warnings traces))
         "value over the 16384 default trips the warning")
-    (rf/unregister-listener! :elision-test/default-thresh)))
+    (rf/unregister-listener! :trace :elision-test/default-thresh)))
 
 (deftest configured-threshold-takes-effect
   ;; rf2-le2qu — the IMPL gap: `(rf/configure! :elision {:rf.size/threshold-bytes N})`
@@ -170,7 +170,7 @@
     (rf/elide-wire-value {:b {:s small}})
     (is (= 1 (count-unschema'd-warnings traces))
         "after (configure :elision {:rf.size/threshold-bytes 100}) the 300-byte string warns")
-    (rf/unregister-listener! :elision-test/configured)))
+    (rf/unregister-listener! :trace :elision-test/configured)))
 
 (deftest configure-threshold-reaches-elision-config
   ;; The configure case stores the value where elision reads it — direct
@@ -197,7 +197,7 @@
     (rf/elide-wire-value {:b {:s s}} {:rf.size/threshold-bytes 100})
     (is (= 1 (count-unschema'd-warnings traces))
         "explicit :rf.size/threshold-bytes opt (100) overrides configured (1000000) — warns")
-    (rf/unregister-listener! :elision-test/opt-wins)))
+    (rf/unregister-listener! :trace :elision-test/opt-wins)))
 
 (deftest threshold-zero-disables-runtime-auto-detect
   ;; Per API.md §Configure keys — "0 disables runtime auto-detect (only
@@ -214,7 +214,7 @@
     (rf/elide-wire-value {:b {:big big}} {:rf.size/threshold-bytes 0})
     (is (= 0 (count-unschema'd-warnings traces))
         "explicit threshold-bytes 0 opt disables runtime auto-detect for that call")
-    (rf/unregister-listener! :elision-test/zero)))
+    (rf/unregister-listener! :trace :elision-test/zero)))
 
 (deftest configured-threshold-does-not-affect-declared-elision
   ;; The threshold governs ONLY the runtime auto-detect warning for

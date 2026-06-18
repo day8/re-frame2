@@ -80,22 +80,22 @@
 (deftest register-trace-listener-is-2-arity-and-returns-key
   (testing "register-listener! takes (key cb) and returns the key"
     (let [k ::pin-arity
-          ret (rf/register-listener! k (fn [_ev]))]
+          ret (rf/register-listener! :trace k (fn [_ev]))]
       (is (= k ret)
           "register-listener! returns the key per Spec 009 §The listener API")
-      (rf/unregister-listener! k))))
+      (rf/unregister-listener! :trace k))))
 
 (deftest unregister-trace-listener-returns-nil
   (testing "unregister-listener! returns nil per Spec 009 §The listener API"
-    (rf/register-listener! ::r (fn [_ev]))
-    (is (nil? (rf/unregister-listener! ::r)))))
+    (rf/register-listener! :trace ::r (fn [_ev]))
+    (is (nil? (rf/unregister-listener! :trace ::r)))))
 
 ;; ---- 2. Synchronous, per-event delivery -----------------------------------
 
 (deftest synchronous-delivery
   (testing "listener has been called by the time dispatch-sync returns — no async wait"
     (let [seen (atom [])]
-      (rf/register-listener! ::sync (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::sync (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :sync/ping (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
       ;; The contract: dispatch-sync returns only after every listener has
       ;; been invoked for every emitted trace event in the cascade. No
@@ -108,7 +108,7 @@
                       (= :rf.event/dispatched (:operation %)))
                 @seen)
           "the :rf.event/dispatched trace was delivered synchronously")
-      (rf/unregister-listener! ::sync))))
+      (rf/unregister-listener! :trace ::sync))))
 
 (deftest one-call-per-emitted-event
   (testing "the listener is invoked once per emitted event — no batching, no debounce"
@@ -116,7 +116,7 @@
           seen  (atom [])]
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (rf/clear-trace-buffer! :rf/default)
-      (rf/register-listener! ::counter (fn [ev]
+      (rf/register-listener! :trace ::counter (fn [ev]
                                          (swap! calls inc)
                                          (swap! seen conj (:id ev))))
       ;; A single dispatch produces multiple trace events (run-start,
@@ -131,7 +131,7 @@
             "every invocation carried a distinct event (no duplicate calls)")
         (is (= (count ids) (count (distinct ids)))
             "each event was delivered exactly once — no batching, no dedup-by-listener"))
-      (rf/unregister-listener! ::counter))))
+      (rf/unregister-listener! :trace ::counter))))
 
 (deftest in-cascade-emits-land-in-the-ring
   (testing "every IN-CASCADE listener event also appears in the frame's ring
@@ -141,9 +141,9 @@
     (let [seen (atom [])]
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (rf/clear-trace-buffer! :rf/default)
-      (rf/register-listener! ::record (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::record (fn [ev] (swap! seen conj ev)))
       (rf/dispatch-sync [:ping])
-      (rf/unregister-listener! ::record)
+      (rf/unregister-listener! :trace ::record)
       ;; Partition the listener stream by in-cascade-ness — events with
       ;; a `:rf.trace/dispatch-id` should land in the ring; others
       ;; (e.g. post-cascade epoch emits, registration emits) skip it.
@@ -159,7 +159,7 @@
 (deftest events-delivered-in-emission-order
   (testing "a listener sees events in the same order the runtime fired them"
     (let [seen (atom [])]
-      (rf/register-listener! ::ordered (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::ordered (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :ord/init (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/reg-event :ord/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [:ord/init])
@@ -171,14 +171,14 @@
         (is (apply < ids)
             (str ":id is monotonically increasing in delivery order — "
                  "listener saw events in emission order. ids: " (pr-str ids))))
-      (rf/unregister-listener! ::ordered))))
+      (rf/unregister-listener! :trace ::ordered))))
 
 ;; ---- 4. Point-event shape (no span fields) -------------------------------
 
 (deftest events-are-point-shaped-not-span-shaped
   (testing "every emitted event has the canonical point-event keys and NO span-shape keys"
     (let [seen (atom [])]
-      (rf/register-listener! ::shape (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::shape (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :shape/handler (fn [_ _] {:db {:n 1}
                                                  :fx []}))
       (rf/dispatch-sync [:shape/handler])
@@ -204,7 +204,7 @@
             (is (empty? violators)
                 (str "expected no span-shape keys; saw: "
                      (pr-str (vec (take 3 violators))))))))
-      (rf/unregister-listener! ::shape))))
+      (rf/unregister-listener! :trace ::shape))))
 
 ;; ---- 5. Frame-aware tagging -----------------------------------------------
 
@@ -212,7 +212,7 @@
   (testing "a trace event for a specific frame carries :frame frame-id under :tags"
     (let [seen (atom [])]
       (rf/reg-frame :frame/scoped {:doc "scoped"})
-      (rf/register-listener! ::framed (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::framed (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :framed/ping (fn [{:keys [db]} _] {:db (assoc db :ping? true)}))
       (rf/dispatch-sync [:framed/ping] {:frame :frame/scoped})
       (let [dispatched (->> @seen
@@ -222,14 +222,14 @@
         (is dispatched ":rf.event/dispatched trace was delivered for the framed dispatch")
         (is (= :frame/scoped (get-in dispatched [:tags :frame]))
             ":frame frame-id is carried under :tags per Spec 009 §The trace event model"))
-      (rf/unregister-listener! ::framed))))
+      (rf/unregister-listener! :trace ::framed))))
 
 (deftest different-frames-carry-distinct-frame-tags
   (testing "events emitted on behalf of different frames carry their respective :frame ids"
     (rf/reg-frame :frame/a {})
     (rf/reg-frame :frame/b {})
     (let [seen (atom [])]
-      (rf/register-listener! ::multi (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::multi (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:ping] {:frame :frame/a})
       (rf/dispatch-sync [:ping] {:frame :frame/b})
@@ -241,7 +241,7 @@
                    first)]
         (is a "frame :frame/a's :rf.event/dispatched delivered with its frame tag")
         (is b "frame :frame/b's :rf.event/dispatched delivered with its frame tag"))
-      (rf/unregister-listener! ::multi))))
+      (rf/unregister-listener! :trace ::multi))))
 
 ;; ---- 6. Production-elision contract (structural) -------------------------
 
@@ -276,9 +276,9 @@
     (let [seen-a (atom [])
           seen-b (atom [])
           seen-c (atom [])]
-      (rf/register-listener! ::clear-a (fn [ev] (swap! seen-a conj ev)))
-      (rf/register-listener! ::clear-b (fn [ev] (swap! seen-b conj ev)))
-      (rf/register-listener! ::clear-c (fn [ev] (swap! seen-c conj ev)))
+      (rf/register-listener! :trace ::clear-a (fn [ev] (swap! seen-a conj ev)))
+      (rf/register-listener! :trace ::clear-b (fn [ev] (swap! seen-b conj ev)))
+      (rf/register-listener! :trace ::clear-c (fn [ev] (swap! seen-c conj ev)))
       (rf/reg-event :clear/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
 
       ;; First dispatch — every listener observes the cascade.
@@ -308,11 +308,11 @@
 
         ;; Re-register a listener; new emissions land on it.
         (let [seen-d (atom [])]
-          (rf/register-listener! ::clear-d (fn [ev] (swap! seen-d conj ev)))
+          (rf/register-listener! :trace ::clear-d (fn [ev] (swap! seen-d conj ev)))
           (rf/dispatch-sync [:clear/seed])
           (is (pos? (count @seen-d))
               "re-registered listener D received events after a fresh dispatch")
-          (rf/unregister-listener! ::clear-d))
+          (rf/unregister-listener! :trace ::clear-d))
 
         ;; And the originally-cleared listeners STILL do not receive —
         ;; they were dissoc'd, not paused.
@@ -321,7 +321,7 @@
 
 (deftest clear-trace-listeners-returns-nil
   (testing "clear-listeners! returns nil per Spec 009 §The listener API"
-    (rf/register-listener! ::ret-nil (fn [_ev]))
+    (rf/register-listener! :trace ::ret-nil (fn [_ev]))
     (is (nil? (trace/clear-listeners!))
         "clear-listeners! is a side-effecting nil-returning fn")))
 

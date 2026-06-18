@@ -65,24 +65,24 @@
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/unregister-listener! id) to detach."
+  accumulates events. Tests must (rf/unregister-listener! :trace id) to detach."
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (defn- collect-errors!
   "Register an ALWAYS-ON error listener under `id` via
-  `rf/register-error-listener!`, returning the atom that accumulates the
+  `(rf/register-listener! :errors id f)`, returning the atom that accumulates the
   tight error-records (the production-survivable observability surface —
   Spec 009 §What IS available in production §Error-emit listener). Tests
-  must (rf/unregister-error-listener! id) to detach (the fixture also
+  must (rf/unregister-listener! :errors id) to detach (the fixture also
   clears the registry). Distinct from `collect-traces!`: that listens on
   the dev-only trace surface (DCE'd in prod); this listens on the
   always-on axis."
   [id]
   (let [acc (atom [])]
-    (rf/register-error-listener! id (fn [record] (swap! acc conj record)))
+    (rf/register-listener! :errors id (fn [record] (swap! acc conj record)))
     acc))
 
 ;; ---- 1. Source-order ordering across mixed effect types -------------------
@@ -275,7 +275,7 @@
           {:fx [[:fx-test/boom  {:reason :first}]
                 [:fx-test/after {:reason :sibling}]]}))
       (rf/dispatch-sync [:fx-test/with-bad-fx])
-      (rf/unregister-listener! ::fx-exc)
+      (rf/unregister-listener! :trace ::fx-exc)
       ;; Sibling fx ran — recovery is :isolated.
       (is (= [{:reason :sibling}] @fired)
           "the :fx after the throwing entry still fires (Spec 002 rule 4)")
@@ -314,7 +314,7 @@
           {:fx [[:fx-test/never-registered  {:k 1}]
                 [:fx-test/sibling           {:k 2}]]}))
       (rf/dispatch-sync [:fx-test/missing])
-      (rf/unregister-listener! ::no-such)
+      (rf/unregister-listener! :trace ::no-such)
       ;; Sibling still fires — the unknown fx-id did not halt the walk.
       (is (= [{:k 2}] @fired)
           "the next :fx entry still fires after an unknown fx-id")
@@ -347,7 +347,7 @@
       (rf/reg-event :fx-test/save
         (fn [_ _] {:fx [[:fx-test/local-storage {:k "key" :v "val"}]]}))
       (rf/dispatch-sync [:fx-test/save])
-      (rf/unregister-listener! ::plat)
+      (rf/unregister-listener! :trace ::plat)
       (is (false? @fired?)
           "the client-only handler did NOT run on the JVM (:server)")
       (let [skip-traces (filter #(= :rf.fx/skipped-on-platform (:operation %))
@@ -392,7 +392,7 @@
           ;; Legacy v1 shape — top-level :dispatch.
           {:dispatch [:fx-test/sentinel]}))
       (rf/dispatch-sync [:fx-test/legacy-dispatch])
-      (rf/unregister-listener! ::shape)
+      (rf/unregister-listener! :trace ::shape)
       ;; The legacy top-level :dispatch is NOT performed (silently
       ;; routing it would defeat the M-8 migration).
       (is (false? @fired?)
@@ -462,7 +462,7 @@
       (rf/dispatch-sync [:test.634y/run])
       (is (= 2 @counter)
           "after re-registration, the fx fires again — clear-fx is idempotent and reversible")
-      (rf/unregister-listener! ::clear-fx))))
+      (rf/unregister-listener! :trace ::clear-fx))))
 
 (deftest clear-fx-idempotent-on-unknown-id
   (testing "clear-fx against an un-registered fx-id is a no-op (idempotent)"
@@ -490,7 +490,7 @@
            :dispatch [:fx-test/never-runs]
            :http {:url "/api"}}))
       (rf/dispatch-sync [:fx-test/multi-legacy])
-      (rf/unregister-listener! ::shape-multi)
+      (rf/unregister-listener! :trace ::shape-multi)
       ;; The legitimate :fx entry still ran — policing didn't halt the cascade.
       (is (= [{:k :legit}] @fired)
           "the legal :fx entry still fires after policing rejects sibling top-level keys")
@@ -537,7 +537,7 @@
       ;; IllegalArgumentException escaping the drain after the :db commit.
       (is (nil? (rf/dispatch-sync [:fx-test/fx-is-keyword]))
           "dispatch returns normally — no uncaught host exception escapes the drain")
-      (rf/unregister-listener! ::fx-val-kw)
+      (rf/unregister-listener! :trace ::fx-val-kw)
       ;; :db still committed — the malformed :fx was dropped, not the whole event.
       (is (= true (:seeded? (rf/app-db-value :rf/default)))
           ":db still committed; only the malformed :fx slot was dropped")
@@ -575,7 +575,7 @@
           {:fx {:dispatch [:fx-test/fx-sentinel]}}))
       (is (nil? (rf/dispatch-sync [:fx-test/fx-is-map]))
           "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! ::fx-val-map)
+      (rf/unregister-listener! :trace ::fx-val-map)
       (is (false? @fired?)
           "the malformed :fx map is dropped wholesale — nothing inside it runs")
       (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
@@ -600,7 +600,7 @@
           {:db (assoc db :seeded? true)
            :fx [[:fx-test/touch-ok {:k :v}]]}))
       (rf/dispatch-sync [:fx-test/fx-is-vector])
-      (rf/unregister-listener! ::fx-val-ok)
+      (rf/unregister-listener! :trace ::fx-val-ok)
       (is (= [{:k :v}] @fired)
           "the well-shaped :fx entry still fires")
       (is (= true (:seeded? (rf/app-db-value :rf/default)))
@@ -618,7 +618,7 @@
           {:db (assoc db :seeded? true)
            :fx nil}))
       (is (nil? (rf/dispatch-sync [:fx-test/fx-is-nil])))
-      (rf/unregister-listener! ::fx-val-nil)
+      (rf/unregister-listener! :trace ::fx-val-nil)
       (is (= true (:seeded? (rf/app-db-value :rf/default)))
           ":db committed; nil :fx is a no-op")
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
@@ -663,7 +663,7 @@
       ;; handle-one-fx's destructuring.
       (is (nil? (rf/dispatch-sync [:fx-test/entry-is-keyword]))
           "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! ::fx-entry-kw)
+      (rf/unregister-listener! :trace ::fx-entry-kw)
       ;; Both well-shaped siblings fired in order; the typo'd middle entry
       ;; was skipped — the walk continued past it.
       (is (= [{:k 1} {:k 2}] @fired)
@@ -703,7 +703,7 @@
                 [:fx-test/entry-ok {:k :v}]]}))
       (is (nil? (rf/dispatch-sync [:fx-test/entry-is-map]))
           "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! ::fx-entry-map)
+      (rf/unregister-listener! :trace ::fx-entry-map)
       (is (= [{:k :v}] @fired)
           "the well-shaped sibling still fired; the map entry was dropped")
       (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
@@ -734,7 +734,7 @@
                 []                                  ;; conditional no-op
                 [:fx-test/entry-noop-ok {:k 2}]]}))
       (is (nil? (rf/dispatch-sync [:fx-test/entry-nil-empty])))
-      (rf/unregister-listener! ::fx-entry-nil)
+      (rf/unregister-listener! :trace ::fx-entry-nil)
       (is (= [{:k 1} {:k 2}] @fired)
           "both well-shaped entries fired; nil + [] were silent no-ops")
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
@@ -752,7 +752,7 @@
           {:fx [[:fx-test/multi-a]
                 [:fx-test/multi-b]]}))
       (rf/dispatch-sync [:fx-test/multi-ok])
-      (rf/unregister-listener! ::fx-entry-all-ok)
+      (rf/unregister-listener! :trace ::fx-entry-all-ok)
       (is (= [:a :b] @fired)
           "all well-formed entries ran in source order")
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
@@ -799,7 +799,7 @@
                 [:fx-test/entry-nonkw-sibling {:k 2}]]}))
       (is (nil? (rf/dispatch-sync [:fx-test/entry-non-keyword-head]))
           "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! ::fx-entry-non-kw)
+      (rf/unregister-listener! :trace ::fx-entry-non-kw)
       (is (= [{:k 1} {:k 2}] @fired)
           "both well-shaped siblings fired in order; the bad-head entry was skipped")
       (is (= true (:seeded? (rf/app-db-value :rf/default)))
@@ -842,7 +842,7 @@
                 [:fx-test/entry-arity3-sink {:k 2}]]}))
       (is (nil? (rf/dispatch-sync [:fx-test/entry-surplus-field]))
           "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! ::fx-entry-arity3)
+      (rf/unregister-listener! :trace ::fx-entry-arity3)
       ;; CRITICAL: the 3-element entry must NOT fire as a silently-truncated
       ;; 2-tuple `[:fx-test/entry-arity3-sink {:used true}]`. Only the two
       ;; well-shaped siblings run.
@@ -878,7 +878,7 @@
       (rf/reg-event :fx-test/entry-noargs
         (fn [_ _] {:fx [[:fx-test/noargs-sink]]}))
       (rf/dispatch-sync [:fx-test/entry-noargs])
-      (rf/unregister-listener! ::fx-entry-noargs)
+      (rf/unregister-listener! :trace ::fx-entry-noargs)
       (is (= [nil] @fired)
           "the no-args shorthand fired once with nil args")
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
@@ -917,7 +917,7 @@
            :fx [[:dispatch [:fx-test.tbuov/target] {:frame :rf/default}]]}))
       (is (nil? (rf/dispatch-sync [:fx-test.tbuov/emits-malformed-dispatch]))
           "dispatch returns normally — no uncaught host exception")
-      (rf/unregister-listener! ::reserved-dispatch-arity3)
+      (rf/unregister-listener! :trace ::reserved-dispatch-arity3)
       ;; CRITICAL: the malformed entry must NOT silently fire as a truncated
       ;; 2-tuple `[:dispatch [:fx-test.tbuov/target]]`. The queued target must
       ;; never have run.
@@ -1029,7 +1029,7 @@
       (rf/dispatch-sync
         [:fx-test/issue-traced]
         {:fx-overrides {:fx-test/http-traced (fn [_ _] :ok)}})
-      (rf/unregister-listener! ::fn-override-trace)
+      (rf/unregister-listener! :trace ::fn-override-trace)
       (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
         (is (= 1 (count applied))
             "exactly one :rf.fx/override-applied trace for the fn-value override")
@@ -1119,7 +1119,7 @@
       (rf/dispatch-sync
         [:fx-test.nrpj1/traced-dispatch]
         {:fx-overrides {:dispatch (fn [_ _] :stubbed)}})
-      (rf/unregister-listener! ::reserved-override-trace)
+      (rf/unregister-listener! :trace ::reserved-override-trace)
       (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
         (is (= 1 (count applied))
             "exactly one :rf.fx/override-applied trace — emitted because the override fired")
@@ -1157,7 +1157,7 @@
       (rf/dispatch-sync
         [:fx-test.nrpj1/issue-redirect]
         {:fx-overrides {:fx-test.nrpj1/my-fx :dispatch}})
-      (rf/unregister-listener! ::redirect-to-reserved)
+      (rf/unregister-listener! :trace ::redirect-to-reserved)
       (is (= 1 @original-fired)
           "the original :fx-test.nrpj1/my-fx ran — the redirect to the un-registered :dispatch fell through")
       (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
@@ -1179,7 +1179,7 @@
         (rf/dispatch-sync
           [:fx-test.3az1vn/issue]
           {:fx-overrides {:fx-test.3az1vn/target bad-value}})
-        (rf/unregister-listener! ::malformed-override)
+        (rf/unregister-listener! :trace ::malformed-override)
         (is (= 1 @original-fired)
             (str "the original fx ran (recovery :replaced-with-default) for "
                  (pr-str bad-value)))
@@ -1204,7 +1204,7 @@
         (rf/dispatch-sync
           [:fx-test.3az1vn/noop-issue]
           {:fx-overrides {:fx-test.3az1vn/noop-target noop-value}})
-        (rf/unregister-listener! ::noop-override)
+        (rf/unregister-listener! :trace ::noop-override)
         (is (= 1 @original-fired)
             (str "the original fx ran for the noop placeholder " (pr-str noop-value)))
         (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
@@ -1243,7 +1243,7 @@
       (rf/dispatch-sync
         [:fx-test.snsup5/install-flow]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! stub-fired inc))}})
-      (rf/unregister-listener! ::reject-reg-flow)
+      (rf/unregister-listener! :trace ::reject-reg-flow)
       (is (= 0 @stub-fired)
           "the fn-value override stub MUST NOT fire — the reject pre-empts it")
       (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow)
@@ -1271,7 +1271,7 @@
       (rf/dispatch-sync
         [:fx-test.snsup5/install-flow-2]
         {:fx-overrides {:rf.fx/reg-flow :fx-test.snsup5/redir-target}})
-      (rf/unregister-listener! ::reject-redirect)
+      (rf/unregister-listener! :trace ::reject-redirect)
       (is (= 0 @redir-ran)
           "the keyword-redirect target MUST NOT fire — the reject pre-empts it")
       (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.snsup5/b-flow)
@@ -1302,7 +1302,7 @@
       (rf/dispatch-sync
         [:fx-test.uh5ic5/install-flow]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
-      (rf/unregister-error-listener! ::reject-always-on)
+      (rf/unregister-listener! :errors ::reject-always-on)
       (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
         (is (= 1 (count records))
             "exactly ONE always-on record reached register-error-listener!")
@@ -1332,7 +1332,7 @@
       (rf/dispatch-sync
         [:fx-test.uh5ic5/install-flow-2]
         {:fx-overrides {:rf.fx/reg-flow :fx-test.uh5ic5/redir-target}})
-      (rf/unregister-error-listener! ::reject-always-on-redir)
+      (rf/unregister-listener! :errors ::reject-always-on-redir)
       (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
         (is (= 1 (count records))
             "one always-on record for the keyword-redirect reject form too")
@@ -1355,7 +1355,7 @@
       (rf/dispatch-sync
         [:fx-test.snsup5/emits-dispatch]
         {:fx-overrides {:dispatch (fn [_ ev] (reset! captured ev))}})
-      (rf/unregister-listener! ::overridable-no-reject)
+      (rf/unregister-listener! :trace ::overridable-no-reject)
       (is (= [:fx-test.snsup5/target] @captured)
           "the :dispatch fn-value override fired (OVERRIDABLE tier — unchanged)")
       (is (= 0 @target-ran)
@@ -1379,7 +1379,7 @@
                       :my-app/http             stub}       ;; user fx — kept
                      :rf/default
                      [:some/event])]
-      (rf/unregister-listener! ::prod-strip)
+      (rf/unregister-listener! :trace ::prod-strip)
       (is (= #{:dispatch :my-app/http} (set (keys stripped)))
           "every reject-tier key is stripped; OVERRIDABLE + user keys survive")
       (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
@@ -1417,7 +1417,7 @@
       (rf/dispatch-sync
         [:fx-test.snsup5/parent-cascades]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! child-stub inc))}})
-      (rf/unregister-listener! ::cascade-exclude)
+      (rf/unregister-listener! :trace ::cascade-exclude)
       (is (= 0 @child-stub)
           "the reject-tier override did not fire in the child cascade either")
       (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.snsup5/child-flow)
@@ -1463,7 +1463,7 @@
           (is (= [[:fx-test/do-fx-shape {:k 1}]] (:rf.event/fx tags))
               ":rf.event/fx vector matches what the handler returned"))
         (finally
-          (rf/unregister-listener! ::do-fx-shape))))))
+          (rf/unregister-listener! :trace ::do-fx-shape))))))
 
 (deftest event-do-fx-stamps-when-only-fx-returned
   (testing "a reg-event handler returning {:fx [...]} only (no :db slot) stamps
@@ -1483,7 +1483,7 @@
           (is (= [[:fx-test/no-db-fx {}]] (:rf.event/fx tags))
               ":rf.event/fx vector matches what the handler returned"))
         (finally
-          (rf/unregister-listener! ::no-db))))))
+          (rf/unregister-listener! :trace ::no-db))))))
 
 (deftest event-do-fx-stamp-rides-under-tags
   (testing ":fx and :db-present? are payload-shaped slots — they ride
@@ -1507,7 +1507,7 @@
           (is (not (contains? dof :rf.event/db-present?))
               ":rf.event/db-present? is NOT at top level"))
         (finally
-          (rf/unregister-listener! ::top-level))))))
+          (rf/unregister-listener! :trace ::top-level))))))
 
 ;; ---- rf2-9dk9y: :coeffects stamp on :rf.event/run-end --------------------
 ;;
@@ -1553,7 +1553,7 @@
           (is (not (contains? (:tags dof) :rf.event/coeffects))
               "the stamp lives on run-end now — :rf.fx/do-fx no longer carries it"))
         (finally
-          (rf/unregister-listener! ::user-cofx))))))
+          (rf/unregister-listener! :trace ::user-cofx))))))
 
 (deftest event-run-end-stamps-user-injected-coeffects-without-fx
   (testing "rf2-9dk9y bug A — a reg-event handler that injects user cofx and
@@ -1581,7 +1581,7 @@
               ":rf.fx/do-fx was correctly NOT emitted (no :fx vector); the
                cofx stamp would have been dropped if it still rode on do-fx"))
         (finally
-          (rf/unregister-listener! ::db-only-cofx))))))
+          (rf/unregister-listener! :trace ::db-only-cofx))))))
 
 (deftest event-run-end-coeffects-stamp-absent-when-no-user-cofx
   (testing "a handler with no inject-cofx has its :rf.event/run-end fire
@@ -1598,4 +1598,4 @@
           (is (not (contains? tags :rf.event/coeffects))
               ":rf.event/coeffects key ABSENT on :tags when no user cofx injected"))
         (finally
-          (rf/unregister-listener! ::no-cofx))))))
+          (rf/unregister-listener! :trace ::no-cofx))))))

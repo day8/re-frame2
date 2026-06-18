@@ -70,7 +70,7 @@
             teardown signal that survives `goog.DEBUG=false`, NOT just the
             DCE'd dev trace."
     (let [seen (atom [])]
-      (rf/register-error-listener! :test/recorder
+      (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :ondestroy/blow-up
                        (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
@@ -100,7 +100,7 @@
   (testing "Per rf2-7b9r4l: the teardown still completes end-to-end despite
             the throw — the frame is fully removed from the registry."
     (let [seen (atom [])]
-      (rf/register-error-listener! :test/recorder
+      (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :ondestroy/blow-up-2
                        (fn [{:keys [db]} _] {:db (throw (ex-info "again" {}))}))
@@ -116,7 +116,7 @@
   (testing "Per rf2-7b9r4l: a non-throwing `:on-destroy` emits NO
             `:rf.error/on-destroy-handler-exception` record."
     (let [seen (atom [])]
-      (rf/register-error-listener! :test/recorder
+      (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :ondestroy/clean (fn [{:keys [db]} _] {:db db}))
       (rf/reg-frame :ondestroy/ok {:on-destroy [:ondestroy/clean]})
@@ -139,7 +139,7 @@
             branch (it never produced a router :rf.error/handler-exception)."
     (let [seen     (atom [])
           original (late-bind/get-fn :router/dispatch-sync!)]
-      (rf/register-error-listener! :test/recorder
+      (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-frame :ondestroy/infra-fault
                     {:on-destroy [:ondestroy/never-reached]})
@@ -189,7 +189,7 @@
             clobbered A's transient capture listener, so A's dedicated record
             was dropped. The unique per-destroy key keeps both."
     (let [seen (atom [])]
-      (rf/register-error-listener! :test/recorder
+      (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; B: the inner frame; its :on-destroy throws.
       (rf/reg-event :ondestroy/inner-throw

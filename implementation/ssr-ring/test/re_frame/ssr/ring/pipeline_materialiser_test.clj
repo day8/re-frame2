@@ -338,13 +338,13 @@
   warning traces; return the collected events."
   [thunk]
   (let [traces (atom [])]
-    (rf/register-listener! ::non-string-header-watch
+    (rf/register-listener! :trace ::non-string-header-watch
       (fn [ev] (when (= :rf.ssr/ssr-non-string-header-value (:operation ev))
                  (swap! traces conj ev))))
     (try
       (thunk)
       (finally
-        (rf/unregister-listener! ::non-string-header-watch)))
+        (rf/unregister-listener! :trace ::non-string-header-watch)))
     @traces))
 
 (deftest non-string-header-value-emits-exactly-one-dev-warning

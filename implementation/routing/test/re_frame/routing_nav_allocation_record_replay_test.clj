@@ -162,7 +162,7 @@
     (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
     (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     (let [traces (atom [])]
-      (rf/register-listener! ::flip (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::flip (fn [ev] (swap! traces conj ev)))
       ;; A PRIOR navigation advanced the host nav-token high-water to 5, so a
       ;; fresh ambient re-mint (the retired behaviour) yields \"nav-6\".
       (nav-counters/commit-counter! :rf/default :nav-token-counter 5)
@@ -179,7 +179,7 @@
                          {:on-success-event  [:article/loaded "A" "A-payload"]
                           :carried-nav-token "nav-1"
                           :carried-route-id  :route/article}])
-      (rf/unregister-listener! ::flip)
+      (rf/unregister-listener! :trace ::flip)
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the recorded continuation (carried nav-1) was SUPPRESSED against the re-minted nav-6 — the bug (should have committed)")
       (is (some #(= :rf.route.nav-token/stale-suppressed (:operation %)) @traces)

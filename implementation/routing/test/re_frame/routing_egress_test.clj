@@ -103,9 +103,9 @@
   drain actually invokes them (the spec default is #{:client})."
   [fx-id event]
   (let [traces (atom [])]
-    (rf/register-listener! ::egress (fn [ev] (swap! traces conj ev)))
+    (rf/register-listener! :trace ::egress (fn [ev] (swap! traces conj ev)))
     (rf/dispatch-sync event)
-    (rf/unregister-listener! ::egress)
+    (rf/unregister-listener! :trace ::egress)
     (->> @traces
          (filter (fn [ev] (and (= :rf.fx/handled (:operation ev))
                                (= fx-id (-> ev :tags :rf.fx/id)))))
@@ -193,10 +193,10 @@
     ;; No route registered for /oauth → route-miss → fallback to not-found.
     (rf/reg-route :rf.route/not-found {:path "/404"})
     (let [traces (atom [])]
-      (rf/register-listener! ::miss (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::miss (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/transitioned
                          "/oauth/callback?code=topsecret&state=xyz#access_token=leak"])
-      (rf/unregister-listener! ::miss)
+      (rf/unregister-listener! :trace ::miss)
       (let [err (->> @traces
                      (filter #(= :rf.error/no-such-handler (:operation %)))
                      first)]
@@ -236,10 +236,10 @@
             :requested-url query/fragment carriers"
     (block-fixture!)
     (let [traces (atom [])]
-      (rf/register-listener! ::blocked (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
       ;; Try to leave to a URL carrying a query secret → blocked.
       (rf/dispatch-sync [:rf/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
-      (rf/unregister-listener! ::blocked)
+      (rf/unregister-listener! :trace ::blocked)
       (let [blocked (->> @traces
                          (filter #(= :rf.route/navigation-blocked (:operation %)))
                          first)]
@@ -258,9 +258,9 @@
             :requested-by-event carrier slots via event marks"
     (block-fixture!)
     (let [traces (atom [])]
-      (rf/register-listener! ::nb (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf/url-requested {:url "/cart?coupon=SECRET100"}])
-      (rf/unregister-listener! ::nb)
+      (rf/unregister-listener! :trace ::nb)
       ;; Find a dispatched-event trace carrying the navigation-blocked event vec.
       (let [dispatched (->> @traces
                             (keep (fn [ev]

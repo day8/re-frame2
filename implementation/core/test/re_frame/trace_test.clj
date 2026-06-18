@@ -113,7 +113,7 @@
   (testing "a representative dispatch flow emits every documented op-type with the canonical envelope shape"
     (let [recorded (atom [])
           listener (fn [ev] (swap! recorded conj ev))]
-      (rf/register-listener! ::recorder listener)
+      (rf/register-listener! :trace ::recorder listener)
 
       ;; ---- Frame lifecycle: :frame/created, :frame/re-registered ----------
       (rf/reg-frame :test/main {:doc "comprehensive flow frame"})
@@ -276,7 +276,7 @@
       ;; ---- Frame destruction: :frame/destroyed ----------------------------
       (rf/destroy-frame! :test/main)
 
-      (rf/unregister-listener! ::recorder)
+      (rf/unregister-listener! :trace ::recorder)
 
       (let [events @recorded
             seen   (ops-of events)]
@@ -560,7 +560,7 @@
 (deftest per-op-timing-tags-on-the-trace-stream
   (testing "fx / flows / handler-body carry elapsed-ms on the dev trace"
     (let [recorded (atom [])]
-      (rf/register-listener! ::timing (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! :trace ::timing (fn [ev] (swap! recorded conj ev)))
 
       ;; A flow whose :output recomputes when [:n] changes (outermost
       ;; :after of the cascade).
@@ -575,7 +575,7 @@
            :fx [[:timing/side :go]]}))
 
       (rf/dispatch-sync [:timing/seed])
-      (rf/unregister-listener! ::timing)
+      (rf/unregister-listener! :trace ::timing)
 
       (let [events @recorded]
         (testing ":rf.fx/handled carries :rf.fx/elapsed-ms"
@@ -603,9 +603,9 @@
     (let [a-events (atom [])
           b-events (atom [])
           c-events (atom [])]
-      (rf/register-listener! ::a (fn [ev] (swap! a-events conj ev)))
-      (rf/register-listener! ::b (fn [ev] (swap! b-events conj ev)))
-      (rf/register-listener! ::c (fn [ev] (swap! c-events conj ev)))
+      (rf/register-listener! :trace ::a (fn [ev] (swap! a-events conj ev)))
+      (rf/register-listener! :trace ::b (fn [ev] (swap! b-events conj ev)))
+      (rf/register-listener! :trace ::c (fn [ev] (swap! c-events conj ev)))
 
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db (assoc db :ping? true)}))
       (rf/dispatch-sync [:ping])
@@ -617,7 +617,7 @@
         (is (= a1 c1)))
 
       ;; Remove ::b; ::a and ::c continue.
-      (rf/unregister-listener! ::b)
+      (rf/unregister-listener! :trace ::b)
       (rf/dispatch-sync [:ping])
       (is (> (count @a-events) (count @b-events))
           "after removal, ::b stops accumulating")
@@ -626,7 +626,7 @@
 
       ;; Replace ::a with a different fn under the same id.
       (let [a-events-2 (atom [])]
-        (rf/register-listener! ::a (fn [ev] (swap! a-events-2 conj ev)))
+        (rf/register-listener! :trace ::a (fn [ev] (swap! a-events-2 conj ev)))
         (let [a-pre (count @a-events)]
           (rf/dispatch-sync [:ping])
           (is (= a-pre (count @a-events))
@@ -634,18 +634,18 @@
         (is (pos? (count @a-events-2))
             "the replacement listener under ::a accumulates"))
 
-      (rf/unregister-listener! ::a)
-      (rf/unregister-listener! ::c))))
+      (rf/unregister-listener! :trace ::a)
+      (rf/unregister-listener! :trace ::c))))
 
 (deftest trace-listener-exception-isolation
   (testing "a listener that throws does not crash the dispatch flow and does not block other listeners"
     (let [survivor-events (atom [])
           throw-count     (atom 0)]
-      (rf/register-listener! ::throwing
+      (rf/register-listener! :trace ::throwing
         (fn [_ev]
           (swap! throw-count inc)
           (throw (ex-info "tool blew up" {:listener ::throwing}))))
-      (rf/register-listener! ::survivor
+      (rf/register-listener! :trace ::survivor
         (fn [ev] (swap! survivor-events conj ev)))
 
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -669,8 +669,8 @@
                   @survivor-events)
           "every event the survivor saw conforms to the envelope shape")
 
-      (rf/unregister-listener! ::throwing)
-      (rf/unregister-listener! ::survivor))))
+      (rf/unregister-listener! :trace ::throwing)
+      (rf/unregister-listener! :trace ::survivor))))
 
 ;; ---- :rf.trace/no-emit? event-meta opt-out (rf2-qsjda) --------------------
 ;;
@@ -701,7 +701,7 @@
                      (fn [{:keys [db]} _] {:db (assoc db :bookkeeping/ran? true)}))
 
     (let [recorded (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
 
       (rf/dispatch-sync [:rf2-qsjda/internal-bookkeeping])
 
@@ -729,7 +729,7 @@
                   handler's dispatch, got: "
                  (vec (map (juxt :op-type :operation) our-events)))))
 
-      (rf/unregister-listener! ::rec))))
+      (rf/unregister-listener! :trace ::rec))))
 
 (deftest no-emit-flag-absent-emits-normally
   (testing "Baseline sanity: the SAME dispatch shape WITHOUT
@@ -741,7 +741,7 @@
                      (fn [{:keys [db]} _] {:db (assoc db :normal/ran? true)}))
 
     (let [recorded (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
 
       (rf/dispatch-sync [:rf2-qsjda/normal])
 
@@ -764,4 +764,4 @@
         (is (contains? ops :rf.event/run-end)
             ":rf.event/run-end fired for the un-flagged handler"))
 
-      (rf/unregister-listener! ::rec))))
+      (rf/unregister-listener! :trace ::rec))))

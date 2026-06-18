@@ -55,7 +55,7 @@
 (deftest dispatch-fx-stamps-source-fx-dispatch
   (testing ":dispatch fx stamps `:source :fx-dispatch` on the child envelope"
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event :test/parent
           (fn [_ _]
@@ -74,12 +74,12 @@
               "parent carries the caller-supplied :source :ui")
           (is (= :fx-dispatch (:source child-ev))
               ":dispatch fx stamped :source :fx-dispatch on the child envelope (rf2-ejtpd)"))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 (deftest dispatch-fx-overrides-parent-source-three-deep
   (testing ":fx-dispatch is the *immediate* trigger — overrides at every cascade depth"
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event :test/lvl-0 (fn [_ _] {:fx [[:dispatch [:test/lvl-1]]]}))
         (rf/reg-event :test/lvl-1 (fn [_ _] {:fx [[:dispatch [:test/lvl-2]]]}))
@@ -94,12 +94,12 @@
           (is (= :fx-dispatch (:source (ev-for :test/lvl-1))) "lvl-1 stamped :fx-dispatch")
           (is (= :fx-dispatch (:source (ev-for :test/lvl-2)))
               "lvl-2 ALSO stamped :fx-dispatch (immediate trigger, not :ui from the root)"))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 (deftest dispatch-fx-preserves-origin-while-overriding-source
   (testing ":origin propagates through the cascade; :source is OVERRIDDEN per-step"
     (let [seen (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event :test/parent (fn [_ _] {:fx [[:dispatch [:test/child]]]}))
         (rf/reg-event :test/child  (fn [{:keys [db]} _] {:db db}))
@@ -115,7 +115,7 @@
           (is (= :ui          (:source parent-ev)))
           (is (= :fx-dispatch (:source child-ev))
               ":source is overridden by the substrate's :dispatch fx (rf2-ejtpd)"))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- :fx-dispatch-later stamp by the :dispatch-later fx handler ----------
 
@@ -123,7 +123,7 @@
   (testing ":dispatch-later fx stamps `:source :fx-dispatch-later` on the deferred dispatch"
     (let [seen (atom [])
           done (promise)]
-      (rf/register-listener! ::rec
+      (rf/register-listener! :trace ::rec
         (fn [ev]
           (swap! seen conj ev)
           (when (and (= :rf.event/dispatched (:operation ev))
@@ -148,4 +148,4 @@
           (is (= :ui                (:source parent-ev)))
           (is (= :fx-dispatch-later (:source child-ev))
               ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch (rf2-ejtpd)"))
-        (finally (rf/unregister-listener! ::rec))))))
+        (finally (rf/unregister-listener! :trace ::rec))))))

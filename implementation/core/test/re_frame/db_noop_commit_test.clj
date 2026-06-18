@@ -53,7 +53,7 @@
 
 (defn- collect-traces! [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 (defn- ops-of [acc] (mapv :operation @acc))
@@ -90,7 +90,7 @@
           (is (= {:counter 1 :seeded? true} (frame/frame-app-db-value :rf/default))
               "app-db is unchanged"))
         (finally
-          (rf/unregister-listener! ::identical-noop))))))
+          (rf/unregister-listener! :trace ::identical-noop))))))
 
 (deftest changed-db-commits-and-emits-db-changed-not-db-noop
   (testing "the SAME handler on the do-it? = true path returns a CHANGED db
@@ -113,7 +113,7 @@
           (is (= 2 (:counter (frame/frame-app-db-value :rf/default)))
               "the counter incremented"))
         (finally
-          (rf/unregister-listener! ::changed))))))
+          (rf/unregister-listener! :trace ::changed))))))
 
 ;; ---- `=`-but-not-identical? STILL commits (deeper equality honoured) -------
 
@@ -151,7 +151,7 @@
           (is (not (some #{:rf.event/db-changed} ops))
               "db-changed does NOT fire for a =-equal value"))
         (finally
-          (rf/unregister-listener! ::eq-distinct))))))
+          (rf/unregister-listener! :trace ::eq-distinct))))))
 
 ;; ---- 3: nil-coercion — {:db nil} → {} + dev diagnostic --------------------
 
@@ -176,7 +176,7 @@
               "the coerced {} differs from the seeded {:counter 7}, so it COMMITS
                (db-changed), not a no-op"))
         (finally
-          (rf/unregister-listener! ::nil-coerce))))))
+          (rf/unregister-listener! :trace ::nil-coerce))))))
 
 (deftest deliberate-empty-clear-does-not-fire-diagnostic
   (testing "a DELIBERATE clear ({:db {}}) commits {} WITHOUT firing the
@@ -195,7 +195,7 @@
           (is (some #{:rf.event/db-changed} ops)
               "the {} differs from {:counter 7} → it commits (db-changed)"))
         (finally
-          (rf/unregister-listener! ::deliberate-clear))))))
+          (rf/unregister-listener! :trace ::deliberate-clear))))))
 
 (deftest nil-coerced-to-empty-when-already-empty-is-a-noop
   (testing "{:db nil} when app-db is ALREADY {} coerces to {} which is
@@ -218,4 +218,4 @@
           (is (not (some #{:rf.event/db-changed} ops))
               "no db-changed for the no-op coerced commit"))
         (finally
-          (rf/unregister-listener! ::nil-noop))))))
+          (rf/unregister-listener! :trace ::nil-noop))))))

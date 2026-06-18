@@ -56,7 +56,7 @@
             record so off-box observability shippers (Sentry /
             Honeybadger / Rollbar) still see every framework error."
     (let [seen (atom [])]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :prod/recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/err-throw
@@ -83,10 +83,10 @@
             mode contract from `re-frame.on-error-test`; pinned here
             so the prod-build behaviour is locked too."
     (let [seen (atom [])]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :prod/throws
         (fn [_record] (throw (ex-info "listener went boom" {}))))
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :prod/sibling
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/two-listeners
@@ -115,7 +115,7 @@
             trace surface is gone and registry-meta has been stripped
             of coord-keys."
     (let [listener-saw (atom nil)]
-      (rf/register-error-listener!
+      (rf/register-listener! :errors
         :rf2-3un2g/sentry-recorder
         (fn [record] (reset! listener-saw record)))
       (rf/reg-event :rf2-3un2g/prod-coord-throw
@@ -188,7 +188,7 @@
             `:rf.error/frame-destroyed` through the always-on listener —
             the dev trace is gone, the listener record survives."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/dispatch [:whatever] {:frame :gone/frame})))
       (is (= 1 (count @seen)) "listener fired under prod elision")
@@ -212,7 +212,7 @@
             `:rf.error/frame-destroyed` through the always-on listener
             under `goog.DEBUG=false`."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/dispatch-sync [:whatever] {:frame :gone/frame})))
       (is (= 1 (count @seen)))
@@ -225,7 +225,7 @@
             the always-on listener under `goog.DEBUG=false` — the
             teardown-race shape stays observable in production."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once :gone/frame [:any-sub])))
       (is (= 1 (count @seen)))
@@ -247,7 +247,7 @@
             always-on listener under `goog.DEBUG=false` (previously
             dev-trace-only — silent in production)."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:no/handler-here])
       (let [r (some (fn [x] (when (= :rf.error/no-such-handler (:error x)) x)) @seen)]
@@ -260,7 +260,7 @@
             sub emits `:rf.error/no-such-sub` through the always-on
             listener under `goog.DEBUG=false`."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once :rf/default [:no/such-sub-here])))
       (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
@@ -278,7 +278,7 @@
             for an SSR harness driving subs via compute-sub. Now the
             listener record survives elision."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-sub :kjf3m/throwing (fn [_db _q] (throw (ex-info "compute-boom" {}))))
       (is (nil? (rf/compute-sub [:kjf3m/throwing] {}))
@@ -309,7 +309,7 @@
             shippers see the failure. The dev trace is gone; the listener
             record survives."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/prod-throwing-fx
                  (fn [_ _] (throw (ex-info "fx-boom" {}))))
@@ -326,7 +326,7 @@
   (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
             through the always-on listener under `goog.DEBUG=false`."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :goum9x/prod-unknown-fx
                        (fn [_ _] {:fx [[:goum9x/prod-never {}]]}))
@@ -341,7 +341,7 @@
             fx-id fans `:rf.error/override-fallthrough` through the
             always-on listener under `goog.DEBUG=false`."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/prod-real-fx (fn [_ _] nil))
       (rf/reg-event :goum9x/prod-bad-override
@@ -366,7 +366,7 @@
             fx-walk path — proving the production prod-strip producer (not
             just the dev per-call one) survives elision."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; :rf.fx/reg-flow is a REJECT-tier reserved fx (installs durable
       ;; per-frame flow-registry state). A prod build cannot stub it out.
@@ -393,7 +393,7 @@
             always-on listener under `goog.DEBUG=false` (the typo case is a
             production-survivable correctness contract)."
     (let [seen (atom [])]
-      (rf/register-error-listener! :prod/recorder
+      (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :goum9x/prod-unknown-cofx
                        {:rf.cofx/requires [:goum9x/prod-no-cofx]}

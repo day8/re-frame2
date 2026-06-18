@@ -127,7 +127,7 @@
 
 (defn- record-trace! []
   (let [recorded (atom [])]
-    (rf/register-listener! ::recorder (fn [ev] (swap! recorded conj ev)))
+    (rf/register-listener! :trace ::recorder (fn [ev] (swap! recorded conj ev)))
     recorded))
 
 (defn- has-error-op? [events op]

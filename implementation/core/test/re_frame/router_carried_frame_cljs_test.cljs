@@ -57,7 +57,7 @@
 
 (defn- record-traces! [listener-id]
   (let [a (atom [])]
-    (rf/register-listener! listener-id (fn [ev] (swap! a conj ev)))
+    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
 
 (deftest dispatch-under-frame-provider-works
@@ -88,7 +88,7 @@
           (is (some? ex) "bare dispatch with no provider raised")
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
               "the throw carries :rf.error/no-frame-context")))
-      (rf/unregister-listener! ::no-provider)
+      (rf/unregister-listener! :trace ::no-provider)
       (is (empty? (filter #(= :rf.event/dispatched (:operation %)) @recorded))
           "no enqueue — the absence is caught before the registry lookup"))))
 

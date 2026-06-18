@@ -306,7 +306,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### E2. Error reporting to tools
 
-- **Why it matters.** Errors are emitted as structured trace events (per [009 §Error contract](009-Instrumentation.md#error-contract)) — tools branch on `:op-type :error` and `:operation` prefix. The always-on `register-error-listener!` surface is the production-survivable observability mechanism; recovery is framework-owned (the per-category typed defaults), not an app policy.
+- **Why it matters.** Errors are emitted as structured trace events (per [009 §Error contract](009-Instrumentation.md#error-contract)) — tools branch on `:op-type :error` and `:operation` prefix. The always-on error-emit surface (the `:errors` stream of `register-listener!`) is the production-survivable observability mechanism; recovery is framework-owned (the per-category typed defaults), not an app policy.
 - **Options by host.** Falls out of **T1** (trace delivery).
 - **Reference-impl picks.** CLJS routes errors through the trace stream.
 - **Trade-offs.** Strings as errors are out — every error has an `:operation` namespaced keyword and a `:tags` map per the error category.

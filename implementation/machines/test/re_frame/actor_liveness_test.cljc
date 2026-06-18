@@ -144,11 +144,11 @@
     ;; Never spawned: :al3/child#1 has no snapshot.
     (is (nil? (snapshot :al3/child#1)))
     (let [errors (atom [])]
-      (rf/register-listener! ::al3 (fn [ev]
+      (rf/register-listener! :trace ::al3 (fn [ev]
                                      (when (= :rf.error/no-such-handler (:operation ev))
                                        (swap! errors conj ev))))
       (rf/dispatch-sync [:al3/child#1 [:bump]])
-      (rf/unregister-listener! ::al3)
+      (rf/unregister-listener! :trace ::al3)
       (is (seq @errors)
           ":rf.error/no-such-handler fired — the resolver declined (no live snapshot)")
       (is (nil? (snapshot :al3/child#1))

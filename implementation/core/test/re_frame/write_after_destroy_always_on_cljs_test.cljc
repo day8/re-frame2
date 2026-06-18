@@ -64,7 +64,7 @@
             corpus-wide `register-error-listener!` substrate — the always-on
             axis that survives `goog.DEBUG=false` — NOT the DCE'd dev trace."
     (let [seen (atom [])]
-      (rf/register-error-listener! :test/recorder
+      (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; The real production path: every frame :db write flows through this
       ;; choke point; a destroyed frame's container has gone nil.
@@ -95,10 +95,10 @@
             category, `:recovery :ignored`, and a structured-only `:reason`
             (no raw values)."
     (let [traces (atom [])]
-      (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
+      (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
       (try
         (adapter/replace-container! nil {:dropped :write})
-        (finally (rf/unregister-listener! ::rec)))
+        (finally (rf/unregister-listener! :trace ::rec)))
       (let [errs (filter #(= :rf.error/write-after-destroy (:operation %)) @traces)]
         ;; The trace surface is live in dev (this runner); under :advanced +
         ;; goog.DEBUG=false it DCEs — the contract is the always-on record

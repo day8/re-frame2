@@ -51,7 +51,7 @@
 (defn- collect-traces!
   [id]
   (let [acc (atom [])]
-    (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
     acc))
 
 ;; ---- 1. JVM default --------------------------------------------------------
@@ -80,7 +80,7 @@
           "the marker flipped to :client")
 
       (rf/dispatch-sync [:init-platform-test/save])
-      (rf/unregister-listener! ::ip-client)
+      (rf/unregister-listener! :trace ::ip-client)
 
       (is (true? @fired?)
           "the :client-only fx ran because the active platform is now :client")
@@ -105,7 +105,7 @@
       (is (= :server (interop/active-platform)))
 
       (rf/dispatch-sync [:init-platform-test/save])
-      (rf/unregister-listener! ::ip-server)
+      (rf/unregister-listener! :trace ::ip-server)
 
       (is (false? @fired?)
           "the :client-only fx did NOT run on :server")
