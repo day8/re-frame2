@@ -40,6 +40,8 @@ on:
       - 'scripts/check_runtime_subsystem_grading.py'
       - 'scripts/check_inject_cofx_residue.py'
       - 'scripts/_test_fixtures/check_inject_cofx_residue/**'
+      - 'scripts/check_retired_composition_vocab.py'
+      - 'scripts/_test_fixtures/check_retired_composition_vocab/**'
       - '.github/workflows/docs.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # below). The docs surface is re-applied job-side via the `detect` job.
@@ -91,7 +93,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -279,6 +281,30 @@ jobs:
 
       - name: Validate no live inject-cofx / :rf.world/inputs residue
         run: python scripts/check_inject_cofx_residue.py --verbose
+
+      # EP-0023 (image-loaded frames) retired the EP-0013 app/realm/module
+      # construction + install + inspection vocabulary from the public facade
+      # in favour of image -> frame -> event stream. The `pl97nd` epic scrubbed
+      # it repo-wide (facade exports, spec/API rows, doc/skill teaching
+      # surface). This guard keeps the scrub done: it scans docs/api, docs/guide,
+      # docs/EP, spec/, and skills/ markdown for the retired symbols as LIVE
+      # copy-pasteable public API (inside fenced code blocks) with a narrow
+      # self-documenting file allowlist for the historical / internal surface
+      # (the EP docs, the migration skill, the implementor/Pair/Xray tooling
+      # skills that read the retained-internal substrate, and the spec
+      # meta-docs that map the removal). Removed-context prose + inline code
+      # spans + masked `;` comments never fire; a `re-frame.*/`-qualified
+      # internal read or an app's own `counter/install!` hook is not the retired
+      # `rf/` facade and never fires. Self-test first (proves the gate fires on
+      # each live shape + stays green on every sanctioned counterpart + the
+      # allowlist exemption), then the live scan. A later facade-hygiene gate
+      # (rf2-gqa7yv) will generalise this. See
+      # scripts/check_retired_composition_vocab.py.
+      - name: Self-test the retired composition-vocabulary gate
+        run: python scripts/check_retired_composition_vocab.py --self-test --verbose
+
+      - name: Validate no live retired app/realm/module composition vocabulary
+        run: python scripts/check_retired_composition_vocab.py --verbose
 
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.
