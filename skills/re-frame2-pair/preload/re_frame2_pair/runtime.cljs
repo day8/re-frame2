@@ -1114,42 +1114,77 @@
                     case.
 
    `:include-ns?` (default false) gates the per-registration provenance map.
-   FAILS LOUD up the eval boundary on an unresolvable explicit frame."
+
+   NO-GENERATION FRAME (post-EP-0024): only an EXPLICIT `:images` key triggers
+   image resolution, so a frame configured with NO `:images` is an ordinary
+   frame on the shared registrar that carries no composed image — and the public
+   `rf/frame-generation` read FAILS LOUD (`:rf.error/frame-no-generation`) for
+   it (the intended no-generation contract). That is not an error for THIS read:
+   an imageless frame simply runs no composed image, so `describe-image` reports
+   it gracefully — `{:ok? true … :images [] :kinds [] :requires [] :counts {}
+   :no-generation? true}` — rather than letting the fail-loud escape up the eval
+   boundary. The discriminator is the error's `:live-frame-ids`: a frame-id that
+   IS a live frame but carries no generation is the graceful imageless case; an
+   UNRESOLVABLE target (an id naming no live frame at all) still FAILS LOUD up
+   the eval boundary, the facade's no-silent-fallback contract."
   ([] (describe-image {}))
   ([opts]
    (let [{:keys [frame include-ns?]} opts
          frame-id (current-frame frame)]
      (if (nil? frame-id)
        (ambiguous-frame-error :describe-image)
-       (let [gen      (rf/frame-generation frame-id)
-             resolver (:rf.gen/resolver gen)
-             kinds    (vec (sort (:rf.gen/kinds gen)))
-             counts   (reduce-kv
-                        (fn [acc [k _id] _d] (update acc k (fnil inc 0)))
+       (let [gen      (try
+                        (rf/frame-generation frame-id)
+                        (catch :default e
+                          (let [{err-id :rf.error/id
+                                 live   :live-frame-ids} (ex-data e)]
+                            ;; A live frame that carries no generation (an
+                            ;; imageless frame — EP-0024) is the graceful
+                            ;; no-image case, NOT a read failure. Surface the
+                            ;; sentinel and let the caller report it cleanly.
+                            ;; Any other thrown error — including a :frame
+                            ;; target that names NO live frame — re-throws and
+                            ;; fails loud up the eval boundary unchanged.
+                            (if (and (= :rf.error/frame-no-generation err-id)
+                                     (some #(= % frame-id) live))
+                              ::no-generation
+                              (throw e)))))]
+         (if (= ::no-generation gen)
+           {:ok?            true
+            :frame          frame-id
+            :images         []
+            :kinds          []
+            :requires       []
+            :counts         {}
+            :no-generation? true}
+           (let [resolver (:rf.gen/resolver gen)
+                 kinds    (vec (sort (:rf.gen/kinds gen)))
+                 counts   (reduce-kv
+                            (fn [acc [k _id] _d] (update acc k (fnil inc 0)))
+                            {}
+                            resolver)]
+             (cond-> {:ok?      true
+                      :frame    frame-id
+                      ;; Each composed image reduces to its `:rf.image/id` when
+                      ;; it carries one (the named case); an ANONYMOUS image (no
+                      ;; `:id`) has none, so surface its `:include-ns` globs —
+                      ;; what the image selected — rather than the whole map.
+                      :images   (mapv (fn [img]
+                                        (or (:rf.image/id img)
+                                            (when (map? img)
+                                              {:rf.image/include-ns (:rf.image/include-ns img)})
+                                            img))
+                                      (:rf.gen/images gen))
+                      :kinds    kinds
+                      :requires (vec (sort (:rf.gen/requires gen)))
+                      :counts   counts}
+               include-ns?
+               (assoc :registrations
+                      (reduce-kv
+                        (fn [acc [k id] d]
+                          (assoc acc [k id] (coordinate-summary d)))
                         {}
-                        resolver)]
-         (cond-> {:ok?      true
-                  :frame    frame-id
-                  ;; Each composed image reduces to its `:rf.image/id` when it
-                  ;; carries one (the named case); an ANONYMOUS image (no
-                  ;; `:id`) has none, so surface its `:include-ns` globs — what
-                  ;; the image selected — rather than the whole normalized map.
-                  :images   (mapv (fn [img]
-                                    (or (:rf.image/id img)
-                                        (when (map? img)
-                                          {:rf.image/include-ns (:rf.image/include-ns img)})
-                                        img))
-                                  (:rf.gen/images gen))
-                  :kinds    kinds
-                  :requires (vec (sort (:rf.gen/requires gen)))
-                  :counts   counts}
-           include-ns?
-           (assoc :registrations
-                  (reduce-kv
-                    (fn [acc [k id] d]
-                      (assoc acc [k id] (coordinate-summary d)))
-                    {}
-                    resolver))))))))
+                        resolver))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Subscriptions
