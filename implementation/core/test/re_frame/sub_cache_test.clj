@@ -15,6 +15,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.live-frame :as live-frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -797,3 +798,104 @@
       (rf/with-frame :jue/right
         (is (= :right-value @(rf/subscribe [:v]))
             "ambient read under :jue/right resolves :jue/right")))))
+
+;; ===========================================================================
+;; rf2-ts3fuk — unsubscribe frame-target normalization SYMMETRY
+;; ===========================================================================
+;;
+;; EP-0023 (rf2-32siq3.32) made the 2-arity SUBSCRIBE target accept either a
+;; frame-id KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value),
+;; normalizing an object to its runnable-id ADDRESS via
+;; `frame/frame-target->id` before keying the sub-cache. UNSUBSCRIBE (and the
+;; `subscribe-once` teardown that delegates to it) did NOT route its target
+;; through the same normalizer: it called `(frame/frame frame-id)` on the raw
+;; target. A frame OBJECT (a map) is not a key in `frame/frames`, so
+;; `(frame/frame <object>)` returned nil, `unsubscribe` short-circuited at its
+;; `when-let`, and the live cache entry SUBSCRIBE created (keyed by the
+;; runnable-id) was never torn down — an asymmetric-targeting ref-count leak.
+;;
+;; The fix normalizes unsubscribe's target through the SAME
+;; `frame/frame-target->id` path, so a subscribe-then-unsubscribe pair targets
+;; the same frame for EVERY supported spelling (object OR keyword, in either
+;; position). These tests subscribe in a frame and unsubscribe with an
+;; equivalent-but-differently-spelled target, asserting the entry IS evicted.
+
+(defn- object-cache-keys
+  "The set of query-vectors currently cached in the runnable record backing
+  frame OBJECT `frame-obj` (keyed by its runnable-id ADDRESS)."
+  [frame-obj]
+  (let [rid (frame/frame-target->id frame-obj)]
+    (set (keys @(:sub-cache (frame/frame rid))))))
+
+(defn- make-n-frame
+  "A live frame OBJECT running an INLINE image that registers the layer-1 `:n`
+  sub (reading `(:n db)`), seeded with `initial-db`. The inline image keeps the
+  frame off the default whole-store projection (which would collide with the
+  framework standards in this fixture), so the frame is self-contained: its
+  generation resolves exactly `:n`. `opts` may carry `:id`."
+  [opts]
+  (live-frame/make-frame
+    (merge {:images [(rf/image {:id :ts3fuk/img
+                                :registrations
+                                {:reg-sub [[:n {:doc "n"} (fn [db _] (:n db))]]}})]}
+           opts)))
+
+(deftest unsubscribe-object-target-tears-down-the-entry
+  (testing "subscribe with a frame OBJECT then unsubscribe with the SAME object
+            evicts the cache entry — the object target normalizes through the
+            same path on BOTH operations (rf2-ts3fuk). A no-id make-frame object
+            carries a gensym runnable-id, so the object map and its address are
+            genuinely different spellings of the same frame."
+    ;; No-id (direct) frame object — its runnable-id is a gensym, distinct from
+    ;; the object map. Seed app-db so the read resolves.
+    (let [frame-obj (make-n-frame {:initial-db {:n 7}})]
+      ;; Subscribe via the OBJECT target → keyed by the runnable-id.
+      (let [r (rf/subscribe frame-obj [:n])]
+        (is (= 7 @r) "object-target subscribe reads the frame's seeded app-db")
+        (is (contains? (object-cache-keys frame-obj) [:n])
+            "the entry is cached in the frame's runnable record"))
+      ;; Unsubscribe via the SAME OBJECT target. Pre-fix this hit
+      ;; (frame/frame <object>) → nil and was a silent no-op, leaking the entry.
+      (rf/unsubscribe frame-obj [:n])
+      (is (not (contains? (object-cache-keys frame-obj) [:n]))
+          "the entry is torn down — unsubscribe normalized the object target
+           symmetrically with subscribe (the rf2-ts3fuk fix)")
+      (rf/destroy-frame! frame-obj))))
+
+(deftest unsubscribe-mixed-spelling-targets-are-symmetric
+  (testing "subscribe and unsubscribe accept the SAME frame in different
+            spellings (object vs. runnable-id keyword) interchangeably — the
+            entry is evicted whichever spelling teardown uses (rf2-ts3fuk)"
+    (testing "subscribe by KEYWORD id, unsubscribe by the equivalent OBJECT"
+      (let [frame-obj (make-n-frame {:id :ts3fuk/a :initial-db {:n 1}})
+            rid       (frame/frame-target->id frame-obj)]
+        (is (= :ts3fuk/a rid) "an :id-bearing object's runnable-id IS the public id")
+        (rf/subscribe rid [:n])
+        (is (contains? (object-cache-keys frame-obj) [:n]))
+        ;; Differently-spelled teardown target (the object, not the keyword).
+        (rf/unsubscribe frame-obj [:n])
+        (is (not (contains? (object-cache-keys frame-obj) [:n]))
+            "object-target unsubscribe evicts the entry the keyword subscribe made")
+        (rf/destroy-frame! frame-obj)))
+    (testing "subscribe by OBJECT, unsubscribe by the equivalent runnable-id KEYWORD"
+      (let [frame-obj (make-n-frame {:id :ts3fuk/b :initial-db {:n 2}})
+            rid       (frame/frame-target->id frame-obj)]
+        (rf/subscribe frame-obj [:n])
+        (is (contains? (object-cache-keys frame-obj) [:n]))
+        ;; Differently-spelled teardown target (the keyword, not the object).
+        (rf/unsubscribe rid [:n])
+        (is (not (contains? (object-cache-keys frame-obj) [:n]))
+            "keyword-target unsubscribe evicts the entry the object subscribe made")
+        (rf/destroy-frame! frame-obj)))))
+
+(deftest subscribe-once-object-target-disposes-synchronously
+  (testing "subscribe-once with a frame OBJECT target leaves NO live cache entry
+            — its internal teardown unsubscribe now normalizes the object target
+            symmetrically, so the one-shot read's slot is disposed in-tick
+            instead of leaking (rf2-ts3fuk)"
+    (let [frame-obj (make-n-frame {:initial-db {:n 9}})]
+      (is (= 9 (rf/subscribe-once frame-obj [:n]))
+          "object-target subscribe-once returns the seeded value")
+      (is (not (contains? (object-cache-keys frame-obj) [:n]))
+          "no orphaned entry — subscribe-once's object-target teardown evicted it")
+      (rf/destroy-frame! frame-obj))))

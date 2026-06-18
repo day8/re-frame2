@@ -1469,11 +1469,24 @@
                    :event-id (first query-v)})
                 query-v))
   ([frame-id query-v]
-   (when-let [cache (:sub-cache (frame/frame frame-id))]
-     ;; rf2-mrnur — thread `frame-id` through so the `:rf.sub/dispose`
-     ;; trace emit at the eviction site carries the canonical `:frame`
-     ;; tag.
-     (subs-cache/unsubscribe! cache (cache-key query-v) frame-id))))
+   ;; EP-0023 (rf2-32siq3.32) / rf2-ts3fuk — frame-target SYMMETRY: the
+   ;; 2-arity target may be a frame-id KEYWORD or a live frame OBJECT
+   ;; (`rf/make-frame`'s return value), exactly as `subscribe` accepts. A
+   ;; subscribe with an object target normalizes through
+   ;; `frame/frame-target->id` before keying the sub-cache, so the matching
+   ;; teardown MUST normalize through the SAME path or the cache lookup keys
+   ;; an unregistered object instead of the runnable-id ADDRESS, silently
+   ;; misses the live entry, and the ref-count is never released (the
+   ;; asymmetric-targeting bug). Normalizing here makes subscribe-then-
+   ;; unsubscribe target the same frame for every supported spelling; a
+   ;; keyword passes through unchanged (byte-identical for keyword callers).
+   ;; Mirrors `subscribe` (this ns) and `re-frame.router/build-envelope`.
+   (let [frame-id (frame/frame-target->id frame-id)]
+     (when-let [cache (:sub-cache (frame/frame frame-id))]
+       ;; rf2-mrnur — thread `frame-id` through so the `:rf.sub/dispose`
+       ;; trace emit at the eviction site carries the canonical `:frame`
+       ;; tag.
+       (subs-cache/unsubscribe! cache (cache-key query-v) frame-id)))))
 
 ;; ---- tooling sibling --------------------------------------------------
 ;;
