@@ -117,7 +117,7 @@ Registering the table is one line, and this is where people sometimes brace for 
 ;; (rf/reg-event :auth.login/flow (machines/make-machine-handler login-flow))
 ```
 
-> **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so apps without machines build a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot — that registers the hooks through which `rf/reg-machine`, `rf/machine-transition`, and `rf/sub-machine` resolve.
+> **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so apps without machines build a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot — that registers the hooks through which `rf/reg-machine`, `rf/machine-transition`, and the framework `:rf/machine` / `:rf/machine-has-tag?` subs resolve.
 
 A machine **is** an event handler. It's a `reg-event` whose body interprets the transition table: look up the snapshot, compute the transition, write it back, return the action's effects (the effects being the data describing what should happen in the world — the HTTP call, the storage write). Every event reaches it through the same `dispatch` — the call that sends an event into the system — and the same [cascade](events-and-the-cascade.md) as everything else. There's no actor object and no second messaging system, which is the point: one mechanism, used everywhere. (`reg-machine` is a macro that also stamps dev-only source coordinates so tools can jump from a diagram arrow to your code; production builds elide them.)
 
@@ -129,14 +129,14 @@ Dispatching routes through the machine's id, wrapping an inner event vector:
 
 If the current state has no transition for an event, it's a **silent no-op** — nothing throws, because XState v5 dropped strict mode too. The runtime emits a benign `:rf.machine.event/unhandled-no-op` trace so a debugger can still show that the event arrived and was ignored.
 
-The snapshot — `{:state :submitting :data {:attempts 1 :error nil}}` — lives in the frame's **runtime-db** at `[:rf.runtime/machines :snapshots :auth.login/flow]`, kept apart from your app data. A frame is one isolated instance of your running app, and the snapshot is just a value riding it, so undo, time-travel, persistence, and SSR hydration all work on machines for free. Views — the functions that turn state into UI — read the snapshot through a subscription, a reactive query that recomputes when its inputs change:
+The snapshot — `{:state :submitting :data {:attempts 1 :error nil}}` — lives in the frame's **runtime-db** at `[:rf.runtime/machines :snapshots :auth.login/flow]`, kept apart from your app data. A frame is one isolated instance of your running app, and the snapshot is just a value riding it, so undo, time-travel, persistence, and SSR hydration all work on machines for free. Views — the functions that turn state into UI — read the snapshot through a subscription, a reactive query that recomputes when its inputs change. The canonical read is the framework-registered `:rf/machine` sub, addressed by the machine's id:
 
 ```clojure
-@(rf/sub-machine :auth.login/flow)
+@(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 1 :error nil}}  (nil before the first event)
 ```
 
-Named projections chain off the underlying framework sub — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](subscriptions.md).
+There's nothing machine-special about that call — `[:rf/machine <id>]` is an ordinary subscription vector, the same shape you'd write for any registered sub, so it's traceable and introspectable like the rest of your signal graph. Named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](subscriptions.md).
 
 It's worth pausing on the async wiring in `:issue-request`. `:on-success [:auth.login/flow [:auth.login/success]]` is a two-element template. The HTTP effect appends its reply payload and the runtime folds it onto the *inner* event, so `:store-session` sees `[:auth.login/success {:kind :success :value v}]` — exactly the payload [managed HTTP](http.md) sends. Machines and async effects compose with no adapter layer in between.
 
@@ -151,7 +151,7 @@ XState v5 is the behaviour re-frame2 matches; the *expression* is re-frame-nativ
 | `context` (extended state) | `:data` | Same idea; "context" is already overloaded in re-frame2 (interceptor context, React context). |
 | `createActor(machine).start()`, then `actor.send({type: ...})` | the machine **is an event handler**; `(rf/dispatch [machine-id [event]])` | **The big one.** No actor object, no separate send mechanism — one router queue, one cascade. |
 | actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event` handler; effects are data, actioned by the runtime. |
-| state lives in the actor; `actor.getSnapshot()` | the snapshot is a value in runtime-db, read via `@(rf/sub-machine id)` | Time-travel, undo, persistence, and SSR hydration extend to machines for free. |
+| state lives in the actor; `actor.getSnapshot()` | the snapshot is a value in runtime-db, read via `@(rf/subscribe [:rf/machine id])` | Time-travel, undo, persistence, and SSR hydration extend to machines for free. |
 | `setup({guards, actions})` | machine-local `:guards` / `:actions` maps inside the spec | Each machine carries its own, validated at registration; cross-machine reuse is ordinary Clojure vars, not a string registry. |
 
 The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and v5's internal-by-default self-transitions (re-frame2's `:reenter? true` is v5's `reenter: true`). An XState v5 author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
@@ -179,9 +179,9 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 (rf/reg-machine :turnstile/flow turnstile)
 
-;; sub-machine returns nil until the first event; render :initial until then.
+;; [:rf/machine ...] returns nil until the first event; render :initial until then.
 (defn turnstile-view []
-  (let [{:keys [state data]} (or @(rf/sub-machine :turnstile/flow)
+  (let [{:keys [state data]} (or @(rf/subscribe [:rf/machine :turnstile/flow])
                                  {:state (:initial turnstile) :data (:data turnstile)})
         open? (= state :unlocked)]
     [:div {:style {:font-family "sans-serif"}}
@@ -211,10 +211,10 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 The fact arrives recorded on the event's causal token, so the decision replays the same way under time-travel and SSR hydration — [Effects and coeffects](effects-and-coeffects.md) has the general mechanism (a coeffect being a fact pulled *into* a handler, the mirror of an effect pushed out).
 
-**Tags answer the any-of-many question.** Once a machine has several "loading-ish" states, views stop asking "which exact state?" and start asking a predicate: *is it busy?* A state declares `:tags #{:auth/busy}` (as `:submitting` does above), and at every transition the runtime stamps the union of active states' tags onto the snapshot:
+**Tags answer the any-of-many question.** Once a machine has several "loading-ish" states, views stop asking "which exact state?" and start asking a predicate: *is it busy?* A state declares `:tags #{:auth/busy}` (as `:submitting` does above), and at every transition the runtime stamps the union of active states' tags onto the snapshot. The framework ships a derived predicate sub for the containment question — `[:rf/machine-has-tag? <machine-id> <tag>]` — that re-renders only when *this* tag's membership bit flips:
 
 ```clojure
-(when @(rf/machine-has-tag? :auth.login/flow :auth/busy)
+(when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])
   [spinner])
 ```
 
@@ -282,7 +282,7 @@ The flat grammar above carries most machines. When a flow gets richer, the gramm
 **You can now:**
 
 - spot a state machine hiding in scattered `cond` clauses, and say which three diseases the transition-table rewrite cures
-- register a machine (`reg-machine` — sugar over an event handler), dispatch into it, and read it with `sub-machine` and `machine-has-tag?`
+- register a machine (`reg-machine` — sugar over an event handler), dispatch into it, and read it with the `[:rf/machine <id>]` and `[:rf/machine-has-tag? <id> <tag>]` subscription vectors
 - map your XState v5 vocabulary onto re-frame2's five deltas
 - test transitions as pure function calls with `machine-transition`
 - recognise when you need hierarchy, parallel regions, history, or spawned actors — and where their contracts live

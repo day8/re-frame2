@@ -134,7 +134,7 @@ For the registration `(rf/reg-event :drawer/editor (rf/make-machine-handler {...
 {:rf.runtime/machines {:snapshots {:drawer/editor {:state :idle :data {:circle-id nil ...}}}}}
 ```
 
-> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in runtime-db [:rf.runtime/machines :snapshots <id>]) <initial-from-spec>)` — so before the first event, `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :drawer/editor])` returns `nil` and `@(rf/sub-machine :drawer/editor)` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in runtime-db yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or bring the snapshot alive ahead of any user event with the eager `[:machine-id [:rf.machine/start]]` kick, per [§When creation happens — eager start vs lazy first event](#when-creation-happens--eager-start-vs-lazy-first-event), if appearance-without-event is required).
+> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in runtime-db [:rf.runtime/machines :snapshots <id>]) <initial-from-spec>)` — so before the first event, `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :drawer/editor])` returns `nil` and `@(rf/subscribe [:rf/machine :drawer/editor])` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in runtime-db yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or bring the snapshot alive ahead of any user event with the eager `[:machine-id [:rf.machine/start]]` kick, per [§When creation happens — eager start vs lazy first event](#when-creation-happens--eager-start-vs-lazy-first-event), if appearance-without-event is required).
 
 For a spawned actor whose gensym'd id is `:request/protocol#42`:
 
@@ -142,7 +142,7 @@ For a spawned actor whose gensym'd id is `:request/protocol#42`:
 {:rf.runtime/machines {:snapshots {:request/protocol#42 {:state :loading :data {:url "/foo"}}}}}
 ```
 
-`:rf.runtime/machines` is a **reserved runtime-db child** (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)); inside it, `:snapshots` holds the per-machine snapshot map — a `[:map-of :keyword :rf/machine-snapshot]` keyed by the machine's registered id. User code MUST NOT write under `[:rf.runtime/machines ...]`; it reads machine state through `sub-machine` / `[:rf/machine <id>]`, never raw runtime-db paths.
+`:rf.runtime/machines` is a **reserved runtime-db child** (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)); inside it, `:snapshots` holds the per-machine snapshot map — a `[:map-of :keyword :rf/machine-snapshot]` keyed by the machine's registered id. User code MUST NOT write under `[:rf.runtime/machines ...]`; it reads machine state through the `[:rf/machine <id>]` subscription, never raw runtime-db paths.
 
 Why the locked path — the load-bearing reason is [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): locating snapshots in the **runtime-db partition** (part of the one frame-state container) is the named mechanism by which machine state inherits revertibility. When a frame's frame-state reverts, every machine snapshot reverts with it. A parallel ActorRef registry or a per-machine atom would put machine state outside frame-state and break the goal. The five concrete consequences below all flow from that:
 
@@ -795,7 +795,7 @@ What this gives:
 - **One id, one registration.** Reuses the `:event` registry kind. `(registrations :event)` enumerates every machine alongside every other event handler; `(handler-meta :event :drawer/editor)` carries `:rf/machine? true` so tooling can identify it. The snapshot's location in `runtime-db` is fixed and runtime-managed (see [§Where snapshots live](#where-snapshots-live)).
 - **Standard dispatch.** `dispatch` and `dispatch-sync` route to a machine the same way they route to any handler.
 - **Hot-reload.** Re-eval of the registration replaces the table; live snapshots pick up the new interpretation on their next event.
-- **Reading the snapshot.** Views read the snapshot via the framework-shipped `:rf/machine` sub or its `sub-machine` wrapper — `@(rf/sub-machine :drawer/editor)` yields `{:state ... :data ...}` (or `nil` if not yet initialised). See [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine).
+- **Reading the snapshot.** Views read the snapshot via the framework-shipped `:rf/machine` sub — `@(rf/subscribe [:rf/machine :drawer/editor])` yields `{:state ... :data ...}` (or `nil` if not yet initialised). See [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine).
 
 Sub-events are how the machine receives its inputs:
 
@@ -1576,7 +1576,7 @@ The initial snapshot's `:state` is the map of region-name → that region's init
 
 ```clojure
 ;; given the :ui/nine-states example above:
-(@(rf/sub-machine :ui/nine-states))
+@(rf/subscribe [:rf/machine :ui/nine-states])
 ;; => {:state {:data :nothing :form :neutral :mode :active}
 ;;     :data  {:items [] :error nil}
 ;;     :tags  #{:data/idle :form/neutral :mode/active}}
@@ -1991,22 +1991,18 @@ The framework ships one sub:
     (contains? (get-in db [:rf.runtime/machines :snapshots machine-id :tags]) tag)))
 ```
 
-User call sites:
+User call site — the canonical predicate is the subscription vector:
 
 ```clojure
 ;; predicate
 @(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :data/loading])
 ;; => true | false
-
-;; sugar matching sub-machine's pattern
-(rf/machine-has-tag? :ui/nine-states :data/loading)
-;; => reaction wrapping the registered sub
 ```
 
 Reading the whole tag set is the normal snapshot read:
 
 ```clojure
-@(rf/sub-machine :ui/nine-states)
+@(rf/subscribe [:rf/machine :ui/nine-states])
 ;; => {:state ... :data ... :tags #{:data/loading :form/neutral :mode/active}}
 ```
 
@@ -2049,7 +2045,7 @@ That works for the flat-status case; it doesn't scale to "loading, OR validating
  :validating  {:tags #{:data/loading} :on {...}}
  :retrying    {:tags #{:data/loading :data/retry} :on {...}}}
 
-(when @(rf/machine-has-tag? :todos/editor :data/loading)
+(when @(rf/subscribe [:rf/machine-has-tag? :todos/editor :data/loading])
   [view-loading])
 ```
 
@@ -2354,7 +2350,7 @@ Symmetry between singleton and spawned:
 | Singleton | `:drawer/editor` (explicit) | `[:rf.runtime/machines :snapshots :drawer/editor]` | a registrar entry registered at boot via `reg-event`; outlives any one frame's value |
 | Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf.runtime/machines :snapshots :request/protocol#42]` | the SNAPSHOT's presence — no per-instance registrar entry; resolved on dispatch from the snapshot's `:rf/machine-type`; reverts with the frame value |
 
-Both are addressable by `dispatch` (`[<id> <event>]`). Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`. A singleton appears in `(registrations :event)`; a spawned actor does not (its liveness is its snapshot) — enumerate live actors via `[:rf.runtime/machines :snapshots]` instead, per [§Querying machines](#querying-machines).
+Both are addressable by `dispatch` (`[<id> <event>]`). Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/subscribe [:rf/machine actor-id])`. A singleton appears in `(registrations :event)`; a spawned actor does not (its liveness is its snapshot) — enumerate live actors via `[:rf.runtime/machines :snapshots]` instead, per [§Querying machines](#querying-machines).
 
 ### Spawn lifecycle — ordering
 
@@ -2645,12 +2641,12 @@ The standard cross-machine pattern remains `[:fx [[:dispatch [<other-id> [:event
           {:fx [[:dispatch [(rf/machine-by-system-id :primary-request)
                             [:cancel]]]]})
 
-;; Sugar — dispatches via the lookup, no-ops when the name is unbound:
+;; Canonical — dispatches via the lookup, no-ops when the name is unbound:
 :action (fn [_]
           {:fx [[:rf.machine/dispatch-to-system [:primary-request [:cancel]]]]})
 ```
 
-The `:rf.machine/dispatch-to-system` fx is the action-side counterpart to the `dispatch-to-system` **fn** (`re-frame.core`): the fn is for direct call sites, the fx is what a machine action emits from `:fx`. Its args are the single 2-element pair `[<system-id> <event-vector>]` — the framework fx contract is a `[fx-id args]` pair (the `do-fx` walk drops arity-≥3 entries with `:rf.error/effect-map-shape`), so the system-id and event ride together in the one `args` slot, exactly as `:dispatch`'s args is a single event vector and `:rf.machine/spawn`'s is a single spec map. The fx-id is namespaced under `:rf.machine/*` per [Conventions §Fx-id namespacing rule](Conventions.md#fx-id-namespacing-rule--three-reserved-fx-id-sub-namespaces) (surface-specific machine fx).
+The `:rf.machine/dispatch-to-system` fx tuple is the **canonical** cross-machine-by-name surface — the action-side address a machine emits from `:fx`. (It performs the same name-resolve-then-dispatch as the explicit `[:dispatch [(rf/machine-by-system-id ...) ...]]` form above, with no-op-when-unbound semantics folded in.) Its args are the single 2-element pair `[<system-id> <event-vector>]` — the framework fx contract is a `[fx-id args]` pair (the `do-fx` walk drops arity-≥3 entries with `:rf.error/effect-map-shape`), so the system-id and event ride together in the one `args` slot, exactly as `:dispatch`'s args is a single event vector and `:rf.machine/spawn`'s is a single spec map. The fx-id is namespaced under `:rf.machine/*` per [Conventions §Fx-id namespacing rule](Conventions.md#fx-id-namespacing-rule--three-reserved-fx-id-sub-namespaces) (surface-specific machine fx).
 
 The sender doesn't have to capture the gensym'd id at the spawn site, doesn't have to carry it through `:data`, doesn't even have to be the spawning machine — anything in the frame that knows the name can address the actor.
 
@@ -2719,7 +2715,7 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
    ```
 
    This is the re-frame2 spelling of XState v5's `const ref = spawn(child)` captured into `context` — except the id rides the (revertible, SSR-survivable) snapshot rather than a live object. No atom, no runtime-db path coupling. It is the REVERSE direction of the child-lineage stamps (`:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id`) the runtime writes onto the CHILD's `:data`: here the PARENT captures the CHILD's id, keyed by the SAME `<invoke-id>` the child records under `:rf/invoke-id`. See [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys) for the `:rf/spawned` row.
-2. **`:system-id`.** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; resolve anywhere in the frame with `(rf/machine-by-system-id :my-name)`, call `(rf/dispatch-to-system :my-name [...])` from a direct call site, or — from a machine action's `:fx` — emit `[:rf.machine/dispatch-to-system [:my-name [...]]]`. Best when you want a stable *name* rather than the gensym'd id. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
+2. **`:system-id`.** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; from a machine action's `:fx` emit the canonical effect tuple `[:rf.machine/dispatch-to-system [:my-name [...]]]` to message the bound actor by name, or — from a direct call site outside an action context — resolve the id with `(rf/machine-by-system-id :my-name)` and `(rf/dispatch [(rf/machine-by-system-id :my-name) [...]])`. Best when you want a stable *name* rather than the gensym'd id. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
 3. **Read the runtime registry slot.** The id is also always at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (`<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state) — read it directly when you have the parent-id and state path but are *outside* the machine's own action context (where mechanism 1 is unavailable). The `:rf/spawned` `:data` slot (mechanism 1) mirrors this registry slot exactly, in-snapshot.
 4. **`:rf.machine/update-snapshot`.** From a regular `:action`'s `:fx` vector, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` to write a *user-domain* copy of the id into the parent's `:data` under your own key — only when you need it under a domain-specific name distinct from the framework's `:rf/spawned` slot. See the snapshot-level escape hatch in [§Path conventions in machine bodies](#path-conventions-in-machine-bodies).
 
@@ -3702,31 +3698,19 @@ Machines are read like any other slice of frame-state — through a registered s
 
 Returns the whole snapshot `{:state <kw> :data <map>}` for the named machine, or `nil` if the machine is not yet initialised. The argument is **just the machine-id** — no varargs, no path-drilling. Granularity is the user's job via derived subs.
 
-### Two equivalent surfaces
+### The canonical surface is the subscription vector
 
-The framework exposes two surfaces, both equivalent:
-
-- **`(rf/sub-machine :drawer/editor)`** — the canonical user-facing call site. Lives in `re-frame.core` alongside `subscribe`, `dispatch`, `reg-event`. Single-arg; returns a Reagent reaction over the snapshot. The verb-noun name reads as "subscribe to a machine."
-
-  ```clojure
-  (defn sub-machine [machine-id]
-    (rf/subscribe [:rf/machine machine-id]))
-  ```
-
-  > **Name parse — the `sub-` prefix is the subscription family, NOT child-machine.** Per audit-of-audits state-machines #11, `sub-machine` returns a **reactive subscription** on the named machine's state. The `sub-` prefix is re-frame's subscription-family verb (sibling of `subscribe`, `sub-once`) — it does NOT denote a child-machine / sub-machine relationship. Declarative child-machine binding uses `:spawn`, not `sub-machine`. If you're looking for "spawn a child actor of this state," see [§Declarative `:spawn`](#declarative-spawn); if you're looking for "read this machine's snapshot reactively from a view," `sub-machine` is the call.
-
-- **`(rf/subscribe [:rf/machine :drawer/editor])`** — explicit registry use. The `:rf/machine` sub is in `(registrations :sub)`, traceable, introspectable. Power-users and tools use this form.
-
-`sub-machine` is sugar over the registered sub. Both surfaces resolve on the surrounding frame; `@(rf/sub-machine :drawer/editor)` reads from that frame's `[:rf.runtime/machines :snapshots :drawer/editor]`.
+The canonical user-facing read is the ordinary subscription vector `[:rf/machine <machine-id>]` — there is no machine-special call site to learn:
 
 ```clojure
 ;; usage in a view:
-@(rf/sub-machine :drawer/editor)
-;; → {:state :idle :data {:circle-id nil ...}}      (or nil before initialisation)
-
-;; equivalent explicit form:
 @(rf/subscribe [:rf/machine :drawer/editor])
+;; → {:state :idle :data {:circle-id nil ...}}      (or nil before initialisation)
 ```
+
+The `:rf/machine` sub is in `(registrations :sub)`, traceable and introspectable like every other registered subscription; both the sub and any derived subs that chain off it resolve on the surrounding frame, reading that frame's `[:rf.runtime/machines :snapshots :drawer/editor]`. Reading a machine is *exactly* "subscribe to a registered sub" — the same shape the rest of your signal graph already uses — so the substrate stays one mechanism, not two.
+
+> **Reading a machine's snapshot is not the same as a child machine.** A subscription on `[:rf/machine <id>]` is a **reactive read** of the named machine's state. Declarative child-machine binding — spawning a child actor of a state — uses `:spawn`, an entirely separate surface. If you're looking for "spawn a child actor of this state," see [§Declarative `:spawn`](#declarative-spawn); if you're looking for "read this machine's snapshot reactively from a view," subscribe to `[:rf/machine <id>]`.
 
 ### The `:rf/machine-has-tag?` predicate sub
 
@@ -3742,15 +3726,12 @@ Alongside `:rf/machine` the framework ships **`:rf/machine-has-tag?`** — a pre
 
 **Return contract.** Strictly `true` | `false`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`. Returns `false` for every other case — `tag` absent, snapshot present but `:tags` elided (no active state declares tags), or no snapshot at all (unknown or not-yet-initialised machine). Never returns `nil`; the predicate shape is total over `(machine-id, tag)` pairs.
 
-**Re-render granularity.** The sub is **derived** — it reads the snapshot via `get-in` rather than chaining off `:rf/machine` — so the reaction emits only when *this tag's containment-bit* flips. A view that asks `(rf/machine-has-tag? :ui/nine-states :data/loading)` does not re-render when `:state`, `:data`, `:meta`, or *other* tags change; only when `:data/loading` is added to or removed from `:tags`. Reagent's built-in equality dedup gates the boolean return.
+**Re-render granularity.** The sub is **derived** — it reads the snapshot via `get-in` rather than chaining off `:rf/machine` — so the reaction emits only when *this tag's containment-bit* flips. A view that subscribes to `[:rf/machine-has-tag? :ui/nine-states :data/loading]` does not re-render when `:state`, `:data`, `:meta`, or *other* tags change; only when `:data/loading` is added to or removed from `:tags`. Reagent's built-in equality dedup gates the boolean return.
 
 ```clojure
-;; canonical sugar — single call site
-@(rf/machine-has-tag? :ui/nine-states :data/loading)
-;; => true | false
-
-;; equivalent explicit form
+;; canonical surface — the subscription vector
 @(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :data/loading])
+;; => true | false
 ```
 
 For the full tag-set narrative — what `:tags` is, how the runtime computes it at every transition, what the user-vs-runtime ownership boundary looks like — see [§State tags](#state-tags). This section catalogues only the subscription surface.
@@ -3990,7 +3971,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 (rf/reg-sub :drawer/circles      (fn [db _] (get-in db [:drawer :circles])))
 ;; The framework-registered :rf/machine sub returns the snapshot {:state :data}
 ;; for any machine — we parameterise it on :drawer/editor and compose against
-;; it via :<-. (Equivalently: @(rf/sub-machine :drawer/editor).)
+;; it via :<-. (Read directly with @(rf/subscribe [:rf/machine :drawer/editor]).)
 (rf/reg-sub :drawer/editor-state :<- [:rf/machine :drawer/editor] (fn [snap _] (:state snap)))
 (rf/reg-sub :drawer/editor-data  :<- [:rf/machine :drawer/editor] (fn [snap _] (:data snap)))
 (rf/reg-sub :drawer/editing? :<- [:drawer/editor-state] (fn [s _] (= s :editing)))
@@ -4014,8 +3995,8 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 
 (rf/reg-view main []
   (let [circles                @(rf/subscribe [:drawer/circles-with-preview])
-        ;; sub-machine returns the whole snapshot; inline-destructure it.
-        {state :state ed :data} @(rf/sub-machine :drawer/editor)
+        ;; the :rf/machine sub returns the whole snapshot; inline-destructure it.
+        {state :state ed :data} @(rf/subscribe [:rf/machine :drawer/editor])
         editing?               (= state :editing)
         can-undo?              @(rf/subscribe [:drawer/can-undo?])
         can-redo?              @(rf/subscribe [:drawer/can-redo?])]
@@ -4256,7 +4237,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.
 - `[:rf.runtime/machines :snapshots <id>]` as the reserved runtime-db storage scheme; `:rf/machine?` registration-metadata flag.
 - `(rf/machines)` and `(rf/machine-meta id)` — discovery lens over the event registry per [§Querying machines](#querying-machines).
-- The framework-registered `:rf/machine` parametric sub and its `sub-machine` wrapper.
+- The framework-registered `:rf/machine` parametric sub — the canonical `[:rf/machine <id>]` read surface.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
