@@ -14,7 +14,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
 | `rf/reg-frame` | `(id metadata-map)` |
 | `rf/reg-app-schema` | `(path schema opts?)` — boundary validation; needs `day8/re-frame2-schemas` |
-| `rf/reg-machine` / `rf/reg-machine*` | `(id machine-spec)` — needs `day8/re-frame2-machines` |
+| `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
 | `rf/reg-flow` | `(flow-map opts?)` — needs `day8/re-frame2-flows` |
 | `rf/reg-route` | `(id metadata-map)` — needs `day8/re-frame2-routing` |
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
@@ -52,7 +52,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/machine-has-tag?` | `(machine-id tag)` → reaction (boolean) |
 | `re-frame.machines/machines` / `re-frame.machines/machine-meta` | id list / registered spec — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/machine-by-system-id` | `(system-id)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade |
-| `rf/dispatch-to-system` | `(system-id event)` / `(... frame-id)` |
+| `re-frame.machines/dispatch-to-system` | `(system-id event)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade; the canonical action-side messaging surface is the reserved fx `[:rf.machine/dispatch-to-system system-id event]` |
 | `re-frame.machines/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/make-machine-handler` | `(machine)` → event-fx handler — owned-ns surface, **not** on the `rf/` façade |
 
@@ -74,8 +74,8 @@ EP-0023 supersedes EP-0013's public app/realm vocabulary. The public composition
 
 | Surface | Shape |
 |---|---|
-| `rf/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` |
-| `rf/route-url` | `(route-id path-params)` / `(... query-params)` / `(... query-params fragment)` → `"/url"` — 4-arity appends `#fragment` (nil/empty omitted, percent-encoded) |
+| `re-frame.routing/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` — owned-ns surface, **not** on the `rf/` façade (the `reg-route` registration macro stays on `rf/`) |
+| `re-frame.routing/route-url` | `(route-id path-params)` / `(... query-params)` / `(... query-params fragment)` → `"/url"` — 4-arity appends `#fragment` (nil/empty omitted, percent-encoded); owned-ns surface, **not** on the `rf/` façade |
 
 ## HTTP — `day8/re-frame2-http`
 
@@ -129,8 +129,8 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 
 | Surface | Shape |
 |---|---|
-| `rf/app-schema-at` / `rf/app-schemas` / `rf/app-schemas-digest` | read-only schema queries |
-| `rf/set-schema-validator!` / `rf/set-schema-explainer!` | swap-in non-Malli validator |
+| `re-frame.schemas/app-schema-at` / `app-schemas` / `app-schemas-digest` | read-only schema queries — owned-ns surface, **not** on the `rf/` façade (the `reg-app-schema` registration macro stays on `rf/`) |
+| `re-frame.schemas/set-schema-validator!` / `set-schema-explainer!` | swap-in non-Malli validator — owned-ns surface, **not** on the `rf/` façade |
 | `rf/validate-at-boundary-interceptor` | production-side validation interceptor |
 
 ## Privacy / egress — `015 Data Classification` (see `cross-cutting/privacy-and-elision.md`)
@@ -177,7 +177,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `[:rf.interceptor/path path-vector]` | the **one** framework-standard interceptor ref (EP-0022; `:factory`), e.g. `[:rf.interceptor/path [:cart]]` — focuses `:db` on a slice, preserves the `identical?` no-op. No public `rf/path` constructor; no standard `unwrap` (use handler destructuring, or a project-registered `:app/unwrap`) |
 | `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
-| `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
+| `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-sub-cache!` | targeted deregistration. `clear-flow` is the owned-ns surface `re-frame.flows/clear-flow`, **not** on the `rf/` façade (the `reg-flow` registration macro stays on `rf/`) |
 | `rf/configure!` | `(:epoch-history\|:trace-buffer\|:elision opts)` — runtime knobs (`:elision` opts `{:rf.size/threshold-bytes N}`) |
 | `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |
 | `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. Ships to production (not elided) |
