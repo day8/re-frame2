@@ -411,6 +411,72 @@
         (is (seq (traces-for traces :rf.error/machine-parallel-output-key-conflict))
             "a :rf.error/machine-parallel-output-key-conflict trace was emitted")))))
 
+;; ---- (rf2-encnvn) :error? final on a NON-FIRST region routes as ERROR ------
+;; A spawned PARALLEL child whose FIRST region (state-map order) reaches a
+;; plain final but a NON-FIRST region reaches `{:final? true :error? true}`
+;; must route to the spawning parent's `:spawn :on-error` (control flow) — NOT
+;; `:on-done` — and the `:rf.machine/done` trace must carry `:error? true`.
+;; The pre-fix finalize read `:error?` from `(first state)` only (the same
+;; first-region blind spot the C2 `:output-key` scan above already fixed), so
+;; a non-first-region error final was MIS-REPORTED as a successful finish.
+
+(deftest parallel-error-final-on-non-first-region-routes-as-error
+  (testing "rf2-encnvn: a spawned parallel child whose NON-FIRST region reaches an :error? final routes to :on-error, not :on-done"
+    (let [traces       (record-traces! ::par-err-non-first)
+          on-done-ran? (atom false)]
+      (rf/reg-machine :rf2-encnvn/par-err-child
+        {:type    :parallel
+         ;; :alpha is the FIRST region and reaches a PLAIN final (no :error?).
+         ;; :beta (a later region) is the one reaching the ERROR terminal.
+         ;; Pre-fix, finalize classified the finish off :alpha only → success.
+         :regions {:alpha {:initial :run
+                           :states  {:run  {:on {:fin :done}}
+                                     :done {:final? true}}}
+                   :beta  {:initial :run
+                           :states  {:run  {:on {:fin {:target :failed
+                                                       :action (fn [{data :data}]
+                                                                 {:data (assoc data :err :beta/boom)})}}}
+                                     :failed {:final?     true
+                                              :error?     true
+                                              :output-key :err}}}}})
+      (rf/reg-machine :rf2-encnvn/par-err-parent
+        {:initial :working
+         :data    {}
+         :states
+         {:working
+          {:spawn {:machine-id :rf2-encnvn/par-err-child
+                    ;; If finalize mis-classifies the finish as success, :on-done
+                    ;; fires (flipping the flag) and :on-error never runs.
+                    :on-done  (fn [{d :data}] (reset! on-done-ran? true) d)
+                    :on-error {:target :errored                  ;; ← sibling of :working
+                               :action (fn [{data :data ev :event}]
+                                         ;; ev = [:rf.machine.spawn/error <invoke-id> <error>]
+                                         {:data (assoc data :captured (nth ev 2))})}}}
+          :errored {}}})
+      (rf/dispatch-sync [:rf2-encnvn/par-err-parent [:rf.machine.spawn/spawned]])
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-encnvn/par-err-parent [:working]])]
+        (is (some? spawned-id) "parallel child was spawned")
+        ;; :fin is broadcast to both regions; :alpha reaches its plain final and
+        ;; :beta reaches its :error? final → all-regions-final → the child
+        ;; finishes via an ERROR terminal in a NON-FIRST region.
+        (rf/dispatch-sync [spawned-id [:fin]])
+        (is (= :errored (:state (snapshot :rf2-encnvn/par-err-parent)))
+            "the parent moved to :errored — its :spawn :on-error fired (NOT :on-done)")
+        (is (= :beta/boom (get-in (snapshot :rf2-encnvn/par-err-parent) [:data :captured]))
+            "the error payload (the error region's :output-key slot) rode into the :on-error transition's :event")
+        (is (false? @on-done-ran?)
+            ":on-done was NOT called — error finish skips the success callback")
+        (is (nil? (snapshot spawned-id))
+            "the parallel child auto-destroyed on all-regions-final")
+        (let [dones (traces-for traces :rf.machine/done)]
+          (is (= 1 (count dones)) "exactly one :rf.machine/done trace fired")
+          (let [t (first dones)]
+            (is (true? (-> t :tags :error?))
+                "the :rf.machine/done trace classifies the completion as :error? true")
+            (is (= :error (-> t :tags :rf.reply/status))
+                "the reply-envelope status is :error, not :ok")))))))
+
 ;; ---- registration-time validation -----------------------------------------
 
 (deftest final-state-validations
