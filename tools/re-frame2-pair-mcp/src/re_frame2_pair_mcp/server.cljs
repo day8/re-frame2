@@ -59,6 +59,7 @@
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]
+            [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.resource-controls :as resource]
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
@@ -451,13 +452,15 @@
                (-> (tools/invoke conn name args extra)
                    (.catch (fn [err]
                              (log! "handler threw for" name "—" (.-message err))
-                             (let [payload {:ok?     false
-                                            :reason  :handler-threw
-                                            :message (.-message err)}]
-                               #js {:isError          true
-                                    :content          #js [#js {:type "text"
-                                                                :text (pr-str payload)}]
-                                    :structuredContent (clj->js payload)}))))))
+                             ;; rf2-or8s29 — route the server-level error
+                             ;; envelope through `wire/result` so the
+                             ;; structuredContent projection preserves
+                             ;; keyword namespaces (a raw `clj->js` here
+                             ;; truncated `:rf.error/*` reason values).
+                             (wire/result {:ok?     false
+                                           :reason  :handler-threw
+                                           :message (.-message err)}
+                                          true))))))
       (.catch
         (fn [err]
           ;; Discovery failed — surface a structured tool-call error.
@@ -468,10 +471,10 @@
                 payload (if-let [cs (:candidates data)]
                           (assoc payload :candidates cs)
                           payload)]
-            #js {:isError          true
-                 :content          #js [#js {:type "text"
-                                             :text (pr-str payload)}]
-                 :structuredContent (clj->js payload)})))))
+            ;; rf2-or8s29 — same namespace-preserving projection as the
+            ;; handler-threw path; a raw `clj->js` dropped the namespace
+            ;; on `:rf.error/*` reason values.
+            (wire/result payload true))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server boot.

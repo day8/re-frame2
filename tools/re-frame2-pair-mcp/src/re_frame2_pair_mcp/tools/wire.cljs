@@ -171,6 +171,43 @@
       ;; payload keeps its namespace inside the envelope too.
       (if (object? sc) sc (clj->js {"rf.mcp/value" (qualify-keywords v)})))))
 
+(defn structured-content
+  "Public projection of `v` to the SDK-friendly `:structuredContent` JS
+  value — the SAME namespace-preserving, null-safe projection `ok-text`
+  / `err-text` use (rf2-t2n04, rf2-r5erl).
+
+  Exposed (rf2-or8s29) for the handful of result envelopes built OUTSIDE
+  the per-tool callbacks — server-level handler-threw / discovery
+  errors (server.cljs), the cache-hit marker (cache.cljs), and the
+  overflow marker (cap.cljs). Those sites previously built
+  `:structuredContent (clj->js payload)` directly, which is
+  namespace-LOSSY: `:rf.mcp/cache-hit` → `\"cache-hit\"`,
+  `:rf.mcp/overflow` → `\"overflow\"`, and `:rf.error/*` reason VALUES
+  lose their namespace. Routing them through this single helper keeps
+  the structured-content round-trip contract intact everywhere."
+  [v]
+  (structured-of v))
+
+(defn result
+  "Build an arbitrary MCP result envelope (rf2-or8s29) carrying both the
+  pr-str EDN `:content` text and the namespace-preserving
+  `:structuredContent` projection of the SAME `v`. Sets `:isError true`
+  when `error?` is truthy.
+
+  This is the single canonical envelope constructor; `ok-text` /
+  `err-text` are the `(result v false)` / `(result v true)` shorthands.
+  Result-envelope builders OUTSIDE the per-tool callbacks (server-level
+  errors, cache-hit + overflow markers) route through here so they get
+  the same namespace-faithful structured projection rather than a raw,
+  namespace-lossy `clj->js`."
+  [v error?]
+  (if error?
+    #js {:isError          true
+         :content          #js [#js {:type "text" :text (pr-str v)}]
+         :structuredContent (structured-of v)}
+    #js {:content          #js [#js {:type "text" :text (pr-str v)}]
+         :structuredContent (structured-of v)}))
+
 (defn ok-text
   "Success result envelope. Always emits both `:content` (the
   pr-str EDN text) and `:structuredContent` (the JS-coerced
@@ -183,8 +220,7 @@
   SDK's outputSchema validation never rejects the result for a `null`
   structuredContent."
   [v]
-  #js {:content          #js [#js {:type "text" :text (pr-str v)}]
-       :structuredContent (structured-of v)})
+  (result v false))
 
 (defn err-text
   "Error result envelope. Same dual-slot shape as `ok-text` plus
@@ -192,9 +228,7 @@
   LLM without aborting the conversation (per MCP §Error Handling).
   `:structuredContent` is non-null by construction (rf2-r5erl)."
   [v]
-  #js {:isError          true
-       :content          #js [#js {:type "text" :text (pr-str v)}]
-       :structuredContent (structured-of v)})
+  (result v true))
 
 (defn with-indicators
   "Splice the cross-MCP indicator-field slots (`:dropped-sensitive`,

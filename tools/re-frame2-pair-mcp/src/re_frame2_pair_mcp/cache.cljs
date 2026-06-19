@@ -99,7 +99,8 @@
   (rf2-obpa9), `:rf.mcp/summary` (rf2-tygdv), `:rf.size/large-elided`
   (rf2-urjnc). Agents that learned the family see one more slot."
   (:require [applied-science.js-interop :as j]
-            [re-frame2-pair-mcp.tools.registry :as registry]))
+            [re-frame2-pair-mcp.tools.registry :as registry]
+            [re-frame2-pair-mcp.tools.wire :as wire]))
 
 ;; ---------------------------------------------------------------------------
 ;; LRU state — module-level atom; one MCP server process = one session.
@@ -273,10 +274,11 @@
   short-circuit)."
   ([entry tool] (cache-hit-result entry tool :result-hash))
   ([entry tool via]
-   (let [payload (cache-hit-payload (assoc entry :tool tool) via)]
-     #js {:content          #js [#js {:type "text"
-                                      :text (pr-str payload)}]
-          :structuredContent (clj->js payload)})))
+   ;; rf2-or8s29 — route through `wire/result` so the cache-hit marker's
+   ;; structuredContent keeps its namespace: a raw `clj->js` truncated
+   ;; the `:rf.mcp/cache-hit` marker key to `"cache-hit"`, so SDK-friendly
+   ;; hosts reading structuredContent missed the marker entirely.
+   (wire/result (cache-hit-payload (assoc entry :tool tool) via) false)))
 
 ;; ---------------------------------------------------------------------------
 ;; The wire-boundary entry-point.

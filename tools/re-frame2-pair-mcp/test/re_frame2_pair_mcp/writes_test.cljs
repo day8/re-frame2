@@ -18,6 +18,7 @@
   that proves the refusal precedes `ensure-connection!` (discovery never
   runs; the session-state stays pristine)."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
+            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.server :as server]
             [re-frame2-pair-mcp.tools.writes :as writes]))
@@ -95,3 +96,42 @@
   (async done
     (writes/set-allow-writes! false)
     (assert-refused-locally "replace-app-db" done)))
+
+;; ---------------------------------------------------------------------------
+;; Server-level error envelope — namespace-preserving structuredContent
+;; (rf2-or8s29).
+;;
+;; The discovery-error / handler-threw envelopes are built in server.cljs
+;; OUTSIDE the per-tool callbacks. Before rf2-or8s29 they used a raw
+;; `(clj->js payload)` for structuredContent, which truncates the
+;; namespace on `:rf.error/*` reason VALUES (`:rf.error/foo` →
+;; `"foo"`). Routing them through `wire/result` preserves the
+;; fully-qualified token in the SDK-friendly structured slot. Here we
+;; drive a NON-write tool through the pristine, no-port harness so
+;; `ensure-connection!` rejects and `handle-call*` builds the
+;; discovery-error envelope; we assert both the EDN text slot AND the
+;; structured slot agree on the reason, namespace intact.
+;; ---------------------------------------------------------------------------
+
+(deftest discovery-error-structured-content-preserves-reason-namespace
+  (async done
+    (writes/set-allow-writes! false)
+    (-> (server/handle-call-for-tests {} "snapshot" #js {} nil)
+        (.then (fn [result]
+                 (is (err? result) "discovery failure rides as isError")
+                 (let [edn          (read-edn result)
+                       reason       (:reason edn)
+                       reason-token (str (symbol reason))
+                       sc           (j/get result :structuredContent)]
+                   ;; The canonical EDN reason is a keyword.
+                   (is (keyword? reason) "the EDN reason is a keyword")
+                   ;; The structured slot must carry the reason under its
+                   ;; colon-less FULLY-QUALIFIED token — proving the
+                   ;; envelope went through wire/result, not a raw clj->js
+                   ;; (a namespaced reason would otherwise be truncated).
+                   (is (= reason-token (j/get sc "reason"))
+                       "structuredContent :reason keeps its fully-qualified token")
+                   (is (= false (j/get sc "ok?"))
+                       ":ok? false round-trips through the structured slot"))
+                 (done)))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))

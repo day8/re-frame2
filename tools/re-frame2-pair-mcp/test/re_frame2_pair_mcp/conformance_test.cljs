@@ -939,6 +939,24 @@
     {:isError? true
      :reason :missing-epoch-id}}
 
+   ;; rf2-or8s29 — a restore that the runtime REJECTS (legacy bare
+   ;; `false`: aged-out id, drain-in-flight) means the write did not land.
+   ;; It MUST ride as isError carrying :restore-rejected, NOT a
+   ;; success-shaped envelope the host reads as a landed write.
+   {:fixture/id    :restore-epoch/rejected-false
+    :fixture/doc   "restore-epoch with --allow-writes ON whose runtime returns false (rejected restore) rides as isError :restore-rejected (rf2-or8s29)."
+    :fixture/tool  "restore-epoch"
+    :fixture/allow-writes? true
+    :fixture/args  {:epoch-id "999"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["restore-epoch"             false]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :restored? false :reason :restore-rejected :epoch-id 999}}}
+
    ;; ---------- replace-app-db (rf2-ee38b.18 — gated write) ---------------
    {:fixture/id    :replace-app-db/disabled-default
     :fixture/doc   "replace-app-db with --allow-writes OFF returns :rf.error/writes-disabled without touching the runtime."
@@ -982,6 +1000,26 @@
     :fixture/expect
     {:isError? true
      :reason :missing-db}}
+
+   ;; rf2-or8s29 — a replace the runtime REJECTS
+   ;; ({:ok? false :reason :reset-rejected ...}: no-such-frame,
+   ;; replace-during-drain, schema-mismatch) means the injection did NOT
+   ;; land. It MUST ride as isError carrying the reason, NOT a
+   ;; success-shaped envelope.
+   {:fixture/id    :replace-app-db/reset-rejected
+    :fixture/doc   "replace-app-db with --allow-writes ON whose runtime returns {:ok? false :reason :reset-rejected} rides as isError (rf2-or8s29)."
+    :fixture/tool  "replace-app-db"
+    :fixture/allow-writes? true
+    :fixture/allow-raw-state? false
+    :fixture/args  {:db "{:bad :shape}"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["app-db-reset!"             {:ok? false :reason :reset-rejected :frame :rf/default}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :reset-rejected :frame :rf/default}}}
 
    ;; ---------- trace-window -----------------------------------------------
    {:fixture/id    :trace-window/happy

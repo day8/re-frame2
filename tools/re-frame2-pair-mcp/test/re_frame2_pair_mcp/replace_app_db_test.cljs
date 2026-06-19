@@ -205,7 +205,12 @@
 ;; Runtime soft-failure passthrough.
 ;; ---------------------------------------------------------------------------
 
-(deftest passes-through-reset-rejected-envelope
+(deftest reset-rejected-envelope-rides-as-isError
+  ;; rf2-or8s29 — a `{:ok? false :reason :reset-rejected ...}` from the
+  ;; runtime means the injection did NOT land (no-such-frame,
+  ;; replace-during-drain, schema-mismatch). It is not a terminal-empty
+  ;; outcome, so it MUST ride as an isError result carrying the reason,
+  ;; not a success-shaped envelope the host reads as a landed write.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!
@@ -217,10 +222,31 @@
                   (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:bad :shape}"})))))
           (.then (fn [r]
-                   (is (not (err? r)) "soft-failure rides as ok-text, not isError")
+                   (is (err? r) "soft-failure rides as an isError result (rf2-or8s29)")
                    (let [edn (read-result-text r)]
                      (is (= false (:ok? edn)))
                      (is (= :reset-rejected (:reason edn))))
+                   (done)))))))
+
+(deftest unexpected-shape-fallback-rides-as-isError
+  ;; rf2-or8s29 — a degraded / pre-rf2-c2dtu runtime can return a
+  ;; non-map value; the tool synthesises `{:ok? false :reason
+  ;; :unexpected-shape ...}`. That too means the write did not land in a
+  ;; known-good shape, so it MUST ride as an isError result.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! captured "not-a-map"
+                (fn []
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
+                                                      #js {:db "{:counter 0}"})))))
+          (.then (fn [r]
+                   (is (err? r) "unexpected-shape fallback rides as isError (rf2-or8s29)")
+                   (let [edn (read-result-text r)]
+                     (is (= false (:ok? edn)))
+                     (is (= :unexpected-shape (:reason edn)))
+                     (is (= "not-a-map" (:value edn))))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

@@ -90,6 +90,20 @@
       ;; corpus elsewhere).
       (is (object? (j/get result :structuredContent))))))
 
+(deftest cache-hit-marker-key-keeps-namespace-in-structured-slot
+  ;; rf2-or8s29 — the cache-hit marker is built OUTSIDE the per-tool
+  ;; callbacks; before the fix it used a raw namespace-lossy `clj->js`,
+  ;; so SDK-friendly hosts reading structuredContent saw `"cache-hit"`
+  ;; (the marker key truncated) and missed the marker. Now it routes
+  ;; through `wire/result`, preserving the fully-qualified token.
+  (testing "the :rf.mcp/cache-hit marker KEY survives namespace-faithfully (rf2-or8s29)"
+    (let [entry  {:hash 12345 :unchanged-since 1700000000000}
+          result (cache/cache-hit-result entry "snapshot" :result-hash)]
+      (is (some? (j/get-in result [:structuredContent "rf.mcp/cache-hit"]))
+          "the marker serialises to the fully-qualified \"rf.mcp/cache-hit\" key")
+      (is (nil? (j/get-in result [:structuredContent "cache-hit"]))
+          "the namespace-truncated \"cache-hit\" key must NOT appear (the lossy old shape)"))))
+
 ;; ---------------------------------------------------------------------------
 ;; structuredContent is NEVER null (rf2-r5erl).
 ;;

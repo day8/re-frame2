@@ -144,6 +144,22 @@
       (is (string? (:hint marker)))
       (is (re-find #"Narrow scope" (:hint marker))))))
 
+(deftest apply-cap-overflow-marker-key-keeps-namespace-in-structured-slot
+  ;; rf2-or8s29 — the overflow marker is built OUTSIDE the per-tool
+  ;; callbacks (cap/result-io build-overflow-result); before the fix it
+  ;; used a raw namespace-lossy `clj->js`, so SDK-friendly hosts reading
+  ;; structuredContent saw `"overflow"` (the marker key truncated) and
+  ;; missed the marker. Now it routes through `wire/result`.
+  (let [big (apply str (repeat 4000 "x"))
+        r   (ok-text-result {:huge big})
+        out (cap/apply-cap r {:tool "snapshot" :cap 500})
+        sc  (j/get out :structuredContent)]
+    (is (some? sc) "the overflow marker carries a structuredContent slot")
+    (is (some? (j/get sc "rf.mcp/overflow"))
+        "the marker serialises to the fully-qualified \"rf.mcp/overflow\" key")
+    (is (nil? (j/get sc "overflow"))
+        "the namespace-truncated \"overflow\" key must NOT appear (the lossy old shape)")))
+
 (deftest apply-cap-overflow-payload-is-itself-under-cap
   ;; The replacement marker must fit; otherwise we recurse on overflow.
   (let [big (apply str (repeat 8000 "x"))
