@@ -1036,10 +1036,6 @@
     :producer-ns 're-frame.frame
     :design-bead "rf2-gkddyq"
     :description "EP-0013 D1 realm-owned frame-registry view (the realm is EP-0023 retained-INTERNAL installation substrate, not current public vocabulary). Returns `realm-id → #{frame-id …}` over the live (non-destroyed) frames, grouped by each frame record's `:realm` slot. `re-frame.realm/realm-frames` consults it to answer the realm-owned membership query — `re-frame.frame` requires `re-frame.realm` for the frame record's default realm-id, so the back-read is late-bound to avoid a require cycle. Membership is DERIVED from `re-frame.frame/frames` (single source of truth; no separately-stored set), so the `(reset! frame/frames {})` test fixtures reset it for free."}
-   {:key         :frame/destroy-realm-frames!
-    :producer-ns 're-frame.frame
-    :design-bead "rf2-yueuvi"
-    :description "EP-0013 realm-disposal counterpart of `:realm/frames-by-realm`. Destroys every frame OWNED by a realm — runs the full per-frame `destroy-frame!` recipe for each owned frame id (resolved from `frames-by-realm`, under `*current-realm*` bound to the realm so a non-default-realm frame is found by its `[realm-id frame-id]` address). `re-frame.realm/dispose-realm!` calls it FIRST (before its adapter + host-transient teardown) so disposing a realm ends its frames' lifecycle rather than leaving stale records addressable; routed late-bound because a static `realm` → `frame` require would cycle (`frame` requires `realm` for the record's default realm-id). No-op when the realm owns no frames."}
    {:key         :app-value/project
     :producer-ns 're-frame.app-value
     :design-bead "rf2-yozjzo"
