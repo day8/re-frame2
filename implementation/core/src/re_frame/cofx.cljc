@@ -83,23 +83,15 @@
   name collision (Spec 001 §Collisions)."
   #{:db :event})
 
-(defn- rf-prefixed-app-namespace?
-  "True when `id` is a qualified keyword whose namespace starts with `rf.`
-  but is NOT a framework-reserved root. Application ids MUST NOT use
-  `rf.`-prefixed namespaces (Spec 002 §Owner-qualified fact naming). The
-  framework's own facts (`:rf/time-ms`, `:rf.route/*`, `:rf.server/*`, …)
-  are owner-qualified and legitimate; this guard catches an APP registering
-  under an `rf.`-prefixed namespace, which the registration site cannot
-  distinguish from a framework fact. We only police the obviously-app shape
-  here (the lint surface in Spec 009 §9 is the deeper check); the structural
-  guard below rejects nothing that the framework itself registers."
-  [_id]
-  ;; Conservative: do not reject any `rf.`/`rf/` id at registration — the
-  ;; framework and its subsystems legitimately register many of them and the
-  ;; registration site cannot tell app from framework. The owner-qualified
-  ;; naming rule is enforced by the lint (Spec 009 §9), not a structural
-  ;; registration guard. Kept as a named seam for the future lint.
-  false)
+;; NOTE (rf2-6zfzxy): the registration site does NOT police `rf.`-prefixed
+;; APP namespaces — it cannot distinguish an app id from a legitimate
+;; framework/subsystem `rf.*` fact (`:rf/time-ms`, `:rf.route/*`, …), which
+;; the framework registers many of. The owner-qualified naming rule is the
+;; lint surface in Spec 009 §9, not a structural registration guard. The
+;; previously-present `rf-prefixed-app-namespace?` seam was a hardcoded `false`
+;; feeding an unreachable `emit-cofx-name-collision!` branch — removed as dead
+;; code (the future lint lives in Spec 009 §9, not a dormant always-false
+;; predicate here).
 
 (defn- emit-cofx-name-collision!
   "Emit `:rf.error/cofx-name-collision` (registration-time, diagnostic) and
@@ -221,12 +213,6 @@
              "and `:event` are the handler's own arguments — staged by the "
              "runtime, not registered coeffects, and not declarable via "
              "`:rf.cofx/requires`. Choose an owner-qualified fact name.")))
-    (when (rf-prefixed-app-namespace? id)
-      (emit-cofx-name-collision!
-        id
-        (str "`reg-cofx` id `" id "` uses an `rf.`-prefixed namespace reserved "
-             "for the framework. Application coeffects must be owner-qualified "
-             "under an application namespace.")))
     (let [recordable? (boolean (:recordable? meta))
           provided?   (boolean (:provided? meta))]
       ;; `:provided?` is meaningful ONLY alongside `:recordable? true` — a

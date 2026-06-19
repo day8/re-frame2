@@ -2253,23 +2253,6 @@
           (run-handler-cascade! envelope event-id event frame
                                 frame-record handler-meta))))))
 
-(defn- frame-resolution-target
-  "EP-0023 §Frame-derived live registration resolution (rf2-uejnt3): given the
-  CARRIED frame target an envelope holds in `:frame`, return the EP-0023 frame
-  OBJECT to derive the resolution generation from — the object itself when the
-  target IS one (the direct-object dispatch form), or the live-frame registry's
-  object for a frame-id KEYWORD (the `{:frame :counter/main}` form). nil for any
-  target that names no live image-loaded frame — the absence-is-default signal
-  that `call-with-frame-resolution` binds NOTHING and the cascade resolves
-  through the registrar atom path, byte-identical for every existing caller
-  (the EP-0013 realm-routed dispatch and the single-realm default alike).
-  Pure read of the carried target + the process-local live-frame registry."
-  [target]
-  (cond
-    (live-frame/frame-object? target) target
-    (keyword? target)                 (live-frame/live-frame target)
-    :else                             nil))
-
 (defn- process-event!
   "Wrap process-event* in four dynamic bindings:
 
@@ -2370,7 +2353,7 @@
           ;; cascade resolves through the registrar atom exactly as before
           ;; (absence-is-default). DERIVED from the carried target (EP-0002).
           (live-frame/call-with-frame-resolution
-            (frame-resolution-target (:frame envelope))
+            (live-frame/frame-resolution-target (:frame envelope))
             (fn [] (process-event* envelope))))))))
 
 (def ^:private drain-depth-default

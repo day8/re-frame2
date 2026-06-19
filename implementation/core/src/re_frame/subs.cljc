@@ -876,23 +876,6 @@
                v*       (maybe-validate-sub-override! v query-v sub-meta frame-id)]
            (adapter/make-derived-value [] (constantly v*)))))))
 
-(defn- frame-resolution-target
-  "EP-0023 §Frame-derived live registration resolution (rf2-uejnt3): given the
-  CARRIED frame target `subscribe` holds in `frame-id`, return the EP-0023 frame
-  OBJECT to derive the resolution generation from — the object itself when the
-  target IS one (the direct-object `(rf/subscribe frame query-v)` form), or the
-  live-frame registry's object for a frame-id KEYWORD. nil for any target that
-  names no live image-loaded frame — the absence-is-default signal that
-  `live-frame/call-with-frame-resolution` binds NOTHING and the build resolves
-  through the registrar atom path, byte-identical for every existing caller.
-  Mirrors `re-frame.router/frame-resolution-target` (the dispatch-side twin).
-  Pure read of the carried target + the process-local live-frame registry."
-  [target]
-  (cond
-    (live-frame/frame-object? target) target
-    (keyword? target)                 (live-frame/live-frame target)
-    :else                             nil))
-
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity ambient form
@@ -1049,7 +1032,7 @@
      (frame/frame frame-id)
      (fn []
    (live-frame/call-with-frame-resolution
-     (frame-resolution-target frame-id)
+     (live-frame/frame-resolution-target frame-id)
      (fn []
    (or
      #?(:cljs
