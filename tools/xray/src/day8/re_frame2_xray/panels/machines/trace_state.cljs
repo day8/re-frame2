@@ -413,6 +413,40 @@
               (:id e)))
           edges)))
 
+(defn- region-machine-internal-fired-ids
+  "rf2-pdvtxt — fired-edge ids for ONE region HANDLED-but-UNCHANGED via its
+  OWN region-level TARGETLESS/action-only top-level `:on` fallback (a legal
+  Spec 005 region-level internal fallback — XState v5 targetless semantics:
+  the region's `:on` runs an `:action` and moves no state when no child
+  handles the event).
+
+  The peer of `region-machine-on-fired-ids` for the UNCHANGED case.
+  `project-parallel` (`layout.cljc` §rf2-pdvtxt) projects such a region def's
+  targetless top-level `:on` by dropping the synthetic machine-root node and
+  anchoring the internal fallback edge to the REGION CONTAINER on BOTH ends:
+  `:machine-level? true`, `:internal? true`, `:source == :target ==
+  (region-node-id region)`, NOT `:parallel-root-on?`.
+
+  `region-self-internal-fired-ids` keys on the region-SCOPED in-region source
+  (`region-scoped-id region self*`), so it lights a LEAF self/internal edge
+  but CANNOT reach a region-ROOT internal fallback whose source is the
+  container. Before this arm, such a handled-unchanged region-root fallback
+  was the one traversed edge Xray failed to light on a focused epoch.
+
+  We match the machine-level INTERNAL fallback edge whose `:source` is THIS
+  region's container, on the event, excluding `:parallel-root-on?` edges.
+  Returns a seq of ids."
+  [edges region event*]
+  (let [region-source (chart-layout/region-node-id region)]
+    (keep (fn [e]
+            (when (and (:machine-level? e)
+                       (:internal? e)
+                       (not (:parallel-root-on? e))
+                       (= region-source (:source e))
+                       (= event*        (:event e)))
+              (:id e)))
+          edges)))
+
 (defn- parallel-transition-fired-ids
   "Fired-edge ids for ONE PARALLEL multi-region transition.
 
@@ -446,11 +480,15 @@
       region-local/region-level edge ALSO matches cannot happen — the root
       `:on` is suppressed ENTIRELY when any region handles the event, Spec
       005; so the three are mutually exclusive per region.)
-    - **rf2-l8ls6w — region HANDLED but UNCHANGED.** `before == after` yet the
-      region appears in the `:cascade` (a real self/internal transition fired
-      with a non-empty cascade). `region-self-internal-fired-ids` lights the
-      self/internal edge. A region that simply DECLINED the event (RESTING —
-      absent from the cascade) lights nothing.
+    - **rf2-l8ls6w / rf2-pdvtxt — region HANDLED but UNCHANGED.** `before ==
+      after` yet the region appears in the `:cascade` (a real self/internal
+      transition fired with a non-empty cascade). Two self/internal edge
+      shapes are lit, in order: a LEAF self/internal edge (`region-self-
+      internal-fired-ids`, region-scoped in-region source), else a region-ROOT
+      targetless/action-only `:on` fallback (`region-machine-internal-fired-
+      ids`, `:machine-level? true` `:internal? true` sourced from the region
+      CONTAINER — rf2-pdvtxt). A region that simply DECLINED the event
+      (RESTING — absent from the cascade) lights nothing.
 
   `handled-regions` is the set of region names the cascade recorded (from
   `handled-regions-from-cascade`). Per-region `from` / `to` are coerced
@@ -477,12 +515,17 @@
                 (region-root-on-fired-ids edges region to* event*))
 
             ;; HANDLED-but-UNCHANGED: a real self/internal transition with
-            ;; before == after + a non-empty cascade for this region. A
-            ;; RESTING region (= but absent from the cascade) lights nothing.
+            ;; before == after + a non-empty cascade for this region. A LEAF
+            ;; self/internal edge wins; else a region-ROOT targetless/action-
+            ;; only `:on` fallback (rf2-pdvtxt — `:machine-level?` `:internal?`
+            ;; sourced from the region container, which `region-self-internal-
+            ;; fired-ids` cannot reach). A RESTING region (= but absent from
+            ;; the cascade) lights nothing.
             (and from*
                  (= region-before region-after)
                  (contains? handled-regions region))
-            (region-self-internal-fired-ids edges region from* event*)
+            (or (seq (region-self-internal-fired-ids edges region from* event*))
+                (region-machine-internal-fired-ids edges region event*))
 
             :else nil)))
       before-map)))

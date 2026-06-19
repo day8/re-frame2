@@ -598,6 +598,37 @@
       (is (str/includes? out "after(2000) / timeout-log")
           "the note carries the delayed action"))))
 
+(deftest emit-parallel-region-top-level-action-only-on-renders-note
+  (testing "rf2-pdvtxt — an ACTION-ONLY (target-less) REGION-level top-level
+            :on fallback (`:on {:abort {:action :log}}` on a region) runs its
+            action and moves no state. Like the flat machine + parallel-root
+            action-only fallbacks, it has no arrow to draw, so it MUST surface
+            as a note on THAT region's `root fallback` alias — pre-fix it fell
+            through every collector (targetless region :on produced no edge;
+            the per-region note walk only covered region STATES; the root note
+            helper only covered the parallel-root :on/:after). The chart
+            self-anchors it on the region container + SCXML emits a target-less
+            <transition>, so dropping it broke three-emitter agreement."
+    (let [m   {:type    :parallel
+               :regions {:fetch    {:initial :loading
+                                    :on      {:abort {:action :log}} ;; targetless
+                                    :states  {:loading {} :done {:final? true}}}
+                         :validate {:initial :checking
+                                    :states  {:checking {}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      ;; the region declares its own `root fallback` alias node …
+      (is (str/includes? out "state \"root fallback\" as fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
+          "region :fetch declares its own root-fallback alias for its top-level :on")
+      ;; … and the targetless fallback surfaces as a note on THAT alias.
+      (is (str/includes? out "note right of fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
+          "the region's action-only top-level :on surfaces as a note on its fallback alias")
+      (is (str/includes? out "abort / log")
+          "the note carries the region fallback event + action")
+      (is (not (str/includes? out "--> fetch__rf_2emachines_2dviz_2emermaid_2froot_2dfallback : abort"))
+          "no phantom arrow for the action-only region fallback")
+      (is (not (str/includes? out "fetch__ "))
+          "no degenerate region-scoped empty-path target leaks into the diagram"))))
+
 ;; ---- internal (action-only) :on / :after / :always notes (rf2-mnp93.4) --
 ;;
 ;; An INTERNAL transition candidate (a map omitting `:target` — Spec 005

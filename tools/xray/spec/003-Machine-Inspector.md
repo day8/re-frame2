@@ -780,10 +780,21 @@ arm 3 resolves a fired root-`:after` move without a separate arm — a fired
 root `:after` lights its region-qualified edge exactly as a root `:on`
 does. Separately, a region **HANDLED but UNCHANGED**
 (`before == after` with a non-empty `:cascade` for the region) lights its
-self / internal edge, distinguished from a RESTING region by the
-`:cascade` `:region` stamps (rf2-l8ls6w). Without arm (2) a parallel
-region moved by its own region-level `:on` rendered the state change with
-no fired-edge highlight — the topology drew the edge but the focused
+self / internal edge through an ordered, mutually-exclusive pair:
+(a) a **leaf** self / internal edge (region-scoped in-region `:source`,
+`:from-path == :to-path`, rf2-l8ls6w); else (b) a region-**ROOT
+targetless / action-only `:on`** fallback — a region-level `:on`
+omitting `:target` runs only its `:action` and moves no state, which
+machines-viz projects (dropping the synthetic machine-root) as a
+`:machine-level? true` **`:internal? true`** edge anchored to the
+**region container** (`chart.layout/region-node-id`) on BOTH ends
+(rf2-pdvtxt). A RESTING region (= but absent from the `:cascade`) lights
+nothing. Without arm (2) a parallel region moved by its own (targeted)
+region-level `:on` rendered the change with no highlight; without arm
+(b) a region **handled-unchanged** by its own region-root targetless
+`:on` was equally dark — `region-self-internal-fired-ids` keys on the
+region-scoped in-region source and cannot reach the container-anchored
+fallback. In both gaps the topology drew the edge but the focused
 Dynamic chart left it dark.
 
 **Render (render plane).** The host threads the multi-id set verbatim as

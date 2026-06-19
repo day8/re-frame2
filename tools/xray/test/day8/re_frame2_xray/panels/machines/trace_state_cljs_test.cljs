@@ -1175,6 +1175,48 @@
       (is (= #{internal-id} fired)
           "the internal HANDLED-unchanged :a edge lights off the cascade"))))
 
+(deftest fired-ids-parallel-region-root-internal-on-before-equals-after
+  (testing "rf2-pdvtxt — a region firing a TARGETLESS/action-only transition on
+            its REGION ROOT `:on` (no :target, before == after) lights the
+            region-CONTAINER-anchored internal fallback edge off the non-empty
+            cascade. region-self-internal-fired-ids keys on a region-SCOPED
+            in-region source so it cannot reach this region-root fallback; the
+            new region-machine-internal-fired-ids arm lights it."
+    ;; :a carries a region-ROOT :on {:abort {:action :log}} (targetless). From
+    ;; :loading, :abort is handled by the region root, runs :log, and moves NO
+    ;; state (before == after). :b rests.
+    (let [def       {:type    :parallel
+                     :regions {:a {:initial :loading
+                                   :on      {:abort {:action :log}} ;; region-ROOT targetless
+                                   :states  {:loading {:on {:loaded :done}}
+                                             :done    {:final? true}}}
+                               :b {:initial :idle
+                                   :states  {:idle {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          ;; the canonical projected internal fallback edge: machine-level +
+          ;; internal, sourced AND targeted at the region container (rf2-pdvtxt).
+          internal-id (->> projected
+                           (some (fn [e]
+                                   (when (and (:machine-level? e)
+                                              (:internal? e)
+                                              (not (:parallel-root-on? e))
+                                              (= (chart-layout/region-node-id :a) (:source e))
+                                              (= (chart-layout/region-node-id :a) (:target e))
+                                              (= :abort (:event e)))
+                                     (:id e)))))
+          events    [{:operation :rf.machine/transition
+                      :tags {:machine-id :par
+                             :before {:state {:a :loading :b :idle}}
+                             :after  {:state {:a :loading :b :idle}}
+                             :event  [:abort]
+                             :cascade [{:kind :action :region :a :state []
+                                        :action :log}]}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? internal-id)
+          "the :a region-root internal fallback edge is projected + container-anchored")
+      (is (= #{internal-id} fired)
+          "the region-root internal HANDLED-unchanged :a fallback lights off the cascade"))))
+
 (deftest fired-ids-parallel-resting-region-lights-nothing
   (testing "rf2-l8ls6w — a region whose before == after AND is ABSENT from the
             cascade (a RESTING region that declined the event) lights nothing,
