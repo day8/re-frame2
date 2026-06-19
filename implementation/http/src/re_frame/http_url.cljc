@@ -67,8 +67,9 @@
 (def redacted-sentinel
   "The framework-reserved redaction sentinel keyword per Spec 009 §Privacy.
   Re-exported from the canonical `re-frame.privacy/redacted-sentinel` in
-  core (rf2-qe237) — `http-privacy` re-exports it and `http-privacy-headers`
-  refers to it."
+  core (rf2-qe237). This is the http-side public anchor — `http-privacy`
+  and `http-privacy-headers` both refer to it privately (rf2-m00e7p), so
+  the keyword cannot drift across the http privacy cluster."
   privacy/redacted-sentinel)
 
 ;; ---- query-param denylist (rf2-2p8wr) -------------------------------------

@@ -138,11 +138,6 @@
 
 ;; ---- body encoding --------------------------------------------------------
 
-(defn- form-encode-body
-  "URL-encoded form body from a Clojure map."
-  [form-map]
-  (params->query form-map))
-
 (defn encode-body
   "Per Spec 014 §Body encoding. Returns a tuple `[encoded-body content-type]`.
   `content-type` may be nil — the caller decides whether to set the header."
@@ -155,7 +150,7 @@
     [(util-json/json-stringify body) "application/json"]
 
     (= request-content-type :form)
-    [(form-encode-body body) "application/x-www-form-urlencoded"]
+    [(params->query body) "application/x-www-form-urlencoded"]
 
     (= request-content-type :text)
     [(str body) "text/plain"]
