@@ -1083,6 +1083,41 @@
           :else
           (recur (rest remaining) depth acc))))))
 
+(defn- parse-after-key
+  "Decode an `after.<delay>` SCXML event name into its `:after` map key.
+  A numeric delay parses to a Long/int; a non-numeric delay is an
+  id-encoded keyword (rf2-mnp93.1) decoded symmetrically with
+  `keyword->id-string` so a namespaced keyword delay (`:a/b` →
+  `after.a__b`) round-trips its namespace. Shared by `consume-transitions`
+  and `parse-root-parallel-transitions` (each keeps its own target decoder)."
+  [event]
+  (let [d-str (subs event 6)
+        d     (try
+                #?(:clj  (Long/parseLong d-str)
+                   :cljs (let [n (js/parseInt d-str 10)]
+                           (if (js/isNaN n) nil n)))
+                (catch #?(:clj Exception :cljs :default) _ nil))]
+    (or d (id-string->keyword d-str))))
+
+(defn- simplify-candidates
+  "rf2-mnp93.8 — finalise an accumulated candidate vector to the canonical
+  SCXML-import shorthand, shared by `consume-transitions` and
+  `parse-root-parallel-transitions`:
+
+    - 1 candidate, target-only  → bare keyword/path target
+      (matches the canonical `:on {:event :target}` shorthand)
+    - 1 candidate, guard/action → the candidate map verbatim
+    - N candidates              → the vector of full maps verbatim
+
+  A MULTI-candidate vector keeps each element in its explicit map form so a
+  MIXED vector (`[{:target :a :guard :g1} {:target :b}]`) round-trips
+  value-equal rather than collapsing `{:target :b}` to a bare `:b`."
+  [cands]
+  (if (= 1 (count cands))
+    (let [c (first cands)]
+      (if (= [:target] (keys c)) (:target c) c))
+    cands))
+
 (defn- consume-transitions
   "Walk an open `<state>` body's tokens and split out direct-child
   transitions vs the rest (which group-children-by-state will turn
@@ -1156,18 +1191,7 @@
                              action-s (assoc :action (id-string->keyword action-s)))]
               (cond
                 (and event (str/starts-with? event "after."))
-                (let [d-str (subs event 6)
-                      d     (try
-                              #?(:clj  (Long/parseLong d-str)
-                                 :cljs (let [n (js/parseInt d-str 10)]
-                                         (if (js/isNaN n) nil n)))
-                              (catch #?(:clj Exception :cljs :default) _ nil))
-                      ;; rf2-mnp93.1 — a non-numeric delay is an
-                      ;; id-encoded keyword; decode it symmetrically with
-                      ;; `keyword->id-string` so a namespaced keyword delay
-                      ;; (`:a/b` → `after.a__b`) round-trips its namespace.
-                      k     (or d (id-string->keyword d-str))]
-                  (update-in acc [:after k] (fnil conj []) cand-map))
+                (update-in acc [:after (parse-after-key event)] (fnil conj []) cand-map)
 
                 ;; rf2-41goo — a `done.state.<id>` transition is the
                 ;; XState `onDone` completion (SCXML §3.7). It sits inside
@@ -1195,32 +1219,14 @@
                            (fnil conj []) cand-map))))
           {}
           ts)]
-    ;; rf2-mnp93.8 — finalise the candidate vectors. The reduce above
-    ;; accumulates EVERY candidate as its full `{:target ... :guard ...}`
-    ;; map. The bare-keyword/path SHORTHAND now applies ONLY to a SOLE
-    ;; target-only candidate; a MULTI-candidate vector keeps each element
-    ;; in its explicit map form. Pre-fix the decoder collapsed each
-    ;; element of a vector to a bare keyword, so a MIXED vector
-    ;; (`[{:target :a :guard :g1} {:target :b}]`) round-tripped to
-    ;; `[{:target :a :guard :g1} :b]` — value-unequal to the input. Now:
-    ;;   - 1 candidate, target-only  → bare keyword/path (`:b`)
-    ;;     (matches the canonical `:on {:event :target}` shorthand)
-    ;;   - 1 candidate, guard/action → the map (`{:target :b :guard :g}`)
-    ;;   - N candidates              → vector of the full maps, verbatim
-    ;; `:always` keeps the full vector-of-maps form so it lines up with
-    ;; `(transition-candidates ...)`.
-    (let [target-only? (fn [m] (= [:target] (keys m)))
-          simplify     (fn [cands]
-                         (if (= 1 (count cands))
-                           (if (target-only? (first cands))
-                             (:target (first cands))
-                             (first cands))
-                           cands))
-          on*      (when (:on coll)
-                     (into {} (map (fn [[ev cands]] [ev (simplify cands)]) (:on coll))))
+    ;; rf2-mnp93.8 — finalise the candidate vectors via the shared
+    ;; `simplify-candidates`. `:always` keeps the full vector-of-maps form so
+    ;; it lines up with `(transition-candidates ...)`.
+    (let [on*      (when (:on coll)
+                     (into {} (map (fn [[ev cands]] [ev (simplify-candidates cands)]) (:on coll))))
           after*   (when (:after coll)
-                     (into {} (map (fn [[k cands]] [k (simplify cands)]) (:after coll))))
-          ondone*  (when (contains? coll :on-done) (simplify (:on-done coll)))]
+                     (into {} (map (fn [[k cands]] [k (simplify-candidates cands)]) (:after coll))))
+          ondone*  (when (contains? coll :on-done) (simplify-candidates (:on-done coll)))]
       (cond-> {:children-tokens non-transitions}
         (:on coll)               (assoc :on on*)
         (:after coll)            (assoc :after after*)
@@ -1422,14 +1428,7 @@
                 acc
 
                 (and event (str/starts-with? event "after."))
-                (let [d-str (subs event 6)
-                      d     (try
-                              #?(:clj  (Long/parseLong d-str)
-                                 :cljs (let [n (js/parseInt d-str 10)]
-                                         (if (js/isNaN n) nil n)))
-                              (catch #?(:clj Exception :cljs :default) _ nil))
-                      k     (or d (id-string->keyword d-str))]
-                  (update-in acc [:after k] (fnil conj []) cand-map))
+                (update-in acc [:after (parse-after-key event)] (fnil conj []) cand-map)
 
                 (some? event)
                 (update-in acc [:on (id-string->keyword event)]
@@ -1437,19 +1436,13 @@
 
                 :else acc)))
           {}
-          ts)
-        ;; rf2-mnp93.8 — same shorthand finalisation `consume-transitions`
-        ;; uses: a sole target-only candidate collapses to its bare target.
-        target-only? (fn [m] (= [:target] (keys m)))
-        simplify     (fn [cands]
-                       (if (= 1 (count cands))
-                         (if (target-only? (first cands))
-                           (:target (first cands))
-                           (first cands))
-                         cands))]
+          ts)]
+    ;; rf2-mnp93.8 — same shorthand finalisation `consume-transitions` uses
+    ;; (the shared `simplify-candidates`): a sole target-only candidate
+    ;; collapses to its bare target.
     (cond-> {}
-      (:on coll)    (assoc :on    (into {} (map (fn [[ev cs]] [ev (simplify cs)]) (:on coll))))
-      (:after coll) (assoc :after (into {} (map (fn [[k cs]] [k (simplify cs)]) (:after coll)))))))
+      (:on coll)    (assoc :on    (into {} (map (fn [[ev cs]] [ev (simplify-candidates cs)]) (:on coll))))
+      (:after coll) (assoc :after (into {} (map (fn [[k cs]] [k (simplify-candidates cs)]) (:after coll)))))))
 
 (defn scxml->spec
   "Parse an SCXML XML string into a re-frame2 machine spec.
