@@ -32,6 +32,25 @@
 
 ;; ---- registration ---------------------------------------------------------
 
+(defn register-with-marks!
+  "Shared registration tail for `reg-fx` and `reg-cofx` (rf2-a3pl56). Both
+  register sites validate any declared `:sensitive` / `:large` marks fail-loud
+  BEFORE the registrar write (rf2-ehexnw — the marks themselves are DERIVED
+  from the registrar meta at `marks-for` read time, no imperative stash), then
+  write the registrar entry as the merged source-coords + the `:handler-fn`
+  callable slot. `kind` is `:fx` / `:cofx` (drives both the marks-validation
+  kind and the registrar kind); `extra-slots` is an optional map of
+  kind-specific registrar slots merged on top — `nil` for `reg-fx`, the
+  `:recordable?` / `:provided?` grade flags for `reg-cofx`. `re-frame.cofx`
+  reaches this through its existing `fx/` alias (the same single-definition
+  pattern as `runs-on-platform?` / `platform-for-frame-record`, rf2-4ymm0)."
+  [kind id meta handler-fn extra-slots]
+  (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+    (validate! kind meta))
+  (registrar/register! kind id (merge (assoc (source-coords/merge-coords meta)
+                                             :handler-fn handler-fn)
+                                      extra-slots)))
+
 (defn reg-fx
   "Register an effect handler under `id`. The handler runs when a
   `reg-event` handler returns an effect-map carrying `[id args]` inside its
@@ -91,15 +110,7 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
-    ;; Per Spec 015 §4. Effects — VALIDATE any declared `:sensitive` / `:large`
-    ;; marks fail-loud BEFORE the registrar write (rf2-ehexnw); the marks
-    ;; themselves are DERIVED from the registrar meta at `marks-for` read time
-    ;; (emit-time projection redacts `:fx-args` slots on `:rf.fx/handled`
-    ;; traces), no imperative stash.
-    (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-      (validate! :fx meta))
-    (registrar/register! :fx id (assoc (source-coords/merge-coords meta)
-                                       :handler-fn handler-fn))
+    (register-with-marks! :fx id meta handler-fn nil)
     id))
 
 (defn clear-fx

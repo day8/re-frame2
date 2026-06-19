@@ -33,7 +33,6 @@
             [re-frame.cofx.value-check :as value-check]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
-            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
