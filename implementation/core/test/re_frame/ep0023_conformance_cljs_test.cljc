@@ -992,3 +992,67 @@
           gen  (asm/assemble [img] pool)]
       (is (= ::app-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))
           "the declared :replace-standard winner replaces the standard in the generation"))))
+
+;; ===========================================================================
+;; SECTION 10 — Inline (image-loaded) events deliver :rf.cofx/requires
+;; (EP-0023 §Image Fragments — "Both paths should lower to the same runtime
+;;  descriptor shape"; Spec 002 §Satisfaction; EP-0017 §5 declared-only
+;;  delivery; rf2-khi7xr)
+;; ===========================================================================
+;;
+;; The bug (rf2-khi7xr): the normal `reg-event` path parses `:rf.cofx/requires`
+;; into `:rf.cofx/requires-parsed` on the registrar entry, and the satisfaction
+;; step (`router/assemble-initial-ctx`) reads that TOP-LEVEL slot to deliver the
+;; declared facts. The EP-0023 inline-image path lowers a `:reg-event` descriptor
+;; through `events/lower-inline-event`, which emitted ONLY `{:handler-fn
+;; :interceptors}` and NEVER parsed the inline `:metadata`'s `:rf.cofx/requires`
+;; — so an image-loaded event declaring `:rf.cofx/requires` ran with the declared
+;; facts MISSING (a fail-open silent drop). EP-0017 §5 requires uniform
+;; declared-only delivery for EVERY event regardless of registration path.
+;;
+;; The cofx supplier is ALSO declared inline (in the same image's
+;; `:registrations`) so it rides into the frame's generation — EP-0023
+;; §Frame-derived resolution is ALL-OR-NOTHING (a bound generation resolves
+;; ONLY its own descriptors, no registrar fallback; proven by
+;; `s5-generation-scope-is-all-or-nothing`), so a framework-registrar-only cofx
+;; would not be resolvable under the frame's generation. The whole event +
+;; cofx pair lives in the one image, exactly as a real image-loaded feature
+;; would ship them.
+
+(deftest s10-inline-image-event-receives-declared-cofx-requires
+  (testing "EP-0023 §Image Fragments: an INLINE (image-loaded) event declaring
+            `:rf.cofx/requires` RECEIVES the declared coeffect when dispatched —
+            the inline path lowers to the SAME runtime descriptor shape (with
+            `:rf.cofx/requires-parsed`) the `reg-event` path installs, so
+            declared-only delivery is uniform across both registration paths
+            (rf2-khi7xr)"
+    (let [seen (atom ::unset)
+          ;; The inline handler reads the DECLARED :inline.cofx/locale and
+          ;; stashes it (so the test can assert delivery) while writing app-db.
+          handler (fn [{:keys [db inline.cofx/locale]} _]
+                    (reset! seen locale)
+                    {:db (assoc db :ran? true)})
+          img   (rf/image
+                  {:id :inline/cofx
+                   :registrations
+                   {;; The ambient cofx supplier rides into the SAME generation.
+                    :reg-cofx
+                    [[:inline.cofx/locale
+                      {:doc "Inline ambient supplier."}
+                      (fn [] "en-AU")]]
+                    :reg-event
+                    [[:inline.cofx/touch
+                      {:doc "Inline event declaring a cofx requirement."
+                       :rf.cofx/requires [:inline.cofx/locale]}
+                      handler]]}})
+          ;; No :include-ns → no source pool needed; the inline entries are
+          ;; selected because the image was supplied.
+          frame (lf/make-frame {:id :inline/cofx-frame :images [img]} [])]
+      (rf/dispatch-sync [:inline.cofx/touch] {:frame :inline/cofx-frame})
+      (is (true? (:ran? (rf/app-db-value :inline/cofx-frame)))
+          "the inline image-loaded handler ran")
+      (is (= "en-AU" @seen)
+          "the DECLARED :inline.cofx/locale coeffect was delivered FLAT to the
+           inline handler (was silently DROPPED before rf2-khi7xr —
+           :rf.cofx/requires-parsed was never emitted by lower-inline-event)")
+      (rf/destroy-frame! frame))))
