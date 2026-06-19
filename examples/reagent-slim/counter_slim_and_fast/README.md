@@ -30,11 +30,13 @@ the teaching source so it does not bleed into `core.cljs`:
   so the gate's non-vacuity contract has signal.
 - The build's `:init-fn` is the gate-owned entrypoint
   [`bundle_isolation_entry.cljs`](bundle_isolation_entry.cljs), **not**
-  `core/run`. It boots the same app as `core/run` and weaves the fixture
-  exercise in at the one point its ordering needs (under the frame scope,
-  before the client mount). This keeps `core.cljs` free of harness
+  `core/run`. It does not re-copy the boot: both `core/run` and the entry
+  call the single shared `core/boot!` helper, so the two paths cannot drift.
+  The entry passes `boot!` an `on-frame` pre-mount hook that weaves the
+  fixture exercise in at the one point its ordering needs (under the frame
+  scope, before the client mount). This keeps `core.cljs` free of harness
   mechanics: `core/run` is plain, idiomatic re-frame2 with nothing but
-  the example's own dataflow (rf2-vyl0vt).
+  the example's own dataflow (rf2-vyl0vt, rf2-pe4u0g).
 
 A reader studying the example can ignore both gate files and read
 `core.cljs`.
@@ -75,8 +77,8 @@ prefixed first.
 
 ```
 counter_slim_and_fast/
-  core.cljs                          the teaching example: events/subs/views + mount
-  bundle_isolation_entry.cljs        gate-owned :init-fn — boots core + the SSR exercise (not app practice)
+  core.cljs                          the teaching example: events/subs/views + the shared boot! + mount
+  bundle_isolation_entry.cljs        gate-owned :init-fn — calls core/boot! with the SSR-exercise hook (not app practice)
   bundle_isolation_fixture.cljs      SSR/sentinel proof for the gate (not app practice)
   index.html                         minimal host page
   README.md                          this file

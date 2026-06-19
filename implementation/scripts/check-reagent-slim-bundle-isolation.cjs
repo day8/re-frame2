@@ -356,8 +356,10 @@ function main() {
       console.error('Contract 4 failed: the slim SSR path is NOT present in the bundle, so');
       console.error('Contract 3 (react-dom/server absence) is a VACUOUS S3-005 proof — the');
       console.error('bundle no longer exercises SSR at all. Likely cause: the');
-      console.error('`(rds/render-to-static-markup [counter-app])` boot exercise in');
-      console.error('examples/reagent-slim/counter_slim_and_fast/core.cljs was removed or');
+      console.error('`(rds/render-to-static-markup ...)` SSR exercise in');
+      console.error('examples/reagent-slim/counter_slim_and_fast/bundle_isolation_fixture.cljs');
+      console.error('(prove-pure-cljs-ssr!, woven into boot via the bundle_isolation_entry');
+      console.error('on-frame hook) was removed or');
       console.error('let get DCE-eliminated (the host-global write is the DCE anchor — keep');
       console.error('it writing the prerender result, not a literal). If the SSR exercise IS');
       console.error('still present and intentional, a serializer sentinel string may have');
