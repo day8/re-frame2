@@ -135,7 +135,7 @@ Given a component name or render key, find the latest epoch whose `:renders` inc
 
 ## "Explain this error" / "What caused this error?"
 
-1. Pull recent error traces: `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime this skill drives.)
+1. Pull recent error traces: `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`. (Frame-id first; `:op-type` is a `:flat-only` filter so pass `:flat true`. Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime this skill drives.)
 2. Read `:rf.trace/trigger-handler` on the error event — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}`. This is the **handler that was executing when the error fired**, not the throw site inside the framework. Report it as `<kind> :<id> at <file>:<line>` so the user can jump straight to the source. (The field rides the trace surface — always present in the dev build this skill drives; it production-elides with the rest of the trace surface, so a production deployment would instead read the coord off the always-on error-emit record's `:source-coord`, not from a pair session.)
 3. If the error sits inside a known epoch, cross-check `:trigger-event` and walk the cascade via `:parent-dispatch-id` — the upstream event that queued the offending handler is often the real culprit.
 4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-event` because the registered id is misspelt). The `:rf.error/data` payload — the failing id, the lookup map — is then the only handle; offer to `list-handlers {kind: "event"}` (or the matching kind) to find a near match.
@@ -148,7 +148,7 @@ The one-call move is `read-ui {selector: "#save"}` (or `{point: {x, y}}` / `{vie
 mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-source-at \"#save\")"}   ;; or (... :last-clicked)
 ```
 
-Returns `{:ns :line :file}`. If `:src` is nil, report which prerequisite is missing (`:annotate-dom?` is off so no `data-rf2-source-coord` is stamped, no `:src (at)` on this re-com call site, or no registered view at this DOM position).
+Returns `{:ns :line :file}`. If `:src` is nil, report which prerequisite is missing: no registered view at this DOM position (anonymous Reagent fn, so no `data-rf2-source-coord` is stamped — re-frame2 annotates registered-view roots only), a non-DOM-capable adapter or production build, or no `:src (at)` on a re-com call site.
 
 ## "Understand this component" / "What is this thing?"
 
@@ -220,7 +220,7 @@ Canonical procedure (commit-and-compare):
    ```
    mcp__re-frame2-pair__restore-epoch {epoch-id: "<epoch-id>"}
    ```
-   Returns `{:ok? true :restored? true :cascade-summary {…} :unreplayable-effects [...]}` on success. On any documented failure mode it returns `{:ok? false :reason :restore-rejected}` (one of the seven modes — Tool-Pair §Time-travel; check `(re-frame.trace.tooling/trace-buffer {:op-type :error})` for the specific tag). Against a server launched **without** `--allow-writes` (the published default) the tool refuses with `:reason :rf.error/writes-disabled` — the operator flips the gate at launch to enable pair-driven writes. **Backstop only** (gate-OFF server + operator says proceed via eval): `eval-cljs {form: "(rf/restore-epoch! :rf/default <epoch-id>)"}` returns bare `true`/`false` and rides outside the structured envelope + the audit gate — say so when you fall back to it.
+   Returns `{:ok? true :restored? true :cascade-summary {…} :unreplayable-effects [...]}` on success. On any documented failure mode it returns `{:ok? false :reason :restore-rejected}` (one of the seven modes — Tool-Pair §Time-travel; check `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` for the specific tag — frame-id first, `:op-type` is `:flat-only`). Against a server launched **without** `--allow-writes` (the published default) the tool refuses with `:reason :rf.error/writes-disabled` — the operator flips the gate at launch to enable pair-driven writes. **Backstop only** (gate-OFF server + operator says proceed via eval): `eval-cljs {form: "(rf/restore-epoch! :rf/default <epoch-id>)"}` returns bare `true`/`false` and rides outside the structured envelope + the audit gate — say so when you fall back to it.
 4. **Modify the part of the system you're iterating on.**
    - *Handlers / subs / fx:* `eval-cljs {form: "(rf/reg-event :foo …)"}` / `(rf/reg-sub :bar …)` / `(rf/reg-fx :baz …)`. The registrar replaces; `:rf.registry/handler-replaced` fires.
    - *Machines:* `eval-cljs {form: "(rf/reg-machine :auth …)"}` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.

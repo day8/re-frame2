@@ -47,7 +47,7 @@ re-frame2-pair inverts this. It operates on the live browser runtime *and* on so
 
 - **re-frame2** — the subject. The reference implementation targets Reagent v2 + shadow-cljs.
 - **`re-frame.interop/debug-enabled?` true** — automatic in dev builds; production elides per Spec 009 §Production builds. Without this, the trace stream and epoch history are no-ops and this skill has nothing to read.
-- **Optional: re-frame2 source-coord annotation** (`(rf/configure! :source-coords {:annotate-dom? true})`) — populates `data-rf2-source-coord` on rendered DOM nodes. Without this, the DOM->source bridge degrades; with it, every annotated element resolves to `{:ns :line :file :column}`.
+- **re-frame2 source-coord annotation** — mandatory in debug builds (gated on `interop/debug-enabled?`, **not** user-enabled via `configure!`): re-frame2 populates `data-rf2-source-coord` on every **registered view's** root DOM node. Each annotated element resolves to `{:ns :line :file :column}`. The DOM→source bridge degrades for anonymous (non-registered) views, non-DOM adapters, and production builds; re-com `:src (at)` is the fallback.
 - **Optional: re-com with debug instrumentation + `:src (at)`** at call sites — populates `data-rc-src`. Either annotation source unlocks the bridge; both can be present (re-frame2's wins).
 - **shadow-cljs** as the build tool, with nREPL enabled.
 
@@ -55,7 +55,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 
 ### Terminology
 
-- **Trace stream** — `(re-frame.trace.tooling/register-listener!)` listeners + `(re-frame.trace.tooling/trace-buffer)` retain-N ring. The fine-grained, per-emit stream (Spec 009). (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form.)
+- **Trace stream** — `(re-frame.trace.tooling/register-listener!)` listeners + `(re-frame.trace.tooling/trace-buffer frame-id)` retain-N ring. The fine-grained, per-emit stream (Spec 009). (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form. Frame-id is the first positional arg — a missing frame returns `[]`.)
 - **Assembled epoch** — one `:rf/epoch-record` per drain-settle, with structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-epoch-listener!)` and `(rf/epoch-history frame-id)`.
 - **Frame** — a re-frame2 isolated runtime instance (Spec 002). Most apps have one (`:rf/default`); larger apps have several.
 - **Origin** — the Spec 002 §Dispatch origin tagging keyword on every dispatch (`:app`, `:pair`, `:story`, `:ui`, `:timer`, `:http`...). The skill stamps `:pair` on its own dispatches.
@@ -95,7 +95,7 @@ Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame
 
 - `(re-frame.trace.tooling/register-listener! :re-frame2-pair cb)` — raw trace stream (also re-exported on `rf/`). The skill's listener id is fixed (one listener per skill per Spec 009).
 - `(rf/register-epoch-listener! :re-frame2-pair-epoch cb)` — assembled-epoch stream. Mirrors `register-listener!`'s contract.
-- `(re-frame.trace.tooling/trace-buffer opts)` — retain-N trace ring (default 200, configurable via `(rf/configure! {:trace-buffer {:cascades-retained N}})`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
+- `(re-frame.trace.tooling/trace-buffer frame-id)` / `(re-frame.trace.tooling/trace-buffer frame-id opts)` — retain-N trace ring (default 200, configurable via `(rf/configure! {:trace-buffer {:cascades-retained N}})`). Frame-id is the first positional arg (a missing frame returns `[]`); the default shape is cascade bundles, and `:operation` / `:op-type` / `:since` / `:severity` are `:flat-only` filters (pass `{:flat true ...}`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
 - `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! {:epoch-history {:depth N}})`).
 - `(rf/restore-epoch! frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
 
@@ -136,7 +136,7 @@ re-frame2-pair/
 
 ### 3.4 Session sentinel
 
-A UUID set once at preload-load time, mirrored to `js/globalThis.__re_frame2_pair_runtime`. The MCP server's `discover-app` probes the mirror; absence means the preload isn't configured and the op refuses with `:reason :runtime-not-preloaded`. A full page refresh wipes both the var and the mirror, but the next bundle load re-runs the preload — no manual reconnect step.
+A UUID set once at preload-load time, mirrored to `js/globalThis.__re_frame2_pair_runtime`. The MCP server's `discover-app` probes the mirror; absence means the preload isn't configured and the op refuses with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only when it errors mid-diagnosis). A full page refresh wipes both the var and the mirror, but the next bundle load re-runs the preload — no manual reconnect step.
 
 (Earlier iterations injected the runtime via `cljs-eval` on first connect each session; that path was cut along with the cljs-eval fallback for pre-alpha simplicity — the runtime now ships via shadow-cljs `:preloads`.)
 
@@ -160,7 +160,7 @@ Structured `{:ok? false :reason ...}` — every script. Recognised reasons:
 | `:rf.epoch/restore-*` | One of the restore failure modes (Tool-Pair §Time-travel lists seven; six fire under `:rf.epoch/*`, plus **Unknown frame** under `:rf.error/no-such-handler`) |
 | `:timed-out?` | Probe form didn't flip in `--wait-ms` (likely a compile error) |
 | `:no-element-at-src` | `dom/fire-click-at-src` couldn't find a matching DOM node |
-| `:source-coord-annotation-disabled` | Neither `:annotate-dom?` nor re-com debug is producing attributes |
+| `:source-coord-annotation-disabled` | No source-coord attributes reaching the DOM — production build, no registered-view coverage, non-DOM adapter, or no re-com `:src (at)` |
 
 ### 3.7 Versioning / floors
 
@@ -208,7 +208,7 @@ Before graduating from pre-alpha, three things must be ground-truthed against a 
 
 1. **Runtime discovery** — `discover-app.sh` connects, verifies `interop/debug-enabled?`, reports frames cleanly.
 2. **CLJS-eval round-trip** — `cljs-eval-value` parses shadow's response shape correctly.
-3. **`data-rf2-source-coord` format** — `parse-rf2-coord` matches whatever re-frame2's `:annotate-dom?` actually emits.
+3. **`data-rf2-source-coord` format** — `parse-rf2-coord` matches whatever re-frame2's registered-view DOM annotation actually emits.
 
 See `STATUS.md` for the full known-unknowns list.
 

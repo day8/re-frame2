@@ -745,7 +745,7 @@
        {:ok?    false
         :frame  frame-id
         :reason :reset-rejected
-        :hint   "rf/replace-app-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
+        :hint   "rf/replace-app-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error}) (and :op-type :rf.epoch) for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. Frame-id is the first positional arg; :op-type is a :flat-only filter. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false
@@ -1625,8 +1625,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The framework already maintains a retain-N ring buffer accessible via
-;; `(re-frame.trace.tooling/trace-buffer opts)` (the `rf/` alias is
-;; JVM-only). We register one listener here for callers
+;; `(re-frame.trace.tooling/trace-buffer frame-id)` (the `rf/` alias is
+;; JVM-only; frame-id is the first positional arg). We register one listener here for callers
 ;; that want a programmatic side-channel (e.g. a watch loop's idle
 ;; detector); the buffer remains the canonical query surface.
 
@@ -1651,7 +1651,8 @@
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
-   `:since` cursor for `(re-frame.trace.tooling/trace-buffer {:since N})`."
+   `:since` cursor for `(re-frame.trace.tooling/trace-buffer frame-id {:flat true :since N})`
+   (`:since` is a `:flat-only` filter; frame-id is the first positional arg)."
   []
   @last-trace-id)
 
@@ -1916,8 +1917,9 @@
 
 (defn- trace-matches?
   "Test a raw trace event against a filter map. Mirrors the filter
-   vocabulary of `(re-frame.trace.tooling/trace-buffer opts)` — composes
-   AND-wise, absent key means no constraint on that axis."
+   vocabulary of `(re-frame.trace.tooling/trace-buffer frame-id opts)` (the
+   `:flat-only` keys :operation / :op-type / :since / :severity included) —
+   composes AND-wise, absent key means no constraint on that axis."
   [filter-map ev]
   (let [{:keys [operation op-type frame severity
                 event-id handler-id source origin
@@ -3100,7 +3102,8 @@
        fx the original cascade fired that the restore cannot undo.
      - `false` on any failure mode. Failure traces fire under
        `:rf.epoch/*` — read them with
-       `(re-frame.trace.tooling/trace-buffer {:op-type :error})`.
+       `(re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error})`
+       (frame-id first; `:op-type` is a `:flat-only` filter).
 
    The two arities mirror `pair-dispatch-sync!`'s shape — 1-arity reads
    `(current-frame)`, 2-arity is explicit."
@@ -3163,9 +3166,9 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Two attribute sources, in priority order:
-;;   1. data-rf2-source-coord (re-frame2's own annotation when
-;;      :annotate-dom? is on — Tool-Pair §Source-mapping;
-;;      Spec 006 §Source-coord annotation)
+;;   1. data-rf2-source-coord (re-frame2's own annotation, mandatory on
+;;      registered-view roots in debug builds — Tool-Pair §Source-mapping;
+;;      Spec 006 §Source-coord annotation. No configure! opt-in.)
 ;;   2. data-rc-src (re-com's debug attribute, fallback)
 ;;
 ;; The two attributes resolve to different schemas — re-frame2's
@@ -3225,9 +3228,10 @@
 (defn coord-annotation-enabled?
   "Heuristic: at least one element on the page carries either
    `data-rf2-source-coord` or `data-rc-src`. False when neither
-   annotation source is producing attributes (re-frame2's
-   :annotate-dom? off and no re-com :src (at) call sites). Reads
-   may be unreliable on a freshly-loaded page that hasn't rendered."
+   annotation source is producing attributes (no registered-view
+   coverage / non-DOM adapter / production build, and no re-com
+   :src (at) call sites). Reads may be unreliable on a freshly-loaded
+   page that hasn't rendered."
   []
   (or (some? (.querySelector js/document "[data-rf2-source-coord]"))
       (some? (.querySelector js/document "[data-rc-src]"))))

@@ -47,7 +47,7 @@ Designed for web apps built from the following stack:
 
 - A [re-frame2](https://github.com/day8/re-frame2) application (reference implementation: CLJS + Reagent v2)
 - `re-frame.interop/debug-enabled?` true (the `goog.DEBUG` mirror — set automatically in dev builds; production elides the trace and epoch surfaces per [Spec 009 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md))
-- Optional: re-frame2's source-coord annotation enabled (`(rf/configure! :source-coords {:annotate-dom? true})`) — and/or [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites. Without one of these, the `dom/*` ops degrade gracefully.
+- For the DOM→source bridge: re-frame2 injects `data-rf2-source-coord` on every **registered view's** root DOM element automatically in debug builds (mandatory per [Spec 006 §Source-coord annotation], gated on `interop/debug-enabled?` — there is **no** `configure!` knob to enable it). Coverage therefore needs registered views (`reg-view`) on a DOM-capable adapter; plain anonymous Reagent fns aren't annotated. As a fallback, [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites emits `data-rc-src`. Without registered-view coverage (or re-com `:src`), the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
 You don't need to change your application *code* to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side. The one build-config change is the dev-only preload: install the `@day8/re-frame2-pair` package and add its `preload/` directory to `:source-paths` plus the namespace to `:devtools :preloads` (two `shadow-cljs.edn` lines — see *Install* below). The preload loads only in dev builds; production is untouched.
@@ -153,7 +153,7 @@ Here's the kinds of conversations you can have with Claude.
 
 1. Install the MCP server: `npm install -g @day8/re-frame2-pair-mcp`.
 2. Add an `mcpServers` entry to your Claude Code settings — see [`tools/re-frame2-pair-mcp/README.md`](../../tools/re-frame2-pair-mcp/README.md) for the configuration snippet and the full tool surface.
-3. Install the preload package into your app as a dev dependency: `npm install -D @day8/re-frame2-pair`. This ships the `re-frame2-pair.runtime` CLJS namespace under its `preload/` directory; the MCP server package does **not** carry it. **The preload is required** — without it `discover-app` refuses every session with `:reason :runtime-not-preloaded`.
+3. Install the preload package into your app as a dev dependency: `npm install -D @day8/re-frame2-pair`. This ships the `re-frame2-pair.runtime` CLJS namespace under its `preload/` directory; the MCP server package does **not** carry it. **The preload is required** — without it `discover-app` refuses every session with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis).
 4. Add the shadow-cljs `:devtools :preloads` entry (`[re-frame2-pair.runtime]`) and a `:source-paths` line pointing at the installed `node_modules/@day8/re-frame2-pair/preload` directory — see `SKILL.md` §Setup for the two-line snippet. No closure-defines. The preload only loads in dev; production builds are untouched.
 
 ### How the connection works
@@ -163,7 +163,7 @@ The `re-frame2-pair.runtime` namespace ships into the consumer app via shadow-cl
 On first use in a session:
 
 1. The MCP server locates your shadow-cljs nREPL port automatically (it scans the standard port files and absorbs shadow restarts — you rarely configure anything; see [`references/mcp-transport.md` §Install / configure](references/mcp-transport.md#install--configure-one-time)).
-2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-not-preloaded` and a hint pointing at the two-line setup. No per-session inject step.
+2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — a runtime is live but the marker is absent) and a hint pointing at the two-line setup. No per-session inject step.
 3. Live-watch happens two ways: pull-mode `watch-epochs` (tracks the last seen `:epoch-id` per frame and asks for everything since) and push-mode `subscribe` (the long-running call pushes each batch as a `notifications/progress` tick — see [`references/streaming-subscriptions.md`](references/streaming-subscriptions.md)). Hot-reload confirmation is probe-based: after an edit, the `tail-build` tool polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The name `tail-build` is historical — it does not actually tail the shadow-cljs server log.
 
 On full page refresh, the preload re-runs as part of the next bundle load — the marker reappears automatically; no manual reconnect step.
@@ -203,7 +203,7 @@ The skill's first op in a session is `discover-app`, which:
 1. Finds the running shadow-cljs nREPL. The MCP server discovers the port on its own (a cascade ending in shadow's `roots/list` / HTTP probe). When discovery misses (no running shadow, a non-default port, an exotic setup), pass `--port-file <abs>` to the server or set `SHADOW_CLJS_NREPL_PORT` (a CWD-independent override).
 2. Verifies a browser runtime is attached to that build.
 3. Checks that `re-frame.core` is loaded and `re-frame.interop/debug-enabled?` is true.
-4. Probes the `re-frame2-pair.runtime` preload marker; refuses with `:reason :runtime-not-preloaded` and a setup hint when absent.
+4. Probes the `re-frame2-pair.runtime` preload marker; refuses with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict) and a setup hint when absent.
 5. Reports `connected` or names the single failing check with a one-line fix suggestion.
 
 ## How it works

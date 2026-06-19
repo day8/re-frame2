@@ -6,7 +6,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 
 **The op-selection rule: prefer a structured op WHEN ONE FITS the gesture; for the long tail and for recovery, `eval-cljs` is first-class, not a last resort.** A structured op gives a validated, elided, single-round-trip answer for the gesture it owns; the long tail with no dedicated shape (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery) is `eval-cljs` work — see [recipes.md §eval-cljs is the workhorse](recipes.md#eval-cljs-is-the-workhorse) for the taxonomy.
 
-> **Privacy carve-out (applies to every raw-`eval-cljs` row below).** The structured read tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, `subscribe`, and — for its `:db-state-after-simulation` + `:would-fire-effects[*].args` slots — `dispatch-dry-run`) apply the wire-boundary elision walker by default (sensitive slots → `:rf/redacted`, large slots → `:rf.size/large-elided`) under the `--allow-sensitive-reads` gate (OFF by default). The **raw `eval-cljs` forms in this catalogue** (`(re-frame2-pair.runtime/snapshot)`, `(…/app-db-at …)`, `(…/sub-cache)`, `(…/subs-sample …)`, `(re-frame.trace.tooling/trace-buffer)`, `(rf/epoch-history …)`, the time-travel / `app-db-reset!` write forms) return their value **un-elided** and are **not** governed by that gate — `eval-cljs` is default-ON (gated only by `--no-eval`). So when the data is a privacy-sensitive app-db path, sub value, trace event, or epoch payload, prefer the structured elided tool; reach for the raw eval form for that data only on explicit user/operator request. See [SKILL.md §Style guidance privacy bullet](../SKILL.md) and [`vocabulary.md` §The raw-eval carve-out](vocabulary.md#the-raw-eval-carve-out--eval-cljs-is-outside-the-structured-guarantee).
+> **Privacy carve-out (applies to every raw-`eval-cljs` row below).** The structured read tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, `subscribe`, and — for its `:db-state-after-simulation` + `:would-fire-effects[*].args` slots — `dispatch-dry-run`) apply the wire-boundary elision walker by default (sensitive slots → `:rf/redacted`, large slots → `:rf.size/large-elided`) under the `--allow-sensitive-reads` gate (OFF by default). The **raw `eval-cljs` forms in this catalogue** (`(re-frame2-pair.runtime/snapshot)`, `(…/app-db-at …)`, `(…/sub-cache)`, `(…/subs-sample …)`, `(re-frame.trace.tooling/trace-buffer :rf/default)`, `(rf/epoch-history …)`, the time-travel / `app-db-reset!` write forms) return their value **un-elided** and are **not** governed by that gate — `eval-cljs` is default-ON (gated only by `--no-eval`). So when the data is a privacy-sensitive app-db path, sub value, trace event, or epoch payload, prefer the structured elided tool; reach for the raw eval form for that data only on explicit user/operator request. See [SKILL.md §Style guidance privacy bullet](../SKILL.md) and [`vocabulary.md` §The raw-eval carve-out](vocabulary.md#the-raw-eval-carve-out--eval-cljs-is-outside-the-structured-guarantee).
 
 ## Contents
 
@@ -88,7 +88,7 @@ Read-only from the trace stream + epoch history.
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `trace/buffer` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame.trace.tooling/trace-buffer)"}` | Recent N trace events from the retain-N ring (Spec 009 §Retain-N trace ring buffer). Optional `{:operation _ :op-type _ :since _ :frame _}` filter. **CLJS callers must use the `re-frame.trace.tooling` ns** — `rf/trace-buffer` is a JVM-only alias and silently returns nil in the browser runtime this skill drives. |
+| `trace/buffer` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame.trace.tooling/trace-buffer :rf/default)"}` | Recent retained cascade bundles from the named frame's retain-N ring (Spec 009 §Retain-N trace ring buffer). **Frame-id is the first positional arg** — a missing/destroyed frame silently returns `[]`, so never pass an opts map as the sole arg. For raw events use `{:flat true}`; the `:operation` / `:op-type` / `:since` / `:severity` filter keys are **`:flat-only`** (e.g. `(trace-buffer :rf/default {:flat true :op-type :error})`). **CLJS callers must use the `re-frame.trace.tooling` ns** — `rf/trace-buffer` is a JVM-only alias and silently returns nil in the browser runtime this skill drives. |
 | `trace/last-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/last-epoch)"}` | Most recent `:rf/epoch-record` for the operating frame |
 | `trace/last-pair-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/last-pair-epoch)"}` | Most recent epoch whose `:trigger-event`'s top-level dispatch carried `:origin :pair` (i.e. *this skill* fired it) |
 | `trace/epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/epoch-by-id <id>)"}` | The named epoch from the frame's history |
@@ -101,19 +101,19 @@ Read-only from the trace stream + epoch history.
 
 ## DOM source bridge
 
-**Why this family matters — read first.** When the runtime is configured to annotate rendered DOM (`(rf/configure! :source-coords {:annotate-dom? true})` per Tool-Pair §Source-mapping), every rendered DOM node carries a `data-rf2-source-coord` attribute pointing back to the registration that produced it. The attribute's value resolves via `re-frame2-pair.runtime/parse-rf2-coord` to a structured `{:ns ... :line ... :file ...}` map keyed off the registration's source coords (auto-captured by `reg-*` macros, per Spec 001 §Source-coordinate capture). This gives you a direct, two-way bridge between a live DOM element and the exact line of source code that rendered it.
+**Why this family matters — read first.** In a debug build, re-frame2 injects a `data-rf2-source-coord` attribute on every **registered view's** root DOM element pointing back to the registration that produced it (mandatory per Tool-Pair §Source-mapping / Spec 006 §Source-coord annotation, gated on `interop/debug-enabled?` — there is **no** `configure!` knob; it is not user-enabled). The attribute's value resolves via `re-frame2-pair.runtime/parse-rf2-coord` to a structured `{:ns ... :line ... :file ...}` map keyed off the registration's source coords (auto-captured by `reg-*` macros, per Spec 001 §Source-coordinate capture). This gives you a direct, two-way bridge between a live DOM element and the exact line of source code that rendered it.
 
 **Two attribute formats are recognised:**
 
-- `data-rf2-source-coord` — re-frame2's own annotation when `:annotate-dom?` is on. Stable, preferred.
+- `data-rf2-source-coord` — re-frame2's own annotation, present on registered-view roots in debug builds. Stable, preferred.
 - `data-rc-src` — re-com's debug-instrumentation attribute. The runtime parses both; if both are present on a node, `data-rf2-source-coord` wins.
 
 **Prerequisites — at least one of:**
 
-- re-frame2 source-coord annotation enabled (`(rf/configure! :source-coords {:annotate-dom? true})` at startup), *or*
+- a debug build with the element produced by a **registered view** (`reg-view`) on a DOM-capable adapter (annotation is mandatory there — no opt-in needed), *or*
 - re-com debug instrumentation enabled and the call site passed `:src (at)`.
 
-**Degradation is per-element.** When neither is present on a given element, the bridge returns `{:src nil :reason :no-coord-at-this-element}`. When neither annotation is enabled app-wide, every element returns `{:src nil :reason :source-coord-annotation-disabled}`. Tell the user which case they're hitting.
+**Degradation is per-element.** When neither is present on a given element, the bridge returns `{:src nil :reason :no-coord-at-this-element}` (e.g. an anonymous Reagent fn, not a registered view). When no source-coord attributes are reaching the DOM app-wide (production build, or no registered-view / re-com coverage), every element returns `{:src nil :reason :source-coord-annotation-disabled}` — diagnose by checking for registered-view coverage, DOM-capable adapter, debug build (`goog.DEBUG`), or a re-com `:src (at)` fallback. Tell the user which case they're hitting.
 
 | Op | Invocation | Returns |
 |---|---|---|
@@ -230,7 +230,7 @@ mcp__re-frame2-pair__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
 - After editing a view or helper: pick a CLJS form that derefs the view's namespace var (e.g. `(some-ns/my-view)` or `(meta #'some-ns/my-view)`).
 - If you don't know a good probe, omit `probe` and the tool falls back to a 300ms timer; the result includes `:soft? true` so you know it's timer-based.
 
-A successful probe-flip also coincides with a `:rf.registry/handler-replaced` trace event arriving in the buffer, so an alternative confirmation is `(filter #(= :rf.registry/handler-replaced (:operation %)) (re-frame.trace.tooling/trace-buffer {:since <pre-edit-id>}))`. Use whichever fits — they're not exclusive.
+A successful probe-flip also coincides with a `:rf.registry/handler-replaced` trace event arriving in the buffer, so an alternative confirmation is `(filter #(= :rf.registry/handler-replaced (:operation %)) (re-frame.trace.tooling/trace-buffer :rf/default {:flat true :since <pre-edit-id>}))` (raw per-event mode — `:since` is a `:flat-only` filter). Use whichever fits — they're not exclusive.
 
 ## Time-travel (epoch restore)
 
@@ -258,7 +258,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | Concurrent drain | `:rf.epoch/restore-during-drain` | Called while the frame's run-to-completion drain is in flight |
 | Halted-cascade target | `:rf.epoch/restore-non-ok-record` | The named epoch's `:outcome` is not `:ok` — the record was committed for a halted cascade (`:halted-depth`, `:halted-destroy`, …); halted records carry partial state for devtools introspection and are not valid restore targets. Tags `:rf.epoch/outcome` + `:halt-reason`. |
 
-When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.
+When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` to get the structured `:tags`, then report to the user (`:op-type` is a `:flat-only` filter, so pass `:flat true` and the frame-id first).
 
 **Caveat (always tell the user before restoring):** restore rewinds durable **frame-state** — both the app-db and runtime-db partitions (so machine snapshots, the route slice, and elision declarations *are* rewound too). What it does **not** undo: side effects that already fired (HTTP requests sent, navigation pushed, localStorage written, `:dispatch-later` already landed) and transient host state outside the durable partitions (in-flight HTTP handles, trace rings).
 
@@ -269,7 +269,7 @@ The v1 `re-frame-pair` skill carried a few surfaces that have no direct re-frame
 - **`subs/live` (10x's "currently subscribed query vectors" view)** — replaced by `subs/cache` (`rf/sub-cache`), which is the public Tool-Pair-pinned shape `{query-v {:value v :ref-count n}}`. Same need, different surface.
 - **10x's internal epoch-buffer accessor + ring-rollover detection** — gone; replaced by `(rf/epoch-history frame-id)` which is bounded and self-describing (size = `(count history)`, depth = `(:depth (epoch/current-config))`).
 - **10x's internal undo / step-back navigation** — gone; replaced by first-class `(rf/restore-epoch! frame-id epoch-id)` with seven documented failure modes (see [Time-travel](#time-travel-epoch-restore)).
-- **`re-com-debug-disabled` heuristic** — kept (re-com is still a valid source-coord source), but the source-coord story now leads with re-frame2's own `:annotate-dom?` annotation; re-com's `data-rc-src` is a fallback rather than the only path.
+- **`re-com-debug-disabled` heuristic** — kept (re-com is still a valid source-coord source), but the source-coord story now leads with re-frame2's own mandatory registered-view annotation (debug builds, no opt-in); re-com's `data-rc-src` is a fallback rather than the only path.
 - **`trace-enabled?` discovery check** — replaced by `interop/debug-enabled?` (the `goog.DEBUG` mirror per Spec 009 §Production builds). Same gate, framework-canonical name.
 - **Version-floor enforcement against re-frame-10x / re-com / re-frame** — gone (no re-frame-10x dependency; re-com is optional; re-frame2's version is implicit in the loaded ns).
 

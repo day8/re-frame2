@@ -7,10 +7,11 @@
  exists so re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces
  have a stable target.
 
- Source-coord annotation is forced ON via `rf/configure!` so the
- `data--coord` attribute is present on the rendered DOM —
- re-frame2-pair's DOM ↔ source bridge depends on it (§Tool-Pair §Source-mapping,
- Spec 006 §Source-coord annotation)."
+ Source-coord DOM annotation is mandatory in debug builds (gated on
+ `interop/debug-enabled?`, not user-enabled): re-frame2 stamps the
+ `data-rf2-source-coord` attribute on every registered-view root, so it is
+ present on the rendered DOM here — re-frame2-pair's DOM ↔ source bridge depends
+ on it (Tool-Pair §Source-mapping, Spec 006 §Source-coord annotation)."
  (:require [reagent.dom.client :as rdc]
  [re-frame.core :as rf]
  [re-frame.views]
@@ -47,8 +48,8 @@
 ;;
 ;; reg-view auto-injects frame-bound `dispatch` / `subscribe`. The macro
 ;; also captures the source line/column, so the rendered DOM root
-;; carries `data--coord="counter.core:counter-buttons:<line>:<col>"`
-;; when `:annotate-dom?` is on (set in `run`, below).
+;; carries `data-rf2-source-coord="counter.core:counter-buttons:<line>:<col>"`
+;; automatically in debug builds (mandatory per Spec 006 — no opt-in).
 
 (reg-view counter-buttons []
  [:div
@@ -65,9 +66,10 @@
  (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
- ;; Force source-coord DOM annotation on so re-frame2-pair's DOM bridge has
- ;; something to find. Spec 006 §Source-coord annotation.
- (rf/configure! {:source-coord {:annotate-dom? true}})
+ ;; Source-coord DOM annotation is automatic in debug builds (mandatory per
+ ;; Spec 006 §Source-coord annotation) — re-frame2 stamps registered-view roots
+ ;; with data-rf2-source-coord, so re-frame2-pair's DOM bridge has something to
+ ;; find with no configure! call needed.
  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
  ;; absence — `:rf/default` is this fixture's app frame, registered
  ;; explicitly here (init! installs only the adapter). The boot dispatch

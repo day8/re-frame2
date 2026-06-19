@@ -15,7 +15,7 @@ Same as the README's *Requirements*:
 - The **MCP server** — the only skill-facing transport. Install it with `npm install -g @day8/re-frame2-pair-mcp` and add an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](../../../tools/re-frame2-pair-mcp/README.md)), or run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
-- The **`re-frame2-pair.runtime` preload** on the app's `:source-paths`. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point `:source-paths` at the absolute `skills/re-frame2-pair/preload/` path. For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-not-preloaded` without it.
+- The **`re-frame2-pair.runtime` preload** on the app's `:source-paths`. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point `:source-paths` at the absolute `skills/re-frame2-pair/preload/` path. For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
 
 > **Babashka is not a skill requirement.** The retired bash shims under
 > `scripts/` (and the project's own `tests/shim/` harness) exec `bb`, but
@@ -198,10 +198,10 @@ Two likely causes:
 
 Two preconditions, at least one must hold:
 
-- `(rf/configure! :source-coords {:annotate-dom? true})` enabled at startup, *or*
+- a debug build (`interop/debug-enabled?` / `goog.DEBUG`) with the element produced by a **registered view** (`reg-view`) on a DOM-capable adapter — re-frame2 stamps `data-rf2-source-coord` on registered-view roots automatically there (mandatory, no `configure!` opt-in), *or*
 - re-com debug instrumentation enabled and the call site passed `:src (at)`.
 
-If neither, `dom/source-at` returns `:reason :source-coord-annotation-disabled` for every element.
+If neither, `dom/source-at` returns `:reason :source-coord-annotation-disabled` for every element — check registered-view coverage, adapter DOM support, the debug build, or a re-com `:src (at)` fallback.
 
 ### Changes to `runtime.cljs` aren't taking effect
 
@@ -211,9 +211,9 @@ shadow-cljs hot-reloads namespaces under `:source-paths` on save. If your edits 
 2. Check the shadow-cljs console for a compile error on the namespace.
 3. Edits to `defonce`'d state (the trace/epoch listeners, the global marker) don't re-run — reload the page once.
 
-### `:runtime-not-preloaded`
+### `:runtime-loaded-but-preload-missing` (and per-op `:runtime-not-preloaded`)
 
-The skill's runtime namespace isn't loaded into your app. Add the two-line preload setup in `SKILL.md` §Setup and reload the page (or wait for the next shadow-cljs rebuild).
+The skill's runtime namespace isn't loaded into your app. `discover-app`'s normal verdict for this is `:runtime-loaded-but-preload-missing` (a runtime is live but the marker is absent); the per-op marker check reports the runtime-side `:runtime-not-preloaded`. Either way: add the two-line preload setup in `SKILL.md` §Setup and reload the page (or wait for the next shadow-cljs rebuild). (`:runtime-not-preloaded` is also the degradation fallback `discover-app` returns when the ladder itself errors mid-diagnosis — suspect a flaky nREPL connection there.)
 
 ## Uninstall / reset
 
