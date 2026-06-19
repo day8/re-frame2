@@ -191,9 +191,13 @@
   resolve the named resolver `scope-id` against the supplied `db` value,
   returning a canonical concrete scope or nil — a plain function over the
   resolver registry, NOT an effect (no app-state / dispatch side effects).
-  It is not a pure data helper, though: like every resolution site it emits
-  `:rf.resource/scope-resolved` dev-time trace evidence. Canonical use is the
-  logout idiom:
+  It is a PURE data helper (rf2-ru73k6 F3): it routes through the trace-free
+  `resolve-scope*-pure` evaluator and so does NOT emit
+  `:rf.resource/scope-resolved` — a passive read advertised as pure carries
+  no observability side effect. The CAUSAL resolution boundaries that DO carry
+  that trace evidence (a resource event's `{:from-db …}` scope, route entry,
+  mutation settle) run the traced `resolve-scope*` wrapper instead. Canonical
+  use is the logout idiom:
   resolve the concrete old scope from the handler's coeffect db
   (pre-transition by definition) and pass it to `:rf.resource/clear-scope`
   concretely. Throws when no resolver is registered under `scope-id` (the

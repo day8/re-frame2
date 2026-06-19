@@ -70,9 +70,13 @@
   `resolve-resource-scope` resolves a named scope against a SUPPLIED db
   value — a plain function over the registry, no effect-API surface and no
   resolution-timing ambiguity. It is NOT an effect and has no app-state /
-  dispatch side effects, but it is not a pure data helper either: like every
-  resolution site it emits `:rf.resource/scope-resolved` dev-time trace
-  evidence (the inputs/resolved-scope/`:resolved-nil?` row tooling reads).
+  dispatch side effects, and (rf2-ru73k6 F3) it is a PURE data helper: it
+  routes through the trace-free `resolve-scope*-pure` evaluator, so a passive
+  read advertised as pure does NOT emit `:rf.resource/scope-resolved` into the
+  trace bus. The CAUSAL resolution boundaries that DO carry that trace evidence
+  (the inputs/resolved-scope/`:resolved-nil?` row tooling reads — a resource
+  event's `{:from-db …}` scope, route entry, mutation settle) run the traced
+  `resolve-scope*` wrapper instead.
   Its canonical use is the logout idiom: resolve the concrete old scope from
   the handler's coeffect db (the pre-transition causal input) and pass it to
   `:rf.resource/clear-scope` concretely. Per Spec 016 §`clear-scope` resolves
