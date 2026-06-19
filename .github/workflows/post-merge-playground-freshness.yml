@@ -1,0 +1,201 @@
+# Post-merge playground SCI-bundle freshness gate (rf2-3yufij).
+#
+# # Why this exists
+#
+# The docs' live `cljs-rf2` cells run on docs/cljs/playground-rf2.js — a
+# committed, vendored shadow-cljs :advanced bundle that BAKES IN re-frame2
+# core + reagent-slim + machines + react@19 (the eval engine for every
+# `cljs-rf2` cell). Because the baked-in source is committed as a binary, the
+# committed snapshot is only as fresh as its last hand-rebuild.
+#
+# The PR-time freshness gate (the `tools-playground` job in test.yml) only
+# fires when report-changed-surfaces.sh sets `playground=true` — which, for the
+# baked-in implementation surfaces, happens ONLY on an implementation/machines/*
+# change (a deliberate cost tradeoff: firing playground on every core change
+# would add a heavy JVM+Node+Playwright job to most PRs). So a change to
+# implementation/core/** or implementation/adapters/reagent-slim/** silently
+# staleness the committed bundle with NO PR-time gate — it surfaces only when
+# the nightly full matrix runs, or when the next `mark_all` PR's playground gate
+# goes red against the stale committed bundle. This recurring papercut has bitten
+# twice: rf2-ssxvg1 (the committed bundle had drifted ~36 impl commits behind,
+# predating the whole EP-0003 resources wave) and again after PR #4631 (the
+# EP-0024 frame-provider rename made the committed bundle's mount shape invalid
+# against current core — rf2-qhu72t).
+#
+# # What it does (and why this shape)
+#
+# On every push to `main` that touches a baked-in surface OR the playground
+# build itself, this job:
+#
+#   1. Rebuilds BOTH playground bundles fresh from the merged main
+#      (`npm run build` in docs/tools/playground — esbuild bootstrap +
+#      the sci/ shadow-cljs :advanced re-frame2 bundle).
+#   2. Runs the headless-Chromium smoke against the FRESHLY-BUILT bundles
+#      (`npm run smoke`). This is the authoritative current-source check:
+#      it renders the live re-frame2 counter cell + both machine cells. If
+#      the committed bundle's source no longer COMPOSES against current
+#      implementation source (the EP-0024 / rf2-qhu72t class — the renamed
+#      provider made the old mount shape throw at render), the fresh build
+#      throws at render and the smoke FAILS here, immediately post-merge.
+#   3. Runs the deterministic committed-bundle drift checks against the
+#      committed (not the freshly-rebuilt) artefacts:
+#        - the esbuild bootstrap bundles (playground.js/.css) are
+#          byte-deterministic across machines (EOL-pinned via .gitattributes),
+#          so a strict `git diff --exit-code` after the rebuild catches an
+#          un-rebundled bootstrap source edit;
+#        - the shadow-cljs SCI bundle (playground-rf2.js) is a Closure
+#          :advanced build whose minified-symbol allocation is NOT byte-stable
+#          across build environments, so byte-diffing it against a fresh
+#          rebuild is inherently flaky and meaningless (see the long note in
+#          test.yml's tools-playground job + scripts/check-playground-sci-freshness.sh).
+#          It is instead gated by the smoke above (which rendered a fresh
+#          rebuild) PLUS the deterministic source-marker freshness guard
+#          (scripts/check-playground-sci-freshness.sh) run against the COMMITTED
+#          bundle — the same gate the PR-time job runs.
+#
+# When the gate fails, the fix is always: rebuild + recommit the bundle —
+#   cd docs/tools/playground && npm run build
+#   git add docs/cljs/playground.js docs/cljs/playground.css docs/cljs/playground-rf2.js
+#   git commit
+#
+# # What it does NOT do
+#
+# - It does NOT block any merge. The merge already happened on `main`. This is
+#   a fast-feedback canary that surfaces committed-bundle staleness within
+#   minutes of the merge, instead of waiting for the nightly full matrix or the
+#   next mark_all PR. The DEPLOYED bundle is independently kept fresh by docs.yml,
+#   which rebuilds it from main on every publish (rf2-ssxvg1 part 2) — so a brief
+#   committed lag does not ship a stale live guide. This gate keeps the COMMITTED
+#   snapshot honest so the lag is caught + corrected promptly.
+# - It does NOT auto-commit a rebuilt bundle back to main. A commit-back would
+#   add a noisy bundle commit on most runs (the :advanced bundle's symbol
+#   allocation churns per-build even on unchanged source — see the byte-stability
+#   note above) and risks a push loop; a fail-loud canary the operator resolves
+#   by rebuilding is the lower-risk shape.
+# - It is NOT a per-PR gate. Adding the heavy JVM+Node+Playwright SCI build to
+#   every core-touching PR is exactly the cost the PR-time surface gating scopes
+#   out; running it once post-merge on the relevant surfaces gives the coverage
+#   without the per-PR tax.
+
+name: post-merge playground freshness
+
+on:
+  push:
+    branches: [main]
+    # Fire only on the surfaces that are BAKED INTO the committed SCI bundle
+    # (so a change to one can staleness it) or on the playground build itself.
+    # Kept in lockstep with the sci/ bundle's require graph (re-frame2 core +
+    # reagent-slim + machines) and the docs/cljs committed artefacts.
+    paths:
+      - 'implementation/core/**'
+      - 'implementation/adapters/reagent-slim/**'
+      - 'implementation/machines/**'
+      - 'docs/tools/playground/**'
+      - 'docs/cljs/playground.js'
+      - 'docs/cljs/playground.css'
+      - 'docs/cljs/playground-rf2.js'
+      - '.github/workflows/post-merge-playground-freshness.yml'
+  workflow_dispatch:
+
+# A workflow-edit or impl push may land alongside a follow-up push; keep the
+# latest (which has the latest source + committed bundle) and cancel any
+# in-progress rebuild from an older SHA.
+concurrency:
+  group: post-merge-playground-freshness-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild-and-verify:
+    name: Rebuild SCI bundle + smoke + committed-drift gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # The re-frame2 SCI bundle (docs/tools/playground/sci/) is a shadow-cljs
+      # :advanced build over the re-frame2 core + reagent-slim :local/root
+      # artefacts — it needs a JVM + the Clojure CLI + Node, the same
+      # toolchain the tools-playground job in test.yml uses.
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs (playground SCI bundle deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent-slim/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-playground-
+            ${{ runner.os }}-cljs-
+
+      # SCI-bundle freshness guard against the COMMITTED bundle (deterministic
+      # source-marker check — no rebuild, cross-machine stable). Same gate the
+      # PR-time tools-playground job runs. Catches the machine-lifecycle-marker
+      # staleness class (the rf2-2h1yhk :rf.machine/bootstrap -> :rf.machine/start
+      # rename). Run BEFORE the rebuild overwrites the committed file.
+      - name: Verify committed SCI bundle is fresh (machine lifecycle marker)
+        run: sh scripts/check-playground-sci-freshness.sh
+
+      # `npm ci` installs from the committed lockfile (reproducible).
+      - name: npm ci (playground bootstrap deps)
+        working-directory: docs/tools/playground
+        run: npm ci
+
+      - name: Install Playwright (Chromium + system deps)
+        working-directory: docs/tools/playground
+        run: npx playwright install --with-deps chromium
+
+      # Rebuild BOTH committed bundles fresh from the merged main — the esbuild
+      # bootstrap (playground.js/.css) and the shadow-cljs SCI bundle
+      # (playground-rf2.js). `npm run build:rf2` runs `npm install` inside sci/
+      # for react/react-dom + shadow-cljs. This overwrites the working-tree
+      # docs/cljs/playground*.js with the fresh build.
+      - name: Rebuild both bundles fresh from main
+        working-directory: docs/tools/playground
+        run: npm run build
+
+      # Authoritative current-source check: render the FRESHLY-BUILT production
+      # bundles under headless Chromium (live re-frame2 counter + both machine
+      # cells). If current implementation source no longer composes with the
+      # playground's mount shape (the EP-0024 / rf2-qhu72t class), the fresh
+      # build throws at render and this FAILS — surfacing the drift immediately
+      # post-merge instead of at the next nightly / mark_all PR.
+      - name: Run playground smoke (freshly-built bundles)
+        working-directory: docs/tools/playground
+        run: npm run smoke
+
+      # Committed-drift gate (esbuild artefacts only). The deployed docs/cljs/
+      # playground.js + playground.css are committed, vendored prebuilts.
+      # esbuild's minifier is byte-deterministic across platforms (EOL-pinned
+      # via .gitattributes), so a strict byte-diff against the fresh rebuild is
+      # robust: it fails only when a bootstrap source edit was not re-bundled,
+      # or someone hand-edited a bundle. (The SCI bundle is byte-unstable across
+      # machines, so it is NOT byte-diffed here — it is covered by the smoke
+      # above + the marker freshness guard run earlier; see the header.)
+      - name: Verify committed esbuild bundles match fresh build (no drift)
+        run: |
+          if ! git diff --exit-code -- docs/cljs/playground.js docs/cljs/playground.css; then
+            echo "::error::Committed docs/cljs/playground.{js,css} are stale on main — run 'npm run build' in docs/tools/playground and commit the rebuilt bundles."
+            exit 1
+          fi
+          echo "Committed esbuild bundles match a fresh rebuild. SCI bundle freshness covered by the smoke + marker guard."

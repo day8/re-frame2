@@ -1400,23 +1400,6 @@ jobs:
       - name: npm install
         run: npm ci
 
-      # rf2-0vav5.1 + rf2-cn6kc.1 — compile-coverage gate over EVERY declared
-      # standalone :examples/* shadow-cljs build (the list is derived from
-      # shadow-cljs.edn, so a newly-declared example build is swept
-      # automatically). Several example builds (login-uix, dashboard-uix,
-      # login-helix, process-monitor-helix) were declared browser targets that
-      # NO gate compiled — a ns / init-fn / :require / form regression in any
-      # shipped GREEN until a human manually ran it. This `compile` (not
-      # release) step closes that gap and fails on any compile warning too
-      # (a typo'd init-fn surfaces as an :undeclared-var warning, and
-      # `compile` exits 0 on warnings). Lives in the cljs_browser surface
-      # because a generic examples/** source edit (the regression source) AND
-      # a shadow-cljs.edn build-decl change both fire cljs_browser. Runs
-      # BEFORE the Playwright install so a broken example fails fast without
-      # the ~120 MB Chromium download.
-      - name: Compile every declared standalone example build (coverage gate)
-        run: npm run test:examples-compile
-
       # rf2-f79t8 — cache the Playwright browser binary across runs/jobs.
       # Every PR-time Playwright job previously re-downloaded Chromium
       # (~120 MB) on each run. The binary is keyed on the locked
@@ -1437,6 +1420,94 @@ jobs:
 
       - name: Compile :browser-test, serve, and run Playwright runner
         run: npm run test:browser
+
+  # rf2-9cw850 — the standalone example-compile COVERAGE GATE, split out of
+  # the cljs-browser job into its own parallel job.
+  #
+  # WHY THIS IS A SEPARATE JOB. Live step-timing on PR #4631 showed the
+  # `npm run test:examples-compile` step (compile EVERY declared
+  # :examples/* shadow-cljs build — rf2-0vav5.1 + rf2-cn6kc.1) was the
+  # dominant cost in cljs-browser at ~10 min, while the actual
+  # `:browser-test` compile + Playwright runner was only ~1-2 min. The
+  # example-compile step was piggybacked into cljs-browser, BEFORE the
+  # Playwright install, only to fail fast before the ~120 MB Chromium
+  # download. But that serialised ~10 min of example compiles in front of
+  # every browser-test run, making cljs-browser the ~12 min long-pole on
+  # every core-touching PR. The example-compile gate needs NO browser
+  # (it is a pure `shadow-cljs compile` over the example builds — no
+  # Playwright, no Chromium), so it has no reason to share the cljs-browser
+  # runner. Splitting it into its own job lets the two run in PARALLEL,
+  # dropping the cljs-browser long-pole to ~2-3 min while keeping the full
+  # coverage guarantee (the example builds are still compiled + warning-
+  # checked in CI on the same surface).
+  #
+  # SURFACE GATING. Fires on the SAME `cljs_browser` surface the inline
+  # step did — report-changed-surfaces.sh sets cljs_browser=true for a
+  # generic examples/** source edit (the regression source) AND for a
+  # shadow-cljs.edn build-decl change (a newly-declared example build) AND
+  # for every implementation code surface. No new surface output is needed:
+  # the coverage condition is unchanged, only the host job moved.
+  cljs-examples-compile:
+    name: CLJS (compile every standalone example build, coverage gate)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.cljs_browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-examples-compile-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-examples-compile-
+            ${{ runner.os }}-cljs-browser-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # rf2-0vav5.1 + rf2-cn6kc.1 — compile-coverage gate over EVERY declared
+      # standalone :examples/* shadow-cljs build (the list is derived from
+      # shadow-cljs.edn, so a newly-declared example build is swept
+      # automatically). Several example builds (login-uix, dashboard-uix,
+      # login-helix, process-monitor-helix) were declared browser targets that
+      # NO gate compiled — a ns / init-fn / :require / form regression in any
+      # shipped GREEN until a human manually ran it. This `compile` (not
+      # release) step closes that gap and fails on any compile warning too
+      # (a typo'd init-fn surfaces as an :undeclared-var warning, and
+      # `compile` exits 0 on warnings). No Playwright/Chromium needed — a
+      # pure `shadow-cljs compile`, which is exactly why it now runs in its
+      # own parallel job instead of serialising in front of cljs-browser
+      # (rf2-9cw850).
+      - name: Compile every declared standalone example build (coverage gate)
+        run: npm run test:examples-compile
 
   cljs-browser-schemas-boundary-prod:
     name: CLJS (shadow-cljs :browser-test-schemas-boundary-prod, :advanced + goog.DEBUG=false, rf2-84e9)
@@ -3140,6 +3211,7 @@ jobs:
       - cljs
       - js-harness-self-tests
       - cljs-browser
+      - cljs-examples-compile
       - cljs-browser-schemas-boundary-prod
       - cljs-browser-prod-elision
       - cljs-elision
