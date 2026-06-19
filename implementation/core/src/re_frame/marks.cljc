@@ -901,13 +901,19 @@
           redacted-payload (redact-with-paths payload sensitive-paths large-paths)]
       (into [id redacted-payload] rest-args))))
 
-(defn- event-marks
-  "Resolve the marks declared by the event handler registered under
-  `event-id`. Returns `{:sensitive [paths] :large [paths]}` or nil
-  when no marks are declared."
-  [event-id]
-  (when event-id
-    (marks-for :event event-id)))
+(defn- marks-when
+  "Resolve the marks declared by the `kind` handler registered under `id`,
+  guarding a nil `id` (no lookup, no marks). Returns the canonical
+  `{:sensitive [paths] :large [paths] …}` shape, or nil when `id` is nil or
+  the handler declared no marks. The single per-(kind, id) lookup wrapper the
+  trace-tag projectors reach through — `(marks-when :event event-id)`,
+  `(marks-when :fx fx-id)`, `(marks-when :cofx cofx-id)`, `(marks-when :sub
+  sub-id)`, and `(marks-when :event machine-id)` (a machine IS an `:event`
+  handler) replaced the five byte-identical `<kind>-marks` wrappers that
+  differed only in the kind keyword (rf2-8mvd28)."
+  [kind id]
+  (when id
+    (marks-for kind id)))
 
 (defn redact-event-by-registration
   "Apply the REGISTRATION-OWNED `:sensitive` / `:large` marks declared by the
@@ -932,29 +938,9 @@
   `re-frame.projection` consumes it for the `:rf.observe/error` / handled-event
   `:event` slot."
   [event]
-  (if-let [marks (event-marks (when (vector? event) (first event)))]
+  (if-let [marks (marks-when :event (when (vector? event) (first event)))]
     (redact-event-vec event (or (:sensitive marks) []) (or (:large marks) []))
     event))
-
-(defn- fx-marks
-  [fx-id]
-  (when fx-id
-    (marks-for :fx fx-id)))
-
-(defn- cofx-marks
-  [cofx-id]
-  (when cofx-id
-    (marks-for :cofx cofx-id)))
-
-(defn- machine-marks
-  [machine-id]
-  (when machine-id
-    (marks-for :event machine-id)))
-
-(defn- sub-marks
-  [sub-id]
-  (when sub-id
-    (marks-for :sub sub-id)))
 
 ;; Flow output marks are NOT resolved through this per-(kind, id) table
 ;; (rf2-ouemt). Spec 013 lets the SAME flow-id carry different definitions —
@@ -1044,7 +1030,7 @@
   and any consumer of its result, MUST be dev-gated; in production the table is
   empty and propagation would silently fail open."
   [frame-id sub-id input-signals layer-1?]
-  (let [marks       (sub-marks sub-id)
+  (let [marks       (marks-when :sub sub-id)
         output-sens (:output-sensitivity marks)
         forced-l    (:large? marks)
         ;; Propagation from inputs
@@ -1101,7 +1087,7 @@
   [tags slot]
   (let [event    (get tags slot)
         event-id (when (vector? event) (first event))
-        marks    (event-marks event-id)]
+        marks    (marks-when :event event-id)]
     (if-not marks
       tags
       (let [sens   (or (:sensitive marks) [])
@@ -1115,7 +1101,7 @@
   registration."
   [tags]
   (let [fx-id (:rf.fx/id tags)
-        marks (fx-marks fx-id)]
+        marks (marks-when :fx fx-id)]
     (if-not marks
       tags
       (let [sens     (or (:sensitive marks) [])
@@ -1135,7 +1121,7 @@
       tags
       (let [walked (reduce-kv
                      (fn [acc cofx-id v]
-                       (let [marks (cofx-marks cofx-id)]
+                       (let [marks (marks-when :cofx cofx-id)]
                          (if-not marks
                            (assoc acc cofx-id v)
                            (let [sens     (or (:sensitive marks) [])
@@ -1163,7 +1149,7 @@
       tags
       (let [walked (reduce-kv
                      (fn [acc cofx-id v]
-                       (let [marks (cofx-marks cofx-id)]
+                       (let [marks (marks-when :cofx cofx-id)]
                          (if-not marks
                            (assoc acc cofx-id v)
                            (let [sens     (or (:sensitive marks) [])
@@ -1186,7 +1172,7 @@
   success / generation emit does not ride under `:rf.event/coeffects`)."
   [tags]
   (let [cofx-id (:rf.cofx/id tags)
-        marks   (cofx-marks cofx-id)]
+        marks   (marks-when :cofx cofx-id)]
     (if (or (not marks) (not (contains? tags :rf.cofx/value)))
       tags
       (let [sens     (or (:sensitive marks) [])
@@ -1253,7 +1239,7 @@
   state."
   [tags frame-id]
   (let [sub-id     (:rf.sub/id tags)
-        marks      (sub-marks sub-id)
+        marks      (marks-when :sub sub-id)
         has-prev?  (contains? tags :rf.sub/prev-value)]
     (if (nil? frame-id)
       (cond-> (assoc tags :rf.sub/value privacy/redacted-sentinel :sensitive? true)
@@ -1487,7 +1473,7 @@
   ;; child's `:start` args are unclassifiable here at all).
   (let [tags       (project-spawn-synthetic-payloads tags)
         machine-id (or (:actor-id tags) (:machine-id tags))
-        marks      (machine-marks machine-id)]
+        marks      (marks-when :event machine-id)]
     (if-not marks
       tags
       (let [sens       (or (:sensitive marks) [])
@@ -1566,7 +1552,7 @@
   still gate the exception payload."
   [tags]
   (let [machine-id (or (:actor-id tags) (:machine-id tags))
-        marks      (machine-marks machine-id)]
+        marks      (marks-when :event machine-id)]
     (if (and (contains? tags :exception-data)
              marks
              (seq (:sensitive marks)))
