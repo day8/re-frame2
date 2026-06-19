@@ -36,7 +36,18 @@ Two contract facts, each pinned against the shipped spec:
     (dev-only). The stale claim this gate kills: "`reg-event-error-handler` moved
     / moves to a frame-level (per-frame) `:on-error` (recovery) policy".
 
-Both rules are written to fire ONLY on the stale ASSERTION shape, never on the
+  * **M-11 (Leave-as-is variant) — a component does NOT auto-pin to
+    `:rf/default`.** A frame-dependent plain fn left unchanged under a non-default
+    provider does NOT silently pin / fall through / route to `:rf/default` — under
+    EP-0002 there is no `:rf/default` floor, so a frame-scoped op raises
+    `:rf.error/no-frame-context`. To intentionally target `:rf/default` the
+    component must scope or pass that frame explicitly. The stale claim this gate
+    kills: a component "pins to `:rf/default` regardless of where it renders" /
+    "falls through to `:rf/default`". (The earlier M-11 rule above keyed on a
+    "plain fn" subject + an inherit-verb on one line and so missed this distinct
+    "pins to `:rf/default`" wording — hence the dedicated narrow rule.)
+
+All three rules are written to fire ONLY on the stale ASSERTION shape, never on the
 corrected wording that states the negation — and never on the unrelated,
 still-live `:on-error` *surfaces* (a machine `:spawn :on-error` transition, a
 route `:on-error` lifecycle event), which are NOT frame-level recovery policies.
@@ -136,6 +147,40 @@ M11_NEGATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- Rule 3: M-11 — a component "pins to" / "falls through to" `:rf/default`.
+#
+# A distinct stale shape from Rule 1: the false claim that a component (left
+# as-is under a provider) PINS / DEFAULTS / FALLS THROUGH to `:rf/default`
+# "regardless of where it renders". This is the M-11 "Leave as-is" footgun — a
+# frame-dependent plain fn left unchanged does NOT silently route to
+# `:rf/default`; under EP-0002 there is no `:rf/default` floor, so a
+# frame-scoped op raises `:rf.error/no-frame-context`. Rule 1 misses this shape
+# because it requires a "plain fn" subject + an inherit-verb on the same line,
+# and the stale "pins to :rf/default regardless" wording carries neither.
+#
+# Fires ONLY on the narrow IMPLICIT-RESOLUTION stale shape: a subject said to
+# PIN / FALL THROUGH / silently ROUTE to `:rf/default` automatically. The verb
+# set is intentionally tight — `pin(s/ned)`, `fall(s) through`, `(silently)
+# route` — so the rule never fires on the MANY legitimate `:rf/default` mentions
+# the corpus carries: scoping interceptors `to :rf/default`, naming `:rf/default`
+# as the like-for-like replacement for non-frame-addressed v1 code, the optional
+# `:frame` default, or the `:re-frame/default` -> `:rf/default` rewrite table.
+# UNLESS the line carries a negation cue — the corrected wording always denies
+# the floor or frames the target as EXPLICITLY scoped.
+M11_RFDEFAULT_PIN_RE = re.compile(
+    r"(?:pin(?:s|ned)?|fall(?:s)?\s+through|fall-through|silently\s+routes?)"
+    r"[^.\n]*?`?:rf/default`?",
+    re.IGNORECASE,
+)
+# Negation cues — the corrected wording. Any clears Rule 3: the line denies the
+# floor, or marks `:rf/default` as something you must scope/pass EXPLICITLY.
+M11_RFDEFAULT_NEGATION_RE = re.compile(
+    r"no\s+`?:rf/default`?\s+(?:floor|tier|fall-through|fall\s+through)"
+    r"|does not (?:silently )?(?:pin|route|fall)|do not describe"
+    r"|no-frame-context|scope or pass|pass that frame|intentionally target",
+    re.IGNORECASE,
+)
+
 # --- Rule 2: M-13 — reg-event-error-handler "moved to frame-level :on-error".
 #
 # Fires when a line asserts that reg-event-error-handler MOVED / MOVES to a
@@ -182,6 +227,20 @@ def line_problems(line: str) -> list[str]:
             "`:rf.error/no-frame-context` (EP-0002; spec/002-Frames.md, "
             "spec/004-Views.md). Only a `reg-view`-registered view reads the "
             "provider frame. State the limitation, not the (false) inheritance."
+        )
+
+    # Rule 3 — M-11 component "pins to" / "falls through to" `:rf/default`.
+    if (
+        M11_RFDEFAULT_PIN_RE.search(line)
+        and not M11_RFDEFAULT_NEGATION_RE.search(line)
+    ):
+        problems.append(
+            "M11-RFDEFAULT-PIN: a component left as-is under a frame-provider "
+            "does NOT pin / fall through / silently route to `:rf/default` "
+            "(EP-0002 — there is no `:rf/default` floor; a frame-scoped op "
+            "raises `:rf.error/no-frame-context`). To intentionally target "
+            "`:rf/default`, the component must scope or pass that frame "
+            "explicitly. State the limitation, not the (false) auto-default."
         )
 
     # Rule 2 — M-13 reg-event-error-handler-moved-to-frame-level-:on-error claim.
@@ -309,6 +368,17 @@ def _self_test() -> int:
         "reg-event-error-handler moves to a per-frame :on-error recovery policy.",
         dirty=True, label="A5 reg-event-error-handler moves to per-frame :on-error",
     )
+    # A6/A7 — the exact pre-fix M-11 "Leave as-is" stale claim (guided-handlers-
+    # state.md:90 shape) + the README fall-through variant.
+    expect(
+        "Leave as-is. The author accepts that the component pins to `:rf/default` "
+        "regardless of where it renders.",
+        dirty=True, label="A6 component pins to :rf/default regardless",
+    )
+    expect(
+        "A plain fn with no enclosing provider just falls through to :rf/default.",
+        dirty=True, label="A7 plain fn falls through to :rf/default",
+    )
 
     # PASS fixtures — the corrected wording must NOT flag.
     expect(
@@ -353,6 +423,26 @@ def _self_test() -> int:
         "A frame-provider scopes a frame to a subtree; reg-view descendants "
         "resolve to it at render time.",
         dirty=False, label="B8 reg-view descendants resolve (no plain-fn subject)",
+    )
+    # B9/B10/B11 — the corrected M-11 "Leave as-is" wording (guided-handlers-
+    # state.md:90 post-fix) and explicit-target phrasing must NOT flag.
+    expect(
+        "Do not describe this as pinning to `:rf/default`: there is no "
+        "`:rf/default` fall-through (EP-0002), so a frame-dependent plain fn "
+        "raises `:rf.error/no-frame-context` — it does not silently route to a "
+        "default. To intentionally target `:rf/default`, scope or pass that "
+        "frame explicitly.",
+        dirty=False, label="B9 corrected M-11 leave-as-is wording (no :rf/default pin)",
+    )
+    expect(
+        "There is no `:rf/default` floor; the read tier returns nil and the op "
+        "fails loudly.",
+        dirty=False, label="B10 no :rf/default floor (correct)",
+    )
+    expect(
+        "To target `:rf/default`, scope it explicitly with `with-frame` or an "
+        "explicit `{:frame :rf/default}` opt.",
+        dirty=False, label="B11 explicit :rf/default target (correct)",
     )
 
     if failures:
