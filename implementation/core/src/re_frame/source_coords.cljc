@@ -45,7 +45,8 @@
 
   The DOM-annotation hook (per Tool-Pair §Source-mapping) is the dev-only
   piece, gated separately."
-  (:require [re-frame.interop :as interop]
+  (:require [clojure.string :as str]
+            [re-frame.interop :as interop]
             [re-frame.source-coords.editor-uri :as editor-uri]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -109,6 +110,71 @@
       (if coords
         (merge coords (or user-meta {}))
         (or user-meta {})))))
+
+;; ---- DOM source-coord attribute parser (rf2-nr7vf2) -----------------------
+;;
+;; The inverse of `re-frame.adapter.context/format-source-coord` (re-exported
+;; as `re-frame.views/format-source-coord` / `re-frame.substrate.spine/
+;; format-source-coord`). The formatter renders a registry slot's id + coords
+;; into the `data-rf2-source-coord` DOM-attribute value `<ns>:<sym>:<line>:
+;; <col>`; this parser recovers `{:ns :handler-id :line :col}` from that
+;; string. It lives HERE — in the source-coord contract owner (Spec 006
+;; §Source-coord annotation / Tool-Pair §Source-mapping), not in the
+;; CLJS-only `adapter.context` ns — because consumers reading the attribute
+;; include JVM-side `.cljc` surfaces (Story's element-inspector pure helpers,
+;; the SSR round-trip parity test). Co-locating format + parse here keeps the
+;; round-trip a single source of truth (rf2-nr7vf2 collapses the parser that
+;; was reimplemented near-byte-for-byte in Story's element_inspector.cljc and
+;; the re-frame2-pair preload runtime).
+;;
+;; Tool-Pair.md declares the attribute value opaque to consumers and warns
+;; downstream callers MUST NOT depend on the parsed shape's stability across
+;; re-frame2 versions. Canonicalising the parser in the contract owner ties
+;; the format and its inverse to the same version boundary — the elegant
+;; single-source posture pre-alpha invites.
+
+(defn- parse-coord-int
+  "Parse a `data-rf2-source-coord` line/col segment to an integer, or nil.
+  Returns nil for the `?` placeholder (programmatic registrations that
+  bypassed the macro path) and any other non-numeric / non-string input.
+  Never throws."
+  [s]
+  (when (and (string? s) (re-matches #"\d+" s))
+    #?(:cljs (js/parseInt s 10)
+       :clj  (Long/parseLong s))))
+
+(defn parse-source-coord
+  "Parse a `data-rf2-source-coord` attribute value into
+  `{:ns :handler-id :line :col}`, or nil. The inverse of
+  `re-frame.adapter.context/format-source-coord` (re-exported as
+  `re-frame.views/format-source-coord`).
+
+  Per Spec 006 §Attribute value format the value is a four-segment colon-
+  separated string `<ns>:<sym>:<line>:<col>` where `<ns>` / `<sym>` derive
+  from the registry id keyword (`(namespace id)` / `(name id)`) and
+  `<line>` / `<col>` are the macro-captured source coords. Either coord
+  segment may be the literal `?` for programmatic registrations that
+  bypassed the macro path; `:line` / `:col` are nil in that case.
+
+  Returns nil for malformed input — blank / non-string input, fewer or
+  more than four segments, or an empty `<ns>` / `<sym>` segment. Never
+  throws. Pair-shaped consumers fall back to `(rf/handler-meta :view id)`
+  when this returns nil (Spec 006 §Documented exemption).
+
+  Tool-Pair.md declares the attribute value opaque to consumers; this
+  parser exists so tooling's DOM → source bridge can be useful, but
+  downstream callers MUST NOT depend on the parsed shape's stability
+  across re-frame2 versions."
+  [attr-val]
+  (when (and (string? attr-val) (seq attr-val))
+    (let [parts (str/split attr-val #":")]
+      (when (= 4 (count parts))
+        (let [[ns-part sym-part line-part col-part] parts]
+          (when (and (seq ns-part) (seq sym-part))
+            {:ns         ns-part
+             :handler-id sym-part
+             :line       (parse-coord-int line-part)
+             :col        (parse-coord-int col-part)}))))))
 
 ;; ---- co-located per-element machine source (rf2-npvsx) -------------------
 ;;

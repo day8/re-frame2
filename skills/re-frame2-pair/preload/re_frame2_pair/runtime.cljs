@@ -109,6 +109,13 @@
             [re-frame.realm :as realm]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            ;; `parse-source-coord` (the canonical inverse of
+            ;; `format-source-coord`) is the source-coord contract owner's
+            ;; parser for the `data-rf2-source-coord` DOM attribute (rf2-nr7vf2).
+            ;; The pair preload used to carry a near-byte-for-byte copy of this
+            ;; parser; it now routes through the one canonical impl in core.
+            ;; Dev-tier preload, so the direct require is bundle-isolation-safe.
+            [re-frame.source-coords :as source-coords]
             [clojure.data :as data]
             [clojure.set :as set]
             [clojure.string :as str]
@@ -3162,50 +3169,20 @@
 ;; re-com's carries <file>/<line>/<column>. The runtime returns
 ;; whichever map the first present attribute parses to.
 
-(defn- parse-rf2-coord
-  "Parse re-frame2's `data-rf2-source-coord` attribute.
+(def ^:private parse-rf2-coord
+  "Parse re-frame2's `data-rf2-source-coord` attribute into
+   {:ns :handler-id :line :col} or nil.
 
-   Per Spec 006 §Source-coord annotation and Tool-Pair
-   §Source-mapping the attribute value is a four-segment colon-
-   separated string:
-
-       <ns>:<handler-id>:<line>:<col>
-
-   where <ns> and <handler-id> derive from the registry id keyword
-   (`(namespace id)` and `(name id)`) and <line>/<col> are the
-   captured source coords from the reg-view macro. Either coord
-   segment may be the literal `?` for programmatic registrations
-   that bypassed the macro path (Spec 006 §Attribute value format).
-
-   Returns
-       {:ns          <string>
-        :handler-id  <string>
-        :line        <int|nil>
-        :col         <int|nil>}
-
-   - :line and :col are nil when the corresponding segment is `?`
-     or otherwise non-numeric.
-   - Returns nil for blank input, non-strings, or fewer than four
-     segments. Pair-shaped consumers fall back to (rf/handler-meta
-     :view id) for those cases (Spec 006 §Documented exemption).
-
-   Tool-Pair.md declares the value format opaque to consumers; this
-   parser exists so re-frame2-pair's DOM-to-source bridge can be useful, but
-   downstream callers MUST NOT depend on the parsed shape's
-   stability across re-frame2 versions."
-  [attr-val]
-  (when (and (string? attr-val) (seq attr-val))
-    (let [parts (str/split attr-val #":")]
-      (when (= 4 (count parts))
-        (let [[ns-part sym-part line-part col-part] parts
-              parse-int (fn [s]
-                          (when (and (string? s) (re-matches #"\d+" s))
-                            (js/parseInt s 10)))]
-          (when (and (seq ns-part) (seq sym-part))
-            {:ns         ns-part
-             :handler-id sym-part
-             :line       (parse-int line-part)
-             :col        (parse-int col-part)}))))))
+   Alias of the canonical `re-frame.source-coords/parse-source-coord`
+   (the source-coord contract owner) — the inverse of
+   `format-source-coord`. This parser used to be reimplemented near-
+   byte-for-byte here and in Story's element_inspector.cljc; rf2-nr7vf2
+   collapsed both onto the one canonical impl in core. See that fn for
+   the four-segment value format (Spec 006 §Attribute value format),
+   the `?`-placeholder degradation, and the Tool-Pair opacity caveat
+   (downstream callers MUST NOT depend on the parsed shape's stability
+   across re-frame2 versions)."
+  source-coords/parse-source-coord)
 
 (defn- parse-rc-src
   "Parse re-com's `data-rc-src` attribute into {:file :line :column}.
