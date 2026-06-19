@@ -65,7 +65,7 @@
   ;; EP-0002 carried-frame invariant: wrap the live-app render in a
   ;; `frame-provider` so the in-tree dispatch/subscribe in `counter-app`
   ;; resolve to the app's `:rf/default` frame (registered in `init`).
-  (rdc/render @app-root [rf/frame-provider {:frame :rf/default} [views/counter-app]]))
+  (rdc/render @app-root [rf/frame-provider-existing {:frame :rf/default} [views/counter-app]]))
 
 (defn- mount-stories! []
   (tear-down-app-root!)

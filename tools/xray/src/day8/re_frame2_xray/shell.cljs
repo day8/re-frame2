@@ -94,7 +94,7 @@
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
-  The shell is wrapped in `[rf/frame-provider {:frame :rf/xray}]`.
+  The shell is wrapped in `[rf/frame-provider-existing {:frame :rf/xray}]`.
   Every `subscribe` / `dispatch` inside the shell resolves to the
   `:rf/xray` frame; the host's `:rf/default` is untouched. Xray's
   own registrations under `:rf.xray/*` operate against `:rf/xray`'s
@@ -166,7 +166,7 @@
 ;; `:variants-grid`, a Story workspace) pass DISTINCT frame-ids so each
 ;; cell's app-db (focused epoch, selected tab, theme) is isolated.
 ;; `shell-view` takes the frame-id as an opt (default `default-frame-id`)
-;; and wraps the chrome in `[frame-provider {:frame that-id}]`. Handlers
+;; and wraps the chrome in `[frame-provider-existing {:frame that-id}]`. Handlers
 ;; register GLOBALLY once under `:rf.xray/*` (the registry is process-
 ;; global, not per-frame), so only the frame-id for app-db isolation
 ;; threads through — no per-instance handler re-registration.
@@ -2497,7 +2497,7 @@
   move the others.
 
   The frame-id flows two ways: it parameterizes the wrapping
-  `[frame-provider {:frame frame-id}]` (so every reg-view descendant
+  `[frame-provider-existing {:frame frame-id}]` (so every reg-view descendant
   resolves to it through React-context), AND it backs the few
   out-of-render subscribes/dispatches `shell-view` itself issues from
   OUTSIDE its own provider (the modal-positioning + mode reads below).
@@ -2635,7 +2635,7 @@
     ;; Every subscribing child below is wrapped so the instance
     ;; `frame-id` flows through React-context (rf2-lnluk — the provider
     ;; frame is the parameterized instance frame, default `:rf/xray`).
-    [rf/frame-provider {:frame frame-id}
+    [rf/frame-provider-existing {:frame frame-id}
     ;; Left-edge horizontal resize handle (rf2-x8h9y) — only renders
     ;; in `:inline` (right-rail) mode. Position-absolute pins it to
     ;; the LEFT edge of this flex container; the outer div is

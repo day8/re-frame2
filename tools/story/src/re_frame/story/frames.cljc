@@ -842,7 +842,7 @@
   (`ensure-fresh-frame!` → `destroy!` + `allocate!`) achieved fresh state
   but DESTROYED the frame: `destroy-frame!` tears down the sub-cache and
   the partition projections. When the canvas has ALREADY mounted the
-  variant view under `frame-provider {:frame variant-id}` (its
+  variant view under `frame-provider-existing {:frame variant-id}` (its
   `@(subscribe …)` reactions wired to THIS frame's sub-cache) before
   `:component-did-mount` → `run-variant` runs, that destroy ORPHANS every
   live reaction: a subsequent `:counter/set 42` updates the freshly

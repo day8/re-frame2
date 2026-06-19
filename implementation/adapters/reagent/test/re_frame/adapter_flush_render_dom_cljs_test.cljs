@@ -77,7 +77,7 @@
             ;; async — mirrors the cross-spec DOM tests' mount shape).
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider {:frame frame-kw}
+                (rdc/render root [rf/frame-provider-existing {:frame frame-kw}
                                   [(rf/view :rf.reagent-flush-render/probe)]])))
             (is (= "n=1" (.-textContent mount-node))
                 "committed DOM shows the seeded value n=1")

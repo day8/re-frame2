@@ -44,4 +44,4 @@
   (rf/with-frame :rf/default
     (schema/register-schema!)
     (rf/dispatch-sync [:counter/initialise]))
-  (.render root ($ helix-adapter/frame-provider {:frame :rf/default} ($ views/counter-app))))
+  (.render root ($ helix-adapter/frame-provider-existing {:frame :rf/default} ($ views/counter-app))))

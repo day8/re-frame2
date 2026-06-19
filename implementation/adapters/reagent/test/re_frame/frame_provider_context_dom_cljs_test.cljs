@@ -129,8 +129,8 @@
 (deftest scenario-1-nested-provider-inner-wins
   "Scenario 1 — nested-provider inheritance.
 
-   A `[rf/frame-provider {:frame :outer}]` wrapping a
-   `[rf/frame-provider {:frame :inner}]` wrapping a reg-view'd probe:
+   A `[rf/frame-provider-existing {:frame :outer}]` wrapping a
+   `[rf/frame-provider-existing {:frame :inner}]` wrapping a reg-view'd probe:
    the probe sees `:inner`, and `(rf/subscribe ...)` inside resolves
    against `:inner`'s app-db (not `:outer`'s, not `:rf/default`'s)."
   (if-not (browser?)
@@ -164,8 +164,8 @@
               (fn []
                 (rdc/render root
                             ;; Outer provider wraps inner provider wraps probe.
-                            [rf/frame-provider {:frame outer}
-                             [rf/frame-provider {:frame inner}
+                            [rf/frame-provider-existing {:frame outer}
+                             [rf/frame-provider-existing {:frame inner}
                               [render-fn]]])))
             (is (= inner @resolved-frame)
                 "current-frame inside the doubly-wrapped subtree resolves to the INNER provider's frame")
@@ -191,7 +191,7 @@
    A reg-view rendered outside any `frame-provider` resolves to nil; a
    subscribe / current-frame-id inside it raises
    `:rf.error/no-frame-context` (no silent `:rf/default`). Wrapping the
-   same probe in an explicit `[rf/frame-provider {:frame …}]` makes the
+   same probe in an explicit `[rf/frame-provider-existing {:frame …}]` makes the
    calls resolve correctly."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
@@ -239,7 +239,7 @@
           (try
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
+                (rdc/render root [rf/frame-provider-existing {:frame target}
                                   [render-fn]])))
             (is (= target @resolved-frame)
                 "an explicit frame-provider scopes the frame the probe resolves to")
@@ -395,7 +395,7 @@
           (try
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
+                (rdc/render root [rf/frame-provider-existing {:frame target}
                                   [render-fn]])))
             (is (= :wrapped @resolved)
                 "subscribe routes against the wrapped frame, not :rf/default")
@@ -440,7 +440,7 @@
         (try
           (react-dom/flushSync
             (fn []
-              (rdc/render root [rf/frame-provider {:frame target}
+              (rdc/render root [rf/frame-provider-existing {:frame target}
                                 [render-fn]])))
           (is (= :here (:stamped (rf/app-db-value target)))
               "the wrapped frame's app-db carries the stamp — dispatch routed there")
@@ -504,7 +504,7 @@
                 ;; development.
                 (rdc/render root
                             [:> (.-StrictMode React)
-                             [rf/frame-provider {:frame target}
+                             [rf/frame-provider-existing {:frame target}
                               [render-fn]]])))
             ;; The probe should have been invoked at least once. Under
             ;; StrictMode in development React 18+ invokes function
@@ -593,7 +593,7 @@
             ;; Render 1 — wrap the call in act() so pending React work
             ;; commits before we read the observed-* atoms.
             (act-fn (fn []
-                      (rdc/render root [rf/frame-provider {:frame target}
+                      (rdc/render root [rf/frame-provider-existing {:frame target}
                                         [render-fn]])))
             (is (some #{target} @observed-frames)
                 "first render saw the wrapped frame")
@@ -610,7 +610,7 @@
                       ;; explicit re-render makes the test
                       ;; deterministic across reactivity-flush timing
                       ;; differences in the harness.
-                      (rdc/render root [rf/frame-provider {:frame target}
+                      (rdc/render root [rf/frame-provider-existing {:frame target}
                                         [render-fn]])))
             (is (= target (last @observed-frames))
                 "post-act render still observes the wrapped frame — provider boundary held")
@@ -628,14 +628,14 @@
 ;; which makes per-scenario failures easier to read.
 
 (deftest harness-sanity-provider-element-shape
-  "Sanity — `[rf/frame-provider {:frame :x} child]` composes to a
+  "Sanity — `[rf/frame-provider-existing {:frame :x} child]` composes to a
   React Context Provider element with the expected `:value`. Sister
   to the existing `frame-provider-emits-provider-hiccup` in
   runtime_cljs_test; pinned here so a regression in the provider
   shape surfaces alongside this suite's failures, not three suites
   away."
   (let [child       [:span "x"]
-        tree        (rf/frame-provider {:frame :rf-22ds-sanity-x} child)
+        tree        (rf/frame-provider-existing {:frame :rf-22ds-sanity-x} child)
         head        (first tree)
         value       (second tree)
         rest-args   (drop 2 tree)]
@@ -690,7 +690,7 @@
           (try
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
+                (rdc/render root [rf/frame-provider-existing {:frame target}
                                   [render-fn]])))
             (is (= target @observed-frame)
                 (str "current-frame inside the wrapped subtree resolves to the FULL "

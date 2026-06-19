@@ -115,7 +115,7 @@ The full-shell embed exposes exactly two host-visible props:
 Both props are honoured by the **frame-provider convention** (the
 `mount-<panel>!` surface from [`007-UX-IA.md`](./007-UX-IA.md)
 §Mountable panel contract: every mount fn opens with
-`[rf/frame-provider {:frame ...} ...]` and renders into the
+`[rf/frame-provider-existing {:frame ...} ...]` and renders into the
 host-supplied mount-point — Xray never sizes its own container). No
 other host-facing props exist.
 
@@ -321,7 +321,7 @@ mechanism, locked under rf2-tijr (2026-05-12):
 
 Every Xray mount fn (the master `mount-shell!` and every per-panel
 `mount-<panel>!` per [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel
-contract) opens with an internal `[rf/frame-provider {:frame
+contract) opens with an internal `[rf/frame-provider-existing {:frame
 <frame-id>} ...]`. Descendant subscriptions and dispatches re-anchor
 to that frame, *not* the host's `:rf/default` (or whatever frame the
 host's tree is providing). Consequences:

@@ -963,4 +963,4 @@
   (rf/with-frame shell-frame
     (rf/dispatch-sync [:machine-epochs/seed])
     (rf/dispatch-sync [:machine-epochs/select default-track]))
-  (rdc/render react-root [rf/frame-provider {:frame shell-frame} [root]]))
+  (rdc/render react-root [rf/frame-provider-existing {:frame shell-frame} [root]]))

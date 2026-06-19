@@ -487,4 +487,4 @@
   (rf/with-frame host-frame
     (rf/dispatch-sync [:routes-epochs/reset])
     (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
-  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))
+  (rdc/render react-root [rf/frame-provider-existing {:frame host-frame} [root]]))

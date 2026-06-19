@@ -4,7 +4,7 @@
 
   ## The bug these tests defend against
 
-  The palette modal mounts via `[rf/frame-provider {:frame :rf/xray}
+  The palette modal mounts via `[rf/frame-provider-existing {:frame :rf/xray}
   …]` in the shell. Subscribes inside the palette resolve through
   React context — at RENDER time, React's `_currentValue` for the
   `frame-context` is set to `:rf/xray` while the body of the

@@ -177,6 +177,7 @@
 ;; not surface a Var under the consuming ns.
 
 (def frame-provider provider/frame-provider)
+(def frame-provider-existing provider/frame-provider-existing)
 (def build-frame-provider provider/build-frame-provider)
 (def current-frame provider/current-frame)
 (def mint-instance-token! provider/mint-instance-token!)

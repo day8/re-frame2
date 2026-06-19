@@ -289,7 +289,7 @@
            (let [payload (ssr/hydrate! {:frame          :app/main
                                         :render-tree-fn #((rf/view :app/root))})]
              (rdc/render react-root
-               [rf/frame-provider {:frame :app/main}
+               [rf/frame-provider-existing {:frame :app/main}
                 [(rf/view :app/root)]])
              ;; …verify already ran inside hydrate! against render-tree-fn
              payload)))

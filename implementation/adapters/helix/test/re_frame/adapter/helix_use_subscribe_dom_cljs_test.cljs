@@ -175,7 +175,7 @@
    ;; `:children` prop-map key), not a direct CLJS-fn invocation.
    :frame-provider-mount-element
    (fn [frame-kw child-el]
-     ($ helix-adapter/frame-provider {:frame frame-kw} child-el))
+     ($ helix-adapter/frame-provider-existing {:frame frame-kw} child-el))
    ;; tracks-app-db
    :probe-element         (fn [] ($ Probe))
    :probe-observed        probe-observed
@@ -326,7 +326,7 @@
 ;; destructures cleanly by construction, with no per-adapter patch.
 ;;
 ;; rf2-7kii2 UNIFIED THE CALL SHAPE: children now ride the native `$`
-;; TRAILING-ARGS channel — `($ frame-provider {:frame :f} c1 c2)` — exactly
+;; TRAILING-ARGS channel — `($ frame-provider-existing {:frame :f} c1 c2)` — exactly
 ;; as for every other Helix component and mirroring Reagent's trailing
 ;; hiccup. The old `:children`-in-props-map form (and its silent-drop
 ;; footgun) is gone. This test mounts the provider via the idiomatic
@@ -347,7 +347,7 @@
         (catch :default _ nil))))
 
 (deftest frame-provider-trailing-children-propagate-frame
-  (testing "Helix — ($ frame-provider {:frame :f} c1 c2) trailing children propagate :frame + render (rf2-7kii2)"
+  (testing "Helix — ($ frame-provider-existing {:frame :f} c1 c2) trailing children propagate :frame + render (rf2-7kii2)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]

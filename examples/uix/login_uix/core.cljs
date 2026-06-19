@@ -377,6 +377,6 @@
     ;; no-provider sentinel and those reads raise `:rf.error/no-frame-context`
     ;; (there is no `:rf/default` floor).
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:frame :rf/default}
+      ($ uix-adapter/frame-provider-existing {:frame :rf/default}
          ($ root-view))
       @react-root)))

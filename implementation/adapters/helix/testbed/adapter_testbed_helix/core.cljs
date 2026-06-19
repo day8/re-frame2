@@ -55,4 +55,4 @@
   (rf/reg-frame :rf/default {})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
-  (.render app-root ($ helix-adapter/frame-provider {:frame :rf/default} ($ root))))
+  (.render app-root ($ helix-adapter/frame-provider-existing {:frame :rf/default} ($ root))))

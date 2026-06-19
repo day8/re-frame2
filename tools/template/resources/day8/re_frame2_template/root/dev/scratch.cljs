@@ -19,7 +19,7 @@
   ;; --- Drive the live app -------------------------------------------------
   ;;
   ;; `core.cljs` registers `:rf/default` as this app's frame and renders the
-  ;; UI under `(rf/frame-provider {:frame :rf/default} …)`. At the REPL no
+  ;; UI under `(rf/frame-provider-existing {:frame :rf/default} …)`. At the REPL no
   ;; lexical scope is in effect, so pin `:rf/default` with `with-frame` — the
   ;; body then resolves to the SAME frame the on-screen UI uses. Dispatches
   ;; you fire here mutate the app-db you see on screen; the deref reads the

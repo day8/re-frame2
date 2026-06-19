@@ -1154,7 +1154,7 @@ The user's Static-Machines state survives reloads via **two** localStorage slots
 
 ### Frame isolation
 
-Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3). The Static Machines surface is wrapped in the Static shell's `[rf/frame-provider {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. The browse-list, definition-detail, sub-strip pills, and Topology renderer are all `reg-view`-registered.
+Same discipline as the Dynamic Machines panel (per §Tab placement above + [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3). The Static Machines surface is wrapped in the Static shell's `[rf/frame-provider-existing {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. The browse-list, definition-detail, sub-strip pills, and Topology renderer are all `reg-view`-registered.
 
 ### See also
 

@@ -412,5 +412,5 @@
     ;; no-provider sentinel and those reads raise `:rf.error/no-frame-context`
     ;; (there is no `:rf/default` floor).
     (.render @react-root
-             ($ helix-adapter/frame-provider {:frame :rf/default}
+             ($ helix-adapter/frame-provider-existing {:frame :rf/default}
                 ($ root-view)))))

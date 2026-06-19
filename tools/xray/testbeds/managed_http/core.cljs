@@ -504,4 +504,4 @@
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [::initialise]))
-  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))
+  (rdc/render react-root [rf/frame-provider-existing {:frame host-frame} [root]]))

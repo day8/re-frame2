@@ -493,7 +493,7 @@
             (react-dom/flushSync
               (fn []
                 (rdc/render root
-                            [rf/frame-provider {:frame target-frame}
+                            [rf/frame-provider-existing {:frame target-frame}
                              [plain-fn]]))))
           (is (some? @render-error)
               "a plain fn's subscribe (no :contextType) raised rather than falling through to :rf/default")
@@ -573,7 +573,7 @@
         (try
           (react-dom/flushSync
             (fn []
-              (rdc/render root [rf/frame-provider {:frame target-frame}
+              (rdc/render root [rf/frame-provider-existing {:frame target-frame}
                                 [render-fn]])))
           (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
                                    (:operation %))
@@ -646,7 +646,7 @@
             (binding [frame/*current-frame* nil]
               (react-dom/flushSync
                 (fn []
-                  (rdc/render root [rf/frame-provider {:frame target-frame}
+                  (rdc/render root [rf/frame-provider-existing {:frame target-frame}
                                     [render-fn]]))))
             (is (= target-frame @resolved-frame)
                 "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
@@ -778,7 +778,7 @@
           (binding [frame/*current-frame* nil]
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider {:frame target-frame}
+                (rdc/render root [rf/frame-provider-existing {:frame target-frame}
                                   [render-fn]]))))
           (is (= :here (:stamped (rf/app-db-value target-frame)))
               "dispatch routed to the provider's frame — its app-db carries the stamp")
