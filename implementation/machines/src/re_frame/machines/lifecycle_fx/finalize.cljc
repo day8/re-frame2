@@ -159,6 +159,32 @@
                           :recovery    :first-region-output-key-used}))
     (some (fn [[_ node]] (:output-key node)) declared)))
 
+(defn- parallel-error-leaf-node
+  "Per Spec 005 §Final states §`:on-error` + §Parallel regions (rf2-encnvn):
+  classify a finishing PARALLEL machine's terminal as ERROR by scanning
+  EVERY region's final leaf — not just the first region's. Returns the
+  first (state-map order) region final leaf that declares `:error? true`,
+  or nil when no region's terminal is an error final.
+
+  The pre-fix code read `:error?` from `(first state)` only — the SAME
+  first-region blind spot the `:output-key` scan (`parallel-output-key`)
+  already fixed for output. So a parallel child whose FIRST region reached
+  a plain final but a NON-FIRST region reached `{:final? true :error? true}`
+  was all-regions-final and torn down, yet classified as a SUCCESS finish:
+  the spawning parent's `:spawn :on-error` was skipped, `:on-done` could run
+  instead, and `:rf.machine/done` carried `:error? false` / `:status :ok`.
+
+  Spec 005 §3061 says a parallel machine finishes when EVERY region's active
+  leaf is `:final?` and never restricts the error terminal to the first
+  region; §3060 lets ANY `:final?` leaf declare `:error? true`. XState v5's
+  parallel `onDone`/error semantics treat the completion as an error when a
+  region ends in an error final. So a parallel finish routes as ERROR if ANY
+  region's reached final leaf declares `:error? true`; the error payload's
+  `:output-key` is sourced from that error region's leaf."
+  [machine state]
+  (some (fn [[_ node]] (when (true? (:error? node)) node))
+        (region-final-leaf-nodes machine state)))
+
 (defn- find-spawn-spec-at
   "Walk `parent-spec`'s state tree to the node at `invoke-id` (the
   absolute prefix-path stamped at spawn time) and return that node's
@@ -243,22 +269,29 @@
                           machine-id frame-id (result/info exit-result)))]
   (let [child-data (:data next-snapshot)
         parallel?  (parallel/parallel? machine)
-        ;; Resolve the FIRST region's final leaf (parallel) / the single
-        ;; final leaf (flat) — the representative node `:error?` is read
-        ;; from. Parallel error-terminal routing keeps its first-region
-        ;; convention; only `:output-key` scans every region (C2 below).
-        final-node (if parallel?
-                     (let [[region-name region-state] (first (:state next-snapshot))]
-                       (transition/node-at (get-in machine [:regions region-name])
-                                            (transition/state-path region-state)))
-                     (transition/node-at machine
+        ;; (rf2-encnvn) Resolve the ERROR-classifying leaf. For a PARALLEL
+        ;; machine, scan EVERY region's final leaf — a parallel finish is an
+        ;; ERROR when ANY region's reached final declares `:error? true`, not
+        ;; only the first region's (Spec 005 §3060-§3061; XState v5 parallel
+        ;; error-final semantics). The pre-fix code read `:error?` from
+        ;; `(first state)` only — the same first-region blind spot the
+        ;; `:output-key` scan (C2) already fixed for output. For a flat
+        ;; machine the single leaf IS the error-classifying leaf.
+        error-node  (if parallel?
+                      (parallel-error-leaf-node machine (:state next-snapshot))
+                      (transition/node-at machine
                                           (transition/state-path (:state next-snapshot))))
+        error-leaf? (true? (:error? error-node))
         ;; Per rf2-g13nm2 C2: a PARALLEL machine's `:output-key` may live on
         ;; ANY region's terminal leaf, not just the first. Scan all regions
-        ;; (error on conflict); a flat machine reads its single leaf.
-        output-key  (if parallel?
-                      (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
-                      (:output-key final-node))
+        ;; (error on conflict); a flat machine reads its single leaf. When the
+        ;; finish is an ERROR, the error payload's `:output-key` is sourced
+        ;; from the ERROR region's leaf so the right error `:data` slot routes
+        ;; to `:on-error` (rf2-encnvn).
+        output-key  (cond
+                      (and parallel? error-leaf?) (:output-key error-node)
+                      parallel?                   (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
+                      :else                       (:output-key error-node))
         result      (when output-key (get child-data output-key))
         ;; Per Spec 005 §Final states §`:on-error` (rf2-5hlsh; XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
@@ -266,8 +299,8 @@
         ;; via an error leaf AND its spawning parent declares `:spawn :on-error`,
         ;; the runtime routes the failure to a PARENT TRANSITION (control flow,
         ;; not just observability) instead of the `:data`-only `:on-done`
-        ;; callback. A plain `:final?` leaf keeps firing `:on-done`.
-        error-leaf? (true? (:error? final-node))
+        ;; callback. A plain `:final?` leaf keeps firing `:on-done`. `error-leaf?`
+        ;; is computed above (cross-region scan for parallel — rf2-encnvn).
         parent-id   (:rf/parent-id child-data)
         invoke-id   (:rf/invoke-id child-data)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
