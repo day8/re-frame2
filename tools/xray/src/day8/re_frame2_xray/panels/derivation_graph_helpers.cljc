@@ -291,6 +291,20 @@
        (keyword? (nth v 1))
        (map? (nth v 2))))
 
+(defn- already-projected?
+  "True when `v` is ALREADY an egress-projected handle — an opaque
+  `[:rf.resource/opaque <digest>]` token or the `:rf/redacted` fail-closed
+  sentinel. Re-projecting such a value MUST be the identity (idempotence): a
+  forwarder pipeline may run egress more than once (re-egress on re-render /
+  re-subscribe / cascade), and hashing an already-projected handle would mint
+  a NEW, different handle — silently changing the live node's identity across
+  the boundary and breaking stable graph connectivity."
+  [v]
+  (or (= v :rf/redacted)
+      (and (vector? v)
+           (= 2 (count v))
+           (= :rf.resource/opaque (nth v 0)))))
+
 (defn- opaque-handle
   "A STABLE, ONE-WAY opaque handle for one secret-bearing scoped-key
   component. Deterministic from the value (same value ⇒ same handle, so
@@ -298,20 +312,24 @@
   CEDN-1 canonical token, NOT the token itself (the token PRESERVES the raw
   value, which would defeat redaction). FAILS CLOSED to the `:rf/redacted`
   sentinel for any value outside the CEDN-1 identity domain or on any error
-  (never host-stringify a secret onto the wire). Idempotent: hashing an
-  already-`[:rf.resource/opaque …]` handle yields a stable handle-of-handle."
+  (never host-stringify a secret onto the wire). IDEMPOTENT: an already-
+  projected `[:rf.resource/opaque …]` handle / `:rf/redacted` sentinel is
+  returned UNCHANGED (hashing it again would mint a fresh, DIFFERENT handle
+  and silently change the projected identity on a second egress pass)."
   [v]
-  (try
-    ;; `canonical-bytes` is the deterministic CEDN-1 token (stable for a given
-    ;; value, cross-spelling-invariant); `hash` makes it one-way so the raw
-    ;; scope/params cannot be read back off the wire. Render unsigned hex so
-    ;; the handle is a compact, non-reversible, value-stable token.
-    (let [token  (identity/canonical-bytes v)
-          digest #?(:clj  (Integer/toHexString (hash token))
-                    :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
-      [:rf.resource/opaque digest])
-    (catch #?(:clj Throwable :cljs :default) _
-      :rf/redacted)))
+  (if (already-projected? v)
+    v
+    (try
+      ;; `canonical-bytes` is the deterministic CEDN-1 token (stable for a
+      ;; given value, cross-spelling-invariant); `hash` makes it one-way so the
+      ;; raw scope/params cannot be read back off the wire. Render unsigned hex
+      ;; so the handle is a compact, non-reversible, value-stable token.
+      (let [token  (identity/canonical-bytes v)
+            digest #?(:clj  (Integer/toHexString (hash token))
+                      :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
+        [:rf.resource/opaque digest])
+      (catch #?(:clj Throwable :cljs :default) _
+        :rf/redacted))))
 
 (defn- project-scoped-key
   "Project a live resource scoped key `[scope resource-id params]` into its
@@ -468,10 +486,17 @@
   egressing under no reachable policy redacts, never ships raw.
 
   Returns the graph with redacted node value fields + projected live
-  resource identities; `:mode` / `:frame` unchanged. Idempotent over
-  `:rf/redacted` (re-walking an already-redacted value is a no-op — the
-  sentinel is a non-matchable scalar) and over the opaque resource handle
-  (re-projecting a `[:rf.resource/opaque …]` handle is stable)."
+  resource identities; `:mode` / `:frame` unchanged. IDEMPOTENT — a value may
+  egress more than once (re-egress on re-render / re-subscribe / a forwarder
+  cascade), and re-projecting an already-projected graph is the IDENTITY:
+  `redact-graph-for-egress` ∘ `redact-graph-for-egress` == `redact-graph-for-
+  egress` (rf2-g197ep). `rf/elide-wire-value` is a no-op over an already-
+  `:rf/redacted` value (the sentinel is a non-matchable scalar), and the
+  opaque resource handle is idempotent at the source: `opaque-handle` returns
+  an already-`[:rf.resource/opaque …]` handle / `:rf/redacted` sentinel
+  UNCHANGED rather than re-hash it into a fresh, different handle. (Pinned by
+  `live-resource-identity-projection-is-idempotent` here and the cross-family
+  `g-graph-egress-is-idempotent` in derivation-conformance.)"
   ([graph frame-id] (redact-graph-for-egress graph frame-id nil))
   ([graph frame-id opts]
    ;; A reachable (live) frame governs egress under its own policy; an

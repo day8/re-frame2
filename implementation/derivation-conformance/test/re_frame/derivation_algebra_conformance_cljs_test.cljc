@@ -1051,6 +1051,20 @@
 
 ;; ---- the in-tree egress projection (mirrors the Xray call site) ----------
 
+(defn- already-projected-handle?
+  "True when `v` is ALREADY an egress-projected handle — an opaque
+  `[:rf.resource/opaque <digest>]` token or the `:rf/redacted` fail-closed
+  sentinel. Re-projecting such a value MUST be the identity (idempotence):
+  the conformance mirror models the SAME forwarder-pipeline contract the Xray
+  call site does — a value may egress more than once, and hashing an
+  already-projected handle would mint a NEW handle and silently change the
+  live node identity across the boundary."
+  [v]
+  (or (= v privacy/redacted-sentinel)
+      (and (vector? v)
+           (= 2 (count v))
+           (= :rf.resource/opaque (nth v 0)))))
+
 (defn- opaque-scoped-key-handle
   "A STABLE, ONE-WAY opaque handle for one secret-bearing scoped-key
   component — the `implementation/`-resident analogue of the Xray
@@ -1059,16 +1073,19 @@
   canonical token (`identity/canonical-bytes`), never the token itself.
   FAILS CLOSED to the `:rf/redacted` sentinel for any value outside the
   CEDN-1 identity domain or on any error — never host-stringify a secret
-  onto the wire. Idempotent: hashing an already-`[:rf.resource/opaque …]`
-  handle yields a stable handle-of-handle."
+  onto the wire. IDEMPOTENT: an already-projected `[:rf.resource/opaque …]`
+  handle / `:rf/redacted` sentinel is returned UNCHANGED (hashing it again
+  would mint a fresh, DIFFERENT handle on a second egress pass)."
   [v]
-  (try
-    (let [token  (identity/canonical-bytes v)
-          digest #?(:clj  (Integer/toHexString (hash token))
-                    :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
-      [:rf.resource/opaque digest])
-    (catch #?(:clj Throwable :cljs :default) _
-      privacy/redacted-sentinel)))
+  (if (already-projected-handle? v)
+    v
+    (try
+      (let [token  (identity/canonical-bytes v)
+            digest #?(:clj  (Integer/toHexString (hash token))
+                      :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
+        [:rf.resource/opaque digest])
+      (catch #?(:clj Throwable :cljs :default) _
+        privacy/redacted-sentinel))))
 
 (defn- scoped-resource-key?
   "True when `v` is a live resource SCOPED KEY — a 3-tuple
@@ -1111,7 +1128,12 @@
   "Project a live resource node's realized `:inputs`
   `[[:scope <scope>] [:param <params>]]` — opaque the `[:scope …]` /
   `[:param …]` payloads (the realized scope + params edges carry the same
-  sensitive identity). Other input shapes ride through untouched."
+  sensitive identity). Other input shapes ride through untouched. Idempotent:
+  the payload runs through `opaque-scoped-key-handle`, which returns an
+  already-projected handle / `:rf/redacted` UNCHANGED, so re-projecting an
+  already-projected inputs vector is the identity (rf2-g197ep — this is the
+  one input position projected unconditionally rather than gated by the
+  scoped-key shape, so its idempotence MUST come from the handle minter)."
   [inputs]
   (if (sequential? inputs)
     (mapv (fn [in]
@@ -1429,19 +1451,45 @@
         (is (not (contains-secret? redacted)))))))
 
 (deftest g-graph-egress-is-idempotent
-  ;; A forwarder pipeline that double-projects must not corrupt the graph: the
-  ;; opaque handle of a handle is stable, the :rf/redacted sentinel is a
-  ;; non-matchable scalar.
+  ;; A forwarder pipeline that double-projects must not corrupt the graph: a
+  ;; value may egress MORE THAN ONCE (re-egress on re-render / re-subscribe /
+  ;; cascade), so the projection MUST be the identity on an already-projected
+  ;; graph — `project(project(x)) == project(x)`. The opaque handle of an
+  ;; already-opaque handle is the SAME handle (not a fresh handle-of-handle),
+  ;; and the `:rf/redacted` sentinel re-projects to itself.
+  ;;
+  ;; rf2-g197ep: the prior assertion checked ONLY node-key set + `:id` + no-raw-
+  ;; secret. That MISSED the real non-idempotence: `:id`/node-keys are stable
+  ;; only because a projected scoped key (`[<handle> id <handle>]`) no longer
+  ;; matches `scoped-resource-key?` (its tail is an opaque VECTOR, not a map),
+  ;; so they are not re-projected — but the realized `:inputs`
+  ;; `[:scope …]`/`[:param …]` payloads were re-hashed UNCONDITIONALLY, minting
+  ;; fresh handles on the second pass. Full graph equality is the assertion
+  ;; that catches it; it FAILS against the pre-fix unconditional re-hash.
   (rf/reg-frame egress-frame {})
   (let [raw   (graph/live-derivation-graph egress-frame (egress-live-contributors))
         once  (egress-project-graph raw egress-frame)
-        twice (egress-project-graph once egress-frame)]
+        twice (egress-project-graph once egress-frame)
+        node1 (-> once :nodes vals first)
+        node2 (-> twice :nodes vals first)]
+    (is (not (contains-secret? twice)) "still no secret after double projection")
+    ;; The headline idempotence law: a second egress pass changes NOTHING.
+    (is (= once twice)
+        "egress is idempotent — re-projecting an already-projected graph is the
+         identity (project(project(x)) == project(x))")
+    ;; Spelled-out witnesses so a regression reports WHICH position drifted.
     (is (= (set (keys (:nodes once))) (set (keys (:nodes twice))))
         "node keys are stable under re-projection")
-    (is (not (contains-secret? twice)) "still no secret after double projection")
-    (is (= (-> once :nodes vals first :id)
-           (-> twice :nodes vals first :id))
-        "the projected scoped-key identity is stable under re-projection")))
+    (is (= (:id node1) (:id node2))
+        "the projected scoped-key :id is stable under re-projection")
+    (is (= (:inputs node1) (:inputs node2))
+        "the projected realized :inputs ([:scope …]/[:param …]) are stable — a
+         second pass must NOT re-hash the opaque handles into fresh handles")
+    (is (= (:output node1) (:output node2))
+        "the projected :output runtime path is stable under re-projection")
+    (is (= (get-in node1 [:work-ledger :record :resource/key])
+           (get-in node2 [:work-ledger :record :resource/key]))
+        "the projected work-ledger :resource/key is stable under re-projection")))
 
 ;; ===========================================================================
 ;; (h) DERIVED-OUTPUT SENSITIVITY INHERITANCE (rf2-iormgq; EP-0015 §Derived

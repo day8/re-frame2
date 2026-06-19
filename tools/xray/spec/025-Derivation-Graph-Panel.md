@@ -227,6 +227,19 @@ identity positions inside node bodies (`:id` / `:output` / `:inputs` /
 a redacted resource node is still a node, and the edges naming it still
 connect. Structure survives; the identity-embedded secret does not egress.
 
+The projection is **idempotent** (rf2-g197ep): a value may egress more than
+once (re-egress on re-render / re-subscribe / a forwarder cascade that ships
+an already-projected graph onward), so `redact-graph-for-egress` ∘
+`redact-graph-for-egress` **must equal** `redact-graph-for-egress` — a second
+pass changes nothing. This holds at the source: the opaque-handle minter
+returns an already-`[:rf.resource/opaque …]` handle (and the `:rf/redacted`
+sentinel) **unchanged** instead of re-hashing it into a fresh, different
+handle. Without that guard the realized `:inputs` `[:scope …]` / `[:param …]`
+payloads — the one position projected unconditionally rather than gated by the
+scoped-key shape test — would be re-hashed on every pass, silently changing
+the live node's input-edge identity across the boundary even though the node
+key and `:id` (gated by the 3-tuple-with-map-tail shape) stayed stable.
+
 ## `:rf.xray/*` registry surface
 
 All under the `:rf.xray/*` isolation prefix (the collision contract); all
@@ -275,7 +288,11 @@ the enclosing `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`.
   `:inputs`, `:output`, work-ledger, edges) while connectivity survives (the
   node is still classified, the edge still connects to the projected key),
   the projection is deterministic across all identity positions, and it is
-  idempotent under double-projection.
+  **idempotent** — `project(project(x)) == project(x)`, asserted as full graph
+  equality across two (and three) passes plus per-position witnesses (node
+  keys, `:id`, `:inputs`, `:output`, work-ledger `:resource/key`, edges), so a
+  forwarder pipeline that re-egresses an already-projected graph cannot drift
+  the realized `:inputs` handles (rf2-g197ep).
 - **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
   consumer** test (rf2-4wtllq): registers the panel handlers via
   `registry/register-xray-handlers!` + `test-support/install-test-overrides!`

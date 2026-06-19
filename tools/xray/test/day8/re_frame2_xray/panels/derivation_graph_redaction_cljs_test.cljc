@@ -406,11 +406,45 @@
             "every identity position projects to the SAME opaque scoped key")))))
 
 (deftest live-resource-identity-projection-is-idempotent
-  (testing "re-projecting an already-egressed graph is stable (the opaque
-            handle of a handle is the handle) — a forwarder pipeline that
-            double-projects does not corrupt the graph"
-    (let [once  (h/redact-graph-for-egress live-resource-graph secure-frame)
-          twice (h/redact-graph-for-egress once secure-frame)]
+  ;; A value may egress MORE THAN ONCE (re-egress on re-render / re-subscribe /
+  ;; a forwarder cascade), so re-projecting an already-egressed graph MUST be
+  ;; the identity — `project(project(x)) == project(x)`. The opaque handle of
+  ;; an already-opaque handle is the SAME handle, and `:rf/redacted` re-projects
+  ;; to itself.
+  ;;
+  ;; rf2-g197ep: the prior assertion checked ONLY node-key set + no-raw-secret.
+  ;; That MISSED the real non-idempotence — node-keys/`:id` are stable only
+  ;; because a projected scoped key no longer matches `scoped-resource-key?`
+  ;; (opaque-vector tail, not a map), so they are not re-projected; but the
+  ;; realized `:inputs` `[:scope …]`/`[:param …]` payloads were re-hashed
+  ;; UNCONDITIONALLY, minting fresh handles on the second pass. Full graph
+  ;; equality catches it; it FAILS against the pre-fix unconditional re-hash.
+  (testing "re-projecting an already-egressed graph is the IDENTITY — a
+            forwarder pipeline that double-projects does not corrupt the graph"
+    (let [once   (h/redact-graph-for-egress live-resource-graph secure-frame)
+          twice  (h/redact-graph-for-egress once secure-frame)
+          thrice (h/redact-graph-for-egress twice secure-frame)
+          node1  (-> once :nodes vals first)
+          node2  (-> twice :nodes vals first)]
+      (is (not (contains-secret? twice)) "still no secret after double projection")
+      ;; The headline idempotence law: a second (and third) egress pass changes
+      ;; NOTHING.
+      (is (= once twice)
+          "egress is idempotent — project(project(x)) == project(x)")
+      (is (= twice thrice)
+          "and stays the identity on every further pass")
+      ;; Spelled-out witnesses so a regression names WHICH position drifted.
       (is (= (set (keys (:nodes once))) (set (keys (:nodes twice))))
           "node keys are stable under re-projection")
-      (is (not (contains-secret? twice)) "still no secret after double projection"))))
+      (is (= (:id node1) (:id node2))
+          "the projected scoped-key :id is stable under re-projection")
+      (is (= (:inputs node1) (:inputs node2))
+          "the projected realized :inputs ([:scope …]/[:param …]) are stable — a
+           second pass must NOT re-hash the opaque handles into fresh handles")
+      (is (= (:output node1) (:output node2))
+          "the projected :output runtime path is stable under re-projection")
+      (is (= (get-in node1 [:work-ledger :record :resource/key])
+             (get-in node2 [:work-ledger :record :resource/key]))
+          "the projected work-ledger :resource/key is stable under re-projection")
+      (is (= (:edges once) (:edges twice))
+          "the projected edge endpoints are stable under re-projection"))))
