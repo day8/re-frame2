@@ -52,69 +52,17 @@
 ;;;; Run: bb tests/runtime/app_db_reset_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns app-db-reset-test
- (:require [clojure.java.io :as io]
- [clojure.test :refer [deftest is run-tests testing]]
- [clojure.walk :as walk]))
+ (:require [clojure.test :refer [deftest is run-tests testing]]
+ [runtime-support :as rt]))
 
-;; ---------------------------------------------------------------------------
-;; Locate runtime.cljs relative to this test file. Test runs from the
-;; skill root, so the path is preload/re_frame2_pair/runtime.cljs. We try a couple of
-;; likely paths to stay robust to where bb is invoked from.
-;; ---------------------------------------------------------------------------
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
+;; (rf2-yrpt90). Alias the vars the assertions below use.
+(def ^:private form-contains? rt/form-contains?)
 
-(def ^:private runtime-cljs-path
- (some (fn [p] (when (.exists (io/file p)) p))
- ["preload/re_frame2_pair/runtime.cljs"
- "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
- "../preload/re_frame2_pair/runtime.cljs"]))
-
-(when-not runtime-cljs-path
- (binding [*out* *err*]
- (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
- (System/getProperty "user.dir")))
- (System/exit 2))
-
-;; ---------------------------------------------------------------------------
-;; Read & parse all top-level forms. Use a CLJS-tolerant reader: the file
-;; uses `js/Date.now`, `:default`, etc., which Clojure's reader tolerates
-;; as symbols / keywords; we never evaluate the forms.
-;; ---------------------------------------------------------------------------
-
-(defn- read-all-forms [^String src]
- (let [pbr (java.io.PushbackReader.
- (java.io.StringReader. src))]
- (loop [acc []]
- (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
- (catch Exception _ ::eof))]
- (if (= ::eof form)
- acc
- (recur (conj acc form)))))))
-
-(def ^:private all-forms
- (read-all-forms (slurp runtime-cljs-path)))
-
-(def ^:private app-db-reset-form
- (some (fn [form]
- (when (and (seq? form)
- (= 'defn (first form))
- (= 'app-db-reset! (second form)))
- form))
- all-forms))
-
-;; ---------------------------------------------------------------------------
-;; Tree-walk helpers — answer "does this form contain a sub-form
-;; matching pred?".
-;; ---------------------------------------------------------------------------
-
-(defn- form-contains? [pred form]
- (let [hit? (atom false)]
- (walk/postwalk
- (fn [node]
- (when (pred node) (reset! hit? true))
- node)
- form)
- @hit?))
+(def ^:private app-db-reset-form (rt/defn-named 'app-db-reset!))
 
 (defn- calls? [sym form]
  (form-contains?

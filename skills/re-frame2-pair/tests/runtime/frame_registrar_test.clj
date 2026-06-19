@@ -26,53 +26,16 @@
 ;;;; Run: bb tests/runtime/frame_registrar_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns frame-registrar-test
-  (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is run-tests]]
-            [clojure.walk :as walk]))
+  (:require [clojure.test :refer [deftest is run-tests]]
+            [runtime-support :as rt]))
 
-(def ^:private runtime-cljs-path
-  (some (fn [p] (when (.exists (io/file p)) p))
-        ["preload/re_frame2_pair/runtime.cljs"
-         "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
-         "../preload/re_frame2_pair/runtime.cljs"]))
-
-(when-not runtime-cljs-path
-  (binding [*out* *err*]
-    (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
-             (System/getProperty "user.dir")))
-  (System/exit 2))
-
-(defn- read-all-forms
-  "Read every top-level form. `*default-data-reader-fn*` swallows unknown
-   tagged literals (notably the `#js {...}` / `#js [...]` the CLJS preload
-   carries) so the bb reader doesn't HALT on the first `#js` — which would
-   silently drop every form after it (orient + the frame fns near the end)."
-  [^String src]
-  (binding [*default-data-reader-fn* (fn [_tag v] v)]
-    (let [pbr (java.io.PushbackReader. (java.io.StringReader. src))]
-      (loop [acc []]
-        (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
-                        (catch Exception _ ::eof))]
-          (if (= ::eof form) acc (recur (conj acc form))))))))
-
-(def ^:private all-forms
-  (read-all-forms (slurp runtime-cljs-path)))
-
-(defn- defn-form [sym]
-  (some (fn [form]
-          (when (and (seq? form)
-                     (contains? #{'defn 'defn-} (first form))
-                     (= sym (second form)))
-            form))
-        all-forms))
-
-(defn- form-contains? [pred form]
-  (let [hit? (atom false)]
-    (walk/postwalk
-      (fn [node] (when (pred node) (reset! hit? true)) node)
-      form)
-    @hit?))
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
+;; (rf2-yrpt90). Alias the vars the assertions below use.
+(def ^:private defn-form rt/defn-named)
+(def ^:private form-contains? rt/form-contains?)
 
 (defn- calls? [form sym]
   ;; True when `form` invokes `sym` as the head of any sub-list.
