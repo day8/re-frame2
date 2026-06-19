@@ -296,6 +296,31 @@
                     :path     (:path previous)})))
   nil)
 
+;; ---- registry-side introspection -----------------------------------------
+;; The `<thing>-ids` + `<thing>-meta` enumerate pair every sibling registry
+;; carries (`resource-ids`/`resource-meta`, `machines`/`machine-meta`) — the
+;; static-registry read a tool or AI inspector walks to answer "which routes
+;; are registered, and what is route X's spec?" without re-stating the
+;; `registrar/registrations :route` walk at each call site.
+
+(defn route-ids
+  "Return a vector of every registered route id. The static-registry
+  enumerate half of the routing introspection pair (the live per-frame route
+  slice is read through the `:rf.route/*` subs). Mirrors the sibling
+  `resource-ids` / machines `machines` introspection accessors."
+  []
+  (vec (registrar/ids :route)))
+
+(defn route-meta
+  "Return the registered route's metadata map (`:path` pattern, `:on-match`,
+  `:params`, `:query`, `:scroll`, `:can-leave`, the computed `:rf.route/rank`
+  / `:rf.route/compiled` / coercion tables, source coords) for `route-id`, or
+  nil if no route is registered under that id. Mirrors the sibling
+  `resource-meta` / machines `machine-meta` introspection accessors. Per Spec
+  012 §Reserved route-metadata keys."
+  [route-id]
+  (registrar/lookup :route route-id))
+
 ;; ---- match + coerce ------------------------------------------------------
 
 (def ^:private coercible-scalar-type-forms

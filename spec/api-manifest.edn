@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 486,
+ :var-count 488,
  :tier-vocab
  [:front-porch
   :advanced
@@ -276,7 +276,9 @@
   {:namespace "re-frame.routing", :var "reset-scroll-cache!", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "reset-url-claims!", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-algebra-view", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.routing", :var "route-ids", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-link-render-ssr", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.routing", :var "route-meta", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-slice-algebra-view", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-sub-fn", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "route-url", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
