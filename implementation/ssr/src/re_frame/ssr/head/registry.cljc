@@ -160,14 +160,11 @@
         route    (if (contains? opts :route)
                    (:route opts)
                    (frame-route frame))
-        ;; Resolve the `:head` registration through the carried frame's OWN
-        ;; realm registrar (rf2-bzw8gd / EP-0013 §Realm Conformance) — a
-        ;; non-default-realm frame's head is registered in that realm's table,
-        ;; not the process-global default. `call-with-frame-realm-registrar`
-        ;; binds nothing for a default-realm frame (byte-identical path).
-        head-reg (frame/call-with-frame-realm-registrar
-                   (frame/frame frame)
-                   (fn [] (registrar/lookup :head head-id)))]
+        ;; Resolve the `:head` registration from the process registrar
+        ;; (rf2-afdlyr realm collapse: the realm substrate is a single default
+        ;; realm, whose registrar IS the process-global table, so the former
+        ;; per-frame realm-registrar binding was always the no-op default path).
+        head-reg (registrar/lookup :head head-id)]
     (when-not head-reg
       (error/throw-error!
         :rf.error/no-such-head
@@ -226,16 +223,13 @@
   versioned routes, ...), this fn breaks and must learn the new mapping
   (audit rf2-asmj1 H6 / cluster rf2-sljs1).
 
-  Resolves the `:route` registration through the carried `frame-id`'s OWN
-  realm registrar (rf2-bzw8gd / EP-0013 §Realm Conformance) — a
-  non-default-realm frame's route metadata is registered in that realm's
-  table. `call-with-frame-realm-registrar` binds nothing for a default-realm
-  frame (byte-identical path)."
-  [frame-id route]
+  Resolves the `:route` registration from the process registrar (rf2-afdlyr
+  realm collapse: the single default realm's registrar IS the process-global
+  table, so the former per-frame realm-registrar binding was always the no-op
+  default path)."
+  [route]
   (when-let [route-id (:route-id route)]
-    (when-let [route-meta (frame/call-with-frame-realm-registrar
-                            (frame/frame frame-id)
-                            (fn [] (registrar/lookup :route route-id)))]
+    (when-let [route-meta (registrar/lookup :route route-id)]
       (:head route-meta))))
 
 (defn active-head
@@ -260,7 +254,7 @@
                    frame-id :rf.ssr/active-head
                    {:where 'rf/active-head})
         route    (frame-route frame-id)
-        head-id  (route-head-id frame-id route)]
+        head-id  (route-head-id route)]
     (if head-id
       ;; The route declares an id but it may not be registered — surface
       ;; that as :rf.error/no-such-head per Spec 011, but only when the

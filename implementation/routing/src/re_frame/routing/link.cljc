@@ -12,7 +12,6 @@
   Per the rf2-2yabr cohesion split: ROUTE-LINK seam."
   (:require [re-frame.router :as router]
             [re-frame.frame :as frame]
-            [re-frame.realm :as realm]
             [re-frame.routing.registry :as registry]))
 
 (defn- href-attrs
@@ -125,11 +124,11 @@
            ;; Computed once at render against the resolved attrs (post
            ;; control-key strip) so the string/keyword attr forms are seen.
            native? (native-anchor? base-attrs)
-           ;; rf2-o3nam4: CAPTURE the render-time (frame, realm) address ONCE,
-           ;; here at render — NOT at click time. `:route/link` is registered
-           ;; via `reg-view*` with this prebuilt fn, so it does NOT receive the
-           ;; `reg-view` macro's injected `make-frame-handle` render-time
-           ;; capture (core_reg_view_macro.cljc) and must capture for itself.
+           ;; rf2-o3nam4: CAPTURE the render-time frame ONCE, here at render —
+           ;; NOT at click time. `:route/link` is registered via `reg-view*`
+           ;; with this prebuilt fn, so it does NOT receive the `reg-view`
+           ;; macro's injected `make-frame-handle` render-time capture
+           ;; (core_reg_view_macro.cljc) and must capture for itself.
            ;; A real browser click fires LONG after render, by which point the
            ;; render-time `with-frame` / frame-provider dynamic scope has
            ;; unwound; resolving the frame ambiently at click time would raise
@@ -137,21 +136,15 @@
            ;; wrong ambient frame (router.cljc §build-envelope). Capturing now
            ;; pins the navigation to the frame that RENDERED the link and
            ;; survives the async boundary, exactly as `frame-handle` /
-           ;; `make-frame-handle` do for view bodies. Capture BOTH dimensions
-           ;; of the (realm, frame) address (EP-0013): a frame id alone is
-           ;; ambiguous once the same id is legal in two realms; mirror
-           ;; `make-frame-handle`'s realm derivation so `:realm` rides the
-           ;; envelope only when NON-default (single-realm dispatch stays
-           ;; byte-identical). `require-current-frame!` raises at the RENDER
-           ;; site if a link is rendered outside any frame scope — fail with
-           ;; the render stack, not a detached click.
+           ;; `make-frame-handle` do for view bodies. `require-current-frame!`
+           ;; raises at the RENDER site if a link is rendered outside any frame
+           ;; scope — fail with the render stack, not a detached click.
+           ;; (rf2-afdlyr realm collapse: the former (realm, frame) address
+           ;; capture is now just the frame id — the realm substrate is a single
+           ;; default realm, so no `:realm` ever rode the envelope.)
            render-frame (frame/require-current-frame!
                           :route-link
                           {:where 're-frame.routing.link/route-link-render})
-           render-realm (frame/frame-realm render-frame)
-           realm-opts   (when (and render-realm
-                                    (not (= render-realm realm/default-realm-id)))
-                          {:realm render-realm})
            attrs (assoc base-attrs
                         :on-click
                         (fn [e]
@@ -168,20 +161,19 @@
                             ;; functional-origin axis is `:source` —
                             ;; routing-internal dispatches stamp
                             ;; `:source :router`. rf2-o3nam4: carry the
-                            ;; captured render-time (realm, frame) address so
-                            ;; the dispatch targets the rendering frame even
-                            ;; though the render scope has unwound by click
-                            ;; time. `:frame` / `:realm` are explicit dispatch
-                            ;; opts, so the router uses them verbatim (its
-                            ;; resolution order #1) — no ambient read.
+                            ;; captured render-time frame so the dispatch
+                            ;; targets the rendering frame even though the
+                            ;; render scope has unwound by click time. `:frame`
+                            ;; is an explicit dispatch opt, so the router uses
+                            ;; it verbatim (its resolution order #1) — no
+                            ;; ambient read.
                             (router/dispatch!
                               [:rf/url-requested
                                (cond-> {:url url :to to}
                                  (seq params)   (assoc :params params)
                                  (seq query)    (assoc :query  query)
                                  fragment       (assoc :fragment fragment))]
-                              (merge {:source :router :frame render-frame}
-                                     realm-opts)))))]
+                              {:source :router :frame render-frame}))))]
        (into [:a attrs] children))))
 
 (defn route-link-render-ssr
