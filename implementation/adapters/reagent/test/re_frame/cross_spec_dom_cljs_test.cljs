@@ -358,19 +358,21 @@
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed] {:frame target-frame})
       (with-trace-recorder! [traces]
-        ;; Mount under frame-provider so the subtree is scoped to
-        ;; target-frame in the React-context tier — even though the
-        ;; render fn reads via frame/app-db-container directly, the
-        ;; provider-mount path is the documented user-facing shape
-        ;; (per Spec 004 §frame-provider) and exercises the same
-        ;; substrate code-path the spec describes.
+        ;; Mount under frame-provider-existing so the subtree is scoped to
+        ;; the ALREADY-CREATED target-frame in the React-context tier
+        ;; (the frame is constructed above via reg-frame + dispatch-sync
+        ;; seed; this is a SCOPE, not an owned create — EP-0024). Even
+        ;; though the render fn reads via frame/app-db-container directly,
+        ;; the scope-provider mount path is the documented user-facing
+        ;; shape (per Spec 004 §frame-provider-existing) and exercises the
+        ;; same substrate code-path the spec describes.
         (let [root (rdc/create-root mount-node)]
           ;; Reagent 2's render is flushSync — by the time `rdc/render`
           ;; returns, the first render pass has committed. The
           ;; render-fn's destroy-frame! call therefore ran inside the
           ;; commit cycle.
           (try
-            ;; Hiccup head is the frame-provider fn; Reagent
+            ;; Hiccup head is the frame-provider-existing fn; Reagent
             ;; treats `[fn-head args & children]` as an inline
             ;; component invocation.
             ;;
@@ -383,7 +385,7 @@
             ;; render commits, then disposal runs).
             (react-dom/flushSync
               (fn []
-                (rdc/render root [rf/frame-provider
+                (rdc/render root [rf/frame-provider-existing
                                   {:frame target-frame}
                                   [render-fn]])))
             (catch :default e

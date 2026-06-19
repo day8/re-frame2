@@ -376,7 +376,7 @@
                       ;; children (no `:children` key), flowing through Helix's
                       ;; `$` → `extract-cljs-props` → the native `defnc` shell.
                       (.render root
-                        ($ helix-adapter/frame-provider
+                        ($ helix-adapter/frame-provider-existing
                            {:frame frame-kw}
                            ($ ProbeFrameProvider)
                            ($ ProbeFrameProvider)))))
