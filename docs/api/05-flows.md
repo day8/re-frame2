@@ -1,6 +1,6 @@
 # 05 — Flows
 
-A flow is a piece of derived state. You declare its inputs (a vector of `app-db` **paths** — not subs), its computation (a pure fn over the values at those paths), and the path in `app-db` it should write its output to. The runtime watches the input paths, recomputes the output when any of their values change, and writes the result. It's a sub-with-a-side-effect-on-`app-db` — useful exactly when you want derived state that other code reads via plain `get-in` (or a plain sub over the output path), without having to remember to recompute it manually.
+A flow is a piece of derived state. You declare its inputs (a vector of frame-state **paths** — not subs), its computation (a pure fn over the values at those paths), and the path in `app-db` it should write its output to. Inputs read either partition of the frame: a **bare** path reads `app-db` (the common case), and a path led by `:rf.db/runtime` reads `runtime-db` (route / machine state). Outputs are always written to `app-db`. The runtime watches the input paths, recomputes the output when any of their values change, and writes the result. It's a sub-with-a-side-effect-on-`app-db` — useful exactly when you want derived state that other code reads via plain `get-in` (or a plain sub over the output path), without having to remember to recompute it manually.
 
 Flows replace v1's `on-changes` interceptor — same compute-on-input-change semantics, registered in the runtime rather than wired into individual events. They also replace much of what `enrich` did. The point: derived state is now a *registered, named, observable, restorable* thing, not a closure hidden behind an interceptor.
 
@@ -33,7 +33,7 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
 ```clojure
 (rf/reg-flow
   {:id     :cart/subtotal
-   :inputs [[:cart :items] [:tax :rate]]      ;; vector of app-db paths
+   :inputs [[:cart :items] [:tax :rate]]      ;; vector of frame-state paths
    :output (fn [items rate]                    ;; values arrive positionally
              (let [subtotal (reduce + (map :price items))]
                (* subtotal (+ 1 rate))))
@@ -44,14 +44,26 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
 ;; rate triggers recompute; nothing else writes [:cart :subtotal].
 ```
 
-`:inputs` is a **positional vector** of `app-db` paths; the values at those paths arrive as positional args to `:output` in the same order (a map-keyed `:inputs` form is a deferred design option per [Spec 013 §Open questions](../../spec/013-Flows.md#open-questions), not v1). The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised `app-db`.
+A flow can also derive from `runtime-db` (route / machine state) by leading an
+input path with `:rf.db/runtime` — the partition key is stripped before the
+read. Outputs stay `app-db`-only.
+
+```clojure
+(rf/reg-flow
+  {:id     :nav/on-checkout?
+   :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] ;; runtime-db input
+   :output (fn [route-id] (= route-id :checkout))
+   :path   [:nav :on-checkout?]})                                    ;; app-db output
+```
+
+`:inputs` is a **positional vector** of frame-state paths; the values at those paths arrive as positional args to `:output` in the same order (a map-keyed `:inputs` form is a deferred design option per [Spec 013 §Open questions](../../spec/013-Flows.md#open-questions), not v1). Each path reads against the pending frame-state's two partitions — a **bare** path reads `app-db`, and a path led by `:rf.db/runtime` reads `runtime-db` (see [Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)). The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised frame-state.
 
 ### The flow map
 
 | Key | Required | Notes |
 |---|---|---|
 | `:id` | yes | The registry key. Use a namespaced keyword. |
-| `:inputs` | yes | A vector of `app-db` path vectors. Read positionally; the value at each path is passed to `:output` in order. |
+| `:inputs` | yes | A vector of frame-state path vectors. Read positionally; the value at each path is passed to `:output` in order. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db` (see [Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)). |
 | `:output` | yes | `(fn [in-1 in-2 ...] new-output)`. Pure; receives the input values positionally; called every time inputs change; must be deterministic. |
 | `:path` | yes | Where to write the output in `app-db`. |
 | `:doc` | no | One-sentence what-and-why; surfaces in tooling. |

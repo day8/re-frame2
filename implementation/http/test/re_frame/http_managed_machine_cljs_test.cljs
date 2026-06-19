@@ -106,6 +106,43 @@
       (finally
         (http-test-support/uninstall-managed-request-stubs!)))))
 
+;; ---- (2b) nested :request-content-type survives the wrapper pass-through -
+
+(deftest invoke-preserves-nested-request-content-type
+  (testing "a `:request-content-type` nested under `:request` (the Spec 014 §Args carrier shape) survives the wrapper's :data → fx-args pass-through verbatim (rf2-ycna8w)"
+    ;; The transport reads request content-type only from the nested
+    ;; request envelope (transport/prepare-request reads
+    ;; `(:request-content-type request)`), so the Args-carrier example
+    ;; MUST nest it under `:request`, not at the top level of `:data`.
+    ;; This proves the corrected example shape threads through.
+    (http-test-support/install-managed-request-stubs! {})  ;; no-reply stub: stable :requesting snapshot
+    (try
+      (rf/reg-machine :cljs/poster
+        {:initial :idle
+         :states
+         {:idle {:on {:post :posting}}
+          :posting
+          {:spawn {:machine-id :rf.http/managed
+                    :data       {:request {:url    "/api/sessions"
+                                           :method :post
+                                           :body   {:user "ada"}
+                                           :request-content-type :json}}}
+           :on     {:succeeded :done
+                    :failed    :idle}}
+          :done {}}})
+      (rf/dispatch-sync
+        [:cljs/poster [:post]]
+        {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+      (let [wrapper-data (:data (snapshot :rf.http/managed#1))]
+        (is (= {:url "/api/sessions" :method :post :body {:user "ada"}
+                :request-content-type :json}
+               (:request wrapper-data))
+            ":request-content-type nested under :request is preserved verbatim — the runtime reads it from the nested request envelope")
+        (is (not (contains? wrapper-data :request-content-type))
+            ":request-content-type is NOT promoted to the top level of :data"))
+      (finally
+        (http-test-support/uninstall-managed-request-stubs!)))))
+
 ;; ---- (3) parent state-exit destroys wrapper child + clears registry ----
 
 (deftest parent-exit-destroys-wrapper-child
