@@ -51,8 +51,10 @@
      `::cljs.test/default`.  Same set of method keys, prefixed with
      the reporter sentinel.
 
-  The reporter is BUFFERLESS — we don't capture failure-message bytes
-  and replay them.  Instead, the first `:fail` / `:error` inside an
+  The *reporter* is bufferless for FAILURE TEXT — we don't capture
+  failure-message bytes and replay them (the runners separately buffer
+  stderr/warning noise; that buffering lives in the runtime entry points,
+  not here).  Instead, the first `:fail` / `:error` inside an
   unprinted namespace prints the namespace banner immediately, then
   DELEGATES to the captured default `report` method.  This means the
   failure output shape (the precise text clojure.test or cljs.test

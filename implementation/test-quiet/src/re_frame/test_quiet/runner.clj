@@ -17,7 +17,12 @@
   re-frame2 runs the same silent-on-success policy on three runtimes —
   JVM (this runner), CLJS node (`re-frame.test-quiet.shadow-node`), and
   browser-test.  The contract is *documented pass-through stdout +
-  central stderr buffering*, and it is SYMMETRIC across runtimes:
+  central noise buffering*.  The buffering POLICY is symmetric across
+  runtimes — buffer the noise channel, drop it on green, replay it on red
+  — but the buffered SCOPE differs by runtime (the asymmetry is called out
+  on the stderr bullet below): the JVM runner captures the WHOLE stderr
+  side (`*err*` + `System/err`), whereas the CLJS node runner captures only
+  `console.warn` (not `console.error` / `process.stderr`).
 
    - STDOUT is pass-through, NOT summary-only.  The reporter
      (`re-frame.test-quiet`) makes a green run's stdout the canonical
@@ -37,12 +42,20 @@
      the delegated run; the captured stderr is REPLAYED to the real
      stderr only when the run is RED (so a failing run keeps the
      diagnostic context that may explain it), and DROPPED on green.
-     This mirrors the CLJS node runner's `console.warn` buffer + red
-     replay exactly — so suites no longer need ad-hoc `(binding [*err*
-     <sink>] …)` workarounds to stay quiet on green (rf2-80jyfk /
-     rf2-nrk066).  Tests that ASSERT on captured warning text still
-     capture `*err*` locally; only the noise-suppression-only sinks are
-     removed.
+     This mirrors the buffer-drop-replay SHAPE of the CLJS node runner's
+     `console.warn` ring + red replay — so suites no longer need ad-hoc
+     `(binding [*err* <sink>] …)` workarounds to stay quiet on green
+     (rf2-80jyfk / rf2-nrk066).  The buffered SCOPE is asymmetric by
+     design, though: the JVM binds the WHOLE stderr side — both `*err*`
+     and a `System/err` bridge — so any Clojure or Java stderr write is
+     captured, whereas the CLJS node runner buffers ONLY `console.warn`
+     (a `console.warn` stub), NOT `console.error` or direct
+     `process.stderr` writes.  The asymmetry reflects what each runtime's
+     noise actually is: CLJS first-run warnings come through
+     `console.warn`, while a deliberate `console.error` stays a real error
+     channel; the JVM has no comparable convention, so it buffers the
+     whole side.  Tests that ASSERT on captured warning text still capture
+     `*err*` locally; only the noise-suppression-only sinks are removed.
 
   ## The discovery-banner contract
 
@@ -464,6 +477,23 @@
   context.  A run is RED iff `(pos? (+ fail error))`, matching cognitect's
   `(zero? (+ fail error))` green test.
 
+  SCOPE — the replay is bounded to the TEST-RUN red path.  cognitect only
+  fires `:summary` once it has reached `run-tests`, so the buffered stderr
+  is replayed only for a red run that actually executed tests.  The
+  non-test exit-1 path — a CLI parse error
+  (`cognitect.test-runner/-main` prints the parse diagnostics + usage and
+  `System/exit`s 1 BEFORE ever calling `run-tests`) — never fires
+  `:summary`, so its buffer is dropped, not replayed.  That is sound here:
+  on the parse-error path the diagnostics cognitect emits go to `*out*`
+  (the banner-filtering writer), NOT `*err*`, so nothing diagnostic is
+  lost — the only thing dropped is whatever incidental `*err*`/`System.err`
+  noise was written before the parse failed (in practice none; arg parsing
+  does not log to stderr).  A `finally`-flush in `-main` cannot widen the
+  scope: cognitect `System/exit`s straight from the parse-error branch, so
+  `-main`'s `finally` never runs on that path (it runs only on the `-H`
+  help/return path).  Tightening this docstring rather than adding an
+  unreachable flush keeps the contract honest (rf2-22s58s).
+
   The replay goes to the REAL stderr (the `*err*` ring is still bound at
   this point, so we must NOT use `*err*`/`println` here or the replay
   would feed straight back into the buffer).  Each captured chunk is
@@ -519,6 +549,12 @@
   ;; code that logs via `*err*` is captured; `System/err` is also swapped
   ;; so a raw `System.err` write is buffered too.  The summary hook reads
   ;; the buffer and writes any red replay to the REAL stderr captured here.
+  ;; The replay is scoped to the TEST-RUN red path: `:summary` fires only
+  ;; once cognitect reaches `run-tests`, so the non-test exit-1 path (a CLI
+  ;; parse error) drops its buffer rather than replaying it — sound because
+  ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`,
+  ;; and that path `System/exit`s before `-main`'s `finally` can run (see
+  ;; `install-summary-replay-hook!`).
   (let [real-out   *out*
         real-err   *err*
         sys-err    System/err
@@ -530,16 +566,33 @@
                       (Thread. ^Runnable #(.flush filtering)))
     (install-summary-replay-hook! stderr-sb real-err)
     ;; Route raw `System/err` bytes into the SAME ring as `*err*` so a
-    ;; library that writes `System.err` directly is buffered too. The
-    ;; bridge decodes each chunk as UTF-8 and appends to the ring; the
-    ;; single-arg `write` proxy arity receives an int byte.
+    ;; library that writes `System.err` directly is buffered too. Each chunk
+    ;; is decoded to a `String` and appended to the ring (this buffer is the
+    ;; diagnostic/red-replay path only — never the green-run summary). Note
+    ;; the encoding asymmetry between the two `write` proxy arities:
+    ;;   - write(byte[],off,len): a chatty library prints via
+    ;;     `PrintStream.print(...)`/`write(byte[])`, which the autoFlush
+    ;;     UTF-8 `PrintStream` below routes through THIS multi-byte arity, so
+    ;;     a whole encoded chunk is decoded as one unit and survives intact.
+    ;;   - write(int): the single-byte arity decodes that ONE byte on its
+    ;;     own. A multi-byte UTF-8 sequence delivered one byte at a time —
+    ;;     only a raw `System.err.write(int)` per byte hits this path; the
+    ;;     `PrintStream` itself never splits a code point across single-byte
+    ;;     writes — would decode each byte separately and mangle the
+    ;;     character. This arity is therefore BEST-EFFORT / ASCII-only by
+    ;;     design: it preserves byte fidelity for the common ASCII diagnostic
+    ;;     case and tolerates (does not guarantee) multi-byte text on the
+    ;;     pathological raw per-byte path. Buffering raw bytes to decode once
+    ;;     at replay is not a clean fit here — the ring is a shared char
+    ;;     `Writer` that `*err*` also writes into directly, so there is no
+    ;;     single byte stream to defer-decode (rf2-22s58s).
     (let [sys-bridge (proxy [java.io.OutputStream] []
                        (write
                          ([b]
                           ;; proxy dispatches by arity; the 1-arg form is
                           ;; write(int) — the low 8 bits are the byte (0-255),
                           ;; so use `unchecked-byte` (a plain `byte` cast
-                          ;; throws for 128-255).
+                          ;; throws for 128-255). Best-effort/ASCII (see above).
                           (.write buffered-w (String. (byte-array [(unchecked-byte b)]))))
                          ([b off len]
                           (.write buffered-w (String. ^bytes b (int off) (int len))))))]
