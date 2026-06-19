@@ -89,27 +89,38 @@
                 ;; :frame :cascade-summary :unreplayable-effects`. Failure
                 ;; remains the legacy `false` so older runtimes still
                 ;; surface as a clean reject envelope here.
-                (wire/ok-text
-                  (cond
-                    (map? v)
-                    v
+                (let [result
+                      (cond
+                        (map? v)
+                        v
 
-                    v
-                    {:ok?       true
-                     :restored? true
-                     :epoch-id  epoch-id
-                     :frame     frame}
+                        v
+                        {:ok?       true
+                         :restored? true
+                         :epoch-id  epoch-id
+                         :frame     frame}
 
-                    :else
-                    {:ok?       false
-                     :restored? false
-                     :reason    :restore-rejected
-                     :epoch-id  epoch-id
-                     :frame     frame
-                     :hint      (str "restore-epoch returned false — the epoch-id is not in the "
-                                     "ring, or a drain is in flight. Read the structured reason "
-                                     "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
-                                     "filtered to :rf.epoch/*.")})))]
+                        :else
+                        {:ok?       false
+                         :restored? false
+                         :reason    :restore-rejected
+                         :epoch-id  epoch-id
+                         :frame     frame
+                         :hint      (str "restore-epoch returned false — the epoch-id is not in the "
+                                         "ring, or a drain is in flight. Read the structured reason "
+                                         "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
+                                         "filtered to :rf.epoch/*.")})]
+                  ;; rf2-or8s29 — a soft failure (the legacy `false` reject
+                  ;; OR a structured `{:ok? false ...}` envelope from a newer
+                  ;; runtime) is NOT a terminal-empty outcome: the write did
+                  ;; not land. It MUST ride as an `isError: true` result so
+                  ;; the MCP host sees the failure + reason rather than a
+                  ;; success-shaped envelope (003-Tool-Catalogue §"Every
+                  ;; :ok? false response is isError: true"). Only a genuine
+                  ;; success returns `ok-text`.
+                  (if (false? (:ok? result))
+                    (wire/err-text result)
+                    (wire/ok-text result))))]
           ;; rf2-6nks4 (finding-2): the signalled prelude signals the
           ;; raw-state posture to the runtime BEFORE the restore eval, so
           ;; the cascade-summary it builds redacts a sensitive

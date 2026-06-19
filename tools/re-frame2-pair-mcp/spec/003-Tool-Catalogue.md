@@ -1513,7 +1513,10 @@ on state-mutating tools for the shape. Returns
 the id is not in the ring or a drain is in flight (the documented
 `:rf.epoch/*` failure modes per
 [`Tool-Pair.md` §Restore failure modes](../../../spec/Tool-Pair.md#time-travel)).
-The `app-db` is unchanged on failure.
+The `app-db` is unchanged on failure. A rejected restore is **not** a
+terminal-empty outcome — the write did not land — so it rides with
+`isError: true` per the §"Every `:ok? false` response is `isError: true`"
+rule (rf2-or8s29); the host must not read it as a landed write.
 
 ## replace-app-db
 
@@ -1548,8 +1551,13 @@ on success. Per rf2-6yqdl the cascade-summary projects the synthetic
 bypasses the dispatch loop entirely. See §Universal: cascade summary
 on state-mutating tools for the full shape. Returns `{:ok? false
 :reason :reset-rejected ...}` on no-such-frame / drain-in-flight /
-app-schema mismatch (the documented `:rf.epoch/*` failure modes). The
-`app-db` is unchanged on failure.
+app-schema mismatch (the documented `:rf.epoch/*` failure modes), and
+`{:ok? false :reason :unexpected-shape ...}` for a degraded runtime
+that returns a non-envelope value. The `app-db` is unchanged on
+failure. A rejected replace is **not** a terminal-empty outcome — the
+injection did not land — so it rides with `isError: true` per the
+§"Every `:ok? false` response is `isError: true`" rule (rf2-or8s29);
+the host must not read it as a landed write.
 
 ## Universal: cursor pagination on epoch slices
 

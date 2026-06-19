@@ -107,7 +107,18 @@
               ;; :reset-rejected ...}). Pass it through; default to a
               ;; generic shape if the runtime returned a non-map (degraded
               ;; / pre-rf2-c2dtu runtime).
-              (wire/ok-text
-                (if (map? v)
-                  v
-                  {:ok? false :reason :unexpected-shape :value v :frame frame})))))))))
+              (let [result (if (map? v)
+                             v
+                             {:ok? false :reason :unexpected-shape :value v :frame frame})]
+                ;; rf2-or8s29 — a soft failure (the runtime's
+                ;; `{:ok? false :reason :reset-rejected ...}` OR the
+                ;; non-map `:unexpected-shape` fallback) means the
+                ;; injection did NOT land; it is not a terminal-empty
+                ;; outcome. It MUST ride as an `isError: true` result so
+                ;; the MCP host sees the write failed + the reason
+                ;; (003-Tool-Catalogue §"Every :ok? false response is
+                ;; isError: true"). Only a genuine success returns
+                ;; `ok-text`.
+                (if (false? (:ok? result))
+                  (wire/err-text result)
+                  (wire/ok-text result))))))))))

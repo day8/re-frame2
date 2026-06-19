@@ -167,8 +167,10 @@
 
 (deftest surfaces-restore-rejected-when-runtime-returns-false
   ;; restore-epoch returns false on any failure (aged-out id,
-  ;; drain-in-flight, …); the app-db is unchanged. We surface a
-  ;; structured :restore-rejected.
+  ;; drain-in-flight, …); the app-db is unchanged. rf2-or8s29: this
+  ;; soft failure is NOT a terminal-empty outcome — the write did not
+  ;; land — so it MUST ride as an isError result carrying the reason,
+  ;; not a success-shaped envelope the host reads as a landed write.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!
@@ -177,12 +179,34 @@
                 (fn []
                   (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "999"})))))
           (.then (fn [r]
-                   (is (not (err? r)) "soft-failure rides as an ok-text envelope, not isError")
+                   (is (err? r) "soft-failure rides as an isError result (rf2-or8s29)")
                    (let [edn (read-result-text r)]
                      (is (= false (:ok? edn)))
                      (is (= false (:restored? edn)))
                      (is (= :restore-rejected (:reason edn)))
                      (is (= 999 (:epoch-id edn))))
+                   (done)))))))
+
+(deftest surfaces-isError-when-runtime-returns-structured-failure-map
+  ;; rf2-or8s29 — a newer runtime can return a structured
+  ;; `{:ok? false :reason :restore-rejected ...}` map (not the legacy
+  ;; bare `false`). The tool MUST still route a `{:ok? false ...}` map
+  ;; to isError — passing the map through to `ok-text` would report a
+  ;; rejected restore as success.
+  (async done
+    (let [failure-envelope {:ok? false :restored? false
+                            :reason :restore-rejected
+                            :epoch-id 7 :frame :rf/default}]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! (atom nil) failure-envelope
+                (fn []
+                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+          (.then (fn [r]
+                   (is (err? r) "structured runtime failure rides as isError (rf2-or8s29)")
+                   (let [edn (read-result-text r)]
+                     (is (= false (:ok? edn)))
+                     (is (= :restore-rejected (:reason edn))))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

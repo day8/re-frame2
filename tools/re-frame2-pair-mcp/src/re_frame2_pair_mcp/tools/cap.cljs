@@ -142,9 +142,11 @@
                (and (some? sc) (not (undefined? sc)))
                (conj! (js/JSON.stringify sc))))))))
     (build-overflow-result [_ marker _original]
-      #js {:content          #js [#js {:type "text"
-                                       :text (pr-str marker)}]
-           :structuredContent (clj->js marker)})))
+      ;; rf2-or8s29 — route through `wire/result` so the overflow marker's
+      ;; structuredContent keeps its namespace: a raw `clj->js` truncated
+      ;; the `:rf.mcp/overflow` marker key to `"overflow"`, so SDK-friendly
+      ;; hosts reading structuredContent missed the marker.
+      (wire/result marker false))))
 
 (defn sum-text-tokens
   "Sum `token-estimate` across every wire-bearing slot in the MCP
