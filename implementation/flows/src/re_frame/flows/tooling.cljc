@@ -69,15 +69,6 @@
 ;; or the `:rf/derivation-node` shape (those are owned by Spec-Schemas /
 ;; Derivations).
 
-(def ^:private runtime-partition-key
-  "The reserved partition key that, as a leading `:inputs`-path element,
-  marks a flow input as a runtime-db read (`:rf.db/runtime`). The binary
-  syntax (EP-0001 §535-551, rf2-4eisfr): a bare path reads app-db; a
-  `[:rf.db/runtime …rest]` path reads runtime-db at `…rest`. Held as the
-  same const `re-frame.flows` uses for input resolution so the projection
-  and the resolver stay in lockstep."
-  :rf.db/runtime)
-
 (defn- declared-input
   "Lower ONE flow `:inputs` path to its algebra declared-input form
   (Derivations §Declared input). A bare path is an app-db read `[:db path]`;
@@ -85,11 +76,16 @@
   `[:runtime …rest]` (the partition key stripped). Flow inputs are always
   concrete app-db / runtime-db paths — never `:sub` edges or the
   `:parametric` marker — because a flow declares its dependency graph
-  statically as paths (Spec 013 §Flow shape)."
+  statically as paths (Spec 013 §Flow shape).
+
+  Routes the partition test and the key strip through the SHARED
+  `registry/runtime-input?` / `registry/input-resolve-path` primitives
+  (rf2-4vreu8) so the projection, the value resolver, and the elision
+  declaration-path resolver all key on the one home for the rule."
   [path]
-  (if (= runtime-partition-key (first path))
-    [:runtime (subvec (vec path) 1)]
-    [:db (vec path)]))
+  (if (registry/runtime-input? path)
+    [:runtime (registry/input-resolve-path path)]
+    [:db (registry/input-resolve-path path)]))
 
 (defn- declared-inputs
   "Project a flow's `:inputs` vector into the algebra view's declared

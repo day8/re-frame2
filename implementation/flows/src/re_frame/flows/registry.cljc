@@ -615,6 +615,38 @@
     [(vec (concat whole-sens per-sens))
      (vec (concat whole-lg   per-large))]))
 
+;; ---- partition-qualified input primitives (EP-0001 §535-551, rf2-4eisfr) --
+;;
+;; The ONE home for the binary `:inputs`-path partition syntax shared across
+;; the flows artefact (rf2-4vreu8 dedupe): a bare leading path element resolves
+;; against app-db; a leading `:rf.db/runtime` opts the input into the runtime-db
+;; partition and is stripped before the path is used. Three consumers ride
+;; these primitives so the rule lives once:
+;;   - `re-frame.flows/resolve-input` — reads the input VALUE against the
+;;     pending app-db / runtime-db partitions (strips for the runtime read);
+;;   - `re-frame.flows/elide-inputs` + `input-overlaps-declaration?` below —
+;;     resolve the declaration-COORDINATE path (`input-resolve-path`);
+;;   - `re-frame.flows.tooling/declared-input` — lowers to the algebra
+;;     `[:db …]` / `[:runtime …rest]` declared-input form.
+;; `registry` is required by both `re-frame.flows` and `re-frame.flows.tooling`
+;; and requires neither back (no cycle), so it is the natural shared home.
+
+(def ^:no-doc runtime-partition-key
+  "The reserved partition key that, as a leading `:inputs`-path element, opts a
+  flow input into the runtime-db partition (`:rf.db/runtime`). Bare paths (any
+  other leading element) resolve against app-db. The single const all three
+  flow-artefact consumers (resolver / elision / algebra projection) key on so
+  the rule, the resolver, and the doc stay in lockstep (rf2-4vreu8)."
+  :rf.db/runtime)
+
+(defn ^:no-doc runtime-input?
+  "True iff `path` is a partition-qualified runtime-db input — a vector whose
+  FIRST element is `runtime-partition-key` (`:rf.db/runtime`). Everything else
+  is a bare app-db path (binary syntax — rf2-4eisfr refinement (i): there is no
+  third `[:rf.db/app …]` explicit-app form)."
+  [path]
+  (= runtime-partition-key (first path)))
+
 (defn ^:no-doc input-resolve-path
   "Resolve one flow `:inputs` path to the absolute declaration-coordinate
   path the elision registry is keyed by (plain path vectors, partition-
@@ -626,6 +658,13 @@
   `add-marks`). Partition-aware by construction — the SAME machinery, one
   pass, per the rf2-ihfz9o COMPOSE-WITH-rf2-4eisfr note.
 
+  This is the SHARED strip-partition primitive (rf2-4vreu8): a runtime input
+  drops its leading `runtime-partition-key`; a bare input is returned verbatim
+  (as a vector). `re-frame.flows/resolve-input` uses it for the runtime-db
+  value read and `re-frame.flows.tooling/declared-input` for the algebra
+  `[:runtime …rest]` / `[:db …]` lowering, so all partition stripping routes
+  through this one fn.
+
   NOT private (rf2-p44r3u): `re-frame.flows/elide-inputs` reuses this SAME
   normalization when seeding `elision/elide-wire-value`'s `:path` opt for a
   flow's per-input trace value, so the `:rf.flow/computed` `:input-values`
@@ -635,7 +674,7 @@
   but the trace seed carried the raw `[:rf.db/runtime …]` path and never
   matched it."
   [input-path]
-  (if (= :rf.db/runtime (first input-path))
+  (if (runtime-input? input-path)
     (subvec (vec input-path) 1)
     (vec input-path)))
 

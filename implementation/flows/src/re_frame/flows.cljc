@@ -116,28 +116,20 @@
 ;; the cached row, forcing recompute — it cannot be hidden merely because the
 ;; app-db partition was value-identical.
 
-(def ^:private runtime-partition-key
-  "The reserved partition key that, as a leading `:inputs`-path element,
-  opts a flow input into the runtime-db partition (`:rf.db/runtime`). Bare
-  paths (any other leading element) resolve against app-db. Held as a const
-  so the resolver and the doc stay in lockstep."
-  :rf.db/runtime)
-
-(defn- runtime-input?
-  "True iff `path` is a partition-qualified runtime-db input — a vector whose
-  FIRST element is `:rf.db/runtime`. Everything else is a bare app-db path
-  (binary syntax — rf2-4eisfr refinement (i): there is no third
-  `[:rf.db/app …]` explicit-app form)."
-  [path]
-  (= runtime-partition-key (first path)))
+;; The partition-syntax primitives (`runtime-partition-key` / `runtime-input?`
+;; / the strip via `input-resolve-path`) live ONCE in `re-frame.flows.registry`
+;; (rf2-4vreu8): `registry` is required by both this facade and
+;; `re-frame.flows.tooling` and requires neither back (no cycle), so it is the
+;; natural shared home for the rule all three consumers key on.
 
 (defn- resolve-input
   "Resolve one flow `:inputs` path against the pending frame-state's two
   partitions. A `[:rf.db/runtime …rest]` path reads `runtime-db` at `…rest`
-  (the partition key stripped); a bare path reads `db` (app-db) verbatim."
+  (the partition key stripped via the shared `registry/input-resolve-path`);
+  a bare path reads `db` (app-db) verbatim."
   [db runtime-db path]
-  (if (runtime-input? path)
-    (get-in runtime-db (subvec path 1))
+  (if (registry/runtime-input? path)
+    (get-in runtime-db (registry/input-resolve-path path))
     (get-in db path)))
 
 (defn- read-inputs
