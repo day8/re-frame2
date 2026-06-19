@@ -325,3 +325,50 @@
     (is (nil? (trace/clear-listeners!))
         "clear-listeners! is a side-effecting nil-returning fn")))
 
+;; ---- unknown listener stream — canonical thrown-error shape (rf2-cl48e2) ---
+;;
+;; Pre-fix, `unknown-listener-stream!` rolled its own ex-info carrying the
+;; NON-canonical `:rf/where` slot (the ONLY `:rf/where` site in the corpus —
+;; canonical is bare `:where`) with a runtime KEYWORD value, omitted
+;; `:recovery`, and bypassed `error/throw-error!`. A consumer reading
+;; `(:where (ex-data e))` got nil only here. The fix routes through the
+;; canonical builder so the thrown ex-data carries `:rf.error/id` +
+;; bare `:where` (the `'rf/<surface>` SYMBOL, not the old `:rf/where`
+;; keyword-valued slot) + `:recovery` + `:reason`, like every other
+;; framework throw (Spec 009 §The thrown-error shape).
+
+(deftest unknown-listener-stream-carries-canonical-thrown-error-shape
+  (testing "an unknown stream throws the canonical thrown-error shape:
+            bare :where holding the 'rf/<surface> SYMBOL (NOT the retired
+            :rf/where keyword-valued slot), plus :rf.error/id / :recovery /
+            :reason (rf2-cl48e2)"
+    (doseq [[verb-fn where-sym] [[#(rf/register-listener! :bogus ::k (fn [_]))
+                                  'rf/register-listener!]
+                                 [#(rf/unregister-listener! :bogus ::k)
+                                  'rf/unregister-listener!]]]
+      (let [e    (try (verb-fn) nil
+                      (catch clojure.lang.ExceptionInfo ex ex))
+            data (ex-data e)]
+        (is (some? e) "an unknown stream throws an ExceptionInfo")
+        (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
+            ":rf.error/id is the canonical machine discriminator")
+        ;; The headline assertion: bare :where carrying the SYMBOL.
+        (is (= where-sym (:where data))
+            ":where is the bare canonical slot holding the 'rf/<surface> symbol")
+        (is (symbol? (:where data))
+            ":where value is a symbol (not the old runtime-keyword)")
+        (is (not (contains? data :rf/where))
+            "the retired non-canonical :rf/where slot is GONE")
+        (is (= :fix-registration (:recovery data))
+            ":recovery names the disposition (was omitted pre-fix)")
+        (is (string? (:reason data)) ":reason is a human sentence")
+        ;; Spec 009 §The thrown-error shape: message LEADS with a human
+        ;; sentence and TRAILS with the [:rf.error/<id>] greppability token —
+        ;; never a bare keyword.
+        (is (re-find #"\[:rf\.error/unknown-listener-stream\]" (ex-message e))
+            "message carries the trailing greppability token")
+        ;; surface-specific slots preserved under :extra
+        (is (= :bogus (:stream data)) ":stream preserved")
+        (is (= #{:trace :events :errors :epoch} (:valid data))
+            ":valid preserves the closed vocabulary")))))
+

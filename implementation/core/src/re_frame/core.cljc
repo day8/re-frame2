@@ -2217,12 +2217,29 @@
   #{:trace :events :errors :epoch})
 
 (defn- unknown-listener-stream! [verb stream]
-  (throw (ex-info (str verb ": unknown listener stream " (pr-str stream)
-                       " — must be one of " (pr-str listener-streams))
-                  {:rf.error/id     :rf.error/unknown-listener-stream
-                   :rf/where        verb
-                   :rf/stream       stream
-                   :rf/valid        listener-streams})))
+  ;; rf2-cl48e2: route through the canonical thrown-error builder
+  ;; (`error/throw-error!`, Spec 009 §The thrown-error shape) like every
+  ;; other framework throw. The hand-rolled ex-info carried the
+  ;; NON-canonical `:rf/where` slot (the ONLY `:rf/where` site in the
+  ;; corpus — canonical is bare `:where`) holding the verb symbol, omitted
+  ;; `:recovery`, and bypassed the builder. A consumer reading
+  ;; `(:where (ex-data e))` got nil only here. `verb` is already the
+  ;; user-facing `'rf/<surface>` symbol at every call site
+  ;; (`'rf/register-listener!` / `'rf/unregister-listener!` /
+  ;; `'rf/clear-listeners!`), so it lands directly in the canonical
+  ;; `:where` slot. The surface-specific `:stream` / `:valid` slots ride
+  ;; in `:extra`.
+  (error/throw-error!
+    :rf.error/unknown-listener-stream
+    verb
+    (str verb ": unknown listener stream " (pr-str stream)
+         " — must be one of " (pr-str listener-streams)
+         ". The listener-stream vocabulary is closed (no bare :trace "
+         "default, no compatibility aliases); pass one of the four pure "
+         "observation streams.")
+    {:recovery :fix-registration
+     :extra    {:stream stream
+                :valid  listener-streams}}))
 
 (defn register-listener!
   "Register an observation listener `f` under `id` on `stream` — one verb
