@@ -148,20 +148,22 @@
 
   Per rf2-wgmipl the 4-arg form threads an `opts` registration-metadata map
   (the `:schema` event-vector boundary validator, plus any other metadata)
-  to the hook's 3-arity. The 3-arg form (no opts) keeps the bare 2-arity so
-  programmatic callers / hooks that only implement the 2-arity still resolve."
+  to the hook's 3-arity. Per rf2-wvh95f F2 `opts` is the canonical Spec 001
+  MIDDLE slot, so the hook is called `(machine-id opts machine)`. The 3-arg
+  form (no opts) keeps the bare 2-arity so programmatic callers / hooks that
+  only implement the 2-arity still resolve."
   ([where-sym machine-id machine]
    ((late-bind/require-fn! :machines/reg-machine
                            where-sym
                            machines-artefact
                            {:machine-id machine-id})
     machine-id machine))
-  ([where-sym machine-id machine opts]
+  ([where-sym machine-id opts machine]
    ((late-bind/require-fn! :machines/reg-machine
                            where-sym
                            machines-artefact
                            {:machine-id machine-id})
-    machine-id machine opts)))
+    machine-id opts machine)))
 
 (defn reg-machine*
   "Plain-fn surface for machine registration. Per Spec 005 §reg-machine
@@ -174,12 +176,14 @@
   Per rf2-wgmipl the 3-arity accepts an `opts` registration-metadata map
   whose `:schema` key validates the dispatched OUTER event vector at the
   `:where :event` boundary — the machine + event-vector-schema shape (login /
-  realworld auth). The framework-owned `:rf/machine?` / `:rf/machine` keys are
-  stamped by the registration home and MUST NOT appear in `opts`."
+  realworld auth). Per rf2-wvh95f F2 `opts` is the canonical Spec 001 MIDDLE
+  slot: `(reg-machine* machine-id opts machine)`. The framework-owned
+  `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and
+  MUST NOT appear in `opts`."
   ([machine-id machine]
    (reg-machine-impl 'rf/reg-machine* machine-id machine))
-  ([machine-id machine opts]
-   (reg-machine-impl 'rf/reg-machine* machine-id machine opts)))
+  ([machine-id opts machine]
+   (reg-machine-impl 'rf/reg-machine* machine-id opts machine)))
 
 (defn reg-machine
   "Fn-form delegate the `re-frame.core/reg-machine` macro routes through
@@ -193,11 +197,13 @@
   the macro emits a reference to it.
 
   Per rf2-wgmipl the 3-arity threads the macro's `opts` registration-metadata
-  map (carrying the event-vector `:schema`) through to the hook."
+  map (carrying the event-vector `:schema`) through to the hook. Per rf2-wvh95f
+  F2 `opts` is the canonical Spec 001 MIDDLE slot: `(reg-machine machine-id
+  opts machine)`."
   ([machine-id machine]
    (reg-machine-impl 'rf/reg-machine machine-id machine))
-  ([machine-id machine opts]
-   (reg-machine-impl 'rf/reg-machine machine-id machine opts)))
+  ([machine-id opts machine]
+   (reg-machine-impl 'rf/reg-machine machine-id opts machine)))
 
 ;; ---- sugar surfaces — not late-bind wrappers -----------------------------
 ;;

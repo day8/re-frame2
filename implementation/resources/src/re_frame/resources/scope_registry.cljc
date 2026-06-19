@@ -12,7 +12,7 @@
   registration, route resources, event-side ensure, subscriptions,
   invalidation descriptors, populate/patch/remove targets, and `clear-scope`.
 
-  ## The `{:inputs … :resolve …}` grammar (the primary form)
+  ## The `{:inputs … :resolve …}` grammar (the ONE canonical form)
 
       (rf/reg-resource-scope :realworld/session
         {:inputs  {:username [:db [:auth :user :username]]}
@@ -25,26 +25,44 @@
     <path>]` is RESERVED, not shipped — declaring one is a loud
     registration error (route-derived scope un-defers with the
     tenant-switcher consumer, per Spec 016 §Route-derived scope is reserved).
-  - `:resolve` — `(fn [inputs ctx] -> scope | nil)`. PURE. It derives a
-    scope from the resolved input map; it MUST NOT fetch, dispatch, mutate
-    state, read ambient host state, or perform transport work. The `ctx`
-    arg is RESERVED and is invoked as literal `nil` in this slice — a
-    resolver MUST derive scope from its declared `:inputs`, not from `ctx`.
-    A `nil` result is FAIL-CLOSED at every scope-requiring site (never an
-    implicit global read).
+  - `:resolve` — `(fn [inputs ctx] -> scope | nil)`. PURE. **The first arg is
+    ALWAYS the resolved input map** — this is the one stable, Name-over-place
+    meaning across every registration (rf2-wvh95f F3). It derives a scope from
+    that map; it MUST NOT fetch, dispatch, mutate state, read ambient host
+    state, or perform transport work. The `ctx` arg is RESERVED and is invoked
+    as literal `nil` in this slice — a resolver MUST derive scope from its
+    declared `:inputs`, not from `ctx`. A `nil` result is FAIL-CLOSED at every
+    scope-requiring site (never an implicit global read).
 
-  ## Whole-db function sugar (explicit-cost)
+  ### Reading the whole db — name it as an input (no first-arg meaning-shift)
+
+  When a resolver genuinely needs the whole db, declare it as an explicit
+  named input and read it off the inputs map — the `:resolve` first arg STAYS
+  the inputs map:
+
+      (rf/reg-resource-scope :realworld/session
+        {:inputs  {:db [:db []]}
+         :resolve (fn [{:keys [db]} _ctx]
+                    (when-let [u (get-in db [:auth :user :username])]
+                      [:rf.scope/session {:username u}]))})
+
+  ## Whole-db function sugar — the ONE documented explicit alternative
 
       (rf/reg-resource-scope :realworld/session
         (fn [db _ctx] (when-let [u (get-in db [:auth :user :username])]
                         [:rf.scope/session {:username u}])))
 
-  A bare fn lowers to an EXPLICIT whole-db dependency (the canonical stored
-  shape carries `:whole-db? true` and a synthetic `:inputs {:db [:db []]}`
-  so tooling marks the whole-db cost on both axes — narrow re-resolution
-  AND sensitivity-inheritance precision, EP-0015 disposition 8). The
-  declared-inputs form is the recommended path; the sugar is a marked
-  convenience, not a peer.
+  This bare-fn form is the SINGLE explicit alternative to the canonical
+  inputs-map grammar (rf2-wvh95f F3). It is NOT a peer and it carries a
+  DELIBERATE, documented first-arg meaning-shift: in this form ALONE the
+  `:resolve` first arg is the **whole db**, not the inputs map. Prefer the
+  canonical inputs-map grammar (above) — including for the whole-db case via
+  the explicit `{:inputs {:db [:db []]} …}` declaration — so a resolver author
+  reads ONE stable first-arg meaning everywhere; reach for the bare-fn sugar
+  only as the explicit, cost-marked exception. It lowers to the SAME canonical
+  stored shape (`:whole-db? true` + a synthetic `:inputs {:db [:db []]}`,
+  marking the whole-db cost on both axes — narrow re-resolution AND
+  sensitivity-inheritance precision, EP-0015 disposition 8).
 
   ## Derived-sensitivity propagation (EP-0016 wave, rf2-fi6tda.1)
 
@@ -239,17 +257,22 @@
 (defn- canonical-spec
   "Normalize a resolver registration argument into the canonical STORED
   spec map. Per Spec 016 §The `{:inputs … :resolve …}` grammar +
-  §Whole-db function sugar.
+  §Whole-db function sugar (rf2-wvh95f F3).
 
-  - The map form `{:inputs {name [:db path]} :resolve (fn [inputs ctx] …)}`
-    validates every declared input descriptor, requires a fn `:resolve`,
+  - The CANONICAL map form `{:inputs {name [:db path]} :resolve (fn [inputs ctx]
+    …)}` validates every declared input descriptor, requires a fn `:resolve`,
     and stores `{:inputs <canonical> :resolve <fn> :whole-db? false
-    :output-sensitivity <enum> :doc …}`.
-  - The bare-fn sugar `(fn [db ctx] …)` lowers to an explicit whole-db
-    dependency: a synthetic `:inputs {:db [:db []]}` (the root path),
-    `:whole-db? true`, and the fn wrapped so it is called `(f db ctx)` —
-    the resolver sees the whole db as its single input. Tooling reads
-    `:whole-db?` to mark the cost on both axes (EP-0015 disposition 8).
+    :output-sensitivity <enum> :doc …}`. Its `:resolve` first arg is ALWAYS the
+    resolved inputs map (the one stable Name-over-place meaning).
+  - The bare-fn sugar `(fn [db ctx] …)` is the ONE documented explicit
+    alternative. It lowers to the SAME canonical stored shape: a synthetic
+    `:inputs {:db [:db []]}` (the root path), `:whole-db? true`, and the user
+    fn WRAPPED so the STORED `:resolve` is still called with the canonical
+    `(inputs ctx)` arity — the wrapper reads `db` off the inputs map and
+    forwards `(user-fn db ctx)`. So the stored resolver's first-arg meaning is
+    uniform (inputs map) even for the sugar; only the USER's bare fn sees the
+    whole db as its first arg (the deliberate, documented exception). Tooling
+    reads `:whole-db?` to mark the cost on both axes (EP-0015 disposition 8).
 
   Derived-sensitivity (EP-0016 wave, rf2-fi6tda.1): a resolver MAY declare
   `:rf.egress/output-sensitivity` (the SAME closed enum subs/flows honour) to
@@ -317,9 +340,12 @@
   "Register a named resource-scope resolver under `scope-id`. Per Spec 016
   §Named resource-scope resolvers (`reg-resource-scope`) / EP-0016 D3.
 
-  `resolver` is either the primary declared-inputs map
+  `resolver` is either the ONE canonical declared-inputs map
   `{:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}`
-  or the whole-db fn sugar `(fn [db ctx] -> scope|nil)`. Validates the
+  (where the `:resolve` first arg is ALWAYS the resolved inputs map — the
+  stable Name-over-place meaning, rf2-wvh95f F3) or the single documented
+  explicit alternative, the whole-db fn sugar `(fn [db ctx] -> scope|nil)`
+  (its first arg is the whole db — the one deliberate exception). Validates the
   declared inputs (only `[:db <rf-path>]` ships; `[:runtime …]` is reserved
   and rejected loudly), requires a fn `:resolve`, and writes a
   `:resource-scope`-kind registrar entry carrying the canonical spec plus

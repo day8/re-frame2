@@ -781,9 +781,10 @@
            "stamp the :rf/machine? / :rf/machine registration metadata, so "
            "the :data-schema validates NOTHING. Register the machine through "
            "reg-machine / reg-machine* — and when the machine ALSO validates "
-           "its outer event vector, use the event-:schema arity: (reg-machine "
-           "id {:schema EventSchema} machine) or (reg-machine* id machine "
-           "{:schema EventSchema}).")
+           "its outer event vector, use the event-:schema arity (the opts "
+           "metadata map is the canonical MIDDLE slot, rf2-wvh95f F2): "
+           "(reg-machine id {:schema EventSchema} machine) or "
+           "(reg-machine* id {:schema EventSchema} machine).")
       {:recovery :use-reg-machine
        :extra    {:data-schema (:data-schema machine)}}))
   ;; Per rf2-f9tu — `build-initial-snapshot` runs lazily INSIDE the
@@ -1047,17 +1048,24 @@
   Per Spec 001 §Source-coordinate capture, the call-site `:ns` /
   `:line` / `:file` carried by `re-frame.source-coords/*pending-coords*`
   (set by the `reg-machine` macro) is merged into the registration
-  metadata via the `reg-event` defn's `merge-coords` call."
+  metadata via the `reg-event` defn's `merge-coords` call.
+
+  ## Grammar — the metadata-map is the MIDDLE slot (rf2-wvh95f F2)
+
+  The 3-arity is `(reg-machine* machine-id opts machine)` — the optional
+  `opts` registration-metadata map sits in the canonical Spec 001 MIDDLE
+  slot, exactly as the `reg-machine` macro's `(reg-machine id opts machine)`
+  surface does. The event-vector `:schema` (the `:where :event` boundary
+  validator for the dispatched OUTER vector — the machine + event-vector-
+  schema shape login / realworld auth need) therefore lives in the metadata
+  map, NOT a trailing slot; any other opts keys (`:doc`, …) ride onto the
+  registration metadata verbatim. The reserved `:rf/machine?` / `:rf/machine`
+  keys are framework-owned and stamped by the home — they MUST NOT be
+  supplied in `opts`. The 2-arity `(reg-machine* machine-id machine)` has no
+  opts."
   ([machine-id machine]
-   (reg-machine* machine-id machine nil))
-  ;; rf2-wgmipl — event-vector `:schema` arity. `opts` is an OPTIONAL
-  ;; registration-metadata map; the only honoured key today is `:schema` (the
-  ;; `:where :event` boundary validator for the dispatched OUTER vector — the
-  ;; machine + event-vector-schema shape login / realworld auth need). Any
-  ;; other opts keys (`:doc`, …) ride onto the registration metadata verbatim.
-  ;; The reserved `:rf/machine?` / `:rf/machine` keys are framework-owned and
-  ;; stamped by the home — they MUST NOT be supplied in `opts`.
-  ([machine-id machine opts]
+   (register-machine-event! machine-id machine nil))
+  ([machine-id opts machine]
    (register-machine-event! machine-id machine opts)))
 
 (defn handler-meta-for

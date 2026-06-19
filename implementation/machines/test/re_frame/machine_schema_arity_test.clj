@@ -24,8 +24,9 @@
   Contract under test:
 
    1. **Auto-stamp / live validation via the event-:schema arity.** A machine
-      registered via `(reg-machine* id machine {:schema EventSchema})` — the
-      blessed replacement for the hand-stamped direct path — validates its
+      registered via `(reg-machine* id {:schema EventSchema} machine)` — the
+      blessed replacement for the hand-stamped direct path; per rf2-wvh95f F2
+      the opts metadata map is the canonical MIDDLE slot — validates its
       `:data-schema` (it was inert under the bare direct path).
 
    2. **Event-vector :schema arity.** The `:schema` on the opts map validates
@@ -128,7 +129,7 @@
 ;; ---- (1) auto-stamp / live :data-schema via the event-:schema arity --------
 
 (deftest event-schema-arity-makes-data-schema-live
-  (testing "a machine registered via (reg-machine* id machine {:schema ...})
+  (testing "a machine registered via (reg-machine* id {:schema ...} machine)
             carries the :rf/machine? / :rf/machine meta (was inert under the
             bare direct path) and its :data-schema validates"
     (let [spec {:initial     :idle
@@ -136,7 +137,7 @@
                 :data-schema AuthLoginData
                 :actions     {:break (fn [_] {:data {:attempts "nope" :token nil :error nil}})}
                 :states      {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
-      (machines/reg-machine* flow-id spec {:schema AuthLoginEvent})
+      (machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
       ;; The machine meta is stamped — machine-meta reads the spec + :data-schema
       ;; back (the inert-schema bug: machine-meta returned nil on the old path).
       (let [meta (machines/machine-meta flow-id)]
@@ -173,14 +174,14 @@
     (let [StrictEvent [:tuple [:= flow-id]
                        [:tuple [:= :auth.login/submit] Credentials]]]
       (machines/reg-machine* flow-id
+        {:schema StrictEvent}
         {:initial     :idle
          :data        {:attempts 0 :token nil :error nil}
          :data-schema AuthLoginData
          :actions     {:clear (fn [_] {:data {:error nil}})}
          :states      {:idle       {:on {:auth.login/submit {:target :submitting
                                                             :action :clear}}}
-                       :submitting {}}}
-        {:schema StrictEvent})
+                       :submitting {}}})
       ;; Malformed submit (password too short) — the :where :event boundary
       ;; rejects the vector; the machine never transitions out of :idle.
       (let [traces (collect-event-traces!
@@ -214,6 +215,7 @@
             login HTTP effect), while a valid submit + framework reply events
             still pass"
     (machines/reg-machine* flow-id
+      {:schema LoginExampleEvent}
       {:initial     :idle
        :data        {:attempts 0 :token nil :error nil}
        :data-schema AuthLoginData
@@ -223,8 +225,7 @@
                      :submitting {:on {:auth.login/success {:target :authed}
                                        :auth.login/failure {:target :error-shown}}}
                      :authed       {}
-                     :error-shown  {}}}
-      {:schema LoginExampleEvent})
+                     :error-shown  {}}})
     ;; (a) short password — rejected at the boundary; the machine stays :idle.
     (let [traces (collect-event-traces!
                    #(rf/dispatch-sync
@@ -293,8 +294,8 @@
             opts is rejected — the home stamps them"
     (let [ex (try
                (machines/reg-machine* :rf.machine-arity/reserved
-                 {:initial :idle :states {:idle {}}}
-                 {:rf/machine? true})
+                 {:rf/machine? true}
+                 {:initial :idle :states {:idle {}}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "reserved meta in opts threw")
