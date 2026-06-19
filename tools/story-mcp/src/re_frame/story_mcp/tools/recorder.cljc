@@ -111,9 +111,19 @@
   [base body events cofx target-vid]
   (try
     (let [play-body (story/recording->play-script events {:cofx cofx})
-          id        (story/reg-variant*
-                      target-vid
-                      (assoc body :script play-body :origin config/origin))
+          ;; rf2-f4e1xs — REPLACE any existing play surface before adding the
+          ;; recorded `:script`. The source body may already carry a lowered
+          ;; `:play-script` (a variant authored with public `:script` is
+          ;; stored lowered) or `:plays`; the variant schema rejects a body
+          ;; that carries more than one of `:script` / `:play-script` /
+          ;; `:plays`, so `(assoc body :script …)` on such a source would
+          ;; fail validation instead of overwriting the play body. Dropping
+          ;; the prior surfaces first makes the recorded `:script` the sole
+          ;; play surface (lowered back to `:play-script` by the registrar).
+          registered (-> body
+                         (dissoc :script :play-script :plays)
+                         (assoc :script play-body :origin config/origin))
+          id        (story/reg-variant* target-vid registered)
           payload   (assoc base :written-back? true :new-variant-id id)]
       (result/edn-result payload))
     (catch #?(:clj Throwable :cljs :default) e
