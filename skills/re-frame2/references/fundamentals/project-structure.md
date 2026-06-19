@@ -1,13 +1,19 @@
 # Project structure
 
-Where each kind of file goes in a re-frame2 CLJS project. The shapes
-below are extracted from the canonical examples; load this leaf before
-writing any non-trivial code so new files land in the slots their
+Where each kind of file goes in a re-frame2 CLJS project. Load this leaf
+before writing any non-trivial code so new files land in the slots their
 peers expect.
 
 > Assumes monorepo conventions, `src/`/`test/` split, and CLJS
 > namespace ↔ path rules. Only the re-frame2-specific placements
 > appear here.
+>
+> **The structure is portable; the paths are not.** Throughout this leaf,
+> parenthetical `examples/...` and `tools/...` citations point at the
+> re-frame2 *source repo's* own worked examples — they are evidence for
+> the shape, not directories your app will have. Read them as "here is
+> where this shape is demonstrated," and substitute your own project's
+> segment (`myapp/` below) for the layout.
 
 ## The shape — at a glance
 
