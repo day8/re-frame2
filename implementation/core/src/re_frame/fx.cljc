@@ -338,16 +338,6 @@
   (if parent-envelope
     (cond-> (select-keys parent-envelope inheritable-envelope-keys)
       (:rf.machine/internal? parent-envelope)  (assoc :rf.machine/internal? true)
-      ;; EP-0013 step 4 (rf2-a15n62): a child dispatch STAYS in the parent's
-      ;; realm. The parent envelope carries `:rf.realm/id` only for a
-      ;; non-default realm, so inherit it as the child's `:realm` opt
-      ;; (`build-envelope` reads `:realm` → `:rf.realm/id`). Carried as an
-      ;; EXPLICIT opt — NOT left to the ambient `*current-realm*` — so the realm
-      ;; survives the ASYNC `:dispatch-later` timer boundary (the timer callback
-      ;; fires on a fresh stack where no dynamic binding survives), exactly as
-      ;; `:frame` is carried for the same reason. Absent ⇒ default realm.
-      (:rf.realm/id parent-envelope)
-      (assoc :realm (:rf.realm/id parent-envelope))
       ;; Cascade-exclusion (rf2-snsup5): never inherit a reject-tier reserved-fx
       ;; override into a child dispatch. No-op (identity, no churn) when the
       ;; inherited `:fx-overrides` carries no reject-tier key — the dominant path.

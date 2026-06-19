@@ -997,7 +997,7 @@
    ;; EP-0023 (rf2-32siq3.32): the 2-arity target may be a frame-id KEYWORD or a
    ;; live frame OBJECT (`(rf/subscribe frame query-v)` — `rf/make-frame`'s
    ;; return value). Normalize an object to its runnable-id ADDRESS so the
-   ;; sub-cache lookup (`(frame/frame frame-id)`), the realm-registrar binding,
+   ;; sub-cache lookup (`(frame/frame frame-id)`),
    ;; the override seam, and the error payloads all key the backing record
    ;; unchanged; a keyword passes through. The generation-resolution seam
    ;; (`frame-resolution-target`) then re-resolves the frame's image from this id
@@ -1056,34 +1056,17 @@
    ;; (CLJS, dev-only) returns the constant override reaction on a HIT, or
    ;; nil to fall through to the normal build-and-cache path. On the JVM
    ;; and in production it is always nil (the gate / reader DCE / no-op).
-   ;; EP-0013 step 4 (rf2-a15n62): route subscription resolution through the
-   ;; owning frame's realm registrar. `compute-and-cache!` resolves the sub
-   ;; handler via `registrar/lookup :sub` (and `resolve-sub-override` reads sub
-   ;; meta), so the realm-registrar binding must cover the BUILD path. The
-   ;; binding is established ONCE here and covers the recursive layer-2+ input
-   ;; `subscribe` calls inside `compute-and-cache!` (each re-derives the SAME
-   ;; realm registrar from the same frame-id — idempotent). The reaction's body
-   ;; is closed over the resolved handler at materialization, so a later
-   ;; reactive recompute needs no binding. A non-default-realm frame pays one
-   ;; binding per build (cache MISS); a cache HIT skips this entirely. The
-   ;; default-realm frame takes the no-binding fast path
-   ;; (`frame/realm-registrar-for-frame` returns nil) — byte-identical to the
-   ;; pre-realm subscribe path. DERIVED from the carried frame-id, never ambient
-   ;; (EP-0002).
    ;;
-   ;; EP-0023 (rf2-uejnt3): ALSO route the BUILD path through the target frame's
-   ;; resolved IMAGE generation when `frame-id` names an image-loaded frame —
-   ;; NESTED inside the realm binding so `registrar/lookup :sub` (and the layer-2+
-   ;; input `subscribe` calls inside `compute-and-cache!`) resolve the sub handler
-   ;; through the frame's OWN image (rf2-32siq3.9's seam, invoked at the live
-   ;; subscribe entry). Two frames running DIFFERENT images thus build the same
-   ;; sub-id against their own image's descriptor. A target naming no image-loaded
-   ;; frame (every realm-only / single-realm frame) derives no generation, so this
-   ;; binds nothing and the build resolves through the registrar atom exactly as
-   ;; before (absence-is-default). DERIVED from the carried target (EP-0002).
-   (frame/call-with-frame-realm-registrar
-     (frame/frame frame-id)
-     (fn []
+   ;; EP-0023 (rf2-uejnt3): route the BUILD path through the target frame's
+   ;; resolved IMAGE generation when `frame-id` names an image-loaded frame, so
+   ;; `registrar/lookup :sub` (and the layer-2+ input `subscribe` calls inside
+   ;; `compute-and-cache!`) resolve the sub handler through the frame's OWN
+   ;; image (rf2-32siq3.9's seam, invoked at the live subscribe entry). Two
+   ;; frames running DIFFERENT images thus build the same sub-id against their
+   ;; own image's descriptor. A target naming no image-loaded frame (a
+   ;; single-realm default frame) derives no generation, so this binds nothing
+   ;; and the build resolves through the registrar atom exactly as before
+   ;; (absence-is-default). DERIVED from the carried target (EP-0002).
    (live-frame/call-with-frame-resolution
      (live-frame/frame-resolution-target frame-id)
      (fn []
@@ -1156,7 +1139,7 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v))))))))))))) ;; close fn + call-with-frame-resolution (rf2-uejnt3) + fn + call-with-frame-realm-registrar (rf2-a15n62) + normalize-target let (rf2-32siq3.32)
+             (compute-and-cache! frame-id query-v))))))))))) ;; close fn + call-with-frame-resolution (rf2-uejnt3) + normalize-target let (rf2-32siq3.32)
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then

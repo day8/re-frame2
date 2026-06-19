@@ -105,18 +105,6 @@
             ;; neutral. The alias is not referenced directly (the facade
             ;; re-exports are gone); the require is load-side-effect-only.
             [re-frame.app-value :as app-value]
-            ;; EP-0023 (rf2-10nggz): the realm machinery is RETAINED INTERNAL
-            ;; substrate (the registrar-backed installation/resolution spine);
-            ;; the public `:realm` registrar-query map arity has been REMOVED
-            ;; from the facade (a registrar-query map is now ALWAYS a
-            ;; frame-targeted read). The alias survives here only for
-            ;; `realm/default-realm-id` (the migration default-realm guard
-            ;; below); the realm-scoped readers `realm/realm-registrations` /
-            ;; `realm-handler-meta` / `realm-handler-ids` remain in
-            ;; `re-frame.realm` for INTERNAL/TOOLING callers (e.g. Xray's
-            ;; host-registry generation-bypass) that require the ns directly.
-            ;; A leaf on the registrar/late-bind spine; bundle-isolation neutral.
-            [re-frame.realm :as realm]
             ;; EP-0023 (rf2-32siq3.17): the public `rf/image` constructor —
             ;; an IMAGE value, the selected registration-set value a frame
             ;; resolves against (EP-0023 §Image, §Public API). PURE inert data
@@ -1217,40 +1205,22 @@
                           `trace/with-call-site` wrapper; subscriptions
                           carry no `:source` axis. DCEs in production."
   [frame {:keys [dispatch-opts subscribe-call-site]}]
-  ;; EP-0013 step 4 (rf2-a15n62): CAPTURE the realm half of the (realm, frame)
-  ;; address at handle-CREATION time, alongside the captured frame — the handle
-  ;; is the capture-at-creation affordance for crossing async boundaries, so it
-  ;; must pin BOTH dimensions of the address (a frame id alone is ambiguous once
-  ;; the same id is legal in two realms). The ambient realm is `*current-realm*`
-  ;; (set when the handle is created inside a realm-routed cascade / drain);
-  ;; nil ⇒ the default realm ⇒ the byte-identical handle (no realm carried, no
-  ;; `:realm` opt stamped). DERIVED from the carried address at creation, never
-  ;; ambient at op-call time (EP-0002 — the whole point of the handle is to NOT
-  ;; depend on op-time dynamic scope). The dispatch ops stamp `:realm` so the
-  ;; envelope routes; the subscribe op rebinds `*current-realm*` (subscribe has
-  ;; no `:realm` opt — it resolves the frame's realm from the carried var).
-  (let [realm (frame/frame-realm frame)
-        realm-opts (when (and realm
-                              (not (= realm realm/default-realm-id)))
-                     {:realm realm})]
-    {:frame frame
-     :dispatch
-     (fn dispatch-fn
-       ([event]      (dispatch* event (merge dispatch-opts realm-opts {:frame frame})))
-       ([event opts] (dispatch* event (merge dispatch-opts opts realm-opts {:frame frame}))))
-     :dispatch-sync
-     (fn dispatch-sync-fn
-       ([event]      (dispatch-sync* event (merge dispatch-opts realm-opts {:frame frame})))
-       ([event opts] (dispatch-sync* event (merge dispatch-opts opts realm-opts {:frame frame}))))
-     :subscribe
-     (fn subscribe-fn
-       [query-v]
-       (frame/call-with-realm realm
-         (fn []
-           (if (and subscribe-call-site interop/debug-enabled?)
-             (trace/with-call-site subscribe-call-site
-               (subs/subscribe frame query-v))
-             (subs/subscribe frame query-v)))))}))
+  {:frame frame
+   :dispatch
+   (fn dispatch-fn
+     ([event]      (dispatch* event (merge dispatch-opts {:frame frame})))
+     ([event opts] (dispatch* event (merge dispatch-opts opts {:frame frame}))))
+   :dispatch-sync
+   (fn dispatch-sync-fn
+     ([event]      (dispatch-sync* event (merge dispatch-opts {:frame frame})))
+     ([event opts] (dispatch-sync* event (merge dispatch-opts opts {:frame frame}))))
+   :subscribe
+   (fn subscribe-fn
+     [query-v]
+     (if (and subscribe-call-site interop/debug-enabled?)
+       (trace/with-call-site subscribe-call-site
+         (subs/subscribe frame query-v))
+       (subs/subscribe frame query-v)))})
 
 (defn frame-handle
   "Return a per-frame OPERATION BUNDLE — the keystone affordance for
