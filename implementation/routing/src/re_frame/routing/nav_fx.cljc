@@ -58,6 +58,14 @@
 ;; ownership then falls to the next-claimed frame that still carries
 ;; `:url-bound? true`, in claim order. Fail-closed: a frame never owns the URL
 ;; unless it is the first-claimed live `:url-bound? true` frame.
+;;
+;; rf2-68k8as — the hook is a FUTURE observer (`add-registration-hook!` does not
+;; replay), so a frame that claimed `:url-bound? true` BEFORE routing loaded has
+;; no entry here. The façade calls `reconcile-existing-url-bindings!` right after
+;; installing the hook to seed the unambiguous pre-existing incumbent. The
+;; claim-free resolver fallback below NEVER picks by id sort (the old steal bug):
+;; a sole bound frame owns, but 2+ bound frames with unrecoverable claim order
+;; fail closed to nil.
 
 (defonce ^:private url-claim-order
   ;; A vector of frame-ids in the order they first claimed `:url-bound? true`,
@@ -126,6 +134,14 @@
   the registry — so the incumbent always wins, and ownership self-heals to the
   next claimant if the incumbent later drops its binding or is unregistered.
 
+  rf2-68k8as — when no claim is recorded yet (frames registered before the
+  hook installed AND before the façade's `reconcile-existing-url-bindings!`
+  seeded them), the claim-free fallback NEVER steals: a sole bound frame owns
+  (order is trivially known), but TWO OR MORE bound frames with unknowable
+  claim order FAIL CLOSED to nil rather than id-sorting. The old id-sort
+  fallback was the URL-owner-steal bug — a later duplicate that sorted before
+  the true first-claimant won the alphabetical tiebreak and stole the URL.
+
   Public (rather than `defn-`) so the ownership-resolution contract is
   directly assertable — the single declared-owner case the step-deck
   testbed relies on (rf2-6qgbs.3). A reimplemented gate cannot catch a
@@ -136,20 +152,35 @@
                  (true? (url-bound?-from-config (get frames frame-id))))]
     ;; Walk the claim order; the first frame whose binding is still live owns
     ;; the URL. A claimed-but-since-relinquished/destroyed frame is skipped
-    ;; (self-healing). When no claim is recorded yet but a `:url-bound? true`
-    ;; frame exists in the registry (a frame registered before the hook was
-    ;; installed, or a programmatic path), fall back to claim-free resolution:
-    ;; if exactly one is bound, it owns; if several, claim order is unknown so
-    ;; fail closed to the alphabetically-first for a STABLE deterministic
-    ;; answer (no claim recorded ⇒ no incumbent to protect — this fallback
-    ;; cannot mis-attribute a *stolen* ownership because there is no claim to
-    ;; steal from).
+    ;; (self-healing).
+    ;;
+    ;; rf2-68k8as — when NO claim is recorded yet but `:url-bound? true`
+    ;; frame(s) exist in the registry (frames registered before the hook was
+    ;; installed and before the façade's `reconcile-existing-url-bindings!`
+    ;; seeded them, or a raw programmatic path), fall back to claim-free
+    ;; resolution that NEVER steals:
+    ;;   - exactly ONE bound frame → it owns (order is trivially known);
+    ;;   - TWO OR MORE bound frames → claim order is genuinely unknowable
+    ;;     (the registrar map is unordered), so FAIL CLOSED to nil rather than
+    ;;     picking by id sort. The prior `(sort-by (str id))` fallback WAS the
+    ;;     URL-owner-steal bug: a later duplicate whose id sorted before the
+    ;;     true first-claimant won the alphabetical tiebreak and stole the URL,
+    ;;     exactly what Spec 012 §Multi-frame routing forbids ('resolving by id
+    ;;     ordering would have let it'). nil here means 'no deterministic owner
+    ;;     for this ambiguous load-order' — outbound pushes no-op and popstate
+    ;;     skips until one binding is re-registered/removed through the live
+    ;;     hook, which re-establishes a deterministic claim order.
+    ;; Normal operation (the façade installs the hook AND reconciles at load
+    ;; time) never reaches the multi-binding fallback — every claim is recorded
+    ;; in `url-claim-order`, so the first `some` branch resolves the incumbent.
     (or (some (fn [frame-id] (when (bound? frame-id) frame-id))
               @url-claim-order)
-        (->> frames
-             (filter (fn [[_id meta]] (true? (url-bound?-from-config meta))))
-             (sort-by (fn [[id _]] (str id)))
-             ffirst))))
+        (let [bound (->> frames
+                         (filter (fn [[_id meta]]
+                                   (true? (url-bound?-from-config meta))))
+                         (map first))]
+          (when (= 1 (count bound))
+            (first bound))))))
 
 (defn url-bound-frame?
   "Return true when the frame named `frame-id` is the one active URL

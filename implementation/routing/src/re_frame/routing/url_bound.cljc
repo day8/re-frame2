@@ -20,6 +20,16 @@
   incumbent and a later duplicate cannot steal the browser URL even if its id
   sorts before the incumbent.
 
+  rf2-68k8as — `add-registration-hook!` is an append-only FUTURE observer; it
+  does not replay existing registrations. So frames that claimed `:url-bound?
+  true` BEFORE `(require 're-frame.routing)` never recorded a claim, and the
+  resolver's old id-sort fallback let a later, alphabetically-earlier duplicate
+  steal the URL from the true first-claimant. The façade now calls
+  `reconcile-existing-url-bindings!` right after installing the hook to seed the
+  unambiguous incumbent (and fail closed on an unrecoverable multi-binding
+  load-order), so first-claim-wins holds regardless of frame-vs-routing load
+  order.
+
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `registrar/add-registration-hook!` call so a
   `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr
@@ -87,3 +97,67 @@
       ;; false}` opting out): drop it so a stale claim cannot keep a now-unbound
       ;; frame at the head of the claim order (rf2-3l7xxz). Idempotent.
       (nav-fx/drop-url-claim! id))))
+
+(defn reconcile-existing-url-bindings!
+  "Reconcile `:url-bound? true` frames ALREADY in the registry when the
+  url-bound exclusivity hook is installed (rf2-68k8as). Called ONCE by the
+  façade immediately after `add-registration-hook!`, so frames registered
+  BEFORE `(require 're-frame.routing)` are not silently invisible to URL-
+  ownership resolution.
+
+  The hazard (rf2-68k8as): `add-registration-hook!` is an append-only FUTURE
+  observer — it does NOT replay existing registrations (re-frame.registrar
+  §registration-hooks). So a frame that claimed `:url-bound? true` before
+  routing loaded never recorded a claim in `url-claim-order`, leaving the
+  resolver to fall back to id-sorting — which let a later, alphabetically-
+  earlier duplicate STEAL the URL from the true first-claimant (Spec 012
+  §Multi-frame routing forbids exactly this: 'the existing owner is unchanged …
+  resolving by id ordering would have let it').
+
+  Why this can't simply replay in true claim order: the registrar's
+  `(kind, id) → metadata` table is UNORDERED (re-frame.registrar), so the
+  registration order of frames registered before the hook existed is NOT
+  recoverable. We therefore reconcile conservatively, preserving first-claim-
+  wins where order is knowable and FAILING CLOSED where it is not:
+
+  - ZERO pre-existing `:url-bound? true` frames → nothing to seed.
+  - EXACTLY ONE → seed it as the incumbent claim. Order is trivially known
+    (it is the only claimant), so this is the true first-claim.
+  - TWO OR MORE → claim order is genuinely unknowable. We do NOT pick by id
+    sort (that is the steal). We seed NO claim and emit one
+    `:rf.error/duplicate-url-binding` per extra binding so the ambiguity is
+    observable; `url-owner-frame-id` then fails closed (returns nil) for this
+    state until the app re-registers/removes a binding through the now-live
+    hook, which re-establishes a deterministic claim order.
+
+  Idempotent: a single pre-existing claim is appended-iff-absent
+  (`record-url-claim!`), and the multi-binding branch records no claim, so a
+  second call (e.g. a façade `:reload`) is a no-op. Public so the façade can
+  invoke it and the load-order test can drive it directly."
+  []
+  (let [bound-ids (->> (registrar/registrations :frame)
+                       (keep (fn [[id meta]]
+                               (when (true? (nav-fx/url-bound?-from-config meta))
+                                 id)))
+                       vec)]
+    (cond
+      (empty? bound-ids)
+      nil
+
+      (= 1 (count bound-ids))
+      ;; Unambiguous incumbent: order is known (sole claimant). Seed it so the
+      ;; resolver returns the true first-claim rather than falling back.
+      (nav-fx/record-url-claim! (first bound-ids))
+
+      :else
+      ;; Multiple pre-existing url-bound frames, claim order lost to load order.
+      ;; Fail closed (seed nothing) and surface the ambiguity once per extra
+      ;; binding — the resolver returns nil for this state (no id-sort steal).
+      (let [[incumbent & extras] (sort-by str bound-ids)]
+        (doseq [offending extras]
+          (trace/emit-error! :rf.error/duplicate-url-binding
+                             {:existing-frame  incumbent
+                              :offending-frame offending
+                              :reason          "Multiple :url-bound? true frames were registered before re-frame.routing loaded; claim order is unrecoverable, so no frame owns the URL until one binding is re-registered or removed."
+                              :recovery        :no-recovery}))
+        nil))))
