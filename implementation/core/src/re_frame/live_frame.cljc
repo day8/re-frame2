@@ -87,13 +87,13 @@
   ## Relationship to the EP-0013 `re-frame.frame` registry
 
   This is the EP-0023 public live-frame registry. It is DELIBERATELY SEPARATE
-  from `re-frame.frame`'s EP-0013 `(realm, frame)`-addressed `frames` registry
-  (the realm-routed substrate). EP-0023 partially supersedes EP-0013's public
-  app/realm surface while RETAINING the realm machinery as an internal
-  substrate; this slice introduces the image-loaded public frame object without
-  disturbing the existing `reg-frame` / `re-frame.frame/make-anon-frame-record!` callers. The
-  reload slice (.10) wires image replacement on the frame object this slice
-  returns.
+  from `re-frame.frame`'s `frames` registry. EP-0023's public model (image ->
+  frame -> event stream) supersedes EP-0013's app/realm surface; the realm
+  threading through the dispatch/subscribe spine was collapsed to the single
+  default realm (rf2-afdlyr). This slice introduces the image-loaded public
+  frame object without disturbing the existing `reg-frame` /
+  `re-frame.frame/make-anon-frame-record!` callers. The reload slice (.10) wires
+  image replacement on the frame object this slice returns.
 
   ## Frame-derived live resolution (rf2-32siq3.9 — LANDED here)
 
@@ -103,10 +103,9 @@
   inside it — dispatch / subscribe / fx / cofx / view / resource all funnel
   through `registrar/lookup` — resolves through the TARGET frame's OWN image
   generation, not the global/default registrar (EP-0023 §Frame-derived live
-  registration resolution). This is the same observable contract the a15n62
-  slice shipped for the EP-0013 realm substrate (`registrar/*registrar*` bound
-  to a realm's atom), restated for an EP-0023 frame OBJECT that carries its
-  generation directly. Two frames running DIFFERENT images resolve the same
+  registration resolution). The resolution-routing contract is carried by an
+  EP-0023 frame OBJECT that holds its generation directly. Two frames running
+  DIFFERENT images resolve the same
   `[kind id]` to their OWN image's descriptor; absence (a nil target / no
   generation) falls through to the registrar atom path, byte-identical for every
   existing caller (absence-is-default).
@@ -250,20 +249,17 @@
 ;; beside the target, progressive docs examples) all depend on ONE prerequisite:
 ;; live dispatch / subscribe / fx / cofx / view / resource lookups must resolve
 ;; through the TARGET frame's resolved image generation, not the global/default
-;; registrar. The a15n62 slice already shipped this for the EP-0013 realm
-;; substrate by binding `registrar/*registrar*` to a frame's REALM registrar
-;; atom; this slice ships the same observable contract for an EP-0023 frame
-;; OBJECT, which carries its generation directly under `:rf.frame/generation`.
+;; registrar. This is the EP-0023 frame OBJECT's resolution contract — a frame
+;; carries its generation directly under `:rf.frame/generation`.
 ;;
-;; The mechanism is a SINGLE binding seam, mirroring
-;; `re-frame.frame/call-with-frame-realm-registrar`: bind `registrar/*generation*`
+;; The mechanism is a SINGLE binding seam: bind `registrar/*generation*`
 ;; to the frame object's sealed generation around a thunk, and EVERY `(kind, id)`
 ;; lookup inside it (`registrar/lookup` is the universal chokepoint dispatch /
 ;; subscribe / fx / cofx / view / resource all funnel through) resolves through
 ;; the frame's OWN image's resolver. Two frames running DIFFERENT images thus
 ;; resolve the same `[:event :boot/init]` to their OWN image's descriptor.
 ;;
-;; ALL-OR-NOTHING (the a15n62 coherence rule, restated): the binding covers the
+;; ALL-OR-NOTHING (the coherence rule): the binding covers the
 ;; WHOLE cascade — event handler + every cofx injection + the whole fx walk +
 ;; view/resource lookup — so a frame-local handler's effects resolve in the same
 ;; image as the handler. Routing only some lookups would be an incoherent
@@ -272,10 +268,7 @@
 ;; ABSENCE-IS-DEFAULT (the load-bearing fall-through): a nil frame object, or a
 ;; frame object carrying no generation, binds NOTHING — `registrar/*generation*`
 ;; stays nil and resolution falls through to the registrar atom path (the
-;; single-realm default AND the a15n62 realm-routed path alike), byte-identical
-;; for every existing caller. This slice is purely ADDITIVE: it introduces a new
-;; resolution dimension for EP-0023 frame objects without disturbing any path
-;; that does not target one.
+;; single default), byte-identical for every existing caller.
 ;;
 ;; DERIVED from the carried frame object, never an ambient binding (EP-0002
 ;; carried-invariant): the generation is read off the frame the caller targets,
@@ -767,27 +760,16 @@
 
   Returns `{frame-id reload-diff}` for every frame that MOVED (empty when none
   did). EP-0024 (rf2-tu2vr7): with the registries collapsed, an image-loaded
-  frame is simply a `frames` record carrying a generation.
-
-  rf2-vnduo9 — REALM-CORRECT enumeration. This flush runs on a `next-tick`
-  callback (`deferred-flush!`), by which point `*current-realm*` has unwound to
-  nil. The per-frame reads + the `set-generation!` swap inside
-  `reproject-live-frame!` all re-key the registry via `(frame-key *current-realm*
-  id)`, so a NON-default-realm image-loaded frame keyed by its `[realm-id
-  frame-id]` address would MISS a bare-id lookup → silent no-op → its generation
-  stays STALE. So enumerate `frame/image-loaded-frame-addresses` (each carrying the
-  frame's OWN `:realm`, read off the record, not the unwound dynamic var) and bind
-  `*current-realm*` to that realm per frame (via `frame/call-with-realm`) around
-  the reprojection, so every re-key resolves to the frame's own address. The
-  default-realm frame (every public `make-frame`, which is default-realm-only)
-  takes `call-with-realm`'s zero-binding fast path — byte-identical to before."
+  frame is simply a `frames` record carrying a generation. Every frame lives in
+  the single default realm, so a flat `frame/image-loaded-frame-ids` enumeration
+  re-keys the registry correctly with no per-frame realm binding."
   []
-  (reduce (fn [moved {:keys [realm id]}]
-            (if-let [diff (frame/call-with-realm realm #(reproject-live-frame! id))]
+  (reduce (fn [moved id]
+            (if-let [diff (reproject-live-frame! id)]
               (assoc moved id diff)
               moved))
           {}
-          (frame/image-loaded-frame-addresses)))
+          (frame/image-loaded-frame-ids)))
 
 ;; ===========================================================================
 ;; Auto-reprojection on `reg-*` source-store change (EP-0023 §Default Image

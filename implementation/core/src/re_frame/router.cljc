@@ -11,7 +11,6 @@
   (:require [re-frame.frame :as frame]
             [re-frame.elision :as elision]
             [re-frame.live-frame :as live-frame]
-            [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
@@ -308,21 +307,6 @@
                                    :dispatch
                                    {:where    're-frame.router/build-envelope
                                     :event-id (first event)})))
-        ;; EP-0013 step 4 (rf2-a15n62): resolve the REALM half of the carried
-        ;; (realm, frame) address — carried BESIDE `:frame`, never a
-        ;; realm-qualified frame tuple (EP-0013 OI-2). An explicit `:realm`
-        ;; dispatch opt (a realm map or id) wins; absence ⇒ the carried
-        ;; realm currently in scope (`frame/*current-realm*`, set by an
-        ;; outer realm-routed cascade so a child dispatch with no explicit
-        ;; realm STAYS in its parent's realm), which itself defaults to the
-        ;; default realm. `normalize-realm-id` collapses map/keyword/nil to a
-        ;; realm-id keyword. Stamped onto the envelope only when NON-default so
-        ;; the single-realm envelope is byte-identical (absent ⇒ default realm).
-        realm-id           (if (contains? opts :realm)
-                             (frame/normalize-realm-id (:realm opts))
-                             frame/*current-realm*)
-        non-default-realm? (and realm-id
-                                (not (= realm-id realm/default-realm-id)))
         ;; Per rf2-j20a7 / Spec 005 §Level 4: a dispatch emitted from a
         ;; machine's own processing (its `:action` / `:entry` / `:exit` /
         ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
@@ -401,16 +385,7 @@
       ;; policy onto the envelope only when supplied, so `assemble-initial-ctx`
       ;; reads it (per-call wins over the frame config). Absent ⇒ the key is
       ;; omitted and the frame-config / `:live` fallback applies.
-      mint-policy        (assoc :rf.cofx/mint-policy mint-policy)
-      ;; EP-0013 step 4 (rf2-a15n62): carry the realm BESIDE the frame as a
-      ;; SEPARATE fact (`:rf.realm/id`), never a realm-qualified frame tuple
-      ;; (OI-2). Stamped ONLY for a non-default realm so the single-realm
-      ;; envelope is byte-identical (absence = default realm, the documented
-      ;; rule). The router reads it back to route the cascade's frame lookups +
-      ;; handler/fx/cofx/sub resolution through the owning realm. Carried
-      ;; UNCONDITIONALLY (a correctness fact that addresses the frame, not a
-      ;; dev diagnostic), like `:frame` itself.
-      non-default-realm? (assoc :rf.realm/id realm-id))))
+      mint-policy        (assoc :rf.cofx/mint-policy mint-policy))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
@@ -1773,7 +1748,7 @@
         ;; framework's appended handler-wrapper (`:rf/default? true`) passes
         ;; through. Hot-path skip: when the chain is nothing but that framework
         ;; default (the common no-authored-chain shape) the walk is bypassed.
-        ;; Refs resolve through the active (realm-aware) registrar.
+        ;; Refs resolve through the active registrar.
         resolved-chain  (if (icpt-reg/chain-needs-resolution? prepended-chain)
                           (icpt-reg/resolve-chain prepended-chain)
                           prepended-chain)
@@ -2283,7 +2258,7 @@
                                 frame-record handler-meta))))))
 
 (defn- process-event!
-  "Wrap process-event* in four dynamic bindings:
+  "Wrap process-event* in three dynamic bindings:
 
    1. `trace/*handler-scope*` — set with the cascade's `:dispatch-id`
       and the envelope's `:call-site`, inheriting the rest from parent.
@@ -2315,46 +2290,22 @@
       threads the frame), or `:dispatch-later` (frame captured in
       closure) for those paths. Per rf2-l5q3.
 
-   3. `registrar/*registrar*` — bound to the owning frame's REALM
-      registrar for the WHOLE cascade WHEN the frame belongs to a
-      non-default realm (EP-0013 staging step 4, rf2-a15n62). This is
-      the realm-routed resolution seam: the event-handler lookup
-      (`resolve-handler`), every declared coeffect's supplier /
-      generator lookup (`:rf.cofx/requires` delivery runs at context
-      assembly via `re-frame.cofx/deliver-declared-cofx`, BEFORE the
-      interceptor chain — EP-0017 retired the `inject-cofx` interceptor),
-      and the whole fx walk (`do-fx` runs post-commit inside this same
-      call) all resolve through `registrar/active-registrar`, so binding
-      once here routes event + cofx + fx coherently to the realm that OWNS the
-      frame (ALL-OR-NOTHING — routing only some would be an incoherent
-      half-dispatch where a realm-local handler's effects resolve in the
-      default registrar). The realm is DERIVED from the carried frame
-      (the envelope's `:frame` → its realm), never an ambient binding
-      (EP-0002). Child dispatches emitted during the fx walk re-enter
-      `process-event!` for THEIR frame and re-derive the binding, so the
-      realm is preserved across the cascade automatically. The
-      default-realm frame (every single-realm app) takes the no-binding
-      fast path inside `call-with-frame-realm-registrar` — byte-identical
-      to the pre-realm hot path.
-
-   4. `registrar/*generation*` — bound to the target frame's resolved
+   3. `registrar/*generation*` — bound to the target frame's resolved
       IMAGE GENERATION for the WHOLE cascade WHEN the carried `:frame`
       names an EP-0023 image-loaded frame (rf2-uejnt3, operationalising
       the rf2-32siq3.9 seam). This is the EP-0023 restatement of the
-      a15n62 invariant in image/frame terms — `target frame -> resolved
-      image generation -> registration resolution`. The SAME chokepoint
-      (`registrar/lookup`) the realm binding above routes — event-handler
-      lookup, every cofx injection, the whole fx walk — resolves through
-      the frame's OWN image generation's resolver, so two frames running
-      DIFFERENT images resolve the same `[kind id]` to their own image's
-      descriptor (ALL-OR-NOTHING — `call-with-frame-resolution` covers the
-      whole thunk, exactly like the realm wrap it nests inside). The
-      generation is DERIVED from the carried frame target
+      `target frame -> resolved image generation -> registration
+      resolution` invariant in image/frame terms. The resolution
+      chokepoint (`registrar/lookup`) — event-handler lookup, every cofx
+      injection, the whole fx walk — resolves through the frame's OWN
+      image generation's resolver, so two frames running DIFFERENT images
+      resolve the same `[kind id]` to their own image's descriptor
+      (ALL-OR-NOTHING — `call-with-frame-resolution` covers the whole
+      thunk). The generation is DERIVED from the carried frame target
       (`frame-resolution-target` resolves a direct frame OBJECT verbatim,
       a frame-id keyword through the live-frame registry), never an
       ambient binding (EP-0002). A target that names no live image-loaded
-      frame — every EP-0013 realm-only frame and the single-realm default
-      alike — yields no generation, so `call-with-frame-resolution` binds
+      frame yields no generation, so `call-with-frame-resolution` binds
       NOTHING and resolution falls through to the registrar-atom path,
       byte-identical (absence-is-default). Child dispatches re-enter
       `process-event!` for their frame and re-derive the binding, so the
@@ -2362,28 +2313,17 @@
   [envelope]
   (trace/with-dispatch-id+call-site (:dispatch-id envelope) (:call-site envelope)
     (binding [frame/*current-frame* (:frame envelope)]
-      ;; EP-0013 step 4 (rf2-a15n62): route the cascade's resolution through
-      ;; the owning frame's realm registrar. Resolve the frame record ONCE
-      ;; here (the realm seam needs it; `process-event*` re-resolves cheaply
-      ;; from the same atom and tolerates a nil — the destroyed-frame branch).
-      ;; A nil record (frame destroyed before drain) yields no binding (the
-      ;; default-realm path), and `process-event*` then takes its
-      ;; `handle-frame-destroyed!` branch as before.
-      (frame/call-with-frame-realm-registrar
-        (frame/frame (:frame envelope))
-        (fn []
-          ;; EP-0023 (rf2-uejnt3): ALSO route the cascade through the target
-          ;; frame's resolved IMAGE generation when the carried `:frame` names
-          ;; an image-loaded frame, NESTED inside the realm binding so event +
-          ;; cofx + fx resolve coherently through the frame's own image
-          ;; (rf2-32siq3.9's seam, invoked at the live entry). A target that
-          ;; names no image-loaded frame (every realm-only / single-realm
-          ;; frame) derives no generation, so this binds nothing and the
-          ;; cascade resolves through the registrar atom exactly as before
-          ;; (absence-is-default). DERIVED from the carried target (EP-0002).
-          (live-frame/call-with-frame-resolution
-            (live-frame/frame-resolution-target (:frame envelope))
-            (fn [] (process-event* envelope))))))))
+      ;; EP-0023 (rf2-uejnt3): route the cascade through the target frame's
+      ;; resolved IMAGE generation when the carried `:frame` names an
+      ;; image-loaded frame, so event + cofx + fx resolve coherently through
+      ;; the frame's own image (rf2-32siq3.9's seam, invoked at the live
+      ;; entry). A target that names no image-loaded frame (a single-realm
+      ;; default frame) derives no generation, so this binds nothing and the
+      ;; cascade resolves through the registrar atom exactly as before
+      ;; (absence-is-default). DERIVED from the carried target (EP-0002).
+      (live-frame/call-with-frame-resolution
+        (live-frame/frame-resolution-target (:frame envelope))
+        (fn [] (process-event* envelope))))))
 
 (def ^:private drain-depth-default
   ;; Deep enough for typical cascade depths. When exceeded, the runtime
@@ -2745,28 +2685,19 @@
   for the queue (its release block re-checks under lock — see
   drain-loop!). On win, runs the drain body and releases.
 
-  Per rf2-ynk7 §single-drainer invariant.
-
-  EP-0013 step 4 (rf2-a15n62): bind the carried `realm-id` for the WHOLE drain
-  (`frame/call-with-realm`) so every bare-`frame-id` registry lookup inside —
-  the frame-record resolution here, plus `run-one-pass!`'s `frame-state-value` /
-  `frame-disposed-for-drain?` and `process-event!`'s frame + handler/fx/cofx/sub
-  resolution — targets the OWNING realm's frame. nil realm ⇒ no binding ⇒ the
-  byte-identical default-realm drain."
-  [realm-id frame-id]
-  (frame/call-with-realm realm-id
-    (fn []
-      (let [frame-record (frame/frame frame-id)]
-        (when frame-record
-          (let [drain-lock  (:drain-lock frame-record)
-                router      (:router frame-record)
-                drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
-            (when (compare-and-set! drain-lock false true)
-              (try
-                (drain-loop! frame-id router drain-lock drain-depth)
-                (catch #?(:clj Throwable :cljs :default) t
-                  (drain-emergency-release! router drain-lock)
-                  (throw t))))))))))
+  Per rf2-ynk7 §single-drainer invariant."
+  [frame-id]
+  (let [frame-record (frame/frame frame-id)]
+    (when frame-record
+      (let [drain-lock  (:drain-lock frame-record)
+            router      (:router frame-record)
+            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+        (when (compare-and-set! drain-lock false true)
+          (try
+            (drain-loop! frame-id router drain-lock drain-depth)
+            (catch #?(:clj Throwable :cljs :default) t
+              (drain-emergency-release! router drain-lock)
+              (throw t))))))))
 
 (defn- drain-block!
   "Synchronous drain entry point (called from `dispatch-sync!`). Unlike
@@ -2785,14 +2716,8 @@
 
   `under-lock-fn` runs once, immediately after CAS-acquire, before the
   drain loop. Exceptions inside it propagate through the same emergency-
-  release path as the drain loop body.
-
-  EP-0013 step 4 (rf2-a15n62): bind the carried `realm-id` for the whole
-  synchronous drain (`frame/call-with-realm`) so the bare-`frame-id` lookups
-  inside resolve to the owning realm (default realm ⇒ no binding)."
-  [realm-id frame-id under-lock-fn]
-  (frame/call-with-realm realm-id
-    (fn []
+  release path as the drain loop body."
+  [frame-id under-lock-fn]
   (let [frame-record (frame/frame frame-id)]
     (when frame-record
       (let [drain-lock  (:drain-lock frame-record)
@@ -2811,15 +2736,10 @@
           (drain-loop! frame-id router drain-lock drain-depth)
           (catch #?(:clj Throwable :cljs :default) t
             (drain-emergency-release! router drain-lock)
-            (throw t))))))))) ;; close fn + call-with-realm (rf2-a15n62)
+            (throw t)))))))
 
 (defn- ensure-drain-scheduled!
-  ;; EP-0013 step 4 (rf2-a15n62): `realm-id` is the carried realm half of the
-  ;; (realm, frame) address. The async drain fires on a fresh stack (no dynamic
-  ;; binding survives `next-tick`), so the realm is CLOSED OVER and rebound
-  ;; inside `drain-try!` — otherwise the drain's bare-`frame-id` lookups would
-  ;; resolve in the default realm. nil ⇒ default ⇒ no binding.
-  [realm-id frame-id router]
+  [frame-id router]
   (let [should-schedule?
         (locking router
           (let [{:keys [scheduled?]} @router]
@@ -2828,7 +2748,7 @@
               (do (swap! router assoc :scheduled? true)
                   true))))]
     (when should-schedule?
-      (interop/next-tick (fn [] (drain-try! realm-id frame-id))))))
+      (interop/next-tick (fn [] (drain-try! frame-id))))))
 
 (defn- emit-dispatched-trace!
   "Emit the :event :event/dispatched trace event for this envelope. Per
@@ -2863,23 +2783,10 @@
   [envelope sync?]
   (let [event        (:event envelope)
         event-id     (when (vector? event) (first event))
-        ;; EP-0013 step 4 (rf2-a15n62): the `:rf.trace/no-emit?` gate reads the
-        ;; TARGET handler's meta, which lives in the owning frame's realm
-        ;; registrar (not the default) for a non-default-realm dispatch. The
-        ;; realm is the envelope's CARRIED `:rf.realm/id` (already resolved by
-        ;; `build-envelope`) — NOT `*current-realm*`, which is unbound at this
-        ;; enqueue site (the drain binds it later). Route the lookup through the
-        ;; carried realm's registrar so a realm-installed tool handler's
-        ;; `:no-emit?` is honoured. Default-realm dispatch (no `:rf.realm/id`)
-        ;; takes the no-binding fast path. Dev-only (this whole emit DCEs under
-        ;; `goog.DEBUG=false`).
-        realm-id     (:rf.realm/id envelope)
+        ;; The `:rf.trace/no-emit?` gate reads the TARGET handler's meta from
+        ;; the registrar. Dev-only (this whole emit DCEs under `goog.DEBUG=false`).
         handler-meta (when event-id
-                       (if-let [reg (and realm-id
-                                         (some-> (realm/realm realm-id) realm/registrar))]
-                         (binding [registrar/*registrar* reg]
-                           (registrar/lookup :event event-id))
-                         (registrar/lookup :event event-id)))
+                       (registrar/lookup :event event-id))
         no-emit?     (trace/no-emit?-from-meta handler-meta)]
     (when-not no-emit?
       (trace/with-call-site (:call-site envelope)
@@ -2929,13 +2836,6 @@
                        (assoc :rf.trace/dispatch-id (:dispatch-id envelope))
                        (:parent-dispatch-id envelope)
                        (assoc :rf.trace/parent-dispatch-id (:parent-dispatch-id envelope))
-                       ;; EP-0013 step 4 (rf2-a15n62): preserve the realm on the
-                       ;; dispatch trace so tooling + the epoch buffer carry the
-                       ;; (realm, frame) address. Only stamped for a non-default
-                       ;; realm (the envelope carries `:rf.realm/id` only then),
-                       ;; so the single-realm trace is byte-identical.
-                       (:rf.realm/id envelope)
-                       (assoc :rf.realm/id (:rf.realm/id envelope))
                        ;; Per rf2-5qp4g: optional per-source-kind detail
                        ;; map (e.g. `{:ms 500}` for `:dispatch-later`)
                        ;; so the Epoch panel's DISPATCH source-kind
@@ -3020,12 +2920,7 @@
   ([event] (dispatch! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)
-         ;; EP-0013 step 4 (rf2-a15n62): resolve the frame in the envelope's
-         ;; CARRIED realm (`:rf.realm/id`, absent ⇒ default). The frame record
-         ;; (and its router queue) for a non-default realm lives under the
-         ;; `[realm-id frame-id]` address, so a bare-id lookup would miss it.
-         realm-id     (:rf.realm/id envelope)
-         frame-record (frame/frame realm-id (:frame envelope))]
+         frame-record (frame/frame (:frame envelope))]
      (cond
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch into a
@@ -3043,10 +2938,7 @@
        (let [router (:router frame-record)]
          (emit-dispatched-trace! envelope false)
          (enqueue-envelope! router envelope)
-         ;; Carry the realm into the (possibly async) drain so the drain's
-         ;; bare-`frame-id` registry lookups resolve to the owning realm's
-         ;; frame (default realm ⇒ no binding, byte-identical).
-         (ensure-drain-scheduled! realm-id (:frame envelope) router)))
+         (ensure-drain-scheduled! (:frame envelope) router)))
      nil)))
 
 (defn dispatch-sync!
@@ -3078,11 +2970,7 @@
   ([event] (dispatch-sync! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)
-         ;; EP-0013 step 4 (rf2-a15n62): resolve the frame in the envelope's
-         ;; carried realm (absent ⇒ default) — a non-default-realm frame keys
-         ;; by `[realm-id frame-id]`.
-         realm-id     (:rf.realm/id envelope)
-         frame-record (frame/frame realm-id (:frame envelope))
+         frame-record (frame/frame (:frame envelope))
          ;; Read the call-site from the envelope (already gated in
          ;; build-envelope) so the synchronous error emits below can
          ;; carry it without referencing the keyword a second time.
@@ -3155,7 +3043,6 @@
            ;; :in-sync-drain? is cleared in the outer finally after
            ;; drain-block! returns.
            (drain-block!
-             realm-id
              (:frame envelope)
              (fn []
                (swap! router (fn [{:keys [queue] :as r}]
