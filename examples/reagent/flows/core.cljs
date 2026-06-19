@@ -60,8 +60,10 @@
 ;; FLOWS  (Spec 013 §Registration shape)
 ;; ============================================================================
 ;;
-;; `:inputs` is a vector of app-db paths; `:output` receives the values at
-;; those paths positionally and returns the value written to `:path`.
+;; `:inputs` is a vector of frame-state paths (a bare path reads app-db; a
+;; path led by `:rf.db/runtime` reads runtime-db); `:output` receives the
+;; values at those paths positionally and returns the value written to the
+;; app-db `:path`.
 
 (defn- line-total [{:keys [price qty]}]
   (* price qty))

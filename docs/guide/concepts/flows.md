@@ -1,6 +1,6 @@
 # Flows: derived values your handlers can read
 
-By default you derive values with [subscriptions](subscriptions.md) — queries that compute a value from app-db (your app's single state map) and hand it to a view. Keep that as your reflex. But a subscription's answer lives in the view-facing cache, on the render side of the loop. An event handler — the pure function that runs when an event is dispatched and returns the next app-db — can't read it. Neither can a registered schema, another derivation, or anything else that wants plain data instead of rendering. Sometimes a derived value needs to be *state* — plain data sitting in app-db that the rest of your program reads. For that you want a **flow**: a registered rule that says *"when these app-db paths change, run this pure function and write the result to that path."* The framework keeps the answer fresh, so you never write it by hand.
+By default you derive values with [subscriptions](subscriptions.md) — queries that compute a value from app-db (your app's single state map) and hand it to a view. Keep that as your reflex. But a subscription's answer lives in the view-facing cache, on the render side of the loop. An event handler — the pure function that runs when an event is dispatched and returns the next app-db — can't read it. Neither can a registered schema, another derivation, or anything else that wants plain data instead of rendering. Sometimes a derived value needs to be *state* — plain data sitting in app-db that the rest of your program reads. For that you want a **flow**: a registered rule that says *"when these frame-state paths change, run this pure function and write the result to an app-db path."* Inputs read either partition of the frame — a bare path reads app-db, a path led by `:rf.db/runtime` reads runtime-db (route / machine state) — while the output is always written to app-db. The framework keeps the answer fresh, so you never write it by hand.
 
 > **Coming from Redux?** The style guide's "never store derived state" rule guards against someone forgetting to update it in one reducer — a flow is the sanctioned exception, because the *framework* owns the updating and that staleness failure mode is gone.
 
@@ -23,12 +23,12 @@ Here is the same label as a flow. Same pure function, zero new domain:
 (rf/reg-flow
   {:id     :counter/parity
    :doc    "Whether the count is odd or even, materialised into app-db."
-   :inputs [[:counter/value]]                  ;; app-db paths to watch
+   :inputs [[:counter/value]]                  ;; frame-state paths to watch (bare = app-db)
    :output (fn [n] (if (odd? n) :odd :even))   ;; pure: input values, in order → output
    :path   [:counter/parity]})                 ;; the app-db path the answer is written to
 ```
 
-`:inputs` is a vector of app-db paths. Their values arrive at `:output` positionally, and the result is written at `:path`. From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. Here's the part worth pausing on: the recompute is part of the *same commit*. A flow runs immediately after the event's handler, so each event still makes exactly one app-db write, carrying the handler's change and the fresh flow output together. Views never see a half-updated state. And the flow skips recomputing when its inputs didn't actually change value, which keeps the cost honest.
+`:inputs` is a vector of frame-state paths (a bare path reads app-db; a path led by `:rf.db/runtime` reads runtime-db). Their values arrive at `:output` positionally, and the result is written to an app-db `:path`. From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. Here's the part worth pausing on: the recompute is part of the *same commit*. A flow runs immediately after the event's handler, so each event still makes exactly one app-db write, carrying the handler's change and the fresh flow output together. Views never see a half-updated state. And the flow skips recomputing when its inputs didn't actually change value, which keeps the cost honest.
 
 > **Same label, now materialised — a flow is a derivation whose answer your handlers can read.**
 

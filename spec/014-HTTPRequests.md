@@ -140,7 +140,7 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:on-success` | originating event id with `:rf/reply` merged | Where to dispatch the success reply. See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
 | `:on-failure` | originating event id with `:rf/reply` merged | Where to dispatch the failure reply. `nil` swallows silently. See [§Reply addressing](#reply-addressing). | — (`:on-failure` does not itself fail; it routes the reply.) |
 | `:request-id` | none | Stable `=`-comparable id for abort + correlation. Keywords / strings / vectors / uuids all work. See [§`:request-id` (internal)](#request-id-internal). | Superseded by a later request with the same id → in-flight request aborts with `:rf.http/aborted :reason :request-id-superseded` on the trace stream. |
-| `:abort-signal` | none | External `AbortController.signal` handle. Mutually exclusive with `:request-id`-driven internal abort. CLJS-only; JVM ignores. See [§`:abort-signal` (external)](#abort-signal-external). | `:rf.http/aborted :reason :user` when the host fires the signal. |
+| `:abort-signal` | none | External `AbortController.signal` handle. **May be supplied together with `:request-id`** — both attach a cancellation source to the one managed request, and the once-only finalisation CAS guarantees exactly one terminal outcome (per [§`:abort-signal` (external)](#abort-signal-external)). CLJS-only; on the JVM the external signal is ignored, so only the `:request-id` path is portable there. See [§`:abort-signal` (external)](#abort-signal-external). | `:rf.http/aborted :reason :user` when the host fires the signal. |
 | `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
 | `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
 
@@ -1152,8 +1152,8 @@ Every key the [§The args map](#the-args-map) surface accepts may be passed thro
 
 ```clojure
 {:spawn {:machine-id :rf.http/managed
-          :data {:request    {:method :post :url "/api/sessions" :body {...}}
-                 :request-content-type :json
+          :data {:request    {:method :post :url "/api/sessions" :body {...}
+                              :request-content-type :json}
                  :decode     SessionResponse
                  :accept     (fn [v] (if (:session v) {:ok (:session v)}
                                                        {:failure {:reason :no-session}}))
