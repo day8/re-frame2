@@ -150,14 +150,19 @@
 (deftest warning-suppressed-when-malli-validate-hook-bound
   (testing "with the Malli adapter loaded (`:schemas/malli-validate`
             is bound) the validation hot path runs — no warning"
-    (let [recorded (record-traces! ::malli-loaded)]
+    (let [recorded (record-traces! ::malli-loaded)
+          prior    (late-bind/get-fn :schemas/malli-validate)]
       (late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
       (try
         (rf/reg-app-schema [:user] [:map])
         (finally
-          ;; Restore the slot for sibling tests (the fixture restores the
-          ;; validator-fn but not the late-bind hook table).
-          nil))
+          ;; Restore the slot for sibling tests — the fixture restores the
+          ;; validator-fn but NOT the process-global late-bind hook table.
+          ;; Mirrors `with-unbound-malli-validate`'s prior-capture/restore so
+          ;; this stub does not leak a trivially-true validator process-wide
+          ;; (rf2-hydpaf).
+          (when prior
+            (late-bind/set-fn! :schemas/malli-validate prior))))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))
           ":schemas/malli-validate bound -> warning suppressed"))))
