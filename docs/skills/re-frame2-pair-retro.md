@@ -35,7 +35,7 @@ The skill auto-triggers on retrospective-shaped questions ("how could re-frame2-
 /skill re-frame2-pair-retro
 ```
 
-The skill's analysis workflow runs in six steps: reconstruct the session goal, build a short timeline of stalls / restarts / detours, extract a numbered friction list (and ask the user which to dig into), classify root causes through ten lenses (skill structure / skill gap / misleading docs / missing structured op / unreliable op / default or fallback / platform bug / validation gap / upstream limitation / context-window issue), generate improvements at the right layer, and prioritize down to 2–5.
+The skill's analysis workflow runs in six steps: reconstruct the session goal, build a short timeline of stalls / restarts / detours, extract a numbered friction list (and ask the user which to dig into), classify root causes through the nine canonical root-cause categories (`docs/discoverability` / `workflow-gap` / `missing-op` / `unreliable-op` / `default/fallback` / `platform-bug` / `validation-gap` / `upstream-gap` / `out-of-scope` — defined in [`references/analysis-lenses.md` §Root-cause categories](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/references/analysis-lenses.md), the single source of truth), generate improvements at the right layer, and prioritize down to 2–5.
 
 Output is a compact retrospective with sections — `Goal`, `Observed friction`, `Likely root causes`, `Improvement ideas`, optional `Bolder ideas`, optional `Issue candidates`. The skill drafts GitHub-issue bodies on request, but never files without explicit approval.
 
