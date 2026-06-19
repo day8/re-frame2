@@ -1780,7 +1780,18 @@
         (is (= :loop (:event-id r))
             "the halting event's trigger pins the :halted-depth record")
         (is (= [:loop] (:trigger-event r))
-            "the synthesised trigger-event is the halting event vector")))))
+            "the synthesised trigger-event is the halting event vector")
+        ;; rf2-bhu3a0 — the halt record's whole frame-state is sourced from
+        ;; the canonical last-settled :ok epoch record's :frame-state-after
+        ;; (the same value restore rewinds to), NOT a live re-read. Pin that
+        ;; both partitions equal the last-settled record's :frame-state-after.
+        (let [last-ok (nth history 4)]
+          (is (= (:frame-state-after last-ok)
+                 (:frame-state-before r)
+                 (:frame-state-after r))
+              ":frame-state-before/-after are the durable last-settled
+               :frame-state-after — sourced from the canonical record, not a
+               live container re-read (rf2-bhu3a0)"))))))
 
 (deftest halted-record-fires-listeners
   (testing "register-epoch-listener! listeners receive halted records too —

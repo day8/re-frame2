@@ -2744,10 +2744,25 @@
 
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired` — an inactive-GC timer fired. Re-check
-  owner sets + entry generation after wake (timers are advisory); remove
-  the entry only if still GC-eligible. Per Spec 016 §Stale and GC
-  scheduling (\"inactive GC may use host timers, but GC MUST re-check owner
-  sets and entry generation after wake\").
+  GC-eligibility after wake (timers are advisory); remove the entry only if
+  still eligible. Per Spec 016 §Stale and GC scheduling (\"inactive GC may
+  use host timers, but GC MUST re-check owner sets and entry generation
+  after wake\").
+
+  How the spec's generation re-check is satisfied (rf2-bhu3a0): unlike
+  staleness — which carries a durable `:stale-at` deadline the
+  `stale-fired-handler` re-derives against the causal `:rf/time-ms` — GC has
+  NO durable time-based deadline to re-derive (this handler takes no
+  `:rf/time-ms`; the entry carries no `:gc-at`). GC-eligibility is purely
+  STRUCTURAL: owner-free + idle. The generation re-check is therefore
+  satisfied structurally by the cancel-then-arm timer discipline rather than
+  by an explicit `:loaded-at` comparison: every re-load advances the entry's
+  generation through a settle that re-arms (cancel-then-arm) the GC timer, so
+  a re-load since the timer armed CANCELS the timer that would otherwise be
+  firing here. A GC timer that actually fires is thus always the most-
+  recently-armed one for the CURRENT generation — a stale-generation timer
+  cannot survive to reach this re-check. The owner-free + idle gate below is
+  the actual sufficient eligibility condition.
 
   GC-eligibility re-check (against the LIVE durable facts):
     - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
