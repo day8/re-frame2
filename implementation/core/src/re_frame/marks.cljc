@@ -307,7 +307,11 @@
   `kind` scopes the `:sensitive?` rejection to derived outputs (see
   `reject-sensitive-boolean-overload!`). Returns `nil` when the meta-map
   carries no mark-relevant keys — callers branch on the nil to avoid stashing
-  empty tables."
+  empty tables. An EMPTY `:sensitive` / `:large` declaration (`[]` — no paths,
+  classifies nothing) is dropped from the result, and a map that ends up empty
+  returns `nil` (rf2-398kql: this normalisation used to ride the now-removed
+  `:event` `merge-schema-marks` union — `marks-for` returns `normalise-marks`
+  directly, so the empty-slot drop lives here)."
   [kind meta]
   (reject-sensitive-boolean-overload! kind meta)
   (let [;; The explicit (non-default) output-sensitivity claim, or nil when
@@ -321,11 +325,20 @@
               (contains? meta :large)
               (some? os)
               (contains? meta :large?))
-      (cond-> {}
-        (contains? meta :sensitive) (assoc :sensitive (coerce-paths (:sensitive meta) :sensitive))
-        (contains? meta :large)     (assoc :large     (coerce-paths (:large meta) :large))
-        (some? os)                  (assoc :output-sensitivity os)
-        (contains? meta :large?)    (assoc :large?    (boolean (:large? meta)))))))
+      ;; A present-but-EMPTY `:sensitive` / `:large` vector classifies nothing,
+      ;; so omit the slot (a non-empty `[[]]` whole-value mark is KEPT — it has
+      ;; one entry). A map that ends up empty (only empty path slots declared)
+      ;; reads as nil.
+      (let [sens  (when (contains? meta :sensitive)
+                    (seq (coerce-paths (:sensitive meta) :sensitive)))
+            large (when (contains? meta :large)
+                    (seq (coerce-paths (:large meta) :large)))
+            m     (cond-> {}
+                    sens                     (assoc :sensitive (vec sens))
+                    large                    (assoc :large     (vec large))
+                    (some? os)               (assoc :output-sensitivity os)
+                    (contains? meta :large?) (assoc :large?    (boolean (:large? meta))))]
+        (when (seq m) m)))))
 
 (defn validate-marks!
   "Validate a registration's mark declaration at the reg-* boundary, FAIL-LOUD
