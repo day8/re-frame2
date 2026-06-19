@@ -13,12 +13,24 @@
   This file pins the storage / introspection contract."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.schemas.validate :as validate]))
 
 (use-fixtures :each tf/reset-runtime)
+
+(defn- frame-value
+  "Construct a synthetic frame VALUE for `frame-id` — structurally identical
+  to `rf/make-frame`'s return token (carries the `:rf.frame/object` marker +
+  `:rf.frame/runnable-id`) but built directly so the test needs no installed
+  substrate adapter. Uses the canonical marker / runnable-id keys off
+  `re-frame.frame` so it stays correct if the representation moves."
+  [frame-id]
+  {frame/object-marker   true
+   :rf.frame/id          frame-id
+   frame/runnable-id-key frame-id})
 
 ;; ---- app-schema-meta-at --------------------------------------------------
 
@@ -215,6 +227,143 @@
       (is (instance? clojure.lang.ExceptionInfo thrown))
       ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
       (is (= :rf.error/bad-app-schemas-arg (:rf.error/id (ex-data thrown)))))))
+
+;; ---- EP-0024 frame-value targeting (rf2-7pllal) --------------------------
+;;
+;; EP-0024 made frame VALUES (rf/make-frame's return token) first-class
+;; frame targets alongside frame-id keywords. The schema opts surface must
+;; route a frame VALUE — passed bare OR as the `:frame` opt — to the SAME
+;; frame id a read-by-id resolves, the same way `re-frame.core/snapshot-of`
+;; normalizes its `:frame` opt through `frame/frame-target->id`.
+;;
+;; Pre-fix two misroutes:
+;;   (1) `{:frame frame-value}` stored / read under the frame-VALUE MAP
+;;       itself (resolve-frame returned `(:frame opts)` unchanged), so a
+;;       read-by-id silently MISSED the schema — register-by-value /
+;;       read-by-id disagreed.
+;;   (2) a BARE frame value is itself a map, so coerce-opts classified it as
+;;       an opts map with no `:frame` key and silently fell back to the
+;;       ambient frame (or threw :rf.error/no-frame-context outside a scope).
+;;
+;; The fix discriminates `frame/frame-value?` BEFORE the generic map? branch
+;; in coerce-opts, normalizes the `:frame` override through
+;; `frame/frame-target->id` in resolve-frame, and asserts the resolved
+;; target is a keyword frame-id so an arbitrary non-keyword `:frame` (a
+;; string / non-frame map / vector) fails loud rather than silently becoming
+;; a registry key no keyword-id read can reach.
+
+(deftest reg-app-schema-frame-value-opt-routes-to-resolved-frame-id
+  (testing "rf2-7pllal — registering with `{:frame frame-value}` stores under
+            the frame's RESOLVED ID (frame-target->id), so a read-by-id finds
+            it — NOT under the frame-value map itself"
+    (let [fv (frame-value :tenant/fv-a)]
+      (rf/reg-app-schema [:user] [:map [:id :int]] {:frame fv})
+      ;; The load-bearing assertion: read-by-id resolves the value-keyed write.
+      (is (= [:map [:id :int]] (schemas/app-schema-at [:user] :tenant/fv-a))
+          "read-by-frame-id finds the schema registered via a frame VALUE")
+      ;; And the stored registry key is the bare frame-id keyword, not the map.
+      (is (= [:tenant/fv-a]
+             (keys (schemas/snapshot-schemas-by-frame)))
+          "schemas-by-frame is keyed by the resolved frame-id, not the value map")
+      ;; The frame-value-opt read agrees with the frame-id read.
+      (is (= (schemas/app-schema-at [:user] :tenant/fv-a)
+             (schemas/app-schema-at [:user] {:frame fv}))
+          "read via {:frame frame-value} and via the frame-id agree"))))
+
+(deftest reg-app-schema-bare-frame-value-routes-to-its-frame
+  (testing "rf2-7pllal — a BARE frame value passed as the opts arg routes to
+            its own frame (discriminated before the generic map? branch), NOT
+            silently to the ambient/default frame"
+    (let [fv (frame-value :tenant/fv-b)]
+      (rf/reg-app-schema [:bare] [:map] fv)
+      (is (= [:map] (schemas/app-schema-at [:bare] :tenant/fv-b))
+          "bare frame value registers against its frame, read-by-id finds it")
+      (is (nil? (schemas/app-schema-at [:bare]))
+          "the DEFAULT/ambient frame is untouched — no silent fallback")
+      ;; coerce-opts lifts the bare value into the {:frame value} shape.
+      (is (= {:frame fv} (storage/coerce-opts fv))
+          "coerce-opts wraps a bare frame value as {:frame value}"))))
+
+(deftest read-surface-accepts-frame-value-targets
+  (testing "rf2-7pllal — every read entry point (app-schema-at /
+            app-schema-meta-at / app-schemas / app-schemas-digest) accepts a
+            frame VALUE (bare and as `{:frame value}`) and resolves it to the
+            same frame-id a keyword read uses"
+    (let [fv (frame-value :tenant/fv-c)]
+      (rf/reg-app-schema [:user] [:map] :tenant/fv-c)
+      ;; app-schema-at
+      (is (= [:map] (schemas/app-schema-at [:user] fv)))
+      (is (= [:map] (schemas/app-schema-at [:user] {:frame fv})))
+      ;; app-schema-meta-at
+      (is (= [:map] (:schema (schemas/app-schema-meta-at [:user] fv))))
+      ;; app-schemas
+      (is (= {[:user] [:map]} (schemas/app-schemas fv)))
+      (is (= {[:user] [:map]} (schemas/app-schemas {:frame fv})))
+      ;; app-schemas-digest agrees with the keyword-id digest
+      (is (= (schemas/app-schemas-digest :tenant/fv-c)
+             (schemas/app-schemas-digest fv))
+          "digest via a frame value equals digest via its frame-id"))))
+
+(deftest reg-app-schemas-bulk-frame-value-routes-to-its-frame
+  (testing "rf2-7pllal — the bulk form routes a frame VALUE the same way: a
+            bare value registers every entry against its frame, and a
+            `{:frame value}` opts map does too"
+    (let [fv (frame-value :tenant/fv-d)]
+      (rf/reg-app-schemas {[:user] [:map] [:auth] [:string]} fv)
+      (is (= [:map]    (schemas/app-schema-at [:user] :tenant/fv-d)))
+      (is (= [:string] (schemas/app-schema-at [:auth] :tenant/fv-d)))
+      (is (nil? (schemas/app-schema-at [:user]))
+          "DEFAULT frame untouched for the bulk-by-value form too"))))
+
+(deftest coerce-opts-discriminates-frame-value-before-opts-map
+  (testing "rf2-7pllal — coerce-opts checks frame/frame-value? BEFORE the
+            generic map? branch, so a bare frame value lifts to {:frame value}
+            while an ordinary opts map still passes through verbatim"
+    (let [fv (frame-value :tenant/fv-e)]
+      (is (= {:frame fv} (storage/coerce-opts fv))
+          "a frame value is lifted, not passed through as an opts map")
+      ;; A genuine opts map (NOT a frame value) still passes through.
+      (is (= {:frame :tenant/x :other :thing}
+             (storage/coerce-opts {:frame :tenant/x :other :thing}))
+          "an ordinary opts map is untouched"))))
+
+(deftest resolve-frame-rejects-non-keyword-frame-target-loud
+  (testing "rf2-7pllal — tightening: an explicit `:frame` that resolves to a
+            NON-keyword target (a string, a non-frame map, a vector) fails
+            loud with :rf.error/bad-app-schemas-arg rather than silently
+            becoming a registry key no keyword-id read can reach (no
+            silent swallow)"
+    (doseq [bad-frame ["stringframe" {:not :a-frame} [:a :b] 42]]
+      (let [before (schemas/snapshot-schemas-by-frame)
+            thrown (try (rf/reg-app-schema [:user] [:map] {:frame bad-frame})
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str "a non-keyword :frame target " (pr-str bad-frame) " throws"))
+        (when (instance? clojure.lang.ExceptionInfo thrown)
+          ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+          (let [data (ex-data thrown)]
+            (is (= :rf.error/bad-app-schemas-arg (:rf.error/id data))
+                "names the canonical bad-arg category")
+            (is (= bad-frame (:received data))
+                ":received carries the offending :frame value verbatim")))
+        (is (= before (schemas/snapshot-schemas-by-frame))
+            (str "store unchanged after rejecting :frame " (pr-str bad-frame)))))))
+
+(deftest frame-value-without-explicit-id-uses-runnable-id
+  (testing "rf2-7pllal — a no-id (direct) frame value routes to its
+            process-unique runnable id (frame-target->id reads
+            :rf.frame/runnable-id), so register-by-value / read-by-value agree
+            even though no PUBLIC frame-id keyword names it"
+    ;; A direct frame value: marker + a gensym runnable id, no :rf.frame/id.
+    (let [rid (keyword "rf.frame" (str (gensym "")))
+          fv  {frame/object-marker true frame/runnable-id-key rid}]
+      (rf/reg-app-schema [:direct] [:map] fv)
+      (is (= [:map] (schemas/app-schema-at [:direct] fv))
+          "read via the same direct value resolves the registration")
+      (is (= [:map] (schemas/app-schema-at [:direct] rid))
+          "read via the value's runnable-id resolves it too")
+      (is (= [rid] (keys (schemas/snapshot-schemas-by-frame)))
+          "stored under the runnable id, not the value map"))))
 
 ;; ---- path-shape validation (rf2-sk0ql) -----------------------------------
 ;;

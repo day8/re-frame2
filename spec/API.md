@@ -528,6 +528,8 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 
 `reg-app-schema` is rowed canonically in [§Registration](#registration).
 
+> **The `:frame` opt is a frame TARGET (EP-0024, rf2-7pllal).** Every schema opts surface that names a frame — the `opts` of `reg-app-schema` / `reg-app-schemas` and the `{:frame …}` / bare-frame-id arity of `app-schemas` / `app-schema-at` / `app-schema-meta-at` / `app-schemas-digest` — accepts **either a frame-id keyword OR a frame value** (`rf/make-frame`'s return token), the same target shapes the registrar query API's `:frame` accepts. A frame value is normalized to its frame id (the routing address) before it keys the per-frame schema store, so a schema registered against a frame value is found by a later read-by-id (and vice versa). A bare frame value passed as the opts argument routes to **its own** frame, not the ambient frame. An explicit `:frame` that resolves to a non-keyword target (a string, a non-frame map, a vector) **fails loud** with `:rf.error/bad-app-schemas-arg` rather than silently becoming an unreachable registry key.
+
 > **One preferred validator-extension path.** To swap the validator / explainer / printer at boot (e.g. drop Malli for a clojure.spec or Zod-style port), use **`set-schema-fns!`** — the single bundle setter that installs all three from one map so they never drift mid-boot. The per-fn singletons `set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!` are retained as lower-level convenience setters for adjusting one fn in isolation; they remain `advanced` but are not the preferred boot path.
 
 | API | M/Fn | Signature | Status | Tier | Spec |
