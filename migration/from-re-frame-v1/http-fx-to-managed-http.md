@@ -98,7 +98,7 @@ This is the canonical `:http-xhrio` shape from a typical v1 app — a GET that f
 ```clojure
 (ns my-app.articles
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]))                   ;; per M-31 — required so :rf.http/* fxs register
+            [re-frame.http.managed]))                   ;; per M-31 — required so :rf.http/* fxs register
 
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
@@ -142,7 +142,7 @@ What changed:
 - **`:on-success` payload changes from `response` to `{:kind :success :value <response>}`.** The v1 handler received the decoded body as the last arg; the v2 handler receives a reply envelope. The handler body destructures `{:keys [value]}` to get the payload.
 - **`:on-failure` payload changes from `{:status :response :failure}` to `{:kind :failure :failure {:kind <:rf.http/*> ...kind-tags...}}`.** The v1 handler keyed off `:status` (HTTP status code) and `:failure` (ajax-cljs's failure enum); the v2 handler keys off `(:kind failure)`, a closed `:rf.http/*` keyword. The rewrite of the failure body is the substantial part of every per-call-site conversion — the operator decides which categories the app handles distinctly vs lumps into a single "show error UI" branch.
 - **The registrars collapse to `reg-event`.** The v1 `reg-event-fx :article/load` and the two `reg-event-db` result handlers all become the one public `reg-event` (EP-0018; [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)) — `reg-event-fx` is a pure rename, and each `reg-event-db` result handler gains a `{:keys [db]}` destructure and a `{:db …}` return wrap. This is the mechanical M-73 codemod and applies whether or not you adopt managed-HTTP.
-- **The `(:require [re-frame.http-managed])` clause is added.** Per [M-31](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http), the managed-HTTP namespace's load-time registrations must fire before the `[:rf.http/managed ...]` entry hits the drain; without the require, the `:fx` runner raises `:rf.error/no-such-fx`. (The `[day8.re-frame.http-fx]` require is dropped.)
+- **The `(:require [re-frame.http.managed])` clause is added.** Per [M-31](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http), the managed-HTTP namespace's load-time registrations must fire before the `[:rf.http/managed ...]` entry hits the drain; without the require, the `:fx` runner raises `:rf.error/no-such-fx`. (The `[day8.re-frame.http-fx]` require is dropped.)
 
 ### After — `:rf.http/managed` (schema-driven decode, recommended)
 
@@ -318,6 +318,6 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 When the agent applies this rule:
 
 - The migration report lists every `:http-xhrio` call site it found, whether the operator approved the rewrite, and the resulting `:rf.http/managed` shape (decode keyword vs schema; retry policy; abort surface).
-- If the `day8.re-frame/http-fx` dep is no longer referenced (all requests migrated), the agent flags the dep for removal in the same report; the operator confirms before the dep is dropped. The `day8/re-frame2-http` dep is added per [M-31](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http); the `re-frame.http-managed` require is added per namespace that dispatches the new fx.
+- If the `day8.re-frame/http-fx` dep is no longer referenced (all requests migrated), the agent flags the dep for removal in the same report; the operator confirms before the dep is dropped. The `day8/re-frame2-http` dep is added per [M-31](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http); the `re-frame.http.managed` require is added per namespace that dispatches the new fx.
 - Every `:on-failure` handler whose body was rewritten to branch on the v2 `:rf.http/*` taxonomy is listed in the report with file/line — operators should review for UX changes (per-category messaging, retry buttons, network-error banners) the v1 surface did not allow.
 - Each escalation case from above is listed with file/line, the specific reason it escalated, and the agent's recommended path forward.

@@ -37,7 +37,7 @@ A **resource** is a server read registered once — you describe the read here, 
 ;; Adapted from examples/reagent/realworld_resources/resources.cljs
 (ns conduit.resources
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]   ; the managed-HTTP transport resources use
+            [re-frame.http.managed]   ; the managed-HTTP transport resources use
             [re-frame.resources]      ; boots the optional artefact
             [conduit.api :as api]))
 

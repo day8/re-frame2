@@ -3319,7 +3319,7 @@ If an app wants HTTP requests that are tied to a state's lifetime, the answer is
 
 ### The hook
 
-The destroy-side abort fires through a late-bind hook (per [`re-frame.late-bind`](../implementation/core/src/re_frame/late_bind.cljc)) — `re-frame.machines` does NOT statically `:require` `re-frame.http-managed`. The hook key is `:http/abort-on-actor-destroy`; the http artefact registers a fn `(fn [actor-id])` at ns-load time; the machines artefact's destroy path looks the fn up at call time and invokes it once per destroyed actor. When the http artefact is not on the classpath the hook resolves to nil and the destroy proceeds without any abort cascade — apps that don't issue managed-HTTP requests pay nothing.
+The destroy-side abort fires through a late-bind hook (per [`re-frame.late-bind`](../implementation/core/src/re_frame/late_bind.cljc)) — `re-frame.machines` does NOT statically `:require` `re-frame.http.managed`. The hook key is `:http/abort-on-actor-destroy`; the http artefact registers a fn `(fn [actor-id])` at ns-load time; the machines artefact's destroy path looks the fn up at call time and invokes it once per destroyed actor. When the http artefact is not on the classpath the hook resolves to nil and the destroy proceeds without any abort cascade — apps that don't issue managed-HTTP requests pay nothing.
 
 Symmetric to how `re-frame.machines` already publishes `:machines/spawn-fx` / `:machines/destroy-machine-fx` (per [`re-frame.late-bind` hook table](../implementation/core/src/re_frame/late_bind.cljc)) and how `re-frame.flows` and `re-frame.routing` flow up their own seams.
 

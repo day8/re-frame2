@@ -35,7 +35,7 @@ We'll use a RealWorld-style login. The handlers live in a `.cljc` file so the JV
 ;; src/my_app/session.cljc
 (ns my-app.session
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]))   ;; registers :rf.http/managed
+            [re-frame.http.managed]))   ;; registers :rf.http/managed
 
 (rf/reg-event :session/login
   {:doc "Submit credentials; record when we tried."
@@ -70,7 +70,7 @@ Both seams the test will use are already visible in that code. First, the handle
 (ns my-app.session-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.http-test-support]   ;; canned-reply stubs — test-only, never in production requires
+            [re-frame.http.test-support]   ;; canned-reply stubs — test-only, never in production requires
             [my-app.session]))             ;; loads the registrations
 
 (deftest login-happy-path
@@ -107,7 +107,7 @@ Delivery is declared-only — the clock included. A handler receives exactly the
 
 ### Answer the HTTP: canned replies by method + URL
 
-`with-managed-request-stubs` (from `re-frame.http-test-support`) takes a route map of `[method url]` → reply. For the body's extent, it answers every `:rf.http/managed` description that matches. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point is that the synthesised reply is the same canonical envelope a live request produces, and it rides the same dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
+`with-managed-request-stubs` (from `re-frame.http.test-support`) takes a route map of `[method url]` → reply. For the body's extent, it answers every `:rf.http/managed` description that matches. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point is that the synthesised reply is the same canonical envelope a live request produces, and it rides the same dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
 
 > **Coming from MSW?** The route map is your request-handler table — minus the service worker, because the request is intercepted as data before anything touches a network stack.
 

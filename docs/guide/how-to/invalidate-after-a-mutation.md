@@ -8,7 +8,7 @@ Here's the idea underneath. The write that made the cache stale is the thing tha
 
 That covers your app's own writes. Staleness caused by *other* users is a different problem, and that's what `:stale-after-ms` and focus/reconnect revalidation are for.
 
-You need two things in place before any of this works. Boot the resources artefact (`day8/re-frame2-resources`) by putting `re-frame.resources` plus the `re-frame.http-managed` transport on your require list. Then register your reads with `reg-resource` — a resource is a managed server-state read, and registering it is how the framework knows how to fetch and cache it. If you haven't done that yet, start at [Server state: resources](../concepts/server-state.md).
+You need two things in place before any of this works. Boot the resources artefact (`day8/re-frame2-resources`) by putting `re-frame.resources` plus the `re-frame.http.managed` transport on your require list. Then register your reads with `reg-resource` — a resource is a managed server-state read, and registering it is how the framework knows how to fetch and cache it. If you haven't done that yet, start at [Server state: resources](../concepts/server-state.md).
 
 ## 1. Tag the reads
 

@@ -30,7 +30,7 @@ That sentence is the whole model. You register the read once:
 ;; Adapted from examples/reagent/realworld_resources/resources.cljs
 (ns app.resources
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]    ;; the managed-HTTP transport
+            [re-frame.http.managed]    ;; the managed-HTTP transport
             [re-frame.resources]))     ;; boots the optional artefact
 
 (rf/reg-resource :realworld/article

@@ -32,8 +32,8 @@ Then create the test namespace. One fixture resets the whole runtime — registr
 (ns conduit.auth-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http-managed]                        ;; the production HTTP fx
-            [re-frame.http-test-support]                   ;; canned stubs — test-only
+            [re-frame.http.managed]                        ;; the production HTTP fx
+            [re-frame.http.test-support]                   ;; canned stubs — test-only
             [re-frame.substrate.plain-atom :as plain-atom] ;; the headless JVM substrate
             [re-frame.test-support :as ts]
             [conduit.auth]))                               ;; Part 3's registrations load here
@@ -46,7 +46,7 @@ Then create the test namespace. One fixture resets the whole runtime — registr
 
 !!! warning "Keep the test stubs out of production"
 
-    Keep `re-frame.http-test-support` out of production and SSR code — never require it there. That's what guarantees the canned stubs can't ship to users.
+    Keep `re-frame.http.test-support` out of production and SSR code — never require it there. That's what guarantees the canned stubs can't ship to users.
 
 ## 2. Test a handler: it's a function, so call it
 

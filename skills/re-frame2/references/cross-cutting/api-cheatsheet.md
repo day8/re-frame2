@@ -79,14 +79,14 @@ EP-0023 supersedes EP-0013's public app/realm vocabulary. The public composition
 
 ## HTTP — `day8/re-frame2-http`
 
-Production fx surface: `re-frame.http-managed`. Test surfaces (canned-stub fxs + `with-managed-request-stubs` family): `re-frame.http-test-support` — the test machinery consolidates into one namespace; tests `:require` it explicitly.
+Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs + `with-managed-request-stubs` family): `re-frame.http.test-support` — the test machinery consolidates into one namespace; tests `:require` it explicitly.
 
 | Surface | Shape |
 |---|---|
-| `rf/with-managed-request-stubs` | macro: `(stubs & body)` — needs `re-frame.http-test-support` in require closure |
-| `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` — needs `re-frame.http-test-support` |
-| `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http-test-support` |
-| `rf/clear-http-interceptor` | `(id)` / `(frame id)` — production surface, `re-frame.http-managed` |
+| `rf/with-managed-request-stubs` | macro: `(stubs & body)` — needs `re-frame.http.test-support` in require closure |
+| `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` — needs `re-frame.http.test-support` |
+| `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http.test-support` |
+| `rf/clear-http-interceptor` | `(id)` / `(frame id)` — production surface, `re-frame.http.managed` |
 
 ## Test support — `re-frame.test-support` (see `cross-cutting/testing.md`)
 

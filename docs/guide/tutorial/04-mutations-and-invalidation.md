@@ -40,7 +40,7 @@ A mutation is the write-side counterpart of a resource. You register it with `re
 (ns conduit.mutations
   (:require [re-frame.core :as rf]
             [re-frame.resources]      ;; reg-mutation + the :rf.mutation/* surface
-            [re-frame.http-managed]   ;; the transport mutations lower through
+            [re-frame.http.managed]   ;; the transport mutations lower through
             ;; Part 3's api base in a helper: (defn full-url [path] (str api path))
             [conduit.http :as rh]
             [conduit.schema :as schema]))

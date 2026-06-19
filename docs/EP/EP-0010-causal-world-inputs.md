@@ -79,7 +79,7 @@ closing bead-ids / commits are cited per step.
   inputs so the router stamps fresh at fire time (`rf2-hg39nf` adversarial
   fresh-token regression); routing dispatches carry `:source :router`; HTTP
   replies thread `:completed-at` as `:rf.world/inputs :time-ms`
-  (`re-frame.http-encoding/dispatch-reply-via-late-bind!`); SSR hydration is a
+  (`re-frame.http.encoding/dispatch-reply-via-late-bind!`); SSR hydration is a
   normal router-stamped event; and the tool dispatch helpers carry it too
   (pair-mcp `dispatch` accepts `:rf.world/inputs`, `rf2-q6s1nb`; story strips
   the volatile `:time-ms` for canonical fingerprints, `rf2-jt854w`; Xray

@@ -748,10 +748,10 @@
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
-  ;; HTTP test-support façade surface (canonical home: re-frame.http-test-support).
+  ;; HTTP test-support façade surface (canonical home: re-frame.http.test-support).
   ;; Only the ergonomic `with-managed-request-stubs` macro + its `*` plumbing
   ;; stay on the façade; the raw install/uninstall pair is reached through the
-  ;; home namespace `re-frame.http-test-support` (rf2-ntwwyt — test-support
+  ;; home namespace `re-frame.http.test-support` (rf2-ntwwyt — test-support
   ;; infrastructure, not app-facing core surface), so it carries no façade row.
   ["re-frame.core" "with-managed-request-stubs"]      {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
   ["re-frame.core" "with-managed-request-stubs*"]     {:tier :testing :owner "014" :status "v1 (optional capability, dev/test)"}
