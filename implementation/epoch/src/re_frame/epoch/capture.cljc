@@ -684,18 +684,63 @@
 
   Per rf2-txrq9: single-walk reduction over `events` — the original
   two-pass `or`-of-`some` reordered both walks across the buffer
-  on the degenerate path. We now accumulate the first
-  `:event/run-start` AND the first fallback `:event-id` in one
-  traversal and prefer the run-start. Either match short-circuits
-  at the earliest moment it can — a run-start hit immediately
-  reduces to the final result; a fallback-only stream walks once."
+  on the degenerate path. We accumulate the first `:event/run-start`,
+  the first fallback `:event-id`, AND (rf2-cheez6.1, below) the
+  cascade's mid-drain machine-minted generator facts in one traversal
+  and prefer the run-start.
+
+  Per rf2-cheez6.1 / rf2-08br0v — augment the run-start's `:rf.cofx`
+  replay token with generator facts MINTED MID-DRAIN. The run-start
+  token (`:rf.event/cofx`) is the cofx as it was after the router's
+  PRE-handler declared-only delivery — every fact `assemble-initial-ctx`
+  minted for the OUTER event's declared `:rf.cofx/requires`. But a state
+  machine declares no requires on its outer event; its guard/action
+  facts are minted INSIDE the handler (`ensure-ctx-cofx` pre-drain,
+  `ensure-raised-cofx` in-drain for a raise-selected guard), AFTER
+  run-start was emitted, and are written onto the engine-local machine
+  def — they never flow back to the ctx coeffects the run-start read.
+  So the pre-fix token carried only externally-supplied facts, and a
+  `:strict` replay (mint-policy-aware, rf2-n0myjq) of a machine decision
+  gated on such a fact diverged: the missing fact → missing-required
+  while the live run minted a value.
+
+  Every actual recordable mint — pre-handler in `assemble-initial-ctx`
+  AND mid-drain in the machine ensure steps — emits a dev-only
+  `:rf.cofx/generated` trace (`re-frame.cofx/run-generator`) carrying
+  `:rf.cofx/id` + the marks-PROJECTED `:rf.cofx/value` (sensitive slots
+  already `:rf/redacted` at the emit site, rf2-0mjgx6). Those emits ride
+  the SAME in-flight cascade buffer this walks. So we collect them and
+  merge `{id → value}` onto the run-start token. Properties:
+
+    - LIVE behaviour is untouched — this is the read-only epoch-assembly
+      walk; nothing in the dispatch path changes.
+    - No OVER-capture — only facts a generator ACTUALLY minted emit
+      `:rf.cofx/generated` (an ambient supplier emits `:rf.cofx/run`, NOT
+      generated; a replayed/supplied recordable fact emits nothing). The
+      recordability + redaction contract is honoured at the trace source.
+    - IDEMPOTENT for the ordinary event path: a fact minted pre-handler
+      is ALREADY in the run-start token verbatim AND re-presented here
+      with the identical value, so the merge is a no-op there. The merge
+      adds value only for the mid-drain machine mints the token missed.
+
+  On `:strict` replay a token that now carries the minted fact short-
+  circuits `deliver-declared-cofx`'s present-on-token branch (delivers
+  the recorded value verbatim, no host read) — so the replayed machine
+  decision matches the live one. Determinism restored."
   [events]
   (let [result
         (reduce
           (fn [acc ev]
-            (let [tags (:tags ev)]
-              (if (= :rf.event/run-start (:operation ev))
-                ;; run-start beats the fallback; short-circuit.
+            (let [op   (:operation ev)
+                  tags (:tags ev)]
+              (cond
+                ;; run-start beats the fallback. We DO NOT short-circuit
+                ;; (the prior `reduced`): the cascade's `:rf.cofx/generated`
+                ;; mint traces fire AFTER run-start, so the walk must
+                ;; continue to gather them (below). A second run-start for
+                ;; the same buffer is impossible (one per cascade), so the
+                ;; first-seen guard keeps the slot stable.
+                ;;
                 ;; Tag-key reads use the :rf.* namespaced scheme
                 ;; (rf2-y4qpy.2); the run-start's :dispatch-id is surfaced
                 ;; as a first-class return slot (rf2-rly4a) read off the
@@ -703,10 +748,24 @@
                 ;; post-generation `:rf.cofx` replay token rides the run-start
                 ;; under `:rf.event/cofx` (dev-only at source) and is surfaced
                 ;; here so `build-record` pins it as a first-class slot.
-                (reduced {:run-start {:event-id    (:rf.trace/event-id tags)
-                                      :event       (:rf.event/v tags)
-                                      :dispatch-id (:rf.trace/dispatch-id tags)
-                                      :rf.cofx     (:rf.event/cofx tags)}})
+                (and (= :rf.event/run-start op) (nil? (:run-start acc)))
+                (assoc acc :run-start {:event-id    (:rf.trace/event-id tags)
+                                       :event       (:rf.event/v tags)
+                                       :dispatch-id (:rf.trace/dispatch-id tags)
+                                       :rf.cofx     (:rf.event/cofx tags)})
+
+                ;; rf2-cheez6.1 / rf2-08br0v — accumulate every generator-
+                ;; minted recordable fact in cascade order. `:rf.cofx/value`
+                ;; is the marks-projected produced value (redaction already
+                ;; applied at the emit site). A later same-id mint (a raise
+                ;; that re-mints) wins last-write — the LAST value the cascade
+                ;; produced for that id is the one a same-id re-presentation
+                ;; consumed, matching the in-drain write-back semantics.
+                (= :rf.cofx/generated op)
+                (cond-> acc
+                  (some? (:rf.cofx/id tags))
+                  (assoc-in [:minted (:rf.cofx/id tags)] (:rf.cofx/value tags)))
+
                 ;; Capture the first :event-id we see as the fallback.
                 ;; Per rf2-7kxxx: do NOT fabricate `:event` — when the
                 ;; tag is absent we leave the field nil so downstream
@@ -723,10 +782,22 @@
                 ;; from a rejected dispatch), which the run-start arm
                 ;; (rf2-rly4a) is the canonical source for. Only the
                 ;; run-start arm above pins `:dispatch-id`.
-                (if (or (:fallback acc) (nil? (:rf.trace/event-id tags)))
-                  acc
-                  (assoc acc :fallback {:event-id (:rf.trace/event-id tags)
-                                        :event    (:rf.event/v tags)})))))
+                (and (nil? (:fallback acc)) (some? (:rf.trace/event-id tags)))
+                (assoc acc :fallback {:event-id (:rf.trace/event-id tags)
+                                      :event    (:rf.event/v tags)})
+
+                :else acc)))
           {}
-          events)]
-    (or (:run-start result) (:fallback result))))
+          events)
+        ;; rf2-cheez6.1 — merge the cascade's minted facts onto the run-start
+        ;; replay token. Token base, minted overlaid: the ordinary event path
+        ;; already carries pre-handler mints verbatim (no-op merge), while a
+        ;; machine's mid-drain mints — absent from the token — fill in. Only
+        ;; when run-start carried a `:rf.cofx` slot at all (dev builds; a
+        ;; cascade whose envelope carried no cofx map omits it — there is then
+        ;; no token to augment and no mints to merge for that degenerate case).
+        run-start (when-let [rs (:run-start result)]
+                    (cond-> rs
+                      (and (some? (:rf.cofx rs)) (seq (:minted result)))
+                      (update :rf.cofx merge (:minted result))))]
+    (or run-start (:fallback result))))
