@@ -13,8 +13,9 @@ description: >
   `references/vocabulary.md` for the surface glossary; vocabulary
   matches alone do not justify activation.
 allowed-tools:
-  # MCP transport — single persistent nREPL connection per session.
-  # The canonical path; install via `npm install -g @day8/re-frame2-pair-mcp`.
+  # Pair-MCP — single persistent nREPL connection per session
+  # (install: npm install -g @day8/re-frame2-pair-mcp). All 30 server
+  # tools are reachable; the body + references explain each surface.
   - mcp__re-frame2-pair__discover-app
   - mcp__re-frame2-pair__eval-cljs
   - mcp__re-frame2-pair__dispatch
@@ -33,61 +34,30 @@ allowed-tools:
   - mcp__re-frame2-pair__unsubscribe
   - mcp__re-frame2-pair__list-subscriptions
   - mcp__re-frame2-pair__list-streams
-  # Server-side streaming resource-control diagnostic — read-only
-  # report of the server's effective caps, active stream slots vs limit,
-  # token-bucket pressure, and abuse-window count. Reads the server's
-  # resource-controls atoms IN-PROCESS (no nREPL round-trip), so it answers
-  # even when the runtime is down. Complements `list-streams` (runtime tap
-  # registry) for "why was my stream denied / why is it quiet?".
+  # get-stream-controls: streaming resource-control diagnostic (in-process)
   - mcp__re-frame2-pair__get-stream-controls
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
-  # Read-only orientation ops — one-call
-  # app-shape summary for first contact on an unfamiliar app, and a
-  # validated read of a single subscription's current value.
+  # orient: first-contact app-shape summary
   - mcp__re-frame2-pair__orient
   - mcp__re-frame2-pair__read-sub
-  # Frame image-generation read (EP-0023 Use-Case 7) — one
-  # round-trip "what behaviour does THIS frame run, and where did each
-  # piece come from?" over the public `rf/frame-generation` read. Reports
-  # the composed image ids, registrar kinds, declared capability requires,
-  # and per-kind selected-registration counts; `:include-ns true` adds the
-  # per-(kind, id) provenance coordinate. Read-only; frame resolution
-  # mirrors every read op (operating frame default, `:ambiguous-frame` on
-  # an unselected multi-frame session).
+  # describe-image: per-frame image-generation read
   - mcp__re-frame2-pair__describe-image
-  # Operating-frame ops — read/set/reset the session's
-  # default operating frame for the multi-frame model (Spec 002). See
-  # the "Multi-frame model — set the operating frame" section below.
+  # Operating-frame ops — see §Multi-frame model below
   - mcp__re-frame2-pair__get-operating-frame
   - mcp__re-frame2-pair__set-operating-frame
   - mcp__re-frame2-pair__reset-operating-frame
-  # Named state-rewrite tools — the CANONICAL path for
-  # time-travel undo + state injection. Both are gated behind the
-  # server's default-OFF `--allow-writes` flag: against a gate-OFF
-  # server (the published default) they refuse with
-  # `:reason :rf.error/writes-disabled` without touching the runtime, so
-  # allow-listing them is safe — the SERVER, not this list, is the write
-  # authority boundary. Prefer these structured/audited tools over a raw
-  # `eval-cljs` `(rf/restore-epoch! …)` / `app-db-reset!` whenever the
-  # gesture is a named write. See §Time-travel writes below.
+  # Named state-rewrite tools — --allow-writes-gated; see §Style guidance / ops.md §Time-travel
   - mcp__re-frame2-pair__restore-epoch
   - mcp__re-frame2-pair__replace-app-db
   - mcp__re-frame2-pair__get-re-frame2-pair-instructions
-  # story-mcp — live-session tools only (HYBRID split). The
-  # authoring-side surface (register-variant, get-variant,
-  # preview-variant, list-stories, …) is allow-listed by the
-  # `re-frame2` skill. These entries cover running a variant against
-  # the live runtime, inspecting failures, and capturing the cascade
-  # back into a `:play-script` snippet from within a pair-session.
+  # story-mcp — live-session tools (HYBRID split; authoring surface is on the re-frame2 skill)
   - mcp__re-frame2-story-mcp__run-variant
   - mcp__re-frame2-story-mcp__read-failures
   - mcp__re-frame2-story-mcp__snapshot-identity
   - mcp__re-frame2-story-mcp__run-a11y
   - mcp__re-frame2-story-mcp__record-as-variant
-  # Read-only enumerations + agent-paste markdown surface a pair
-  # session may reach into when navigating an unfamiliar Story
-  # registry — peer surfaces to the authoring skill's allow-list.
+  # story-mcp — read-only enumerations + agent-paste markdown
   - mcp__re-frame2-story-mcp__list-decorators
   - mcp__re-frame2-story-mcp__get-docs-markdown
   - mcp__re-frame2-story-mcp__explain-variant
