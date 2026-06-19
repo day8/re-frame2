@@ -86,7 +86,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog } = require('./_runner.cjs');
+const { runWithWatchdog, responseText } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -97,14 +97,6 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // (2026-06-09 / 2025-01-01) so they are visibly NOT a live clock.
 const SCRIPTED_TIME_A = 1781078400123;
 const SCRIPTED_TIME_B = 1735689600000;
-
-// Concatenate every content block's text from an SDK callTool response.
-function responseText(resp) {
-  if (!resp || !Array.isArray(resp.content)) return '';
-  return resp.content
-    .map((c) => (c && typeof c.text === 'string' ? c.text : ''))
-    .join('\n');
-}
 
 // Read the fixture's `:stamped-at` app-db slot back through the runtime
 // snapshot — the slot `:counter/stamp` folds the recorded `:rf/time-ms`

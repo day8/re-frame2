@@ -59,9 +59,10 @@ const {
   assertDescriptorShape,
   assertClassificationRatchet,
   assertCallCoverageRatchet,
+  track,
+  structured,
 } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
-const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -99,48 +100,22 @@ const EXPECTED_CLASSIFICATIONS = JSON.parse(
 // the two test scripts could in principle run against the same JVM.
 const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 
-// Wire → semantic adapter. Every assertion below reaches for slots
-// that the SEMANTIC contract guarantees (e.g. `:lifecycle` on
-// `preview-variant`'s structuredContent). Three of story-mcp's tools
-// (`preview-variant`, `run-variant`, `record-as-variant`) ship their
-// payloads wrapped in `{:rf.mcp/dedup-table <cache>}` at the wire
-// boundary (rf2-90eft) — a real MCP client decodes via
-// `de-dupe.core/expand` before user code sees it. The harness mirrors
-// that by routing every structuredContent read through
-// `decodeDedupEnvelope`, a no-op on payloads that don't carry the
-// marker. This keeps conformance assertions talking to the semantic
-// contract, not the wire shape — so a future tool gaining or losing
-// dedup-eligibility doesn't break this suite (the slot is reachable
-// either way).
-function structured(resp) {
-  return decodeDedupEnvelope(resp.structuredContent || {});
-}
-
-// SDK callTool() coverage tracking (rf2-ke5n56). Every tool the workflow
-// drives through `Client.callTool()` records its name here; the coverage
-// ratchet at the end of the body fails if any ADVERTISED tool is neither
-// recorded here nor in the reviewed exclusion table. `track(rawClient)`
-// returns a Proxy that records the tool name on each `callTool({name,…})`
-// and otherwise transparently delegates EVERY other member (listTools,
-// getServerVersion, request, close, …) to the real SDK client — so the
-// existing call sites read unchanged. A `callTool` that bypasses the
-// proxy can't quietly erode coverage: the tool would simply go unrecorded
-// and the ratchet would catch it as uncovered.
-const CALLED = new Set();
-function track(rawClient) {
-  return new Proxy(rawClient, {
-    get(target, prop, receiver) {
-      if (prop === 'callTool') {
-        return (req, ...rest) => {
-          if (req && typeof req.name === 'string') CALLED.add(req.name);
-          return target.callTool(req, ...rest);
-        };
-      }
-      const v = Reflect.get(target, prop, receiver);
-      return typeof v === 'function' ? v.bind(target) : v;
-    },
-  });
-}
+// Wire → semantic adapter (`structured`, _runner.cjs). Every assertion
+// below reaches for slots the SEMANTIC contract guarantees (e.g.
+// `:lifecycle` on `preview-variant`'s structuredContent). Three of
+// story-mcp's tools (`preview-variant`, `run-variant`,
+// `record-as-variant`) ship their payloads wrapped in
+// `{:rf.mcp/dedup-table <cache>}` at the wire boundary (rf2-90eft) — a
+// real MCP client decodes via `de-dupe.core/expand` before user code sees
+// it. Routing every structuredContent read through `structured` mirrors
+// that (a no-op on payloads without the marker), so a future tool gaining
+// or losing dedup-eligibility doesn't break this suite.
+//
+// SDK callTool() coverage tracking (rf2-ke5n56) via the shared `track`
+// helper (_runner.cjs): every tool the workflow drives through
+// `Client.callTool()` records its name into the returned `called` Set; the
+// coverage ratchet at the end of the body fails if any ADVERTISED tool is
+// neither recorded nor in the reviewed exclusion table.
 
 // Tools intentionally NOT SDK-call-covered by THIS harness, each with the
 // rationale + where its alternative coverage lives (rf2-ke5n56). Today the
@@ -171,7 +146,7 @@ runWithWatchdog(
     // `client.callTool({name,…})` below records `name` for the callTool
     // coverage ratchet at the end of this body. All other client members
     // delegate transparently.
-    const client = track(rawClient);
+    const { client, called } = track(rawClient);
     // The SDK's `client.connect()` (invoked by the runner) already
     // validated the initialize envelope against `InitializeResultSchema`
     // — a missing / malformed `serverInfo` would have thrown there.
@@ -693,18 +668,18 @@ runWithWatchdog(
 
     // 12. callTool() coverage ratchet (rf2-ke5n56). Every advertised
     // story-mcp tool MUST have been driven through `Client.callTool()`
-    // above (recorded in `CALLED` by the `track` proxy) or carry a
+    // above (recorded in `called` by the `track` proxy) or carry a
     // reviewed exclusion in `STORY_CALL_EXCLUSIONS`. A NEW advertised
     // tool that the workflow forgets to probe trips RED here — closing
     // the descriptor-only false-green the senior review flagged.
     assertCallCoverageRatchet({
       advertised: names,
-      called: CALLED,
+      called,
       exclusions: STORY_CALL_EXCLUSIONS,
     });
     console.log(
       'OK   callTool coverage ratchet -> every advertised tool SDK-called ' +
-        '(' + CALLED.size + '/' + names.length + ') or reviewed-excluded',
+        '(' + called.size + '/' + names.length + ') or reviewed-excluded',
     );
 
     // 13. Clean disconnect — runner handles client.close() on success.

@@ -72,6 +72,7 @@
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 const { ErrorCode, McpError } = require('@modelcontextprotocol/sdk/types.js');
+const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
 
 const CLIENT_VERSION = '0.1.0';
 
@@ -790,6 +791,64 @@ function assertCallCoverageRatchet({ advertised, called, exclusions = {} }) {
   }
 }
 
+// ---------------------------------------------------------------------
+// Envelope readers / coverage tracker (rf2-9hkwkp dedup).
+//
+// Three SDK-envelope-shape helpers that every conformance body re-rolled
+// identically. None pins a per-test contract — they are pure mechanics
+// feeding the shared ratchets above, so they live here once.
+// ---------------------------------------------------------------------
+
+// Concatenate the `.text` of every content block from an SDK callTool
+// response into one newline-joined string. Tolerates a missing / non-
+// array `content` (returns '') so a malformed envelope reads as empty
+// rather than throwing — callers grep the whole string for sentinels /
+// EDN, so a no-text block must contribute nothing, not crash the search.
+function responseText(resp) {
+  if (!resp || !Array.isArray(resp.content)) return '';
+  return resp.content
+    .map((c) => (c && typeof c.text === 'string' ? c.text : ''))
+    .join('\n');
+}
+
+// SDK callTool() coverage tracker (rf2-ke5n56). Wrap the raw SDK client
+// in a Proxy that records the tool name on each `callTool({name,…})` into
+// a fresh `called` Set and transparently delegates every other client
+// member (listTools, getServerVersion, request, close, …) to the real
+// client — so existing call sites read unchanged. Returns
+// `{ client, called }`: drive the workflow through `client`, then feed
+// `called` to `assertCallCoverageRatchet`. A callTool that bypasses the
+// proxy can't quietly erode coverage — the tool simply goes unrecorded
+// and the ratchet catches it as uncovered.
+function track(rawClient) {
+  const called = new Set();
+  const client = new Proxy(rawClient, {
+    get(target, prop, receiver) {
+      if (prop === 'callTool') {
+        return (req, ...rest) => {
+          if (req && typeof req.name === 'string') called.add(req.name);
+          return target.callTool(req, ...rest);
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  return { client, called };
+}
+
+// Read a callTool response's `structuredContent` through
+// `decodeDedupEnvelope`. A dedup-eligible tool ships its structured
+// payload wrapped in a `{:rf.mcp/dedup-table …}` envelope that a real MCP
+// client expands via `de-dupe.core/expand` before reading semantic slots;
+// this mirrors that. Idempotent on payloads without the marker, so it is
+// safe to route EVERY structuredContent read through it — a tool gaining
+// or losing dedup-eligibility doesn't break the suite (the slot is
+// reachable either way).
+function structured(resp) {
+  return decodeDedupEnvelope((resp && resp.structuredContent) || {});
+}
+
 module.exports = {
   runWithWatchdog,
   connectServer,
@@ -800,4 +859,7 @@ module.exports = {
   assertDescriptorShape,
   assertClassificationRatchet,
   assertCallCoverageRatchet,
+  responseText,
+  track,
+  structured,
 };

@@ -35,6 +35,7 @@ const {
   assertDescriptorShape,
   assertClassificationRatchet,
   assertCallCoverageRatchet,
+  track,
 } = require('./_runner.cjs');
 
 const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
@@ -70,29 +71,11 @@ const EXPECTED_TOOLS = JSON.parse(
 const env = { ...process.env };
 delete env.SHADOW_CLJS_NREPL_PORT;
 
-// SDK callTool() coverage tracking (rf2-ke5n56). Every tool driven through
-// `Client.callTool()` records its name here; the coverage ratchet at the
-// end of the body fails if any ADVERTISED tool is neither recorded nor in
-// the reviewed exclusion table. `track(rawClient)` returns a Proxy that
-// records the tool name on each `callTool({name,…})` and transparently
-// delegates every other client member (listTools, getServerVersion,
-// request, …) — so existing call sites read unchanged. Same shape as the
-// sibling end-to-end-story.cjs.
-const CALLED = new Set();
-function track(rawClient) {
-  return new Proxy(rawClient, {
-    get(target, prop, receiver) {
-      if (prop === 'callTool') {
-        return (req, ...rest) => {
-          if (req && typeof req.name === 'string') CALLED.add(req.name);
-          return target.callTool(req, ...rest);
-        };
-      }
-      const v = Reflect.get(target, prop, receiver);
-      return typeof v === 'function' ? v.bind(target) : v;
-    },
-  });
-}
+// SDK callTool() coverage tracking (rf2-ke5n56) via the shared `track`
+// helper (_runner.cjs): every tool driven through `Client.callTool()`
+// records its name into the returned `called` Set; the coverage ratchet at
+// the end of the body fails if any ADVERTISED tool is neither recorded nor
+// in the reviewed exclusion table.
 
 // Advertised pair-mcp tools intentionally NOT SDK-call-covered by THIS
 // degraded harness, each with a rationale naming WHERE its coverage lives
@@ -131,7 +114,7 @@ runWithWatchdog(
     // `client.callTool({name,…})` below records `name` for the callTool
     // coverage ratchet at the end of this body. All other client members
     // delegate transparently.
-    const client = track(rawClient);
+    const { client, called } = track(rawClient);
     // The SDK's `client.connect()` (invoked by the runner) already
     // validated the initialize envelope against `InitializeResultSchema`
     // — a missing / malformed `serverInfo` would have thrown there.
@@ -530,18 +513,18 @@ runWithWatchdog(
 
     // 4b. callTool() coverage ratchet (rf2-ke5n56). Every advertised
     // pair-mcp tool MUST have been driven through `Client.callTool()`
-    // above (recorded in `CALLED` by the `track` proxy) or carry a
+    // above (recorded in `called` by the `track` proxy) or carry a
     // reviewed exclusion in `PAIR_CALL_EXCLUSIONS`. A NEW advertised tool
     // the workflow forgets to probe trips RED here — closing the
     // descriptor-only false-green the senior review flagged.
     assertCallCoverageRatchet({
       advertised: names,
-      called: CALLED,
+      called,
       exclusions: PAIR_CALL_EXCLUSIONS,
     });
     console.log(
       'OK   callTool coverage ratchet -> every advertised tool SDK-called ' +
-        '(' + CALLED.size + '/' + names.length + ') or reviewed-excluded',
+        '(' + called.size + '/' + names.length + ') or reviewed-excluded',
     );
 
     // 5. The runner tears down the transport via client.close() on

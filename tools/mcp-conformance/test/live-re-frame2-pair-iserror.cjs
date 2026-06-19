@@ -59,7 +59,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog } = require('./_runner.cjs');
+const { runWithWatchdog, responseText } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -69,14 +69,6 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // selector that simply matches nothing returns `:ok? true :count 0`, so
 // we must use a selector the parser REJECTS, not one that merely misses.)
 const BAD_SELECTOR = '>>>';
-
-// Concatenate every content block's text from an SDK callTool response.
-function responseText(resp) {
-  if (!resp || !Array.isArray(resp.content)) return '';
-  return resp.content
-    .map((c) => (c && typeof c.text === 'string' ? c.text : ''))
-    .join('\n');
-}
 
 // The load-bearing assertion (rf2-87h71e / rf2-q7cavs): a GENUINE
 // `:ok? false` runtime failure MUST carry `isError === true`. Three

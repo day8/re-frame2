@@ -130,6 +130,7 @@ const {
   closeQuietly,
   registerAuxClient,
   unregisterAuxClient,
+  responseText,
 } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
@@ -384,16 +385,6 @@ const INNER_DECLARE_FORM = `
    (:rf.epoch/sensitive? (last (re-frame.core/epoch-history fid)))})`;
 
 // ---- helpers ---------------------------------------------------------------
-
-// Extract the concatenated text of every content block from an SDK
-// callTool response. The egress payload is EDN text inside
-// `content[].text`; we search the whole thing for the sentinel rather
-// than parsing — a leak ANYWHERE in the payload (a nested `:db-before`,
-// `:trace-events`, a stray `:trigger-event`) must trip the gate.
-function responseText(resp) {
-  if (!resp || !Array.isArray(resp.content)) return '';
-  return resp.content.map((c) => (c && typeof c.text === 'string' ? c.text : '')).join('\n');
-}
 
 function assertOk(resp, name) {
   if (resp.isError) {
