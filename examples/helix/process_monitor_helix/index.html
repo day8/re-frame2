@@ -61,7 +61,10 @@
     .pm-tile-good { border-left: 3px solid var(--hx-green); }
     .pm-tile-good .pm-tile-value { color: var(--hx-green); }
     .pm-tile-warn { border-left: 3px solid var(--hx-amber); }
-    .pm-tile-warn .pm-tile-value { color: var(--hx-amber); }
+    /* Warning value is TEXT on the light --hx-bg-surface tile — use the AA-safe
+       deep amber (--hx-amber-deep), not decorative --hx-amber (sub-AA as text).
+       The left border above stays decorative amber. (rf2-ihruwa) */
+    .pm-tile-warn .pm-tile-value { color: var(--hx-amber-deep); }
     .pm-tile-bad  { border-left: 3px solid var(--hx-red); }
     .pm-tile-bad  .pm-tile-value { color: var(--hx-red); }
 
@@ -118,7 +121,10 @@
     }
     .pm-chip:hover { color: var(--hx-ink); border-color: var(--hx-ink-muted); }
     .pm-chip-info.is-on  { color: var(--hx-cyan);    border-color: var(--hx-cyan); }
-    .pm-chip-warn.is-on  { color: var(--hx-amber);   border-color: var(--hx-amber); }
+    /* Active warn chip carries label TEXT + a state border on the light
+       --hx-bg-surface pane-head — use AA-safe --hx-amber-deep so both the text
+       (≥4.5:1) and the UI-component border (≥3:1) clear WCAG. (rf2-ihruwa) */
+    .pm-chip-warn.is-on  { color: var(--hx-amber-deep); border-color: var(--hx-amber-deep); }
     .pm-chip-error.is-on { color: var(--hx-red);     border-color: var(--hx-red); }
 
     .pm-list {
@@ -185,7 +191,7 @@
       letter-spacing: 0.06em;
     }
     .pm-log-level-info  { color: var(--hx-cyan); }
-    .pm-log-level-warn  { color: var(--hx-amber); }
+    .pm-log-level-warn  { color: var(--hx-amber-deep); }  /* warn log level is TEXT on paper — AA-safe deep amber (rf2-ihruwa) */
     .pm-log-level-error { color: var(--hx-red); }
     .pm-log-msg { color: var(--hx-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
