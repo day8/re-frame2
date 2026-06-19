@@ -541,6 +541,48 @@
 ;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
 ;; epoch listeners with the assembled record.
 
+(defn- record-synthetic-replace-epoch!
+  "Record a synthetic `:rf.epoch/db-replaced` epoch for a pair-tool
+  injection and fan it out. Shared by all three partition-replace perform
+  helpers (`perform-replace-app-db!`, `perform-replace-runtime-db!`,
+  `perform-replace-frame-state!`) — the single lockstep-maintained site for
+  the synthetic-record / committed-at / redaction contract. `fs-before` /
+  `fs-after` are the pre- and post-replace coherent frame-state values;
+  restore of this synthetic record reinstalls `fs-after`, and restore of a
+  PRIOR epoch rewinds past the injection.
+
+  Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record is stored
+  RAW — storage-side redaction was removed (the ring is causal replay
+  material); the `:redact-fn` advanced override runs projection-side only,
+  inside `projected-record`. Per rf2-qs6dl: stamps the synthetic epoch as
+  the frame's last-settled so post-settle re-renders attribute back to it
+  rather than the next real cascade.
+
+  rf2-bh56rc: a pair-tool injection — no application event / causal token
+  is in flight, so `:committed-at` is the tool action's own wall-clock; the
+  ambient read happens HERE rather than inside the pure `build-record`
+  builder (per EP-0010 §Time — ambient time stays allowed for a tool
+  action's wall-clock).
+
+  rf2-czwwf4: `:committed-at` is a DURABLE epoch field, so the ambient read
+  uses `interop/epoch-now-ms` (wall-clock epoch ms, `js/Date.now()` on
+  CLJS) — NOT `interop/now-ms`, which on CLJS is `performance.now()`
+  (origin-relative, NOT for durable facts). This keeps a tool-injected
+  epoch's `:committed-at` in the same wall-clock CLASS as the
+  router-stamped epochs (EP-0010 §Time durable-timestamp rule)."
+  [frame-id fs-before fs-after]
+  (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
+                                             (interop/epoch-now-ms))
+                      :event-id      :rf.epoch/db-replaced
+                      :trigger-event [:rf.epoch/db-replaced])]
+    (state/record! record)
+    (state/set-last-settled-epoch! frame-id (:epoch-id record))
+    (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                 {:frame       frame-id
+                  :rf.epoch/id (:epoch-id record)})
+    (listeners/notify-listeners! record)
+    record))
+
 (defn- perform-replace-app-db!
   "Carry out the `app-db` replacement once preconditions have passed.
   Records a synthetic `:rf/epoch-record` (so `restore-epoch!` can rewind
@@ -596,86 +638,15 @@
               false)
           (do
             ;; Record a synthetic epoch so `restore-epoch!` can rewind the
-            ;; previous state. The record's :trigger-event is the
-            ;; pair-tool injection sentinel (no application event ran).
-            ;; Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record
-            ;; is stored RAW — storage-side redaction was removed (the ring
-            ;; is causal replay material); the `:redact-fn` advanced override
-            ;; runs projection-side only, inside `projected-record`.
-            ;;
-            ;; rf2-bh56rc: this synthetic `:rf.epoch/db-replaced` record is a
-            ;; pair-tool injection — NO application event (and therefore no
-            ;; causal token) is in flight, so there is no `:time-ms` to fold.
-            ;; The honest `:committed-at` is the wall-clock of the tool action
-            ;; itself, so the ambient read happens HERE, at the call site,
-            ;; rather than inside the pure `build-record` builder (per EP-0010
-            ;; §Time — ambient time remains allowed for a tool action's own
-            ;; wall-clock).
-            ;;
-            ;; rf2-czwwf4: `:committed-at` is a DURABLE epoch field, so the
-            ;; ambient read uses `interop/epoch-now-ms` (wall-clock epoch ms,
-            ;; `js/Date.now()` on CLJS) — NOT `interop/now-ms`, which on CLJS is
-            ;; `performance.now()` (origin-relative, NOT for durable facts).
-            ;; This keeps a tool-injected epoch's `:committed-at` in the same
-            ;; wall-clock CLASS as the router-stamped epochs (whose committed-at
-            ;; folds the token's `epoch-now-ms` :time-ms), so the Epoch panel
-            ;; shows comparable timestamps across tool-injected and normal
-            ;; epochs (EP-0010 §Time durable-timestamp rule).
-            (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
-                                                       (interop/epoch-now-ms))
-                                :event-id      :rf.epoch/db-replaced
-                                :trigger-event [:rf.epoch/db-replaced])]
-              (state/record! record)
-              ;; Per rf2-qs6dl: a `replace-app-db!` re-renders the views that
-              ;; read the replaced state; attribute those post-settle renders
-              ;; back to this synthetic epoch rather than the next real cascade.
-              (state/set-last-settled-epoch! frame-id (:epoch-id record))
-              (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                           {:frame       frame-id
-                            :rf.epoch/id (:epoch-id record)})
-              (listeners/notify-listeners! record))
+            ;; previous state, stamp it as last-settled, emit
+            ;; `:rf.epoch/db-replaced`, and fan it out — shared with the
+            ;; runtime-db / frame-state perform helpers via
+            ;; `record-synthetic-replace-epoch!` (single lockstep-maintained
+            ;; site for the synthetic-record / committed-at / redaction
+            ;; contract — see that fn's docstring for the rf2-bh56rc /
+            ;; rf2-czwwf4 / qs6dl rationale).
+            (record-synthetic-replace-epoch! frame-id fs-before fs-after)
             true))))))
-
-(defn- record-synthetic-replace-epoch!
-  "Record a synthetic `:rf.epoch/db-replaced` epoch for a pair-tool
-  injection and fan it out. Shared by the three partition-replace perform
-  helpers (`perform-replace-app-db!` records its own inline copy for
-  historical reasons; the runtime-db / frame-state helpers route through
-  here). `fs-before` / `fs-after` are the pre- and post-replace coherent
-  frame-state values; restore of this synthetic record reinstalls
-  `fs-after`, and restore of a PRIOR epoch rewinds past the injection.
-
-  Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record is stored
-  RAW — storage-side redaction was removed (the ring is causal replay
-  material); the `:redact-fn` advanced override runs projection-side only,
-  inside `projected-record`. Per rf2-qs6dl: stamps the synthetic epoch as
-  the frame's last-settled so post-settle re-renders attribute back to it
-  rather than the next real cascade.
-
-  rf2-bh56rc: a pair-tool injection — no application event / causal token
-  is in flight, so `:committed-at` is the tool action's own wall-clock; the
-  ambient read happens HERE rather than inside the pure `build-record`
-  builder (per EP-0010 §Time — ambient time stays allowed for a tool
-  action's wall-clock).
-
-  rf2-czwwf4: `:committed-at` is a DURABLE epoch field, so the ambient read
-  uses `interop/epoch-now-ms` (wall-clock epoch ms, `js/Date.now()` on
-  CLJS) — NOT `interop/now-ms`, which on CLJS is `performance.now()`
-  (origin-relative, NOT for durable facts). This keeps a tool-injected
-  epoch's `:committed-at` in the same wall-clock CLASS as the
-  router-stamped epochs (EP-0010 §Time durable-timestamp rule)."
-  [frame-id fs-before fs-after]
-  (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
-                                             (interop/epoch-now-ms))
-                      :event-id      :rf.epoch/db-replaced
-                      :trigger-event [:rf.epoch/db-replaced])]
-    (state/record! record)
-    (state/set-last-settled-epoch! frame-id (:epoch-id record))
-    (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                 {:frame       frame-id
-                  :rf.epoch/id (:epoch-id record)})
-    (listeners/notify-listeners! record)
-    record))
 
 (defn- perform-replace-runtime-db!
   "Carry out the runtime-db replacement once preconditions have passed —
