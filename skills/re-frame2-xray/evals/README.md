@@ -58,7 +58,7 @@ prompts whose answer drifts fastest as the Xray UI moves:
 | 23 | `chrome-palette` | yes | Palette source kinds + representative command verbs; `Cmd/Ctrl+K` is wired (not struck). |
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |
-| 28 | `panel-route-modules` | yes | The realms / frames / modules / app-values question → the Dynamic **Modules** tab (`:module-view`, EP-0013 lens); Modules is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
+| 28 | `panel-route-modules` | yes | The realms / frames / modules / app-values question → the Dynamic **Modules** tab (`:module-view`, EP-0023 image→frame lens, retained-internal EP-0013 realm/module substrate below); Modules is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
 | 29 | `tab-inventory-count` | yes | The full ordered **9-tab** Dynamic list incl. Modules (count is 9, not 8); correct `:order`; no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
 | 4, 5, 6, 7, 9, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
 | 13–20 | `neg-*` | no | Negatives — adjacent surfaces (drive→pair, implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
