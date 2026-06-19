@@ -798,9 +798,11 @@
 (def ^:private redaction-machine-id :session/auth-redaction)
 
 (def ^:private sensitive-schema
+  "A `:data-schema` — VALIDATION ONLY post-EP-0025 (props no longer classify).
+  The FRAME declares the snapshot `:data` path sensitive (see the tests)."
   [:map
    [:retries :int]
-   [:token {:sensitive? true} [:maybe :string]]])
+   [:token [:maybe :string]]])
 
 (defn- reg-sensitive-machine! []
   (rf/reg-machine redaction-machine-id
@@ -810,8 +812,16 @@
      :states      {:anon   {:on {:login :authed}}
                    :authed {}}}))
 
+(defn- declare-redaction-frame-marks!
+  "Declare the redaction machine's snapshot `:data` token slot SENSITIVE on
+  `frame-id` — the frame-owned classification (EP-0025, the sole app-db
+  mechanism), keyed by the absolute runtime-db snapshot path."
+  [frame-id]
+  (marks/add-marks frame-id
+    {[:rf.runtime/machines :snapshots redaction-machine-id :data :token] :sensitive}))
+
 (deftest panel-renders-sensitive-data-slot-redacted-rf2-kq8nac
-  (testing "rf2-kq8nac (EP-0005) task #2: a `:sensitive?` `:data-schema`
+  (testing "rf2-kq8nac / EP-0025: a FRAME-declared sensitive machine `:data`
             slot does NOT leak its raw value into the Machine Inspector
             panel. The focused epoch's `:trace-events` are the EGRESSED
             (project-trace-event-projected) events — exactly what
@@ -821,6 +831,9 @@
             reads the egressed snapshot, not raw machine state."
     (setup-xray-frame!)
     (reg-sensitive-machine!)
+    ;; EP-0025: the FRAME declares the snapshot token slot sensitive (the
+    ;; raw event below carries :frame :rf/default, so declare it there).
+    (declare-redaction-frame-marks! :rf/default)
     (rf/with-frame :rf/xray
       (override-machines!    [redaction-machine-id])
       (override-definitions! {redaction-machine-id
@@ -842,13 +855,13 @@
                               :event      [:login]
                               :rf.trace/dispatch-id "d-1"}}
             ;; The egress chokepoint redacts :before/:after :data.token →
-            ;; :rf/redacted (the :data-schema :sensitive? bridge wired the
-            ;; mark at reg-machine, rf2-w46fpt). Epoch-capture sees THIS
-            ;; projected event, so the panel's :trace-events are redacted.
+            ;; :rf/redacted against the FRAME's declared snapshot path
+            ;; (EP-0025). Epoch-capture sees THIS projected event, so the
+            ;; panel's :trace-events are redacted.
             egressed  (marks/project-trace-event raw-event)
             egressed* (assoc egressed :id 1 :time 10)]
         ;; The egress projection redacted the token both sides — pinned
-        ;; here so a regression in the bridge surfaces in the panel test.
+        ;; here so a regression in frame-owned redaction surfaces in the panel.
         (is (= :rf/redacted (get-in egressed* [:tags :before :data :token]))
             "egress redacts the sensitive token (before)")
         (is (= :rf/redacted (get-in egressed* [:tags :after :data :token]))
@@ -866,14 +879,17 @@
                machine state"))))))
 
 (deftest live-snapshots-sub-redacts-sensitive-data-rf2-kq8nac
-  (testing "rf2-kq8nac (EP-0005) task #2: the `:rf.xray/machine-snapshots`
-            sub reads the RAW frame-db slot, so it routes each live
-            snapshot through the snapshot-egress chokepoint. A
-            `:sensitive?` `:data-schema` slot in the live snapshot reads
-            back `:rf/redacted`; the plain sibling rides verbatim; a
-            schemaless machine's snapshot passes through untouched."
+  (testing "rf2-kq8nac / EP-0025: the `:rf.xray/machine-snapshots` sub reads
+            the RAW frame-db slot, so it routes each live snapshot through
+            the snapshot-egress chokepoint stamped with the target frame. A
+            FRAME-declared sensitive `:data` slot in the live snapshot reads
+            back `:rf/redacted`; the plain sibling rides verbatim; an
+            undeclared machine's snapshot passes through untouched."
     (setup-xray-frame!)
     (reg-sensitive-machine!)
+    ;; EP-0025: the inspected (target) frame declares the snapshot path. The
+    ;; redaction fn is exercised directly with that frame-id below.
+    (declare-redaction-frame-marks! :rf/xray)
     (rf/with-frame :rf/xray
       ;; Seed the live snapshots slot directly (the test override stands
       ;; in for a populated `[:rf.runtime/machines :snapshots]` in runtime-db); the sub
@@ -882,16 +898,16 @@
         [:rf.xray/set-machine-snapshots-override-for-test nil])
       ;; Drive the redaction through the live sub by pinning a frame-db
       ;; snapshot. We exercise the sub's redaction fn directly on a
-      ;; populated snapshots map (the sub composes target-frame-db →
-      ;; this map) to keep the assertion independent of a live machine
-      ;; runtime under the plain-atom test substrate.
+      ;; populated snapshots map (the sub composes target-frame +
+      ;; target-frame-db → this map) to keep the assertion independent of a
+      ;; live machine runtime under the plain-atom test substrate.
       (let [snaps    {redaction-machine-id
                       {:state :authed
                        :data  {:retries 2 :token "secret-jwt-live"}}}
-            redacted (#'machine-inspector/redact-live-snapshots snaps)]
+            redacted (#'machine-inspector/redact-live-snapshots :rf/xray snaps)]
         (is (= :rf/redacted
                (get-in redacted [redaction-machine-id :data :token]))
-            "the live snapshot's :sensitive? slot is redacted on read")
+            "the live snapshot's frame-declared slot is redacted on read")
         (is (= 2 (get-in redacted [redaction-machine-id :data :retries]))
             "the plain sibling rides verbatim")
         (is (not (str/includes? (pr-str redacted) "secret-jwt-live"))

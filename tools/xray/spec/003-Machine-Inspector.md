@@ -944,15 +944,19 @@ one to inspect and **which one** it inspects:
   — the `:rf.machine/transition` trace contract this rule reads
   from.
 
-## `:data-schema` — declared Context shape + redacted `:data` (rf2-kq8nac · EP-0005)
+## `:data-schema` — declared Context shape + frame-declared redacted `:data` (rf2-kq8nac · EP-0005 · EP-0025)
 
 EP-0005 adds an optional `:data-schema` to `reg-machine` — a Malli
 validator for the machine's `:data` context (the re-frame2-native analog
 of XState v5 typed context). It carries two consequences the Machine
 Inspector surfaces, both consumer-side of the framework work
-([the egress bridge](../../../docs/EP/EP-0005-machine-data-schema.md) is rf2-w46fpt;
-[the machines-viz declared-over-inferred chart shape](../../machines-viz/spec/001-Topology-Parity.md)
-is rf2-3q4k5b).
+([the declared Context shape](../../machines-viz/spec/001-Topology-Parity.md)
+is rf2-3q4k5b; the `:data` redaction is now **frame-owned** per
+[EP-0025](../../../docs/EP/EP-0025-frame-declared-sole-data-classification.md),
+rf2-398kql — which reversed the EP-0005 `:data-schema`→marks redaction
+bridge). The `:data-schema` continues to VALIDATE `:data` and drive the
+declared Context shape; durable `:data` egress classification moved to the
+frame.
 
 ### Declared Context shape in the focused-event chart
 
@@ -984,18 +988,29 @@ shape carries no value-redaction concern.
 > Xray's value-free type-caption shape is a redaction no-op, so this
 > does not change the Machine Inspector surface.
 
-### Redacted `:data` — the panel reads the EGRESSED snapshot
+### Redacted `:data` — the panel reads the EGRESSED snapshot (frame-owned, EP-0025)
 
-A `:sensitive?` / `:large?` marker anywhere in a `:data-schema` is
-honoured in **snapshot egress** (rf2-w46fpt): the `:before` / `:after` /
-`:snapshot` `:data` slots on every `:rf.machine/transition` /
-`:rf.machine/snapshot-updated` trace are redacted to `:rf/redacted` /
-the `:rf.size/large-elided` marker by `re-frame.marks/project-trace-event`
-at emit, BEFORE epoch-capture sees the event. The Machine Inspector's
-`:data` view reads the focused epoch's `:trace-events` — those EGRESSED
-events — so a sensitive `:data` slot renders redacted, never raw, in the
-SHARED mini-pipeline cascade (and the Epoch panel's EVENT HANDLER step,
-which shares the projection).
+> **EP-0025 (rf2-398kql) — frame-owned, not schema-attached.** Durable
+> machine `:data` egress classification is now declared **on the frame**:
+> `reg-frame` `:sensitive` / `:large {:app-db [[:rf.runtime/machines
+> :snapshots <id> :data …]]}` (the sole app-db / runtime-db mechanism). The
+> EP-0005 `:data-schema`→marks redaction bridge is **reversed** — a
+> `:sensitive?` / `:large?` `:data-schema` slot prop no longer classifies
+> durable `:data` for egress (it still drives validation-failure-trace
+> redaction, a separate axis). The `:data` egress treatment below is
+> unchanged in shape; only the classification SOURCE moved to the frame.
+
+A FRAME-declared sensitive / large machine-snapshot `:data` path is honoured
+in **snapshot egress**: the `:before` / `:after` / `:snapshot` `:data` slots
+on every `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace are
+redacted to `:rf/redacted` / the `:rf.size/large-elided` marker by
+`re-frame.marks/project-trace-event` at emit (which re-roots the frame's
+snapshot-path declaration snapshot-relative via
+`re-frame.marks/frame-snapshot-marks`), BEFORE epoch-capture sees the event.
+The Machine Inspector's `:data` view reads the focused epoch's
+`:trace-events` — those EGRESSED events — so a frame-declared sensitive
+`:data` slot renders redacted, never raw, in the SHARED mini-pipeline cascade
+(and the Epoch panel's EVENT HANDLER step, which shares the projection).
 
 The **LIVE** machine-snapshots sub (`:rf.xray/machine-snapshots`) is the
 one path that reads the RAW frame-db slot `[:rf.runtime/machines
@@ -1004,13 +1019,12 @@ runtime-db state, sourced via `:rf.xray/target-frame-runtime-db`)
 directly rather than a trace, so it has NOT passed through
 the egress redactor. The panel therefore routes each live snapshot
 through the SAME `project-trace-event` chokepoint (as a synthetic
-`:rf.machine/snapshot-updated` event) on read, so a `:sensitive?`
-`:data-schema` slot in the live snapshot reads back `:rf/redacted` for
-every downstream consumer (the chart's live-snapshot
-`:current-state-override`, after-rings, sim) — the same per-slot
-treatment the trace path gets. A schemaless / unmarked machine has no
-marks entry, so its snapshot passes through reference-unchanged (no
-extra work for the no-marks common case).
+`:rf.machine/snapshot-updated` event **stamped with the target frame**) on
+read, so a frame-declared sensitive `:data` slot in the live snapshot reads
+back `:rf/redacted` for every downstream consumer (the chart's live-snapshot
+`:current-state-override`, after-rings, sim) — the same per-slot treatment
+the trace path gets. A frame that declares no matching `:data` path leaves
+its snapshot reference-unchanged (no extra work for the no-marks common case).
 
 ## Architectural posture
 
