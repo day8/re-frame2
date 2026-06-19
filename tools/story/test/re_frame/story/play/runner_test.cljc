@@ -476,25 +476,6 @@
   (is (= [:foo]   (runner/step-event [:dispatch-sync [:foo]])))
   (is (nil?       (runner/step-event [:wait 10]))))
 
-(deftest step-assert-db-decomposition
-  (is (= {:path [:k] :mode :equals :expected 1}
-         (runner/step-assert-db [:assert-db [:k] 1])))
-  (testing "symbol ref decomposes to :pred-ref + :pred-fn? false"
-    (is (= {:path [:a :b] :mode :pred :pred-ref 'my/pos? :pred-fn? false}
-           (runner/step-assert-db [:assert-db [:a :b] :pred 'my/pos?]))))
-  (testing "fn ref decomposes to :pred-ref + :pred-fn? true (rf2-inbad)"
-    (let [decomp (runner/step-assert-db [:assert-db [:a :b] :pred pos?])]
-      (is (= [:a :b] (:path decomp)))
-      (is (= :pred (:mode decomp)))
-      (is (true? (:pred-fn? decomp)))
-      (is (identical? pos? (:pred-ref decomp))))))
-
-(deftest step-assert-dom-decomposition
-  (is (= {:selector "x" :mode :visible}
-         (runner/step-assert-dom [:assert-dom "x" :visible])))
-  (is (= {:selector "x" :mode :text :text "hi"}
-         (runner/step-assert-dom [:assert-dom "x" :text "hi"]))))
-
 ;; ---- trace record builder ------------------------------------------------
 
 (deftest trace-record-shape

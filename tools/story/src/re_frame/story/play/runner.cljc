@@ -805,35 +805,6 @@
         :queue-empty {:kind :queue-empty}
         nil))))
 
-(defn step-assert-db
-  "Decompose an `:assert-db` step into `{:path <vec> :mode :equals|:pred
-  :expected <val> :pred-ref <fn-or-sym> :pred-fn? <bool>}`.
-
-  The `:pred` form is 4-arity (`[:assert-db path :pred ref]`) where
-  `ref` is EITHER a fn (preferred — works under advanced CLJS) OR a
-  symbol (resolved via `requiring-resolve` on JVM, best-effort
-  `goog.global` walk on CLJS — fragile under advanced). The
-  equality form is 3-arity (`[:assert-db path value]`).
-
-  `:pred-fn?` discriminates so the runner can skip resolution when the
-  caller already handed in a callable."
-  [step]
-  (when (= :assert-db (step-type step))
-    (let [path (nth step 1)]
-      (if (and (= 4 (count step)) (= :pred (nth step 2)))
-        (let [ref (nth step 3)]
-          {:path path :mode :pred :pred-ref ref :pred-fn? (fn? ref)})
-        {:path path :mode :equals :expected (nth step 2)}))))
-
-(defn step-assert-dom
-  "Decompose an `:assert-dom` step into `{:selector :mode :text}`."
-  [step]
-  (when (= :assert-dom (step-type step))
-    (let [selector (nth step 1)
-          mode     (nth step 2)]
-      (cond-> {:selector selector :mode mode}
-        (= :text mode) (assoc :text (nth step 3))))))
-
 (defn step-type-text
   "Return `[selector text]` from a `:type` step."
   [step]
