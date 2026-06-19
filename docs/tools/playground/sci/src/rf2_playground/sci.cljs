@@ -234,11 +234,19 @@
                  (let [rt (rdc/create-root target-el)]
                    (swap! roots assoc target-el rt)
                    rt))]
-    ;; Mount under a `frame-provider` (scopes any `reg-view`'d descendant the
-    ;; cell author writes) AND frame-bind the cell's own component fn so a
-    ;; render-time `subscribe` inside a PLAIN fn resolves `:rf/default` via the
-    ;; dynamic-var tier — the React-context tier alone reaches only reg-views.
-    (rdc/render root [rf/frame-provider {:frame app-frame}
+    ;; Mount under a `frame-provider-existing` (scopes any `reg-view`'d
+    ;; descendant the cell author writes to the ALREADY-CREATED `app-frame`)
+    ;; AND frame-bind the cell's own component fn so a render-time `subscribe`
+    ;; inside a PLAIN fn resolves `:rf/default` via the dynamic-var tier — the
+    ;; React-context tier alone reaches only reg-views. EP-0024 split the
+    ;; frame-provider name family: `frame-provider` is now the UI-OWNED
+    ;; lifecycle component (takes make-frame `:id` opts, creates/destroys the
+    ;; frame); the SCOPE-only "provide an already-created frame id" role this
+    ;; render needs is `frame-provider-existing` (takes `:frame` only — passing
+    ;; `:frame` to the owned `frame-provider` now fails loud with
+    ;; `:rf.error/owned-frame-provider-missing-id`). `app-frame` is created once
+    ;; in `ensure-init!`, so the scope-only counterpart is correct here.
+    (rdc/render root [rf/frame-provider-existing {:frame app-frame}
                       (frame-bind-component component)])
     nil))
 
