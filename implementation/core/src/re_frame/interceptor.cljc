@@ -56,8 +56,9 @@
 
   See also: `->interceptor` (the macro form, `re-frame.core`),
   `get-coeffect`, `assoc-coeffect`, `get-effect`, `assoc-effect`,
-  `:rf.cofx/requires` (the declared-coeffect key), `path`
-  (the std interceptor v2 ships). An interceptor IS the public
+  `:rf.cofx/requires` (the declared-coeffect key), `:rf.interceptor/path`
+  (the standard path interceptor, a registered factory referenced as
+  `[:rf.interceptor/path <path-vector>]`). An interceptor IS the public
   `context -> context` primitive — full-context work that a
   `reg-event-ctx` handler once expressed lives here (EP-0018)."
   [& {:keys [id before after source-coord] :as opts}]
@@ -150,7 +151,7 @@
   `:rf.error/interceptor-exception` trace so the Xray Epoch INTERCEPTOR
   row renders a jump-to-source chip (parity with EVENT HANDLER /
   SUBSCRIPTIONS / VIEWS). Absent on the fn-path / framework interceptors
-  (`path`) — they have no user definition site to jump to; the
+  (`:rf.interceptor/path`) — they have no user definition site to jump to; the
   slot's absence preserves the singleton-vs-vector equality invariant
   (`:rf/interceptor-error` ≡ first of `:rf/interceptor-errors`) for the
   common case."

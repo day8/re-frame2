@@ -155,8 +155,9 @@
                     `:rf.error/missing-required-cofx` in every mode.
       :doc          one-sentence what-and-why; surfaces via
                     `(rf/handler-meta :cofx id)`.
-      :schema       Malli schema validating supplied / replayed values
-                    (the `:schema` validation step is slice-B-built).
+      :schema       Malli schema validating supplied / replayed / generated
+                    recordable values (a production hard error on mismatch —
+                    `:rf.error/cofx-value-invalid`).
       :platforms    set of `#{:client :server}`; default
                     `#{:client :server}`. The supplier is skipped on
                     platforms not in the set (`:rf.cofx/skipped-on-platform`
