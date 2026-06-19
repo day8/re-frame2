@@ -1265,6 +1265,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 18
     defaults:
       run:
         working-directory: implementation
@@ -1359,6 +1360,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.cljs_browser == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: implementation
@@ -1441,6 +1443,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: implementation
@@ -1507,6 +1510,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: implementation
@@ -1767,6 +1771,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: implementation
@@ -2332,6 +2337,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.template_expensive == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: tools/template
