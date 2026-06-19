@@ -273,18 +273,15 @@
       ;; marks themselves are DERIVED from the registrar meta at `marks-for`
       ;; read time (emit-time projection redacts the delivered coeffect value's
       ;; slots in trace events that surface `:coeffects`), no imperative stash.
-      (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-        (validate! :cofx meta))
-      (registrar/register! :cofx id
-                           (assoc (source-coords/merge-coords meta)
-                                  ;; The value-returning supplier rides the
-                                  ;; registrar's conventional `:handler-fn`
-                                  ;; slot (so `registrar/handler` + descriptor
-                                  ;; lifting resolve it like every other kind);
-                                  ;; nil for a provided fact with no generator.
-                                  :handler-fn  supplier
-                                  :recordable? recordable?
-                                  :provided?   provided?)))
+      ;; Shares the validate-marks + merge-coords + register tail with `reg-fx`
+      ;; via `fx/register-with-marks!` (rf2-a3pl56). The value-returning
+      ;; supplier rides the registrar's conventional `:handler-fn` slot (so
+      ;; `registrar/handler` + descriptor lifting resolve it like every other
+      ;; kind); nil for a provided fact with no generator. The cofx-specific
+      ;; `:recordable?` / `:provided?` grade flags ride the `extra-slots` map.
+      (fx/register-with-marks! :cofx id meta supplier
+                               {:recordable? recordable?
+                                :provided?   provided?}))
     id))
 
 ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
@@ -683,99 +680,34 @@
        (not (:provided? meta))
        (some? (:handler-fn meta))))
 
-(defn- run-generator
-  "Run a generator-backed recordable supplier at processing-start, returning
-  `[outcome value]` where `outcome` is `:generated` (value produced + emitted
-  + schema-validated), `:skipped` (platform gate — the fact is not produced,
-  the caller treats it as missing-required), or `:threw` (the generator threw
-  — emits `:rf.error/coeffect-exception` and the caller skips the handler).
+(defn- run-supplier-under-scope
+  "Shared supplier-invocation lifecycle for the two cofx suppliers
+  (rf2-snxp8i): `run-generator` (generator-backed recordable facts) and
+  `run-ambient-supplier` (ambient facts) are the same skeleton modulo one
+  outcome keyword + the generator-only post-run validation step. This is the
+  single definition of that skeleton:
 
-  A successful run emits the dev-only `:rf.cofx/generated` trace op (fact-name
-  + supplier id) so traces are self-describing even though the record is flat,
-  then validates the produced value: against the registration's `:schema` (a
-  PRODUCTION hard error on mismatch — the validation throw propagates) AND
-  structurally against the recordable-EDN walker (rf2-rmroo4 slice B /
-  rf2-uqz2ir / production-hardened rf2-q34j26 — a generator that mints a non-EDN
-  host handle throws `:rf.error/cofx-value-invalid` reason
-  `:non-edn-recordable-value` in dev AND production, BEFORE the value is written
-  back into the durable record). The emit / scope shape
-  mirrors `run-ambient-supplier`; the op differs (`:rf.cofx/generated` vs
-  `:rf.cofx/run`) because generation produces a RECORDED fact, not an ambient
-  read."
-  [cofx-id meta supplier arg frame-id failing-id]
-  (let [active-platform (active-platform-for-frame frame-id)]
-    (if (cofx-runs-on-platform? meta active-platform)
-      (trace/with-handler-scope
-        (trace/handler-scope-from-meta :cofx cofx-id meta)
-        (let [valued? (not (identical? arg no-arg))
-              outcome (try
-                        [:generated (if valued? (supplier arg) (supplier))]
-                        (catch #?(:clj Throwable :cljs :default) t
-                          (emit-coeffect-exception! cofx-id failing-id frame-id t)
-                          [:threw nil]))]
-          (when (= :generated (first outcome))
-            ;; Validate the produced value against `:schema` (production hard
-            ;; error) BEFORE emitting the dev `:rf.cofx/generated` trace. A
-            ;; miss throws `:rf.error/cofx-value-invalid` from here, inside the
-            ;; scope binding, so the failure carries the cofx's source-coord
-            ;; like every other cofx emit.
-            ;;
-            ;; rf2-0mjgx6 — validation runs FIRST so a schema-invalid generated
-            ;; value never reaches the `:rf.cofx/generated` trace. The earlier
-            ;; order (emit THEN validate) leaked a schema-`{:sensitive? true}`
-            ;; produced value verbatim on `:rf.cofx/generated` before the
-            ;; (correctly-redacted) `:rf.error/cofx-value-invalid` fired —
-            ;; `:rf.cofx/generated`'s marks projection (`project-cofx-run-tags`)
-            ;; redacts only explicit `:sensitive` reg-marks, not schema-slot
-            ;; `:sensitive?`, so the failing value egressed to trace listeners /
-            ;; epoch `:trace-events` / MCP / log sinks unredacted. Validating
-            ;; first means the throw aborts before the emit, so the raw value
-            ;; never ships on ANY trace on the failure path. (The structural
-            ;; EDN-always check runs AFTER `:schema` so a declared `:schema`
-            ;; mismatch — the prod contract — is reported first; rf2-rmroo4
-            ;; slice B / rf2-uqz2ir.)
-            (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id)
-            ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
-            ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
-            ;; that mints a host handle fails loudly HERE — at the source, before
-            ;; the write-back into the durable `:rf.cofx` record — not far away
-            ;; at replay / Xray / SSR. ALWAYS-ON (production hard error too);
-            ;; reuses the slice-A walker + error shape. Runs AFTER `:schema` so a
-            ;; declared `:schema` mismatch is reported first, and BEFORE the
-            ;; `:rf.cofx/generated` emit (rf2-0mjgx6) so a non-EDN host handle
-            ;; never ships on the dev trace either.
-            (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id)
-            ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
-            ;; cofx id is both). Gated on `interop/debug-enabled?` so
-            ;; production DCEs the tag-map + emit, exactly like
-            ;; `:rf.cofx/run`. The generated value itself rides the durable
-            ;; `:rf.cofx` record (always-on), NOT this dev trace. Emitted ONLY
-            ;; after both validations pass — a VALID generated value's
-            ;; `:rf.cofx/value` is still projected through the marks chokepoint
-            ;; (`project-cofx-run-tags`) for any explicit `:sensitive` reg-mark.
-            (when interop/debug-enabled?
-              (trace/emit! :rf.cofx :rf.cofx/generated
-                           (cond-> {:rf.cofx/id    cofx-id
-                                    :frame         frame-id
-                                    :rf.cofx/value (second outcome)}
-                             valued? (assoc :rf.cofx/arg arg)))))
-          outcome))
-      (do
-        (trace/emit! :warning :rf.cofx/skipped-on-platform
-                     {:rf.cofx/id                   cofx-id
-                      :frame                        frame-id
-                      :rf.cofx/platform             active-platform
-                      :rf.cofx/registered-platforms (:platforms meta)
-                      :recovery                     :skipped})
-        [:skipped nil]))))
+    1. resolve the active platform for `frame-id`;
+    2. PLATFORM GATE — when the supplier may not run on the active platform,
+       emit the BYTE-IDENTICAL `:rf.cofx/skipped-on-platform` warning and
+       return `[:skipped nil]` (both callers shared this branch verbatim);
+    3. otherwise run under the cofx HandlerScope (`handler-scope-from-meta`)
+       so errors + the success emit carry the cofx's source-coord, invoking
+       the supplier inside a try/catch — a throw emits
+       `:rf.error/coeffect-exception` and yields `[:threw nil]`, a success
+       yields `[ok-keyword value]`;
+    4. hand the `outcome` to `post-run!` for the per-caller work (the
+       generator's validate-before-emit chain + `:rf.cofx/generated` emit; the
+       ambient's `:rf.cofx/run` emit). `post-run!` receives the supplier
+       invocation's dev-only `elapsed-ms` (the ambient stamps it onto
+       `:rf.cofx/run`; the generator ignores it — `:rf.cofx/generated` carries
+       no duration slot). The `interop/now-ms` brackets ride
+       `interop/debug-enabled?` so production DCEs them.
 
-(defn- run-ambient-supplier
-  "Run an ambient supplier under its HandlerScope + platform gate, returning
-  `[outcome value]` where `outcome` is `:delivered`, `:skipped` (platform
-  gate; the fact is not delivered), or `:threw` (the supplier threw — emits
-  `:rf.error/coeffect-exception` and the caller skips the handler). A run
-  emits the dev-only `:rf.cofx/run` success op."
-  [cofx-id meta supplier arg frame-id failing-id]
+  Returns the `[outcome value]` pair. `ok-keyword` is the success outcome head
+  (`:generated` vs `:delivered`); `post-run!` is `(fn [outcome valued? arg
+  elapsed-ms])`, run inside the scope binding after the try/catch."
+  [cofx-id meta supplier arg frame-id failing-id ok-keyword post-run!]
   (let [active-platform (active-platform-for-frame frame-id)]
     (if (cofx-runs-on-platform? meta active-platform)
       (trace/with-handler-scope
@@ -783,26 +715,12 @@
         (let [valued? (not (identical? arg no-arg))
               t0      (when interop/debug-enabled? (interop/now-ms))
               outcome (try
-                        [:delivered (if valued? (supplier arg) (supplier))]
+                        [ok-keyword (if valued? (supplier arg) (supplier))]
                         (catch #?(:clj Throwable :cljs :default) t
                           (emit-coeffect-exception! cofx-id failing-id frame-id t)
                           [:threw nil]))
               elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
-          ;; `:rf.cofx/value` carries the supplier's PRODUCED value — the
-          ;; coeffect that actually egresses into `:coeffects` — so the
-          ;; marks chokepoint (`marks/project-cofx-run-tags`, wired to
-          ;; `:rf.cofx/value`) redacts a declared-`:sensitive` produced
-          ;; value before it surfaces in trace. The requirement-arg rides
-          ;; under the distinct `:rf.cofx/arg`, present only for a
-          ;; parameterized `[id arg]` requirement (rf2-sepqgg). Both ride
-          ;; under the `interop/debug-enabled?` gate so production DCEs them.
-          (when (and interop/debug-enabled? (= :delivered (first outcome)))
-            (trace/emit! :rf.cofx :rf.cofx/run
-                         (cond-> {:rf.cofx/id    cofx-id
-                                  :frame         frame-id
-                                  :rf.cofx/value (second outcome)}
-                           valued?           (assoc :rf.cofx/arg arg)
-                           (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed))))
+          (post-run! outcome valued? arg elapsed)
           outcome))
       (do
         (trace/emit! :warning :rf.cofx/skipped-on-platform
@@ -812,6 +730,109 @@
                       :rf.cofx/registered-platforms (:platforms meta)
                       :recovery                     :skipped})
         [:skipped nil]))))
+
+(defn- run-generator
+  "Run a generator-backed recordable supplier at processing-start, returning
+  `[outcome value]` where `outcome` is `:generated` (value produced + emitted
+  + schema-validated), `:skipped` (platform gate — the fact is not produced,
+  the caller treats it as missing-required), or `:threw` (the generator threw
+  — emits `:rf.error/coeffect-exception` and the caller skips the handler).
+
+  A successful run validates the produced value, THEN emits the dev-only
+  `:rf.cofx/generated` trace op (fact-name + supplier id) so traces are
+  self-describing even though the record is flat. The platform-gate +
+  HandlerScope + try/catch skeleton is shared with `run-ambient-supplier` via
+  `run-supplier-under-scope` (rf2-snxp8i); the per-generator post-run step
+  below validates the produced value: against the registration's `:schema` (a
+  PRODUCTION hard error on mismatch — the validation throw propagates) AND
+  structurally against the recordable-EDN walker (rf2-rmroo4 slice B /
+  rf2-uqz2ir / production-hardened rf2-q34j26 — a generator that mints a non-EDN
+  host handle throws `:rf.error/cofx-value-invalid` reason
+  `:non-edn-recordable-value` in dev AND production, BEFORE the value is written
+  back into the durable record). The op differs from the ambient
+  (`:rf.cofx/generated` vs `:rf.cofx/run`) because generation produces a
+  RECORDED fact, not an ambient read; the generated op carries no
+  `:rf.cofx/elapsed-ms` (the ambient stamps duration, the generator does not)."
+  [cofx-id meta supplier arg frame-id failing-id]
+  (run-supplier-under-scope
+    cofx-id meta supplier arg frame-id failing-id :generated
+    (fn [outcome valued? arg _elapsed]
+      (when (= :generated (first outcome))
+        ;; Validate the produced value against `:schema` (production hard
+        ;; error) BEFORE emitting the dev `:rf.cofx/generated` trace. A
+        ;; miss throws `:rf.error/cofx-value-invalid` from here, inside the
+        ;; scope binding, so the failure carries the cofx's source-coord
+        ;; like every other cofx emit.
+        ;;
+        ;; rf2-0mjgx6 — validation runs FIRST so a schema-invalid generated
+        ;; value never reaches the `:rf.cofx/generated` trace. The earlier
+        ;; order (emit THEN validate) leaked a schema-`{:sensitive? true}`
+        ;; produced value verbatim on `:rf.cofx/generated` before the
+        ;; (correctly-redacted) `:rf.error/cofx-value-invalid` fired —
+        ;; `:rf.cofx/generated`'s marks projection (`project-cofx-run-tags`)
+        ;; redacts only explicit `:sensitive` reg-marks, not schema-slot
+        ;; `:sensitive?`, so the failing value egressed to trace listeners /
+        ;; epoch `:trace-events` / MCP / log sinks unredacted. Validating
+        ;; first means the throw aborts before the emit, so the raw value
+        ;; never ships on ANY trace on the failure path. (The structural
+        ;; EDN-always check runs AFTER `:schema` so a declared `:schema`
+        ;; mismatch — the prod contract — is reported first; rf2-rmroo4
+        ;; slice B / rf2-uqz2ir.)
+        (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id)
+        ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
+        ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
+        ;; that mints a host handle fails loudly HERE — at the source, before
+        ;; the write-back into the durable `:rf.cofx` record — not far away
+        ;; at replay / Xray / SSR. ALWAYS-ON (production hard error too);
+        ;; reuses the slice-A walker + error shape. Runs AFTER `:schema` so a
+        ;; declared `:schema` mismatch is reported first, and BEFORE the
+        ;; `:rf.cofx/generated` emit (rf2-0mjgx6) so a non-EDN host handle
+        ;; never ships on the dev trace either.
+        (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id)
+        ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
+        ;; cofx id is both). Gated on `interop/debug-enabled?` so
+        ;; production DCEs the tag-map + emit, exactly like
+        ;; `:rf.cofx/run`. The generated value itself rides the durable
+        ;; `:rf.cofx` record (always-on), NOT this dev trace. Emitted ONLY
+        ;; after both validations pass — a VALID generated value's
+        ;; `:rf.cofx/value` is still projected through the marks chokepoint
+        ;; (`project-cofx-run-tags`) for any explicit `:sensitive` reg-mark.
+        (when interop/debug-enabled?
+          (trace/emit! :rf.cofx :rf.cofx/generated
+                       (cond-> {:rf.cofx/id    cofx-id
+                                :frame         frame-id
+                                :rf.cofx/value (second outcome)}
+                         valued? (assoc :rf.cofx/arg arg))))))))
+
+(defn- run-ambient-supplier
+  "Run an ambient supplier under its HandlerScope + platform gate, returning
+  `[outcome value]` where `outcome` is `:delivered`, `:skipped` (platform
+  gate; the fact is not delivered), or `:threw` (the supplier threw — emits
+  `:rf.error/coeffect-exception` and the caller skips the handler). A run
+  emits the dev-only `:rf.cofx/run` success op. Shares the platform-gate +
+  HandlerScope + try/catch skeleton with `run-generator` via
+  `run-supplier-under-scope` (rf2-snxp8i); the per-ambient post-run step below
+  emits `:rf.cofx/run` carrying the supplier-invocation `:rf.cofx/elapsed-ms`
+  (the generator omits this slot)."
+  [cofx-id meta supplier arg frame-id failing-id]
+  (run-supplier-under-scope
+    cofx-id meta supplier arg frame-id failing-id :delivered
+    (fn [outcome valued? arg elapsed]
+      ;; `:rf.cofx/value` carries the supplier's PRODUCED value — the
+      ;; coeffect that actually egresses into `:coeffects` — so the
+      ;; marks chokepoint (`marks/project-cofx-run-tags`, wired to
+      ;; `:rf.cofx/value`) redacts a declared-`:sensitive` produced
+      ;; value before it surfaces in trace. The requirement-arg rides
+      ;; under the distinct `:rf.cofx/arg`, present only for a
+      ;; parameterized `[id arg]` requirement (rf2-sepqgg). Both ride
+      ;; under the `interop/debug-enabled?` gate so production DCEs them.
+      (when (and interop/debug-enabled? (= :delivered (first outcome)))
+        (trace/emit! :rf.cofx :rf.cofx/run
+                     (cond-> {:rf.cofx/id    cofx-id
+                              :frame         frame-id
+                              :rf.cofx/value (second outcome)}
+                       valued?           (assoc :rf.cofx/arg arg)
+                       (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed)))))))
 
 (def default-mint-policy
   "The mint policy when no binding point selects one — the router's `:live`
