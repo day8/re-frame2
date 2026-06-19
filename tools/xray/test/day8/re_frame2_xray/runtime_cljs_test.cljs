@@ -1713,8 +1713,9 @@
           "non-sensitive sibling survives"))))
 
 (deftest trace-event-frame-resolves-event-own-frame
-  (testing "rf2-5b2ct2 — `egress-trace-event` resolves a trace event's OWN
-            frame (from [:tags :frame] / top-level :frame) and threads it to
+  (testing "rf2-5b2ct2 / rf2-7737vq — `egress-trace-event` resolves a trace
+            event's OWN frame (from [:tags :frame] via the canonical
+            `re-frame.trace/trace-event-frame` reader) and threads it to
             the egress walker, so per-event projection uses the emitting
             frame's classification — NOT one ambient/resolved frame. A
             sensitive path declared on :host redacts a :host event's value
@@ -1742,7 +1743,7 @@
       (is (= "ada"
              (get-in (#'runtime/egress-trace-event ev :rf/default {}) [:tags :public]))
           "the non-sensitive sibling survives")
-      ;; A frameless event (no [:tags :frame] / :frame), no fallback frame,
+      ;; A frameless event (no [:tags :frame]), no fallback frame,
       ;; AND no ambient scope ⇒ no frame is resolvable anywhere ⇒ fail closed
       ;; (whole-value redacted). This is the get-issues merged-ring case where
       ;; each event must carry its own frame; one that carries none, with the

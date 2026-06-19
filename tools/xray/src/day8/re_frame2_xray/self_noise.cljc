@@ -20,11 +20,11 @@
   framework's `emit!`. Two residual classes still need a Xray-side
   guard, both pure-data + JVM-runnable:
 
-  1. **`xray-internal-event?`** — any trace event whose `:frame`
-     (top-level or `:tags :frame`) resolves to `:rf/xray`. Belt-and-
-     braces against reactive sub-read / view-render emits that slipped
-     past the frame gate (e.g. an emit-site that hasn't been touched
-     by the `:rf.trace/frame-no-emit?` migration).
+  1. **`xray-internal-event?`** — any RAW trace event whose
+     `[:tags :frame]` resolves to `:rf/xray`. Belt-and-braces against
+     reactive sub-read / view-render emits that slipped past the frame
+     gate (e.g. an emit-site that hasn't been touched by the
+     `:rf.trace/frame-no-emit?` migration).
 
   2. **`xray-internal-cascade?` / `xray-internal-event-id?`** —
      cascades whose `:event` vector's head is a keyword in the
@@ -58,24 +58,26 @@
   pre-mount seed in `mount.cljs`). The CLJC shape keeps them JVM-
   runnable so the JVM test corpus can drive every axis."
   (:require [clojure.string :as str]
+            [re-frame.trace :as trace]
             [re-frame.trace.projection :as projection]))
 
 ;; ---- predicates ---------------------------------------------------------
 
 (defn xray-internal-event?
-  "True when `event`'s `:frame` slot is `:rf/xray` — i.e. the trace
-  event was emitted by Xray's own subscriptions, views, or any other
-  machinery running under `(rf/with-frame :rf/xray ...)`.
+  "True when `event`'s frame is `:rf/xray` — i.e. the trace event was
+  emitted by Xray's own subscriptions, views, or any other machinery
+  running under `(rf/with-frame :rf/xray ...)`.
 
-  Reads top-level `:frame` first, falling back to `(:tags :frame)`,
-  matching the resolution order the framework's filter axis already
-  uses. Both keys can carry the frame id depending on emit site (Spec
-  009 §Core fields hoists some, leaves others under `:tags`).
+  Reads the RAW trace-event frame via the canonical reader
+  `re-frame.trace/trace-event-frame` (its `[:tags :frame]` slot — Spec
+  009 §Frame identity on the raw event, rf2-7737vq). The prior divergent
+  top-level `:frame` fallback is removed: per the ruling a raw trace
+  event carries frame identity ONLY under `[:tags :frame]`.
 
   Pure-data + JVM-runnable so the predicate is testable without a CLJS
   runtime."
   [event]
-  (= :rf/xray (or (:frame event) (get-in event [:tags :frame]))))
+  (= :rf/xray (trace/trace-event-frame event)))
 
 (defn xray-internal-event-id?
   "True when `event-id` is a keyword in the `rf.xray` namespace OR any
