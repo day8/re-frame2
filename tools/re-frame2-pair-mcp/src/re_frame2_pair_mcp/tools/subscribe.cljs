@@ -346,11 +346,14 @@
   PROJECTED epoch records, because epoch projection tracks the sensitive
   axis, not the large-slot toggle.
 
-  rf2-1we9fa — the trace-walk arm resolves the elision `:frame` PER
-  ELEMENT inside the walk: a cascade record's own `:frame` slot (cascade
-  bundles are keyed by `[frame dispatch-id]`), else a frameless event's
-  `[:tags :frame]` / `:frame`. An all-frame stream — or a filter frame
-  that differs from the operating frame — carries cascades from several
+  rf2-1we9fa / rf2-7737vq — the trace-walk arm resolves the elision
+  `:frame` PER ELEMENT inside the walk by LAYER: a cascade record's own
+  top-level `:frame` slot (DERIVED records key frame at top level —
+  cascade bundles are keyed by `[frame dispatch-id]`), else a frameless
+  RAW event's frame via the canonical reader
+  `re-frame.trace/trace-event-frame` (its `[:tags :frame]` slot). An
+  all-frame stream — or a filter frame that differs from the operating
+  frame — carries cascades from several
   frames in one tick, and per EP-0015 sensitive/large declarations are
   per-frame; eliding a foreign-frame cascade against the operating
   frame's registry mis-redacts (under-redaction leaks across the off-box
@@ -456,8 +459,10 @@
       ;; frame's) registry mis-redacts — the sharp edge is UNDER-redaction
       ;; (frame-A values A marks sensitive but B does not would leak across
       ;; the off-box MCP→LLM boundary). Each element supplies its own
-      ;; frame: a cascade record's `:frame` slot, else a frameless event's
-      ;; `[:tags :frame]` / `:frame`.
+      ;; frame BY LAYER (rf2-7737vq): a DERIVED cascade record's top-level
+      ;; `:frame` slot, else a frameless RAW event's frame via the
+      ;; canonical `re-frame.trace/trace-event-frame` reader ([:tags
+      ;; :frame]).
       ;;
       ;; EP-0002 (rf2-bd4div): `current-frame` survives as the genuinely
       ;; frameless FALLBACK only. The nREPL eval thread carries no ambient
@@ -475,7 +480,7 @@
             (str "(let [walk (fn [xs]"
                  "             (mapv (fn [x]"
                  "                     (let [frame (or (:frame x)"
-                 "                                     (get-in x [:tags :frame])"
+                 "                                     (re-frame.trace/trace-event-frame x)"
                  "                                     cur-frame)]"
                  "                       (re-frame.core/elide-wire-value"
                  "                         x (assoc base-opts :frame frame))))"

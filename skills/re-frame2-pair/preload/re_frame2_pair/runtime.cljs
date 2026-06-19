@@ -81,6 +81,12 @@
             ;; dev-only, so requiring the tooling ns directly here is
             ;; bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
+            ;; rf2-7737vq — the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`). Owned by the trace
+            ;; contract ns; `re-frame.trace` is already loaded via
+            ;; `re-frame.core` above, so this require adds no bundle weight
+            ;; (dev-tier preload — bundle-isolation-safe).
+            [re-frame.trace :as trace]
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
             ;; Spec 006 §`flush-render!`, rf2-40a84) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
@@ -1923,9 +1929,7 @@
       (and (or (nil? operation)  (= operation (:operation ev)))
            (or (nil? op-type)    (= op-type   (:op-type ev)))
            (or (nil? severity)   (= severity  (:op-type ev)))
-           (or (nil? frame)      (= frame
-                                    (or (:frame ev)
-                                        (get-in ev [:tags :frame]))))
+           (or (nil? frame)      (= frame (trace/trace-event-frame ev)))
            (or (nil? event-id)   (= event-id
                                     (get-in ev [:tags :rf.trace/event-id])))
            (or (nil? handler-id) (= handler-id
