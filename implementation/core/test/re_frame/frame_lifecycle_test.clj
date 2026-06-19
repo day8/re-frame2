@@ -328,8 +328,8 @@
         (fn [_ [_ payload]]
           {:fx [[:http payload]]}))
 
-      (let [a (frame/make-frame {:fx-overrides {:http :http.stub-A}})
-            b (frame/make-frame {:fx-overrides {:http :http.stub-B}})]
+      (let [a (frame/make-anon-frame-record! {:fx-overrides {:http :http.stub-A}})
+            b (frame/make-anon-frame-record! {:fx-overrides {:http :http.stub-B}})]
         ;; Gensym contract: id is a keyword in the :rf.frame namespace,
         ;; the two ids differ, and neither collides with :rf/default.
         (is (keyword? a))
@@ -668,7 +668,7 @@
       (rf/reg-event :parent/spawn-sub-actor
         (fn [_ _]
           (swap! order conj :parent/before-make-frame)
-          (reset! child-id (frame/make-frame {:on-create [:sub-actor/boot]}))
+          (reset! child-id (frame/make-anon-frame-record! {:on-create [:sub-actor/boot]}))
           (swap! order conj :parent/after-make-frame)
           {}))
       (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]

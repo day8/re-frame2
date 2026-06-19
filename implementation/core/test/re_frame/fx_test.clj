@@ -163,20 +163,20 @@
 
       (testing "no overrides — registered fx fires"
         (reset! fired [])
-        (let [f (frame/make-frame {})]
+        (let [f (frame/make-anon-frame-record! {})]
           (rf/dispatch-sync [:fx-test/send] {:frame f})
           (is (= [:registered] @fired))))
 
       (testing "per-frame override applied"
         (reset! fired [])
-        (let [f (frame/make-frame
+        (let [f (frame/make-anon-frame-record!
                   {:fx-overrides {:fx-test/email :fx-test/email.frame}})]
           (rf/dispatch-sync [:fx-test/send] {:frame f})
           (is (= [:per-frame] @fired))))
 
       (testing "per-call override beats per-frame"
         (reset! fired [])
-        (let [f (frame/make-frame
+        (let [f (frame/make-anon-frame-record!
                   {:fx-overrides {:fx-test/email :fx-test/email.frame}})]
           (rf/dispatch-sync
             [:fx-test/send]
@@ -224,7 +224,7 @@
 
       (testing "per-call opt > lexical with-fx-overrides > per-frame"
         (reset! fired [])
-        (let [f (frame/make-frame
+        (let [f (frame/make-anon-frame-record!
                   {:fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}})]
           (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
             ;; Per-call wins over both lexical and per-frame

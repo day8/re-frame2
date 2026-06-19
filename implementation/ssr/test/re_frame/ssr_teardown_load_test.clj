@@ -138,7 +138,7 @@
   Returns the rendered HTML for sanity-check assertions."
   [i]
   (let [server-frame
-        (frame/make-frame
+        (frame/make-anon-frame-record!
           {:doc       (str "load-test request " i)
            :platform  :server
            :on-create [:load-test/server-init {:i i}]})]
@@ -304,7 +304,7 @@
     ;; trace-emit so we don't have to engineer a real handler failure
     ;; — the cleanup contract is the same).
     (dotimes [i 50]
-      (let [fid (frame/make-frame
+      (let [fid (frame/make-anon-frame-record!
                   {:doc       (str "error-buffer test " i)
                    :platform  :server
                    :on-create [:load-test/server-init {:i i}]})]

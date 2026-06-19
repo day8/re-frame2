@@ -154,7 +154,7 @@
   (testing "happy path: boot machine traverses :configuring → :loading-deps → :hydrating → :ready and all slices land"
     (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:on-create    [:boot/initialise]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
@@ -183,7 +183,7 @@
   (testing "per-child :data fns thread spawn-spec identity; no cross-talk between siblings"
     (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:on-create    [:boot/initialise]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
@@ -213,7 +213,7 @@
                          {:status 500
                           :body   "boot dependency unreachable"})
 
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:on-create    [:boot/initialise]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-fail}})]
@@ -288,7 +288,7 @@
     (let [frame  (atom nil)
           traces (collect-machine-data-traces!
                    #(reset! frame
-                      (frame/make-frame
+                      (frame/make-anon-frame-record!
                         {:on-create    [:boot/initialise]
                          :fx-overrides {:rf.http/managed
                                         :boot.test/canned-bad-config}})))]
@@ -317,7 +317,7 @@
                                           (= :app-db (-> ev :tags :where)))
                                  (swap! app-traces conj ev))))
       (try
-        (with-new-frame [f (frame/make-frame {})]
+        (with-new-frame [f (frame/make-anon-frame-record! {})]
           (rf/reg-app-schema [:config] [:maybe boot-schema/Config] {:frame f})
           (rf/dispatch-sync [::write-bad-config] {:frame f}))
         (finally (rf/unregister-listener! :trace ::app)))

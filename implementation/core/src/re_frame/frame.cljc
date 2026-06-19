@@ -16,7 +16,7 @@
                               never uses it as a resolution floor. A small
                               app, example, or test may register and select
                               it EXPLICITLY like any other id.
-    :rf.frame/<gensym>       — anonymous instances from make-frame"
+    :rf.frame/<gensym>       — anonymous instances from make-anon-frame-record!"
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
@@ -905,6 +905,32 @@
               (map (fn [[_ f]] (:id f))))
         @frames))
 
+(defn image-loaded-frame-addresses
+  "Return the image-loaded frames as `{:realm <realm-id> :id <frame-id>}` maps —
+  the realm-AWARE companion to `image-loaded-frame-ids` the hot-reload
+  reprojection path enumerates. SAME selection (a `frames`-registry record with a
+  non-nil `:generation`, not destroyed, public `:id` — the `:rf.frame/` gensym
+  namespace excluded), but each entry also carries the frame's OWN realm
+  reference, read off the record's `:realm` slot (default-realm when absent), NOT
+  off the dynamic `*current-realm*`.
+
+  Reprojection runs on a `next-tick` flush where `*current-realm*` has unwound to
+  nil, so a non-default-realm image-loaded frame can only be re-keyed correctly if
+  its realm travels WITH its id (EP-0013 — the registry key is the (realm, frame)
+  ADDRESS, and a frame REFERENCES its realm). `reproject-live-frames!` binds
+  `*current-realm*` per frame from this `:realm` (via `call-with-realm`) before the
+  per-frame generation read / capability read / `set-generation!` swap, so each of
+  those re-keys to the frame's OWN address rather than missing on a bare-id lookup.
+  INTERNAL."
+  []
+  (into #{}
+        (comp (filter (fn [[_ f]] (and (some? (:generation f))
+                                       (not (-> f :lifecycle :destroyed?))
+                                       (not= "rf.frame" (namespace (:id f))))))
+              (map (fn [[_ f]] {:realm (or (:realm f) realm/default-realm-id)
+                                :id    (:id f)})))
+        @frames))
+
 ;; ---- the internal value-read frame resolver seam (EP-0024, rf2-az1ct6) ----
 ;;
 ;; The value-read helpers below all share one shape: resolve the frame record
@@ -1660,15 +1686,21 @@
                        {:frame id :config stored-config})
           id)))))
 
-(defn make-frame
+(defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024, rf2-tu2vr7): generate a
   gensym'd id under `:rf.frame/`, register a configured record under it, and
-  return the gensym'd id. This is NO LONGER a public constructor — the ONE
-  public constructor is `re-frame.live-frame/make-frame` (`rf/make-frame`),
-  which accepts both image-selection AND record-config opts and returns the
-  frame VALUE. This id-returning record helper survives as the internal
-  no-`:id` configured-record path the unified constructor and the test/SSR
-  harnesses build on. Per Spec 002 §Per-instance frames."
+  return the gensym'd id. This is NOT a public constructor — the ONE public
+  constructor is `re-frame.live-frame/make-frame` (`rf/make-frame`), which
+  accepts both image-selection AND record-config opts and returns the frame
+  VALUE. This id-returning record helper survives as the internal no-`:id`
+  configured-record path the unified constructor and the test/SSR harnesses build
+  on. Per Spec 002 §Per-instance frames.
+
+  rf2-ji3tvy — RENAMED from the bare `make-frame` so the internal record helper
+  no longer COLLIDES by short name with the public `re-frame.live-frame/make-frame`
+  (the frame-VALUE constructor): a reader who saw `frame/make-anon-frame-record!` could not tell
+  from the call which one ran. The `-record!` suffix names exactly what it
+  returns — an anonymous gensym-keyed RECORD's id, not a frame value."
   [config]
   (let [id (keyword "rf.frame" (str (gensym "")))]
     (reg-frame id config)

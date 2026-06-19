@@ -42,7 +42,7 @@
                                               (:operation ev))
                                        (swap! traces conj ev))))
       (try
-        (let [f  (frame/make-frame
+        (let [f  (frame/make-anon-frame-record!
                    {:platform :server
                     :ssr      {:public-error-id   :rf.ssr/default-error-projector
                                :dev-error-detail? false}})
@@ -111,7 +111,7 @@
       (try
         ;; Default platform is :client; project-render-exception! checks
         ;; `server-frame?` and short-circuits.
-        (let [f      (frame/make-frame {})
+        (let [f      (frame/make-anon-frame-record! {})
               t      (ex-info "should not fire" {})
               result (ssr/project-render-exception! f t)]
           (is (nil? result)
@@ -134,7 +134,7 @@
                                         (:operation ev))
                                  (swap! traces conj ev))))
       (try
-        (let [f (frame/make-frame
+        (let [f (frame/make-anon-frame-record!
                   {:platform :server
                    :ssr      {:public-error-id   :rf.ssr/default-error-projector
                               :on-view-exception :throw}})
@@ -154,7 +154,7 @@
             production default) project-render-exception! projects as
             normal. Pins the default so the escape-hatch can't silently
             become the default."
-    (let [f (frame/make-frame
+    (let [f (frame/make-anon-frame-record!
               {:platform :server
                :ssr      {:public-error-id :rf.ssr/default-error-projector}})
           t (ex-info "normal failure" {})

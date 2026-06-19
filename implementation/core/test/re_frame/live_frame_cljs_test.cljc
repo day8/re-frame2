@@ -44,8 +44,9 @@
   the store (never `clear-all!`, which would destroy real authored
   registrations). The ONE `frames` registry, the standard registry, the generation
   cache, and the source store are all process state, so the fixture
-  snapshot/restores or clears them per case (`lf/clear-live-frames!` is now a
-  no-op kept for fixtures — `frame/frames` is reset by the runtime fixture).
+  snapshot/restores or clears them per case (the runtime fixture resets
+  `frame/frames`, which clears every record AND its generation — no separate
+  live-frame index to clear, rf2-ji3tvy).
   `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -77,13 +78,11 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
     (let [store-before @ss/kind->id->ns->descriptor]
-      (lf/clear-live-frames!)
       (asm/clear-standards!)
       (asm/clear-generation-cache!)
       (try
         (t)
         (finally
-          (lf/clear-live-frames!)
           (asm/clear-standards!)
           (asm/clear-generation-cache!)
           (reset! ss/kind->id->ns->descriptor store-before))))))

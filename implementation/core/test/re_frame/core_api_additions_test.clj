@@ -103,7 +103,7 @@
   (testing "(with-new-frame [f (make-frame opts)] body) creates, binds, destroys"
     (let [captured-id (atom nil)
           observed-current (atom nil)]
-      (rf/with-new-frame [f (frame/make-frame {:doc "ephemeral"})]
+      (rf/with-new-frame [f (frame/make-anon-frame-record! {:doc "ephemeral"})]
         (reset! captured-id f)
         (reset! observed-current (rf/current-frame-id))
         (is (= f (rf/current-frame-id))
@@ -128,7 +128,7 @@
   (testing "(with-new-frame [f ...] body) destroys the frame even when body throws"
     (let [captured-id (atom nil)]
       (try
-        (rf/with-new-frame [f (frame/make-frame {:doc "ephemeral-throw"})]
+        (rf/with-new-frame [f (frame/make-anon-frame-record! {:doc "ephemeral-throw"})]
           (reset! captured-id f)
           (throw (ex-info "boom" {:kind ::boom})))
         (catch Exception e
@@ -144,7 +144,7 @@
             destroy runs after"
     (rf/reg-event :wf/initialise (fn [{:keys [db]} _] {:db {:counter 42}}))
     (let [captured-db (atom nil)]
-      (rf/with-new-frame [f (frame/make-frame {:on-create [:wf/initialise]})]
+      (rf/with-new-frame [f (frame/make-anon-frame-record! {:on-create [:wf/initialise]})]
         (reset! captured-db (rf/app-db-value f)))
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))

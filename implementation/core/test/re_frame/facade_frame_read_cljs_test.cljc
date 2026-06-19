@@ -52,17 +52,16 @@
 ;; `make-frame`'s backing runnable record needs; the fixture also resets
 ;; `frame/frames`, so image-loaded frame records do not leak across cases).
 ;; EP-0024 (rf2-tu2vr7): the second live-frame registry dissolved into the ONE
-;; `frames` registry, so `clear-live-frames!` is now a no-op kept for the
-;; fixtures that call it. Mirrors live_frame_reload_cljs_test.
+;; `frames` registry, so the runtime fixture's `(reset! frame/frames {})` clears
+;; every record AND its generation — no separate live-frame index to clear
+;; (rf2-ji3tvy). Mirrors live_frame_reload_cljs_test.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
-    (lf/clear-live-frames!)
     (asm/clear-standards!)
     (t)
-    (lf/clear-live-frames!)
     (asm/clear-standards!)))
 
 ;; ---------------------------------------------------------------------------

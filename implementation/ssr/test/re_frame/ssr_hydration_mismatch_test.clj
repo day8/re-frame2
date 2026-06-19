@@ -96,7 +96,7 @@
             The mismatch is a downstream trace, not a hydration
             blocker (Spec 011 — degraded-but-running posture)."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-mismatch client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
 
@@ -122,7 +122,7 @@
             hoisted to the trace envelope's top level (per Spec 009
             §Error event shape's recovery-hoist branch)."
     (register-handlers!)
-    (let [client-frame   (frame/make-frame {:doc "ssr-mismatch client frame"
+    (let [client-frame   (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                          :platform :client})
           ;; A second 8-hex string — anything other than \"deadbeef\".
           client-hash    "0badf00d"
@@ -162,7 +162,7 @@
             input and lock the shape + the not-equal-deadbeef
             invariant."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-mismatch client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                        :platform :client})
           ;; A non-trivial hiccup tree — its computed hash is whatever
           ;; FNV-1a resolves to; we lock the shape and the not-equal
@@ -210,7 +210,7 @@
             error-emit path is the producer site — see
             `re-frame.ssr.hydrate/verify-hydration!`)."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-mismatch client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                        :platform :client})
           _            (rf/dispatch-sync [:rf/hydrate mismatch-payload]
                                          {:frame client-frame})
@@ -239,7 +239,7 @@
             assertion here drives ::inc through `dispatch-sync`
             and reads :count via `subscribe-once`."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-mismatch client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
 
@@ -274,7 +274,7 @@
             hash + failing-id payload as the trace, and :recovery is
             :hard-error."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr strict-mode frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr strict-mode frame"
                                        :platform :client
                                        :ssr {:on-mismatch :hard-error}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
@@ -297,7 +297,7 @@
             trace (monitoring integrations rely on it) AND throws — the
             two are not mutually exclusive."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr strict-mode frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr strict-mode frame"
                                        :platform :client
                                        :ssr {:on-mismatch :hard-error}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
@@ -317,7 +317,7 @@
             short-circuits the hash comparison entirely (Spec 011 item 4):
             no trace, no throw, even when the hashes diverge."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr detection-off frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr detection-off frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? false}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
@@ -336,7 +336,7 @@
             warns. Pins the default so a future refactor can't silently
             flip detection off."
     (register-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr default frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr default frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
       (let [traces (capture-traces!

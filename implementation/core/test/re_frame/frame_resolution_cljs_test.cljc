@@ -48,9 +48,10 @@
 ;; — it creates its backing runnable record (app-db / queue / sub-cache) via
 ;; `reg-frame`, which needs a substrate adapter — so the plain-atom adapter is
 ;; installed. The resolved generation lives ON that record (the `:generation`
-;; slot), read by id; the two-registry model collapsed to ONE, so
-;; `clear-live-frames!` is a no-op and the runtime fixture's `(reset! frames {})`
-;; clears every record's generation. These cases exercise pure `(kind, id)`
+;; slot), read by id; the two-registry model collapsed to ONE, so the runtime
+;; fixture's `(reset! frames {})` clears every record AND its generation — no
+;; separate live-frame index to clear (rf2-ji3tvy). These cases exercise pure
+;; `(kind, id)`
 ;; resolution through the `call-with-frame-resolution` seam (they do not run a
 ;; cascade), but constructing the frame now allocates a state container.
 ;;
@@ -64,10 +65,8 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
     (asm/clear-standards!)
-    (lf/clear-live-frames!)
     (t)
-    (asm/clear-standards!)
-    (lf/clear-live-frames!)))
+    (asm/clear-standards!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers — synthetic REGISTERED descriptors (the source-store output shape

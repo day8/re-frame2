@@ -2019,7 +2019,7 @@
             tag, yielding two."
     (let [;; The head fragment as the pipeline produces it for a route
           ;; with no declared :head — default-head rendered to HTML.
-          f          (frame/make-frame {:doc "Charset probe" :platform :server})
+          f          (frame/make-anon-frame-record! {:doc "Charset probe" :platform :server})
           head-model (rf/active-head f)
           head-html  (rf/head-model->html head-model)
           html       (ssr-ring/default-html-shell "body" "{}" {:head head-html})

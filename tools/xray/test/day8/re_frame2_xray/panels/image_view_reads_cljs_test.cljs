@@ -30,8 +30,8 @@
 ;; Each case starts from a clean frame registry so an `:id` from one case never
 ;; carries over to the next. EP-0024 (rf2-tu2vr7): the registries collapsed —
 ;; an image-loaded frame is a `re-frame.frame/frames` record carrying a
-;; `:generation`, so resetting `frame/frames` clears the image-loaded frames
-;; (`clear-live-frames!` is now a no-op kept for back-compat). The frame-no-emit
+;; `:generation`, so resetting `frame/frames` clears the image-loaded frames —
+;; the single reset is the whole clear (rf2-ji3tvy). The frame-no-emit
 ;; gate (rf2-2qaqh) lives in a persistent `re-frame.trace` set the registry
 ;; reset does NOT touch, so the seating cases also clear the shell ids they
 ;; exercise so each starts un-gated.

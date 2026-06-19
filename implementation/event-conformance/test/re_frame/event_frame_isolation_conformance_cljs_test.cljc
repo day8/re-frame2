@@ -62,8 +62,9 @@
   (an ambient scope would mask a frame-target-resolution regression). The
   registrar is snapshot/restored via `make-reset-runtime-fixture` (NOT
   `clear-all!`, which would destroy framework ns-load registrations a sibling ns
-  depends on); the process-local live-frame registry is cleared between cases so
-  an `:id` from one case does not collide with the next.
+  depends on); the ONE `frame/frames` registry is reset between cases — clearing
+  every record AND its generation — so an `:id` from one case does not collide
+  with the next (no separate live-frame index to clear, rf2-ji3tvy).
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`.
 
@@ -86,11 +87,7 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter       plain-atom/adapter
-                                            :ambient-frame nil})
-  (fn [t]
-    (lf/clear-live-frames!)
-    (t)
-    (lf/clear-live-frames!)))
+                                            :ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers — build a RUNNABLE image-resolver descriptor for an event / sub id.

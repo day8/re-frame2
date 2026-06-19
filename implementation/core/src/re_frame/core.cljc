@@ -772,7 +772,7 @@
 ;; on the object constructor): the unified single frame value backed by the one
 ;; registry removes the two-constructor split that motivated the redirect, so a
 ;; record-config key is now honoured, not rejected. The advanced
-;; `re-frame.frame/make-frame` is demoted to an INTERNAL no-`:id` record helper —
+;; `re-frame.frame/make-anon-frame-record!` is demoted to an INTERNAL no-`:id` record helper —
 ;; it is not facade-exported (`rf/make-frame` is the public path).
 
 (defn make-frame

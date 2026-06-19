@@ -135,7 +135,7 @@
             post-hydrate values via subscribe-once (no view re-render
             machinery needed; the contract is the app-db state)."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
@@ -170,7 +170,7 @@
             observed the same via DOM re-render; subscribe-once reads
             the post-drain app-db directly)."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
@@ -202,7 +202,7 @@
             (resp-status, resp-ct, resp-cookies-count,
             resp-cookie-name)."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
@@ -231,7 +231,7 @@
             compatibility check; absence of the hook is degraded-
             but-running, never crash)."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)
           traces       (capture-traces!
@@ -270,7 +270,7 @@
             :rf.fx/skipped-on-platform warning per check on every server-
             side hydrate. The handler-level gate prevents that noise."
     (register-baseline-handlers!)
-    (let [server-frame (frame/make-frame {:doc "ssr-basic server frame"
+    (let [server-frame (frame/make-anon-frame-record! {:doc "ssr-basic server frame"
                                        :platform :server})
           ;; Add a :rf/schema-digest so BOTH checks would fire if the
           ;; handler enqueued them; otherwise only :rf.ssr/check-version
@@ -308,7 +308,7 @@
             and differing). Without this counter-assertion the
             server-side gate could silently strip both code paths."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)
           traces       (capture-traces!
@@ -336,7 +336,7 @@
             :rf.ssr/hydration-mismatch trace fires on the baseline
             surface (its payload's :rf/render-hash is nil)."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
@@ -385,7 +385,7 @@
                          {:rf/app-db "slice-is-a-string"}
                          {:rf/app-db [:slice :is :a :vector]}
                          {:rf/app-db 99}]]
-      (let [client-frame (frame/make-frame {:doc "ssr-basic client frame"
+      (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                          :platform :client})]
         ;; Seed a recognisable pre-hydration client slice so we can prove
         ;; it SURVIVES (was not replaced by the malformed payload).
@@ -417,7 +417,7 @@
             neither emits the malformed diagnostic."
     (register-baseline-handlers!)
     ;; (a) full server slice → replaces app-db, no diagnostic.
-    (let [client-frame (frame/make-frame {:doc "client frame a" :platform :client})
+    (let [client-frame (frame/make-anon-frame-record! {:doc "client frame a" :platform :client})
           traces       (capture-traces!
                          (fn []
                            (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 7 :title "seeded"}}]
@@ -427,7 +427,7 @@
       (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
           "no malformed diagnostic on a well-formed payload"))
     ;; (b) map payload with no app-db slice → existing client data survives.
-    (let [client-frame (frame/make-frame {:doc "client frame b" :platform :client})]
+    (let [client-frame (frame/make-anon-frame-record! {:doc "client frame b" :platform :client})]
       (rf/dispatch-sync [::set-title "kept"] {:frame client-frame})
       (let [traces (capture-traces!
                      (fn []
@@ -479,7 +479,7 @@
                     [:runtime :is :a :vector]
                     42
                     false]]
-      (let [client-frame (frame/make-frame {:doc "non-map-runtime-db client frame"
+      (let [client-frame (frame/make-anon-frame-record! {:doc "non-map-runtime-db client frame"
                                          :platform :client})]
         ;; Seed recognisable pre-hydration state in BOTH partitions.
         (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
@@ -530,7 +530,7 @@
     (subs/reg-runtime-sub :route-current
       (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
     ;; (a) map runtime-db slice → installs the runtime-db partition.
-    (let [client-frame (frame/make-frame {:doc "rt-ok client frame" :platform :client})
+    (let [client-frame (frame/make-anon-frame-record! {:doc "rt-ok client frame" :platform :client})
           payload {:rf/app-db     {:count 7 :title "seeded"}
                    :rf/runtime-db {:rf.runtime/routing {:current {:route-id :home}}}}
           traces  (capture-traces!
@@ -542,7 +542,7 @@
       (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
           "no malformed diagnostic on a well-formed two-partition payload"))
     ;; (b) wholly-absent :rf/runtime-db key → no-server-runtime fallback.
-    (let [client-frame (frame/make-frame {:doc "rt-absent client frame" :platform :client})
+    (let [client-frame (frame/make-anon-frame-record! {:doc "rt-absent client frame" :platform :client})
           traces (capture-traces!
                    (fn []
                      (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}]
@@ -574,7 +574,7 @@
             a retired alias that stays dead. It behaves as an unknown no-slice
             payload (app-db unchanged, client-only fallback), not as an alias."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "alias-dead client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "alias-dead client frame"
                                        :platform :client})]
       ;; Seed a recognisable pre-hydration client slice so we can prove it
       ;; SURVIVES (was not replaced by the :app-db-keyed payload).
@@ -629,7 +629,7 @@
             sub reflects the seeded slice — the server-build → hydrate! →
             sub round-trip. hydrate! returns the applied payload."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "boot-helper client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "boot-helper client frame"
                                        :platform :client})
           ;; Server side: build the payload from the authoritative app-db
           ;; slice via the same payload-policy path the Ring adapter uses.
@@ -665,7 +665,7 @@
             first-load shape) does NOT dispatch :rf/hydrate and returns
             nil. The caller renders against the empty app-db."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "boot-helper client-only frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "boot-helper client-only frame"
                                        :platform :client})
           returned     (ssr/hydrate! {:frame client-frame :payload nil})]
       (is (nil? returned)
@@ -686,7 +686,7 @@
             server's :emit-hash? marker."
     (register-baseline-handlers!)
     (rf/reg-view* ::boot-root (fn [] [:div.app [:span "client-render"]]))
-    (let [client-frame (frame/make-frame {:doc "boot-helper verify frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "boot-helper verify frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
           ;; Server hash is a DELIBERATELY divergent value so the verify
@@ -713,7 +713,7 @@
             successful hydration. Counter-test to the divergent-render case
             so the verify step can't be a false-positive generator."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "boot-helper verify-match frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "boot-helper verify-match frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
           client-tree   [:div.app [:span "client-render"]]
@@ -766,10 +766,10 @@
             :rf.error/hydration-frame-id-mismatch — the runtime never
             silently picks a side, and app-db is NOT replaced."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "mismatch client frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "mismatch client frame"
                                        :platform :client})
           ;; Payload stamped with a DIFFERENT frame id than the client target.
-          other-frame  (frame/make-frame {:doc "the server's other frame"
+          other-frame  (frame/make-anon-frame-record! {:doc "the server's other frame"
                                        :platform :server})
           payload      (build-server-payload
                          other-frame {:count 7 :title "seeded"} "deadbeef"
@@ -793,7 +793,7 @@
             conflict — there is nothing to disagree with, so the explicit
             client target stands and hydration proceeds normally."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "no-payload-frame-id client"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "no-payload-frame-id client"
                                        :platform :client})
           ;; A hand-built payload deliberately WITHOUT :rf/frame-id.
           payload      {:rf/version 1 :rf/app-db {:count 7 :title "seeded"}}
@@ -819,7 +819,7 @@
             This is the bypass the bead names: hydrate! throws pre-dispatch,
             but a direct dispatch hits ONLY the handler."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "nv3mua direct-dispatch client"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "nv3mua direct-dispatch client"
                                        :platform :client})]
       ;; Seed a recognisable pre-hydration client slice so we can prove it
       ;; SURVIVES (was not replaced by the wrong-frame payload).
@@ -863,7 +863,7 @@
             dispatch target installs the slice normally (the validation is
             precise — it rejects only present-and-DIFFERENT, never a match)."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "nv3mua matching-frame client"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "nv3mua matching-frame client"
                                        :platform :client})
           ;; Stamp the payload's :rf/frame-id with the SAME frame we hydrate
           ;; into — server + client agree, so the slice lands. A render-hash
@@ -885,7 +885,7 @@
             slice installs (the documented client-only / no-server-slice
             fallback shape). This is the path the baseline tests rely on."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "nv3mua absent-frame-id client"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "nv3mua absent-frame-id client"
                                        :platform :client})
           ;; Deliberately NO :rf/frame-id key.
           payload      {:rf/app-db {:count 5 :title "no-frame-id"}}]
@@ -904,7 +904,7 @@
             host render happens between :rf/hydrate and the call. This locks
             the chosen contract in maintainer-visible terms."
     (register-baseline-handlers!)
-    (let [client-frame (frame/make-frame {:doc "boot-helper sync-contract frame"
+    (let [client-frame (frame/make-anon-frame-record! {:doc "boot-helper sync-contract frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
           ;; Records WHEN render-tree-fn ran + WHAT app-db it saw.

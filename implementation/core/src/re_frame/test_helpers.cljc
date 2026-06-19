@@ -581,7 +581,7 @@
            id-sym         (gensym "frame-id")
            create-form    (if frame-id
                             `(re-frame.frame/reg-frame ~frame-id ~frame-cfg-sym)
-                            `(re-frame.frame/make-frame ~frame-cfg-sym))]
+                            `(re-frame.frame/make-anon-frame-record! ~frame-cfg-sym))]
        `(let [~opts-sym       ~opts
               ~install-sym    (:install      ~opts-sym)
               ~root-view-sym  (:root-view    ~opts-sym)

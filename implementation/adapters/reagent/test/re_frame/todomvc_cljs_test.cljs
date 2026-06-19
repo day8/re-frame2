@@ -79,7 +79,7 @@
     ;; dispatch is issued explicitly here (not via :on-create, which does not
     ;; forward :rf.cofx) carrying the empty-localStorage / first-run value: an
     ;; empty sorted-map, exactly what the node-side boundary read yields.
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:fx-overrides {:todo.storage/save :rf/no-op}})]
       (rf/dispatch-sync [:todo/initialise]
                         {:frame   f

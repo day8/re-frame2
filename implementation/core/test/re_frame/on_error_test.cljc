@@ -406,7 +406,7 @@
                        (fn [_ _] {:fx [[:goum9x/real-fx]]}))
       ;; Per-call override redirects :goum9x/real-fx to an id that is NOT
       ;; registered → override-fallthrough; runtime uses :goum9x/real-fx.
-      (let [f (frame/make-frame {})]
+      (let [f (frame/make-anon-frame-record! {})]
         (rf/dispatch-sync [:goum9x/run-bad-override]
                           {:frame f
                            :fx-overrides {:goum9x/real-fx :goum9x/not-registered}})

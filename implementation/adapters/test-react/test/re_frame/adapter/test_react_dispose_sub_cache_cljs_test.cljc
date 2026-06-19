@@ -79,7 +79,7 @@
             and cleared by the same dispose-adapter! call"
     (rf/reg-event ::seed (fn [{:keys [db]} [_ v]] {:db {:n v}}))
     (rf/reg-sub ::n (fn [db _] (:n db)))
-    (let [other (frame/make-frame {:doc "second frame"})]
+    (let [other (frame/make-anon-frame-record! {:doc "second frame"})]
       ;; Seed + subscribe in BOTH frames so each carries a live cache slot.
       ;; Frame targeting rides the opts map (`:frame`) via the fn-form
       ;; `dispatch-sync*` — the `dispatch-sync` macro has no frame-positional
