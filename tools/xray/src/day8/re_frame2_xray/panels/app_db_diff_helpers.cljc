@@ -675,15 +675,3 @@
                  :before   (get-in db-before path)
                  :after    (get-in db-after  path)}))
             history))))
-
-;; ---- diff caching --------------------------------------------------------
-
-(defn cache-key-of
-  "Return the cache key for a diff between an epoch's `:db-before`
-  and `:db-after`. Per spec §Performance §Diff caching the cache is
-  keyed by `:epoch-id` and the same epoch never re-diffs.
-
-  Pure-data helper so the sub layer can build a `{epoch-id triples}`
-  lookup without duplicating the key shape."
-  [epoch-record]
-  (:epoch-id epoch-record))
