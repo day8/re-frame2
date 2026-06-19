@@ -13,12 +13,10 @@
 
     - The `MachineChart` Reagent component (public surface per
       `tools/machines-viz/spec/API.md` §MachineChart).
-    - `xyflow-graph` — pure-data projector that turns
+    - The JS-interop ELK glue: the elkjs `compute-layout!` async
+      pass + cache. (The pure-data projector that turns
       `chart.layout/project-definition` output into the xyflow
-      `:nodes` + `:edges` shape, with per-node/per-edge `:data`
-      payloads carrying the active/from-highlight/to-highlight
-      flags, event labels, tags, etc.
-    - The elkjs `compute-layout!` async pass + cache.
+      `:nodes` + `:edges` shape lives in `chart.projection`.)
 
   ## What this does NOT own
 
