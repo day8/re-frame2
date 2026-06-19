@@ -1,0 +1,99 @@
+;; Conformance fixture: data-classification/machine-data-frame-declared-redacts
+;;
+;; Per Spec 015 §Machine-owned durable classification (frame-owned; EP-0025
+;; reversal of the EP-0005 redaction bridge) + the §Tests fixture table, and
+;; Spec 005 §Privacy — redacting machine `:data` at trace egress.
+;;
+;; EP-0025 (RULED 2026-06-20, rf2-398kql): frame-declared paths are the SOLE
+;; app-db / runtime-db data-classification mechanism. The machine `:data-schema`
+;; `:sensitive?` / `:large?` per-slot props NO LONGER classify the machine's
+;; durable `:data` for trace egress (the EP-0005 schema→marks bridge is
+;; reversed). The `:data-schema` still VALIDATES `:data`; only the
+;; classification bridge is removed.
+;;
+;; This fixture pins the OBSERVABLE contract of the frame-owned surface: the
+;; FRAME declares the machine snapshot's `:data` token slot sensitive via its
+;; absolute runtime-db path `[:rf.runtime/machines :snapshots :dc/auth :data
+;; :token]` (the frame-owned mechanism, equivalent to `reg-frame` `:sensitive
+;; {:app-db [...]}`). After a transition whose action writes a live secret token
+;; into `:data`, the `:rf.machine/transition` and `:rf.machine/snapshot-updated`
+;; trace `:after` snapshots project `:rf/redacted` at `[:data :token]` — while
+;; an unmarked sibling slot (`:retries`) rides egress verbatim. The redaction is
+;; a TRACE-EGRESS concern: the committed runtime-db snapshot carries the raw
+;; value; only the projected trace event redacts (the listener fan-out runs
+;; through `:marks/project-trace-event`, which re-roots the frame's snapshot-path
+;; declaration relative to the snapshot value via `marks/frame-snapshot-marks`).
+;;
+;; The machine's `:data-schema` carries NO `:sensitive?` prop (validation-only,
+;; EP-0025); the classification is entirely frame-side.
+;;
+;; Capability `:data-classification/marks` (already claimed by both the JVM and
+;; CLJS conformance corpus runners) + `:fsm/flat` + `:core/trace`.
+
+{:fixture/id           :data-classification/machine-data-frame-declared-redacts
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/trace
+                         :data-classification/marks}
+ :fixture/doc          "A frame declaring the machine snapshot's :data token slot sensitive (frame-owned, via the absolute runtime-db path [:rf.runtime/machines :snapshots :dc/auth :data :token]), after a transition whose action writes a secret token into :data, projects :rf/redacted at [:data :token] in the :rf.machine/transition and :rf.machine/snapshot-updated trace :after snapshot; an unmarked sibling slot rides egress verbatim. EP-0025: frame-declared paths are the sole app-db mechanism (the machine :data-schema :sensitive? slot no longer classifies durable :data)."
+
+ :fixture/registry
+ {:event {:dc/auth {:doc "Machine-as-event-handler; durable :data classified by the frame."}}
+  :machine-action
+  {:dc/store-token {:doc "Action body writes the secret token + bumps retries into machine :data."}}
+  ;; The machine spec is registered via re-frame.machines/reg-machine. Its
+  ;; :data-schema VALIDATES :data only (no :sensitive? prop, EP-0025). The
+  ;; runner merges the realised :machine-action body into the spec's :actions
+  ;; slot.
+  :machine
+  {:dc/auth {:initial     :anon
+             :data        {:retries 0 :token nil}
+             :data-schema [:map
+                           [:retries :int]
+                           [:token [:maybe :string]]]
+             :states      {:anon   {:on {:login {:target :authed
+                                                 :action :dc/store-token}}}
+                           :authed {}}}}}
+
+ :fixture/handlers
+ ;; Action signature (Spec 005 §Actions): (fn [{:keys [data event]}] {:data … :fx …}).
+ ;; [:set [:token] [:event-arg 1]] writes the inner event's token arg into :data;
+ ;; the inner event is [:login "secret-jwt"], so [:event-arg 1] is the token.
+ {:machine-action
+  {:dc/store-token [[:set [:token]   [:event-arg 1]]
+                    [:set [:retries] 1]]}}
+
+ ;; EP-0025 — the FRAME declares the machine snapshot's token slot sensitive via
+ ;; its absolute runtime-db path (the frame-owned sole app-db mechanism). The
+ ;; trace projection re-roots this snapshot-relative and redacts the :after slot.
+ :fixture/app-marks
+ [{:add-marks {[:rf.runtime/machines :snapshots :dc/auth :data :token] :sensitive}}]
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ ;; Inner-event sub-routing (Spec 005 §Registration): the outer event
+ ;; [:dc/auth [:login "secret-jwt"]] yields inner-event [:login "secret-jwt"]
+ ;; inside the handler, triggering the :anon → :authed transition whose action
+ ;; writes the secret token into :data.
+ [[:dc/auth [:login "secret-jwt"]]]
+
+ :fixture/expect
+ ;; The committed runtime-db snapshot carries the RAW token — redaction is a
+ ;; trace-egress concern only.
+ {:trace-emissions
+  ;; The matcher partial-matches each trace by its named keys and matches a
+  ;; map-valued :tags key one level deep, comparing each :tags entry by exact
+  ;; value. The :after snapshot is asserted as a full literal map (small +
+  ;; deterministic): the frame-declared :token slot redacts to :rf/redacted, the
+  ;; unmarked :retries sibling rides verbatim, and the reserved
+  ;; :rf/spawn-counter snapshot key is carried.
+  [{:operation :rf.machine/transition
+    :tags      {:actor-id :dc/auth
+                :after      {:state :authed
+                             :data  {:retries 1 :token :rf/redacted}
+                             :rf/spawn-counter {}}}}
+   {:operation :rf.machine/snapshot-updated
+    :tags      {:actor-id :dc/auth
+                :after      {:state :authed
+                             :data  {:retries 1 :token :rf/redacted}
+                             :rf/spawn-counter {}}}}]}}

@@ -424,75 +424,19 @@
 ;; `register-marks!` are DELETED: author marks are now DERIVED from the
 ;; registrar meta at `marks-for` read time, so re-registering a (kind, id)
 ;; REPLACES its marks (registrar slot semantics) — there is no per-(kind, id)
-;; "merge into the existing entry" operation any more. The schema-vs-author
-;; UNION (the only union that mattered) survives via the separate
-;; `machine-id->schema-marks` table + the read-time merge in `marks-for`,
-;; exercised by the `machine-schema-marks-*` tests below. The deleted
-;; `union-marks!` tests (creates-when-absent / unions-with-existing / dedups /
-;; noop-without-paths + the output-sensitivity monotone-OR cases) tested that
-;; removed table-level merge; the monotone-OR union helpers they exercised are
-;; still covered through the schema-vs-author path. The malformed-rejection
+;; "merge into the existing entry" operation any more. The malformed-rejection
 ;; that `union-marks-rejects-malformed` covered is now covered at the reg-*
 ;; boundary by `reg-sub-rejects-malformed-marks` / `reg-event-rejects-
 ;; malformed-marks-no-stash` (the only ingestion path that remains).
 
-;; ---- machine schema marks: order-independent union (rf2-qpibk0) ----------
-;; Schema-sourced machine marks live in a SEPARATE table that `marks-for
-;; :event <id>` unions with the REGISTRAR-DERIVED author `:event` marks at read
-;; time, so the schema-vs-author composition is order-independent and a
-;; re-registration of the `:event` entry can never drop schema-derived marks.
-;; The author side is now expressed by registering the (machine) id as an event
-;; with the author marks in its reg meta (rf2-ehexnw) — the registrar holds it,
-;; `marks-for` derives it.
-
-(deftest machine-schema-marks-union-with-author-marks-at-read-time
-  (marks/declare-machine-schema-marks! :m/auth {:sensitive [[:data :token]]
-                                                :large     [[:data :blob]]})
-  (rf/reg-event :m/auth {:sensitive [[:data :session-id]]} (fn [_ _] nil))
-  (let [m (marks/marks-for :event :m/auth)]
-    (is (= #{[:data :token] [:data :session-id]} (set (:sensitive m)))
-        "schema-sourced and author-sourced sensitive paths union at read time")
-    (is (= #{[:data :blob]} (set (:large m)))
-        "schema-sourced large path present")))
-
-(deftest machine-schema-marks-order-independent-author-after-schema
-  (marks/declare-machine-schema-marks! :m/o1 {:sensitive [[:data :token]]})
-  (rf/reg-event :m/o1 {:sensitive [[:data :extra]]} (fn [_ _] nil))
-  (is (= #{[:data :token] [:data :extra]}
-         (set (:sensitive (marks/marks-for :event :m/o1))))
-      "schema-first then author yields the union"))
-
-(deftest machine-schema-marks-order-independent-schema-after-author
-  (rf/reg-event :m/o2 {:sensitive [[:data :extra]]} (fn [_ _] nil))
-  (marks/declare-machine-schema-marks! :m/o2 {:sensitive [[:data :token]]})
-  (is (= #{[:data :token] [:data :extra]}
-         (set (:sensitive (marks/marks-for :event :m/o2))))
-      "author-first then schema yields the IDENTICAL union (order-independent)"))
-
-(deftest re-registering-event-entry-does-not-drop-schema-marks
-  ;; A bare-meta re-registration REPLACES the author `:event` registrar slot,
-  ;; but the schema-sourced marks live in a separate table and survive — the
-  ;; order-independence invariant.
-  (marks/declare-machine-schema-marks! :m/o3 {:sensitive [[:data :token]]})
-  (rf/reg-event :m/o3 {:sensitive [[:data :extra]]} (fn [_ _] nil))
-  ;; Bare-meta re-registration clears the author marks (registrar slot replace).
-  (rf/reg-event :m/o3 (fn [_ _] nil))
-  (is (= #{[:data :token]} (set (:sensitive (marks/marks-for :event :m/o3))))
-      "schema-sourced [:data :token] survives the author-entry clear"))
-
-(deftest clear-machine-schema-marks-drops-only-schema-entry
-  (marks/declare-machine-schema-marks! :m/c1 {:sensitive [[:data :token]]})
-  (rf/reg-event :m/c1 {:sensitive [[:data :extra]]} (fn [_ _] nil))
-  (marks/clear-machine-schema-marks! :m/c1)
-  (let [m (marks/marks-for :event :m/c1)]
-    (is (= #{[:data :extra]} (set (:sensitive m)))
-        "clearing the schema entry leaves the author-sourced marks intact")))
-
-(deftest declare-machine-schema-marks-nil-clears-entry
-  (marks/declare-machine-schema-marks! :m/c2 {:sensitive [[:data :token]]})
-  (marks/declare-machine-schema-marks! :m/c2 nil)
-  (is (nil? (marks/marks-for :event :m/c2))
-      "declaring nil clears the schema entry (and no author entry exists)"))
+;; ---- machine schema marks: REMOVED (EP-0025, rf2-398kql) -----------------
+;; The schema-sourced machine-id->schema-marks table + the read-time merge in
+;; `marks-for` (the EP-0005 schema→marks bridge, formerly exercised here by the
+;; `machine-schema-marks-*` / `declare-machine-schema-marks-*` tests) are GONE.
+;; `marks-for` now returns ONLY the registrar-derived author marks, uniformly
+;; for every kind. Machine `:data` egress classification is frame-owned and the
+;; trace/SSR redaction surface is pinned by the machines-artefact test
+;; `re-frame.machine-data-schema-redaction-test`.
 
 ;; ---- emit-time projection ----------------------------------------------
 
