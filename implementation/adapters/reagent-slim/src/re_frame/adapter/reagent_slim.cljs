@@ -30,10 +30,17 @@
 ;; CRITICAL — bundle isolation (IMPL-SPEC §1.8 / the
 ;; `test:reagent-slim:bundle-isolation` gate). The spine MUST NOT
 ;; `:require` stock `reagent.*`; the reactive-atom ops are INJECTED here
-;; so this adapter's `reagent2.*` requires stay confined to this ns and
-;; the spine never names a reactive-atom ns. deps.edn carries zero direct
-;; `reagent.*` requires (the slim framing: a re-implementation, not a
-;; thin wrapper).
+;; as a flat set of bare fns so this adapter's `reagent2.*` requires stay
+;; confined to this ns and the spine never names a reactive-atom ns.
+;; deps.edn carries zero direct `reagent.*` requires (the slim framing: a
+;; re-implementation, not a thin wrapper).
+;;
+;; rf2-0u5em6: the spine assembles its internal ratom-ops map from these
+;; bare fns. This adapter passes ~7 bare fns (flat config keys, mirroring
+;; `make-react-spine`'s bare hook fns) instead of a hand-shaped keyword
+;; map — earlier this adapter and the bridge one each built a structurally-
+;; identical 7-key `:ratom-ops` map differing only by ns-alias, a "keep two
+;; maps in lockstep" hazard the flat-bare-fn shape removes.
 
 (def ^:private spine-fns
   (spine/make-ratom-spine
@@ -47,30 +54,30 @@
      ;; slim render / dispose-drain pins rely on (capturing the bare Var
      ;; value at load time would freeze the original impls past any
      ;; `with-redefs` rebind). Runtime behaviour is identical.
-     :ratom-ops         {:r/atom              (fn [v] (r/atom v))
-                         :ratom/make-reaction (fn [thunk] (ratom/make-reaction thunk))
-                         :rdc/create-root     (fn [mount-point] (rdc/create-root mount-point))
-                         :rdc/render          (fn [root tree] (rdc/render root tree))
-                         :rdc/hydrate-root    (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
-                         :rdc/unmount         (fn [root] (rdc/unmount root))
-                         ;; rf2-40a84 / rf2-0bz5ah — synchronous render-commit
-                         ;; op. Runs `f` (which may mutate a ratom / dispatch),
-                         ;; then drains the rea-queue + forceUpdates every dirty
-                         ;; component via `reagent2.impl.batching/flush!`, INSIDE
-                         ;; a `react-dom/flushSync` boundary so the forced
-                         ;; re-renders COMMIT TO THE DOM synchronously before the
-                         ;; op returns. Under React 19 `createRoot` a bare
-                         ;; `forceUpdate` from outside React's batching is
-                         ;; auto-batched (scheduled, not committed), so the
-                         ;; boundary is load-bearing — see
-                         ;; `reagent2.dom.client/flush-render!` for the full
-                         ;; rationale + the empirical proof
-                         ;; (`reagent_slim_flush_render_dom_cljs_test`). The
-                         ;; commit is NOT microtask/rAF-deferred and fires even
-                         ;; in a backgrounded / headless tab. (Distinct from
-                         ;; `reagent2.dom.client/flush-views!`, the goog.DEBUG-
-                         ;; gated act()-composing TEST primitive.)
-                         :rdc/flush-render!   rdc/flush-render!}}))
+     :r-atom        (fn [v] (r/atom v))
+     :make-reaction (fn [thunk] (ratom/make-reaction thunk))
+     :create-root   (fn [mount-point] (rdc/create-root mount-point))
+     :render-root   (fn [root tree] (rdc/render root tree))
+     :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
+     :unmount-root  (fn [root] (rdc/unmount root))
+     ;; rf2-40a84 / rf2-0bz5ah — synchronous render-commit
+     ;; op. Runs `f` (which may mutate a ratom / dispatch),
+     ;; then drains the rea-queue + forceUpdates every dirty
+     ;; component via `reagent2.impl.batching/flush!`, INSIDE
+     ;; a `react-dom/flushSync` boundary so the forced
+     ;; re-renders COMMIT TO THE DOM synchronously before the
+     ;; op returns. Under React 19 `createRoot` a bare
+     ;; `forceUpdate` from outside React's batching is
+     ;; auto-batched (scheduled, not committed), so the
+     ;; boundary is load-bearing — see
+     ;; `reagent2.dom.client/flush-render!` for the full
+     ;; rationale + the empirical proof
+     ;; (`reagent_slim_flush_render_dom_cljs_test`). The
+     ;; commit is NOT microtask/rAF-deferred and fires even
+     ;; in a backgrounded / headless tab. (Distinct from
+     ;; `reagent2.dom.client/flush-views!`, the goog.DEBUG-
+     ;; gated act()-composing TEST primitive.)
+     :flush-render! rdc/flush-render!}))
 
 (def set-hiccup-emitter!
   "Install the hiccup → HTML fn used by render-to-string. Last call wins.
@@ -110,18 +117,18 @@
 
   The container quartet, renderer, render-to-string and dispose body
   come from `spine/make-ratom-spine` (rf2-rzex9, shared with the bridge
-  Reagent adapter under an injected `reagent2.*` op set); the adapter
+  Reagent adapter under an injected `reagent2.*` bare-fn set); the adapter
   map + the nine-call ratom-family `route-hook!` table + the chained
   SSR-emitter install are assembled by `spine/make-ratom-adapter`
   (rf2-ee38b.1, also shared with the bridge adapter under an injected
-  `reagent2.*` hook-ops set). `register-context-provider` is passed in
+  `reagent2.*` bare-fn hook set). `register-context-provider` is passed in
   (NOT spine-built) because it is the Reagent-component-shaped frame-
   provider from `re-frame.views`, distinct from the React-hook spine's
   hook-shaped one — keeping the core spine free of a spine→views edge.
-  CRITICAL: bundle isolation is preserved — the `:hook-ops` are injected
-  `reagent2.*` impls, so the spine names no reactive-atom ns (the
-  `test:reagent-slim:bundle-isolation` gate by construction). Per-hook
-  rationale lives at `spine/make-ratom-adapter`."
+  CRITICAL: bundle isolation is preserved — the hook ops are injected
+  `reagent2.*` impls (flat bare-fn config keys, rf2-0u5em6), so the spine
+  names no reactive-atom ns (the `test:reagent-slim:bundle-isolation` gate
+  by construction). Per-hook rationale lives at `spine/make-ratom-adapter`."
   (spine/make-ratom-adapter
     spine-fns
     {:kind :rf.adapter/reagent-slim
@@ -130,24 +137,25 @@
      ;; at render time. Per IMPL-SPEC §9.4: views.cljs continues to back
      ;; the frame-provider; the rewrite doesn't replace it.
      :register-context-provider (fn [_frame-keyword] (views/build-frame-provider))
-     ;; Injected reagent2.* ops for the ratom-family late-bind hooks.
-     ;; Wiring reagent2.* impls is load-bearing (rf2-s36l): without this
-     ;; seam the first (interop/add-on-dispose! ...) under the slim
-     ;; adapter threw because reagent2.ratom/Reaction does NOT reify stock
-     ;; Reagent's IDisposable. rf2-jicu2: the dual-IDisposable dispatch
+     ;; Injected reagent2.* ops for the ratom-family late-bind hooks (flat
+     ;; bare-fn config keys, rf2-0u5em6 — the spine assembles the route-hook
+     ;; table from them). Wiring reagent2.* impls is load-bearing (rf2-s36l):
+     ;; without this seam the first (interop/add-on-dispose! ...) under the
+     ;; slim adapter threw because reagent2.ratom/Reaction does NOT reify
+     ;; stock Reagent's IDisposable. rf2-jicu2: the dual-IDisposable dispatch
      ;; (re-frame-owned first, then reagent2's) is handled inside
      ;; make-ratom-adapter — this adapter supplies the substrate-side
      ;; `disposable?` predicate + `add-on-dispose!` / `dispose!` impls.
-     :hook-ops {:current-frame     views/current-frame
-                :current-component r/current-component
-                :atom              r/atom
-                :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
-                :make-reaction     ratom/make-reaction
-                :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
-                :add-on-dispose!   ratom/add-on-dispose!
-                :dispose!          ratom/dispose!
-                :reactive?         ratom/reactive?
-                :after-render      r/after-render}}))
+     :current-frame     views/current-frame
+     :current-component r/current-component
+     :atom              r/atom
+     :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
+     :make-reaction     ratom/make-reaction
+     :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
+     :add-on-dispose!   ratom/add-on-dispose!
+     :dispose!          ratom/dispose!
+     :reactive?         ratom/reactive?
+     :after-render      r/after-render}))
 
 ;; ---- warn-once cache reset wiring (rf2-qy6cl) -----------------------------
 ;;

@@ -1895,42 +1895,52 @@
 ;; core/substrate and MUST NOT `:require` stock `reagent.*` — the day8/
 ;; reagent-slim adapter would otherwise drag the stock-Reagent impl tree
 ;; into every slim release bundle. The reactive-atom ops are therefore
-;; INJECTED by each adapter via the `:ratom-ops` map (the HOF
+;; INJECTED by each adapter as a flat set of BARE-FN config keys (the HOF
 ;; parameterisation): the Reagent adapter passes its stock `reagent.*`
 ;; impls, the slim adapter passes its `reagent2.*` impls. The spine never
 ;; names either ns. (The same isolation principle as `make-react-spine`,
 ;; which calls `react-dom/client` directly but never Reagent.)
+;;
+;; rf2-0u5em6: the per-substrate ops arrive as FLAT bare-fn config keys
+;; (`:r-atom`, `:make-reaction`, `:create-root`, …) — mirroring how
+;; `make-react-spine` takes its bare `:use-memo` / `:use-callback` /
+;; `:use-context` hook fns — rather than as a hand-shaped `:ratom-ops`
+;; keyword map literal. Earlier each adapter built a structurally-identical
+;; 7-key `:ratom-ops` map differing only by ns-alias (`reagent.*` vs
+;; `reagent2.*`), a "keep two maps in lockstep" hazard. The keyword-key
+;; shape now lives ONCE here; each adapter passes ~7 bare fns.
 
 (defn make-ratom-spine
   "Build the per-substrate ratom-family substrate surfaces given the
-  substrate's ratom ops and gensym prefix:
+  substrate's gensym prefix and a FLAT set of injected reactive-atom BARE
+  FNS (rf2-0u5em6 — mirroring how `make-react-spine` takes its bare
+  `:use-memo` / `:use-callback` / `:use-context` hook fns, not a hand-
+  shaped keyword map):
 
       :gensym-prefix-sub — gensym prefix for `subscribe-container` watch
                            keys (substrate-scoped per rf2-l4dmr so logs /
                            inspectors attribute a watch to its substrate)
-      :ratom-ops         — the injected reactive-atom impls, a map of:
-          :r/atom              — (fn [v]) → reactive atom container
-          :ratom/make-reaction — (fn [thunk]) → reaction over a thunk
-          :rdc/create-root     — (fn [mount-point]) → React root
-          :rdc/render          — (fn [root tree]) → render hiccup into
-                                 root (the substrate's hiccup→element
-                                 walk + `.render`, NOT a bare `.render`)
-          :rdc/hydrate-root    — (fn [mount-point tree]) → React root
-          :rdc/unmount         — (fn [root]) → unmount the root
-          :rdc/flush-render!   — (fn [f]) → run `f` then SYNCHRONOUSLY commit
-                                 the substrate's pending renders to the DOM
-                                 (rf2-40a84; stock Reagent passes
-                                 `reagent.core/flush`, slim passes its
-                                 `reagent2.*` synchronous flush). NOT rAF-
-                                 scheduled — immune to the backgrounded-tab
-                                 throttle, so headless tooling can drive a
-                                 `dispatch → flush-render! → observe-DOM` loop.
+      :r-atom        — (fn [v]) → reactive atom container
+      :make-reaction — (fn [thunk]) → reaction over a thunk
+      :create-root   — (fn [mount-point]) → React root
+      :render-root   — (fn [root tree]) → render hiccup into root (the
+                       substrate's hiccup→element walk + `.render`, NOT a
+                       bare `.render`)
+      :hydrate-root  — (fn [mount-point tree]) → React root
+      :unmount-root  — (fn [root]) → unmount the root
+      :flush-render! — (fn [f]) → run `f` then SYNCHRONOUSLY commit the
+                       substrate's pending renders to the DOM (rf2-40a84;
+                       stock Reagent passes `(fn [f] (f) (reagent.core/
+                       flush))`, slim passes its `reagent2.*` synchronous
+                       flush). NOT rAF-scheduled — immune to the
+                       backgrounded-tab throttle, so headless tooling can
+                       drive a `dispatch → flush-render! → observe-DOM` loop.
 
-  The spine MUST NOT `:require` stock `reagent.*`; the ops above are the
-  only path to the substrate's reactive primitive, so each adapter's own
-  `reagent.*` / `reagent2.*` requires stay confined to the adapter ns
-  (load-bearing for reagent-slim bundle isolation — see the section
-  comment above).
+  The spine assembles its internal ratom-ops shape from these bare fns; it
+  MUST NOT `:require` stock `reagent.*`; the fns above are the only path to
+  the substrate's reactive primitive, so each adapter's own `reagent.*` /
+  `reagent2.*` requires stay confined to the adapter ns (load-bearing for
+  reagent-slim bundle isolation — see the section comment above).
 
   Returns a map of the substrate-contract surfaces (minus
   `register-context-provider`) plus the SSR helpers each adapter
@@ -1960,15 +1970,10 @@
   thunk that drops itself from the set; and the four-MUST dispose body
   (`dispose-frame-sub-caches!` + active-roots drain w/ per-root throw-
   swallow + emitter clear)."
-  [{:keys [gensym-prefix-sub ratom-ops]}]
-  (let [{r-atom        :r/atom
-         make-reaction :ratom/make-reaction
-         create-root   :rdc/create-root
-         render-root   :rdc/render
-         hydrate-root  :rdc/hydrate-root
-         unmount-root  :rdc/unmount
-         flush-render-op :rdc/flush-render!} ratom-ops
-        active-roots-cell (make-active-roots-cell)
+  [{:keys [gensym-prefix-sub r-atom make-reaction create-root render-root
+           hydrate-root unmount-root]
+    flush-render-op :flush-render!}]
+  (let [active-roots-cell (make-active-roots-cell)
         emitter-cell      (make-hiccup-emitter-cell)
         make-state-container
         (fn make-state-container [initial-value]
@@ -2109,9 +2114,18 @@
 ;; reactive-atom-family ops the hook table needs — `current-component`,
 ;; `atom`, `after-render`, `make-reaction`, the `ratom?`/`disposable?`
 ;; predicates, and the `add-on-dispose!`/`dispose!`/`reactive?` fns — are
-;; INJECTED via the `:hook-ops` map (predicate/dispatch lambdas over the
-;; substrate's protocols), so the spine never names a reactive-atom ns.
-;; Each adapter passes its `reagent.*` / `reagent2.*` impls.
+;; INJECTED as a flat set of bare-fn config keys (predicate/dispatch
+;; lambdas over the substrate's protocols), so the spine never names a
+;; reactive-atom ns. Each adapter passes its `reagent.*` / `reagent2.*`
+;; impls.
+;;
+;; rf2-0u5em6: as with `make-ratom-spine`, the hook ops arrive as FLAT
+;; bare-fn config keys rather than a hand-shaped `:hook-ops` keyword map
+;; literal. Earlier each adapter built a structurally-identical 10-key
+;; `:hook-ops` map differing only by ns-alias (the two maps were byte-
+;; identical modulo `reagent.*` vs `reagent2.*`) — a "keep two maps in
+;; lockstep" hazard. The keyword-key shape now lives ONCE here; the spine
+;; assembles the route-hook table from the bare fns each adapter passes.
 
 (defn make-ratom-adapter
   "Assemble a ratom-family adapter (Reagent / reagent-slim) from a
@@ -2123,22 +2137,25 @@
                    `(fn [_frame-keyword] (views/build-frame-provider))`.
                    Passed in (NOT spine-built) so the core spine carries no
                    spine→views dependency edge.
-      :hook-ops  — the injected reactive-atom-family ops the late-bind
-                   hook table routes (bundle-isolation: lambdas only, the
-                   spine names no reactive-atom ns):
-          :current-frame      — (fn []) → React-context-tier current frame
-                                (`views/current-frame`)
-          :current-component  — (fn []) → the in-flight component
-          :atom               — (fn [v]) → reactive atom
-          :ratom?             — (fn [x]) → boolean (IReactiveAtom check)
-          :make-reaction      — (fn [thunk]) → reaction
-          :disposable?        — (fn [x]) → boolean (substrate IDisposable
-                                check), used by the dual-protocol dispatch
-          :add-on-dispose!    — (fn [a f]) → register a substrate-reaction
-                                dispose hook
-          :dispose!           — (fn [a]) → dispose a substrate reaction
-          :reactive?          — (fn []) → boolean
-          :after-render       — (fn [f]) → schedule post-render callback
+
+  …plus a FLAT set of the injected reactive-atom-family BARE FNS the
+  late-bind hook table routes (rf2-0u5em6 — bundle-isolation: lambdas only,
+  the spine names no reactive-atom ns; mirrors `make-react-spine`'s bare-
+  hook-fn config rather than a hand-shaped keyword map):
+
+      :current-frame      — (fn []) → React-context-tier current frame
+                            (`views/current-frame`)
+      :current-component  — (fn []) → the in-flight component
+      :atom               — (fn [v]) → reactive atom
+      :ratom?             — (fn [x]) → boolean (IReactiveAtom check)
+      :make-reaction      — (fn [thunk]) → reaction
+      :disposable?        — (fn [x]) → boolean (substrate IDisposable
+                            check), used by the dual-protocol dispatch
+      :add-on-dispose!    — (fn [a f]) → register a substrate-reaction
+                            dispose hook
+      :dispose!           — (fn [a]) → dispose a substrate reaction
+      :reactive?          — (fn []) → boolean
+      :after-render       — (fn [f]) → schedule post-render callback
 
   Builds the 9-key adapter map, wires the chained SSR emitter install, and
   routes the nine ratom-family late-bind hooks against the adapter. The two
@@ -2151,13 +2168,12 @@
   (chain-fn! / route-hook!), exactly as the hand-written wiring was.
 
   Single source of truth (rf2-ee38b.1): Reagent and reagent-slim call this
-  with the same shape — only their injected `:hook-ops` and `:kind` differ.
-  The former hand-copied route-hook block now lives once."
-  [spine-fns {:keys [kind register-context-provider hook-ops]}]
-  (let [{:keys [current-frame current-component atom ratom? make-reaction
-                disposable? add-on-dispose! dispose! reactive? after-render]}
-        hook-ops
-        adapter {:kind                      kind
+  with the same shape — only their injected bare hook fns and `:kind`
+  differ. The former hand-copied route-hook block now lives once."
+  [spine-fns {:keys [kind register-context-provider
+                     current-frame current-component atom ratom? make-reaction
+                     disposable? add-on-dispose! dispose! reactive? after-render]}]
+  (let [adapter {:kind                      kind
                  :make-state-container      (:make-state-container spine-fns)
                  :read-container            (:read-container       spine-fns)
                  :replace-container!        (:replace-container!   spine-fns)
