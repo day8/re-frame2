@@ -282,6 +282,25 @@
 ;; not inferred from process state. A plain fn (not a macro) so CLJS sibling-ns
 ;; callers use it with no `:require-macros` plumbing.
 
+(defn frame-resolution-target
+  "EP-0023 §Frame-derived live registration resolution (rf2-uejnt3): given the
+  CARRIED frame `target` a caller holds (a `subscribe` `frame-id` slot or a
+  dispatch envelope's `:frame`), return the EP-0023 frame OBJECT to derive the
+  resolution generation from — the object itself when the target IS one (the
+  direct-object form), or the live-frame registry's object for a frame-id
+  KEYWORD. nil for any target that names no live image-loaded frame — the
+  absence-is-default signal that [[call-with-frame-resolution]] binds NOTHING
+  and the build/dispatch resolves through the registrar atom path,
+  byte-identical for every existing caller. The shared resolution-target read
+  the subscribe-side (`subs`) and dispatch-side (`router`) twins collapsed onto
+  (rf2-6zfzxy) — both held a byte-identical copy. Pure read of the carried
+  target + the process-local live-frame registry."
+  [target]
+  (cond
+    (frame-object? target) target
+    (keyword? target)      (live-frame target)
+    :else                  nil))
+
 (defn frame-resolution-generation
   "Return the resolved image generation a `frame-target` resolves registrations
   through, or nil when the target names no image-loaded frame. EP-0024
