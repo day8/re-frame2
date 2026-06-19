@@ -40,7 +40,6 @@
   `:ambiguous-frame` / `:sub-error`)."
   (:require [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
@@ -153,27 +152,24 @@
       :ok
       (let [query-v payload
             form    (read-sub-form query-v frame walk? frame-edn elision-opts)]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then
-              (fn [envelope]
-                (if-not (and (map? envelope) (:ok? envelope))
-                  ;; Structured failure (unknown-id / ambiguous-frame /
-                  ;; sub-error / not-a-sub-vector) — surface verbatim as an
-                  ;; :isError envelope, never a silent nil success
-                  ;; (no-silent-swallow parity with dispatch).
-                  (wire/err-text (if (map? envelope)
-                                   envelope
-                                   {:ok? false :reason :unexpected-shape :value envelope}))
-                  ;; Hit — count the server-side elision markers over the
-                  ;; value and rebuild the envelope (the same `:scalar-value`
-                  ;; pipeline arm get-path uses).
-                  (let [{:keys [value indicators]}
-                        (wp/run-wire-pipeline (:value envelope) {:kind :scalar-value})
-                        {:keys [elided]} indicators]
-                    (wire/ok-text
-                      (wire/with-indicators
-                        (assoc envelope :value value :elision elision?)
-                        {:elided elided}))))))
-            (.catch (fn [err] (probe/err->result :read-sub-failed err))))))))
+        (probe/eval-after-runtime-signalled!
+          conn build-id form :read-sub-failed
+          (fn [envelope]
+            (if-not (and (map? envelope) (:ok? envelope))
+              ;; Structured failure (unknown-id / ambiguous-frame /
+              ;; sub-error / not-a-sub-vector) — surface verbatim as an
+              ;; :isError envelope, never a silent nil success
+              ;; (no-silent-swallow parity with dispatch).
+              (wire/err-text (if (map? envelope)
+                               envelope
+                               {:ok? false :reason :unexpected-shape :value envelope}))
+              ;; Hit — count the server-side elision markers over the
+              ;; value and rebuild the envelope (the same `:scalar-value`
+              ;; pipeline arm get-path uses).
+              (let [{:keys [value indicators]}
+                    (wp/run-wire-pipeline (:value envelope) {:kind :scalar-value})
+                    {:keys [elided]} indicators]
+                (wire/ok-text
+                  (wire/with-indicators
+                    (assoc envelope :value value :elision elision?)
+                    {:elided elided}))))))))))

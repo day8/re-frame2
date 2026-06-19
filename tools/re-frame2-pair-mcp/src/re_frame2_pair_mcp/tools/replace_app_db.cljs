@@ -56,12 +56,10 @@
   posture landing. This is why `replace-app-db` does NOT use the plain
   `probe/eval-after-runtime!` prelude (which skips the signal step) —
   it threads `signal-runtime!` between the probe and the eval."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
 ;; The `db` arg has NO shape constraint — a frame's app-db is
@@ -95,23 +93,21 @@
                      (ef/rt-call 'app-db-reset! new-db frame)
                      (ef/rt-call 'app-db-reset! new-db))
               form (ef/emit call)]
-          ;; rf2-z7roa — `signal-runtime!` lands between `ensure-runtime!`
-          ;; and the `app-db-reset!` eval so the runtime's tap-emitting
-          ;; surface is in its gated (default-elided) posture BEFORE the
-          ;; reset taps the pre-/post-reset app-db. This mirrors the
-          ;; direct-read surfaces' prelude (rf2-c2dtu) rather than the
-          ;; plain `probe/eval-after-runtime!` (which has no signal step).
-          (-> (probe/ensure-runtime! conn build-id)
-              (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-              (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-              (.then (fn [v]
-                       ;; app-db-reset! returns a structured envelope
-                       ;; ({:ok? true :frame ...} / {:ok? false :reason
-                       ;; :reset-rejected ...}). Pass it through; default
-                       ;; to a generic shape if the runtime returned a
-                       ;; non-map (degraded / pre-rf2-c2dtu runtime).
-                       (wire/ok-text
-                         (if (map? v)
-                           v
-                           {:ok? false :reason :unexpected-shape :value v :frame frame}))))
-              (.catch (fn [err] (probe/err->result :replace-app-db-failed err)))))))))
+          ;; rf2-z7roa — the signalled prelude lands `signal-runtime!`
+          ;; between `ensure-runtime!` and the `app-db-reset!` eval so the
+          ;; runtime's tap-emitting surface is in its gated (default-elided)
+          ;; posture BEFORE the reset taps the pre-/post-reset app-db. This
+          ;; mirrors the direct-read surfaces' prelude (rf2-c2dtu) rather
+          ;; than the plain `probe/eval-after-runtime!` (no signal step).
+          (probe/eval-after-runtime-signalled!
+            conn build-id form :replace-app-db-failed
+            (fn [v]
+              ;; app-db-reset! returns a structured envelope
+              ;; ({:ok? true :frame ...} / {:ok? false :reason
+              ;; :reset-rejected ...}). Pass it through; default to a
+              ;; generic shape if the runtime returned a non-map (degraded
+              ;; / pre-rf2-c2dtu runtime).
+              (wire/ok-text
+                (if (map? v)
+                  v
+                  {:ok? false :reason :unexpected-shape :value v :frame frame})))))))))

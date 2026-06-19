@@ -32,8 +32,7 @@
   ran `re-frame.core/elide-wire-value` server-side already; the
   `:scalar-value` arm of `run-wire-pipeline` just counts the
   resulting `:rf.size/large-elided` markers."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.eval-form :as ef]
+  (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame2-pair-mcp.tools.probe :as probe]
@@ -184,37 +183,35 @@
         ;; `pluck` lifts the literal value the pipeline should count;
         ;; `rebuild` reassembles the envelope from the pipelined value.
         (fn [form pluck rebuild]
-          (-> (probe/ensure-runtime! conn build-id)
-              (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-              (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-              (.then (fn [envelope]
-                       (let [server-elided (when (:ok? envelope) (:elided-count envelope))
-                             {:keys [value indicators]}
-                             (wp/run-wire-pipeline
-                               (pluck envelope)
-                               {:kind :scalar-value
-                                :server-elided server-elided})
-                             {:keys [elided]} indicators
-                             rebuilt (wire/with-indicators
-                                       (rebuild (dissoc envelope :elided-count) value)
-                                       {:elided elided})]
-                         ;; rf2-wdxyx3 finding 2 — a known-tool runtime
-                         ;; failure (`:ok? false`, e.g. a singular
-                         ;; `:path-not-found` miss) MUST ride back as an
-                         ;; `isError` envelope, per the published wire
-                         ;; contract (spec/001-Wire-Protocol.md, API.md
-                         ;; §isError) and the dispatch/read-sub
-                         ;; no-silent-success parity model. An `ok-text`
-                         ;; wrapper let the failure cache as a normal success
-                         ;; (cache eligibility keys off `isError`, not
-                         ;; `:ok?`) and read as green by the MCP host. The
-                         ;; `:wholesale-read-of-reserved-frame` refusal is
-                         ;; built upstream as its own `err-text` and never
-                         ;; reaches this tail.)
-                         (if (false? (:ok? rebuilt))
-                           (wire/err-text rebuilt)
-                           (wire/ok-text rebuilt)))))
-              (.catch (fn [err] (probe/err->result :get-path-failed err)))))]
+          (probe/eval-after-runtime-signalled!
+            conn build-id form :get-path-failed
+            (fn [envelope]
+              (let [server-elided (when (:ok? envelope) (:elided-count envelope))
+                    {:keys [value indicators]}
+                    (wp/run-wire-pipeline
+                      (pluck envelope)
+                      {:kind :scalar-value
+                       :server-elided server-elided})
+                    {:keys [elided]} indicators
+                    rebuilt (wire/with-indicators
+                              (rebuild (dissoc envelope :elided-count) value)
+                              {:elided elided})]
+                ;; rf2-wdxyx3 finding 2 — a known-tool runtime
+                ;; failure (`:ok? false`, e.g. a singular
+                ;; `:path-not-found` miss) MUST ride back as an
+                ;; `isError` envelope, per the published wire
+                ;; contract (spec/001-Wire-Protocol.md, API.md
+                ;; §isError) and the dispatch/read-sub
+                ;; no-silent-success parity model. An `ok-text`
+                ;; wrapper let the failure cache as a normal success
+                ;; (cache eligibility keys off `isError`, not
+                ;; `:ok?`) and read as green by the MCP host. The
+                ;; `:wholesale-read-of-reserved-frame` refusal is
+                ;; built upstream as its own `err-text` and never
+                ;; reaches this tail.)
+                (if (false? (:ok? rebuilt))
+                  (wire/err-text rebuilt)
+                  (wire/ok-text rebuilt))))))]
     (cond
       ;; rf2-qef58 — server-side backstop: refuse a WHOLESALE root read
       ;; (`path: []`, or a `[]` element in a batch `paths`) of a reserved

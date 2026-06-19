@@ -128,7 +128,6 @@
   `dispatch-dry-run` (signal-runtime! + projected egress, same gate)."
   (:require [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.await-promise :as await-promise]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -484,25 +483,23 @@
           (let [settle-form (render-settle-form fn-sym event-vec opts-form)
                 mailbox-id  (await-promise/mailbox-key)
                 wrapped     (await-promise/wrap-form settle-form mailbox-id)]
-            (-> (probe/ensure-runtime! conn build-id)
-                ;; rf2-8fin7.3 — signal the boot-gate posture BEFORE the
-                ;; dispatch eval, exactly as `dispatch-dry-run` does. This
-                ;; flips the runtime's `raw-state-config` to the server's
-                ;; gate state (OFF by default) so the cascade-summary's
-                ;; `:event-vector` (the raw `:trigger-event`) redacts to
-                ;; `:rf/redacted` for a sensitive epoch — the path-3 leak
-                ;; (a first-in-session sensitive dispatch shipping its raw
-                ;; event vector under the default OFF gate). Without the
-                ;; signal the runtime stays at its permissive
-                ;; `{:allow-raw-state? true}` default and the redaction
-                ;; never fires. See raw-state/signal-runtime!.
-                (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-                (.then (fn [_] (nrepl/cljs-eval-value conn build-id wrapped)))
-                (.then (fn [sentinel]
-                         (await-promise/handle-sentinel
-                           conn build-id timeout-ms sentinel
-                           (await-render-callbacks mode))))
-                (.catch (fn [err] (probe/err->result :dispatch-failed err)))))
+            ;; rf2-8fin7.3 — the signalled prelude flips the boot-gate
+            ;; posture BEFORE the dispatch eval, exactly as
+            ;; `dispatch-dry-run` does. This sets the runtime's
+            ;; `raw-state-config` to the server's gate state (OFF by
+            ;; default) so the cascade-summary's `:event-vector` (the raw
+            ;; `:trigger-event`) redacts to `:rf/redacted` for a sensitive
+            ;; epoch — closing the path-3 leak (a first-in-session
+            ;; sensitive dispatch shipping its raw event vector under the
+            ;; default OFF gate). Without the signal the runtime stays at
+            ;; its permissive `{:allow-raw-state? true}` default and the
+            ;; redaction never fires. See raw-state/signal-runtime!.
+            (probe/eval-after-runtime-signalled!
+              conn build-id wrapped :dispatch-failed
+              (fn [sentinel]
+                (await-promise/handle-sentinel
+                  conn build-id timeout-ms sentinel
+                  (await-render-callbacks mode)))))
           (let [call-src (ef/emit (ef/rt-call fn-sym event-vec opts-form))
                 ;; rf2-olvr5 finding 1 — only the epoch-bearing modes
                 ;; (`:trace` / `:settle`) carry raw `:epoch` /
@@ -515,9 +512,9 @@
                 form     (if (contains? #{:trace :settle} mode)
                            (egress/project-dispatch-result-src call-src incl?)
                            call-src)]
-            ;; rf2-8fin7.3 — issue the boot-gate signal between the
-            ;; preload probe and the dispatch eval (the snapshot /
-            ;; get-path / subscribe / dispatch-dry-run prelude shape, NOT
+            ;; rf2-8fin7.3 — the signalled prelude issues the boot-gate
+            ;; signal between the preload probe and the dispatch eval (the
+            ;; snapshot / get-path / dispatch-dry-run prelude shape, NOT
             ;; the bare `eval-after-runtime!`). `signal-runtime!` flips the
             ;; runtime's `raw-state-config` to the server's gate state so
             ;; the DEFAULT cascade-summary's `:event-vector` (the raw
@@ -528,8 +525,6 @@
             ;; `:trace` / `:settle` epoch slots are ALSO projected
             ;; (egress/project-dispatch-result-src above, rf2-olvr5) — the
             ;; two protections compose, mirroring dispatch-dry-run.
-            (-> (probe/ensure-runtime! conn build-id)
-                (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-                (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-                (.then (fn [v] (runtime-envelope->result mode v)))
-                (.catch (fn [err] (probe/err->result :dispatch-failed err)))))))))))
+            (probe/eval-after-runtime-signalled!
+              conn build-id form :dispatch-failed
+              (fn [v] (runtime-envelope->result mode v))))))))))

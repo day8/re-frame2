@@ -111,7 +111,6 @@
   the eval, the same `args/parse-cofx` gate `dispatch` carries."
   (:require [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -372,10 +371,9 @@
                        ['env      (ef/rt-call 'dispatch-dry-run event-vec opts-form)
                         'redacted (ef/rt-raw (str "(" redact-src " env)"))]
                        (ef/rt-raw "{:value redacted :elided-count 0}"))))]
-        (-> (probe/ensure-runtime! conn build-id)
-            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-            (.then (fn [resp]
+        (probe/eval-after-runtime-signalled!
+          conn build-id form :dispatch-dry-run-failed
+          (fn [resp]
                      ;; Eval-form shape: `{:value <env> :elided-count N}`
                      ;; (matching snapshot / get-path, rf2-e35a5). The
                      ;; runtime fn ALWAYS returns a map, so an unwrapped
@@ -402,5 +400,4 @@
                        ;; verbatim so the caller still sees why.
                        (if (false? (:ok? result))
                          (wire/err-text result)
-                         (wire/ok-text result)))))
-            (.catch (fn [err] (probe/err->result :dispatch-dry-run-failed err))))))))
+                         (wire/ok-text result)))))))))
