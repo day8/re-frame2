@@ -1,7 +1,7 @@
 {
   "name": "@day8/re-frame2-xray",
   "version": "0.1.0-alpha.1",
-  "description": "Read-only tour skill for Xray — the re-frame2 in-app devtools panel. Teaches how to launch Xray (true-inline, the open-overlay! fallback for no-layout-host / full-screen-canvas hosts, pop-out, programmatic, hotkeys, Dynamic ↔ Static mode toggle) and which tab — across the 9 Dynamic event-spine tabs (incl. Resources, the EP-0014 derivation/process Graph, and the EP-0013 module/realm/app-value Modules tab) and 5 Static registry-browse tabs — surfaces the data you're looking for.",
+  "description": "Read-only tour skill for Xray — the re-frame2 in-app devtools panel. Teaches how to launch Xray (true-inline, the open-overlay! fallback for no-layout-host / full-screen-canvas hosts, pop-out, programmatic, hotkeys, Dynamic ↔ Static mode toggle) and which tab — across the 9 Dynamic event-spine tabs (incl. Resources, the EP-0014 derivation/process Graph, and the EP-0023 image→frame Modules tab with the retained-internal EP-0013 realm/module substrate below) and 5 Static registry-browse tabs — surfaces the data you're looking for.",
   "keywords": [
     "claude-code",
     "claude-code-skill",

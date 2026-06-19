@@ -100,8 +100,9 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
   9 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
   Machine / Routes / Resources / Graph / Modules — Graph being Xray's UI over the
-  EP-0014 derivation/process graph, and Modules the EP-0013 module/realm/app-value
-  lens (L4-only)) and the 5 Static registry-browse
+  EP-0014 derivation/process graph, and Modules its EP-0023
+  `image → frame → event stream` lens (which image loaded which frame), with the
+  retained-internal EP-0013 realm/module substrate below (L4-only)) and the 5 Static registry-browse
   tabs (Machines / Routes / Schemas / Flows / Interceptors). There is no
   Issues tab — issues surface inline. Xray owns
   the *seeing*; `re-frame2-pair` owns the *driving*.
@@ -184,7 +185,7 @@ Both kinds of friction target the same repo and carry the tool-vs-framework
 distinction in the **title + body**:
 
 - **Pair-tool friction** — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior.
-- **Framework / Tool-Pair contract friction** — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`../shared/tool-pair-surfaces.md`](./shared/tool-pair-surfaces.md).
+- **Framework / Tool-Pair contract friction** — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`./shared/tool-pair-surfaces.md`](./shared/tool-pair-surfaces.md).
 
 **Labels are optional taxonomy, not a filing precondition.** A `--label` (e.g. `pair-mcp`) is added only after confirming the target repo defines it (detect with `gh label list`); on a repo/fork without that label, `gh issue create --label` fails the whole command, so filing falls back to a no-label `gh issue create` and lands regardless. The operational label/filing rules live in [`re-frame2-pair-retro/SKILL.md` §Filing improvements](./re-frame2-pair-retro/SKILL.md#filing-improvements) — this index points there rather than restating them.
 
