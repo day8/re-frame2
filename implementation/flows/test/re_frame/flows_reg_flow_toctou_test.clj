@@ -99,17 +99,19 @@
   ;; fails. Post-fix the atomic swap admits at most one of the pair, so
   ;; the committed map is always acyclic.
   ;;
-  ;; SECONDARY INVARIANT: at least one of the two registrations must be
+  ;; SECONDARY INVARIANT: EXACTLY one of the two registrations must be
   ;; REJECTED with `:rf.error/flow-cycle` (the loser of the CAS race, or
   ;; the second of two serialised registrations, sees the committed edge
-  ;; and throws). We count rejections; with a real cycle-forming pair on
-  ;; a shared frame, every round MUST reject at least one half, so the
-  ;; rejection count must be >= rounds. (A round can reject BOTH only if
-  ;; both threads happened to run fully serialised AND the first's commit
-  ;; was then cleared — which never happens here since we clear only
-  ;; AFTER the round's asserts — so the realistic ceiling is one
-  ;; rejection per round, but we assert the lower bound which is the
-  ;; load-bearing one.)
+  ;; and throws) while the other commits. We count rejections; with a
+  ;; real cycle-forming pair on a shared frame, every round admits one
+  ;; half and rejects one half, so the rejection count must EQUAL rounds.
+  ;; A short count means a cycle was admitted silently (invariant 1 also
+  ;; catches it); an over count means a round rejected BOTH halves — a
+  ;; spurious double-rejection regression invariant 1 would miss. A
+  ;; double-rejection cannot occur legitimately here: we clear the
+  ;; round's flow-ids only AFTER the asserts, so the first commit is
+  ;; never cleared mid-round. Asserting `=` makes both directions an
+  ;; independent signal.
   (testing (str rounds " rounds: two threads, one shared frame, "
                 "cycle-forming reg-flow pair in lockstep — committed "
                 "registry is never cyclic, at least one half rejected")
@@ -170,14 +172,23 @@
                "(committed registry is cyclic — the rf2-qxwib TOCTOU). "
                "First offending round: " (pr-str @first-bad)))
 
-      ;; --- Invariant 2: every round rejected at least one half. -------
-      ;; With a genuine cycle-forming pair on a shared frame, one half
-      ;; MUST always be rejected — the only way neither throws is if a
-      ;; cycle was admitted (caught by invariant 1). So rejections >=
-      ;; rounds confirms the cycle was caught at REGISTRATION every round
-      ;; (Spec 013 §Cycle detection), not deferred to drain time.
-      (is (<= rounds (.get rejections))
-          (str "Expected at least " rounds " cycle rejections (>= one "
+      ;; --- Invariant 2: every round rejected EXACTLY one half. --------
+      ;; With a genuine cycle-forming pair on a shared frame, exactly one
+      ;; half is admitted and exactly one is rejected: the atomic swap
+      ;; admits the CAS winner (or the first of two serialised
+      ;; registrations) and the loser/second re-reads the committed edge
+      ;; and throws (Spec 013 §Cycle detection — caught at REGISTRATION,
+      ;; not deferred to drain). A SHORT count means a round admitted the
+      ;; cycle silently (also caught by invariant 1); an OVER count means
+      ;; a round rejected BOTH halves — a spurious double-rejection
+      ;; interleaving regression that invariant 1 (acyclic commit) would
+      ;; not catch. Asserting exact equality makes either an independent
+      ;; signal. (We clear the round's flow-ids only AFTER these asserts,
+      ;; so the first commit is never cleared mid-round — a legitimate
+      ;; double-rejection cannot occur.)
+      (is (= rounds (.get rejections))
+          (str "Expected exactly " rounds " cycle rejections (exactly one "
                "per round); got " (.get rejections) ". A short count "
                "means a round admitted the cycle silently instead of "
-               "rejecting a half at registration.")))))
+               "rejecting a half at registration; an over count means a "
+               "round spuriously rejected BOTH halves.")))))
