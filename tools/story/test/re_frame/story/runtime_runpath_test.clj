@@ -286,3 +286,55 @@
     (let [result (run-target :story.opts/plain)]
       (is (= "static" (get-in result [:app-db :value])))
       (is (= "static" (get-in result [:effective-args :value]))))))
+
+;; ===========================================================================
+;; rf2-5fv445 — a plan-construction failure routes to `plan-error-result`
+;; REGARDLESS of the prior frame's lifecycle state. Before the fix
+;; `handle-run-error!` gated the plan-error branch on
+;; `(= :pre-mount (loaders/current-state variant-id))`; the plan compiles in
+;; `prepare-context` BEFORE this run resets its frame, so when a PRIOR
+;; `run-variant` had already driven the same-id frame to `:ready`, the guard
+;; saw `:ready` and fell through to the frame-bound `:else` branch — recording
+;; an opaque `:rf.error/exception` AND reading the prior run's stale `:app-db`
+;; into the error result (spec/017 §Run result: `:app-db` is THIS run's final
+;; db; the error language must read identically across UI/MCP).
+;; ===========================================================================
+
+(deftest plan-error-after-prior-ready-run-reports-structured-error-not-stale-db
+  (testing "a plan-construction failure (missing [:arg :missing]) on the SECOND
+            run of a variant that the FIRST run drove to :ready surfaces the
+            structured :rf.error/story-missing-arg assertion directly and does
+            NOT leak the prior run's app-db value (rf2-5fv445)"
+    ;; Run 1: a valid variant that seeds app-db with {:value \"old\"} and runs
+    ;; to a healthy terminal — the frame ends at :ready with that app-db.
+    (story/reg-variant
+      :story.stale/v
+      {:script [[:dispatch-sync [:rp/set-value "old"]]
+                [:assert [:rf.assert/path-equals [:value] "old"]]]})
+    (let [first-result (run-target :story.stale/v)]
+      (is (= :pass (:status first-result)) "the first run is a healthy pass")
+      (is (= "old" (get-in first-result [:app-db :value]))
+          "the first run leaves {:value \"old\"} on the frame's app-db"))
+    ;; Run 2: RE-REGISTER the same id with a plan-time error — a [:arg :missing]
+    ;; the variant (and its parents) never declares. Plan construction throws in
+    ;; `prepare-context` (before the fresh-frame reset), and the prior frame is
+    ;; still registered at :ready.
+    (story/reg-variant
+      :story.stale/v
+      {:script [[:dispatch-sync [:rp/set-value [:arg :missing]]]]})
+    (let [result (run-target :story.stale/v)]
+      (is (= :error (:status result))
+          "the second run reports :error (plan construction failed)")
+      (let [rec (first (filter #(= :rf.error/story-missing-arg (:assertion %))
+                               (:assertions result)))]
+        (is (some? rec)
+            "the plan failure surfaces as a STRUCTURED :rf.error/story-missing-arg
+             assertion — NOT an opaque :rf.error/exception")
+        (is (false? (:passed? rec))))
+      (is (not (some #(= :rf.error/exception (:assertion %)) (:assertions result)))
+          "no opaque :rf.error/exception assertion is recorded for a plan failure")
+      (is (not= "old" (get-in result [:app-db :value]))
+          "the error result does NOT leak the prior run's stale {:value \"old\"}")
+      (is (= {} (:app-db result))
+          "a plan-construction failure allocates no frame, so :app-db is the
+           frame-free empty-result default ({}) — never the prior frame's db"))))
