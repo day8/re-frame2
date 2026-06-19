@@ -1023,40 +1023,45 @@
                      :rollback? false
                      :recovery  :no-recovery}
               event-id (assoc :failing-id event-id))))
-        app-ok?
+        run-partition-validator!
+        ;; The per-partition validator arm template (rf2-6zfzxy). Runs the
+        ;; late-bound `hook-key` validator against the partition's new value
+        ;; ONLY when `effect?` (that partition was written this commit) AND the
+        ;; hook is installed; otherwise → true (an absent validator / unwritten
+        ;; partition is a pass). Resolves the hook ONCE (the prior arms called
+        ;; `get-fn-cached` twice — in the `and` then re-fetched in the `let`).
+        ;; nil-coerce: a nil return is success (don't roll back) so a host
+        ;; returning nil on a clean validate keeps working. A host-thrown
+        ;; validator is caught, surfaced via `emit-swallow!`, and treated as
+        ;; `true` (the validator is failing on itself, not on a user schema; a
+        ;; hard abort here would mask the partition's state from the rest of the
+        ;; cascade — real schema failures route through the in-band false).
+        (fn [effect? hook-key partition-value where]
+          (if effect?
+            (if-let [validate (late-bind/get-fn-cached hook-key)]
+              (try
+                (let [result (validate partition-value event-id frame)]
+                  (if (nil? result) true result))
+                (catch #?(:clj Throwable :cljs :default) ex
+                  (emit-swallow! where ex)
+                  true))
+              true)
+            true))
         ;; App-db schema validation runs only when a `:db` effect produced a
         ;; new app-db (app schemas validate app-db only — Mike ruling #11).
         ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
-        (if (and app-effect?
-                 (late-bind/get-fn-cached :schemas/validate-app-schema!))
-          (let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
-            (try
-              ;; nil-coerce: treat a nil return as success (don't roll
-              ;; back) so a host that returns nil rather than true on a
-              ;; clean validate keeps working.
-              (let [result (validate db-after event-id frame)]
-                (if (nil? result) true result))
-              (catch #?(:clj Throwable :cljs :default) ex
-                (emit-swallow! :app-db ex)
-                true)))
-          true)
-        machines-ok?
+        app-ok?
+        (run-partition-validator! app-effect? :schemas/validate-app-schema!
+                                  db-after :app-db)
         ;; Per rf2-jbbp7 — the machine-data boundary (Spec 005 §Schema
         ;; validation). EP-0001 (rf2-vzld77): machine snapshots are durable
         ;; runtime-db state, so this validates the new RUNTIME-DB value and
         ;; runs only when a `:rf.db/runtime` effect landed this commit. The
         ;; hook is absent when the machines artefact isn't on the classpath;
         ;; absent → true (no machines means no machine-data to validate).
-        (if (and rt-effect?
-                 (late-bind/get-fn-cached :machines/validate-machine-data!))
-          (let [validate-md (late-bind/get-fn-cached :machines/validate-machine-data!)]
-            (try
-              (let [result (validate-md runtime-db-after event-id frame)]
-                (if (nil? result) true result))
-              (catch #?(:clj Throwable :cljs :default) ex
-                (emit-swallow! :machine-data ex)
-                true)))
-          true)]
+        machines-ok?
+        (run-partition-validator! rt-effect? :machines/validate-machine-data!
+                                  runtime-db-after :machine-data)]
     ;; Both must conform for the cascade to keep its commit; the per-
     ;; failure traces have already been emitted independently so the
     ;; operator sees every violation, not just the first.
