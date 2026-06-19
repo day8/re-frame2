@@ -149,7 +149,7 @@
 
 ;; ---- the stress test ------------------------------------------------------
 
-(deftest actor-spawn-dispatch-destroy-stress
+(deftest ^:stress actor-spawn-dispatch-destroy-stress
   ;; rf2-1gpx8 — mirrors rf2-35rgj's pattern for the machine actor surface.
   ;;
   ;; The two pinned invariants are the same as rf2-35rgj's: every

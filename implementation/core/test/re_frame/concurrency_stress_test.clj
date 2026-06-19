@@ -71,7 +71,7 @@
 
 ;; ---- 1. Nested cross-frame dispatch under executor jitter ----------------
 
-(deftest cross-frame-dispatch-under-executor-jitter-stress
+(deftest ^:stress cross-frame-dispatch-under-executor-jitter-stress
   ;; rf2-35rgj scenario 1.
   ;;
   ;; Setup: two frames `:rgj.exec/a` and `:rgj.exec/b`. A handler on A
@@ -162,7 +162,7 @@
 
 ;; ---- 2. Cross-frame :dispatch-sync during sibling drain ------------------
 
-(deftest cross-frame-dispatch-sync-during-sibling-drain-stress
+(deftest ^:stress cross-frame-dispatch-sync-during-sibling-drain-stress
   ;; rf2-35rgj scenario 2.
   ;;
   ;; rf2-fp97 added `:rf.warning/cross-frame-dispatch-sync-during-drain`
@@ -269,7 +269,7 @@
 
 ;; ---- 3. Hot-reload race during drain -------------------------------------
 
-(deftest hot-reload-race-during-drain-stress
+(deftest ^:stress hot-reload-race-during-drain-stress
   ;; rf2-35rgj scenario 3.
   ;;
   ;; Spec 001 §Hot-reload semantics rule 1: an event handler currently

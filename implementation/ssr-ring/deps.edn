@@ -86,7 +86,35 @@
                        ring/ring-jetty-adapter {:mvn/version "1.12.1"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"]}
+         ;; rf2-bv2qqm — the default PR/local gate EXCLUDES the heavy
+         ;; `^:stress` namespace (here: `concurrency_stress_test`, three
+         ;; multi-thread Jetty + java.net.http burst tests). The runner
+         ;; passes `-e` through to cognitect-test-runner verbatim. Coverage
+         ;; is NOT lost: the `:slow-test` alias below runs the excluded
+         ;; tests, invoked by the nightly `expensive-tests.yml` job and
+         ;; `scripts/test-rigorous-local.sh`.
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
+                       "-e" ":slow" "-e" ":stress"]}
+
+  ;; rf2-bv2qqm — nightly/rigorous slow-test gate. INCLUDES ONLY the
+  ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
+  ;; excludes), so the default `:test` run plus this `:slow-test` run
+  ;; together cover every test exactly once. Invoked by the nightly
+  ;; `.github/workflows/expensive-tests.yml` job and the local
+  ;; `scripts/test-rigorous-local.sh` sweep.
+  :slow-test
+  {:extra-paths ["test"]
+   :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                 day8/re-frame2-flows      {:local/root "../flows"}
+                 day8/re-frame2-routing    {:local/root "../routing"}
+                 day8/re-frame2-machines   {:local/root "../machines"}
+                 day8/re-frame2-resources  {:local/root "../resources"}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                 ring/ring-jetty-adapter {:mvn/version "1.12.1"}
+                 io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
+                 "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on the per-feature artefacts.
   ;; The release workflow swaps :local/root → :mvn/version before
