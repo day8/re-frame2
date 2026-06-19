@@ -1722,6 +1722,82 @@
       (is (nil? (:play-script (story/variant->edn :story.button/primary))))
       (is (nil? (:play (story/variant->edn :story.button/primary)))))))
 
+(deftest record-as-variant-write-back-replaces-existing-play-script
+  (testing "rf2-f4e1xs: write-back against a source variant that ALREADY
+            carries a play surface (a lowered :play-script) must REPLACE
+            it, not fail validation. The variant schema rejects a body
+            carrying more than one of :script / :play-script / :plays, so
+            the pre-fix `(assoc body :script …)` on such a source produced
+            a body with BOTH :script and :play-script and the registrar
+            rejected it. write-back! now drops the prior play surface
+            first."
+    (config/set-allow-writes! true)
+    ;; A source variant authored with the PUBLIC :script slot — the
+    ;; registrar lowers it to the shipping :play-script on store, so the
+    ;; stored body the recorder reads back already carries :play-script.
+    (story/reg-variant :story.button/with-script
+      {:doc    "Has an existing play surface."
+       :args   {:label "Scripted"}
+       :tags   #{:dev}
+       :script [[:dispatch [:noop]]]})
+    (is (some? (:play-script (story/variant->edn :story.button/with-script)))
+        "precondition: the source variant stores a lowered :play-script")
+    (drive-events-during-recording [[:counter/inc] [:counter/inc]])
+    (let [r (invoke "record-as-variant"
+                    {:variant-id  "story.button/with-script"
+                     :duration-ms 100
+                     :write-back  true})
+          s (:structuredContent r)
+          n (:recorded-event-count s)]
+      (is (success? r)
+          "write-back over an existing :play-script succeeds (was :isError pre-fix)")
+      (is (true? (:written-back? s)))
+      (is (= :story.button/with-script (:new-variant-id s)))
+      (is (pos? n) "the recorder captured at least one event")
+      (let [body (story/variant->edn :story.button/with-script)]
+        ;; The recorded script REPLACES the prior play surface — the body
+        ;; carries the recorded steps under the lowered :play-script slot,
+        ;; NOT the old [:dispatch [:noop]] script.
+        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
+                :auto-run? true}
+               (:play-script body))
+            "the stored :play-script is the recorded body, replacing the old script")
+        (is (nil? (:script body))
+            "no stray public :script slot survives (single play surface)")
+        ;; Unrelated body keys survive.
+        (is (= "Has an existing play surface." (:doc body)))))))
+
+(deftest record-as-variant-write-back-replaces-existing-plays
+  (testing "rf2-f4e1xs: write-back against a source variant carrying the
+            multi-play :plays surface also replaces it cleanly rather than
+            failing the mutual-exclusion check."
+    (config/set-allow-writes! true)
+    (story/reg-variant :story.button/with-plays
+      {:doc   "Has a :plays multi-play surface."
+       :args  {:label "Multiplay"}
+       :tags  #{:dev}
+       :plays [{:name "happy path" :script [[:dispatch [:noop]]]}]})
+    (is (some? (:plays (story/variant->edn :story.button/with-plays)))
+        "precondition: the source variant stores :plays")
+    (drive-events-during-recording [[:counter/inc]])
+    (let [r (invoke "record-as-variant"
+                    {:variant-id  "story.button/with-plays"
+                     :duration-ms 100
+                     :write-back  true})
+          s (:structuredContent r)
+          n (:recorded-event-count s)]
+      (is (success? r)
+          "write-back over an existing :plays succeeds (was :isError pre-fix)")
+      (is (true? (:written-back? s)))
+      (is (pos? n))
+      (let [body (story/variant->edn :story.button/with-plays)]
+        (is (= {:script    (vec (repeat n [:dispatch [:counter/inc]]))
+                :auto-run? true}
+               (:play-script body))
+            "the recorded :script lowers to :play-script, replacing :plays")
+        (is (nil? (:plays body))
+            "the prior :plays surface is dropped (single play surface)")))))
+
 (deftest record-as-variant-write-back-round-trips-and-replays
   (testing "rf2-50jzf: a written-back recording's :script body ACTUALLY replays"
     ;; The headline acceptance criterion for rf2-50jzf — the previous
