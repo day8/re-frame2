@@ -491,14 +491,18 @@ Flows are also explicitly *not*:
 
 The migration agent rewrites mechanically; flow definitions that used `:live?` lift to a wrapping event-handler that calls `:rf.fx/clear-flow` when the predicate flips false.
 
-## Conformance fixtures (planned)
+## Conformance coverage
 
-- `flow-basic.edn` — single flow, two inputs, one output. Verify dirty-check on input change.
-- `flow-toggle.edn` — `:rf.fx/reg-flow` and `:rf.fx/clear-flow` from event handlers. Verify lifecycle.
-- `flow-topsort.edn` — multi-layer flows; verify A runs before B when B depends on A's output.
-- `flow-cycle.edn` — registering a cycle throws `:rf.error/flow-cycle`.
-- `flow-no-recompute-equal.edn` — `app-db` write that produces `=`-equal value does not re-fire dependent flows.
-- `flow-frame-scoped.edn` — same flow id registered against two frames with different `:output` fns produces two independent results on the same input; `clear-flow` on one frame leaves the other intact.
+The behaviours below are exercised by **realized** `spec/conformance/fixtures/flow-*.edn` fixtures (driven through the live flows runtime by `implementation/flows/test/re_frame/flows_conformance_test.clj` — the flows artefact's own conformance gate) and, for the cases a fixture cannot express ergonomically, by the flows artefact's unit tests under `implementation/flows/test/re_frame/`. The materialized fixture set is broader than this list; the rows here record where each originally-sketched behaviour now lands:
+
+| Behaviour | Realized coverage |
+|---|---|
+| Single flow, multiple inputs, one output; dirty-check re-fires on input change | `flow-recompute-on-input-change.edn` |
+| `:rf.fx/reg-flow` / `:rf.fx/clear-flow` from event handlers (lifecycle) | `flow-toggle-via-fx.edn`; `flow-lifecycle-emits-traces.edn` (trace lifecycle) |
+| Multi-layer flows — A runs before B when B depends on A's output (topological order) | `flow-multi-input-topo.edn`; topo-sort unit tests `flows_topo_test.clj` |
+| Registering a cycle throws `:rf.error/flow-cycle` | unit tests `flows_topo_test.clj` / `flows_test.clj` (a registration-time throw is asserted directly, not via a corpus outcome) |
+| An `app-db` write producing a `=`-equal value does not re-fire dependent flows | `flow-noop-on-value-equal-input.edn` |
+| Same flow id registered against two frames with different `:output` fns yields two independent results; `clear-flow` on one frame leaves the other intact | `flow-frame-scoped.edn`; `flow-frame-destroy-teardown.edn` (per-frame teardown) |
 
 ## Open questions
 

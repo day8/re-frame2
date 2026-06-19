@@ -636,10 +636,11 @@ Actions return:
 
 Two keys. **Symmetric with `reg-event`'s `{:db :fx}`** — same shape, different scope. Both keys are optional. Returning `nil` means "no effects."
 
-`:data` semantics: **merge with the existing data map** (last write wins on key collision). Explicit `nil` clears a key:
+`:data` semantics: **merge with the existing data map** (last write wins on key collision). An explicit `nil` **sets the value to `nil` (the key remains present)**; the merge never dissocs — there is no key-removal idiom in a `:data` write, only key-set-to-`nil`. A consumer that must distinguish "absent" from "present `nil`" should not rely on a `:data` write to remove the key:
 
 ```clojure
 {:data {:circle-id nil :initial-radius nil :preview-radius nil}}
+;; → :circle-id, :initial-radius, :preview-radius are each PRESENT with value nil
 ```
 
 When N action slots fire in one transition (`:exit` → `:action` → `:entry`), `:data` updates merge in slot order; `:fx` vectors concatenate left-to-right.
@@ -1377,7 +1378,7 @@ A target naming a compound state implicitly cascades through its `:initial` chai
 When the snapshot transitions from path A (the source) to path B (the target), the runtime walks both paths and computes the **LCCA** — the **least common compound ancestor**, the deepest compound state that is a **proper** ancestor of *both* A's leaf and B's target node. (XState v5 / SCXML §3.13 `findLCCA`; "LCA" is the historical short name and the section anchor, but the computation is the LCCA.) Three boundaries fire, in this order:
 
 1. **Exit cascade.** Walk A from leaf back toward the LCCA, firing each state's `:exit` action — **deepest-first**. Stop at the LCCA exclusive (the LCCA itself does not exit; we are not leaving it).
-2. **Transition `:action`.** Runs once at the LCCA boundary, between exit and entry.
+2. **Transition `:action`.** Runs once at the LCCA boundary, between exit and entry. **Trace note:** the action *fires* at the LCCA boundary, but its cascade step is labelled with the **declaring-state path** (the state node owning the transition's `:on`/`:after` entry), not the LCCA — the label addresses *where the action was authored* (so tooling can source-jump to the inline action body) rather than the structural boundary it fires at. Exit/entry steps, by contrast, are labelled with the state they fire at.
 3. **Entry cascade.** Walk B from (the level just below) the LCCA down to the target node, firing each state's `:entry` action — **shallowest-first**. If the target is itself a compound state, continue cascading via its `:initial` chain; the cascaded states' `:entry` actions fire as the path extends.
 
 #### Computing the LCCA — the longest-common-prefix shortcut and its one exception
