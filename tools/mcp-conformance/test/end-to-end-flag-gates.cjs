@@ -82,20 +82,16 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { connectServer, closeQuietly } = require('./_runner.cjs');
+const { connectServer, closeQuietly, structured } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
-const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
 
 // `record-as-variant` ships its structuredContent wrapped in the
 // `{:rf.mcp/dedup-table …}` envelope (recorder.cljc `:dedup-eligible?
 // true`); a real MCP client decodes it via `de-dupe.core/expand` before
-// reading semantic slots. `structured` mirrors that — idempotent on
-// payloads without the marker (register/unregister envelopes pass
-// through unchanged), so it is safe to route every structuredContent
-// read through it. Same adapter the sibling end-to-end-story.cjs uses.
-function structured(resp) {
-  return decodeDedupEnvelope((resp && resp.structuredContent) || {});
-}
+// reading semantic slots. The shared `structured` helper (_runner.cjs)
+// mirrors that — idempotent on payloads without the marker (register /
+// unregister envelopes pass through unchanged), so it is safe to route
+// every structuredContent read through it.
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');

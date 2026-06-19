@@ -66,7 +66,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog } = require('./_runner.cjs');
+const { runWithWatchdog, responseText } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -78,14 +78,6 @@ const FIXTURE_EVENT = ':counter/inc';
 // The retired per-kind handler-wrapper ids EP-0018 collapsed into the one
 // `:rf/event-handler`. None may appear on the live MCP response.
 const RETIRED_WRAPPER_IDS = [':rf/db-handler', ':rf/fx-handler', ':rf/ctx-handler'];
-
-// Concatenate every content block's text from an SDK callTool response.
-function responseText(resp) {
-  if (!resp || !Array.isArray(resp.content)) return '';
-  return resp.content
-    .map((c) => (c && typeof c.text === 'string' ? c.text : ''))
-    .join('\n');
-}
 
 // Pre-flight SKIP — same posture as the sibling live-* variants.
 if (!process.env.SHADOW_CLJS_NREPL_PORT) {
