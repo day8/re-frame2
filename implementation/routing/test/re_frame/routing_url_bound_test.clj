@@ -333,3 +333,89 @@
     (is (= :aaa-early (routing/url-owner-frame-id))
         "ownership re-resolves to the next live claimant (:aaa-early) once the
          incumbent relinquishes its binding")))
+
+;; ============================================================================
+;; rf2-68k8as — frames registered BEFORE re-frame.routing loads must not let a
+;;              later, earlier-sorting duplicate STEAL the URL by id sort
+;; ============================================================================
+;;
+;; `registrar/add-registration-hook!` is an append-only FUTURE observer — it
+;; does NOT replay existing registrations. So a frame that claimed `:url-bound?
+;; true` BEFORE `(require 're-frame.routing)` never recorded a claim in
+;; `url-claim-order`. The resolver's OLD claim-free fallback then sorted all
+;; bound frames by `(str id)` and took the first — letting a later duplicate
+;; whose id sorts BEFORE the true first-claimant WIN the alphabetical tiebreak
+;; and STEAL the browser URL (Spec 012 §1246 forbids exactly this: "the
+;; existing owner is unchanged … resolving by id ordering would have let it").
+;;
+;; The fix (a) makes the resolver's claim-free fallback fail closed — a sole
+;; bound frame owns, but 2+ bound frames with unrecoverable claim order resolve
+;; to nil rather than id-sorting — and (b) has the façade call
+;; `reconcile-existing-url-bindings!` right after installing the hook to seed
+;; the unambiguous pre-existing incumbent (so a later duplicate can't steal it).
+;;
+;; A JVM test can't physically register frames before the routing namespace is
+;; loaded (it's required at the top), so it reproduces the load-order STATE
+;; directly: empty `url-claim-order` (the no-claim-recorded condition a
+;; pre-load registration leaves) with `:url-bound? true` frame(s) already in
+;; the registry, then drive the resolver / reconcile.
+
+(deftest id-sort-fallback-does-not-steal-from-the-true-incumbent
+  (testing "rf2-68k8as: with NO claim recorded (the pre-routing-load state) and
+            TWO :url-bound? true frames in the registry, the resolver must NOT
+            id-sort and hand ownership to the alphabetically-first frame — that
+            is the URL-owner-steal bug. It fails closed to nil (ambiguous load
+            order). FAILS WITHOUT THE FIX: the old fallback returned :aa-late
+            (alphabetically first), stealing the URL from :zz-incumbent."
+    ;; Simulate two frames registered before routing's hook observed them: the
+    ;; registry carries both bindings but no claim was recorded.
+    (rf/reg-frame :rf/default  {:url-bound? false})  ;; clear the fixture incumbent
+    (rf/reg-frame :zz-incumbent {:url-bound? true})
+    (rf/reg-frame :aa-late      {:url-bound? true})
+    ;; Drop the claims the live hook recorded, reproducing the "claims never
+    ;; recorded because the frames pre-existed the hook" condition.
+    (routing/reset-url-claims!)
+    (is (nil? (routing/url-owner-frame-id))
+        "ambiguous multi-binding load order with no recorded claim → nil owner,
+         NOT the alphabetically-first :aa-late (the steal the old id-sort did)")))
+
+(deftest reconcile-seeds-sole-pre-existing-incumbent
+  (testing "rf2-68k8as: reconcile-existing-url-bindings! seeds the SOLE
+            pre-existing :url-bound? true frame as the incumbent so a later,
+            earlier-sorting duplicate cannot steal the URL. FAILS WITHOUT THE
+            FIX (no reconcile + id-sort fallback): :aaa-stealer would win."
+    ;; Establish a single pre-load incumbent whose id sorts AFTER a later
+    ;; duplicate, with no recorded claim (the pre-routing-load state).
+    (rf/reg-frame :rf/default   {:url-bound? false})  ;; clear the fixture incumbent
+    (rf/reg-frame :zz-incumbent {:url-bound? true})
+    (routing/reset-url-claims!)
+    ;; The façade runs reconcile at load time; reproduce that step explicitly
+    ;; for the frame(s) that pre-existed the hook.
+    (url-bound/reconcile-existing-url-bindings!)
+    (is (= :zz-incumbent (routing/url-owner-frame-id))
+        "the sole pre-existing url-bound frame is seeded as the incumbent")
+    ;; A later duplicate whose id sorts BEFORE the incumbent now registers
+    ;; through the LIVE hook — it must append after the seeded incumbent and
+    ;; NOT steal ownership.
+    (rf/reg-frame :aaa-stealer {:url-bound? true})
+    (is (= :zz-incumbent (routing/url-owner-frame-id))
+        "the earlier-sorting later duplicate does NOT steal — incumbent unchanged")))
+
+(deftest reconcile-multi-pre-existing-fails-closed-and-diagnoses
+  (testing "rf2-68k8as: when MULTIPLE :url-bound? true frames pre-exist with
+            unrecoverable claim order, reconcile fails closed (no owner) and
+            emits a duplicate-url-binding diagnostic per extra binding —
+            it does NOT silently pick one by id sort"
+    (rf/reg-frame :rf/default   {:url-bound? false})  ;; clear the fixture incumbent
+    (rf/reg-frame :zz-incumbent {:url-bound? true})
+    (rf/reg-frame :aa-late      {:url-bound? true})
+    (routing/reset-url-claims!)
+    (let [traces (atom [])]
+      (rf/register-listener! :trace ::reconcile-dup (fn [ev] (swap! traces conj ev)))
+      (url-bound/reconcile-existing-url-bindings!)
+      (rf/unregister-listener! :trace ::reconcile-dup)
+      (is (nil? (routing/url-owner-frame-id))
+          "no deterministic owner for an ambiguous multi-binding load order")
+      (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
+        (is (= 1 (count dups))
+            "two pre-existing bindings → exactly one duplicate diagnostic (one extra)")))))

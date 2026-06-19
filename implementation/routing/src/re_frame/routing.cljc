@@ -347,8 +347,27 @@
 ;; `_hot-reload-hook` defonce wrapper over `add-replacement-hook!`
 ;; (re-frame.flows.registry, rf2-94ol5) — the same "install a
 ;; registrar hook once, survive hot-reload" pattern.
+;; rf2-68k8as — `add-registration-hook!` is an append-only FUTURE observer; it
+;; does NOT replay existing `:frame` registrations (re-frame.registrar
+;; §registration-hooks). So a frame that claimed `:url-bound? true` BEFORE this
+;; namespace loaded never recorded a claim in `url-claim-order`, leaving
+;; `url-owner-frame-id` to its claim-free fallback — which (before rf2-68k8as)
+;; id-sorted and let a later, alphabetically-earlier duplicate STEAL the URL
+;; from the true first-claimant (Spec 012 §Multi-frame routing forbids exactly
+;; this). After installing the hook we therefore reconcile the frames already
+;; in the registry: seed the unambiguous incumbent, or fail closed (no claim,
+;; one diagnostic per extra binding) when multiple url-bound frames pre-exist
+;; and claim order is unrecoverable from the unordered registrar map.
+;;
+;; The reconcile runs on every façade `:reload` (it is NOT inside the
+;; `defonce`, since the registrar's hooks vector + the `url-claim-order` atom
+;; survive `clear-all!` but a test's `reset-url-claims!` empties the claim
+;; vector — re-seeding the incumbent after reset keeps the resolver correct).
+;; It is idempotent: `record-url-claim!` appends-iff-absent and the
+;; multi-binding branch records no claim, so a redundant call is a no-op.
 (defonce ^:private _url-bound-exclusivity-hook
   (registrar/add-registration-hook! url-bound/check-url-bound-exclusivity!))
+(url-bound/reconcile-existing-url-bindings!)
 
 ;; Framework-shipped subs over the route slice — Spec 012.
 ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
