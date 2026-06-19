@@ -1109,42 +1109,26 @@
             redacted (redact-with-paths (:rf.fx/args tags) sens large)]
         (assoc tags :rf.fx/args redacted)))))
 
-(defn- project-cofx-tags
-  "Walk cofx-relevant tag shapes: the cofx-injected value rides under a
-  cofx-id key (per `re-frame.cofx`'s injection convention). When a
-  trace event carries a `:rf.event/coeffects` slot (e.g.
-  `:rf.event/dispatched`, `:rf.event/run-end` — rf2-9dk9y), walk each
-  cofx-id key against the cofx's marks."
-  [tags]
-  (let [cofx-map (:rf.event/coeffects tags)]
-    (if-not (map? cofx-map)
-      tags
-      (let [walked (reduce-kv
-                     (fn [acc cofx-id v]
-                       (let [marks (marks-when :cofx cofx-id)]
-                         (if-not marks
-                           (assoc acc cofx-id v)
-                           (let [sens     (or (:sensitive marks) [])
-                                 large    (or (:large marks) [])
-                                 redacted (redact-with-paths v sens large)]
-                             (assoc acc cofx-id redacted)))))
-                     (empty cofx-map)
-                     cofx-map)]
-        (assoc tags :rf.event/coeffects walked)))))
+(defn- project-cofx-map-slot
+  "Walk a `{cofx-id value}` map carried under `slot` in `tags`, redacting each
+  value against its cofx-id's registered `:sensitive` / `:large` marks.
+  Pass-through (returns `tags` unchanged) when the slot is not a map, and a
+  cofx-id with no declared marks rides its value verbatim. Re-assocs the
+  walked map back under the SAME `slot`.
 
-(defn- project-cofx-token-tags
-  "Walk the post-generation flat `:rf.cofx` replay token the
-  `:rf.event/run-start` trace carries (rf2-1xdotm): a one-fact-per-owner-
-  qualified-key map (`:rf/time-ms`, generated recordable facts, supplied
-  facts). Redact each fact's value against the cofx-id's registered
-  `:sensitive` / `:large` marks — the SAME per-cofx-id rule
-  `project-cofx-tags` applies to the `:rf.event/coeffects` slot, so a
-  declared-sensitive recordable fact never surfaces raw on the run-start
-  trace (the epoch record's `:rf.cofx` replay slot reads off this redacted
-  shape). The framework `:rf/time-ms` fact carries no marks and rides
-  verbatim. Pass-through when the slot is not a map."
-  [tags]
-  (let [cofx-map (:rf.event/cofx tags)]
+  The one parameterized walk behind both cofx map-slot trace shapes
+  (rf2-ew7uy2) — they were byte-identical modulo the slot keyword:
+
+    - `:rf.event/coeffects` — the injected coeffects map (e.g.
+      `:rf.event/dispatched`, `:rf.event/run-end` — rf2-9dk9y).
+    - `:rf.event/cofx` — the post-generation flat `:rf.cofx` replay token the
+      `:rf.event/run-start` trace carries (rf2-1xdotm): a one-fact-per-owner-
+      qualified-key map (`:rf/time-ms`, generated recordable facts, supplied
+      facts). The framework `:rf/time-ms` fact carries no marks and rides
+      verbatim; a declared-sensitive recordable fact never surfaces raw (the
+      epoch record's `:rf.cofx` replay slot reads off this redacted shape)."
+  [tags slot]
+  (let [cofx-map (get tags slot)]
     (if-not (map? cofx-map)
       tags
       (let [walked (reduce-kv
@@ -1158,7 +1142,7 @@
                              (assoc acc cofx-id redacted)))))
                      (empty cofx-map)
                      cofx-map)]
-        (assoc tags :rf.event/cofx walked)))))
+        (assoc tags slot walked)))))
 
 (defn- project-cofx-run-tags
   "Walk the produced-value op shape shared by `:rf.cofx/run` (ambient
@@ -1739,7 +1723,7 @@
                       (project-fx-tags)
 
                       (and (map? tags) (contains? tags :rf.event/coeffects))
-                      (project-cofx-tags)
+                      (project-cofx-map-slot :rf.event/coeffects)
 
                       ;; rf2-1xdotm — the `:rf.event/run-start` trace carries
                       ;; the post-generation flat `:rf.cofx` replay token under
@@ -1749,7 +1733,7 @@
                       ;; recordable fact never egresses raw on the run-start
                       ;; trace / epoch record's replay slot.
                       (and (map? tags) (contains? tags :rf.event/cofx))
-                      (project-cofx-token-tags)
+                      (project-cofx-map-slot :rf.event/cofx)
 
                       ;; The t1 / t2 pending-`:db` emits stamp the full
                       ;; app-db under `:rf.event/db`; redact against the
