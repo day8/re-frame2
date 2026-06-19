@@ -772,7 +772,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 ```clojure
 (rf/make-frame {:images [counter-image]}) → <frame value>   ;; the live frame VALUE (representation hidden)
-(rf/frame-id frame)                          → :rf.frame/…   ;; read the id via the one accessor
+(rf/frame-value->id frame)                   → :rf.frame/…   ;; read the id via the one accessor
 (rf/destroy-frame! frame)                                    ;; the value (or its id) destroys it
 
 (rf/reg-frame :counter {:on-create [:counter/init]})         ;; the front-porch named path is unchanged
@@ -786,7 +786,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 The opts map accepts **image-selection** keys — `:images` (always a vector — the assembled registration set the frame resolves against), `:id` (optional — registers the frame in the one live-frame registry; duplicate-id is **idempotent replacement**, not a blanket fail-loud — see [§Duplicate id](#duplicate-id--idempotent-replacement)), `:initial-db` (seed app-db state), `:capabilities`, and `:adapter` — **and** the **record-config** keys `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, `:interceptors`, `:drain-depth`, in the same call. A frame created **without** an `:id` is a direct local reference that bypasses the registry — appropriate for local tests and harnesses where the frame is created, used, and discarded in one scope (per [EP-0023 §Frame](../docs/EP/EP-0023-image-loaded-frames.md): a registration id like `:counter/inc` can be reused across images; a live frame id cannot name two live registered frames at once).
 
-**The frame value's representation is hidden; route by id.** `make-frame` returns the value, but the public routing address is the frame **id** — read it from the value via the one accessor (`rf/frame-id`) and pass the id to `dispatch` / `subscribe` / providers / tools. Internal normalization may accept a frame value where it is useful for tests or tools, but the API teaches one routing address: the frame id (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)).
+**The frame value's representation is hidden; route by id.** `make-frame` returns the value, but the public routing address is the frame **id** — read it from the value via the one accessor (`rf/frame-value->id`) and pass the id to `dispatch` / `subscribe` / providers / tools. Internal normalization may accept a frame value where it is useful for tests or tools, but the API teaches one routing address: the frame id (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)).
 
 > **Behaviour change from EP-0023.** EP-0023 shipped a *two-constructor* split: an object `rf/make-frame` that built from `:images` and **raised `:rf.error/make-frame-record-only-key`** on any record-config key, alongside an advanced record-config `re-frame.frame/make-frame` that owned the record-config surface (and gensym'd a `:rf.frame/<gensym>` id). EP-0024 collapses these into one constructor: `make-frame` honours both key families, and the advanced `re-frame.frame/make-frame` becomes internal or disappears. The fail-loud record-only-key redirect is gone — it existed only to enforce the now-removed split.
 
@@ -800,8 +800,8 @@ Tests use the direct-constructor pattern as their fixture lifecycle:
 (deftest auth-flow
   (let [f (rf/make-frame {:images [auth-image] :initial-db {:auth/state :idle}})]
     (try
-      (rf/dispatch-sync [:auth/login-pressed] {:frame (rf/frame-id f)})
-      (is (= :validating (get-in (rf/app-db-value (rf/frame-id f)) [:auth :state])))
+      (rf/dispatch-sync [:auth/login-pressed] {:frame (rf/frame-value->id f)})
+      (is (= :validating (get-in (rf/app-db-value (rf/frame-value->id f)) [:auth :state])))
       (finally
         (rf/destroy-frame! f)))))
 ```
@@ -1439,7 +1439,7 @@ Implementation skeleton (Reagent flavour — create-on-mount / provide / destroy
   ;; create-on-mount / destroy-on-unmount; re-mount under the same :id is
   ;; idempotent replacement (durable state preserved), not destroy-then-recreate.
   (r/with-let [f  (rf/make-frame props)              ; create on mount
-               id (rf/frame-id f)]
+               id (rf/frame-value->id f)]
     ;; `:r>` bypasses Reagent's `convert-prop-value`; the props map flows
     ;; to React as a raw JS object. That bypass preserves the namespace
     ;; of namespaced frame keywords (`:tenant/admin`), which stock

@@ -541,7 +541,7 @@ The user-facing event shape is a vector. The internal dispatch envelope adds `:f
 
 ### `reg-frame` and `make-frame`
 
-Both ship: `reg-frame` is atomic (named, register-and-create, matches every other `reg-*`); `make-frame` is the **single unified constructor** (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)) — it takes image-selection *and* frame-configuration opts in one call and returns the live frame **value** (one value backed by one registry; route by id, read via the `rf/frame-id` accessor), covering per-instance widget/test/devcard cases. See [002 §Per-instance frames](002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md).
+Both ship: `reg-frame` is atomic (named, register-and-create, matches every other `reg-*`); `make-frame` is the **single unified constructor** (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)) — it takes image-selection *and* frame-configuration opts in one call and returns the live frame **value** (one value backed by one registry; route by id, read via the `rf/frame-value->id` accessor), covering per-instance widget/test/devcard cases. See [002 §Per-instance frames](002-Frames.md#per-instance-frames--make-frame-the-ep-0023-object-constructor) and [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md).
 
 ### Macro budget
 
