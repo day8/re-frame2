@@ -91,28 +91,28 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 
 ```
 skills/re-frame-migration/
-├── SKILL.md                       (router; ~120 lines)
-├── README.md                      (human-facing intro; ~80 lines)
+├── SKILL.md                       (router; ~165 lines)
+├── README.md                      (human-facing intro; ~95 lines)
 ├── LICENSE                        (MIT, mirrors re-frame2-setup)
 ├── package.json                   (npm metadata for distribution)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── references/
-│   ├── kickoff-prompt.md           (~80 lines)
-│   ├── inventory-and-plan.md       (~95 lines; Phase 0a — inventory add-ons + features, scan source, per-item plan)
-│   ├── setup.md                    (~250 lines; incl. the React-19 / Reagent-2 floor pre-flight gate)
-│   ├── xray-replaces-10x.md        (~210 lines; devtools swap — re-frame-10x → Xray)
-│   ├── breaking-changes.md         (~215 lines; rule index + the loud/silent failure-visibility axis)
-│   ├── async-flow-to-machines.md   (~190 lines; O-16 — async-flow-fx → reg-machine state machines)
+│   ├── kickoff-prompt.md           (~75 lines)
+│   ├── inventory-and-plan.md       (~100 lines; Phase 0a — inventory add-ons + features, scan source, per-item plan)
+│   ├── setup.md                    (~285 lines; incl. the React-19 / Reagent-2 floor pre-flight gate)
+│   ├── xray-replaces-10x.md        (~220 lines; devtools swap — re-frame-10x → Xray)
+│   ├── breaking-changes.md         (~240 lines; rule index + the loud/silent failure-visibility axis)
+│   ├── async-flow-to-machines.md   (~305 lines; O-16 — async-flow-fx → reg-machine state machines)
 │   ├── http-fx-to-managed-http.md  (~180 lines; O-17 — http-fx / :http-xhrio → :rf.http/managed)
-│   ├── sequencing.md               (~180 lines)
-│   ├── auto-call-site-rewrites.md  (~280 lines; Type A — ns / effect-map / dispatch)
-│   ├── auto-cross-cutting.md       (~350 lines; Type A — keywords / interceptors / views / init / artefacts)
-│   ├── guided-handlers-state.md    (~255 lines; Type B — handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface)
-│   ├── guided-interceptors-subs.md (~240 lines; Type B — interceptor / sub / payload / observer)
+│   ├── sequencing.md               (~185 lines)
+│   ├── auto-call-site-rewrites.md  (~430 lines; Type A — ns / effect-map / dispatch)
+│   ├── auto-cross-cutting.md       (~395 lines; Type A — keywords / interceptors / views / init / artefacts)
+│   ├── guided-handlers-state.md    (~250 lines; Type B — handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface)
+│   ├── guided-interceptors-subs.md (~400 lines; Type B — interceptor / sub / payload / observer)
 │   ├── runtime-smoke-test.md       (~55 lines; Phase 4 — "compiles" is not the done-bar; the silent-fail checklist + live-app-db boot smoke-test loop)
-│   ├── error-events.md             (~125 lines; pointer to Spec 009's error-event catalogue)
-│   ├── causal-world-inputs.md      (~115 lines; EP-0010 recording rule + EP-0017 reshape (M-72) — ambient durable host reads → declared recordable coeffects)
-│   └── output-format.md            (~115 lines)
+│   ├── error-events.md             (~110 lines; pointer to Spec 009's error-event catalogue)
+│   ├── causal-world-inputs.md      (~110 lines; EP-0010 recording rule + EP-0017 reshape (M-72) — ambient durable host reads → declared recordable coeffects)
+│   └── output-format.md            (~120 lines)
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -120,7 +120,7 @@ skills/re-frame-migration/
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-**Totals**: SKILL.md (~160) + 16 reference leaves (~2,955) + 4 spec files (~430) ≈ ~3,545 LoC across 21 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Most leaves sit at or under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~280, `auto-cross-cutting.md` ~350) run over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
+**Totals**: SKILL.md (~165) + 16 reference leaves (~3,460) + 4 spec files (~430) ≈ ~4,055 LoC across 22 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Several leaves now run **over** the 250-line soft ceiling — the two Type A catalogues (`auto-call-site-rewrites.md` ~430, `auto-cross-cutting.md` ~395), both Type B catalogues (`guided-interceptors-subs.md` ~400, `guided-handlers-state.md` ~250), the O-16 translation guide (`async-flow-to-machines.md` ~305), and `setup.md` (~285) — because their shape-catalogue / worked-example content resists further splitting, and a layer of restated rule rationale crept into `breaking-changes.md` / `sequencing.md` / SKILL.md's Boot section before the redundancy-trim pass folded it back to single-home + pointers. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
 
 **Type A / Type B split into two leaves each.** The 365L `automated-transforms.md` and 300L `guided-checklist.md` originals violated the 250-line soft ceiling. They've been split along natural cluster boundaries: Type A divides into per-call-site rewrites (ns / effect-map / dispatch shapes) and cross-cutting (keyword renames / interceptor cleanup / views / init / artefact adds); Type B divides into handler-state-shaped (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15) and interceptor-sub-payload-shaped (M-17, M-18, M-19, M-21, M-23, M-26). All four leaves remain one level deep from SKILL.md — no SKILL → A → B chains.
 
