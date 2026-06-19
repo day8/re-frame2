@@ -2499,13 +2499,26 @@
   this peek+pop pair is atomic w.r.t. any other drain attempt. The
   pre-fix race (executor and main thread both peek the same envelope)
   cannot occur — the loser of the CAS in `drain-try!` / `drain-block!`
-  never reaches this code."
+  never reaches this code.
+
+  rf2-tgea2z: ONE `swap-vals!` per dequeue instead of a deref PLUS a
+  separate `swap!`, halving the atom traffic on the hottest per-event
+  step. The swap pops the head when non-empty (idempotent no-op when
+  empty, so the empty case never `pop`s a `PersistentQueue` it shouldn't);
+  the popped envelope is read from the PRE-swap value the `swap-vals!`
+  returns — i.e. the head at the instant of the pop, strictly more atomic
+  than the prior deref-then-swap peek. A concurrent submitter only ever
+  `conj`s the tail (sync seed-pushes are serialised under the drain-lock
+  per `drain-block!`), so the head this pops is unchanged by any enqueue."
   [router]
-  (let [{:keys [queue]} @router]
-    (when-not (empty? queue)
-      (let [envelope (peek queue)]
-        (swap! router update :queue pop)
-        envelope))))
+  (let [[{old-queue :queue} _]
+        (swap-vals! router
+                    (fn [{:keys [queue] :as r}]
+                      (if (empty? queue)
+                        r
+                        (assoc r :queue (pop queue)))))]
+    (when-not (empty? old-queue)
+      (peek old-queue))))
 
 (defn- handle-drain-interrupted!
   "Per rf2-68kok / Spec 002 §Edge cases worth pinning §Frame disposal
