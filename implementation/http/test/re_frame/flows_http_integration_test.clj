@@ -118,15 +118,18 @@
   (filterv #(= op (:operation %)) @*captured*))
 
 (defn- prime-in-flight!
-  "Mirror what `:rf.http/managed`'s handler does at request-issue time:
-  drop a `{:request-id :url :abort-fn}` map into the in-flight registry
-  under `request-id`. The provided `abort-fn` is the recording closure
-  the test uses to observe whether `:rf.http/managed-abort` fired."
+  "Seed an in-flight handle the way `:rf.http/managed` does at request-
+  issue time, via `seed-in-flight-for-test!` so the request-id and
+  actor-id indexes stay consistent (rather than a raw `swap!` of the
+  `in-flight` atom that bypasses those invariants). The provided
+  `abort-fn` is the recording closure the test uses to observe whether
+  `:rf.http/managed-abort` fired."
   [request-id abort-fn]
-  (swap! http-registry/in-flight assoc request-id
-         {:request-id request-id
-          :url        (str "/api/" (name request-id))
-          :abort-fn   abort-fn}))
+  (http-registry/seed-in-flight-for-test!
+    {:request-id request-id
+     :actor-id   nil
+     :url        (str "/api/" (name request-id))
+     :abort-fn   abort-fn}))
 
 ;; ===========================================================================
 ;; 1. http × flows × cancellation — flow re-evals over the post-handler db
