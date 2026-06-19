@@ -468,17 +468,21 @@
   substrate; this brings the three drift sites into line.
 
   `trace-payload` is the existing dev-trace map for the category
-  (unchanged shape, so dev consumers see exactly what they did before)."
+  (unchanged shape, so dev consumers see exactly what they did before).
+
+  Reaches the shared two-channel `emit-error-both!` (rf2-c4oycd) through the
+  `:error-emit/emit-error-both` late-bind hook — fx.cljc cannot static-require
+  `re-frame.error-emit` (a load cycle), exactly as it reached `dispatch-on-error!`
+  through its hook before. `elapsed-ms 0` (not a timed path); `(interop/now-ms)`
+  is the emit instant."
   [category event event-id frame-id exception trace-payload]
-  ;; Always-on substrate (the corpus-wide listener). The late-bind hook
-  ;; is how fx.cljc reaches error-emit without a static require (would
-  ;; form a load cycle); `nil` when the substrate ns hasn't loaded (it is
-  ;; a foundational always-on surface, so in practice it is present).
-  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-    (dispatch-on-error! category event event-id frame-id exception 0
-                        (interop/now-ms)))
-  ;; Dev trace path; DCE'd in CLJS prod.
-  (trace/emit-error! category trace-payload))
+  ;; Both channels via the shared helper: axis 1 the always-on corpus-wide
+  ;; listener (survives prod elision), axis 2 the dev trace (DCE'd in CLJS prod).
+  ;; `nil` when the substrate ns hasn't loaded (it is a foundational always-on
+  ;; surface, so in practice it is present).
+  (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (emit-error-both! category event event-id frame-id exception 0
+                      (interop/now-ms) trace-payload)))
 
 (defn- emit-reserved-fx-override!
   "Emit `:rf.error/reserved-fx-override` (rf2-snsup5) when an `:fx-overrides`
@@ -842,29 +846,24 @@
               (let [msg     #?(:clj (.getMessage ^Throwable e)
                                :cljs (.-message e))
                     errored-at-ms (interop/now-ms)]
-                ;; Sticky hook (rf2-f72pd) — always-on per-error
-                ;; observability fan-out per rf2-bacs4; survives
-                ;; `:advanced` + `goog.DEBUG=false`.
-                (when-let [dispatch-on-error!
-                           (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-                  (dispatch-on-error!
-                    category
-                    origin-event
-                    origin-event-id
-                    frame-id
-                    e
-                    0
-                    errored-at-ms))
-                ;; Trace path for dev consumers; DCE'd in CLJS prod.
-                (trace/emit-error! category
-                                   (merge {:failing-id        fx-id
-                                           :rf.fx/id          fx-id
-                                           :rf.fx/args        args
-                                           :frame             frame-id
-                                           :exception         e
-                                           :exception-message msg
-                                           :recovery          :no-recovery}
-                                          (dissoc ex-data-map :rf.error/id))))
+                ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the
+                ;; always-on per-error observability fan-out (rf2-bacs4 / sticky
+                ;; hook rf2-f72pd; survives `:advanced` + `goog.DEBUG=false`),
+                ;; axis 2 the dev trace (DCE'd in CLJS prod). Reached via the
+                ;; `:error-emit/emit-error-both` hook (fx cannot static-require
+                ;; error-emit — load cycle).
+                (when-let [emit-error-both!
+                           (late-bind/get-fn-cached :error-emit/emit-error-both)]
+                  (emit-error-both!
+                    category origin-event origin-event-id frame-id e 0 errored-at-ms
+                    (merge {:failing-id        fx-id
+                            :rf.fx/id          fx-id
+                            :rf.fx/args        args
+                            :frame             frame-id
+                            :exception         e
+                            :exception-message msg
+                            :recovery          :no-recovery}
+                           (dissoc ex-data-map :rf.error/id)))))
               ;; Untyped reserved-fx throw — preserve crash-loud
               ;; contract by re-throwing.
               (throw e)))))

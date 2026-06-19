@@ -488,41 +488,42 @@
   (let [data        (ex-data e)
         bad-return? (= :rf.error/sub-input-fn-bad-return error-kw)
         msg         #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
-    ;; Always-on listener (survives prod elision). For the bad-return
-    ;; case there is no genuine exception to ship (the throw is just our
-    ;; tagged carrier), so pass nil; the exception is meaningful only for
-    ;; the input-fn-threw case.
-    (when-let [dispatch-on-error!
-               (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error!
+    ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
+    ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
+    ;; `:advanced` + `goog.DEBUG=false`). For the bad-return case there is no
+    ;; genuine exception to ship (the throw is just our tagged carrier), so the
+    ;; listener gets nil; the exception is meaningful only for the input-fn-threw
+    ;; case. Reached via the `:error-emit/emit-error-both` hook (subs cannot
+    ;; static-require error-emit — load cycle). `elapsed-ms 0`.
+    (when-let [emit-error-both!
+               (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both!
         error-kw
         query-v                       ;; attempted query-vector (as :event)
         query-id                      ;; sub-id (as :event-id)
         frame-id
         (when-not bad-return? e)      ;; exception (only the input-fn-threw case)
         0                             ;; elapsed-ms
-        (interop/now-ms)))            ;; time
-    ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-    (trace/emit-error! error-kw
-                       (if bad-return?
-                         {:rf.sub/id      query-id
-                          :rf.sub/query-v query-v
-                          :where          where
-                          :returned       (:returned data)
-                          :reason         (:reason data)
-                          :frame          frame-id
-                          :recovery       :replaced-with-default}
-                         {:rf.sub/id         query-id
-                          :rf.sub/query-v    query-v
-                          :where             where
-                          :exception         e
-                          :exception-message msg
-                          :reason            (str "Subscription `" query-id
-                                                  "` input-fn threw while "
-                                                  "materializing: " msg
-                                                  ". Recovering to nil.")
-                          :frame             frame-id
-                          :recovery          :replaced-with-default}))))
+        (interop/now-ms)             ;; time
+        (if bad-return?
+          {:rf.sub/id      query-id
+           :rf.sub/query-v query-v
+           :where          where
+           :returned       (:returned data)
+           :reason         (:reason data)
+           :frame          frame-id
+           :recovery       :replaced-with-default}
+          {:rf.sub/id         query-id
+           :rf.sub/query-v    query-v
+           :where             where
+           :exception         e
+           :exception-message msg
+           :reason            (str "Subscription `" query-id
+                                   "` input-fn threw while "
+                                   "materializing: " msg
+                                   ". Recovering to nil.")
+           :frame             frame-id
+           :recovery          :replaced-with-default})))))
 
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
@@ -574,30 +575,31 @@
                         ;; `:advanced` + `goog.DEBUG=false` and reaches off-box
                         ;; shippers — a production-meaningful runtime error.
                         ;; An invalid op whose recovery is the built-in
-                        ;; `:replaced-with-default`. Reached via the
-                        ;; `:error-emit/dispatch-on-error` late-bind hook (subs
-                        ;; cannot static-require `re-frame.error-emit` — load
-                        ;; cycle). The `:frame`-stampable record carries
-                        ;; `frame-id` + the attempted `query-v` for 7d30s +
-                        ;; shipper attribution.
-                        (do
-                          ;; Always-on listener (survives prod elision).
-                          (when-let [dispatch-on-error!
-                                     (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-                            (dispatch-on-error!
-                              :rf.error/no-such-sub
-                              query-v               ;; attempted query-vector (as :event)
-                              query-id              ;; sub-id (as :event-id)
-                              frame-id
-                              nil                   ;; no exception — invalid op
-                              0                     ;; elapsed-ms
-                              (interop/now-ms)))    ;; time
-                          ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-                          (trace/emit-error! :rf.error/no-such-sub
-                                             {:rf.sub/id        query-id
-                                              :unresolved-input query-v
-                                              :resolved-inputs  []
-                                              :frame            frame-id})))
+                        ;; `:replaced-with-default`. The `:frame`-stampable
+                        ;; record carries `frame-id` + the attempted `query-v`
+                        ;; for 7d30s + shipper attribution.
+                        ;;
+                        ;; Both channels via the shared helper (rf2-c4oycd):
+                        ;; axis 1 the always-on listener (survives prod elision),
+                        ;; axis 2 the dev trace (DCEs under `:advanced` +
+                        ;; `goog.DEBUG=false`). No exception — invalid op;
+                        ;; `elapsed-ms 0`. Reached via the
+                        ;; `:error-emit/emit-error-both` hook (subs cannot
+                        ;; static-require error-emit — load cycle).
+                        (when-let [emit-error-both!
+                                   (late-bind/get-fn-cached :error-emit/emit-error-both)]
+                          (emit-error-both!
+                            :rf.error/no-such-sub
+                            query-v               ;; attempted query-vector (as :event)
+                            query-id              ;; sub-id (as :event-id)
+                            frame-id
+                            nil                   ;; no exception — invalid op
+                            0                     ;; elapsed-ms
+                            (interop/now-ms)      ;; time
+                            {:rf.sub/id        query-id
+                             :unresolved-input query-v
+                             :resolved-inputs  []
+                             :frame            frame-id})))
         body-fn       (:handler-fn sub-meta)
         layer-1?      (= :db (:input-kind sub-meta))
         ;; EP-0001 (rf2-vzld77): a `:runtime-db` sub is a layer-1-shaped
@@ -1069,22 +1071,25 @@
          ;; `query-v` (as `:event`) for 7d30s + shipper attribution.
          (nil? frame-record)
          (do
-           ;; Always-on listener (survives prod elision).
-           (when-let [dispatch-on-error!
-                      (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-             (dispatch-on-error!
+           ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the
+           ;; always-on listener (survives prod elision), axis 2 the dev trace
+           ;; (DCEs under `:advanced` + `goog.DEBUG=false`). No exception —
+           ;; invalid op; `elapsed-ms 0`. Reached via the
+           ;; `:error-emit/emit-error-both` hook (subs cannot static-require
+           ;; error-emit — load cycle).
+           (when-let [emit-error-both!
+                      (late-bind/get-fn-cached :error-emit/emit-error-both)]
+             (emit-error-both!
                :rf.error/frame-destroyed
                query-v                       ;; attempted query-vector (as :event)
                (first query-v)               ;; sub-id (as :event-id)
                frame-id
                nil                           ;; no exception — invalid op
                0                             ;; elapsed-ms
-               (interop/now-ms)))            ;; time
-           ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-           (trace/emit-error! :rf.error/frame-destroyed
-                              {:frame    frame-id
-                               :query-v  query-v
-                               :recovery :replaced-with-default})
+               (interop/now-ms)             ;; time
+               {:frame    frame-id
+                :query-v  query-v
+                :recovery :replaced-with-default}))
            nil)
 
          :else
@@ -1393,18 +1398,24 @@
                               ;; (mirroring the sub-input-fn path) so the kind-aware
                               ;; error-emit lookup resolves the sub's `:source-coord`
                               ;; under `[:sub query-id]` for off-box shippers.
-                              (when-let [dispatch-on-error!
-                                         (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-                                (dispatch-on-error!
+                              ;; Both channels via the shared helper
+                              ;; (rf2-c4oycd): axis 1 the always-on listener
+                              ;; (survives prod elision), axis 2 the dev trace
+                              ;; (DCEs under `:advanced` + `goog.DEBUG=false`).
+                              ;; Reached via the `:error-emit/emit-error-both`
+                              ;; hook (subs cannot static-require error-emit —
+                              ;; load cycle). `elapsed-ms 0`.
+                              (when-let [emit-error-both!
+                                         (late-bind/get-fn-cached :error-emit/emit-error-both)]
+                                (emit-error-both!
                                   :rf.error/sub-exception
                                   query-v                   ;; failing query-vector (as :event)
                                   query-id                  ;; sub-id (as :event-id) — drives [:sub …] coord lookup
                                   nil                       ;; frame (pure compute — no reactive frame)
                                   e
                                   0                         ;; elapsed-ms
-                                  (interop/now-ms)))        ;; time
-                              ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-                              (trace/emit-error! :rf.error/sub-exception tags))
+                                  (interop/now-ms)          ;; time
+                                  tags)))
                             nil)))]
             (swap! memo assoc query-v v)
             v))))))

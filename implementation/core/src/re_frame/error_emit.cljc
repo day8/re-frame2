@@ -55,7 +55,8 @@
   (:require [re-frame.elision        :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.late-bind      :as late-bind]
-            [re-frame.source-coords  :as source-coords]))
+            [re-frame.source-coords  :as source-coords]
+            [re-frame.trace          :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -237,6 +238,54 @@
                     time nil)))
   nil)
 
+;; ---- the two-channel fan-out helper (rf2-c4oycd) --------------------------
+;;
+;; EVERY production-reachable runtime `:rf.error/*` site fans the SAME category
+;; out along BOTH error channels in lock-step: the always-on
+;; `dispatch-on-error!` listener registry (axis 1 — production-survivable; the
+;; off-box-shipper / SSR-projector source of truth) AND the dev-only
+;; `trace/emit-error!` surface (axis 2 — DCE'd under CLJS `:advanced` +
+;; `goog.DEBUG=false`). Before this helper that two-step was open-coded at ~12
+;; emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics`
+;; (reaching `dispatch-on-error!` through the `:error-emit/dispatch-on-error`
+;; late-bind hook) plus 4 bespoke `router` wrappers (which static-require this
+;; ns and call `dispatch-on-error!` directly) and `fx`'s `emit-fx-error!`. The
+;; shape never varied — same positional record + the category-specific dev-trace
+;; `tags` map — so `emit-fx-error!` had already factored it locally (the proof
+;; the abstraction was wanted, just not shared). This is the ONE shared helper
+;; those sites collapse onto.
+
+(defn emit-error-both!
+  "Fan a runtime `:rf.error/*` `category` out through BOTH error channels in one
+  call (rf2-c4oycd): the always-on corpus-wide [[dispatch-on-error!]] listener
+  registry (axis 1 — production-survivable; survives CLJS `:advanced` +
+  `goog.DEBUG=false`, the off-box-shipper + SSR-error-projector source of truth)
+  AND the dev-only `re-frame.trace/emit-error!` surface (axis 2 — DCE'd in CLJS
+  production). The shared two-channel fan-out every catalogued production-
+  reachable runtime error site uses.
+
+  `category` is the `:rf.error/*` keyword (the SAME value flows to both
+  channels). `event` / `event-id` / `frame` / `exception` / `elapsed-ms` / `time`
+  are the always-on listener record's positional fields (see
+  [[dispatch-on-error!]] — `event` is elided by the wire-walker there, `time` is
+  the emit instant in millis, `elapsed-ms` is `0` at the non-timed invalid-op
+  sites and the measured duration at the router's timed pipeline/flow paths).
+  `trace-tags` is the category-specific dev-trace tag map — passed UNCHANGED to
+  `trace/emit-error!`, so dev-trace consumers see exactly the shape they did
+  before (the map is still built at the call site and threaded here).
+
+  Returns nil. Reached directly by `router.cljc` (static require) and via the
+  `:error-emit/emit-error-both` late-bind hook by `fx` / `subs` / `subs.memo` /
+  `cofx` / `router.diagnostics` (those layers cannot static-require this ns — a
+  load cycle through `elision` → `frame`)."
+  [category event event-id frame exception elapsed-ms time trace-tags]
+  ;; Axis 1 — always-on corpus-wide listener (+ EP-0015 frame-owned sink).
+  (dispatch-on-error! category event event-id frame exception elapsed-ms time)
+  ;; Axis 2 — dev-only trace surface; DCEs under `:advanced` + `goog.DEBUG=false`
+  ;; (the `interop/debug-enabled?` gate lives inside `trace/emit-error!`).
+  (trace/emit-error! category trace-tags)
+  nil)
+
 ;; ---- general non-event always-on record (EP-0008 union shape) -------------
 ;;
 ;; `dispatch-on-error!` (above) is the EVENT-centric always-on path: it takes
@@ -405,6 +454,12 @@
 ;; records without static-requiring this ns.
 
 (late-bind/set-fn! :error-emit/dispatch-on-error dispatch-on-error!)
+
+;; The shared two-channel fan-out (rf2-c4oycd). `fx` / `subs` / `subs.memo` /
+;; `cofx` / `router.diagnostics` reach it through this hook — they cannot
+;; static-require this ns (the `error-emit` → `elision` → `frame` load cycle),
+;; exactly as they reached `dispatch-on-error!` through its hook before.
+(late-bind/set-fn! :error-emit/emit-error-both emit-error-both!)
 
 ;; The frame-teardown report fires from `frame/destroy-frame!`'s finally-
 ;; shaped flush. `frame` MUST reach it via late-bind: a static

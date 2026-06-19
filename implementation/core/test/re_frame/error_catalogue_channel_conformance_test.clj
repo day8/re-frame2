@@ -272,11 +272,18 @@
 
 (def ^:private emit-error-re
   "`(… emit-error! :rf.<area>/<cat> …)` / `(… dispatch-on-error!
-  :rf.<area>/<cat> …)` / `(… emit-warning! :rf.<area>/<cat> …)` — the
-  category keyword is the token immediately after the fn symbol. The fn
-  may be ns-qualified (`trace/emit-error!`, `error-emit/dispatch-on-
-  error!`) or bare."
-  (re-pattern (str "(?:emit-error!|dispatch-on-error!|emit-warning!)\\s+"
+  :rf.<area>/<cat> …)` / `(… emit-warning! :rf.<area>/<cat> …)` /
+  `(… emit-error-both! :rf.<area>/<cat> …)` — the category keyword is the
+  token immediately after the fn symbol. The fn may be ns-qualified
+  (`trace/emit-error!`, `error-emit/dispatch-on-error!`,
+  `error-emit/emit-error-both!`) or bare.
+
+  `emit-error-both!` (rf2-c4oycd) is the shared two-channel fan-out the
+  open-coded `dispatch-on-error!` + `trace/emit-error!` two-step collapsed
+  onto: it takes the category as its FIRST arg exactly like the others, so
+  the scanner reaches the categories now routed through it (e.g.
+  `:rf.error/no-such-handler`, `:rf.error/frame-destroyed`)."
+  (re-pattern (str "(?:emit-error-both!|emit-error!|dispatch-on-error!|emit-warning!)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
 (def ^:private emit-bang-warning-re

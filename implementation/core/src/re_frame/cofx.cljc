@@ -441,15 +441,14 @@
                     "`:rf.cofx/requires`) so a supplier exists before the event "
                     "is dispatched."
                     (when frame-id (str " (frame `" frame-id "`)")))]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/unregistered-cofx
-                       (cond-> {:rf.cofx/id        cofx-id
-                                :failing-id        failing-id
-                                :rf.trace/event-id failing-id
-                                :reason            reason
-                                :recovery          :no-recovery}
-                         frame-id (assoc :frame frame-id)))
+    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (interop/now-ms)
+                        (cond-> {:rf.cofx/id        cofx-id
+                                 :failing-id        failing-id
+                                 :rf.trace/event-id failing-id
+                                 :reason            reason
+                                 :recovery          :no-recovery}
+                          frame-id (assoc :frame frame-id))))
     (error/throw-error! :rf.error/unregistered-cofx 'rf/reg-event reason
                         {:extra (cond-> {:rf.cofx/id cofx-id
                                          :failing-id failing-id}
@@ -470,15 +469,14 @@
                     "dispatch under `:live` so a generator-backed fact can mint "
                     "it."
                     (when frame-id (str " (frame `" frame-id "`)")))]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/missing-required-cofx
-                       (cond-> {:rf.cofx/id        cofx-id
-                                :failing-id        failing-id
-                                :rf.trace/event-id failing-id
-                                :reason            reason
-                                :recovery          :no-recovery}
-                         frame-id (assoc :frame frame-id)))
+    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (interop/now-ms)
+                        (cond-> {:rf.cofx/id        cofx-id
+                                 :failing-id        failing-id
+                                 :rf.trace/event-id failing-id
+                                 :reason            reason
+                                 :recovery          :no-recovery}
+                          frame-id (assoc :frame frame-id))))
     (error/throw-error! :rf.error/missing-required-cofx 'rf/reg-event reason
                         {:extra (cond-> {:rf.cofx/id cofx-id
                                          :failing-id failing-id}
@@ -498,18 +496,17 @@
   tools from double-recording a captured trace AND a propagated Throwable)."
   [cofx-id failing-id frame-id ^Throwable t]
   (let [msg #?(:clj (.getMessage t) :cljs (.-message t))]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/coeffect-exception nil failing-id frame-id t 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/coeffect-exception
-                       (cond-> {:rf.cofx/id        cofx-id
-                                :failing-id        cofx-id
-                                :rf.trace/event-id failing-id
-                                :phase             :before
-                                :exception         t
-                                :reason            (str "Coeffect supplier for `" cofx-id "` threw"
-                                                        (when msg (str ": " msg)) ".")
-                                :recovery          :no-recovery}
-                         frame-id (assoc :frame frame-id)))))
+    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/coeffect-exception nil failing-id frame-id t 0 (interop/now-ms)
+                        (cond-> {:rf.cofx/id        cofx-id
+                                 :failing-id        cofx-id
+                                 :rf.trace/event-id failing-id
+                                 :phase             :before
+                                 :exception         t
+                                 :reason            (str "Coeffect supplier for `" cofx-id "` threw"
+                                                         (when msg (str ": " msg)) ".")
+                                 :recovery          :no-recovery}
+                          frame-id (assoc :frame frame-id))))))
 
 ;; ---- :schema validation of recordable values (EP-0017 §5 / slice B.7) -----
 ;;
@@ -566,18 +563,17 @@
                       "this is a hard error in dev AND production. Fix the value "
                       "to satisfy the declared `:schema` (or correct the schema). "
                       "See `:explain` for the validation detail.")]
-      (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-        (dispatch-on-error! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)))
-      (trace/emit-error! :rf.error/cofx-value-invalid
-                         (cond-> {:rf.cofx/id        cofx-id
-                                  :failing-id        failing-id
-                                  :rf.trace/event-id failing-id
-                                  :value             (:value redacted)
-                                  :reason            reason
-                                  :recovery          :no-recovery}
-                           (contains? redacted :explain) (assoc :explain (:explain redacted))
-                           (:sensitive? redacted)        (assoc :sensitive? true)
-                           frame-id                      (assoc :frame frame-id)))
+      (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+        (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)
+                          (cond-> {:rf.cofx/id        cofx-id
+                                   :failing-id        failing-id
+                                   :rf.trace/event-id failing-id
+                                   :value             (:value redacted)
+                                   :reason            reason
+                                   :recovery          :no-recovery}
+                            (contains? redacted :explain) (assoc :explain (:explain redacted))
+                            (:sensitive? redacted)        (assoc :sensitive? true)
+                            frame-id                      (assoc :frame frame-id))))
       (error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
                           {:extra (cond-> {:rf.cofx/id cofx-id
                                            :failing-id failing-id
@@ -664,18 +660,17 @@
   [cofx-id bad value failing-id frame-id]
   (let [{:keys [path bad-type]} bad
         preview (recordable/safe-preview value)]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/cofx-value-invalid
-                       (cond-> {:rf.cofx/id        cofx-id
-                                :failing-id        failing-id
-                                :rf.trace/event-id failing-id
-                                :reason            :non-edn-recordable-value
-                                :path              path
-                                :bad-type          bad-type
-                                :recovery          :no-recovery}
-                         (some? preview) (assoc :preview preview)
-                         frame-id        (assoc :frame frame-id)))
+    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)
+                        (cond-> {:rf.cofx/id        cofx-id
+                                 :failing-id        failing-id
+                                 :rf.trace/event-id failing-id
+                                 :reason            :non-edn-recordable-value
+                                 :path              path
+                                 :bad-type          bad-type
+                                 :recovery          :no-recovery}
+                          (some? preview) (assoc :preview preview)
+                          frame-id        (assoc :frame frame-id))))
     (error/throw-error!
       :rf.error/cofx-value-invalid 're-frame.cofx/run-generator
       (str "Generated `:rf.cofx` fact `" cofx-id
@@ -1079,11 +1074,14 @@
   normally. The ONE place the fan-out throw mechanics live; every fan-out
   removed stub delegates here so the next such removal is a data edit."
   [error-kw where reason id id-key]
-  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-    (dispatch-on-error! error-kw nil id nil nil 0 (interop/now-ms)))
-  (trace/emit-error! error-kw
-                     (cond-> {:reason reason :recovery :no-recovery}
-                       (some? id) (assoc id-key id)))
+  ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
+  ;; listener (production-survivable), axis 2 the dev trace (DCEs in CLJS prod).
+  ;; Reached via the `:error-emit/emit-error-both` hook (cofx cannot
+  ;; static-require error-emit — load cycle). `elapsed-ms 0`.
+  (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (emit-error-both! error-kw nil id nil nil 0 (interop/now-ms)
+                      (cond-> {:reason reason :recovery :no-recovery}
+                        (some? id) (assoc id-key id))))
   (error/throw-error! error-kw where reason
                       {:recovery :no-recovery
                        :extra    (when (some? id) {id-key id})}))
