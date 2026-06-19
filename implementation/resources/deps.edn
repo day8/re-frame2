@@ -58,6 +58,17 @@
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
                        day8/re-frame2-http       {:local/root "../http"}
+                       ;; rf2-xw5t0y — TEST-ONLY machines dep for the
+                       ;; machine→resource lease-release integration test
+                       ;; (`resources_machine_owner_release_cljs_test`): a
+                       ;; machine that `ensure`s a resource under its
+                       ;; `[:machine actor-id]` owner must release that lease on
+                       ;; actor destroy (Spec 016 §Release authority is per owner
+                       ;; kind, 016:290). machines depends only on core (no
+                       ;; cycle), and this is test-only so the resources
+                       ;; production classpath stays machines-free —
+                       ;; bundle-isolation holds.
+                       day8/re-frame2-machines   {:local/root "../machines"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}

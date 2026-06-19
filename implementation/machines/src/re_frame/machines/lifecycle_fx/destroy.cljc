@@ -37,6 +37,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
+            [re-frame.machines.lifecycle-fx.resource-release :as resource-release]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.paths :as paths]
@@ -117,7 +118,16 @@
        spawn-order entry still needs clearing;
     8. when the swap landed, emit `:rf.machine/system-id-released` and
        unregister the live event handler (last, so an in-flight trace emit
-       against the actor still resolves before the slot disappears).
+       against the actor still resolves before the slot disappears);
+    9. (rf2-xw5t0y) release the actor's resource leases — fire
+       `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
+       §Release authority is per owner kind, 016:290) so a resource the actor
+       `ensure`d under its machine-owner key does not leak the lease (keep
+       refetching/polling) past the actor's death. Fired LAST, once the actor
+       is gone; guarded on resources being loaded (machines never depends on
+       resources), so a no-resources app is a clean no-op. Runs on BOTH explicit
+       destroy (`destroy-single!`) and the frame-destroy cascade
+       (`destroy-single-actor!`) since both route through here.
 
   Returns the `db-swapped?` flag from the teardown projection."
   [frame-id actor-id teardown-args emit-destroyed!-fn]
@@ -141,6 +151,16 @@
     (when db-swapped?
       (traces/emit-system-id-released! frame-id @sid actor-id)
       (registrar/unregister! :event actor-id))
+    ;; (9) rf2-xw5t0y — release the actor's resource leases once it is gone, so
+    ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
+    ;; keep refetching/polling. Fired regardless of `db-swapped?`: a re-destroy
+    ;; whose teardown projection no-op'd may still have a live owner-pinned
+    ;; resource entry to release, and the release effect is itself idempotent.
+    ;; Guarded on resources being loaded (machines never depends on resources).
+    ;; The `:final?`-state auto-destroy path (`finalize-machine`) does NOT route
+    ;; through here; it appends the symmetric `resource-release/release-fx-entry`
+    ;; to its returned `:fx` instead — together they cover every destroy cause.
+    (resource-release/release-actor-resource-leases! frame-id actor-id)
     db-swapped?))
 
 (defn destroy-single-actor!
