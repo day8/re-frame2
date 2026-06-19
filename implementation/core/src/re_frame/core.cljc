@@ -396,41 +396,44 @@
        for the full signature.")
 
      (rm/defreg-macro reg-route rf-routing/reg-route
-       "Register a route under `id`. `metadata` is a map keyed at
-       minimum on `:path` (URL pattern, Spec 012 §Pattern syntax).
-       Captures source-coords (Spec 001) at this call site.
-       Implementation ships in `day8/re-frame2-routing` (rf2-k682);
+       "Register a route under `id`. Per rf2-wvh95f F1 the canonical
+       3-slot grammar is `(reg-route id metadata path)` — the URL pattern
+       (Spec 012 §Pattern syntax) is the third VALUE slot, `metadata` the
+       pure reflection map. Captures source-coords (Spec 001) at this call
+       site. Implementation ships in `day8/re-frame2-routing` (rf2-k682);
        apps must add the artefact and require `re-frame.routing` at
        boot. See `re-frame.core-routing/reg-route` for the full
        signature."
-       {:arglists '([id metadata])})
+       {:arglists '([id metadata path])})
 
      (rm/defreg-macro reg-resource rf-resources/reg-resource
        "Register a resource under `resource-id` — a named, cached read of
-       remote/external state. `resource-spec` carries the REQUIRED
-       fail-closed `:scope` policy (`:rf.scope/global` | resolver |
-       `:rf.scope/from-caller`), `:params-schema`, `:request`, and
-       optional `:data-schema` / `:stale-after-ms` / `:gc-after-ms` /
-       `:tags`. Captures source-coords (Spec 001) at this call site.
-       Implementation ships in `day8/re-frame2-resources` (rf2-p10npe);
+       remote/external state. Per rf2-wvh95f F1 the canonical 3-slot grammar
+       is `(reg-resource id metadata request-fn)`: the `:request` fetch fn is
+       the third VALUE slot, and `metadata` carries the REQUIRED fail-closed
+       `:scope` policy (`:rf.scope/global` | resolver | `:rf.scope/from-caller`),
+       `:params-schema`, and optional `:data-schema` / `:stale-after-ms` /
+       `:gc-after-ms` / `:tags`. Captures source-coords (Spec 001) at this call
+       site. Implementation ships in `day8/re-frame2-resources` (rf2-p10npe);
        apps must add the artefact and require `re-frame.resources` at
        boot. See `re-frame.core-resources/reg-resource` for the full
        signature."
-       {:arglists '([resource-id resource-spec])})
+       {:arglists '([resource-id metadata request-fn])})
 
      (rm/defreg-macro reg-mutation rf-resources/reg-mutation
        "Register a mutation under `mutation-id` — a named, causal WRITE to
        remote state that, on success, invalidates / patches / populates
-       cached resource reads (run with `[:rf.mutation/execute …]`).
-       `mutation-spec` carries the REQUIRED `:request` (a Spec 014
-       managed-HTTP args map) and `:params-schema`, plus optional
-       `:invalidates` / `:patches` / `:populates` / `:scope` /
-       `:invalidate-timing` / `:retry`. Captures source-coords (Spec 001)
-       at this call site. Implementation ships in `day8/re-frame2-resources`
-       (rf2-dwme29); apps must add the artefact and require
-       `re-frame.resources` at boot. See
+       cached resource reads (run with `[:rf.mutation/execute …]`). Per
+       rf2-wvh95f F1 the canonical 3-slot grammar is `(reg-mutation id metadata
+       request-fn)`: the `:request` write fn (a Spec 014 managed-HTTP args map)
+       is the third VALUE slot, and `metadata` carries the REQUIRED
+       `:params-schema` plus optional `:invalidates` / `:patches` /
+       `:populates` / `:scope` / `:invalidate-timing` / `:retry`. Captures
+       source-coords (Spec 001) at this call site. Implementation ships in
+       `day8/re-frame2-resources` (rf2-dwme29); apps must add the artefact and
+       require `re-frame.resources` at boot. See
        `re-frame.core-resources/reg-mutation` for the full signature."
-       {:arglists '([mutation-id mutation-spec])})
+       {:arglists '([mutation-id metadata request-fn])})
 
      (rm/defreg-macro reg-resource-scope rf-resources/reg-resource-scope
        "Register a PURE named scope resolver under `scope-id` (EP-0016 D3) —
@@ -449,11 +452,13 @@
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
-       per Spec 010). Captures source-coords (Spec 001) at this call
-       site. Implementation ships in `day8/re-frame2-schemas`
-       (rf2-p7va). See `re-frame.core-schemas/reg-app-schema` for the
-       full signature."
-       {:arglists '([path schema] [path schema opts])})
+       per Spec 010). Per rf2-wvh95f F2 the schema rides under `:schema`
+       in the metadata map: `(reg-app-schema [:user] {:schema UserSchema})`
+       / `(reg-app-schema [:user] {:schema UserSchema :frame :session})`.
+       Captures source-coords (Spec 001) at this call site. Implementation
+       ships in `day8/re-frame2-schemas` (rf2-p7va). See
+       `re-frame.core-schemas/reg-app-schema` for the full signature."
+       {:arglists '([path metadata])})
 
      (rm/defreg-macro reg-app-schemas rf-schemas/reg-app-schemas
        "Bulk-register a `{path -> schema}` map against the active frame

@@ -210,8 +210,28 @@
 ;; ---- registration --------------------------------------------------------
 
 (defn reg-route
-  "Register a route. metadata carries the route's :path pattern and any
-  :on-match / :params / :scroll / :can-leave keys (see Spec 012).
+  "Register a route. Per the canonical Spec 001 3-slot grammar (rf2-wvh95f F1)
+  the route's defining VALUE — its `:path` pattern — is the THIRD slot, and the
+  middle slot is the pure reflection-metadata map:
+
+      (rf/reg-route :route/cart {:doc \"The cart page.\"} \"/cart\")
+      (rf/reg-route :route/article
+        {:doc \"Article detail.\" :params [:map [:id :uuid]]
+         :on-match [[:article/load]]}
+        \"/articles/:id\")
+
+  A route has no handler FUNCTION — it is a declarative URL↔params binding, so
+  its third slot is the path-pattern VALUE (the legitimate \"handler-or-value\"
+  reading of Spec 001 §Registration grammar, exactly as `reg-app-schema`'s
+  third facet is its schema value). Moving `:path` out of the middle slot
+  restores clean doc-DCE (the middle slot is now a pure metadata map).
+
+  `metadata` carries the route's reflection / lifecycle / shape keys (`:doc`,
+  `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`,
+  `:on-match`, `:on-error`, `:scroll`, `:can-leave`, plus the cross-feature
+  `:head` / `:resources`); see Spec 012. The `:path` is merged onto the stored
+  route-meta internally, so every downstream reader (`route-meta`, `match-url`,
+  ranking) keeps reading `:path` off the stored map unchanged.
 
   Computes :rf.route/rank AND a :rf.route/compiled regex at registration
   time so match-url can sort candidates by rank and match without
@@ -219,14 +239,28 @@
   equal structural rank, emits :rf.warning/route-shadowed-by-equal-score
   (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
   the conflict."
-  [id metadata]
-  ;; Authoring-boundary guardrail (rf2-45b95): reject bare metadata keys
-  ;; outside the reserved set BEFORE any computation, so a typo fails
-  ;; loudly at registration naming the bad key. Runs on the
-  ;; user-supplied map (pre-merge-coords) so it never sees the computed
-  ;; `:rf.route/*` / source-coord keys.
-  (validate-route-metadata! id metadata)
-  (let [pattern      (match/canonical-route-pattern (:path metadata))
+  [id metadata path]
+  ;; rf2-wvh95f F1 — the path pattern is the 3-slot VALUE. A `:path` left
+  ;; INSIDE the metadata map is a mislocated key (the third slot is its one
+  ;; home); reject it loudly so the grammar change cannot be half-applied.
+  (when (contains? metadata :path)
+    (throw (route-error
+             :rf.error/invalid-route-metadata
+             'rf/reg-route
+             (str "route " id " declares :path inside its metadata map — per "
+                  "rf2-wvh95f F1 the path pattern is the THIRD slot: "
+                  "(reg-route " id " {…} " (pr-str (:path metadata)) "). Move "
+                  "the pattern out of the metadata map into the value slot.")
+             {:route-id id :keys [:path] :value (:path metadata)})))
+  (let [metadata (assoc metadata :path path)
+        _ ;; Authoring-boundary guardrail (rf2-45b95): reject bare metadata keys
+          ;; outside the reserved set BEFORE any computation, so a typo fails
+          ;; loudly at registration naming the bad key. Runs on the
+          ;; user-supplied map (pre-merge-coords) so it never sees the computed
+          ;; `:rf.route/*` / source-coord keys. `:path` is now present (merged
+          ;; from the value slot) and is a reserved key, so it passes.
+          (validate-route-metadata! id metadata)
+        pattern      (match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
         _            (match/validate-route-pattern! id pattern)

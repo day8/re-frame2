@@ -20,17 +20,18 @@
 
 (defwrapper reg-resource
   "Per Spec 016 §Public API §Registration. Register a resource — a named,
-  cached read of remote/external state — under `resource-id` with
-  `resource-spec`. The spec carries the REQUIRED, fail-closed `:scope`
-  policy (`:rf.scope/global` | a resolver | `:rf.scope/from-caller`),
-  `:params-schema`, `:request`, and optional `:data-schema` /
+  cached read of remote/external state. Per rf2-wvh95f F1 the canonical 3-slot
+  grammar is `(reg-resource resource-id metadata request-fn)`: the `:request`
+  fetch fn is the third VALUE slot, and `metadata` carries the REQUIRED,
+  fail-closed `:scope` policy (`:rf.scope/global` | a resolver |
+  `:rf.scope/from-caller`), `:params-schema`, and optional `:data-schema` /
   `:stale-after-ms` / `:gc-after-ms` / `:tags` / `:sensitive?`. Views read
   the resource through passive `[:rf.resource/*]` subscriptions; route
   entry / events / machines cause it to fetch. Late-bound via
   `:resources/reg-resource`."
   {:hook :resources/reg-resource :artefact resources-artefact :on-absent :throw
    :ex-data {:resource-id resource-id}}
-  ([resource-id resource-spec] :delegate))
+  ([resource-id metadata request-fn] :delegate))
 
 (defwrapper clear-resource
   "Per Spec 016 §Public API §Registration. Remove a registered resource
@@ -102,9 +103,10 @@
 (defwrapper reg-mutation
   "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Register a mutation
   — a named, causal WRITE to remote state that, on success, invalidates /
-  patches / populates cached resource reads — under `mutation-id` with
-  `mutation-spec`. The spec carries the REQUIRED `:request` (a Spec 014
-  managed-HTTP args map — the write) and `:params-schema`, plus optional
+  patches / populates cached resource reads. Per rf2-wvh95f F1 the canonical
+  3-slot grammar is `(reg-mutation mutation-id metadata request-fn)`: the
+  `:request` write fn (a Spec 014 managed-HTTP args map) is the third VALUE
+  slot, and `metadata` carries the REQUIRED `:params-schema`, plus optional
   `:invalidates` (`(fn [params result] -> #{tag …})`), `:patches` /
   `:populates` (controlled resource-entry transforms / seeds applied on
   success), `:scope`, `:invalidate-timing` (`:after-success` (default) |
@@ -115,7 +117,7 @@
   Late-bound via `:resources/reg-mutation`."
   {:hook :resources/reg-mutation :artefact resources-artefact :on-absent :throw
    :ex-data {:mutation-id mutation-id}}
-  ([mutation-id mutation-spec] :delegate))
+  ([mutation-id metadata request-fn] :delegate))
 
 (defwrapper clear-mutation
   "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Remove a registered

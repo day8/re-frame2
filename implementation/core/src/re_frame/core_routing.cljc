@@ -39,10 +39,13 @@
   "Fn-form delegate that performs the late-bind lookup for `reg-route`.
   The `re-frame.core/reg-route` macro (JVM) and the CLJS `def`-alias
   both route here, so the late-bind logic and the missing-artefact
-  error message live in one place."
+  error message live in one place.
+
+  Per rf2-wvh95f F1 the grammar is the canonical 3-slot
+  `(reg-route id metadata path)` — the path-pattern VALUE is the third slot."
   {:hook :routing/reg-route :artefact routing-artefact :on-absent :throw
    :ex-data {:route-id id}}
-  ([id metadata] :delegate))
+  ([id metadata path] :delegate))
 
 (defwrapper clear-route
   "Per Spec 012 §Trace events and rf2-dn26r. Remove a registered
