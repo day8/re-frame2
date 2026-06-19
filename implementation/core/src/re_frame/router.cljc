@@ -3050,11 +3050,16 @@
        ;; SAME frame's running drain (sync or async) is an error — the
        ;; event would interleave with the outer handler's run-to-completion.
        (trace/with-call-site call-site
+         ;; The rejected inner event vector rides the schema-required
+         ;; `:rf.event/v` tag (Spec-Schemas §DispatchSyncInHandlerTags;
+         ;; Spec 009 §Error event catalogue) — NOT the undocumented bare
+         ;; `:event` (rf2-kg0et6). Trace/schema consumers that route per
+         ;; category read the event vector under the documented key.
          (trace/emit-error! :rf.error/dispatch-sync-in-handler
-                            {:frame    (:frame envelope)
-                             :event    event
-                             :reason   "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
-                             :recovery :no-recovery}))
+                            {:frame      (:frame envelope)
+                             :rf.event/v event
+                             :reason     "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
+                             :recovery   :no-recovery}))
 
        :else
        (let [router (:router frame-record)]
