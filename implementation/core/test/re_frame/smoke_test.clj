@@ -350,7 +350,7 @@
       :<- [:diamond/a]
       :<- [:diamond/b]
       (fn [[a b] _] {:a a :b b}))
-    (let [f (frame/make-frame {})]
+    (let [f (frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:diamond/init] {:frame f})
       (is (= {:a 1 :b 2} (rf/compute-sub [:diamond/c] (rf/app-db-value f)))
           "initial state is fully consistent")
@@ -365,7 +365,7 @@
     (rf/reg-sub :chain/a (fn [db _] (:n db)))
     (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
     (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
-    (let [f (frame/make-frame {})]
+    (let [f (frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:chain/init] {:frame f})
       (is (= 21 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
           "initial: n=10 → b=20 → c=21")
@@ -380,7 +380,7 @@
                      (fn [{:keys [db]} _] {:db (assoc db :unrelated "z")}))   ;; same value
     (rf/reg-sub :stable/a (fn [db _] (:n db)))
     (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
-    (let [f (frame/make-frame {})]
+    (let [f (frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:stable/init] {:frame f})
       (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
           "initial value correct: 5*5 = 25")
@@ -774,7 +774,7 @@
 
       (testing "happy path: idle → submitting → authed; session token stored"
         (reset! stored nil)
-        (let [f (frame/make-frame {:fx-overrides {:http :http.canned-success}})]
+        (let [f (frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-success}})]
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                {:email "a@b.c" :password "secret"}]]
                             {:frame f})
@@ -785,7 +785,7 @@
 
       (testing "retry-then-lockout: 3 failures land in :error-shown, 4th in :locked-out"
         (reset! stored nil)
-        (let [f (frame/make-frame {:fx-overrides {:http :http.canned-failure}})]
+        (let [f (frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-failure}})]
           (dotimes [_ 3]
             (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                  {:email "x@y.z" :password "wrong"}]]
@@ -806,7 +806,7 @@
        :data    {:n 0}
        :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
        :states  {:idle {:on {:tick {:target :idle :action :bump}}}}})
-    (let [f (frame/make-frame {})]
+    (let [f (frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.

@@ -120,7 +120,7 @@
                             :fx [[:dispatch [:app/ready]]]}))
     (rf/reg-event :app/ready
       (fn [{:keys [db]} _] {:db (assoc db :app/booted? true)}))
-    (let [f (frame/make-frame {:on-create [:app/init]})
+    (let [f (frame/make-anon-frame-record! {:on-create [:app/init]})
           db (rf/app-db-value f)]
       (is (true? (:app/booted? db)) "chained-events boot reached :app/ready")
       (is (= {:loaded? true} (:config db)))))
@@ -138,7 +138,7 @@
           :ready       {}}}))
     ;; :on-create kicks the boot machine; subsequent dispatched lifecycle
     ;; events drive the documented progression to :ready.
-    (let [f (frame/make-frame {:on-create [:app/boot [:configured {:url "/api"}]]})]
+    (let [f (frame/make-anon-frame-record! {:on-create [:app/boot [:configured {:url "/api"}]]})]
       (is (= :loading (get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :app/boot :state]))
           ":on-create transitioned :configuring → :loading")
       (rf/dispatch-sync [:app/boot [:loaded]] {:frame f})

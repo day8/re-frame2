@@ -235,7 +235,7 @@
             :resources.app/preview-closed releases the lease so the entry can GC
             (the mandatory release path for an app-minted lease, Spec 016 §Active
             owners)"
-    (with-new-frame [f (frame/make-frame {:url-bound? true
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (let [lease-owner [:lease :resources.app/preview "fresh-skip"]
             dkey        (detail-key "fresh-skip")]

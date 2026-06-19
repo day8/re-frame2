@@ -100,7 +100,7 @@
   (testing "a failure reply whose message is non-string drives :record-error to write a bad :error, failing the :machine-data boundary and rolling back"
     (reg-sync-failure-override! :login.test/canned-bad-message
                                 {:status 401 :message {:not "a string"}})
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:fx-overrides {:rf.http/managed
                                          :login.test/canned-bad-message}})]
       ;; A valid submit drives :idle → :submitting and fires :issue-request;
@@ -132,7 +132,7 @@
   (testing "a normal failing login (string message) settles with no :machine-data trace"
     (reg-sync-failure-override! :login.test/canned-ok-message
                                 {:status 401 :message "Invalid credentials."})
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:fx-overrides {:rf.http/managed
                                          :login.test/canned-ok-message}})]
       (let [traces (collect-machine-data-traces!

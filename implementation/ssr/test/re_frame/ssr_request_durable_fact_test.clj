@@ -42,7 +42,7 @@
   (testing "a setup handler writes durable app-db from a request-derived fact
             supplied as EVENT PAYLOAD — the fact rides :event (recorded), the
             handler never reads the ambient request cofx"
-    (let [server-frame (frame/make-frame {:platform :server})]
+    (let [server-frame (frame/make-anon-frame-record! {:platform :server})]
       ;; The handler reads the SANITIZED session off its event arg, NOT off the
       ;; ambient :rf.server/request cofx — so the durable write folds a recorded
       ;; fact (the event), replay-stable.
@@ -65,7 +65,7 @@
   (testing "a setup handler writes durable app-db from a PROVIDED recordable
             :rf.cofx leaf the host stamped onto the token after sanitizing the
             request — the value is recorded + replay-stable, delivered flat"
-    (let [server-frame (frame/make-frame {:platform :server})]
+    (let [server-frame (frame/make-anon-frame-record! {:platform :server})]
       (rf/reg-cofx :auth.session/user
         {:recordable? true :provided? true
          :doc "Sanitized session user, stamped by the SSR host adapter."})
@@ -88,7 +88,7 @@
   (testing "a PROVIDED recordable request fact absent from the token fails
             LOUDLY with :rf.error/missing-required-cofx — NOT a silent
             fall-back to get-request / nil (the strict-replay contract)"
-    (let [server-frame (frame/make-frame {:platform :server})
+    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
           traces       (collect-traces! ::missing)]
       (rf/reg-cofx :auth.session/user
         {:recordable? true :provided? true
@@ -119,7 +119,7 @@
             token's :rf.cofx record — proving it is unrecorded (replay re-runs
             the supplier), which is exactly why a DURABLE write must not fold it
             (it would diverge on replay / read nil after teardown)"
-    (let [server-frame (frame/make-frame {:platform :server})
+    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
           seen-cofx    (atom ::unset)]
       (ssr/set-request! server-frame {:request-method :get :uri "/x"
                                       :headers {"cookie" "session=raw-secret"}})

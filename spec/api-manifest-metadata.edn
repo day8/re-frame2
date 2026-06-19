@@ -402,8 +402,10 @@
   ;; unified single frame value backed by the one registry removes the
   ;; two-constructor split that motivated the redirect). A duplicate `:id` is now
   ;; idempotent replacement (preserving durable state). The advanced
-  ;; `re-frame.frame/make-frame` is demoted to an INTERNAL no-`:id` record helper;
-  ;; it is not facade-exported. Status `EP-0023` -> `EP-0024`.
+  ;; `re-frame.frame/make-anon-frame-record!` (rf2-ji3tvy renamed it from the bare
+  ;; `make-frame` to drop the short-name collision with this public constructor)
+  ;; is an INTERNAL no-`:id` record helper; it is not facade-exported. Status
+  ;; `EP-0023` -> `EP-0024`.
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "EP-0024"}
   ;; EP-0024 (rf2-tu2vr7): the single public accessor from a frame VALUE (the
   ;; lifecycle token `make-frame` returns) to its frame id (EP-0024 Open Issue #2

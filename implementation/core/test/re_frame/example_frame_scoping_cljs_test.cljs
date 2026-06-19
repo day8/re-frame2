@@ -176,7 +176,7 @@
   `:rf.cofx` token under `:rf.cofx/mint-policy :strict`. Returns the durable
   item id the handler folded in."
   [recorded]
-  (let [f (frame/make-frame {:doc          "nine-states replay frame"
+  (let [f (frame/make-anon-frame-record! {:doc          "nine-states replay frame"
                           :fx-overrides {:rf.http/managed
                                          :nine-states.http/managed-demo}})]
     ;; `:initialise` seeds the form slice + resets/spawns the :ui/nine-states
@@ -223,7 +223,7 @@
   the success path fires is stubbed to a no-op so no backend is needed.
   Returns the durable optimistic card id the handler folded in."
   [recorded]
-  (let [f (frame/make-frame {:doc "realworld replay frame"})]
+  (let [f (frame/make-anon-frame-record! {:doc "realworld replay frame"})]
     ;; Stub the managed-HTTP fx so the optimistic-post fx fires harmlessly
     ;; (the durable write under test is the temp card conj'd into
     ;; [:comments :data]; the request itself is irrelevant here).

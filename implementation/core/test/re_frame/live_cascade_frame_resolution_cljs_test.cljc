@@ -50,18 +50,15 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture: install the plain-atom adapter (so frames are runnable), opt OUT of
-;; the ambient `:rf/default` scope (we drive explicit `{:frame …}` targets), and
-;; clear the live-frame registry between cases so an `:id` from one case does not
-;; collide with the next.
+;; the ambient `:rf/default` scope (we drive explicit `{:frame …}` targets). The
+;; runtime fixture resets the ONE `frame/frames` registry between cases — clearing
+;; every record AND its generation — so an `:id` from one case does not collide
+;; with the next (no separate live-frame index to clear, rf2-ji3tvy).
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter        plain-atom/adapter
-                                            :ambient-frame  nil})
-  (fn [t]
-    (lf/clear-live-frames!)
-    (t)
-    (lf/clear-live-frames!)))
+                                            :ambient-frame  nil}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers — build a RUNNABLE event-handler descriptor for an image resolver.

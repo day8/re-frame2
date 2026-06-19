@@ -239,13 +239,13 @@
             [:auth :token] from the cascade's frame and injects
             `Authorization: Token <jwt>`; it is a no-op when logged out"
     ;; LOGGED OUT — the public reads must not carry an auth header.
-    (with-new-frame [f (frame/make-frame {})]
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
       (let [ctx {:frame f :request {:url "/articles"}}]
         (is (nil? (get-in (core/bearer-auth-interceptor ctx)
                           [:request :headers "Authorization"]))
             "no token → no Authorization header (logged-out reads unaffected)")))
     ;; AUTHED — the token in the frame's app-db is injected as a Bearer header.
-    (with-new-frame [f (frame/make-frame {})]
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt-xyz"}] {:frame f})
       (let [ctx {:frame f :request {:url "/articles/feed"}}]
         (is (= "Token jwt-xyz"
@@ -263,7 +263,7 @@
             global article tags AND the session feed in one set of per-target
             descriptors, and fires no extra wiring; the call-site :reply-to
             continuation fires exactly once on settle"
-    (with-new-frame [f (frame/make-frame {:url-bound? true
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; log in so the session feed scope resolves
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
@@ -316,7 +316,7 @@
             valid-AND-dirty into app-db; a blank draft is invalid; a valid+dirty
             draft submits the save mutation; the :reply-to [:editor/replied]
             continuation re-seeds a clean draft and navigates to the saved article"
-    (with-new-frame [f (frame/make-frame {:url-bound? true
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; create-mode entry registers the :editor/can-submit? flow against this frame
       (rf/dispatch-sync [:editor/initialise] {:frame f})
@@ -355,7 +355,7 @@
             auth slice, drops the session-scoped cache via :rf.resource/clear-scope
             (so the next user never reads the prior user's feed), and releases the
             principal-switch lease. Public global reads are untouched."
-    (with-new-frame [f (frame/make-frame {:url-bound? true
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; ensure the session feed under the principal-switch lease the app uses
@@ -389,7 +389,7 @@
   (testing "examples/reagent/realworld_resources — the :auth/flow machine drives
             :idle → :submitting → :authed on a login success and stores the
             session (auth is a command/machine, deliberately NOT a read-resource)"
-    (with-new-frame [f (frame/make-frame {:url-bound? true
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op
                                                       :realworld-resources.session/persist :rf/no-op}})]
       ;; boot the machine at :idle (token nil → the has-token? guard routes to no-op)

@@ -241,7 +241,7 @@
                           :rf/runtime-db [:runtime :is :a :vector]}]]
       (let [seen-records (capture-records!)]
         (register-hydration-handlers!)
-        (let [client-frame (frame/make-frame {:doc "ep0008-hguive client frame"
+        (let [client-frame (frame/make-anon-frame-record! {:doc "ep0008-hguive client frame"
                                            :platform :client})]
           ;; Seed a recognisable pre-hydration client slice so we can prove
           ;; the rejection left both partitions untouched (fail-closed).

@@ -56,8 +56,9 @@
 ;; EP-0024 (rf2-tu2vr7): the two-registry model collapsed to ONE — the resolved
 ;; image GENERATION lives ON the frame record in the single `frame/frames`
 ;; registry (the `:generation` slot), and the former second live-frame registry
-;; dissolved, so `clear-live-frames!` is now a no-op kept for the fixtures that
-;; call it. `make-frame` creates/updates a RUNNABLE record (app-db / queue /
+;; dissolved, so the runtime fixture's `(reset! frame/frames {})` clears every
+;; record AND its generation — no separate live-frame index to clear
+;; (rf2-ji3tvy). `make-frame` creates/updates a RUNNABLE record (app-db / queue /
 ;; sub-cache) via `reg-frame`, which needs a substrate adapter — so the
 ;; plain-atom adapter is installed via the runtime fixture. These cases assert
 ;; the reload/diff/reproject contract; the backing record is an allocation side
@@ -67,10 +68,8 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
-    (lf/clear-live-frames!)
     (asm/clear-standards!)
     (t)
-    (lf/clear-live-frames!)
     (asm/clear-standards!)))
 
 ;; ---------------------------------------------------------------------------
@@ -488,6 +487,77 @@
         (finally
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
 
+;; ---- the NON-DEFAULT-REALM leg (rf2-vnduo9) -------------------------------
+;;
+;; The reprojection flush runs on `interop/next-tick` (`deferred-flush!`), by
+;; which point the router's per-drain `*current-realm*` binding has UNWOUND to
+;; nil. `reproject-live-frame!`'s reads + `set-generation!` swap all re-key the
+;; registry via `(frame-key *current-realm* id)`. So a NON-default-realm
+;; image-loaded frame — keyed by its `[realm-id frame-id]` address — would be
+;; ENUMERATED by the old bare-`:id` `image-loaded-frame-ids`, but every
+;; subsequent per-frame re-key under nil `*current-realm*` would MISS its address
+;; → silent no-op → its generation stays STALE. The fix has
+;; `reproject-live-frames!` enumerate `image-loaded-frame-addresses` (carrying
+;; each frame's own `:realm`, read off the record) and bind `*current-realm*` per
+;; frame via `call-with-realm` so each re-key resolves the frame's OWN address.
+;;
+;; Not reachable via the public `make-frame` (default-realm-only per EP-0024);
+;; reachable via the internal substrate, which binds `*current-realm*` around a
+;; frame's creation when seating it into a realm (`seat-into-realm!`). This test
+;; mirrors that by binding `frame/*current-realm*` ONLY around creation + the
+;; read-backs, and running `reproject-live-frames!` with `*current-realm*` nil —
+;; exactly the next-tick-flush condition where the latent bug bites.
+
+(deftest reproject-swaps-a-non-default-realm-image-loaded-frame
+  (testing "reproject-live-frames! swaps a NON-default-realm image-loaded frame's
+            generation even though the flush runs with *current-realm* nil
+            (rf2-vnduo9): the frame is enumerated WITH its realm and re-keyed
+            under it, so the source-store change is actually picked up rather than
+            silently no-op'd against a bare-id miss."
+    (let [snapshot @source-store/kind->id->ns->descriptor
+          realm-id :rf.realm/vnduo9-test]
+      (try
+        (source-store/record-descriptor!
+          :event :nd/inc
+          {:rf.provenance/ns "nd.feature" :kind :event :id :nd/inc
+           :handler-fn ::nd-original})
+        (let [img (image/image {:id :nd/img :include-ns ["nd.feature"]})
+              ;; Create the image-loaded frame UNDER a non-default realm — the
+              ;; record is keyed `[realm-id :nd/main]` and stamped `:realm realm-id`
+              ;; (the internal seat-into-realm! shape). `make-frame` runs
+              ;; `reg-frame` which reads `*current-realm*` for the key + stamp.
+              _ (binding [frame/*current-realm* realm-id]
+                  (lf/make-frame {:id :nd/main :images [img]}))]
+          (testing "the frame is image-loaded under its non-default realm address"
+            (binding [frame/*current-realm* realm-id]
+              (is (= ::nd-original
+                     (:handler-fn (asm/resolve-descriptor
+                                    (frame/frame-generation :nd/main)
+                                    :event :nd/inc))))))
+          (testing "the bare-id (default-realm) lookup MISSES it — it is genuinely
+                    non-default-realm, so a realm-unaware flush would no-op"
+            (is (nil? (frame/frame-generation :nd/main))))
+          ;; Hot reload the selected source slot (new impl, same (kind,id,ns)).
+          (source-store/record-descriptor!
+            :event :nd/inc
+            {:rf.provenance/ns "nd.feature" :kind :event :id :nd/inc
+             :handler-fn ::nd-reloaded})
+          ;; THE FAILING PATH: reproject with *current-realm* nil (the next-tick
+          ;; flush condition). Pre-fix this returns {} (the non-default-realm frame
+          ;; is enumerated but its per-frame re-key misses → stale generation).
+          (let [moved (lf/reproject-live-frames!)]
+            (testing "reproject reports the non-default-realm frame as moved"
+              (is (contains? moved :nd/main))
+              (is (contains? (:changed (get moved :nd/main)) [:event :nd/inc])))
+            (testing "its generation actually swapped to the reloaded impl (not stale)"
+              (binding [frame/*current-realm* realm-id]
+                (is (= ::nd-reloaded
+                       (:handler-fn (asm/resolve-descriptor
+                                      (frame/frame-generation :nd/main)
+                                      :event :nd/inc))))))))
+        (finally
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
 ;; ===========================================================================
 ;; 9. AUTO-reprojection: a `reg-*` change reprojects the affected explicit-image
 ;;    frame WITHOUT a manual reproject-live-frames! call (rf2-h4q6cy)
@@ -643,8 +713,9 @@
         (finally
           ;; Forget the live frame before draining (see register!-during-flush's
           ;; finally): a pending reproject of :burst/main must not re-assemble its
-          ;; image after the burst descriptors are unregistered.
-          (lf/clear-live-frames!)
+          ;; image after the burst descriptors are unregistered. The ONE registry
+          ;; reset clears the record AND its generation (rf2-ji3tvy).
+          (reset! frame/frames {})
           (lf/flush-pending-reprojection!)
           (doseq [n (range 5)]
             (registrar/unregister! :event (keyword "burst" (str "e" n))))
@@ -675,7 +746,8 @@
       (try
         ;; No live frame: clear the registry and drain any residual pending flush a
         ;; prior case left, so the flag starts clean and live-frame-ids is empty.
-        (lf/clear-live-frames!)
+        ;; The ONE registry reset clears every record AND its generation (rf2-ji3tvy).
+        (reset! frame/frames {})
         (lf/flush-pending-reprojection!)
         (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
           ;; A 50-reg-* burst with no reprojectable frame — the worst-case flood

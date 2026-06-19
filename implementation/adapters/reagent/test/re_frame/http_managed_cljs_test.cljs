@@ -276,10 +276,10 @@
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
-    (let [left  (frame/make-frame {:doc "left"
+    (let [left  (frame/make-anon-frame-record! {:doc "left"
                                 :fx-overrides
                                 {:rf.http/managed :rf.http/managed-canned-success}})
-          right (frame/make-frame {:doc "right"
+          right (frame/make-anon-frame-record! {:doc "right"
                                 :fx-overrides
                                 {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})

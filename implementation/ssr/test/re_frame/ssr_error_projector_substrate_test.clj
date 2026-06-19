@@ -54,7 +54,7 @@
         {:fx [[:dispatch [:load/article]]]}))
 
     (with-redefs [interop/debug-enabled? false]
-      (let [f (frame/make-frame
+      (let [f (frame/make-anon-frame-record!
                 {:platform  :server
                  :on-create [:rf/server-init]
                  :ssr       {:public-error-id   :rf.ssr/default-error-projector
@@ -74,7 +74,7 @@
             framework-private id used by both substrate installs). A
             tight error-record delivered through the substrate routes
             to the SSR projector buffer and stamps the response."
-    (let [f (frame/make-frame
+    (let [f (frame/make-anon-frame-record!
               {:platform :server
                :ssr      {:public-error-id   :rf.ssr/default-error-projector
                           :dev-error-detail? false}})]

@@ -63,7 +63,7 @@
   (testing "a default-realm SSR frame's side-channel slots key by the BARE frame
             id (no realm key) — the round-trip is byte-identical to the pre-realm
             keying"
-    (let [f (frame/make-frame {:platform :server :doc "default-realm SSR frame"})]
+    (let [f (frame/make-anon-frame-record! {:platform :server :doc "default-realm SSR frame"})]
       ;; frame-address collapses to the bare id for the default realm.
       (is (= f (frame/frame-address f))
           "frame-address of a default-realm frame is the bare frame id")

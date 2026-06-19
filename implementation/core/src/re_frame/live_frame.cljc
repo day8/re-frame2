@@ -91,7 +91,7 @@
   (the realm-routed substrate). EP-0023 partially supersedes EP-0013's public
   app/realm surface while RETAINING the realm machinery as an internal
   substrate; this slice introduces the image-loaded public frame object without
-  disturbing the existing `reg-frame` / `re-frame.frame/make-frame` callers. The
+  disturbing the existing `reg-frame` / `re-frame.frame/make-anon-frame-record!` callers. The
   reload slice (.10) wires image replacement on the frame object this slice
   returns.
 
@@ -213,15 +213,6 @@
   reprojection path enumerates these."
   []
   (frame/image-loaded-frame-ids))
-
-(defn clear-live-frames!
-  "Reset the image-loaded frames' generation tracking. EP-0024 (rf2-tu2vr7): the
-  second live-frame registry dissolved into the ONE `frames` registry, so there
-  is no separate index to reset — the test fixtures' `(reset! frame/frames {})`
-  already clears every record (and thus every `:generation`). Retained as a
-  no-op for the fixtures that still call it; returns nil."
-  []
-  nil)
 
 (defn image-view-frames
   "Return `{frame-id frame-view}` for every image-loaded frame — the read
@@ -757,15 +748,27 @@
 
   Returns `{frame-id reload-diff}` for every frame that MOVED (empty when none
   did). EP-0024 (rf2-tu2vr7): with the registries collapsed, an image-loaded
-  frame is simply a `frames` record carrying a generation — `live-frame-ids`
-  enumerates them all from the ONE registry."
+  frame is simply a `frames` record carrying a generation.
+
+  rf2-vnduo9 — REALM-CORRECT enumeration. This flush runs on a `next-tick`
+  callback (`deferred-flush!`), by which point `*current-realm*` has unwound to
+  nil. The per-frame reads + the `set-generation!` swap inside
+  `reproject-live-frame!` all re-key the registry via `(frame-key *current-realm*
+  id)`, so a NON-default-realm image-loaded frame keyed by its `[realm-id
+  frame-id]` address would MISS a bare-id lookup → silent no-op → its generation
+  stays STALE. So enumerate `frame/image-loaded-frame-addresses` (each carrying the
+  frame's OWN `:realm`, read off the record, not the unwound dynamic var) and bind
+  `*current-realm*` to that realm per frame (via `frame/call-with-realm`) around
+  the reprojection, so every re-key resolves to the frame's own address. The
+  default-realm frame (every public `make-frame`, which is default-realm-only)
+  takes `call-with-realm`'s zero-binding fast path — byte-identical to before."
   []
-  (reduce (fn [moved frame-id]
-            (if-let [diff (reproject-live-frame! frame-id)]
-              (assoc moved frame-id diff)
+  (reduce (fn [moved {:keys [realm id]}]
+            (if-let [diff (frame/call-with-realm realm #(reproject-live-frame! id))]
+              (assoc moved id diff)
               moved))
           {}
-          (live-frame-ids)))
+          (frame/image-loaded-frame-addresses)))
 
 ;; ===========================================================================
 ;; Auto-reprojection on `reg-*` source-store change (EP-0023 §Default Image

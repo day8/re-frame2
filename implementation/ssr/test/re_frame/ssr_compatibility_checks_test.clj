@@ -56,7 +56,7 @@
         ;; check-version probes compare integers, not semver strings.
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 1}]]}))
 
-    (let [f      (frame/make-frame {:platform :client})
+    (let [f      (frame/make-anon-frame-record! {:platform :client})
           traces (capture-traces!
                    (fn []
                      (rf/dispatch-sync [::probe-check-version-match]
@@ -73,7 +73,7 @@
       (fn [_ _]
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 2}]]}))
 
-    (let [f      (frame/make-frame {:platform :client})
+    (let [f      (frame/make-anon-frame-record! {:platform :client})
           traces (capture-traces!
                    (fn []
                      (rf/dispatch-sync [::probe-check-version-mismatch]
@@ -111,7 +111,7 @@
                {:expected "sha256:deadbeefcafef00d"
                 :actual   "sha256:deadbeefcafef00d"}]]}))
 
-    (let [f      (frame/make-frame {:platform :client})
+    (let [f      (frame/make-anon-frame-record! {:platform :client})
           traces (capture-traces!
                    (fn []
                      (rf/dispatch-sync [::probe-check-digest-match]
@@ -130,7 +130,7 @@
                {:expected "sha256:deadbeefcafef00d"
                 :actual   "sha256:0000000000000000"}]]}))
 
-    (let [f      (frame/make-frame {:platform :client})
+    (let [f      (frame/make-anon-frame-record! {:platform :client})
           traces (capture-traces!
                    (fn []
                      (rf/dispatch-sync [::probe-check-digest-mismatch]
@@ -167,7 +167,7 @@
       (fn [_ _]
         {:fx [[:rf.ssr/check-version 1]]}))
 
-    (let [f      (frame/make-frame {:platform :client})
+    (let [f      (frame/make-anon-frame-record! {:platform :client})
           traces (capture-traces!
                    (fn []
                      (rf/dispatch-sync [::probe-check-version-scalar-no-hook]
@@ -196,7 +196,7 @@
         (fn [_ _]
           {:fx [[:rf.ssr/check-version 1]]}))
 
-      (let [f      (frame/make-frame {:platform :client})
+      (let [f      (frame/make-anon-frame-record! {:platform :client})
             traces (capture-traces!
                      (fn []
                        (rf/dispatch-sync [::probe-check-version-scalar-with-hook]
@@ -229,7 +229,7 @@
           (fn [_ _]
             {:fx [[:rf.ssr/check-schema-digest "sha256:deadbeefcafef00d"]]}))
 
-        (let [f      (frame/make-frame {:platform :client})
+        (let [f      (frame/make-anon-frame-record! {:platform :client})
               traces (capture-traces!
                        (fn []
                          (rf/dispatch-sync [::probe-check-digest-scalar-no-hook]

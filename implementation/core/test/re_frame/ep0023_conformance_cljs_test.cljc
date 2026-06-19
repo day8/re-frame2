@@ -99,12 +99,10 @@
   (fn [t]
     (asm/clear-standards!)
     (asm/clear-generation-cache!)
-    (lf/clear-live-frames!)
     (drop-non-default-realms!)
     (t)
     (asm/clear-standards!)
     (asm/clear-generation-cache!)
-    (lf/clear-live-frames!)
     (drop-non-default-realms!)))
 
 (defn- reg-desc

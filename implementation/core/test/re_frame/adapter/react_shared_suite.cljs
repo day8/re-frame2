@@ -1232,7 +1232,7 @@
   resolve; :on-match dispatches; fresh nav-token per navigation."
   [{:keys [substrate-kw name]}]
   (testing (str name " — routing: :rf.route/transitioned drives the slice")
-    (let [f          (frame/make-frame {:doc "isolated frame for this test"})
+    (let [f          (frame/make-anon-frame-record! {:doc "isolated frame for this test"})
           home       (route-kw substrate-kw "home")
           article    (route-kw substrate-kw "article")
           load-ev    (mint-kw substrate-kw "article-load")
@@ -1280,8 +1280,8 @@
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
       (subs/reg-runtime-sub route-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
-      (let [left  (frame/make-frame {:doc "left tab frame"})
-            right (frame/make-frame {:doc "right tab frame"})]
+      (let [left  (frame/make-anon-frame-record! {:doc "left tab frame"})
+            right (frame/make-anon-frame-record! {:doc "right tab frame"})]
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles")] {:frame left})
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles/intro")] {:frame right})
 
@@ -2060,9 +2060,9 @@
         (if-let [reply (:rf/reply msg)]
           {:db {:article (:value reply)}}
           {:fx [[:rf.http/managed {:request {:method :get :url "/articles/hello"} :decode :json}]]})))
-    (let [left  (frame/make-frame {:doc "left"
+    (let [left  (frame/make-anon-frame-record! {:doc "left"
                                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-          right (frame/make-frame {:doc "right"
+          right (frame/make-anon-frame-record! {:doc "right"
                                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})
       (rf/dispatch-sync [:article/load] {:frame right})

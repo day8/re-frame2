@@ -76,7 +76,7 @@
   {:rf.http/managed :nine-states.http/managed-demo})
 
 (defn- new-frame []
-  (frame/make-frame
+  (frame/make-anon-frame-record!
     {:on-create    [:nine-states.app/initialise]
      :fx-overrides demo-overrides}))
 
@@ -200,7 +200,7 @@
     ;; setup event.
     (is (some? (rf/handler-meta :event :nine-states.story/load-failing))
         ":nine-states.story/load-failing registered (stories.cljs required)")
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:on-create    [:nine-states.app/initialise]
                           :fx-overrides story-failure-overrides})]
       ;; Drive the variant's setup load event. The canned-failure stub
@@ -226,7 +226,7 @@
     ;; with no per-variant override. Guards that success and failure stay
     ;; SEPARATELY represented (acceptance: keep the success lifecycle
     ;; variant proving canned-success).
-    (with-new-frame [f (frame/make-frame
+    (with-new-frame [f (frame/make-anon-frame-record!
                          {:on-create    [:nine-states.app/initialise]
                           :fx-overrides {:rf.http/managed
                                          :rf.http/managed-canned-success}})]

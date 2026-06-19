@@ -76,7 +76,7 @@
                    (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
                      {:title title
                       :meta  [{:name "description" :content summary}]})))
-    (let [f (frame/make-frame
+    (let [f (frame/make-anon-frame-record!
               {:doc       "head test frame"
                :platform  :server
                :on-create [:set-test-state]})]
@@ -99,14 +99,14 @@
   (testing "(render-head head-id frame-id) is sugar for (render-head head-id
             {:frame frame-id})"
     (rf/reg-head :head/simple (fn [_ _] {:title "bare"}))
-    (let [f (frame/make-frame {:doc "shorthand frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "shorthand frame" :platform :server})]
       (is (= {:title "bare"} (rf/render-head :head/simple f))))))
 
 (deftest render-head-accepts-explicit-route-override
   (testing ":route opt overrides the slice read from app-db — useful for
             tools that want a hypothetical-route preview"
     (rf/reg-head :head/echo (fn [_ route] {:title (str (:route-id route))}))
-    (let [f (frame/make-frame {:doc "explicit-route frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "explicit-route frame" :platform :server})]
       (is (= ":route/explicit"
              (:title (rf/render-head :head/echo
                                      {:frame f
@@ -114,7 +114,7 @@
 
 (deftest render-head-raises-on-unregistered-id
   (testing "render-head against an unknown id throws :rf.error/no-such-head"
-    (let [f (frame/make-frame {:doc "missing-head frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "missing-head frame" :platform :server})]
       (try
         (rf/render-head :head/nope {:frame f})
         (is false "expected exception")
@@ -129,7 +129,7 @@
             head-id) so head-snapshot reflects the latest output"
     (rf/reg-head :head/a (fn [_ _] {:title "A"}))
     (rf/reg-head :head/b (fn [_ _] {:title "B"}))
-    (let [f (frame/make-frame {:doc "snapshot frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "snapshot frame" :platform :server})]
       (rf/render-head :head/a {:frame f})
       (rf/render-head :head/b {:frame f})
       (let [snap (head/head-snapshot f)]
@@ -151,7 +151,7 @@
                   {:doc  "Article page"
                    :path "/articles/:id"
                    :head :head/article})
-    (let [f (frame/make-frame {:doc "active-route frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "active-route frame" :platform :server})]
       (rf/dispatch-sync
         [::seed-route] {:frame f})
       ;; The test sub-handler isn't registered; instead seed the runtime-db
@@ -171,7 +171,7 @@
     (rf/reg-route :route/no-head
                   {:doc  "Bare route"
                    :path "/"})
-    (let [f (frame/make-frame {:doc "Default-head probe" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "Default-head probe" :platform :server})]
       (rf/reg-event ::seed-route-no-head
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-head})}))
@@ -187,7 +187,7 @@
 
 (deftest active-head-uses-default-when-no-route-at-all
   (testing "no route slice (e.g. a frame that hasn't routed yet) → default"
-    (let [f (frame/make-frame {:doc "Bare" :platform :server})
+    (let [f (frame/make-anon-frame-record! {:doc "Bare" :platform :server})
           model (rf/active-head f)]
       (is (= "Bare" (:title model)))
       (is (seq (:meta model))))))
@@ -508,7 +508,7 @@
             head bookkeeping must not leak across requests, per Spec 011
             §Per-request frame teardown and rf2-fcj33"
     (rf/reg-head :head/leaktest (fn [_ _] {:title "snapshot-A"}))
-    (let [f (frame/make-frame {:doc "teardown frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "teardown frame" :platform :server})]
       (rf/render-head :head/leaktest {:frame f})
       (is (= {:title "snapshot-A"}
              (get (head/head-snapshot f) :head/leaktest))
@@ -521,8 +521,8 @@
   (testing "two frames carry independent head-snapshots — destroying one
             doesn't touch the other"
     (rf/reg-head :head/iso (fn [_ _] {:title "x"}))
-    (let [f1 (frame/make-frame {:doc "frame-1" :platform :server})
-          f2 (frame/make-frame {:doc "frame-2" :platform :server})]
+    (let [f1 (frame/make-anon-frame-record! {:doc "frame-1" :platform :server})
+          f2 (frame/make-anon-frame-record! {:doc "frame-2" :platform :server})]
       (rf/render-head :head/iso {:frame f1})
       (rf/render-head :head/iso {:frame f2})
       (is (seq (head/head-snapshot f1)))
@@ -548,7 +548,7 @@
             the internal re-frame.ssr.head/head-snapshot returns"
     (rf/reg-head :head/pub-a (fn [_ _] {:title "Pub-A"}))
     (rf/reg-head :head/pub-b (fn [_ _] {:title "Pub-B"}))
-    (let [f (frame/make-frame {:doc "rf/head-snapshot frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "rf/head-snapshot frame" :platform :server})]
       (is (= {} (rf/head-snapshot f))
           "empty pre-render")
       (rf/render-head :head/pub-a {:frame f})
@@ -593,7 +593,7 @@
                   {:doc  "Article page"
                    :path "/articles/:id"
                    :head :head/article})
-    (let [f (frame/make-frame {:doc "article frame" :platform :server})]
+    (let [f (frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
       (rf/dispatch-sync [:seed-article] {:frame f})
       (let [model (rf/active-head f)
             html  (rf/head-model->html model)]
@@ -637,7 +637,7 @@
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                                  {:route-id :route/article-fr :params {:id "1"}})}))
-    (let [f (frame/make-frame {:platform :server})]
+    (let [f (frame/make-anon-frame-record! {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})
       (let [model (rf/active-head f)]
         (is (= "Article — fr-FR" (:title model)))
