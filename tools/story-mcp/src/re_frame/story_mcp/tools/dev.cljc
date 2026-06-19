@@ -11,7 +11,6 @@
   both servers see one answer to the onboarding-text question."
   (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
-            [re-frame.story.result :as story-result]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -138,7 +137,7 @@
                            ;; unified shape a settled run emits.
                            {:status     :error
                             :lifecycle  :error
-                            :assertions [(story-result/assertion-record
+                            :assertions [(story/assertion-record
                                            {:assertion :rf.error/run-failed
                                             :passed?   false
                                             :error     true

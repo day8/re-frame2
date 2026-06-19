@@ -19,6 +19,20 @@ re-export rule is:
   `set-marks` — durable app-db classification is frame-owned, declared via
   the `:sensitive` / `:large` slots on a variant body (rf2-bsk1d9; see
   [Conventions §Privacy — frame-owned classification](Conventions.md#privacy--frame-owned-sensitive--large-classification)).
+- **Tooling-consumer leaf surfaces re-export (rf2-jy92cr).** Five pure
+  data → data leaf operations the downstream MCP tool (`story-mcp`)
+  needs sit on the facade so it no longer reaches into Story internals:
+  `known-assertion-ids` (the full recognised assertion vocabulary, for
+  `list-assertions`), `assertion-record` / `assertion-records` (normalize
+  a raw accumulator entry/vector to the unified record, for
+  `preview-variant` / `read-failures`), `aggregate-verdict` (the ONE
+  verdict-aggregation rule, for `read-failures`), and `valid-variant-id?`
+  (the STRING-shape variant-id grammar predicate, for the
+  `register-variant` / `record-as-variant` write paths). Each is classified
+  a **tooling-consumer entry point** per the standing facade-export rule:
+  it is consumed by `story-mcp`, not by user story bodies, and lets
+  Story's internals (`assertions` / `result` / `requirements` / `schemas`)
+  evolve without breaking the MCP tool.
 - **Chrome internals + theme tokens require sub-ns access.** Theme
   tokens (`re-frame.story.theme.*`), the chrome-host surface
   (`re-frame.story.ui.xray-embed/*`, `re-frame.story.xray-preset/*`,
@@ -77,6 +91,7 @@ All under `re-frame.story`.
 | `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` | [`002-Runtime.md`](002-Runtime.md) §Snapshot-identity computation |
 | `read-assertions` | `(read-assertions variant-id)` | [`004-Assertions.md`](004-Assertions.md) |
 | `assertions-passing?` | `(assertions-passing? result)` | [`004-Assertions.md`](004-Assertions.md) |
+| `valid-variant-id?` | `(valid-variant-id? [ns-part name-part])` — true iff the DECOMPOSED `[ns-part name-part]` strings name a canonical `:story.<path>/<variant>` id. STRING-shape grammar so an MCP write path validates a caller id BEFORE interning a keyword (the `fresh-keyword-checked` `shape-ok?` predicate). | [`001-Authoring.md`](001-Authoring.md) §Story id grammar |
 | `variant-share-url` | `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover) |
 
 ### Execution verbs — `run` / `is` / `render-variant`
@@ -90,6 +105,8 @@ accepts a keyword (a registered variant) OR a map (an inline plan).
 | `is` | `(is target)` / `(is target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Public execution API. Runs `target` + reports each assertion to `clojure.test` / `cljs.test`. |
 | `render-variant` | `(render-variant target)` / `(render-variant target opts)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Args, controls, and `render-variant`. |
 | `result-status` / `result-passed?` | `(result-status result)` / `(result-passed? result)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Run result. The unified verdict (`:pass` / `:fail` / `:cannot-run` / `:error`). There is NO `:passing?` boolean. |
+| `assertion-record` / `assertion-records` | `(assertion-record raw)` / `(assertion-records raw-assertions)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Run result — Assertion record. Normalize a raw assertion accumulator entry (or vector) into the unified assertion record(s) — stamps the derived `:status`, renames `:source-coord` → `:source`. Pure data → data. Exposed for tooling (story-mcp) that mints a synthetic record or stamps `:status` onto accumulator records without re-running. |
+| `aggregate-verdict` | `(aggregate-verdict records unmet)` | [`017-Testing-Story.md`](017-Testing-Story.md) §`:cannot-run`. The variant-level verdict over assertion `records` (+ `:cannot-run` `unmet` refusals), applying the ONE rule `:error` > `:fail` > `:cannot-run` > `:pass`. Pure data → data. Exposed so tooling reading the bare assertion accumulator computes the SAME verdict the runner does. `unmet` may be `nil`. |
 
 #### `story/is` — JVM blocks, CLJS hands back the promise (rf2-zaklu)
 
@@ -130,6 +147,7 @@ run so the runner never sees a key it does not own.
 | `list-modes` | `(list-modes)` | All registered modes. |
 | `canonical-tags` | `canonical-tags` | The seven canonical tags as a set. |
 | `canonical-assertion-ids` | `(canonical-assertion-ids)` | The eight canonical `:rf.assert/*` ids — the seven dispatched as `reg-event` plus the tape-evaluated `:rf.assert/schema-error` (see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/schema-error`). |
+| `known-assertion-ids` | `(known-assertion-ids)` | The FULL assertion-id vocabulary the plan compiler accepts — the eight canonical ids PLUS the richer-runner families (DOM `:rf.assert/dom-*`, visual / a11y oracles, reactive-count assertions). The SAME set `assertion-id-known?` validates authored atoms against; `canonical-assertion-ids` is its dispatched subset. Exposed for tooling (story-mcp `list-assertions`). |
 | `registered-substrates` | `(registered-substrates)` | CLJS-only. The substrate set as registered via `register-substrate!`. |
 
 ## Write helpers (used by MCP write surface and hot-reload tooling)

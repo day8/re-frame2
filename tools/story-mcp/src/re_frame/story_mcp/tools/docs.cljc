@@ -16,7 +16,6 @@
   (:require [clojure.set :as set]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story-mcp.tools.cursor :as cursor]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -284,7 +283,7 @@
   does not apply).
 
   rf2-4sgak: `:registered` is the FULL vocabulary the Story plan compiler
-  accepts — `assertions/known-assertion-ids` (spec/017 §Assertions),
+  accepts — `story/known-assertion-ids` (spec/017 §Assertions),
   the SAME set `plan.cljc` validates authored assertion atoms against via
   `assertion-id-known?`. That is the eight canonical ids PLUS the
   richer-runner families the canonical doc-vec does not cover: the DOM
@@ -297,7 +296,7 @@
   fell back to stale prose. `:registered` is paginated when the count
   exceeds `:limit`; small registries see no pagination metadata."
   [args]
-  (let [registered (sort-by str assertions/known-assertion-ids)
+  (let [registered (sort-by str (story/known-assertion-ids))
         reg-vec    (vec registered)]
     (cursor/paged-result reg-vec (set reg-vec) args "list-assertions"
                          (fn [page] {:canonical  canonical-assertion-docs

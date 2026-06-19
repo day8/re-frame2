@@ -137,6 +137,11 @@
             ;; `result-passed?` and backs the `story/is` bridge below
             ;; (spec/017 §Run result + §Unified run result).
             [re-frame.story.result      :as result]
+            ;; rf2-jy92cr — the ONE verdict-aggregation rule
+            ;; (`:error` > `:fail` > `:cannot-run` > `:pass`). Re-exported
+            ;; as `aggregate-verdict` below so tooling (story-mcp) reads the
+            ;; runner's verdict rule rather than re-implementing it.
+            [re-frame.story.requirements :as requirements]
             ;; rf2-5x1wt.19 — `story/is` blocks on the JVM run promise +
             ;; chains the CLJS one (the headless-test bridge).
             [re-frame.story.async       :as async]
@@ -156,6 +161,10 @@
                :cljs [cljs.test    :as test])
             ;; Runtime modules — args resolution, decorators.
             [re-frame.story.args        :as args]
+            ;; rf2-jy92cr — the variant-id STRING-shape grammar. Re-exported
+            ;; as `valid-variant-id?` below so the story-mcp write path
+            ;; validates a caller id before interning via the facade.
+            [re-frame.story.schemas     :as schemas]
             [re-frame.story.decorators  :as decorators]
             ;; Assertions + play + force-fx-stub.
             [re-frame.story.assertions  :as assertions]
@@ -996,6 +1005,19 @@
   [workspace-id]
   (lifecycle/workspace->edn workspace-id))
 
+(defn valid-variant-id?
+  "Per /spec/007-Stories.md §Canonical id grammar — true iff the DECOMPOSED
+  `[ns-part name-part]` strings name a canonical variant id
+  `:story.<path>/<variant>` (namespace begins with `story.` or is exactly
+  `story`, and the variant tail name is non-empty). Either part may be
+  `nil`. Pure data → data — operates on the STRING shape so an MCP write
+  path (story-mcp `record-as-variant` / `register-variant`) can validate a
+  caller-supplied id BEFORE interning a keyword (the
+  `fresh-keyword-checked` `shape-ok?` predicate), single-sourced with the
+  registrar's keyword-level grammar."
+  [decomposed-id]
+  (schemas/variant-id-shape? decomposed-id))
+
 (defn run-variant
   "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`.
   Allocate a frame for `variant-id`, run the four-
@@ -1399,6 +1421,22 @@
   []
   assertions/canonical-assertion-ids)
 
+(defn known-assertion-ids
+  "Per spec/017 §Assertions — return the FULL set of assertion ids the
+  Story plan compiler recognises: the eight canonical ids
+  (`canonical-assertion-ids`) PLUS the richer-runner families the
+  canonical vocabulary does not cover — the DOM family
+  (`:rf.assert/dom-visible|dom-hidden|dom-text`), the visual / a11y
+  oracles (`:rf.assert/visual-snapshot` / `:rf.assert/a11y` /
+  `:rf.assert/a11y-structural`), and the reactive-count assertions
+  declared in the requirement registry. This is the SAME set the plan
+  compiler validates authored assertion atoms against
+  (`assertion-id-known?`); `canonical-assertion-ids` is its dispatched
+  subset. Exposed for tooling (story-mcp `list-assertions`) that
+  enumerates the recognised vocabulary."
+  []
+  assertions/known-assertion-ids)
+
 ;; ---- unified run-result + the three verbs (rf2-5x1wt.19) ----------------
 ;;
 ;; Per spec/017 §Run result + §Unified run result + §Public execution API:
@@ -1447,6 +1485,39 @@
   `:pass`. A `:cannot-run` is NOT a pass (the runner proved nothing)."
   [result]
   (result/passed? result))
+
+(defn assertion-record
+  "Per spec/017 §Run result — Assertion record — normalize ONE raw
+  assertion accumulator entry into the unified assertion record, stamping
+  the derived `:status` (`#{:pass :fail :cannot-run :error}`) and renaming
+  `:source-coord` → `:source`. A record that already carries a `:status`
+  is returned unchanged. Pure data → data. Exposed for tooling (story-mcp
+  `preview-variant` / `read-failures`) that mints a synthetic record for a
+  path the run never produced (e.g. a pre-settlement `:error`)."
+  [raw]
+  (result/assertion-record raw))
+
+(defn assertion-records
+  "Per spec/017 §Run result — normalize a raw assertion accumulator vector
+  into unified assertion records (each carrying a derived `:status`), in
+  accumulator order. Pure data → data. The vector form of
+  `assertion-record`; exposed for tooling (story-mcp `read-failures`) that
+  stamps the unified `:status` onto records read from the
+  `:rf.story/assertions` accumulator without re-running the variant."
+  [raw-assertions]
+  (result/assertion-records raw-assertions))
+
+(defn aggregate-verdict
+  "Per spec/017 §`:cannot-run` — the variant-level verdict over a vector of
+  assertion `records` (plus any `unmet` `:cannot-run` refusals), applying
+  the ONE aggregation rule: `:error` > `:fail` > `:cannot-run` > `:pass`.
+  Pure data → data. This is the canonical verdict rule the runner itself
+  applies; exposed so tooling (story-mcp `read-failures`) reading the bare
+  assertion accumulator computes the SAME verdict the runner does rather
+  than re-implementing the precedence. `unmet` may be `nil` when no
+  capability refusals apply."
+  [records unmet]
+  (requirements/aggregate-status records unmet))
 
 ;; ---- the frozen, schema-backed run-result contract (rf2-3nbl5.6) --------
 ;;

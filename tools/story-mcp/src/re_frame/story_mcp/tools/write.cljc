@@ -17,7 +17,6 @@
             [re-frame.error :as error]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
-            [re-frame.story.schemas :as story-schemas]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.result :as result]
@@ -322,9 +321,10 @@
                 ;; but that reject happened AFTER the intern, so an invalid
                 ;; id (which correctly returns an error) still permanently
                 ;; grew the JVM keyword table. The pre-intern shape check
-                ;; (`variant-id-shape?`, single-sourced with the registrar's
-                ;; keyword-level `variant-id?`) fails closed with no intern.
-                (if-let [vk (args/fresh-keyword-checked vid story-schemas/variant-id-shape?)]
+                ;; (`story/valid-variant-id?`, single-sourced with the
+                ;; registrar's keyword-level `variant-id?`) fails closed with
+                ;; no intern.
+                (if-let [vk (args/fresh-keyword-checked vid story/valid-variant-id?)]
                   (register-or-error vk body-v)
                   (result/error-result
                     (str ":variant-id " (pr-str vid) " does not match the canonical "
