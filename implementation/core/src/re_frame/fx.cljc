@@ -843,27 +843,31 @@
           (let [ex-data-map (ex-data e)
                 category    (:rf.error/id ex-data-map)]
             (if (keyword? category)
-              (let [msg     #?(:clj (.getMessage ^Throwable e)
-                               :cljs (.-message e))
-                    errored-at-ms (interop/now-ms)]
-                ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the
-                ;; always-on per-error observability fan-out (rf2-bacs4 / sticky
-                ;; hook rf2-f72pd; survives `:advanced` + `goog.DEBUG=false`),
-                ;; axis 2 the dev trace (DCE'd in CLJS prod). Reached via the
-                ;; `:error-emit/emit-error-both` hook (fx cannot static-require
-                ;; error-emit — load cycle).
-                (when-let [emit-error-both!
-                           (late-bind/get-fn-cached :error-emit/emit-error-both)]
-                  (emit-error-both!
-                    category origin-event origin-event-id frame-id e 0 errored-at-ms
-                    (merge {:failing-id        fx-id
-                            :rf.fx/id          fx-id
-                            :rf.fx/args        args
-                            :frame             frame-id
-                            :exception         e
-                            :exception-message msg
-                            :recovery          :no-recovery}
-                           (dissoc ex-data-map :rf.error/id)))))
+              (let [msg #?(:clj (.getMessage ^Throwable e)
+                           :cljs (.-message e))]
+                ;; Both channels via the shared `emit-fx-error!` helper
+                ;; (rf2-xxlzfl): axis 1 the always-on per-error observability
+                ;; fan-out (rf2-bacs4 / sticky hook rf2-f72pd; survives
+                ;; `:advanced` + `goog.DEBUG=false`), axis 2 the dev trace
+                ;; (DCE'd in CLJS prod). `emit-fx-error!` reaches the shared
+                ;; two-channel `emit-error-both!` through the
+                ;; `:error-emit/emit-error-both` late-bind hook (fx cannot
+                ;; static-require error-emit — load cycle), stamping
+                ;; `elapsed-ms 0` + `(interop/now-ms)` internally — the same
+                ;; two-step the three other fx error sites
+                ;; (`:rf.error/no-such-fx`, `:rf.error/fx-handler-exception`,
+                ;; `:rf.error/override-fallthrough`) route through. The typed
+                ;; category + reserved-fx-specific ex-data slots ride verbatim
+                ;; (e.g. flow-cycle's `:cycle`) via the merged trace-payload.
+                (emit-fx-error! category origin-event origin-event-id frame-id e
+                                (merge {:failing-id        fx-id
+                                        :rf.fx/id          fx-id
+                                        :rf.fx/args        args
+                                        :frame             frame-id
+                                        :exception         e
+                                        :exception-message msg
+                                        :recovery          :no-recovery}
+                                       (dissoc ex-data-map :rf.error/id))))
               ;; Untyped reserved-fx throw — preserve crash-loud
               ;; contract by re-throwing.
               (throw e)))))
