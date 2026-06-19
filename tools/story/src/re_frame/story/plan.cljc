@@ -902,14 +902,6 @@
   is resolved per id, with the variant owning any id it sets directly."
   [:fx-overrides :interceptor-overrides])
 
-(defn- fragment-append-keys
-  "Context keys a fragment APPENDS (vectors concatenated in declared
-  order) into the composing body. Setup + script are handled separately
-  (they coordinate with the parent-chain setup and the child script);
-  these are the remaining append-shaped world slots."
-  []
-  [:loaders :loaders-teardown :decorators])
-
 (defn- check-flat-fragment!
   "FAIL with `:rf.error/story-compose-nested-fragment` when a composed
   `fragment` body carries `:compose` or `:extends` — P1 fragments MUST be
