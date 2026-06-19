@@ -439,6 +439,33 @@
     ;; behaviour). Defensive; all `reg-sub` paths now stamp `:input-kind`.
     (vec (:input-signals sub-meta))))
 
+;; ---- single-source (layer-1-shaped) input-kinds (rf2-6zfzxy) --------------
+;;
+;; `:db` / `:runtime-db` / `:frame-state` are the layer-1-SHAPED single-source
+;; reader kinds: each reads ONE frame-state container directly (no `:<-` /
+;; `input-fn` producer, so `produce-input-queries` returns `[]` for all three),
+;; and each runs the same fixed-arity-1 memoised body — only the container the
+;; reaction watches differs. That membership was re-derived three ways (the
+;; reactive `(or layer-1? runtime-db? frame-state?)` flag union + the
+;; `compute-sub` `#{:db :runtime-db :frame-state}` inline set + the reactive
+;; `inputs` cond's three explicit container branches). The set + container map
+;; below are the single source those collapse onto.
+
+(def ^:private single-source-input-kinds
+  "The layer-1-shaped single-source reader kinds (EP-0001 / EP-0016 D3): each
+  reads ONE frame-state container directly via the same fixed-arity-1 body."
+  #{:db :runtime-db :frame-state})
+
+(def ^:private single-source-container-for
+  "`input-kind → (fn [frame-id] container)` for the single-source reader kinds.
+  The reactive build watches the resolved container as the reaction's lone
+  signal source: `:db` the app-db projection, `:runtime-db` the runtime-db
+  projection, `:frame-state` the WHOLE frame-state value (both partitions, so
+  the body re-runs on a change to EITHER — EP-0016 D3 slice 3, rf2-616xa6)."
+  {:db          frame/app-db-container
+   :runtime-db  frame/runtime-db-container
+   :frame-state frame/frame-state-container})
+
 ;; ---- the cache ------------------------------------------------------------
 
 (defn- cache-key
@@ -525,6 +552,37 @@
            :frame             frame-id
            :recovery          :replaced-with-default})))))
 
+(defn- produce-input-queries-or-emit!
+  "Run [[produce-input-queries]] inside the shared try/produce/catch/
+  discriminate-bad-return wrapper both the reactive cache path and the
+  `compute-sub` path used identically (rf2-6zfzxy). Returns `[input-qs
+  input-error?]`: `[(produce-input-queries sub-meta query-v) false]` on
+  success, or — when the parametric `input-fn` throws OR returns a bad shape
+  (the tagged `:rf.error/sub-input-fn-bad-return` ex-info from
+  `normalize-sub-inputs`) — emits LOUDLY via [[emit-sub-input-fn-error!]] and
+  returns `[recovery-qs true]`. The exception is discriminated into
+  `:rf.error/sub-input-fn-bad-return` vs `:rf.error/sub-input-fn-exception` by
+  its `:rf.error/id`, exactly as both call sites did.
+
+  `where` (`:reactive` / `:compute-sub`) tags the emission site; `frame-id` is
+  the reactive path's owning frame (nil on the pure `compute-sub` path).
+  `recovery-qs` is the input-qs the caller wants on failure (`[]` reactive / nil
+  compute-sub — both yield `(count …) 0`, and the `input-error?` flag
+  short-circuits every downstream use, so the choice is cosmetic; preserved per
+  call site to keep the collapse byte-identical). Layer-1 / `:static` never
+  throw here — only the parametric `input-fn` can."
+  [sub-meta query-v query-id frame-id where recovery-qs]
+  (try
+    [(produce-input-queries sub-meta query-v) false]
+    (catch #?(:clj Throwable :cljs :default) e
+      (let [bad-return? (= :rf.error/sub-input-fn-bad-return
+                           (:rf.error/id (ex-data e)))]
+        (emit-sub-input-fn-error! (if bad-return?
+                                    :rf.error/sub-input-fn-bad-return
+                                    :rf.error/sub-input-fn-exception)
+                                  query-id query-v frame-id e where)
+        [recovery-qs true]))))
+
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve the input query-vectors (the literal
@@ -601,24 +659,18 @@
                              :resolved-inputs  []
                              :frame            frame-id})))
         body-fn       (:handler-fn sub-meta)
+        ;; A `:db` layer-1 sub specifically (the narrow single-source kind whose
+        ;; input is the app-db container) — used by the dev-only output-marks
+        ;; resolve + the not-cached symmetric-input-release guard below.
+        ;; `:runtime-db` / `:frame-state` are the OTHER single-source kinds (the
+        ;; `single-source-input-kinds` set drives the shared memoised-body +
+        ;; container-lookup decisions); EP-0001 (rf2-vzld77) made `:runtime-db`
+        ;; a layer-1-shaped framework reader over the frame's runtime-db
+        ;; projection, and EP-0016 D3 slice 3 (rf2-616xa6) made `:frame-state`
+        ;; a single-source reader over the WHOLE frame-state value (both
+        ;; partitions, so the body re-runs on EITHER an app-db or a runtime-db
+        ;; change).
         layer-1?      (= :db (:input-kind sub-meta))
-        ;; EP-0001 (rf2-vzld77): a `:runtime-db` sub is a layer-1-shaped
-        ;; framework sub whose single signal source is the frame's RUNTIME-DB
-        ;; projection (machine snapshots / route slice / etc. are durable
-        ;; runtime-db state). Same fixed-arity-1 memoised body as a `:db`
-        ;; layer-1 sub — only the signal source differs (Spec 002
-        ;; §Subscriptions read the partition they belong to).
-        runtime-db?   (= :runtime-db (:input-kind sub-meta))
-        ;; EP-0016 D3 slice 3: a `:frame-state` sub is a single-source
-        ;; reader whose signal is the WHOLE frame-state container (both
-        ;; partitions), so the body re-runs on EITHER an app-db or a
-        ;; runtime-db change — the reactivity a resource sub needs to
-        ;; re-key when a `{:from-db …}` resolver's app-db inputs change
-        ;; (rf2-616xa6) while still reacting to runtime-db cache writes.
-        ;; The body receives the full frame-state value and extracts the
-        ;; partitions it needs; output `=` memoisation keeps downstream
-        ;; quiet when neither relevant slice changed.
-        frame-state?  (= :frame-state (:input-kind sub-meta))
         ;; Produce the realized input query-vectors for THIS concrete
         ;; cache entry from the sub's input producer (Spec 006
         ;; §Subscription input producers): `[]` for layer-1, the literal
@@ -636,25 +688,19 @@
         ;; never throw here — only the parametric `input-fn` can.)
         [input-qs input-error?]
         (when sub-meta
-          (try
-            [(produce-input-queries sub-meta query-v) false]
-            (catch #?(:clj Throwable :cljs :default) e
-              (let [bad-return? (= :rf.error/sub-input-fn-bad-return
-                                   (:rf.error/id (ex-data e)))]
-                (emit-sub-input-fn-error! (if bad-return?
-                                            :rf.error/sub-input-fn-bad-return
-                                            :rf.error/sub-input-fn-exception)
-                                          query-id query-v frame-id e :reactive)
-                [[] true]))))
+          (produce-input-queries-or-emit! sub-meta query-v query-id frame-id :reactive []))
         ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive
         ;; subs over the realized input query-vectors. A failed parametric
         ;; production yields an empty `input-qs` and a constant-nil body.
+        ;; Single-source readers (`:db` / `:runtime-db` / `:frame-state`) watch
+        ;; ONE resolved container; the `single-source-container-for` lookup
+        ;; (rf2-6zfzxy) picks the app-db / runtime-db / whole-frame-state
+        ;; container — the `:frame-state` container propagates on a change to
+        ;; EITHER partition (EP-0016 D3 slice 3). Layer-2+ subscribes each
+        ;; realized input.
         inputs        (cond
-                        layer-1?     [(frame/app-db-container frame-id)]
-                        runtime-db?  [(frame/runtime-db-container frame-id)]
-                        ;; EP-0016 D3 slice 3: the WHOLE frame-state container
-                        ;; — propagates on a change to EITHER partition.
-                        frame-state? [(frame/frame-state-container frame-id)]
+                        (single-source-container-for (:input-kind sub-meta))
+                        [((single-source-container-for (:input-kind sub-meta)) frame-id)]
                         input-error? []
                         :else       (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
         parametric?   (= :parametric (:input-kind sub-meta))
@@ -672,7 +718,7 @@
                         ;; vs runtime-db projection vs the whole frame-state
                         ;; container). A `:frame-state` body receives the full
                         ;; frame-state value `{:rf.db/app … :rf.db/runtime …}`.
-                        (or layer-1? runtime-db? frame-state?)
+                        (single-source-input-kinds (:input-kind sub-meta))
                         (subs-memo/make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
 
@@ -1229,7 +1275,7 @@
                 ;; sub the caller supplies the runtime-db value (or a
                 ;; frame-state value, from which `compute-sub` extracts the
                 ;; right partition — see below).
-                layer-1? (#{:db :runtime-db :frame-state} (:input-kind meta))
+                layer-1? (single-source-input-kinds (:input-kind meta))
                 ;; Produce the realized input query-vectors from the sub's
                 ;; input producer — the SAME three-mode model as the
                 ;; reactive cache path (Spec 006 §Subscription input
@@ -1243,16 +1289,7 @@
                 ;; with `:where :compute-sub` and recover this sub to nil
                 ;; (a bad return is NEVER silently treated as no inputs).
                 [input-qs input-error?]
-                (try
-                  [(produce-input-queries meta query-v) false]
-                  (catch #?(:clj Throwable :cljs :default) e
-                    (let [bad-return? (= :rf.error/sub-input-fn-bad-return
-                                         (:rf.error/id (ex-data e)))]
-                      (emit-sub-input-fn-error! (if bad-return?
-                                                  :rf.error/sub-input-fn-bad-return
-                                                  :rf.error/sub-input-fn-exception)
-                                                query-id query-v nil e :compute-sub)
-                      [nil true])))
+                (produce-input-queries-or-emit! meta query-v query-id nil :compute-sub nil)
                 ;; Bind n once — `(empty? input-qs)` then `(= 1 (count input-qs))`
                 ;; counted twice on the multi-input path (rf2-r1rma).
                 n       (count input-qs)
