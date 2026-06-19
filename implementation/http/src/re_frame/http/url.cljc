@@ -1,10 +1,10 @@
-(ns re-frame.http-url
+(ns re-frame.http.url
   "URL handling for the http artefact — query-string redaction surface
   (Spec 014 §Privacy, rf2-2p8wr) plus the query-param denylist.
 
   This namespace owns URL *redaction / scrubbing* for the http artefact
   (split, walk, redact, denylist). URL *building* — `url-encode`,
-  `params->query`, `merge-params` — lives in `re-frame.http-encoding`
+  `params->query`, `merge-params` — lives in `re-frame.http.encoding`
   (the rf2-5ijhk encoding split). The two halves stay separate: redaction
   is a privacy-leaf surface, building is an encoding concern.
 
@@ -36,7 +36,7 @@
   URLs carrying denylisted params have the *value* redacted in every
   `:rf.http/*` trace event regardless of the originating handler's
   `:sensitive?` flag — the param name itself is the signal. When the
-  request is sensitive (per the resolver in `re-frame.http-privacy`),
+  request is sensitive (per the resolver in `re-frame.http.privacy`),
   **all** query params are redacted (the broader rule). Fragments are
   preserved verbatim past the redaction step.
 
@@ -325,7 +325,7 @@
   any-redacted? flag (e.g. inside a generic tag-walker).
 
   rf2-ee38b.7 — public for direct test assertion only; production reaches
-  URL redaction via `re-frame.http-privacy`'s `prepare-emit-*` composers
+  URL redaction via `re-frame.http.privacy`'s `prepare-emit-*` composers
   (which use `redact-url-query-string` directly for the flag). No
   production caller invokes this single-value wrapper."
   ([url-str sensitive?] (first (redact-url-query-string url-str sensitive? nil)))

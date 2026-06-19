@@ -1,6 +1,6 @@
 (ns re-frame.http-trace-emit-elision-prod-test
   "Per Spec 009 §Production builds (bead rf2-xxd6z) — RUNTIME prod-elision
-  contract for the `re-frame.http-managed` trace surface. Companion to
+  contract for the `re-frame.http.managed` trace surface. Companion to
   the string-grep sentinel sweep in `scripts/check-elision.cjs`: the
   grep catches keyword-literal survival in the bundle blob; this file
   pins the BEHAVIOUR — under `:advanced` + `goog.DEBUG=false`, a
@@ -37,10 +37,10 @@
             ;; Require every gated emit-site host ns so the reachability
             ;; graph includes their compiled bodies — DCE only proves the
             ;; gated branches dead from a reachable module.
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-registry :as http-registry]
-            [re-frame.http-transport]
-            [re-frame.http-decode]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as http-registry]
+            [re-frame.http.transport]
+            [re-frame.http.decode]
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as trace-tooling]))
 

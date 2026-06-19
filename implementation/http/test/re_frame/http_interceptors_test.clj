@@ -28,7 +28,7 @@
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
@@ -44,7 +44,7 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   (http-managed/clear-all-in-flight!)
   (http-managed/clear-all-http-interceptors!)
   ;; EP-0002 (rf2-5q7um6): reg-http-interceptor / clear-http-interceptor are

@@ -26,7 +26,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-   [re-frame.http-url :as url]))
+   [re-frame.http.url :as url]))
 
 ;; rf2-ppkh3v — app-specific carriers moved to FRAME policy (EP-0015 §3);
 ;; the process-global `clear-sensitive-query-params!` fixture is gone. The

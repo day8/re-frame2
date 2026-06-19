@@ -29,7 +29,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.http-decode :as decode]))
+   [re-frame.http.decode :as decode]))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-upexd.1 — empty / whitespace-only 2xx JSON body → nil on BOTH hosts

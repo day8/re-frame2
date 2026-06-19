@@ -28,8 +28,8 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-test-support]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.test-support]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
             [re-frame.schemas :as schemas]
@@ -54,8 +54,8 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (require 're-frame.http-managed :reload)
-  (require 're-frame.http-test-support :reload)
+  (require 're-frame.http.managed :reload)
+  (require 're-frame.http.test-support :reload)
   (routing/reset-counters!)
   ;; rf2-oosjmh — nav-token / pending-nav counters are host-side now; the
   ;; `frames` reset above no longer clears them, so reset the host cache

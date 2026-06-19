@@ -13,7 +13,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -37,7 +37,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   ;; rf2-ppkh3v — app-specific carriers are FRAME policy now (EP-0015 §3);

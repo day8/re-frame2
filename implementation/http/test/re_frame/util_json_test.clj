@@ -1,5 +1,5 @@
 (ns re-frame.util-json-test
-  "Unit tests for `re-frame.util-json` on JVM (Cheshire path).
+  "Unit tests for `re-frame.http.json` on JVM (Cheshire path).
 
   Beads:
    - rf2-wu1n5 — JSON keyword-interning DoS: cap on unique keys decoded
@@ -17,7 +17,7 @@
                  are moot — Cheshire is RFC-8259-conforming and bulletproof
                  around `\\uXXXX` escapes by construction."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.util-json :as util-json]))
+            [re-frame.http.json :as util-json]))
 
 ;; ---- rf2-wu1n5 — keyword-interning cap -----------------------------------
 

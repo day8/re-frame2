@@ -1,4 +1,4 @@
-(ns re-frame.http-test-support
+(ns re-frame.http.test-support
   "Test-support namespace for the managed-HTTP artefact (Spec 014).
 
   ## What lives here (rf2-lwmgw — single discoverable home)
@@ -26,7 +26,7 @@
   hook.
 
   The previous arrangement split these across two namespaces — the macros
-  lived in `re-frame.http-managed`, and `re-frame.http-test-support` was a
+  lived in `re-frame.http.managed`, and `re-frame.http.test-support` was a
   bare \"registration gate\" for the canned-stub fxs. A test author reaching
   for the HTTP stub helper had to know which surface lived where. The
   consolidation (rf2-lwmgw, Mike-confirmed option (a) on audit-of-audits
@@ -34,7 +34,7 @@
   surface.
 
   The production fx surface (`:rf.http/managed`, `:rf.http/managed-abort`,
-  the middleware family) continues to live in `re-frame.http-managed`.
+  the middleware family) continues to live in `re-frame.http.managed`.
   Production / SSR app code must NOT `:require` this namespace.
 
   ## Adoption
@@ -46,8 +46,8 @@
 
   ```clojure
   (ns my-app.tests
-    (:require [re-frame.http-managed]        ;; production fx surface
-              [re-frame.http-test-support])) ;; stub macros + canned fxs
+    (:require [re-frame.http.managed]        ;; production fx surface
+              [re-frame.http.test-support])) ;; stub macros + canned fxs
   ```
 
   ## Why this exists at all (rf2-cdmle, follow-up to rf2-zk08x)
@@ -58,7 +58,7 @@
     - `:rf.http/managed-canned-failure`
 
   are test-only affordances per Spec 014 §Testing. Earlier they registered
-  at `re-frame.http-managed` namespace load, gated on
+  at `re-frame.http.managed` namespace load, gated on
   `re-frame.interop/debug-enabled?`. That gate works on CLJS — under
   `:advanced + goog.DEBUG=false` the entire `(when ...)` body DCEs, fx-id
   keyword string fragments and all. On the JVM, however, `debug-enabled?`
@@ -87,10 +87,10 @@
   (:require [re-frame.events               :as events]
             [re-frame.frame                :as frame]
             [re-frame.fx                   :as fx]
-            [re-frame.http-encoding        :as encoding]
-            [re-frame.http-handlers        :as handlers]
-            [re-frame.http-middleware      :as middleware]
-            [re-frame.http-privacy         :as privacy]
+            [re-frame.http.encoding        :as encoding]
+            [re-frame.http.handlers        :as handlers]
+            [re-frame.http.middleware      :as middleware]
+            [re-frame.http.privacy         :as privacy]
             [re-frame.late-bind            :as late-bind]
             [re-frame.registrar            :as registrar]
             [re-frame.router               :as router]))
@@ -102,7 +102,7 @@
 ;; These synthesise a managed-HTTP reply WITHOUT a real transport, for the
 ;; canned-stub fxs (`:rf.http/managed-canned-*`) and the route-map stub
 ;; (`stub-handler`) below. They are TEST scaffolding — they used to live in
-;; the production-loaded `re-frame.http-machine-wrapper` so the (then-split)
+;; the production-loaded `re-frame.http.machine-wrapper` so the (then-split)
 ;; stub macros could reach them without a circular require. Now that the
 ;; macros and the canned-stub fx registrations both live HERE (rf2-lwmgw),
 ;; the constraint is gone and the bodies moved here too, leaving
@@ -380,7 +380,7 @@
 ;;
 ;; Per the namespace docstring: the gate is \"explicit test-support
 ;; import\". These (fx/reg-fx ...) calls fire iff some namespace in the
-;; require closure pulled `re-frame.http-test-support` in. Production app
+;; require closure pulled `re-frame.http.test-support` in. Production app
 ;; code must not. The handler bodies (`canned-success-handler` /
 ;; `canned-failure-handler`) live HERE alongside their registrations
 ;; (rf2-w59es5 — the stub scaffolding consolidated into this test-support
@@ -390,7 +390,7 @@
 
 (fx/reg-fx :rf.http/managed-canned-success
            {:doc "Spec 014 — synthesised success reply (test stub).
-                  Registration gated on explicit `re-frame.http-test-support`
+                  Registration gated on explicit `re-frame.http.test-support`
                   require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
                   defers the reply via `:dispatch-later`."}
            (with-after-ms :rf.http/managed-canned-success
@@ -398,7 +398,7 @@
 
 (fx/reg-fx :rf.http/managed-canned-failure
            {:doc "Spec 014 — synthesised failure reply (test stub).
-                  Registration gated on explicit `re-frame.http-test-support`
+                  Registration gated on explicit `re-frame.http.test-support`
                   require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
                   defers the reply via `:dispatch-later`."}
            (with-after-ms :rf.http/managed-canned-failure
@@ -407,7 +407,7 @@
 ;; ---- with-managed-request-stubs ------------------------------------------
 ;;
 ;; Per rf2-lwmgw the stub macros / fns live HERE alongside the canned-stub
-;; fx registrations. The previous split (macros in `re-frame.http-managed`,
+;; fx registrations. The previous split (macros in `re-frame.http.managed`,
 ;; gate-only namespace here) misleadingly named this ns for a role it did
 ;; not own.
 
@@ -616,7 +616,7 @@
 ;; hook table — see `re-frame.core-http`. Publishing the hook from THIS
 ;; namespace (per rf2-lwmgw) means `with-managed-request-stubs*` raises
 ;; `:rf.error/http-artefact-missing` until a test opts in by `:require`-ing
-;; `re-frame.http-test-support` — symmetric with the canned-stub fx ids'
+;; `re-frame.http.test-support` — symmetric with the canned-stub fx ids'
 ;; registration gate above.
 ;;
 ;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`

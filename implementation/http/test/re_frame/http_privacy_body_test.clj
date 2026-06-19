@@ -1,5 +1,5 @@
 (ns re-frame.http-privacy-body-test
-  "Unit tests for `re-frame.http-privacy-body` — HTTP response-body
+  "Unit tests for `re-frame.http.privacy-body` — HTTP response-body
   classification (EP-0015 §8, ruled issue 5; rf2-ppkh3v).
 
   Pins the contract that a managed HTTP response body is a registration-
@@ -21,7 +21,7 @@
   The schemas artefact is a test-only dep here, so requiring it binds the
   shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.http-privacy-body :as body]
+            [re-frame.http.privacy-body :as body]
             [re-frame.registrar :as registrar]
             ;; load-bearing: binds the shared schema walker hooks.
             [re-frame.schemas]))

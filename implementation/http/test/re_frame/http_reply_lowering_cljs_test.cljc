@@ -2,7 +2,7 @@
   "Host-symmetric (CLJS + JVM) conformance for the PURE core of the
   managed-HTTP lowering (rf2-zqefg3.2): the canonical reply map, the
   work-id head, and the public-compatibility reshape in
-  `re-frame.http-reply`. Runs on the `npm run test:cljs` node gate (its
+  `re-frame.http.reply`. Runs on the `npm run test:cljs` node gate (its
   ns matches the `cljs-test$` regexp) so the lowering's pure functor /
   schema core is exercised on the CLJS runtime too — the end-to-end
   real-transport groups live in the JVM-only
@@ -11,7 +11,7 @@
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope; EP-0011 §Managed HTTP Lowering / §Public Compatibility Sugar."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http-reply :as http-reply]
+            [re-frame.http.reply :as http-reply]
             [re-frame.reply :as reply]))
 
 (def ^:private ctx

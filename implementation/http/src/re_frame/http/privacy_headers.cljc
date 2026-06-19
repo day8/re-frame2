@@ -1,4 +1,4 @@
-(ns re-frame.http-privacy-headers
+(ns re-frame.http.privacy-headers
   "HTTP header denylist for Spec 014 §Privacy (rf2-bma05).
 
   HTTP request / response headers are the canonical bearer-token surface
@@ -36,11 +36,11 @@
   `trace/emit!`). In production builds the trace surface elides
   entirely; this namespace's walker never runs."
   (:require [clojure.string :as str]
-            [re-frame.http-url :as url]))
+            [re-frame.http.url :as url]))
 
 ;; rf2-ee38b.7 — the framework-reserved redaction sentinel per Spec 009
 ;; §Privacy now has a single canonical home in the sibling leaf
-;; `re-frame.http-url` (which carries no privacy deps, so there is no
+;; `re-frame.http.url` (which carries no privacy deps, so there is no
 ;; leaf→parent cycle). Previously this namespace held its own private
 ;; copy AND `http-url` held the string form AND `http-privacy` held the
 ;; keyword — three coordinated edits to change one value. Refer to the

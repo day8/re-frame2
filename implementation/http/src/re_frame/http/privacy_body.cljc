@@ -1,4 +1,4 @@
-(ns re-frame.http-privacy-body
+(ns re-frame.http.privacy-body
   "HTTP response-body classification — EP-0015 §8 / Spec 015 §HTTP response
   bodies, ruled issue 5 (rf2-ppkh3v). Graduated into
   [`spec/014-HTTPRequests.md` §Privacy — response-body classification].

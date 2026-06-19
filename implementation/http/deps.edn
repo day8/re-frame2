@@ -15,9 +15,9 @@
 ;; AND the stub macros (`with-managed-request-stubs` /
 ;; `with-managed-request-stubs*` / `install-managed-request-stubs!` /
 ;; `uninstall-managed-request-stubs!`) — ship in this same artefact
-;; under the sibling `re-frame.http-test-support` namespace per
+;; under the sibling `re-frame.http.test-support` namespace per
 ;; rf2-lwmgw (consolidates audit-of-audits #15; the prior split that
-;; left the macros in `re-frame.http-managed` is closed). Production /
+;; left the macros in `re-frame.http.managed` is closed). Production /
 ;; SSR code paths MUST NOT `:require` that namespace; tests opt in. See
 ;; Spec 014 §Test-support require for the gate rationale.
 ;;
@@ -26,12 +26,12 @@
 ;;   {:deps {day8/re-frame2      {:mvn/version "..."}
 ;;           day8/re-frame2-http {:mvn/version "..."}}}
 ;;
-;; And require `re-frame.http-managed` in any namespace that issues
+;; And require `re-frame.http.managed` in any namespace that issues
 ;; `:rf.http/managed` requests — loading registers the production-
 ;; eligible `:rf.http/*` fxs and publishes the production late-bind
 ;; hooks (`:http/clear-all-in-flight!`, `:http/reg-http-interceptor`,
 ;; etc.). Tests / dev demos additionally require
-;; `re-frame.http-test-support`, which registers the canned-stub fxs
+;; `re-frame.http.test-support`, which registers the canned-stub fxs
 ;; and publishes the stub-family late-bind hooks
 ;; (`:http/install-managed-request-stubs!`,
 ;; `:http/uninstall-managed-request-stubs!`,
@@ -101,7 +101,7 @@
 
   :clein/build
   {:lib      day8/re-frame2-http
-   :main     re-frame.http-managed
+   :main     re-frame.http.managed
    :url      "https://github.com/day8/re-frame2"
    :version  "../../VERSION"
    :license  {:name "MIT"

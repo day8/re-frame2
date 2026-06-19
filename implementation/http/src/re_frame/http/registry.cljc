@@ -1,7 +1,7 @@
-(ns re-frame.http-registry
+(ns re-frame.http.registry
   "In-flight request registries for `:rf.http/managed`.
 
-  Extracted from `re-frame.http-managed` per rf2-3i9b. Two indexes
+  Extracted from `re-frame.http.managed` per rf2-3i9b. Two indexes
   coexist:
 
    - `in-flight`        — request-id → request-handle. Per Spec 014
@@ -26,8 +26,8 @@
   shape wrapper) because the operation is atomic state — it walks
   both atoms and mutates them under one `swap!` per slot. Keeping it
   next to the atoms makes the invariant local."
-  (:require [re-frame.http-privacy :as privacy]
-            [re-frame.http-reply   :as http-reply]
+  (:require [re-frame.http.privacy :as privacy]
+            [re-frame.http.reply   :as http-reply]
             [re-frame.interop      :as interop]
             [re-frame.late-bind    :as late-bind]
             [re-frame.trace        :as trace]))

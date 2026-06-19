@@ -17,7 +17,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; re-frame.machines and re-frame.http-managed cross-publish their
+            ;; re-frame.machines and re-frame.http.managed cross-publish their
             ;; registration hooks through `re-frame.late-bind` (machines
             ;; publishes `:machines/reg-machine`; http-managed publishes
             ;; `:http/register-managed-machine!`). Either ns can load first;
@@ -25,12 +25,12 @@
             ;; (rf2-ijm7). Listing both here makes the dependency closure
             ;; explicit so the bundle includes both producers.
             [re-frame.machines :as machines]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             ;; rf2-lwmgw — the stub macros / install fn live in
-            ;; `re-frame.http-test-support` (alongside the canned-stub fx
+            ;; `re-frame.http.test-support` (alongside the canned-stub fx
             ;; registrations). This test calls `install-managed-request-stubs!`
             ;; directly, so it requires that ns.
-            [re-frame.http-test-support :as http-test-support]
+            [re-frame.http.test-support :as http-test-support]
             [re-frame.registrar :as registrar]
             [re-frame.test-support :as test-support]))
 
@@ -47,7 +47,7 @@
 ;; ---- (1) wrapper registration succeeds on classpath ---------------------
 
 (deftest wrapper-is-registered-when-machines-is-present
-  (testing "loading both re-frame.machines and re-frame.http-managed registers `:rf.http/managed` as a machine"
+  (testing "loading both re-frame.machines and re-frame.http.managed registers `:rf.http/managed` as a machine"
     (let [meta (registrar/lookup :event :rf.http/managed)]
       (is (some? meta) ":rf.http/managed is registered as an :event")
       (is (true? (:rf/machine? meta))

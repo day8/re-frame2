@@ -14,7 +14,7 @@
   `:router/dispatch!`), so calling the failure-dispatch helper with a
   synthetic ctx fires the swallow-detection path without needing a runtime."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.http-transport :as transport]
+            [re-frame.http.transport :as transport]
             [re-frame.trace :as trace]))
 
 ;; Private surface reached via #' (same discipline as http_decode_test.clj).

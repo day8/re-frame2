@@ -22,8 +22,8 @@
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http-handlers :as handlers]
-            [re-frame.http-managed :as http-managed]))
+            [re-frame.http.handlers :as handlers]
+            [re-frame.http.managed :as http-managed]))
 
 ;; ---- per-test reset --------------------------------------------------------
 
@@ -41,7 +41,7 @@
   (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   (http-managed/clear-all-in-flight!)
   (rf/with-frame :rf/default
     (t)))

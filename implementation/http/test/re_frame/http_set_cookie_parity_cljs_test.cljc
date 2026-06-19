@@ -27,8 +27,8 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   #?(:clj  [re-frame.http-transport-jvm :as transport-jvm]
-      :cljs [re-frame.http-transport-cljs :as transport-cljs]))
+   #?(:clj  [re-frame.http.transport-jvm :as transport-jvm]
+      :cljs [re-frame.http.transport-cljs :as transport-cljs]))
   #?(:clj (:import [java.net.http HttpHeaders]
                    [java.util Map]
                    [java.util.function BiPredicate])))

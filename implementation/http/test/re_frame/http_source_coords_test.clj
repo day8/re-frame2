@@ -23,7 +23,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -36,7 +36,7 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   (http-managed/clear-all-in-flight!)
   (http-managed/clear-all-http-interceptors!)
   ;; EP-0002 (rf2-5q7um6): reg-http-interceptor is context-required

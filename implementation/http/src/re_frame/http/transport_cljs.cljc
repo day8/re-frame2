@@ -1,9 +1,9 @@
-(ns re-frame.http-transport-cljs
+(ns re-frame.http.transport-cljs
   "CLJS (Fetch-API) platform adapter for `:rf.http/managed`.
 
-  Extracted from `re-frame.http-transport` per rf2-hp772l — the platform
+  Extracted from `re-frame.http.transport` per rf2-hp772l — the platform
   transports were extracted into per-platform sibling namespaces so the
-  shared attempt-and-retry lifecycle (`re-frame.http-transport`) reads as
+  shared attempt-and-retry lifecycle (`re-frame.http.transport`) reads as
   platform-neutral Clojure and each platform's reader-conditional code has
   a named home.
 
@@ -20,9 +20,9 @@
   the rf2-hp772l contract: the shared loop carries no CLJS interop."
   (:require [clojure.string         :as str]
             [re-frame.error         :as error]
-            [re-frame.http-decode   :as decode]
-            [re-frame.http-encoding :as encoding]
-            [re-frame.http-privacy  :as privacy]
+            [re-frame.http.decode   :as decode]
+            [re-frame.http.encoding :as encoding]
+            [re-frame.http.privacy  :as privacy]
             [re-frame.interop       :as interop]
             [re-frame.trace         :as trace]))
 

@@ -8,7 +8,7 @@
   in shadow-cljs builds).
 
   Also covers rf2-r40km — the CLJS-only `:rf.http/cors` classification
-  branch of `re-frame.http-transport-cljs/classify-cljs-error`."
+  branch of `re-frame.http.transport-cljs/classify-cljs-error`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
@@ -17,21 +17,21 @@
             ;; rf2-wj8vv — drive the full `:rf.http/managed` pipeline (fx
             ;; registration + in-flight registry) for the backoff-window
             ;; cancellation test below.
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-registry :as registry]
-            [re-frame.http-transport-cljs :as transport-cljs]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as registry]
+            [re-frame.http.transport-cljs :as transport-cljs]
             ;; rf2-f5pguu — assert the redacted `:rf.warning/http-header-invalid`
             ;; trace fires (instead of an escaping `:rf.error/fx-handler-
             ;; exception`) when an invalid request header hits the managed
             ;; CLJS path. `re-frame.trace.tooling` owns the listener surface
-            ;; (rf2-qwm0a); `re-frame.http-url` carries the canonical redaction
+            ;; (rf2-qwm0a); `re-frame.http.url` carries the canonical redaction
             ;; sentinel for the denylist-scrub assertion (rf2-m00e7p).
-            [re-frame.http-url :as http-url]
+            [re-frame.http.url :as http-url]
             [re-frame.test-support :as test-support]
             [re-frame.trace.tooling :as trace-tooling]))
 
 ;; rf2-hp772l — the CLJS Fetch transport + classifier now live in the
-;; per-platform adapter ns `re-frame.http-transport-cljs` and are public
+;; per-platform adapter ns `re-frame.http.transport-cljs` and are public
 ;; (named seams), so no `@#'` reach-through is needed.
 (def ^:private classify-cljs-error
   transport-cljs/classify-cljs-error)
@@ -593,7 +593,7 @@
 
 (deftest cljs-fetch-invalid-header-warning-redacts-denylisted-query-param
   (testing "rf2-f5pguu — the managed CLJS header-validation warning routes
-  its `:url` through `re-frame.http-privacy/prepare-emit-tags` (same as the JVM path,
+  its `:url` through `re-frame.http.privacy/prepare-emit-tags` (same as the JVM path,
   rf2-1jcpm): a denylisted query param (`?api_key=…`) is scrubbed and
   `:sensitive?` is stamped at the top level of the trace event."
     (async done

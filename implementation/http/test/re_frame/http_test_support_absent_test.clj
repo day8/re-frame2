@@ -1,6 +1,6 @@
 (ns re-frame.http-test-support-absent-test
   "Negative-assertion test for rf2-cdmle + rf2-lwmgw: with
-  `re-frame.http-test-support` ABSENT from the require closure:
+  `re-frame.http.test-support` ABSENT from the require closure:
 
    1. the two canonical canned-stub fxs
       (`:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`)
@@ -21,7 +21,7 @@
   ## Why this lives in its own file
 
   The assertion is load-order sensitive. Any `:require` of
-  `re-frame.http-test-support` in this namespace's REQUIRE form OR
+  `re-frame.http.test-support` in this namespace's REQUIRE form OR
   in any sibling test file run before this one would seed the
   canned-stub fx registrations into the registrar AND publish the
   stub-family late-bind hooks — and the assertion here would
@@ -30,19 +30,19 @@
   Two safeguards keep the test hermetic:
 
    1. The require form below intentionally omits
-      `re-frame.http-test-support`. If a future maintainer adds it,
+      `re-frame.http.test-support`. If a future maintainer adds it,
       this comment block is the load-bearing reminder that doing so
       defeats the test.
    2. The test body starts with `(registrar/clear-all!)` followed by
-      `(require 're-frame.http-managed :reload)`. After clear-all! the
+      `(require 're-frame.http.managed :reload)`. After clear-all! the
       registrar is empty; reloading http-managed re-fires its load-time
       `(fx/reg-fx :rf.http/managed ...)` and `(fx/reg-fx :rf.http/managed-abort ...)`
       forms, but does NOT re-fire any registration in
-      `re-frame.http-test-support` — that namespace isn't loaded by
+      `re-frame.http.test-support` — that namespace isn't loaded by
       this require closure at all. The `:http/with-managed-request-stubs*`
       late-bind hook gets explicitly nulled via `(late-bind/set-fn! ... nil)`
       to defeat cross-test pollution (sibling tests that DID load
-      `re-frame.http-test-support` would have published it).
+      `re-frame.http.test-support` would have published it).
 
   The methodology counterpart — \"with the test-support require in the
   closure, the canned stubs ARE registered AND the hooks publish\" —
@@ -52,53 +52,53 @@
             [re-frame.registrar :as registrar]))
 
 (deftest canned-stub-fxs-absent-without-test-support-require
-  (testing "rf2-cdmle — with re-frame.http-test-support ABSENT from the
+  (testing "rf2-cdmle — with re-frame.http.test-support ABSENT from the
             require closure, neither canned-stub fx id is registered.
             The production-eligible :rf.http/managed and
             :rf.http/managed-abort fxs ARE registered (they live in
-            re-frame.http-managed, which IS in the require closure via
+            re-frame.http.managed, which IS in the require closure via
             the reload below)."
     ;; Start from a known-clean registrar.
     (registrar/clear-all!)
-    ;; Reload re-frame.http-managed so its load-time fx registrations
-    ;; fire. This file does NOT require `re-frame.http-test-support`,
+    ;; Reload re-frame.http.managed so its load-time fx registrations
+    ;; fire. This file does NOT require `re-frame.http.test-support`,
     ;; so the canned-stub fx ids are not registered as a side effect of
     ;; loading the prod artefact.
-    (require 're-frame.http-managed :reload)
+    (require 're-frame.http.managed :reload)
     ;; Production-eligible fxs MUST be registered — sanity / methodology
-    ;; floor: a regression that broke re-frame.http-managed itself
+    ;; floor: a regression that broke re-frame.http.managed itself
     ;; (rather than merely re-introducing the canned-stub gate) would
     ;; show up as both these and the canned ones absent.
     (is (some? (registrar/lookup :fx :rf.http/managed))
-        ":rf.http/managed is dev+prod — registered by re-frame.http-managed at load")
+        ":rf.http/managed is dev+prod — registered by re-frame.http.managed at load")
     (is (some? (registrar/lookup :fx :rf.http/managed-abort))
-        ":rf.http/managed-abort is dev+prod — registered by re-frame.http-managed at load")
+        ":rf.http/managed-abort is dev+prod — registered by re-frame.http.managed at load")
     ;; The load-bearing assertion: canned-stub fx ids MUST NOT be
-    ;; registered when re-frame.http-test-support has not been required.
+    ;; registered when re-frame.http.test-support has not been required.
     ;; Production code paths reaching `:fx-overrides
     ;; {:rf.http/managed :rf.http/managed-canned-success}` would fail
     ;; with the framework's no-such-fx error, which is the intended
     ;; production posture per rf2-zk08x's audit decision.
     (is (nil? (registrar/lookup :fx :rf.http/managed-canned-success))
-        ":rf.http/managed-canned-success MUST NOT register without re-frame.http-test-support require")
+        ":rf.http/managed-canned-success MUST NOT register without re-frame.http.test-support require")
     (is (nil? (registrar/lookup :fx :rf.http/managed-canned-failure))
-        ":rf.http/managed-canned-failure MUST NOT register without re-frame.http-test-support require")))
+        ":rf.http/managed-canned-failure MUST NOT register without re-frame.http.test-support require")))
 
 (deftest stub-family-hooks-absent-without-test-support-require
-  (testing "rf2-lwmgw — with re-frame.http-test-support ABSENT from the
+  (testing "rf2-lwmgw — with re-frame.http.test-support ABSENT from the
             require closure, the :http/with-managed-request-stubs* late-bind
             hook MUST NOT publish. Production calls to
             rf/with-managed-request-stubs* then surface
             :rf.error/http-artefact-missing through re-frame.core-http's
             defwrapper, the same shape every other test-support entry point
             uses."
-    ;; Sibling tests that DID load `re-frame.http-test-support` would
+    ;; Sibling tests that DID load `re-frame.http.test-support` would
     ;; have published the hook into the global late-bind table; null it
     ;; explicitly so this assertion is hermetic against test ordering.
     ;; (registrar/clear-all! does not touch the late-bind table — it's a
     ;; separate atom.)
     (late-bind/set-fn! :http/with-managed-request-stubs*      nil)
     (registrar/clear-all!)
-    (require 're-frame.http-managed :reload)
+    (require 're-frame.http.managed :reload)
     (is (nil? (late-bind/get-fn :http/with-managed-request-stubs*))
-        ":http/with-managed-request-stubs* MUST NOT publish from re-frame.http-managed (rf2-lwmgw)")))
+        ":http/with-managed-request-stubs* MUST NOT publish from re-frame.http.managed (rf2-lwmgw)")))

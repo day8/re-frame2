@@ -1,28 +1,28 @@
 (ns re-frame.http-privacy-test
-  "Unit tests for `re-frame.http-privacy` and its sibling leaves —
+  "Unit tests for `re-frame.http.privacy` and its sibling leaves —
   Spec 014 §Privacy (rf2-bma05).
 
   Covers:
    - Header denylist (default set, case-insensitive, app-extensible) —
-     `re-frame.http-privacy-headers`.
+     `re-frame.http.privacy-headers`.
    - `redact-headers` walks a map and replaces sensitive header values —
-     `re-frame.http-privacy-headers`.
-   - Query-param denylist + URL redaction — `re-frame.http-url`.
+     `re-frame.http.privacy-headers`.
+   - Query-param denylist + URL redaction — `re-frame.http.url`.
    - `request-sensitive?` reads per-call and per-request flags
      (handler-meta `:sensitive?` has been removed) —
-     `re-frame.http-privacy`.
+     `re-frame.http.privacy`.
    - `redact-request-tags` / `redact-failure` / `stamp-sensitive` /
      `prepare-emit-tags` / `prepare-emit-failure` compose correctly —
-     `re-frame.http-privacy`.
+     `re-frame.http.privacy`.
 
   Integration with the trace surface (sensitive HTTP requests emitting
   redacted trace events end-to-end) is covered in
   `re-frame.http-privacy-integration-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http-privacy :as privacy]
-            [re-frame.http-privacy-headers :as headers]
-            [re-frame.http-url :as url]
+            [re-frame.http.privacy :as privacy]
+            [re-frame.http.privacy-headers :as headers]
+            [re-frame.http.url :as url]
             [re-frame.registrar :as registrar]))
 
 (defn- reset-runtime [t]
