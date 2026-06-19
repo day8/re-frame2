@@ -157,14 +157,13 @@
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
    ;; ---- re-frame.marks (rf2-vw7f5 Spec 015 data classification) -------------
-   {:key         :marks/add-marks
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-vw7f5"
-    :description "Additively merge path-marks into a frame's app-db (Spec 015 §App-db marks). Hook retained for the directory contract; the `add-marks` façade export was removed (frame-marks are author-declared at reg-* time, not imperatively mutated), so the underlying `re-frame.marks/add-marks` survives only as an internal / test / generated-code surface, reached by direct require — not through this late-bind hook."}
-   {:key         :marks/set-marks
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-vw7f5"
-    :description "Replace the frame's app-db mark-set wholesale (Spec 015 §App-db marks). Like `:marks/add-marks`, the `set-marks` façade export was removed; the underlying `re-frame.marks/set-marks` survives as an internal / test / generated-code surface reached by direct require, not through this hook."}
+   ;; NOTE (rf2-gjp7t6): the `:marks/add-marks` / `:marks/set-marks` hook rows
+   ;; are GONE. EP-0015 §3 (rf2-mngp4o) removed the public imperative façade
+   ;; exports; the hooks themselves had ZERO consumers and were kept only for
+   ;; directory-contract symmetry — dead weight. The underlying `add-marks` /
+   ;; `set-marks` fns survive as test / conformance-only helpers reached by
+   ;; DIRECT REQUIRE (the marks tests + the conformance corpus harness), never
+   ;; through a late-bind hook.
    {:key         :marks/validate-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-ehexnw"
