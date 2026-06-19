@@ -40,7 +40,7 @@ Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framewor
 
 ### Behaviour isolation in tests — image, not a global install
 
-A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeffect supplier, a narrower route table) wants a different **image**, not a process-global registrar mutation. Those are image changes — they produce another image generation rather than mutating shared state under the running frame. The shape (against the in-progress object `make-frame` / `:images` facade wave — see `fundamentals/frames.md`):
+A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeffect supplier, a narrower route table) wants a different **image**, not a process-global registrar mutation. Those are image changes — they produce another image generation rather than mutating shared state under the running frame. The shape (the one EP-0024 `make-frame` constructor over `:images` — returns the live frame value; see `fundamentals/frames.md`):
 
 ```clojure
 (deftest cart-add-isolated
