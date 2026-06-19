@@ -248,6 +248,34 @@
                "canonical surface for intermittent / human-in-the-loop bugs "
                "(re-frame2-pair-mcp/README.md, rf2-985x1t).")))))
 
+(deftest watch-until-differentiated-from-raf-recorder
+  (testing "the leaf differentiates watch-until (server polling) from the rAF record/read-recording recorder (rf2-3bu4ik)"
+    (let [body @surfaces-md]
+      ;; rf2-3bu4ik: the leaf used to group `watch-until` with the rAF-backed
+      ;; `record` / `read-recording` recorder as one "rAF observer" triplet.
+      ;; The current contract (tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md
+      ;; + tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/watch_until.cljs)
+      ;; keeps them separate: `record` installs a rAF observer with a
+      ;; `:recording-id` change log; `watch-until` has the MCP SERVER poll a
+      ;; cheap runtime read on a fixed cadence — NO rAF loop, NO browser-side
+      ;; mailbox, NO recording registry. A consuming skill that conflates them
+      ;; misdiagnoses a watch-until failure as an rAF / recording-registry
+      ;; problem. This pin fails loudly if the differentiation regresses.
+      (is (contains-any? body ["server polls" "server-side poll" "server-side"
+                               "server poll" "polls a cheap runtime read"])
+          (str "tool-pair-surfaces.md no longer describes `watch-until` as a "
+               "SERVER-SIDE poll. Per the catalogue it polls a cheap runtime "
+               "read on a fixed cadence, distinct from `record`'s rAF "
+               "observer (rf2-3bu4ik)."))
+      (is (contains-any? body ["no rAF loop" "no** rAF" "**no** rAF"
+                               "not the rAF recorder" "does not use the rAF"
+                               "does **not** use the rAF"])
+          (str "tool-pair-surfaces.md no longer states that `watch-until` does "
+               "NOT use the rAF recorder / loop. Grouping it with the rAF "
+               "`record` / `read-recording` machinery is the stale contract "
+               "(rf2-3bu4ik): watch-until has no rAF loop, no browser-side "
+               "mailbox, and no recording registry / :recording-id.")))))
+
 (deftest operating-frame-trio-enumerated
   (testing "the leaf names the multi-frame operating-frame trio"
     (let [body @surfaces-md]
