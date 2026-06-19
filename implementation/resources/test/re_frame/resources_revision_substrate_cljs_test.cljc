@@ -138,6 +138,138 @@
     (is (= 0 (state/entry-revision {})))
     (is (= 3 (state/entry-revision {:revision 3})))))
 
+;; ---- failure / cancel SETTLE bumps :revision (rf2-mx0w2o) ------------------
+;;
+;; THE BUG (correctness review rf2-mx0w2o): a resource failure / cancel SETTLE
+;; clears `:current-work` and records terminal facts but did NOT bump
+;; `:revision`. So a snapshot taken while the attempt was IN-FLIGHT (`:fetching`
+;; + `:current-work` set) stayed at the same revision after the settle, and the
+;; optimistic-rollback conflict check (`optimistic-conflict?` over `:revision`)
+;; could NOT tell the entry had settled in-flight → a later rollback RESTORED
+;; the stale in-flight `:before`, RESURRECTING the cancelled / failed
+;; `:current-work` pointer over the terminal settled state. The fix: a
+;; failure / cancel settle is an authoritative durable write, so it bumps
+;; `:revision` — symmetric with `entry-succeeded`.
+
+(deftest entry-failed-bumps-revision-on-a-background-refresh-failure
+  (testing "a BACKGROUND-refresh failure (entry was :fetching with prior data)
+            returns to :loaded, records :refresh-error, clears :current-work —
+            and BUMPS :revision (rf2-mx0w2o): the settle is an authoritative
+            durable write a later optimistic rollback could clobber"
+    (let [loaded   (-> (state/empty-entry :conduit/article)
+                       (state/entry-succeeded {:data {:n 1} :loaded-at 1
+                                               :stale-at 2 :tags #{}}))
+          ;; a background refetch starts — :fetching, :current-work set; the
+          ;; revision is UNMOVED at load start (entry-start-load) — this is the
+          ;; revision a snapshot taken here would record.
+          fetching (state/entry-start-load
+                     loaded {:generation 5 :work-id [:w 1] :request-id "r" :owner :o})
+          rec-rev  (state/entry-revision fetching)
+          ;; the in-flight refetch FAILS — background failure settle.
+          settled  (state/entry-failed fetching {:error {:kind :rf.http/http-5xx}})]
+      (is (= :fetching (:status fetching)) "the refetch is in flight")
+      (is (= [:w 1] (:current-work fetching)) "with a :current-work pointer")
+      (is (= rec-rev (:revision fetching))
+          "load START did not move :revision (entry-start-load)")
+      (testing "the failure settle is durable + terminal"
+        (is (= :loaded (:status settled)) "background failure returns to :loaded")
+        (is (= {:kind :rf.http/http-5xx} (:refresh-error settled)))
+        (is (nil? (:current-work settled)) ":current-work cleared by the settle"))
+      (testing "and it BUMPED :revision (the rf2-mx0w2o fix)"
+        (is (= (inc rec-rev) (:revision settled))
+            "the failure settle moved the write identity past the snapshot's"))
+      (testing "so the optimistic-rollback conflict check now DETECTS the move"
+        (is (true? (state/revision-conflict? settled rec-rev))
+            "a snapshot recorded at the in-flight revision sees the settle as a
+             conflict — the rollback will NOT resurrect the stale :before")))))
+
+(deftest entry-failed-bumps-revision-on-a-first-load-failure
+  (testing "a FIRST-load failure (no usable data) settles :error and BUMPS
+            :revision (rf2-mx0w2o)"
+    (let [loading  (-> (state/empty-entry :conduit/article)
+                       (state/entry-start-load
+                         {:generation 3 :work-id [:w 2] :request-id "r" :owner :o}))
+          rec-rev  (state/entry-revision loading)
+          settled  (state/entry-failed loading {:error {:kind :rf.http/http-404}})]
+      (is (= :loading (:status loading)) "first load — no usable data yet")
+      (is (= :error (:status settled)) "first-load failure → :error")
+      (is (nil? (:data settled)))
+      (is (nil? (:current-work settled)))
+      (is (= (inc rec-rev) (:revision settled))
+          ":revision moved on the first-load failure settle")
+      (is (true? (state/revision-conflict? settled rec-rev))
+          "the conflict check sees the settle"))))
+
+(deftest entry-page-failed-bumps-revision-on-a-load-more-failure
+  (testing "a load-more (page N>0) failure keeps the feed, records :page-error,
+            clears :current-work — and BUMPS :revision (rf2-mx0w2o)"
+    (let [feed     (-> (state/empty-infinite-entry :conduit/feed)
+                       (state/entry-append-page {:page [:a :b] :page-param nil
+                                                 :loaded-at 1 :stale-at 2}))
+          ;; a load-more starts (page 1 fetch) — :fetching, :current-work set.
+          fetching (state/entry-start-load
+                     feed {:generation 4 :work-id [:w 3] :request-id "r" :owner :o})
+          rec-rev  (state/entry-revision fetching)
+          settled  (state/entry-page-failed fetching {:error {:kind :rf.http/timeout}})]
+      (is (= [[:a :b]] (:data settled)) "the accumulated feed is KEPT")
+      (is (= {:kind :rf.http/timeout} (:page-error settled)) ":page-error recorded")
+      (is (nil? (:current-work settled)) ":current-work cleared")
+      (is (= (inc rec-rev) (:revision settled))
+          "the page-failure settle moved :revision (the rf2-mx0w2o fix)")
+      (is (true? (state/revision-conflict? settled rec-rev))
+          "the conflict check sees the load-more failure settle"))))
+
+(deftest optimistic-rollback-does-not-resurrect-a-settled-in-flight-snapshot
+  (testing "THE RESURRECTION REPRO (rf2-mx0w2o): an optimistic apply snapshots an
+            IN-FLIGHT entry (the apply PRESERVES the in-flight :current-work — it
+            does not clear it), then the still-live in-flight refetch SETTLES
+            (background-refresh failure). The rollback disposition must DETECT the
+            conflict and :invalidate — NOT :restore the stale in-flight :before
+            (which would RESURRECT the in-flight :current-work pointer over the
+            settled-failure state)."
+    (let [sk       (state/scoped-resource-key :rf.scope/global :conduit/article {:slug "w"})
+          loaded   (-> (state/empty-entry :conduit/article sk)
+                       (state/entry-succeeded {:data {:n 1} :loaded-at 1
+                                               :stale-at 2 :tags #{}}))
+          ;; an in-flight background refetch — :fetching, :current-work set.
+          fetching (state/entry-start-load
+                     loaded {:generation 9 :work-id [:w 7] :request-id "r" :owner :o})
+          ;; the OPTIMISTIC APPLY (phase 1.5): snapshot the in-flight entry as
+          ;; `:before`, then apply the forward patch — which bumps :revision and
+          ;; PRESERVES :current-work (apply-optimistic-patch never clears it). The
+          ;; recorded `:applied-revision` is the revision the apply LEFT it at.
+          observed (state/entry-revision fetching)
+          applied  (mut-rt/apply-optimistic-patch
+                     fetching (fn [d] (assoc d :n 99)) :conduit/article
+                     {:clock-ms 5 :stale-at 9 :scoped-key sk})
+          recorded (mut-rt/record-optimistic-entry
+                     sk fetching :patch observed (state/entry-revision applied))
+          ;; the in-flight refetch is STILL live after the apply (its
+          ;; :current-work survived) → its failure reply settles the entry.
+          settled  (state/entry-failed applied {:error {:kind :rf.http/http-5xx}})
+          ;; the mutation then fails → settle-time rollback for this recorded key.
+          disp     (mut-rt/rollback-entry-disposition settled recorded :invalidate)]
+      (testing "the recorded snapshot captured the IN-FLIGHT state (the danger)"
+        (is (= :fetching (:status (:before recorded))))
+        (is (= [:w 7] (:current-work (:before recorded)))
+            "the :before snapshot carries the in-flight :current-work pointer"))
+      (testing "the apply preserved :current-work, so the refetch was still live"
+        (is (= [:w 7] (:current-work applied))
+            "the optimistic apply did NOT clear the in-flight :current-work"))
+      (testing "the apply LEFT the entry at applied-revision = observed + 1"
+        (is (= (inc observed) (:applied-revision recorded))))
+      (testing "the failure settle moved the entry's revision PAST the apply
+                baseline (the rf2-mx0w2o fix)"
+        (is (= (inc (:applied-revision recorded)) (:revision settled)))
+        (is (true? (mut-rt/optimistic-conflict? settled (:applied-revision recorded)))
+            "the settle is detected as a competing write since the apply"))
+      (testing "so the rollback INVALIDATES — it does NOT restore the stale
+                in-flight :before (no resurrection of :current-work)"
+        (is (true? (:conflict? disp)) "the disposition flags the conflict")
+        (is (= :invalidate (:disposition disp))
+            "the default :invalidate rule defers to the read path — the stale
+             in-flight :before is NOT restored over the settled failure state")))))
+
 ;; ---- the canonical-identity conflict comparison ---------------------------
 
 (deftest revision-conflict-detects-a-competing-authoritative-write

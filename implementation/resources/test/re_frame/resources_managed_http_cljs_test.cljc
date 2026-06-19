@@ -341,7 +341,11 @@
                        {:resource :ab2/article :scope :rf.scope/global
                         :params {:slug "w"}}])
     (is (= :fetching (:status (entry k))))
-    (let [wid (:current-work (entry k))]
+    (let [wid (:current-work (entry k))
+          ;; the revision the in-flight refetch sits at (load START does not bump
+          ;; :revision; entry-start-load). An optimistic snapshot taken here would
+          ;; record this revision (rf2-mx0w2o).
+          rev-before (state/entry-revision (entry k))]
       (testing "rf2-z70ujl — a background-REFRESH abort returns to :loaded,
                 PRESERVES prior :data, and records NO :refresh-error (a
                 cancelled refresh leaves the last-known-good value intact)"
@@ -352,6 +356,13 @@
           (is (nil? (:refresh-error e)) "no refresh-error (abort is not a failure)")
           (is (nil? (:error e)))
           (is (nil? (:current-work e)) "current-work cleared")))
+      (testing "rf2-mx0w2o — the accepted-cancellation SETTLE bumps :revision
+                (an authoritative durable write that cleared :current-work), so
+                a later optimistic rollback whose snapshot sat at the in-flight
+                revision DETECTS the conflict instead of resurrecting the stale
+                in-flight :current-work pointer"
+        (is (= (inc rev-before) (state/entry-revision (entry k)))
+            "the abort settle moved the per-entry write identity"))
       (testing "the work row settles terminal :cancelled"
         (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid))))))))
 
