@@ -549,6 +549,17 @@
   [k]
   (icpt-reg/interceptor-ref? k))
 
+(defn- matching-override-key
+  "Return the FIRST `overrides` key whose canonical interceptor reference
+  matches chain `entry` (`icpt-reg/override-key-matches?`), or nil. The shared
+  entry→override-key matcher for both `apply-icpt-overrides` (which acts on the
+  match) and `override-summary` (which tallies it). A non-map entry — the
+  framework handler-wrapper sentinel etc. — matches nothing; callers guard for
+  it before calling here."
+  [overrides entry]
+  (some (fn [k] (when (icpt-reg/override-key-matches? k entry) k))
+        (keys overrides)))
+
 (defn- apply-icpt-overrides
   "Per Spec 002 §`:interceptor-overrides` (EP-0022 Slice C — exact-reference
   matching): walk `chain` and substitute / remove interceptors against
@@ -585,9 +596,7 @@
            (mapv (fn [entry]
                    (if-not (map? entry)
                      entry
-                     (if-let [k (some (fn [k]
-                                        (when (icpt-reg/override-key-matches? k entry) k))
-                                      (keys overrides))]
+                     (if-let [k (matching-override-key overrides entry)]
                        (override-replacement k (get overrides k))
                        entry))))
            (filterv some?)))))
@@ -631,9 +640,7 @@
                     (fn [acc entry]
                       (if-not (map? entry)
                         acc
-                        (if-let [k (some (fn [k]
-                                           (when (icpt-reg/override-key-matches? k entry) k))
-                                         (keys overrides))]
+                        (if-let [k (matching-override-key overrides entry)]
                           (let [removed? (nil? (get overrides k))]
                             (-> acc
                                 (update :matched conj k)
@@ -873,6 +880,20 @@
        :reason     (str "Interceptor `" id "` threw in its `"
                         (name (:phase error)) "` phase.")})))
 
+(defn- elapsed-ms-from
+  "The integer `:elapsed-ms` for an error / event-emit record: `end-ms`
+  minus `start-ms`, floored at 0 and rounded to a long. Owns the
+  cross-platform rounding contract in ONE place (per rf2-bacs4 / rf2-rirbq
+  §Record shape — `:elapsed-ms` is an integer): `interop/now-ms` is a long on
+  the JVM (`System/currentTimeMillis`) but a float on CLJS
+  (`js/performance.now()` carries sub-millisecond precision), so the value is
+  rounded once at the substrate boundary so the record's contract holds on
+  both platforms. Callers pass their own single `end-ms` clock read (no
+  re-read here) so the emit instant and the elapsed are derived from the same
+  reading."
+  [start-ms end-ms]
+  (long (max 0 (- end-ms start-ms))))
+
 (defn- emit-pipeline-exception!
   "Surface an interceptor-chain exception as the trace event for its TRUE
   failing component AND fan it out through the always-on error-emit
@@ -912,13 +933,7 @@
         msg        #?(:clj (.getMessage ^Throwable exception) :cljs (.-message exception))
         emit-event (privacy/redacted-event-from-ctx ctx)
         end-ms     (interop/now-ms)
-        ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
-        ;; `interop/now-ms` returns a long on the JVM but a float on
-        ;; CLJS (`js/performance.now()` carries sub-millisecond
-        ;; precision). Round once at the substrate boundary so the
-        ;; record's contract holds on both platforms (mirrors
-        ;; rf2-ph8pa / rf2-rirbq).
-        elapsed-ms (long (max 0 (- end-ms start-ms)))
+        elapsed-ms (elapsed-ms-from start-ms end-ms)
         {:keys [operation failing-id reason]}
         (classify-pipeline-exception error event-id)
         handler-throw? (= operation :rf.error/handler-exception)
@@ -1092,6 +1107,23 @@
                              :rf.event/partitions   tags}
                       phase (assoc :rf.trace/phase phase)))))))
 
+(defn- emit-db-event!
+  "Emit an APP-DB-partition `:rf.event` change trace (`:rf.event/db-changed`
+  or `:rf.event/db-noop`) carrying the standard per-event attribution tag set
+  (`:rf.trace/event-id` / `:rf.event/v` / `:frame`). The optional `phase`
+  (`:rollback` on the post-rollback re-emit) is stamped when present. Sibling
+  of `emit-frame-state-changed!` for the app-db-scoped change traces, holding
+  the shared tag map in one place (the three commit-time call sites all emitted
+  the identical base map). Dev-only — `trace/emit!` is internally gated on
+  `interop/debug-enabled?`."
+  ([op event-id emit-event frame] (emit-db-event! op event-id emit-event frame nil))
+  ([op event-id emit-event frame phase]
+   (trace/emit! :rf.event op
+                (cond-> {:rf.trace/event-id event-id
+                         :rf.event/v        emit-event
+                         :frame             frame}
+                  phase (assoc :rf.trace/phase phase)))))
+
 (defn- commit-frame-effects!
   "Install the partitioned frame transition atomically (EP-0001 rf2-adwcv6,
   Spec 002 §Drain-loop pseudocode §commit + §An ordinary :db return replaces
@@ -1226,8 +1258,7 @@
         ;; APP-DB-ONLY db-changed (Mike ruling #6) — only when the app-db
         ;; partition actually changed. A runtime-only commit never fires it.
         (when app-changed?
-          (trace/emit! :rf.event :rf.event/db-changed
-                       {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame}))
+          (emit-db-event! :rf.event/db-changed event-id emit-event frame))
         ;; db-noop (rf2-ekq28v): a `:db` effect that left app-db UNCHANGED — the
         ;; handler returned an unchanged db (the `identical?`-noop fast-path in
         ;; `commit-frame-transition!` skipped the write, OR a distinct-but-`=`
@@ -1238,8 +1269,7 @@
         ;; not change; suppressed when app-db changed (the `db-changed` signal
         ;; covers that) and when no `:db` effect was returned at all.
         (when (and app-effect? (not app-changed?))
-          (trace/emit! :rf.event :rf.event/db-noop
-                       {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame}))
+          (emit-db-event! :rf.event/db-noop event-id emit-event frame))
         ;; Partition-tagged frame-state-changed — when EITHER partition changed.
         (emit-frame-state-changed! event-id emit-event frame changed)
         ;; Post-commit validation runs per-partition (EP-0001 rf2-vzld77):
@@ -1278,11 +1308,7 @@
                 (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
                   (restore-li frame (:rf/flow-last-inputs-before ctx))))
               (when (contains? rb-changed frame/app-partition-key)
-                (trace/emit! :rf.event :rf.event/db-changed
-                             {:rf.trace/event-id event-id
-                              :rf.event/v        emit-event
-                              :frame             frame
-                              :rf.trace/phase    :rollback}))
+                (emit-db-event! :rf.event/db-changed event-id emit-event frame :rollback))
               (emit-frame-state-changed! event-id emit-event frame rb-changed :rollback))
             false)))
       true)))
@@ -1533,9 +1559,7 @@
   (`emit-pipeline-exception!`)."
   [e event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
-        ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
-        ;; Round once at the substrate boundary (JVM long / CLJS float).
-        elapsed-ms (long (max 0 (- end-ms start-ms)))]
+        elapsed-ms (elapsed-ms-from start-ms end-ms)]
     ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
     ;; always-on corpus-wide listener (rf2-bacs4) fires in CLJS production where
     ;; the trace surface (axis 2) is compile-time elided. Same payload shape as
@@ -1568,7 +1592,7 @@
   rejection in production where the trace surface DCEs."
   [event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
-        elapsed-ms (long (max 0 (- end-ms start-ms)))
+        elapsed-ms (elapsed-ms-from start-ms end-ms)
         tags       (events/legacy-runtime-root-ex-data event)]
     ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
     ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
@@ -2061,7 +2085,7 @@
           route-handled! (late-bind/get-fn-cached :observability/route-handled-event)]
       (when (or emit-event! route-handled!)
         (let [end-ms     (interop/now-ms)
-              elapsed-ms (long (max 0 (- end-ms start-ms)))]
+              elapsed-ms (elapsed-ms-from start-ms end-ms)]
           (when emit-event!
             (emit-event! emit-event
                          event-id
