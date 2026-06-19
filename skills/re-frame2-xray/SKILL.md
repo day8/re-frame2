@@ -17,7 +17,8 @@ description: >
  "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
  tab", "Xray derivation/process graph", "where does this value come
  from in Xray", "Xray Resources tab", "Xray Modules tab", "Xray
- module-view", "what realms/frames/app-values are installed in Xray",
+ module-view", "what images/frames are installed in Xray", "which image
+ loaded this frame", "what realms/app-values are installed in Xray",
  and similar.
  **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
@@ -128,11 +129,12 @@ the `Cmd/Ctrl+Shift+M` chord:
 - **Static** — event-INDEPENDENT browse of what's *registered*. A
  3-layer chrome (no L2 spine — Static has no event focus). Every tab is
  a registry catalogue: every machine, every route, every schema, every
- flow, every interceptor in the picked frame's **realm** (the registrar is
- realm-owned, not frame-owned — Spec 002 §Frames reference realms; in the
- common single-realm app the realm is the default realm, so this reads as
- "the picked frame's registrations"). This is "what exists?", not "what
- just happened?". 5 tabs.
+ flow, every interceptor **registered in the picked frame** (a frame draws
+ its registrations from its resolved image, the EP-0023 `image -> frame`
+ model). This is "what exists?", not "what just happened?". 5 tabs.
+ *(Under the hood the registrar is owned by the frame's installation
+ **realm**, the retained-internal substrate; that only surfaces in a
+ multi-realm process — see §Static mode below.)*
 
 Same design language, different temperature (per spec/007-UX-IA.md
 §Static mode). When the user wants to inspect a *single dispatch*, that's
@@ -270,45 +272,34 @@ inline (see *Where issues surface now* below).
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016 §Xray and AI tooling): the static resource registry, per-frame **live instances** (state · generation · owners · freshness), the **work ledger** of live fetch attempts, the route/resource graph, lifecycle/invalidation/cache-growth, and a scope audit + lints. It is also the EP-0016 mutation-completion lens — **mutation `:reply-to` continuations** (the `:rf.mutation/replied` trace), **descriptor-level invalidation evidence** (the `:invalidation` facet on the mutation settlement op — per-descriptor resolved scope / tags / `:refetch-populated?`, plus the fail-closed `:unresolved` and `:populate-exempt` sets), and the **named scope resolver resolution timeline** (`:rf.resource/scope-resolved` — resolver id, declared inputs, resolved scope). **Read-only** — observing pins nothing; values are summarized (params/scopes/data redaction-aware), never raw. Reads the runtime-db resource slices decoupled — Xray does **not** `:require` the optional resources artefact, so the panel renders cleanly even when the host has no resources. | "Where's my server state, what owns it, and is it stale?" / "What fetches are in flight?" / "Did my mutation's `:reply-to` fire, and did it invalidate the right scopes?" / "Why didn't this read refetch?" |
 | **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process across **all five contributor families** (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. Each node carries its storage / evaluation / lifecycle (owner) classifications, plus an **authority chip** for remote-backed nodes (an *authority* axis, not a storage class — see below). A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances, the materialized route slice with its nav-token owner). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
-| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the **EP-0013 module / realm / app-value** address space (retained-internal under EP-0023): the projected `(realm, frame)` topology — every installed **realm** (`re-frame.realm/realm-ids`), the **frames** it owns (`rf/frame-ids` · `re-frame.frame/frame-realm`), and the **per-module provenance** read off each realm's installed app value (`re-frame.realm/installed-app`). It answers "what's installed, and how is the process partitioned into realms / frames / modules?" — the structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating realms / frames and reading installed app values pins nothing and dispatches nothing (a static read of the install-time value, not a routing path). Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — the address space is a process-global fact (realms + frames live in the framework's registries). | "What realms exist, which frames belong to each, and what modules / app values are installed?" |
+| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame -> event stream`** public model, leading with the **FRAMES** section: each live frame as an execution context carrying its **resolved image** (the generation's `[kind id]` descriptors) + how it resolves `(kind id)` lookups. The retained-internal EP-0013 **realm / module** substrate (the `(realm, frame)` address space + per-module provenance off each realm's installed app value) renders BELOW — realm dimension implicit in a single-realm app, spelled only when >1 realm is present. The structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating frames / images / realms and reading installed app values pins nothing and dispatches nothing. Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — images, frames, and realms are process-global facts in the framework's registries. | "What frames exist, which image loaded each, and what modules / app values are installed?" |
 
 #### What the Graph tab contributes (all five families)
 
 The Graph tab composes **all five EP-0014 contributor families** —
 **subscriptions, flows, routes, resources, and machines** (machine
-processes *and* machine selectors, with precise machine→selector edges).
-Xray now statically `:require`s the flows, routing, resources, and
-machines tooling siblings (subs live in core), so every family feeds the
-one graph. A family that has **no registrations in the host app**
-contributes no nodes — but that is the *per-app* "no-machines /
-no-resources" story (the host didn't register any), not a *per-tool*
-dependency boundary. So if a user's machines/resources are missing from
-the graph, check whether the host app registers any; if it does, they
-appear. (The per-family lenses — the **Machine** and **Resources**
-Dynamic tabs, **Static → Machines** — remain the deeper single-family
-views.)
+processes *and* machine selectors, with precise machine→selector edges) —
+into the one graph; a family with **no registrations in the host app**
+contributes no nodes (the *per-app* no-machines / no-resources story, not
+a per-tool boundary). So if a user's machines/resources are missing,
+check whether the host app registers any. (The per-family lenses — the
+**Machine** and **Resources** Dynamic tabs, **Static → Machines** —
+remain the deeper single-family views.)
 
-> **Authority is an axis, not a storage class.** The Graph tab renders an
-> **authority** chip on remote-backed nodes (resources). A resource's
-> *storage* class is still **local** — it lives in the frame's runtime-db
-> like any other runtime-managed value; *remote* describes its
-> **authority** (where the value is sourced/owned upstream), a distinct
-> axis from where it's stored. Don't read the authority chip as
-> "stored remotely" or conflate it with app-db/runtime-db placement: a
-> remote-authority node is locally stored, locally read, with an upstream
-> source of truth. This mirrors the EP-0014 ruled split (a remote fact has
-> a local storage class; "remote" is its authority).
+Two Graph-tab caveats worth flagging — both stated in full in their
+owning home, [`references/panels.md` §Graph](references/panels.md#graph),
+cite there rather than re-paragraphing:
 
-> **The underlying graph accessor is internal, not a public API.** The
-> Graph tab is a *consumer* of EP-0014's internal `re-frame.derivation.graph`
-> composer — a **structured** internal accessor, NOT a `re-frame.core`
-> facade export and NOT a public app authoring/accessor primitive. EP-0014
-> defers the public name until a third consumer (beyond Xray and the
-> conformance fixtures) needs it. So tell users to **open the Graph tab**
-> (it exists, it ships), but do **not** tell them to call a public graph
-> API from their app code — there isn't one. Source of truth:
-> [`spec/Derivations.md` §Graph inspection — internal but structured](../../spec/Derivations.md#graph-inspection--internal-but-structured)
-> + [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../docs/EP/EP-0014-derivation-and-process-algebra.md).
+- **Authority is an axis, not a storage class.** A remote-backed
+ (resource) node's *storage* class is **local** (the frame's runtime-db);
+ *remote* describes its **authority** (upstream source of truth) — read
+ the authority chip as "locally stored, locally read, upstream source of
+ truth", never as app-db/runtime-db placement.
+- **The underlying graph accessor is internal, not a public API.** The
+ tab consumes EP-0014's internal `re-frame.derivation.graph` composer —
+ not a `re-frame.core` facade export, no public accessor name (deferred
+ until a third consumer needs it). Tell users to **open the Graph tab**;
+ do **not** tell them to call a public graph API from app code.
 
 > **Modules + Graph are L4-only registry tabs.** Both `:module-view`
 > (Modules) and `:derivation-graph` (Graph) register through the
@@ -316,13 +307,7 @@ views.)
 > are shell-internal tabs, focusable via the command palette / `focus!`
 > but not independently mountable the way the other seven Dynamic panels
 > are. Route users to **open the Modules tab** (it ships); do not tell them
-> to call a `mount-module-view!` — there isn't one. The Modules tab reads
-> the **retained-internal** EP-0013 realm substrate directly off its owning
-> namespaces (`re-frame.realm/realm-ids`, `re-frame.frame/frame-realm`) plus
-> the realm→installed-app read seam (`re-frame.realm/installed-app`) and the
-> retained-public `rf/frame-ids` — EP-0023 removed the `rf/*` realm facade
-> arities (pl97nd.2), so a tool reads the internal substrate directly; the
-> tab is itself a shell-internal surface, not a public mount API.
+> to call a `mount-module-view!` — there isn't one.
 
 #### Where issues surface now (no Issues tab)
 
@@ -353,27 +338,28 @@ So "where are the errors?" routes to the **Epoch tab** (this epoch) + the
 ### Static mode — 5 registry-browse tabs
 
 In Static mode the L3 tab bar holds **5 catalogue lenses** over what's
-*registered* in the picked frame's **realm** (mnemonics mode-scoped — `m`
-opens the Static Machines browse, not the Dynamic instance-inspector).
-Handlers are realm-owned, not frame-owned (Spec 002 §Frames reference
-realms): a frame draws its registrations from its realm's registrar, so a
-multi-realm process shows different catalogues for two frames in different
-realms. In the common single-realm app every frame is in the default
-realm, so this is just "what's registered". Order set by
-spec/007-UX-IA.md §Static mode: **Machines · Routes · Schemas · Flows ·
+*registered* in the picked frame (mnemonics mode-scoped — `m` opens the
+Static Machines browse, not the Dynamic instance-inspector). A frame draws
+its registrations from its **resolved image** (the EP-0023 `image -> frame`
+public model), so each tab is "what's registered in this frame". Order set
+by spec/007-UX-IA.md §Static mode: **Machines · Routes · Schemas · Flows ·
 Interceptors**.
 
-> **Realm-awareness limitation (EP-0013).** The retained-internal realm reads
-> `re-frame.realm/realm-ids` (enumerate installed realms) and
-> `re-frame.frame/frame-realm` (a frame's owning realm — EP-0023 removed the
-> `rf/*` facade arities, pl97nd.2) have shipped, but Xray's *trace-driven* realm
-> grouping and per-row realm stamping are **deferred** — they wait on the
-> framework stamping `:rf.realm/id` onto the Spec 009 observability
-> surfaces (a later core slice). Until then Xray enumerates frames from
-> trace cascades that carry no realm stamp, so every frame reads as the
-> default realm. The single-realm UX is correct as-is; multi-realm Xray
-> grouping is the deferred slice (`tools/xray/spec/007-UX-IA.md`
-> §EP-0013 realm-awareness posture).
+> **Realm is the retained-internal installation substrate (EP-0013 / EP-0023).**
+> Under the hood a frame's registrar is owned by its installation **realm**
+> (the realm owns the registrar/adapter/frame-registry; a frame belongs to
+> exactly one realm). Post-EP-0023 (graduated 2026-06-16) the realm is the
+> retained-INTERNAL substrate the public `image -> frame` model rides on, not
+> a peer public browse dimension. It surfaces **only in a multi-realm
+> process**, where it reads as the *internal installation realm*; a
+> single-realm app renders byte-identically with no realm ceremony, so for
+> the common case Static mode is just "what's registered in this frame". The
+> realm seams (`re-frame.realm/realm-ids`, `re-frame.frame/frame-realm` —
+> EP-0023 removed the `rf/*` facade arities, pl97nd.2) are read directly off
+> their owning namespaces. Xray's *trace-driven* per-row realm stamping is
+> still **deferred** (it waits on the framework stamping `:rf.realm/id` onto
+> the Spec 009 surfaces), so today every frame reads as the default realm.
+> Source: `tools/xray/spec/007-UX-IA.md` §EP-0013 realm-awareness.
 
 | Tab | Mnem | One-line purpose | When you'd open it |
 |---|---|---|---|
@@ -444,13 +430,11 @@ short of improvising.
  deep how-to-debug-with-it recipe layer; cite
  [`spec/Derivations.md`](../../spec/Derivations.md) +
  [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../docs/EP/EP-0014-derivation-and-process-algebra.md)
- for the algebra contract. **Note on the public boundary:** the graph the
- tab renders comes from EP-0014's **internal, structured**
- `re-frame.derivation.graph` composer — there is **no public accessor
- name** and **no `re-frame.core` facade export** (deferred until a third
- consumer beyond Xray + the conformance fixtures needs it). So route users
- to *open the Graph tab*, but do **not** tell them to call a public graph
- API from app code — there isn't one.
+ for the algebra contract. (The public-boundary caveat — the graph
+ accessor is internal, no `re-frame.core` facade export — is stated in
+ full at [`references/panels.md` §Graph](references/panels.md#graph);
+ the short version: route users to *open the Graph tab*, never to a
+ public graph API.)
 ---
 
 ## Style guidance
