@@ -1159,11 +1159,25 @@
   throws AFTER the frame is allocated, so it takes the frame-bound branch,
   but is recorded as its own structured `:rf.error/story-db-seed-invalid`
   assertion (carrying the path/value/explain violations) rather than the
-  opaque `:rf.error/exception` shape."
+  opaque `:rf.error/exception` shape.
+
+  rf2-5fv445 — the plan-construction branch is gated SOLELY on
+  `plan-construction-error?` (the `:where 'rf.story/variant-plan` marker
+  that `re-frame.story.plan/fail!` stamps). The earlier `:pre-mount`
+  lifecycle guard was redundant AND stale-frame-sensitive: a plan compiled
+  in `prepare-context` ALWAYS throws before this run allocates/resets its
+  frame, but if a PRIOR `run-variant` on the same id had already driven the
+  frame to `:ready`, `loaders/current-state` returns `:ready` (not
+  `:pre-mount`), so the guard fell through to the `:else` frame-bound
+  branch — recording an opaque `:rf.error/exception` and reading the PRIOR
+  run's stale `:app-db` into this run's result (violating spec/017's
+  contract that `:app-db` is THIS run's final db). The `:where` discriminator
+  already separates plan-compiler failures from later framework/runtime
+  errors (which carry `:rf.error/id` but not the plan marker), so the
+  lifecycle state is not needed to route correctly."
   [resolve variant-id e start-ms]
   (cond
-    (and (plan-construction-error? e)
-         (= :pre-mount (loaders/current-state variant-id)))
+    (plan-construction-error? e)
     (resolve (plan-error-result variant-id e))
 
     (db-seed-error? e)
