@@ -815,49 +815,62 @@
   referencing descriptor's provenance namespace, the unresolved `:missing-reference`
   `[kind id]`, and a repair path. Returns `resolver`."
   [image-id resolver]
-  ;; ---- event/frame -> interceptor references --------------------------------
-  (doseq [[[kind _id] descriptor] resolver
-          :when (contains? #{:event :frame} kind)
-          ref-id (interceptor-refs descriptor)
-          :when (application-interceptor-ref? ref-id)]
-    (when-not (contains? resolver [:interceptor ref-id])
+  ;; The two legs are mechanically identical modulo (a) which descriptor kinds
+  ;; carry the reference, (b) how the referenced ids are read from a descriptor,
+  ;; and (c) the missing-key shape + its prose. Each leg is one data tuple here;
+  ;; the shared driver below threads them through the one fail-loud point.
+  ;;   :kind?   predicate selecting referencing descriptor kinds
+  ;;   :refs    descriptor -> seq of referenced ids (event/frame: APPLICATION
+  ;;            interceptor refs; resource: the {:from-db …} scope-resolver ref)
+  ;;   :missing ref-id -> the [kind id] coordinate that must be a resolver key
+  ;;   :message kind + descriptor + ref-id -> the fail-loud prose
+  (let [legs
+        [;; ---- event/frame -> interceptor references --------------------------
+         {:kind?   #{:event :frame}
+          :refs    (fn [descriptor]
+                     (filter application-interceptor-ref?
+                             (interceptor-refs descriptor)))
+          :missing (fn [ref-id] [:interceptor ref-id])
+          :message (fn [kind descriptor ref-id]
+                     (str "rf/image assembly: " (name kind) " "
+                          (pr-str (:id descriptor))
+                          " references interceptor " (pr-str ref-id)
+                          " in its :interceptors chain, but no :interceptor "
+                          "registration with that id is selected into the "
+                          "image. Select the namespace that registers it, or "
+                          "correct the reference."))}
+         ;; ---- resource -> resource-scope resolver references ----------------
+         {:kind?   #{:resource}
+          :refs    (fn [descriptor]
+                     (when-let [scope-id (resource-scope-ref descriptor)]
+                       [scope-id]))
+          :missing (fn [scope-id] [:resource-scope scope-id])
+          :message (fn [_kind descriptor scope-id]
+                     (str "rf/image assembly: resource "
+                          (pr-str (:id descriptor))
+                          " references scope resolver " (pr-str scope-id)
+                          " via its {:from-db " (pr-str scope-id) "} :scope, "
+                          "but no :resource-scope registration with that id is "
+                          "selected into the image. Select the namespace that "
+                          "reg-resource-scope's it, or correct the {:from-db …} "
+                          "reference."))}]]
+    (doseq [{:keys [kind? refs missing message]} legs
+            [[kind _id] descriptor] resolver
+            :when (kind? kind)
+            ref-id (refs descriptor)
+            :let  [missing-reference (missing ref-id)]
+            :when (not (contains? resolver missing-reference))]
       (error/throw-error!
         :rf.error/image-missing-reference
         'rf/make-frame
-        (str "rf/image assembly: " (name kind) " " (pr-str (:id descriptor))
-             " references interceptor " (pr-str ref-id)
-             " in its :interceptors chain, but no :interceptor registration "
-             "with that id is selected into the image. Select the namespace "
-             "that registers it, or correct the reference.")
+        (message kind descriptor ref-id)
         {:recovery :select-the-missing-registration-or-fix-the-reference
          :extra    {:image image-id
                     :kind  kind
                     :id    (:id descriptor)
                     :rf.provenance/ns (:rf.provenance/ns descriptor)
                     :coordinate (descriptor-coordinate descriptor)
-                    :missing-reference [:interceptor ref-id]}})))
-  ;; ---- resource -> resource-scope resolver references -----------------------
-  (doseq [[[kind _id] descriptor] resolver
-          :when (= :resource kind)
-          :let  [scope-id (resource-scope-ref descriptor)]
-          :when scope-id]
-    (when-not (contains? resolver [:resource-scope scope-id])
-      (error/throw-error!
-        :rf.error/image-missing-reference
-        'rf/make-frame
-        (str "rf/image assembly: resource " (pr-str (:id descriptor))
-             " references scope resolver " (pr-str scope-id)
-             " via its {:from-db " (pr-str scope-id) "} :scope, but no "
-             ":resource-scope registration with that id is selected into the "
-             "image. Select the namespace that reg-resource-scope's it, or "
-             "correct the {:from-db …} reference.")
-        {:recovery :select-the-missing-registration-or-fix-the-reference
-         :extra    {:image image-id
-                    :kind  kind
-                    :id    (:id descriptor)
-                    :rf.provenance/ns (:rf.provenance/ns descriptor)
-                    :coordinate (descriptor-coordinate descriptor)
-                    :missing-reference [:resource-scope scope-id]}})))
+                    :missing-reference missing-reference}})))
   resolver)
 
 ;; ---- capability check (EP-0023 §Public API — the .6 seam) ------------------
