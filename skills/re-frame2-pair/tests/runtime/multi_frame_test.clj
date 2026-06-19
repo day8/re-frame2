@@ -47,22 +47,18 @@
 ;; The internal installation-container substrate (EP-0023 §Surface
 ;; dispositions — the retained EP-0013 realm, implementation structure not a
 ;; public address). The CLJS runtime reads the INTERNAL substrate
-;; `(re-frame.realm/realm-ids)` (the installation containers) +
-;; `(re-frame.frame/frame-realm frame-id)` (a frame's container) — pl97nd.2
-;; removed the `rf/realm-ids` / `rf/frame-realm` facade aliases, so a tool now
-;; reads the owning internal namespaces directly (rf2-ph752s). We model both
-;; with a frame->container map and a container set. `default-realm-id`
-;; is :rf.realm/default (absence = default container).
+;; `(re-frame.realm/realm-ids)` (the installation containers) — pl97nd.2 removed
+;; the `rf/realm-ids` facade alias, so a tool now reads the owning internal
+;; namespace directly (rf2-ph752s). We model it with a container set.
+;; `default-realm-id` is :rf.realm/default (absence = default container).
+;; (The per-frame `frame-realm` reader + the `:frame-realms` wire field were
+;; removed under rf2-70owfr — the single default realm makes a per-frame
+;; container map informationless.)
 (def default-realm-id :rf.realm/default)
 
 (def realm-registry
   "Set of installed realm ids. Always carries the default realm."
   (atom #{default-realm-id}))
-
-(def frame->realm
-  "frame-id -> realm-id. A frame absent here is in the default realm
-   (the absence-is-default rule)."
-  (atom {}))
 
 (defn register-realm! [realm-id]
   (swap! realm-registry conj realm-id)
@@ -74,21 +70,18 @@
   ([frame-id initial-db realm-id]
    (swap! frame-registry conj frame-id)
    (swap! frame-dbs assoc frame-id (atom initial-db))
-   (swap! frame->realm assoc frame-id realm-id)
    (swap! realm-registry conj realm-id)
    frame-id))
 
 (defn unregister-frame! [frame-id]
   (swap! frame-registry disj frame-id)
-  (swap! frame-dbs dissoc frame-id)
-  (swap! frame->realm dissoc frame-id))
+  (swap! frame-dbs dissoc frame-id))
 
 (defn frame-ids [] @frame-registry)
 
-;; Mirror of `realm-ids` / `frame-realm`. KEEP IN SYNC with
+;; Mirror of `realm-ids`. KEEP IN SYNC with
 ;; preload/re_frame2_pair/runtime.cljs.
 (defn realm-ids [] @realm-registry)
-(defn frame-realm [frame-id] (get @frame->realm frame-id default-realm-id))
 
 (defn get-frame-db [frame-id]
   (some-> (get @frame-dbs frame-id) deref))
@@ -128,13 +121,15 @@
 (defn operating-realm []
   (or @selected-realm default-realm-id))
 
-;; rf2-3bu3d.4 — reserved-frame-aware resolution + EP-0013 realm-scoping
-;; (rf2-09ijml). KEEP IN SYNC with `reserved-tool-frame?` / `app-frame-ids` /
-;; `current-frame` in preload/re_frame2_pair/runtime.cljs. A `:rf/*` frame is a
-;; TOOL frame (Xray's `:rf/xray`, SSR slots) EXCLUDED from the ambiguity count,
-;; with the sole `:rf/default` carve-out (an ordinary app frame id per
-;; Conventions.md §Reserved namespaces / EP-0002). app-frame-ids is ALSO scoped
-;; to the operating realm — only app frames in that realm count toward tier-3.
+;; rf2-3bu3d.4 — reserved-frame-aware resolution. KEEP IN SYNC with
+;; `reserved-tool-frame?` / `app-frame-ids` / `current-frame` in
+;; preload/re_frame2_pair/runtime.cljs. A `:rf/*` frame is a TOOL frame (Xray's
+;; `:rf/xray`, SSR slots) EXCLUDED from the ambiguity count, with the sole
+;; `:rf/default` carve-out (an ordinary app frame id per Conventions.md §Reserved
+;; namespaces / EP-0002). The per-realm scoping was removed under rf2-70owfr —
+;; the afdlyr single-default-realm collapse leaves every frame in the one default
+;; container, so admitting every app frame IS the operating-container view. The
+;; no-arg + arity-1 (a realm-id, ignored) shapes are retained for compatibility.
 
 (defn reserved-tool-frame? [frame-id]
   (and (keyword? frame-id)
@@ -142,11 +137,8 @@
        (not= :rf/default frame-id)))
 
 (defn app-frame-ids
-  ([] (app-frame-ids (operating-realm)))
-  ([realm-id]
-   (vec (->> (frame-ids)
-             (remove reserved-tool-frame?)
-             (filter #(= realm-id (frame-realm %)))))))
+  ([] (vec (remove reserved-tool-frame? (frame-ids))))
+  ([_realm-id] (app-frame-ids)))
 
 (defn current-frame
   ([] (current-frame nil))
@@ -232,8 +224,7 @@
   (reset! frame-dbs {})
   (reset! selected-frame nil)
   (reset! selected-realm nil)
-  (reset! realm-registry #{default-realm-id})
-  (reset! frame->realm {}))
+  (reset! realm-registry #{default-realm-id}))
 
 (use-fixtures :each (fn [t] (reset-state!) (t) (reset-state!)))
 
@@ -363,14 +354,14 @@
     (register-frame! :shop/cart {} :shop/realm)
     (is (= #{:rf.realm/default :shop/realm} (realm-ids)))))
 
-(deftest frame-realm-defaults-when-absent
-  (testing "a frame with no explicit realm reads as the default realm"
-    (register-frame! :rf/default {})
-    (is (= :rf.realm/default (frame-realm :rf/default)))
-    (register-frame! :shop/cart {} :shop/realm)
-    (is (= :shop/realm (frame-realm :shop/cart)))
-    (is (= :rf.realm/default (frame-realm :never-registered))
-        "an unknown frame reads as the default realm")))
+;; NOTE (rf2-70owfr): the per-frame realm-membership reader (`frame-realm`) and
+;; the per-realm scoping of `app-frame-ids` were removed — the afdlyr collapse
+;; leaves a single default realm, so grouping frames by realm is meaningless and
+;; `app-frame-ids` admits every app frame. The realm-scoping tests
+;; (`frame-realm-defaults-when-absent`, `tier3-counts-only-operating-realm-app-
+;; frames`, `pinning-realm-rescopes-tier3`) were retired. The retained
+;; `realm-ids` / `operating-realm` (installation-container enumeration + pin)
+;; still pass; tool-frame exclusion + ambiguity are realm-independent.
 
 (deftest operating-realm-defaults-to-default
   (testing "operating realm is the default realm until a realm is pinned"
@@ -379,47 +370,26 @@
     (is (= :shop/realm (operating-realm)))))
 
 (deftest single-realm-app-is-byte-identical
-  (testing "a single-realm app (all frames in default realm): realm-scoping is a no-op"
+  (testing "a single-realm app (all frames in default realm)"
     (register-frame! :rf/default {:count 0})
     (is (= [:rf/default] (app-frame-ids)))
     (is (= :rf/default (current-frame))
-        "tier-3 resolves the sole app frame exactly as the pre-realm ladder")))
+        "tier-3 resolves the sole app frame")))
 
-(deftest tier3-counts-only-operating-realm-app-frames
-  (testing "two app frames in DIFFERENT realms: tier-3 resolves the operating realm's sole app frame (NOT ambiguous)"
-    (register-frame! :app-a {:n 1} :rf.realm/default)
-    (register-frame! :app-b {:n 2} :shop/realm)
-    ;; Operating realm is the default; only :app-a lives there.
-    (is (= [:app-a] (app-frame-ids))
-        "app-frame-ids is scoped to the operating (default) realm")
-    (is (= :app-a (current-frame))
-        "tier-3 auto-resolves the sole app frame in the operating realm — the OTHER realm's frame doesn't make it ambiguous")))
-
-(deftest pinning-realm-rescopes-tier3
-  (testing "pinning the operating realm re-scopes tier-3 to that realm's app frames"
-    (register-frame! :app-a {:n 1} :rf.realm/default)
-    (register-frame! :app-b {:n 2} :shop/realm)
-    (select-realm! :shop/realm)
-    (is (= [:app-b] (app-frame-ids))
-        "after pinning :shop/realm, only its app frame is counted")
-    (is (= :app-b (current-frame))
-        "tier-3 now resolves the shop realm's sole app frame")))
-
-(deftest two-app-frames-same-realm-still-ambiguous
-  (testing "two app frames in the SAME (operating) realm stay genuinely ambiguous"
-    (register-frame! :app-a {} :shop/realm)
-    (register-frame! :app-b {} :shop/realm)
-    (select-realm! :shop/realm)
+(deftest two-app-frames-still-ambiguous
+  (testing "two app frames stay genuinely ambiguous (realm-independent)"
+    (register-frame! :app-a {})
+    (register-frame! :app-b {})
     (is (= 2 (count (app-frame-ids))))
     (is (nil? (current-frame))
-        "two app frames in the operating realm — ambiguous, no silent guess")))
+        "two app frames — ambiguous, no silent guess")))
 
-(deftest realm-scoped-default-frame-still-app-frame
-  (testing ":rf/default in the default realm is an app frame; a :rf/* tool frame in the default realm is excluded"
-    (register-frame! :rf/default {:count 0} :rf.realm/default)
-    (register-frame! :rf/xray {} :rf.realm/default)
+(deftest tool-frame-excluded-app-frame-retained
+  (testing ":rf/default is an app frame; a :rf/* tool frame is excluded"
+    (register-frame! :rf/default {:count 0})
+    (register-frame! :rf/xray {})
     (is (= [:rf/default] (app-frame-ids))
-        ":rf/xray (tool frame) excluded; :rf/default (app frame) retained — within the operating realm")
+        ":rf/xray (tool frame) excluded; :rf/default (app frame) retained")
     (is (= :rf/default (current-frame)))))
 
 ;; ---------------------------------------------------------------------------
