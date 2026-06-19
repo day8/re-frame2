@@ -32,6 +32,14 @@
   sentinel at the foot of this ns proves no stray `:require` pulled the
   body in).
 
+  THE FIVE FAMILIES ARE FIXED. The graph composes exactly the five
+  in-tree algebra-view families — subs / flows / resources / routes /
+  machines (`families` below). The assembler reads each family's mechanics
+  off the static `family-contract` table by family key; there is no
+  per-contributor override of that contract and no extension path for a
+  family beyond these five (pre-alpha posture: a sixth family is a
+  spec/code change here, not a runtime plug-in).
+
   BUNDLE ISOLATION + THE CONTRIBUTOR SEAM. The four OPTIONAL feature
   siblings (flows / routing / machines / resources) live in separate
   Maven artefacts that core does NOT depend on — a static `:require` from
@@ -52,18 +60,6 @@
       simply contributes no nodes — exactly the no-flows / no-resources
       story the five siblings already each honour.
 
-  FAMILY-AGNOSTIC ASSEMBLY (rf2-k0meap.8). The central assembler stitches
-  nodes + edges WITHOUT knowing any family's mechanics. Every
-  family-specific decision — how a family's projection keys lift into the
-  canonical node id, and how a node's declared projection yields edges —
-  lives in the family's CONTRIBUTOR CONTRACT (`:node-id-fn` / `:edge-fn`),
-  beside the family that owns it (see `family-contract` below). A
-  contributor that omits these inherits the per-family contract by family
-  key; a contributor that supplies its own participates without any edit
-  to the central `node-id` / `collect-*` / `graph-edges` functions — a NEW
-  family needs only a contributor (its own contract pieces or a new
-  `family-contract` entry), never a new conditional in the assembler.
-
   This is the *registrar-derived* slice (Derivations §The EP-0013
   relocation seam): the graph is assembled from the per-family algebra
   views, which are themselves assembled from registration metadata, NOT
@@ -78,29 +74,25 @@
 ;; Each family is one member of the derivation/process algebra (Derivations
 ;; §The vocabulary). The order is editorial: the canonical reading order of
 ;; spec/Derivations.md (subscriptions → flows → resources → routes →
-;; machines). Tools that group the graph by family read this vector.
+;; machines). Tools that group the graph by family read this vector. The set
+;; is FIXED — the assembler iterates exactly these five (filtered to the ones
+;; a `contributors` map carries).
 ;; ---------------------------------------------------------------------------
 
 (def families
   "The five algebra-view families this helper composes (Derivations §Why
   this doc exists — the six surfaces, with runtime-subs folded into
   `:subs`). Each maps to one tooling sibling's static + live projection.
-  This is the canonical READING ORDER; the assembler composes whatever
-  families a `contributors` map actually carries (a synthetic family beyond
-  these five participates too — rf2-k0meap.8), these first."
+  This is the canonical READING ORDER; the assembler composes whichever of
+  these five a `contributors` map actually carries."
   [:subs :flows :resources :routes :machines])
 
-(defn- contributor-families
+(defn- present-families
   "The families to compose for a `contributors` map: the canonical
-  `families` (in reading order) that the map carries, followed by any EXTRA
-  families the map carries beyond the canonical five (a synthetic family —
-  rf2-k0meap.8). Family-agnostic: the assembler iterates THIS, never a
-  hard-coded family list, so a contributor-supplied family participates with
-  no central edit."
+  `families` (in reading order) that the map carries. A family absent from
+  `contributors` contributes nothing — the no-flows / no-resources story."
   [contributors]
-  (let [present (filter #(contains? contributors %) families)
-        extra   (remove (set families) (keys contributors))]
-    (concat present extra)))
+  (filter #(contains? contributors %) families))
 
 ;; ---------------------------------------------------------------------------
 ;; Family-local node identity.
@@ -110,13 +102,8 @@
 ;; key). The graph keys every node by its CANONICAL NODE ID (Derivations
 ;; §Graph inspection — canonical node ids under EP-0012 identity rules): the
 ;; `[:sub …] / [:flow …] / [:resource …] / [:machine …]` / `:rf/route`
-;; tagged form a tool draws edges between.
-;;
-;; Each family OWNS its node-id construction (rf2-k0meap.8) — a one-arg
-;; `(fn [node] -> node-id)` published on the contributor's `:node-id-fn`.
-;; The central collector calls it; it never branches on family. A NEW
-;; family supplies its own `:node-id-fn` (or a `family-contract` entry) and
-;; participates with no edit to the collector.
+;; tagged form a tool draws edges between. Each family's `:node-id-fn` lives
+;; in `family-contract` below.
 ;; ---------------------------------------------------------------------------
 
 (defn- sub-node-id
@@ -186,12 +173,10 @@
 ;; edges appear only in the live graph (where the live sub-cache node's
 ;; `:inputs` are concrete `[:sub q]` forms).
 ;;
-;; Each family OWNS the edges its nodes contribute BEYOND the common
-;; `:input` edges (rf2-k0meap.8) via the contributor's `:edge-fn`
-;; `(fn [ctx] -> [edges…])`, where `ctx` is the graph-wide assembly context
-;; `{:mode :nodes :node-ids …}`. The central assembler runs the common
-;; `:input` derivation over every node, then folds in each present family's
-;; `:edge-fn`. A family with no extra edges supplies no `:edge-fn`.
+;; The central assembler runs the common `:input` derivation over every
+;; node, then folds in each present family's `:edge-fn` (from
+;; `family-contract`). The `ctx` is the graph-wide assembly context
+;; `{:mode :nodes :node-ids :selector-targets}`.
 ;; ---------------------------------------------------------------------------
 
 (defn- sub-input-node-id
@@ -341,10 +326,11 @@
            {:from m-id :to sub-id :role :selector}))))))
 
 ;; ---------------------------------------------------------------------------
-;; The per-family CONTRACT (rf2-k0meap.8).
+;; The per-family CONTRACT.
 ;;
-;; Every family-specific decision the central assembler used to branch on
-;; lives HERE, beside the family, as DATA the central code reads uniformly:
+;; Every family-specific decision the central assembler would otherwise
+;; branch on lives HERE, beside the family, as DATA the central code reads
+;; uniformly by family key:
 ;;
 ;;   :node-id-fn   (fn [node] -> node-id)   — lift the projection's node into
 ;;                                            its canonical family-tagged id.
@@ -370,19 +356,16 @@
 ;;                                            `{:mode :nodes :node-ids
 ;;                                            :selector-targets}`.
 ;;
-;; A contributor MAY carry any of these directly (a synthetic / test family);
-;; otherwise the central assembler inherits them from this table by family
-;; key. Adding a NEW family = one entry here (or a self-describing
-;; contributor) — NO edit to `node-id`, the collectors, or `graph-edges`.
+;; The central assembler reads these by family key — adding behaviour to a
+;; family is one edit here, not a conditional scattered across the collector
+;; / `graph-edges` / `node-id`.
 ;; ---------------------------------------------------------------------------
 
 (def family-contract
   "The per-family graph contract — `:node-id-fn` (always) plus the optional
   `:static-key-fn` / `:flatten-fn` / `:edge-fn` hooks (see the comment
-  above). The central assembler reads a contributor's own hook first and
-  falls back to this table by family key, so every family-specific
-  mechanic stays beside the family it describes and the assembler is
-  family-agnostic (rf2-k0meap.8)."
+  above). The central assembler reads this table by family key, so every
+  family-specific mechanic stays beside the family it describes."
   {:subs      {:node-id-fn sub-node-id}
    :flows     {:node-id-fn flow-node-id
                ;; flows project doubly-keyed {frame-id {flow-id node}} —
@@ -411,21 +394,11 @@
    :machines  {:node-id-fn machine-node-id
                :edge-fn    machine-edges}})
 
-(defn- contract-for
-  "The effective contract for `family` from its `contributor`: the
-  contributor's own hooks (a self-describing / synthetic family) layered
-  over the per-family `family-contract` defaults. A contributor that omits
-  every hook inherits the standard contract by family key; one that
-  supplies its own participates with NO central edit (rf2-k0meap.8)."
-  [family contributor]
-  (merge (get family-contract family)
-         (select-keys contributor [:node-id-fn :static-key-fn :flatten-fn :edge-fn])))
-
 (defn node-id
   "The canonical graph node id for one algebra node in `family`
   (Derivations §Graph inspection / §Fact identity). Delegates to the
-  family's `:node-id-fn` contract (rf2-k0meap.8) — the central code does
-  NOT branch on family. The family-tagged forms:
+  family's `:node-id-fn` contract — the central code does NOT branch on
+  family. The family-tagged forms:
 
     :subs      → `[:sub <id>]`  (bare sub-id keyword for a STATIC node;
                  concrete query vector for a LIVE cache-entry node).
@@ -455,9 +428,11 @@
 ;; `:live-shape :node` — the live-fn returns ONE node or nil (the route
 ;;                       slice).
 ;;
-;; A contributor MAY additionally carry its own contract hooks (`:node-id-fn`
-;; / `:static-key-fn` / `:flatten-fn` / `:edge-fn`) — see `family-contract`;
-;; omitting them inherits the standard per-family contract by family key.
+;; The `:machines` contributor additionally carries `:selector-targets` (the
+;; `machine-selector-targets` extractor) so the graph draws PRECISE
+;; machine→selector edges. The family's node-id / edge mechanics come from
+;; `family-contract` by family key — a contributor supplies the data sources,
+;; not the contract.
 ;;
 ;; The `:static-fn` / `:live-fn` are usually two DISTINCT sibling fns (the
 ;; subs / resources / routes / machines pattern: a registration-derived
@@ -467,7 +442,7 @@
 ;; `flow-algebra-view` serves both slots. The static-fn is its zero-arity
 ;; (every frame's flows, `{frame-id {flow-id node}}`); the live-fn is the
 ;; SAME symbol invoked one-arity (`(flow-algebra-view frame-id)` →
-;; `{flow-id node}`, the `:map` shape). The "live" flow projection is thus
+;; `{flow-id node}`, the `:map` shape). The \"live\" flow projection is thus
 ;; the per-frame static projection — there is nothing further to realize.
 ;;
 ;; The subs contributor is built from the in-core sibling; the four optional
@@ -488,67 +463,19 @@
    :live-shape :map})
 
 #?(:clj
-   (defn- absent-ns-fnf?
-     "Is this `FileNotFoundException` the EXPECTED-absence signal for an
-     un-loaded optional family namespace `ns-sym` (vs a real transitive
-     load failure of a PRESENT namespace)? `requiring-resolve` of an absent
-     namespace throws an FNF whose message names that namespace's munged
-     resource path (`re_frame/flows/tooling__init.class, …`). A FNF naming
-     a DIFFERENT resource — a dep the present sibling failed to load — is a
-     real error, not expected absence. We match on the munged path so only
-     the requested namespace's own absence is tolerated (rf2-k0meap.8)."
-     [^java.io.FileNotFoundException e ns-sym]
-     ;; Clojure munges the namespace to a classpath resource path: dots →
-     ;; slashes AND dashes → underscores (re-frame.flows.tooling →
-     ;; re_frame/flows/tooling). The FNF message names that munged path, so
-     ;; the absence test must munge identically (both substitutions).
-     (let [munged (-> (name ns-sym)
-                      (.replace \- \_)
-                      (.replace \. \/))
-           msg    (str (.getMessage e))]
-       (boolean
-        (or (.contains msg (str munged "__init.class"))
-            (.contains msg (str munged ".clj"))
-            (.contains msg (str munged ".cljc")))))))
-
-#?(:clj
    (defn- resolve-var
      "JVM-only: resolve ONE fully-qualified `sym` via `requiring-resolve`,
-     distinguishing the three genuinely-different outcomes the broad
-     `catch Throwable` used to flatten into nil (rf2-k0meap.8):
-
-       - the symbol's NAMESPACE is absent from the classpath — the optional
-         artefact is not loaded. `requiring-resolve` throws a
-         `FileNotFoundException` naming that namespace; we return `::absent`,
-         the EXPECTED-absence signal a core-only / no-flows app produces.
-       - the namespace IS present but the VAR is missing — API drift (the
-         sibling renamed / dropped a tooling fn). `requiring-resolve`
-         returns nil with no throw; that is NOT expected absence, so we
-         throw an explicit `ex-info` rather than silently dropping the
-         family.
-       - the namespace throws DURING LOAD (an init/compile failure, or a
-         FileNotFoundException for a TRANSITIVE dep of a present ns) — a real
-         error. We do NOT catch it; it propagates.
-
-     Returns the resolved var on success, `::absent` for expected absence."
+     returning the var or nil. A FileNotFoundException means the symbol's
+     namespace is not on the classpath — the optional artefact is not
+     loaded — so the family is simply absent; we swallow it and return nil
+     (the EXPECTED-absence signal a core-only / no-flows app produces). Any
+     other throwable (an init/compile failure of a present namespace)
+     propagates."
      [sym]
-     (let [ns-sym   (symbol (namespace sym))
-           resolved (try
-                      (requiring-resolve sym)
-                      (catch java.io.FileNotFoundException e
-                        (if (absent-ns-fnf? e ns-sym)
-                          ::absent                       ;; expected absence
-                          (throw e))))]                  ;; real load failure
-       (cond
-         (= ::absent resolved) ::absent
-         (nil? resolved)
-         (throw (ex-info (str "re-frame.derivation.graph: optional contributor var "
-                              sym " is unresolvable though its namespace loaded — "
-                              "API drift, not expected absence (rf2-k0meap.8). "
-                              "A genuinely-absent optional family must throw "
-                              "FileNotFoundException for its namespace.")
-                         {:sym sym :ns ns-sym}))
-         :else resolved))))
+     (try
+       (requiring-resolve sym)
+       (catch java.io.FileNotFoundException _
+         nil))))
 
 #?(:clj
    (defn- resolve-sibling
@@ -556,21 +483,11 @@
      tooling fns into a contributor map, or nil when the artefact is absent
      from the classpath (the no-flows / no-resources story). Used by
      `default-contributors` so a core-only JVM process composes only the
-     families whose artefact is loaded.
-
-     Narrowed loading (rf2-k0meap.8): a genuinely-ABSENT family (its
-     namespace is not on the classpath) returns nil — that is the only
-     tolerated absence. A real load/init error or API drift (a present
-     namespace missing the expected var) is NOT masked as 'family absent':
-     it surfaces (`resolve-var` rethrows / throws ex-info). The broad
-     `catch Throwable _ nil` that used to swallow ALL of these is gone."
+     families whose artefact is loaded."
      [static-sym live-sym live-shape]
-     (let [s (resolve-var static-sym)]
-       (if (= ::absent s)
-         nil                                            ;; expected absence
-         (let [l (resolve-var live-sym)]
-           (when-not (= ::absent l)                     ;; both present → contribute
-             {:static-fn @s :live-fn @l :live-shape live-shape}))))))
+     (when-let [s (resolve-var static-sym)]
+       (when-let [l (resolve-var live-sym)]
+         {:static-fn @s :live-fn @l :live-shape live-shape}))))
 
 (defn default-contributors
   "The default `{family contributor}` map.
@@ -581,8 +498,8 @@
   `:machines` contributor additionally carries the `machine-selector-targets`
   extractor on `:selector-targets`, so the assembled graph draws PRECISE
   machine→selector edges and refines the selector subscription nodes
-  (rf2-4qmiij / rf2-k0meap.2 / rf2-k0meap.8) — the machine selector-target
-  surface EP-0014's machine-selector refinement reads.
+  (rf2-4qmiij / rf2-k0meap.2) — the machine selector-target surface
+  EP-0014's machine-selector refinement reads.
 
   On CLJS, returns ONLY the in-core `:subs` contributor — the consuming
   tool (which statically `:require`s the optional siblings it has) supplies
@@ -592,10 +509,9 @@
   bundle (a static `:require` from this core ns would defeat the
   bundle-isolation the siblings each guard with their sentinel).
 
-  Optional-loading diagnostics (rf2-k0meap.8): a genuinely-absent optional
-  family contributes nothing (the no-flows / no-resources story); but a
-  real load/init failure or API drift in a PRESENT sibling now SURFACES
-  rather than being silently masked as 'family absent' (see
+  A genuinely-absent optional family contributes nothing (the no-flows /
+  no-resources story); an init/compile failure of a PRESENT sibling
+  propagates rather than being masked as 'family absent' (see
   `resolve-sibling` / `resolve-var`)."
   []
   (merge
@@ -614,8 +530,8 @@
                       [family (cond-> c
                                 selector-targets-sym
                                 (assoc :selector-targets
-                                       (let [v (resolve-var selector-targets-sym)]
-                                         (when-not (= ::absent v) @v))))])))
+                                       (when-let [v (resolve-var selector-targets-sym)]
+                                         @v)))])))
             ;; flows reuse the ONE `flow-algebra-view` for both slots
             ;; (static = zero-arity all-frames, live = one-arity per-frame —
             ;; a flow has no separate ephemeral cache to snapshot; see the
@@ -634,16 +550,15 @@
 ;; ---------------------------------------------------------------------------
 ;; Node collection.
 ;;
-;; The collectors are FAMILY-AGNOSTIC (rf2-k0meap.8): they read the family's
-;; contract (`:node-id-fn` / `:flatten-fn` / `:static-key-fn`) and never
-;; branch on family. Each collected node carries `:rf/family` so a tool can
-;; group or filter.
+;; The collectors read the family's contract by family key (`:node-id-fn` /
+;; `:flatten-fn` / `:static-key-fn`) rather than branching on family. Each
+;; collected node carries `:rf/family` so a tool can group or filter.
 ;; ---------------------------------------------------------------------------
 
 (defn- collect-nodes
   "Lift one family's `{key node}` projection into `{node-id node}`, stamping
-  `:rf/family`. Family-agnostic: the `node-id-fn` from the family's contract
-  computes each canonical id."
+  `:rf/family`. The `node-id-fn` from the family's contract computes each
+  canonical id."
   [family node-id-fn projection]
   (reduce-kv
    (fn [acc _k node]
@@ -667,7 +582,7 @@
   [family contributor]
   (if-not contributor
     {}
-    (let [{:keys [node-id-fn flatten-fn static-key-fn]} (contract-for family contributor)
+    (let [{:keys [node-id-fn flatten-fn static-key-fn]} (get family-contract family)
           projection ((:static-fn contributor))
           flat       (if flatten-fn (flatten-fn projection) projection)]
       (reduce-kv
@@ -686,13 +601,13 @@
   return `{key node}`; `:node` projections (the route slice) return ONE
   node or nil. A live-fn that returns nil (a missing/destroyed frame or an
   unmaterialized fact — or a production CLJS build where the body DCEs)
-  contributes `{}`. Family-agnostic: the family's `:node-id-fn` keys every
-  live node (a LIVE route node IS keyed by its node-id — the `:rf/route`
-  slice — unlike the static per-route source-form key)."
+  contributes `{}`. The family's `:node-id-fn` keys every live node (a LIVE
+  route node IS keyed by its node-id — the `:rf/route` slice — unlike the
+  static per-route source-form key)."
   [family contributor frame-id]
   (if-not contributor
     {}
-    (let [{:keys [node-id-fn]} (contract-for family contributor)
+    (let [{:keys [node-id-fn]} (get family-contract family)
           live-fn (:live-fn contributor)
           result  (live-fn frame-id)]
       (case (:live-shape contributor)
@@ -705,9 +620,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Edge assembly.
 ;;
-;; The central edge assembler is FAMILY-AGNOSTIC (rf2-k0meap.8): it runs the
-;; common `:input` derivation over EVERY node, then folds in each PRESENT
-;; family's `:edge-fn` (the edges that family's nodes own beyond `:input`).
+;; The central edge assembler runs the common `:input` derivation over EVERY
+;; node, then folds in each PRESENT family's `:edge-fn` (the edges that
+;; family's nodes own beyond `:input`), read from `family-contract` by family
+;; key.
 ;; ---------------------------------------------------------------------------
 
 (defn- graph-edges
@@ -715,10 +631,8 @@
   `:live`). Composes the common per-node `:input` edges (every family) with
   each present family's `:edge-fn` extra edges (routes → `:param`
   resource-activation + live realized owner edges; machines → `:selector`
-  edges), de-duplicated. The assembler does NOT branch on family — it folds
-  the per-family `:edge-fn`s from `contributors` through one
-  graph-wide context (rf2-k0meap.8). `selector-targets` is threaded into
-  the context for the machine `:edge-fn`."
+  edges), de-duplicated. `selector-targets` is threaded into the context
+  for the machine `:edge-fn`."
   [mode nodes contributors selector-targets]
   (let [node-ids (keys nodes)
         ctx      {:mode mode :nodes nodes :node-ids node-ids
@@ -732,9 +646,9 @@
         ;; each PRESENT family's extra edges, from its contract :edge-fn.
         extra    (mapcat
                   (fn [family]
-                    (when-let [edge-fn (:edge-fn (contract-for family (get contributors family)))]
+                    (when-let [edge-fn (:edge-fn (get family-contract family))]
                       (edge-fn ctx)))
-                  (contributor-families contributors))]
+                  (present-families contributors))]
     (->> (concat input extra)
          distinct
          vec)))
@@ -835,7 +749,7 @@
                 (fn [acc family]
                   (merge acc (family-static-nodes family (get contributors family))))
                 {}
-                (contributor-families contributors))
+                (present-families contributors))
          selector-targets (get-in contributors [:machines :selector-targets])]
      (assemble :static nodes contributors selector-targets nil))))
 
@@ -879,7 +793,7 @@
                 (fn [acc family]
                   (merge acc (family-live-nodes family (get contributors family) frame-id)))
                 {}
-                (contributor-families contributors))
+                (present-families contributors))
          selector-targets (get-in contributors [:machines :selector-targets])]
      (assemble :live nodes contributors selector-targets {:frame frame-id}))))
 

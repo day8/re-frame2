@@ -502,62 +502,35 @@
       (is (not-any? #(= :param (:role %)) (:edges g))
           "the static graph emits no realized route-resource edge"))))
 
-;; ---- F1: narrowed optional-contributor loading (rf2-k0meap.8) -------------
+;; ---- optional-contributor loading (the no-flows / no-resources story) -----
 ;;
-;; The optional-sibling resolver used to `(catch Throwable _ nil)` — masking a
-;; real load/init failure or API drift (a present namespace missing the
-;; expected tooling var) as if the FAMILY were absent. The narrowed resolver
-;; tolerates ONLY genuine namespace absence; everything else surfaces.
+;; `resolve-var` tolerates a genuinely-absent optional family namespace (a
+;; FileNotFoundException → nil), the EXPECTED-absence a core-only / no-flows
+;; app produces. A present namespace resolves to its var; an init/compile
+;; failure of a present namespace propagates (not tested here — it requires a
+;; deliberately-broken sibling on the classpath).
 
 (deftest resolve-var-tolerates-a-genuinely-absent-namespace
   (testing "a symbol whose NAMESPACE is not on the classpath is EXPECTED
-            absence — resolve-var returns ::absent (the no-flows story)"
-    (is (= :re-frame.derivation.graph/absent
-           (#'graph/resolve-var 'totally.absent.optional.sibling/some-view))
-        "an un-loaded optional family namespace is tolerated as absent"))
-  (testing "a DASHED absent namespace is tolerated too — Clojure munges
-            dashes to underscores in the FNF resource path, so the absence
-            test must munge identically (the real sibling ns'es are dashed,
-            e.g. re-frame.flows.tooling)"
-    (is (= :re-frame.derivation.graph/absent
-           (#'graph/resolve-var 're-frame.totally-absent.optional-sibling/some-view))
-        "a dashed un-loaded optional family namespace is tolerated as absent")))
-
-(deftest resolve-var-surfaces-api-drift-a-present-ns-missing-the-var
-  (testing "a symbol whose NAMESPACE loads but whose VAR is missing is API
-            drift, NOT absence — resolve-var throws rather than masking it"
-    ;; clojure.string is always present; this var does not exist → the old
-    ;; broad catch would have swallowed this as 'family absent'.
-    (let [ex (try (#'graph/resolve-var 'clojure.string/this-tooling-var-does-not-exist)
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex)
-          "a present-namespace-missing-var surfaces an explicit error, not nil")
-      (is (re-find #"API drift" (ex-message ex))
-          "the error names API drift (a real load/resolution failure)")
-      (is (= 'clojure.string/this-tooling-var-does-not-exist (:sym (ex-data ex)))
-          "the error carries the offending symbol"))))
+            absence — resolve-var returns nil (the no-flows story)"
+    (is (nil? (#'graph/resolve-var 'totally.absent.optional.sibling/some-view))
+        "an un-loaded optional family namespace is tolerated as absent (nil)"))
+  (testing "a DASHED absent namespace is tolerated too"
+    (is (nil? (#'graph/resolve-var 're-frame.totally-absent.optional-sibling/some-view))
+        "a dashed un-loaded optional family namespace is tolerated as absent (nil)")))
 
 (deftest resolve-var-resolves-a-present-var
   (testing "a present namespace + present var resolves to the var (the happy path)"
     (is (var? (#'graph/resolve-var 'clojure.string/upper-case))
         "an existing tooling var resolves")))
 
-(deftest resolve-sibling-distinguishes-absence-from-failure
+(deftest resolve-sibling-yields-nil-for-an-absent-family
   (testing "an absent optional sibling resolves to nil (the family contributes
             nothing) — the no-flows / no-resources story"
     (is (nil? (#'graph/resolve-sibling 'totally.absent.sibling/static-view
                                        'totally.absent.sibling/live-view
                                        :map))
-        "a genuinely-absent family yields nil (tolerated)"))
-  (testing "a present sibling-namespace missing its expected var SURFACES (it
-            is API drift, not absence) — the broad catch no longer masks it"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo #"API drift"
-          (#'graph/resolve-sibling 'clojure.string/static-view-does-not-exist
-                                   'clojure.string/live-view-does-not-exist
-                                   :map))
-        "a real load/resolution failure of a PRESENT namespace surfaces")))
+        "a genuinely-absent family yields nil (tolerated)")))
 
 (deftest default-contributors-wires-the-machine-selector-targets-surface
   (testing "the JVM default contributors wire the machine selector-target
@@ -581,66 +554,29 @@
                   sel)
             "the default-contributor graph draws the precise machine→selector edge")))))
 
-;; ---- F2: family-agnostic assembly — a synthetic family participates -------
+;; ---- fixed family set: only the five in-tree families compose -------------
 ;;
-;; The bead's structural test (rf2-k0meap.8): a NEW contributor family that
-;; supplies its OWN contract hooks (`:node-id-fn` / `:edge-fn`) composes into
-;; the graph — its nodes appear canonically keyed and its edges appear —
-;; WITHOUT any edit to the central `node-id` / collector / `graph-edges`
-;; family-specific conditionals (there are none left to edit). This proves the
-;; mechanics moved out of the assembler and onto the contributor contract.
+;; The graph composes EXACTLY the five in-tree families (subs / flows /
+;; resources / routes / machines), iterating `graph/families` filtered to the
+;; ones a contributor map carries. A contributor key OUTSIDE that fixed set
+;; contributes nothing — there is no synthetic-family extension path
+;; (pre-alpha posture: a sixth family is a spec/code change here).
 
-(deftest a-synthetic-family-participates-via-its-own-contract-hooks
-  (testing "a contributor with its own :node-id-fn + :edge-fn composes
-            into the graph with NO central family-specific edit"
-    (let [;; a synthetic family `:widgets` the core assembler has never heard
-          ;; of: it keys its nodes [:widget <id>] and draws a :wires edge from
-          ;; every widget to a fixed sink — mechanics that live ENTIRELY on the
-          ;; contributor, not in graph.cljc.
-          widget-contrib
-          {:static-fn  (constantly {:w/a {:id :w/a :kind :process}
-                                    :w/b {:id :w/b :kind :process}})
-           :live-shape :map
-           :live-fn    (constantly {})
-           :node-id-fn (fn [node] [:widget (:id node)])
-           :edge-fn    (fn [{:keys [node-ids]}]
-                         (for [nid node-ids
-                               :when (and (vector? nid) (= :widget (first nid)))]
-                           {:from nid :to [:widget :sink] :role :wires}))}
-          ;; pair it with the real subs family so the graph is non-degenerate.
-          contributors {:subs    (:subs all-contributors)
-                        :widgets widget-contrib}]
-      (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
-      (let [g     (graph/derivation-graph contributors)
-            nodes (:nodes g)
-            edges (:edges g)]
-        (testing "the synthetic family's nodes are canonically keyed by its
-                  OWN :node-id-fn (no central node-id branch needed)"
-          (is (contains? nodes [:widget :w/a]))
-          (is (contains? nodes [:widget :w/b]))
-          (is (= :widgets (get-in nodes [[:widget :w/a] :rf/family]))
-              "every node carries its :rf/family tag, set by the central collector"))
-        (testing "the real subs family still composes alongside it"
-          (is (contains? nodes [:sub :cart/items])))
-        (testing "the synthetic family's OWN :edge-fn edges appear (no central
-                  family-specific edge conditional needed)"
-          (is (some #(= % {:from [:widget :w/a] :to [:widget :sink] :role :wires}) edges))
-          (is (some #(= % {:from [:widget :w/b] :to [:widget :sink] :role :wires}) edges)))))))
-
-(deftest a-synthetic-family-needs-no-family-contract-entry
-  (testing "the synthetic family is NOT in core's `family-contract` table, yet
-            participates — proving the assembler reads the contract off the
-            CONTRIBUTOR, not a central registry (rf2-k0meap.8)"
-    (is (not (contains? @#'graph/family-contract :widgets))
-        "core has no built-in knowledge of the :widgets family")
-    ;; but it must be in `families` to be iterated — pin that the central
-    ;; `families` vector is the only thing a built-in family rides; a purely
-    ;; synthetic family must be added to a custom families list. Here we prove
-    ;; the contract-resolution path itself is contributor-first by calling the
-    ;; private collector directly with a contributor-carried node-id-fn.
-    (let [contrib {:static-fn  (constantly {:x {:id :x :kind :process}})
-                   :node-id-fn (fn [n] [:custom (:id n)])}
-          nodes   (#'graph/family-static-nodes :anything contrib)]
-      (is (= {[:custom :x] {:id :x :kind :process :rf/family :anything}} nodes)
-          "the collector keys by the contributor's OWN node-id-fn for a family
-           core has no contract entry for"))))
+(deftest a-family-outside-the-fixed-five-contributes-no-nodes
+  (testing "a contributor key the central `families` vector does not list is
+            simply ignored — only the fixed five families compose"
+    (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
+    (let [contributors {:subs    (:subs all-contributors)
+                        ;; :widgets is not one of the five — no contract entry,
+                        ;; not in `families` → never iterated, never composed.
+                        :widgets {:static-fn  (constantly {:w/a {:id :w/a :kind :process}})
+                                  :live-shape :map
+                                  :live-fn    (constantly {})}}
+          g     (graph/derivation-graph contributors)
+          nodes (:nodes g)]
+      (is (contains? nodes [:sub :cart/items])
+          "the in-tree :subs family composes")
+      (is (= #{:subs} (->> nodes vals (map :rf/family) set))
+          "no node from the off-set :widgets family appears")
+      (is (not (contains? @#'graph/family-contract :widgets))
+          "core has no contract entry for a family outside the fixed five"))))
