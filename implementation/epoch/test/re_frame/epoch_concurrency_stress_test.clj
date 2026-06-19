@@ -537,7 +537,8 @@
 ;; (RULED, hardened) the back-fill stores the RAW delta — storage-side
 ;; redaction was REMOVED (the ring is causal replay material; the
 ;; `:redact-fn` advanced override runs projection-side only). The swap
-;; update fn (`splice-delta`) is therefore PURE — it invokes no injected
+;; update fn (the pure splice inside `back-fill-event!`, rf2-c0rv4v) is
+;; therefore PURE — it invokes no injected
 ;; fn, so a JVM CAS retry re-runs only the pure splice. The pre-removal
 ;; redact-outside-swap dance (rf2-7i872) is gone by construction: there is
 ;; no per-back-fill redact invocation, hence no double-invoke / duplicate-

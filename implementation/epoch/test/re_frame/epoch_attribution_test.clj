@@ -338,8 +338,8 @@
 ;; only sensitive content arrived via back-fill.
 ;;
 ;; THE FIX (mayor-ruled option a, fail-CLOSED): the back-fill swap OR's the
-;; rollup with the appended event's RAW sensitivity (`state/compute-delta`
-;; → `splice-delta`), flipping false→true.
+;; rollup with the appended event's RAW sensitivity (the pure splice inside
+;; `state/back-fill-event!`), flipping false→true.
 
 (defn- emit-sensitive-sub-run!
   "Emit a reactive `:rf.sub/run` at React-DEREF timing carrying the
