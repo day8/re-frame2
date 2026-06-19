@@ -668,6 +668,8 @@ The graph stays dynamic at the **view boundary**, where React already manages su
 
 The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away. The disposal algorithm is **synchronous ref-counting on derefer-count → 0** — a single algorithm. There are no pluggable lifecycle policies; the v1 alpha namespace's `:safe`, `:no-cache`, `:reactive`, and `:forever` lifecycles are not part of v2, and v2 does NOT carry a deferred-grace-period timer either.
 
+This is the *same* refcount-on-a-shared-cache-entry liveness lifecycle that resource `:active-owners` GC uses, with one deliberate divergence: a subscription disposes synchronously in-tick at zero, whereas a resource entry keeps a **warm** `:gc-after-ms` window after its last owner releases — see [016-Resources §Kinship with subscription disposal](016-Resources.md#the-scoped-cache-lease-lifecycle) for why the two are not unified.
+
 When the last subscriber drops, the cache slot is evicted **in-tick**: the reaction is disposed, the on-dispose callbacks fire (releasing input ref-counts on layer-2+ subs — see [§Disposal cascades](#three-subtleties) below), and the slot is dissoc'd. A `:rf.sub/dispose` trace event with `:rf.sub/reason :no-more-derefers` is emitted at the eviction site.
 
 ```

@@ -88,6 +88,14 @@
 (def malformed-url?             registry/malformed-url?)
 (def reset-counters!            registry/reset-counters!)
 
+;; Static-registry introspection — the `<thing>-ids` + `<thing>-meta`
+;; enumerate pair every sibling registry carries (`resource-ids` /
+;; `resource-meta`, machines `machines` / `machine-meta`). Owned-ns surface
+;; only (no `re-frame.core` re-export), mirroring `route-algebra-view`'s
+;; disposition + the machines introspection home.
+(def route-ids                  registry/route-ids)
+(def route-meta                 registry/route-meta)
+
 ;; Scroll (rf2-1hncp2: host-side transient cache, not runtime-db)
 (def scroll-positions-cap       scroll/scroll-positions-cap)
 (def lookup-scroll-position     scroll/lookup-scroll-position)

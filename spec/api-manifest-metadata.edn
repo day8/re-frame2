@@ -979,6 +979,13 @@
   ;; =========================================================================
   ["re-frame.routing" "match-url"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "route-url"]              {:tier :advanced :owner "012" :status "v1"}
+  ;; Static-registry introspection accessors (rf2-9x8q1c) — the
+  ;; `<thing>-ids`/`<thing>-meta` enumerate pair every sibling registry
+  ;; carries (`resource-ids`/`resource-meta`, machines `machines`/
+  ;; `machine-meta`). Tooling tier like the sibling `machine-meta` +
+  ;; `route-algebra-view`. Owned-ns surface only (no re-frame.core export).
+  ["re-frame.routing" "route-ids"]              {:tier :tooling :owner "012" :status "v1"}
+  ["re-frame.routing" "route-meta"]             {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}

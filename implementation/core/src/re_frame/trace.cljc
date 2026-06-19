@@ -280,6 +280,24 @@
   frame reader. See `trace-event-frame`."}
   frame-of trace-event-frame)
 
+;; ---- why frame gets a reader but sub-id does not (rf2-9x8q1c) -------------
+;; Subscription identity ALSO has two spellings — a raw trace event tags it
+;; `:rf.sub/id` (under `[:tags …]`, the same raw layer `:frame` rides), while
+;; a DERIVED `:sub-runs` projection row keys it `:sub-id` at top level — so by
+;; analogy with frame identity it would seem to want a `trace-event-sub-id`
+;; sibling reader here. It deliberately does NOT get one. The frame reader
+;; earns its keep because a single tool consumer reads frame identity off BOTH
+;; raw events and derived records in one walk, so it needs one accessor that
+;; spans both shapes. Subscription identity has no such dual-shape consumer:
+;; the two spellings sit on opposite sides of ONE projection boundary
+;; (`re-frame.epoch.capture/sub-run-row`, which reads the raw `:rf.sub/id` tag
+;; and writes the derived `:sub-id` key). Raw-side consumers (marks
+;; classification, the sub-run/dispose emit sites) read `:rf.sub/id` from
+;; `:tags`; derived-side consumers (epoch state, Xray panels) read `:sub-id`
+;; from already-projected rows; nothing reads both. A shared reader would have
+;; zero call sites — it would add vocabulary, not remove a hardcoded-path
+;; hazard. The boundary, not a reader, is the right shape here.
+
 ;; ---- emission -------------------------------------------------------------
 
 (defn- deliver-to-epoch-capture!
