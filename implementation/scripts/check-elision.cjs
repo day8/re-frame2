@@ -236,6 +236,14 @@ const DEV_ONLY_SENTINELS = [
   // mode (EP-0001 rf2-tfepxu). Same elision gate.
   { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-schema-mismatch)',
     sentinel: 'rf.epoch/replace-schema-mismatch' },
+  // re-frame.epoch — :rf.epoch/replace-history-disabled failure mode
+  // (rf2-unpldn). The four mutators refuse under depth 0 (the synthetic
+  // undo-anchor cannot land in the disabled ring). Emitted from the shared
+  // `check-replace-preconditions!` skeleton, reached via the same
+  // debug-gated `(if-not interop/debug-enabled? false ...)` early-return as
+  // the other two replace failure modes; the string sentinel must elide.
+  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-history-disabled)',
+    sentinel: 'rf.epoch/replace-history-disabled' },
   // re-frame.epoch — :rf.epoch.cb/silenced-on-frame-destroy listener
   // silencing trace (Tool-Pair §Surface behaviour against destroyed
   // frames, rf2-d656). Emitted by on-frame-destroyed! once per

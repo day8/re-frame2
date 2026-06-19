@@ -183,6 +183,7 @@
   ;;   :rf.epoch/db-replaced                       (rf2-zq55 — replace-app-db! happy path)
   ;;   :rf.epoch/replace-during-drain       (rf2-zq55 — failure mode A)
   ;;   :rf.epoch/replace-schema-mismatch    (rf2-zq55 — failure mode B)
+  ;;   :rf.epoch/replace-history-disabled   (rf2-unpldn — failure mode C, depth 0)
   ;;   :rf.warning/epoch-redact-fn-exception       (rf2-wp70d — redact-fn throw)
   ;;
   ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
