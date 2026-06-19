@@ -1532,6 +1532,19 @@
           (contains? tags :input)    (assoc :input    (project-input (:input tags)))
           (contains? tags :cascade)  (assoc :cascade  (project-cascade (:cascade tags))))))))
 
+(defn- redact-exception-data-slot
+  "Fail-closed whole-slot redaction tail shared by the two exception-payload
+  projectors (rf2-za4853): replace the WHOLE `:exception-data` slot with the
+  `:rf/redacted` sentinel and stamp `:sensitive? true`. The author-keyed
+  `ex-data` of a thrown machine action / flow output is not path-walkable, so
+  when the projector's (own) guard decides the surrounding machine / frame
+  handles secrets, the whole slot is dropped rather than shipped raw. Only the
+  redact ACTION is shared — each projector keeps its own redact-or-not guard —
+  so this helper unconditionally applies the same two-key assoc and cannot
+  weaken either fail-closed decision."
+  [tags]
+  (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true))
+
 (defn- project-machine-error-tags
   "Walk the `:rf.error/machine-action-exception` tag shape (rf2-zsm03).
   The trace carries `:exception-data` — the `ex-data` of a thrown machine
@@ -1577,7 +1590,7 @@
     (if (and (contains? tags :exception-data)
              marks
              (seq (:sensitive marks)))
-      (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true)
+      (redact-exception-data-slot tags)
       tags)))
 
 (defn- project-flow-failed-tags
@@ -1619,7 +1632,7 @@
              (some? (:exception-data tags))
              (or (nil? frame-id)
                  (seq (elision/sensitive-declarations frame-id))))
-      (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true)
+      (redact-exception-data-slot tags)
       tags)))
 
 (defn- project-machine-wrote-db-tags
