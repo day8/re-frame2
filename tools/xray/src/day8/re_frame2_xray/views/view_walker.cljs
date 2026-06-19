@@ -64,34 +64,28 @@
   so consumer code is path-agnostic. `:node-key` substitutes for the
   Fiber-walker's `:fiber-key` — same role (stable React key for tree-row
   rendering across re-walks)."
-  (:require [re-frame.interop :as interop]))
+  (:require [re-frame.interop :as interop]
+            [re-frame.source-coords :as source-coords]))
 
 ;; ---- attribute parsing -----------------------------------------------------
 
-(defn parse-view-id
+(def parse-view-id
   "Parse a `data-rf-view` attribute value back into the registry id.
 
       \":rf.foo/bar\"  → :rf.foo/bar         ;; namespaced kw
       \":bare\"        → :bare               ;; unqualified kw (legal at registrar)
       \"raw-string\"   → \"raw-string\"      ;; non-kw id (unusual)
 
-  Per Spec 006 §View tagging contract §Attribute value format and
-  Spec-Schemas §`:rf/view-id-attr`."
-  [s]
-  (cond
-    (or (nil? s) (not (string? s)))
-    nil
-
-    ;; Leading colon → keyword. Splits on the first `/` to recover ns/name.
-    (and (pos? (count s)) (= ":" (subs s 0 1)))
-    (let [body (subs s 1)
-          slash (.indexOf body "/")]
-      (if (neg? slash)
-        (keyword body)
-        (keyword (subs body 0 slash) (subs body (inc slash)))))
-
-    :else
-    s))
+  Alias of the canonical `re-frame.source-coords/parse-view-id` (the source-
+  coord contract owner) — the inverse of `format-view-id`. This parser used to
+  be reimplemented inline here and in the re-frame2-pair preload runtime's
+  `view-entity`; rf2-ztxnm8 collapsed both onto the one canonical impl in core
+  (the data-rf-view analogue of rf2-nr7vf2's `parse-source-coord` work). See
+  that fn for the value format (Spec 006 §View tagging contract §Attribute
+  value format / Spec-Schemas §`:rf/view-id-attr`) and the Tool-Pair opacity
+  caveat (downstream callers MUST NOT depend on the parsed shape's stability
+  across re-frame2 versions)."
+  source-coords/parse-view-id)
 
 ;; ---- DOM walk --------------------------------------------------------------
 ;;
