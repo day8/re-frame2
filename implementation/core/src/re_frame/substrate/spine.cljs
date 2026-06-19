@@ -184,8 +184,33 @@
 ;; through `useSyncExternalStore` in the spine's `use-subscribe` factory,
 ;; not through Reagent reactions.
 
-(defn make-state-container [initial-value]
-  (atom initial-value))
+;; rf2-w1g0d2: `make-state-container` is the only point of the container
+;; quartet that genuinely differs between the React-hook spine and the
+;; ratom family — the React-only substrates seed a plain
+;; `clojure.core/atom`, the ratom family seeds the substrate's reactive
+;; atom (`r/atom` / `reagent2.*`). The ctor is the ONLY variable, so a
+;; single ctor-parameterised factory serves BOTH spines: the React spine
+;; binds the plain-`atom` arity below, the ratom spine passes its injected
+;; `r-atom`. `read-container`, `replace-container!`, and `make-derived-value`
+;; do NOT collapse the same way — see `make-ratom-spine` for why
+;; `replace-container!` (epoch-bracketed react vs bare `reset!` ratom) and
+;; `make-derived-value` (explicit reify vs native reaction) legitimately
+;; diverge; `read-container` IS identical and the ratom spine reuses this
+;; Var directly.
+(defn make-state-container-fn
+  "Return a `make-state-container` fn that seeds its container with the
+  given `ctor` (a 1-arg `initial-value -> container` constructor). The
+  React-hook spine passes `clojure.core/atom`; the ratom family passes its
+  injected reactive-atom ctor (`r-atom`)."
+  [ctor]
+  (fn make-state-container [initial-value]
+    (ctor initial-value)))
+
+(def make-state-container
+  "React-hook spine `make-state-container`: seeds a plain `clojure.core/atom`
+  (React-only substrates ship no reactive-atom primitive). The ratom family
+  builds its own via `make-state-container-fn` with the substrate's `r-atom`."
+  (make-state-container-fn atom))
 
 (defn read-container [container]
   @container)
@@ -450,6 +475,21 @@
   []
   (atom #{}))
 
+(defn track-active-root!
+  "Register an already-built React `root` in `active-roots-cell` and return
+  a self-removing unmount thunk: it drops `root` from the cell BEFORE
+  calling `(unmount-op root)`. Shared by the React-hook `make-render`
+  (`unmount-op` = `.unmount`) and the ratom-family render (`unmount-op` =
+  the injected `unmount-root`), so the `dispose-adapter!` active-roots drain
+  always sees the live set (rf2-w1g0d2). The root constructor / tree-wrap
+  (Fragment+sentinel vs none) differs per spine and stays in each render;
+  only this tracking tail is shared."
+  [active-roots-cell unmount-op root]
+  (swap! active-roots-cell conj root)
+  (fn unmount []
+    (swap! active-roots-cell disj root)
+    (unmount-op root)))
+
 (defn make-render
   "Build a `render` fn that registers every mounted React root in
   `active-roots-cell` and returns an unmount thunk that removes the
@@ -476,10 +516,8 @@
                          (let [r (react-dom-client/createRoot mount-point)]
                            (.render r wrapped-tree)
                            r))]
-      (swap! active-roots-cell conj root)
-      (fn unmount []
-        (swap! active-roots-cell disj root)
-        (.unmount root)))))
+      ;; rf2-w1g0d2: shared track-and-unmount tail (unmount-op = .unmount).
+      (track-active-root! active-roots-cell (fn [r] (.unmount r)) root))))
 
 ;; ---- after-render --------------------------------------------------------
 ;;
@@ -736,6 +774,34 @@
                (catch :default _ nil))))
       (reset! cache {}))))
 
+(defn dispose-active-roots-and-caches!
+  "Core dispose-drain shared by BOTH spines' `dispose-adapter!`
+  (rf2-w1g0d2). Satisfies the substrate-common subset of the Spec 006
+  §Adapter disposal lifecycle four-MUST list:
+
+    1. Cancel in-flight reactive subscriptions — `dispose-frame-sub-caches!`.
+    2. Release host-specific resources — drain `active-roots-cell`, calling
+       `(unmount-op root)` on every tracked root and SWALLOWING per-root
+       throws so one misbehaving root cannot strand the rest of the drain;
+       then reset the cell to `#{}`.
+    3. Discard internal caches — clear the hiccup `emitter-cell`.
+
+  `unmount-op` is the per-spine root-unmount fn (`.unmount` for the
+  React-hook spine, the injected `unmount-root` for the ratom family); it
+  is the ONLY substrate-varying step in this subset, so parameterising it
+  lets both spines reuse the identical drain loop. The React-hook spine
+  layers its extra teardown (warn-cache + after-render driver-root +
+  set-tick slot) AFTER calling this; the ratom family's dispose IS exactly
+  this subset (no warn-cache, no driver-root)."
+  [unmount-op active-roots-cell emitter-cell]
+  (dispose-frame-sub-caches!)
+  (doseq [root @active-roots-cell]
+    (try (unmount-op root)
+         (catch :default _ nil)))
+  (reset! active-roots-cell #{})
+  (when emitter-cell (reset! emitter-cell nil))
+  nil)
+
 (defn make-dispose-adapter!
   "Build a `dispose-adapter!` fn satisfying Spec 006 §Adapter disposal
   lifecycle (rf2-9fdkb). The returned fn:
@@ -767,13 +833,12 @@
   [{:keys [active-roots-cell warn-cache emitter-cell
            after-render-driver-root-cell after-render-set-tick-ref]}]
   (fn dispose-adapter! []
-    (dispose-frame-sub-caches!)
-    (doseq [root @active-roots-cell]
-      (try (.unmount root)
-           (catch :default _ nil)))
-    (reset! active-roots-cell #{})
-    (when warn-cache   (reset! warn-cache #{}))
-    (when emitter-cell (reset! emitter-cell nil))
+    ;; rf2-w1g0d2: the substrate-common subset (sub-cache walk + active-roots
+    ;; drain-with-swallow + emitter clear) is the shared core; the React-hook
+    ;; spine layers warn-cache + driver-root + set-tick teardown on top.
+    (dispose-active-roots-and-caches! (fn [r] (.unmount r))
+                                      active-roots-cell emitter-cell)
+    (when warn-cache (reset! warn-cache #{}))
     (when after-render-driver-root-cell
       (when-let [root @after-render-driver-root-cell]
         (try (.unmount root) (catch :default _ nil)))
@@ -1987,12 +2052,26 @@
     flush-render-op :flush-render!}]
   (let [active-roots-cell (make-active-roots-cell)
         emitter-cell      (make-hiccup-emitter-cell)
-        make-state-container
-        (fn make-state-container [initial-value]
-          (r-atom initial-value))
-        read-container
-        (fn read-container [container]
-          @container)
+        ;; rf2-w1g0d2: reuse the shared container helpers where the ratom +
+        ;; React-hook semantics are genuinely identical. `make-state-container`
+        ;; differs ONLY in the ctor (substrate `r-atom` vs plain `atom`), so
+        ;; it rides the shared `make-state-container-fn` factory. `read-container`
+        ;; is BYTE-IDENTICAL (`@container`), so it reuses the top-level Var
+        ;; directly. `replace-container!` (bare `reset!`, NO epoch scheduler)
+        ;; and `make-derived-value` (native reaction, NOT the explicit reify)
+        ;; legitimately DIFFER — see below — so they stay inline.
+        ;; (`read-container` is not rebound here — the return map references
+        ;; the top-level Var directly.)
+        make-state-container (make-state-container-fn r-atom)
+        ;; replace-container! is a BARE `reset!` — NO epoch scheduler. The
+        ;; React-hook spine's `make-replace-container-fn` brackets its reset!
+        ;; in a scheduler epoch (`with-epoch`) because it has no reaction
+        ;; primitive and must coalesce multi-input derived recomputes glitch-
+        ;; free explicitly (Spec 006 §Invalidation algorithm). The ratom
+        ;; family is immune: Reagent's reactions are natively batched through
+        ;; `r/flush!`, so a multi-input Reaction already recomputes once per
+        ;; coherent input epoch. There is no scheduler in this spine to bracket
+        ;; against, so this CANNOT consolidate with the React-hook version.
         replace-container!
         (fn replace-container! [container new-value]
           (reset! container new-value)
@@ -2018,10 +2097,9 @@
                            (let [r (create-root mount-point)]
                              (render-root r render-tree)
                              r))]
-            (swap! active-roots-cell conj root)
-            (fn unmount []
-              (swap! active-roots-cell disj root)
-              (unmount-root root))))
+            ;; rf2-w1g0d2: shared track-and-unmount tail (unmount-op =
+            ;; the injected `unmount-root`).
+            (track-active-root! active-roots-cell unmount-root root)))
         ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
         ;; rf2-jcjul, rf2-7v82h). The four-MUST list:
         ;;   1. Cancel in-flight reactive subscriptions — walk every live
@@ -2034,15 +2112,16 @@
         ;;   4. Subsequent calls return `:rf.error/adapter-disposed` —
         ;;      enforced one level up by substrate-adapter via the
         ;;      `disposed?` breadcrumb (rf2-6wxys).
+        ;; rf2-w1g0d2: the ratom dispose IS exactly the shared core
+        ;; (`dispose-active-roots-and-caches!`) — sub-cache walk + active-roots
+        ;; drain-with-swallow + emitter clear — with `unmount-root` as the
+        ;; unmount-op. No warn-cache / driver-root teardown (those are
+        ;; React-hook-only), so unlike `make-dispose-adapter!` it layers
+        ;; nothing on top.
         dispose-adapter!
         (fn dispose-adapter! []
-          (dispose-frame-sub-caches!)
-          (doseq [root @active-roots-cell]
-            (try (unmount-root root)
-                 (catch :default _ nil)))
-          (reset! active-roots-cell #{})
-          (reset! emitter-cell nil)
-          nil)
+          (dispose-active-roots-and-caches! unmount-root
+                                            active-roots-cell emitter-cell))
         ;; rf2-40a84 — production synchronous render-flush. Delegates to the
         ;; injected `:rdc/flush-render!` op (stock `reagent.core/flush` /
         ;; slim's `reagent2.*` synchronous flush) so the spine never names a
