@@ -171,15 +171,12 @@
    {:key         :marks/marks-for
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"
-    :description "Read the mark declaration for a (kind, id), or nil — DERIVED at read time from registrar/handler-meta (rf2-ehexnw), no side-table. For an :event-kind machine id, unions the registrar-derived author marks with the schema-sourced marks at read time (rf2-qpibk0). Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress, EP-0005) now calls `re-frame.marks/marks-for` by direct require, not through this late-bind hook."}
-   {:key         :marks/declare-machine-schema-marks!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-qpibk0"
-    :description "Record a machine's :data-schema-derived marks under machine-id in the schema-sourced table (kept separate from the registrar-derived author :event marks so marks-for unions the two at read time — order-independent against any re-registration of the :event entry). Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005) for both the type id (reg-machine time) and per-instance spawned-actor ids (spawn time, rf2-fm1cpl)."}
-   {:key         :marks/clear-machine-schema-marks!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-egvm4t"
-    :description "Drop the schema-sourced marks entry for a machine-id. Consumed by re-frame.machines' destroy / finalize / frame-teardown lifecycle to clear a spawned INSTANCE's per-instance :data-schema marks so a destroyed actor leaves no marks-table residue (rf2-egvm4t); restore/replay re-runs the spawn bridge to rehydrate them."}
+    :description "Read the mark declaration for a (kind, id), or nil — DERIVED at read time from registrar/handler-meta (rf2-ehexnw), no side-table, uniformly for every kind. EP-0025 (rf2-398kql): the prior :event-kind machine :data-schema→marks union is GONE — schema-field classification is killed in favour of frame-declared paths. Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress) now calls `re-frame.marks/marks-for` by direct require, not through this late-bind hook."}
+   ;; NOTE: the :marks/declare-machine-schema-marks! / :marks/clear-machine-schema-marks!
+   ;; hooks are GONE (EP-0025, rf2-398kql). They published the writers of the
+   ;; deleted schema-sourced machine-id->schema-marks table — the machine
+   ;; :data-schema→marks redaction bridge (EP-0005). Frame-declared :sensitive /
+   ;; :large {:app-db …} paths are now the sole app-db classification mechanism.
    {:key         :marks/project-trace-event
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"

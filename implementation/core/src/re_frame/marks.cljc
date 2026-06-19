@@ -40,7 +40,17 @@
   `:marks/*` late-bind hooks are GONE (rf2-gjp7t6, they had zero consumers);
   they survive ONLY as test / conformance helpers reached by direct require.
   Durable app-db classification is authored on the frame. The former
-  schema→app-db-egress route is gone post-EP-0015 §8.)"
+  schema→app-db-egress route is gone post-EP-0015 §8.)
+
+  EP-0025 (rf2-398kql) — the machine `:data-schema`→marks classification
+  bridge is GONE. `marks-for` no longer unions a schema-sourced side-table;
+  it returns ONLY the registrar-derived author marks for `(kind, id)`. Frame-
+  declared `:sensitive` / `:large {:app-db …}` paths (`reg-frame`, EP-0015)
+  are the SOLE app-db data-classification mechanism. The machine `:data-schema`
+  still VALIDATES `:data` (EP-0005's rename + validation), but its per-slot
+  `:sensitive?` / `:large?` props no longer classify the machine's durable
+  `:data` for trace / SSR egress — that schema→MARKS bridge (the EP-0005
+  redaction half) is reversed."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
@@ -72,37 +82,20 @@
 ;; the exception — they are frame-scoped and write into the per-frame elision
 ;; registry.
 
-;; ---- machine :data-schema marks (order-independent source — rf2-qpibk0) --
+;; ---- machine :data-schema marks: REMOVED (EP-0025, rf2-398kql) -----------
 ;;
-;; Schema-derived machine marks live in a per-machine-id table SEPARATE from
-;; the author-sourced registrar `:event` entry, and `marks-for :event <id>`
-;; UNIONS the two at READ time. The author side is DERIVED from the registrar
-;; `:event` meta (rf2-ehexnw); the schema side is genuinely derived-and-stored
-;; here (keyed by machine/instance id, lifecycle-cleared), so it is NOT a
-;; registrar entry and stays a real table. This is the SAME multi-source-union
-;; architecture the app-db elision registry uses: differently-sourced
-;; declarations (`:source :frame` from `reg-frame`, `:source :marks`) live
-;; ALONGSIDE each other in the registry, unioned at lookup. Bringing it to
-;; machine marks makes the schema-vs-author union truly ORDER-INDEPENDENT
-;; (rf2-qpibk0): re-registering the machine's `:event` entry REPLACES it in
-;; full (registrar slot semantics), but it CANNOT drop the schema-derived
-;; `[:data …]` marks because they are not stored there — they re-union at the
-;; next `marks-for` read regardless of whether the author marks were declared
-;; (on the machine's reg-event meta) before OR after `reg-machine`.
-;;
-;; The prior bridge (rf2-w46fpt) worked around the replace by capturing the
-;; manual marks BEFORE `reg-event` and re-unioning them, which only held for
-;; manual-BEFORE-reg-machine. The separate-table read-time union fixes that
-;; asymmetry — and since the author side is now derived from the registrar,
-;; the machine's authored marks ride its `:event` registration meta directly.
-;;
-;; Keyed by machine-id (the `:event`-registry key — a machine IS an event
-;; handler). Per-instance (spawned-actor) entries also live here so the
-;; spawn-time bridge keys schema marks under the instance id (rf2-fm1cpl) and
-;; the destroy/finalize/frame-teardown lifecycle clears them (rf2-egvm4t).
-
-(defonce ^:private machine-id->schema-marks
-  (atom {}))
+;; The schema-sourced `machine-id->schema-marks` side-table is GONE. It was the
+;; read-time-union partner of the machine `:data-schema`→marks redaction bridge
+;; (EP-0005, rf2-w46fpt / rf2-qpibk0): `reg-machine` extracted each `:sensitive?`
+;; / `:large?` per-`:data`-slot prop, rooted it under `[:data …]`, and recorded
+;; it here, where `marks-for :event <machine-id>` unioned it with the registrar-
+;; derived author marks at read time. EP-0025 makes frame-declared `:sensitive`
+;; / `:large {:app-db …}` paths (`reg-frame`, EP-0015) the SOLE app-db data-
+;; classification mechanism and KILLS the schema-field classification axis — so
+;; the table, its `declare-machine-schema-marks!` / `clear-machine-schema-marks!`
+;; writers, and `merge-schema-marks` (the read-time union) all die with it.
+;; `marks-for` now returns ONLY the registrar-derived author marks (below).
+;; (`:data-schema` VALIDATION is untouched — only the schema→MARKS bridge dies.)
 
 ;; ---- malformed-declaration rejection (rf2-y7l5t5) ------------------------
 ;;
@@ -353,100 +346,16 @@
   (normalise-marks kind meta)
   nil)
 
-(defn- union-path-vecs
-  "Union `existing` and `added` path-vector collections, preserving order
-  (existing first, then any added paths not already present) and dropping
-  DUPLICATE entries. Returns a vector, or nil when the union is empty — so
-  the caller can omit an empty slot rather than stash `[]`.
-
-  Both inputs are routed through `coerce-paths`, which now REJECTS a
-  malformed (non-vector) entry LOUDLY with `:rf.error/bad-marks`
-  (rf2-y7l5t5) — so every entry reaching the reduce is a validated path
-  vector. The reduce's sole remaining job is order-preserving dedup; there
-  is no silent non-vector drop (the stale `(not (vector? p))` guard that
-  doc once described was a no-op after the fail-loud validation landed and
-  has been removed — rf2-94o54l.6)."
-  [existing added]
-  (let [seen   (volatile! #{})
-        result (reduce (fn [acc p]
-                         (let [p (vec p)]
-                           (if (contains? @seen p)
-                             acc
-                             (do (vswap! seen conj p)
-                                 (conj acc p)))))
-                       []
-                       (concat (coerce-paths existing) (coerce-paths added)))]
-    (when (seq result) result)))
-
-(defn- union-whole-output-flag
-  "OR a whole-output `:sensitive?` / `:large?` flag across the existing and
-  added declarations, preserving an explicit `false`. Returns the resolved
-  boolean, or nil when NEITHER side declared the flag (so the caller omits
-  the slot rather than stash a meaningless value).
-
-  Per Spec 015 §union-by-source the flag is monotone-OR (rf2-1zqh1z): `true`
-  on EITHER side wins; an explicit `false` is PRESERVED when the other side
-  is absent (it is a real opt-out declaration, not a missing one). The prior
-  `(or existing added)` collapsed `(or false nil)` to nil and DROPPED the
-  opt-out — a footgun the false-override fix closes. Only when both sides are
-  absent (nil) does the slot vanish."
-  [existing-flag added-flag]
-  (cond
-    (or (true? existing-flag) (true? added-flag)) true
-    (or (false? existing-flag) (false? added-flag)) false
-    :else nil))
-
-(defn- union-output-sensitivity
-  "Union a derived-output `:rf.egress/output-sensitivity` claim across the
-  existing and added declarations. Returns the resolved enum value, or nil
-  when NEITHER side declared a non-inherit claim. Monotone toward sensitivity
-  (fail-closed): `:rf.egress/sensitive` (force) on either side wins over
-  `:rf.egress/public` (declassify) — a union can never let one source's
-  declassify retract another source's force-mark, mirroring the
-  `:sensitive?`-flag monotone-OR. An explicit `:public` is preserved when the
-  other side is absent."
-  [existing added]
-  (cond
-    (or (= :rf.egress/sensitive existing) (= :rf.egress/sensitive added)) :rf.egress/sensitive
-    (or (= :rf.egress/public existing)    (= :rf.egress/public added))    :rf.egress/public
-    :else nil))
-
 ;; NOTE: `union-marks!` is GONE (rf2-ehexnw). It was the additive-merge analogue
-;; of the deleted `kind->id->marks` side-table and had NO production caller —
-;; the machine `:data-schema` bridge writes the schema-sourced set through
-;; `declare-machine-schema-marks!` (the separate `machine-id->schema-marks`
-;; table), and `marks-for :event <id>` unions that with the registrar-derived
-;; author marks at read time. The path/flag union helpers it shared
+;; of the deleted `kind->id->marks` side-table and had NO production caller. Its
+;; remaining read-time-union consumer — `merge-schema-marks` (the machine
+;; `:data-schema`→marks bridge) — is itself GONE (EP-0025, rf2-398kql): the
+;; schema-field classification axis is killed in favour of frame-declared paths
+;; as the sole app-db mechanism. The three path/flag union helpers it shared
 ;; (`union-path-vecs` / `union-whole-output-flag` / `union-output-sensitivity`)
-;; survive — `merge-schema-marks` (below) uses them for that read-time union.
-
-(defn- merge-schema-marks
-  "Union the author-sourced `manual` marks entry with the schema-sourced
-  `schema` marks entry into one resolved declaration. Both arguments are the
-  canonical `{:sensitive [...] :large [...] :output-sensitivity <enum>
-  :large? bool}` shape (or nil) — `:output-sensitivity` is the closed
-  `:rf.egress/*` declassification enum that EP-0015 issue 9 substituted for the
-  rejected `:sensitive?` boolean, unioned here via `union-output-sensitivity`.
-  Returns the union, or nil when both are nil/empty — so a machine with neither
-  manual nor schema marks reads as `nil` (the same no-marks signal `marks-for`
-  returned before this table existed).
-
-  Set-union of paths plus monotone-OR of whole-output flags — commutative,
-  so the union does not depend on which source is treated as `existing`
-  (rf2-qpibk0 order-independence)."
-  [manual schema]
-  (when (or manual schema)
-    (let [union-s (union-path-vecs (:sensitive manual) (:sensitive schema))
-          union-l (union-path-vecs (:large manual)     (:large schema))
-          os      (union-output-sensitivity (:output-sensitivity manual)
-                                            (:output-sensitivity schema))
-          large?  (union-whole-output-flag (:large? manual)     (:large? schema))
-          merged  (cond-> {}
-                    union-s        (assoc :sensitive          union-s)
-                    union-l        (assoc :large              union-l)
-                    (some? os)     (assoc :output-sensitivity os)
-                    (some? large?) (assoc :large?             large?))]
-      (when (seq merged) merged))))
+;; had no other caller and are removed with it — `add-marks` / `set-marks` use
+;; `assoc-paths` to layer frame-scoped `:source :marks` declarations, not a
+;; declaration-level union.
 
 (defn marks-for
   "Return the mark declaration for `(kind, id)`, or nil — DERIVED at read time
@@ -460,19 +369,17 @@
 
   `normalise-marks` runs over the registrar's stored meta (the SAME validation
   `validate-marks!` ran at registration, so a clean stored meta never throws;
-  an unknown id returns nil meta → nil marks). For `:event`-kind ids that name
-  a machine carrying a `:data-schema`, the registrar-derived author marks are
-  UNIONED at read time with the schema-sourced `machine-id->schema-marks` entry
-  (rf2-qpibk0). The schema table is kept SEPARATE from the registrar so a
-  bare-meta re-registration of the `:event` entry — which REPLACES the registrar
-  slot in full — can never drop schema-derived `[:data …]` marks, making the
-  union truly order-independent regardless of whether the author marks were
-  declared (on the machine's reg-event meta) before OR after `reg-machine`."
+  an unknown id returns nil meta → nil marks).
+
+  EP-0025 (rf2-398kql): the prior machine `:data-schema`→marks union is GONE.
+  An `:event`-kind id that names a machine carrying a `:data-schema` no longer
+  has its schema's `:sensitive?` / `:large?` per-slot props folded in here —
+  schema-field classification is killed; frame-declared `:sensitive` / `:large
+  {:app-db …}` paths are the sole app-db mechanism. `marks-for` returns the
+  registrar-derived author marks for EVERY kind uniformly (no `:event` special
+  case)."
   [kind id]
-  (let [manual (normalise-marks kind (registrar/handler-meta kind id))]
-    (if (= :event kind)
-      (merge-schema-marks manual (get @machine-id->schema-marks id))
-      manual)))
+  (normalise-marks kind (registrar/handler-meta kind id)))
 
 (defn public-declassification-claims
   "Enumerate every registered derived output that carries an explicit
@@ -501,51 +408,25 @@
        (sort-by (juxt (comp str :kind) (comp str :id)))
        vec))
 
-(defn declare-machine-schema-marks!
-  "Record a machine's `:data-schema`-derived marks under `machine-id` in the
-  schema-sourced table (rf2-qpibk0). `marks` is the canonical
-  `{:sensitive [paths] :large [paths] :output-sensitivity <enum> :large? bool}`
-  shape (snapshot-rooted under `[:data …]`), or nil to clear the entry —
-  `:output-sensitivity` is the closed `:rf.egress/*` declassification enum that
-  EP-0015 issue 9 substituted for the rejected `:sensitive?` boolean. Returns
-  nil.
-
-  Kept separate from the author-sourced registrar `:event` entry so
-  `marks-for :event machine-id` unions the two at read time — order-
-  independent against any re-registration of the machine's `:event` entry.
-  Called by `reg-machine`'s `:data-schema` bridge for both the type id
-  (at `reg-machine` time) and per-instance spawned-actor ids (at spawn time,
-  rf2-fm1cpl)."
-  [machine-id marks]
-  (if (nil? marks)
-    (swap! machine-id->schema-marks dissoc machine-id)
-    (swap! machine-id->schema-marks assoc machine-id marks))
-  nil)
-
-(defn clear-machine-schema-marks!
-  "Drop the schema-sourced marks entry for `machine-id`. Returns nil.
-
-  The destroy / finalize / frame-teardown lifecycle clears a SPAWNED
-  INSTANCE's per-instance schema marks here (rf2-egvm4t) so a destroyed
-  actor leaves no marks-table residue, and `restore-epoch!` / replay re-runs
-  the spawn bridge to rehydrate them — the marks table tracks live
-  spawned-actor liveness in lock-step with the (revertible) snapshot. Safe
-  to call for an id with no entry (no-op)."
-  [machine-id]
-  (swap! machine-id->schema-marks dissoc machine-id)
-  nil)
+;; `declare-machine-schema-marks!` / `clear-machine-schema-marks!` are GONE
+;; (EP-0025, rf2-398kql) — they wrote / cleared the deleted schema-sourced
+;; `machine-id->schema-marks` table that backed the machine `:data-schema`→marks
+;; redaction bridge (EP-0005). With the schema-field classification axis killed
+;; in favour of frame-declared paths, there is no schema-sourced side-table for
+;; a machine `:data` slot's `:sensitive?` / `:large?` prop to populate.
 
 (defn clear-marks!
-  "Drop every SCHEMA-SOURCED marks declaration (the `machine-id->schema-marks`
-  table). Test-isolation only — production code never calls this. Returns nil.
+  "No-op retained for test-isolation directory symmetry — production code never
+  calls this. Returns nil.
 
-  The author-sourced marks now live in the registrar (rf2-ehexnw), which the
-  test-isolation runtime fixture already snapshot/restores via
-  `re-frame.test-support/restore-registrar!` — so there is no separate author
-  side-table to reset here; only the genuinely derived-and-stored schema table
-  needs clearing."
+  EP-0025 (rf2-398kql): the only mutable marks state this ns once owned — the
+  schema-sourced `machine-id->schema-marks` table — is GONE. The author-sourced
+  marks now live in the registrar (rf2-ehexnw), which the test-isolation runtime
+  fixture already snapshot/restores via `re-frame.test-support/restore-registrar!`;
+  the per-frame app-db marks live in the frame's runtime-db elision registry,
+  reset by the same fixture's frame teardown. There is no separate side-table
+  left to clear here."
   []
-  (reset! machine-id->schema-marks {})
   nil)
 
 ;; ---- add-marks / set-marks API ------------------------------------------
@@ -1873,8 +1754,12 @@
 (late-bind/set-fn! :marks/redact-event-by-registration redact-event-by-registration)
 (late-bind/set-fn! :marks/validate-marks!     validate-marks!)
 (late-bind/set-fn! :marks/marks-for           marks-for)
-(late-bind/set-fn! :marks/declare-machine-schema-marks! declare-machine-schema-marks!)
-(late-bind/set-fn! :marks/clear-machine-schema-marks!   clear-machine-schema-marks!)
+;; NOTE: the `:marks/declare-machine-schema-marks!` / `:marks/clear-machine-schema-marks!`
+;; hooks are GONE (EP-0025, rf2-398kql). They published the writers of the
+;; deleted schema-sourced `machine-id->schema-marks` table — the machine
+;; `:data-schema`→marks redaction bridge (EP-0005). Frame-declared `:sensitive`
+;; / `:large {:app-db …}` paths are now the sole app-db classification mechanism;
+;; the schema-field classification axis (and its machine bridge) is killed.
 (late-bind/set-fn! :marks/resolve-sub-output-marks resolve-sub-output-marks)
 (late-bind/set-fn! :marks/mark-sub-output!    mark-sub-output!)
 (late-bind/set-fn! :marks/clear-marks!        clear-marks!)
