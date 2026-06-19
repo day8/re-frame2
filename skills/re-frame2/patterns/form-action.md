@@ -81,10 +81,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a mismatched tok
 
 `enctype="multipart/form-data"` — the host adapter parses files under `:form-params` as `{:filename :content-type :size :tempfile}` maps. The `:tempfile` is host-specific and **opaque**: pass it to a file-storage fx (S3 PUT, disk write); never dereference it in the handler, and write only the resulting URL/storage-id into `app-db`. File **contents** never appear in trace events.
 
-**Marking the POST sensitive — classify at the owner, not via handler metadata.** A handler-meta `{:sensitive? true}` flag on the action is a **no-op** — the runtime removed it, so marking the action does nothing and the `:form-params` ship verbatim into trace/Story/MCP egress. Sensitivity is owner-classified now (the three-owner model — per [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
-
-- If the upload metadata (or any field) lands at a durable **app-db slot** that can hold credentials/PII, declare that path on the **frame**: `(rf/reg-frame :app/main {:sensitive {:app-db [[:uploads :token]]}})`. The frame owns durable app-db classification.
-- If a secret rides only in the **event payload** (e.g. a one-time token in `:form-params`) and never lands at an app-db slot, name its path in the **registration's** `:sensitive` metadata — the action handler is just a `reg-event`, so it carries the same metadata map:
+**Marking the POST sensitive — classify at the owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). Here the secret rides the POST `:form-params`, which the action handler is just a `reg-event` over — so name its path in the **registration's** `:sensitive` metadata (a `:form-params` field that instead lands at a durable app-db slot goes on the **frame** `:sensitive {:app-db …}` map instead):
 
 ```clojure
 (rf/reg-event :upload/submit
@@ -92,7 +89,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a mismatched tok
   (fn [_ [_ {:keys [form-params]}]] ,,,)) ;; handler body still sees the real value
 ```
 
-Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the registration `:sensitive` vector (or split into two POSTs); the scrub is per-named-path, owned by the registration, not a whole-action toggle.
+The scrub is per-named-path, owned by the registration, not a whole-action toggle (there is no handler-meta `{:sensitive? true}` switch — that was removed, so a marked action would ship its `:form-params` verbatim). Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the `:sensitive` vector, or split into two POSTs.
 
 ## Anti-patterns
 
