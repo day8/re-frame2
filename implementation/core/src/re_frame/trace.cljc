@@ -233,6 +233,53 @@
     (and (seq disabled)
          (contains? disabled (:frame tags)))))
 
+;; ---- canonical frame reader (rf2-7737vq Stage A) --------------------------
+;;
+;; Mike's ruling: a RAW trace event carries frame identity ONLY at
+;; `[:tags :frame]` — there is no public top-level `:frame` on the raw
+;; trace-event shape (the producer stamps it under `:tags`; see `build-
+;; event` and the router/cofx emit sites). Derived / projection records
+;; (cascade bundles, `:rf/epoch-record`s, dispatch consequences, cursor /
+;; summary records) carry frame identity at TOP-LEVEL `:frame` instead.
+;;
+;; `trace-event-frame` is the ONE canonical reader the instrumentation /
+;; trace contract owns for the raw-event shape. Consumers (Xray, Story,
+;; story-mcp, machines-viz, re-frame2-pair) read a raw trace event's
+;; frame through this accessor rather than reaching into `[:tags :frame]`
+;; (or a dual `(or (get-in ev [:tags :frame]) (:frame ev))` read) at each
+;; call site. Pre-alpha posture: one shape, one reader, no compatibility
+;; ambiguity. Per Spec 009 §Core fields (`:frame` rides under `:tags`)
+;; and Tool-Pair §Identity spellings.
+
+(defn trace-event-frame
+  "Return the frame-id a RAW trace event targets — its `[:tags :frame]`
+  slot — or nil when the event is not frame-qualified (registry-time /
+  boot-time emits outside any in-flight cascade).
+
+  This is the single canonical reader for frame identity on the raw
+  trace-event shape, owned by the Spec 009 instrumentation / trace
+  contract. Raw trace events carry frame identity ONLY under
+  `[:tags :frame]` (per Spec 009 §Core fields — `:source` / `:recovery`
+  hoist top-level, but `:frame` rides under `:tags`). Derived /
+  projection records (cascade bundles, `:rf/epoch-record`s, dispatch
+  consequences, cursor / summary records) instead carry frame identity
+  at TOP-LEVEL `:frame` — read those records' `:frame` slot directly,
+  not via this accessor.
+
+  Tool consumers MUST read a raw trace event's frame through this
+  accessor rather than hardcoding the `[:tags :frame]` path. Per
+  rf2-7737vq and Tool-Pair §Identity spellings (`:frame` is the single
+  bare carve-out tag on the raw layer)."
+  [trace-event]
+  (get-in trace-event [:tags :frame]))
+
+;; `frame-of` reads cleanly as the one-word form some call sites prefer
+;; (`(trace/frame-of ev)`). Same accessor, same raw-event contract — an
+;; alias, not a second shape.
+(def ^{:doc "Alias of `trace-event-frame` — the canonical raw trace-event
+  frame reader. See `trace-event-frame`."}
+  frame-of trace-event-frame)
+
 ;; ---- emission -------------------------------------------------------------
 
 (defn- deliver-to-epoch-capture!
