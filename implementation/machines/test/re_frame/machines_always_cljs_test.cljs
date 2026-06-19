@@ -72,10 +72,16 @@
         (is (= 6 (get-in s [:data :correct-count]))
             "action ran; data updated; state unchanged"))))
 
-  (testing ":always cycle hits depth limit — snapshot rolls back atomically"
-    ;; Two states ping-pong via :always with always-true guards. The
-    ;; microstep loop trips the depth limit; per Spec 005 §Bounded depth
-    ;; the snapshot rolls back to the input.
+  (testing ":always cycle hits depth limit — macrostep fails atomically (rf2-y3jv8q)"
+    ;; Two states ping-pong via :always with always-true guards. The microstep
+    ;; loop trips the depth limit; per Spec 005 §Bounded depth the macrostep
+    ;; FAILS atomically — XState v5 throws on such a runaway (rf2-y3jv8q). The
+    ;; abort routes through the failure path (the handler short-circuits to
+    ;; `{}`), so no snapshot write reaches runtime-db and the already-committed
+    ;; pre-event :start snapshot stays put. (Boot the machine FIRST so :start is
+    ;; committed before the failing [:go] — otherwise a first-dispatch lazy
+    ;; boot + [:go] is ONE atomic macrostep that rolls back wholesale, leaving
+    ;; no snapshot installed at all.)
     (let [machine
           {:initial :start
            :data    {}
@@ -87,16 +93,23 @@
             :b     {:always [{:guard :p? :target :a}]}}}
           traces (atom [])]
       (rf/reg-machine :osc/flow machine)
+      (rf/dispatch-sync [:osc/flow [:rf.machine/start]])  ;; commit :start first
       (trace-tooling/register-listener! ::osc (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:osc/flow [:go]])
       (trace-tooling/unregister-listener! ::osc)
-      ;; Atomic rollback: external snapshot stays at :start.
+      ;; Atomic rollback: the committed snapshot stays at :start (the failing
+      ;; [:go] macrostep commits nothing).
       (is (= :start (:state (snapshot :osc/flow)))
-          "macrostep is atomic; cycle aborts; snapshot rolls back to input")
+          "macrostep fails atomically; the committed snapshot stays at :start")
+      ;; The runaway is a FAILED macrostep, NOT a benign no-op — the
+      ;; depth-exceeded error trace fires, and no unhandled-no-op masks it.
       (is (some (fn [ev]
                   (and (= :rf.error/machine-always-depth-exceeded
                           (:operation ev))
                        (= :error (:op-type ev))
                        (= :no-recovery (:recovery ev))))
                 @traces)
-          "expected :rf.error/machine-always-depth-exceeded trace"))))
+          "expected :rf.error/machine-always-depth-exceeded trace")
+      (is (not-any? (fn [ev] (= :rf.machine.event/unhandled-no-op (:operation ev)))
+                    @traces)
+          "a runaway cycle is NOT a benign no-op — no unhandled-no-op fires"))))
