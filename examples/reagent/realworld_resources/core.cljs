@@ -115,11 +115,6 @@
             [:span.attribution "An interactive learning project from Thinkster."
              " Code & design licensed under MIT."]]])
 
-(reg-view settings-mount []
-  ;; The settings page seeds its draft on mount (the route is auth-guarded).
-  (let [_ (dispatch [:settings/load])]
-    [settings/settings-page]))
-
 (reg-view ^{:doc "Confirm dialog shown when a `:can-leave` guard blocks a
                    navigation (e.g. the editor with a dirty draft). Reads the
                    blocked navigation off the `:rf/pending-navigation` sub
@@ -154,7 +149,7 @@
      :realworld.editor/edit   [editor/editor-page]
      :realworld.profile/show      [views/profile-page]
      :realworld.profile/favorites [views/profile-page]
-     :realworld.user/settings [settings-mount]
+     :realworld.user/settings [settings/settings-page]
      [not-found-page])
    [footer]])
 

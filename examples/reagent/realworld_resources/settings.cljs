@@ -62,9 +62,11 @@
 ;; ============================================================================
 
 (rf/reg-event :settings/load
-  {:doc "Seed the settings draft from the authenticated user. Dispatched from
-         the settings view on mount (the page is auth-guarded, so a user is
-         always present here)."}
+  {:doc "Seed the settings draft from the authenticated user. Dispatched ONCE on
+         route entry via the settings route's `:on-match` (the page is
+         auth-guarded, so a user is always present here). Seeding on route entry
+         — not from the view's render — is what keeps the form a pure Form-1: a
+         re-render never re-runs the load, so in-progress field edits survive."}
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:settings-form :draft] (draft-from-user (get-in db [:auth :user])))}))
 
