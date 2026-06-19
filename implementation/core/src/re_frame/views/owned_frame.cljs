@@ -246,7 +246,12 @@
 ;;     resolved id is stashed in a `useRef` so re-renders reuse it.
 ;;   - DESTROY on UNMOUNT via `useEffect` empty-deps cleanup, DEFERRED (see
 ;;     `release-owned-frame!`) so StrictMode's mount→unmount→mount and hot
-;;     reload do not tear down durable state.
+;;     reload do not tear down durable state. The effect SETUP re-drives
+;;     `cancel-pending-destroy!` (rf2-i02deh): StrictMode replays the effect as
+;;     setup → cleanup → setup on the SAME fiber WITHOUT re-running render, so
+;;     the render-phase acquire cannot cancel the remount's pending destroy —
+;;     the setup-phase cancel is what makes the deferred-destroy window
+;;     StrictMode-tolerant.
 
 (defn ^:no-doc owned-frame-fc
   "The React function component that owns one frame's UI lifetime — ONE
@@ -277,10 +282,17 @@
 
   Effect-phase destroy: an empty-deps `useEffect` arms a cleanup that calls
   `release-owned-frame!` (DEFERRED destroy) on unmount. Empty deps ⇒ the cleanup
-  runs once per genuine unmount; StrictMode's extra mount→unmount→mount cycle is
-  absorbed because the destroy is deferred and cancelled by the remount's
-  render-phase re-acquire (which re-runs `acquire-owned-frame!` before this
-  effect re-arms)."
+  runs once per genuine unmount. StrictMode's extra mount→unmount→mount cycle is
+  absorbed because the destroy is deferred AND the effect SETUP re-drives
+  `cancel-pending-destroy!` on every run: StrictMode replays the effect as
+  setup → cleanup → setup on the SAME fiber, and the render phase does NOT
+  re-run on the effect re-setup (the fiber's cached `id-ref.current` survives),
+  so the render-phase `acquire-owned-frame!` is NOT a reliable cancel site for
+  the remount. Cancelling in the effect setup (rf2-i02deh) is — the remount's
+  setup reclaims the still-live frame before the prior cleanup's 0ms timer can
+  fire. A genuine first mount finds no pending destroy (no-op); a genuine
+  unmount arms the deferred destroy with no re-setup to cancel it, so real
+  teardown is unaffected."
   [^js props]
   (let [opts     (.-rfOpts props)
         children (.-children props)
@@ -293,9 +305,21 @@
                        fid))]
     (React/useEffect
       (fn arm-owned-frame-teardown []
-        ;; StrictMode/hot-reload tolerance: on a remount the render phase above
-        ;; re-acquires (cancelling any pending destroy) before this effect runs
-        ;; again, so the create/destroy pair tolerates the extra cycle.
+        ;; StrictMode/hot-reload tolerance (rf2-i02deh). React StrictMode runs
+        ;; this effect as setup → cleanup → setup AGAIN on the SAME fiber (the
+        ;; `useRef` persists). The cleanup below schedules the DEFERRED destroy;
+        ;; the re-setup must CANCEL it, or the 0ms timer fires and tears down
+        ;; durable state between the two mounts. The render phase does NOT
+        ;; re-run on a StrictMode effect re-setup (the fiber's `id-ref.current`
+        ;; is still populated), so `acquire-owned-frame!` — the render-phase
+        ;; cancel site — never runs again. Re-drive the cancel HERE, on every
+        ;; effect setup, so the remount's effect-setup reclaims the still-live
+        ;; frame (Spec 002 §StrictMode double-invoke / §idempotent re-mount).
+        ;; A genuine first mount has no pending destroy, so this is a no-op
+        ;; there; a genuine unmount still arms the deferred destroy via the
+        ;; cleanup, and nothing re-acquires the id to cancel it — so real
+        ;; teardown is unaffected.
+        (cancel-pending-destroy! (.-current id-ref))
         (fn cleanup-owned-frame []
           (release-owned-frame! (.-current id-ref))))
       ;; Empty deps: arm once on mount, clean up once on unmount.

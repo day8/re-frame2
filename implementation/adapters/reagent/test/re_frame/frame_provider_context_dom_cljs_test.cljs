@@ -77,16 +77,20 @@
   frame-scoped op reading that nil then raises
   `:rf.error/no-frame-context`. The corruption error event is its own
   distinct diagnostic surface."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react" :as React]
             ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
-            [re-frame.views])
+            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.views]
+            [re-frame.views.owned-frame :as owned-frame])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the fixture's default
@@ -101,10 +105,38 @@
 ;; suite out keeps the resolution honest. (Scenario-3 + the prop-stringified
 ;; cases additionally `(binding [*current-frame* nil] …)` for belt-and-braces;
 ;; that is idempotent here.)
-(use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :ambient-frame nil}))
+;; MAP-FORM fixture (not the fn-form `make-reset-runtime-fixture`): cljs.test
+;; requires `:each` fixtures to be `{:before … :after …}` maps when the ns
+;; contains ANY `async` test (a fn-form fixture's wrapper returns — running
+;; its teardown — before the async body's `done` fires). Scenario-6-owned +
+;; the genuine-unmount teardown test below are async (they must advance past
+;; the owned-frame's 0ms deferred destroy). The before/after pair replicates
+;; the runtime reset `make-reset-runtime-fixture` performs for THIS suite:
+;; snapshot + restore the registrar, reset the frame registry + live-frame
+;; index, dispose/reinstall the Reagent adapter, clear trace listeners,
+;; ensure `:rf/default`. There is NO ambient `*current-frame*` binding —
+;; this suite pins the React-context tier (the `:ambient-frame nil` opt-out
+;; the fn-form fixture carried); an ambient :rf/default would shadow tier 2.
+;; Mirrors the established async-DOM fixture idiom in
+;; react_click_handler_frame_routing_cljs_test / dispatch_frame_capture.
+
+(def ^:private registrar-snapshot (atom nil))
+
+(defn- before! []
+  (reset! registrar-snapshot (test-support/snapshot-registrar))
+  (reset! frame/frames {})
+  (substrate-adapter/dispose-adapter!)
+  (trace-tooling/clear-listeners!)
+  (substrate-adapter/install-adapter! reagent-adapter/adapter)
+  (frame/ensure-default-frame!))
+
+(defn- after! []
+  (when-let [snap @registrar-snapshot]
+    (test-support/restore-registrar! snap)
+    (reset! registrar-snapshot nil))
+  (reset! frame/frames {}))
+
+(use-fixtures :each {:before before! :after after!})
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -115,6 +147,22 @@
 (defn- make-mount-node! []
   (when (browser?)
     (.createElement js/document "div")))
+
+(defn- get-act
+  "Return React's act() if available, else nil. React 18 ships act in
+  react-dom/test-utils; React 19 promotes it to the React namespace
+  proper. Either is fine for our purposes — both are sync-or-async-
+  promise compatible with the same call shape. Used by Scenario 7
+  (concurrent re-render flush) and the owned-frame StrictMode scenarios
+  (act drives React's effect double-invoke deterministically — `flushSync`
+  does NOT run the StrictMode passive-effect cleanup/re-setup synchronously,
+  so the deferred-destroy race only surfaces under act)."
+  []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try
+        (let [test-utils (js/require "react-dom/test-utils")]
+          (.-act test-utils))
+        (catch :default _ nil))))
 
 ;; ---- Scenario 1: nested-provider inheritance ------------------------------
 ;;
@@ -523,6 +571,199 @@
             (finally
               (try (rdc/unmount root) (catch :default _ nil)))))))))
 
+;; ---- Scenario 6 (OWNED): StrictMode must not destroy durable state --------
+;;
+;; rf2-i02deh. Scenario 6 above covers the SCOPE-only
+;; `frame-provider-existing` under StrictMode — a pure context read, so the
+;; double-invoke is harmless. This OWNED counterpart covers `rf/frame-provider`
+;; (the create-on-mount / destroy-on-unmount lifecycle boundary, EP-0024),
+;; where StrictMode's dev cycle is the dangerous one:
+;;
+;;   mount → effect-setup → effect-CLEANUP → effect-setup-AGAIN
+;;
+;; on the SAME fiber (the `useRef` persists). The owned-frame component
+;; (`re-frame.views.owned-frame/owned-frame-fc`) acquires the frame in the
+;; RENDER phase, gated on `id-ref.current` being nil, and arms an empty-deps
+;; `useEffect` whose cleanup calls `release-owned-frame!` (the DEFERRED 0ms
+;; destroy). The StrictMode contract (Spec 002 §002:1419 idempotent re-mount /
+;; §002:1424 StrictMode double-invoke) is: the extra cycle MUST NOT corrupt
+;; durable state (app-db / sub-cache / queue).
+;;
+;; The trap this test pins: the StrictMode cleanup schedules the deferred
+;; destroy, but the StrictMode effect-RE-SETUP does NOT re-run the render
+;; phase (the fiber's `id-ref.current` is still populated), so
+;; `acquire-owned-frame!` — the ONLY place `cancel-pending-destroy!` is
+;; reached — never runs again. The 0ms timer then fires on the next
+;; macrotask and `destroy-frame!` tears down durable state. The fix re-drives
+;; the cancel on every effect SETUP, so the remount's effect-setup cancels
+;; the pending destroy. This test mounts an owned `rf/frame-provider` under
+;; StrictMode, advances past the 0ms deferred destroy, and asserts the frame
+;; is STILL LIVE with its `:initial-db` intact.
+
+(deftest scenario-6-owned-strict-mode-preserves-durable-state
+  "Scenario 6 (OWNED) — StrictMode double-invoke must NOT destroy an owned
+   frame-provider's durable state (rf2-i02deh, Spec 002 §002:1419 / §002:1424).
+
+   Mount `[rf/frame-provider {:id :test/owned :initial-db {:n 7}} …]` inside
+   `React.StrictMode`. StrictMode runs the owned-frame effect's cleanup (which
+   SCHEDULES the deferred destroy) and re-setup on the same fiber. After the
+   0ms deferred destroy's macrotask window passes, the frame MUST still be live
+   with `{:n 7}` intact — the remount's effect-setup must have cancelled the
+   pending destroy. Fails on the pre-fix code: the cancel only ran from the
+   render-phase `acquire-owned-frame!`, which StrictMode's effect-re-setup does
+   NOT re-trigger, so the timer fired and `destroy-frame!` ran."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (async done
+      (let [target     :test/owned-strict
+            done?      (atom false)
+            ;; `done`-once guard: the act() thenable + nested macrotask chain
+            ;; has several exit paths (success, a thrown assertion, a promise
+            ;; rejection). Calling cljs.test's `done` twice aborts the suite
+            ;; ("Async test called done more than one time"), so funnel every
+            ;; exit through one guarded call.
+            done!      (fn [] (when (compare-and-set! done? false true) (done)))
+            mount-node (make-mount-node!)
+            ;; PURE React mount via `react-dom/client createRoot` (NOT Reagent's
+            ;; `rdc/create-root`): Reagent's own render scheduling commits the
+            ;; embedded `owned-frame-fc` on a Reagent reaction tick OUTSIDE
+            ;; React's StrictMode subtree pass, so React's StrictMode effect
+            ;; double-invoke never fires for the FC. Mounting a NATIVE React
+            ;; element tree — `StrictMode > owned-frame-react-element` — puts
+            ;; the FC directly under StrictMode, which is exactly the UIx/Helix
+            ;; substrate path (they build the owned provider via
+            ;; `owned-frame-react-element`, raw `createElement`). The bug is in
+            ;; the shared `owned-frame-fc`, so this faithfully exercises it for
+            ;; all React-shaped adapters.
+            root       (react-dom-client/createRoot mount-node)
+            cleanup!   (fn []
+                         (try (.unmount root) (catch :default _ nil))
+                         ;; Belt-and-braces: drop any frame the test left behind
+                         ;; so a later macrotask destroy can't leak across tests.
+                         (try (frame/destroy-frame! target) (catch :default _ nil)))
+            ;; The owned provider's children are an ordinary React element (the
+            ;; durable app-db is asserted directly via `app-db-value`; a probe
+            ;; subtree is not needed to exercise the lifecycle bug).
+            child      (React/createElement "div" #js {} "owned-strict")
+            owned-el   (owned-frame/owned-frame-react-element
+                         {:id target :initial-db {:n 7}}
+                         child
+                         'scenario-6-owned-strict-mode-preserves-durable-state)
+            tree       (React/createElement (.-StrictMode React) nil owned-el)
+            act-fn     (get-act)]
+        (if (nil? act-fn)
+          (do (is true "act() not reachable from this runner; scenario-6-owned skipped")
+              (done!))
+          ;; `act` flushes passive effects + drives StrictMode's effect
+          ;; double-invoke (setup → cleanup → setup) on the same fiber. Under
+          ;; StrictMode + `createRoot`, that cleanup runs in a passive-effect
+          ;; pass React schedules through act's returned thenable — so we MUST
+          ;; await it (a bare `act` call does not flush the StrictMode cleanup
+          ;; synchronously). The cleanup calls `release-owned-frame!`,
+          ;; scheduling the 0ms deferred destroy; the re-setup must cancel it.
+          ;; After awaiting, advance two macrotasks so the (un-cancelled,
+          ;; pre-fix) 0ms destroy timer fires before we assert. Every exit
+          ;; funnels through the guarded `done!` (cljs.test aborts the shared
+          ;; browser runtime on a double-done).
+          (-> (js/Promise.resolve (act-fn (fn [] (.render root tree))))
+              (.then
+                (fn [_]
+                  ;; Sanity: the frame was created + durable state seeded.
+                  (is (some? (frame/frame target))
+                      "owned frame-provider created the frame on mount")
+                  (is (= {:n 7} (rf/app-db-value target))
+                      ":initial-db seeded the durable app-db")
+                  (js/setTimeout
+                    (fn []
+                      (js/setTimeout
+                        (fn []
+                          (is (not (owned-frame/pending-destroy? target))
+                              (str "no deferred destroy left armed after the StrictMode "
+                                   "cycle (the remount's effect-setup cancelled it)"))
+                          (is (some? (frame/frame target))
+                              (str "the owned frame is STILL LIVE after the deferred-destroy "
+                                   "window — StrictMode double-invoke did not tear it down "
+                                   "(Spec 002 §002:1424)"))
+                          (is (= {:n 7} (rf/app-db-value target))
+                              (str "durable app-db survived the StrictMode cycle intact (got "
+                                   (pr-str (rf/app-db-value target))
+                                   ") — §002:1419 idempotent re-mount"))
+                          (cleanup!)
+                          (done!))
+                        4))
+                    4)))
+              (.catch
+                (fn [err]
+                  (is false (str "scenario-6-owned threw: " (pr-str err)))
+                  (cleanup!)
+                  (done!)))))))))
+
+;; ---- Scenario 6 (OWNED): genuine unmount STILL destroys -------------------
+;;
+;; rf2-i02deh — the fix must not break real teardown. A genuine unmount (no
+;; remount re-acquires the id) must let the deferred destroy fire and tear the
+;; frame down. This pins that the cancel-on-effect-setup change did not turn
+;; the owned provider into a leak: after a real unmount + the macrotask window,
+;; the frame is GONE.
+
+(deftest scenario-6-owned-genuine-unmount-destroys
+  "Scenario 6 (OWNED) — a genuine unmount still destroys the owned frame
+   (rf2-i02deh). The StrictMode fix re-drives the cancel on effect setup; it
+   must NOT suppress the destroy on a real unmount where nothing re-acquires
+   the id. Mount (no StrictMode), unmount, advance past the 0ms deferred
+   destroy, and assert the frame is torn down."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (async done
+      (let [target     :test/owned-teardown
+            done?      (atom false)
+            done!      (fn [] (when (compare-and-set! done? false true) (done)))
+            mount-node (make-mount-node!)
+            ;; Pure React mount (see scenario-6-owned for why — Reagent's render
+            ;; scheduling otherwise commits the FC outside React's effect passes).
+            root       (react-dom-client/createRoot mount-node)
+            child      (React/createElement "div" #js {} "owned-teardown")
+            owned-el   (owned-frame/owned-frame-react-element
+                         {:id target :initial-db {:n 3}}
+                         child
+                         'scenario-6-owned-genuine-unmount-destroys)
+            act-fn     (get-act)]
+        (if (nil? act-fn)
+          (do (is true "act() not reachable from this runner; genuine-unmount scenario skipped")
+              (done!))
+          ;; Mount under act so the owned-frame effect arms (NOT StrictMode —
+          ;; this is the genuine single-lifecycle path), then unmount under act
+          ;; so the effect cleanup runs (scheduling the deferred destroy). Await
+          ;; each act so the effect / cleanup passive passes flush (see
+          ;; scenario-6-owned for why awaiting matters), then advance the
+          ;; macrotask so the deferred destroy fires.
+          (-> (js/Promise.resolve (act-fn (fn [] (.render root owned-el))))
+              (.then
+                (fn [_]
+                  (is (some? (frame/frame target)) "frame created on mount")
+                  ;; Genuine unmount — nothing re-acquires the id.
+                  (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
+              (.then
+                (fn [_]
+                  ;; Let the 0ms deferred destroy's macrotask fire.
+                  (js/setTimeout
+                    (fn []
+                      (js/setTimeout
+                        (fn []
+                          (is (nil? (frame/frame target))
+                              "genuine unmount tore the frame down (deferred destroy fired)")
+                          (is (not (owned-frame/pending-destroy? target))
+                              "no pending destroy left armed after the timer fired")
+                          (try (frame/destroy-frame! target) (catch :default _ nil))
+                          (done!))
+                        4))
+                    4)))
+              (.catch
+                (fn [err]
+                  (is false (str "genuine-unmount scenario threw: " (pr-str err)))
+                  (try (frame/destroy-frame! target) (catch :default _ nil))
+                  (done!)))))))))
+
 ;; ---- Scenario 7: concurrent rendering / suspense + act --------------------
 ;;
 ;; React 18+ concurrent rendering schedules renders asynchronously by
@@ -536,19 +777,9 @@
 ;; React's `act()` is exposed via `react-dom/test-utils` (React 18)
 ;; and on `react` directly (React 19). The harness uses whichever is
 ;; available; if neither is reachable the test SKIPS and files a bead
-;; (per the bead's "no new test infrastructure" rule).
-
-(defn- get-act
-  "Return React's act() if available, else nil. React 18 ships act in
-  react-dom/test-utils; React 19 promotes it to the React namespace
-  proper. Either is fine for our purposes — both are sync-or-async-
-  promise compatible with the same call shape."
-  []
-  (or (when (exists? (.-act React)) (.-act React))
-      (try
-        (let [test-utils (js/require "react-dom/test-utils")]
-          (.-act test-utils))
-        (catch :default _ nil))))
+;; (per the bead's "no new test infrastructure" rule). `get-act` lives
+;; in the helpers section above (shared with the owned-frame StrictMode
+;; scenarios, which also need act() to drive React's effect double-invoke).
 
 (deftest scenario-7-concurrent-renders-survive-act-flush
   "Scenario 7 — React concurrent rendering survives across re-renders.
