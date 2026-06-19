@@ -31,6 +31,10 @@ Thumbs.db
 # AI working tree (local-only — findings, map, super-prompt playground)
 # Per docs/the-mayor-method.md
 /ai/
+# Exception: extended-context is durable committed project context (the mayor
+# consults it on bootstrap, contributes on retrospectives) — keep it tracked.
+!/ai/extended-context/
+!/ai/extended-context/**
 
 # Beads / Dolt files (added by bd init)
 .dolt/
