@@ -27,7 +27,6 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
@@ -455,29 +454,14 @@
                          :invoke-id invoke-id
                          :track?    track?
                          :type-ref  type-ref})
-        ;; Per rf2-fm1cpl — bridge the spawned actor's `:data-schema`
-        ;; `:sensitive?` / `:large?` markers into snapshot-egress redaction
-        ;; KEYED UNDER THE INSTANCE ID. A spawned actor's
-        ;; `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace
-        ;; carries `:actor-id` = the INSTANCE id (`<type>#<n>` or the
-        ;; explicit `:fixed-actor-id`), and `re-frame.marks/project-machine-tags`
-        ;; resolves marks via `(marks-for :event <actor-id>)`. The TYPE's
-        ;; `:data-schema` marks (bridged at `reg-machine*` time) key under the
-        ;; TYPE id, so an instance-id trace's lookup would MISS and a
-        ;; `:sensitive?` `:data` slot would egress RAW. Re-running the SAME
-        ;; bridge (`registration/register-data-schema-marks!`) under
-        ;; `spawned-id` keys the schema-derived marks under the id the trace
-        ;; actually carries — covering both registered-type (`:machine-id`)
-        ;; and inline (`:definition`) spawns via the resolved `spec''`'s
-        ;; `:data-schema`. The bridge itself rides `interop/debug-enabled?`
-        ;; (the egress surface it feeds is gated), so this is dead-elided in
-        ;; production builds. Per rf2-qpibk0 the per-instance schema marks land
-        ;; in the separate schema-sourced table (unioned at read time), and per
-        ;; rf2-egvm4t the matching destroy/finalize/frame-teardown lifecycle
-        ;; clears them via `:marks/clear-machine-schema-marks!` so a destroyed
-        ;; actor leaves no marks residue and epoch restore/replay re-runs this
-        ;; bridge to rehydrate them.
-        (registration/register-data-schema-marks! spawned-id spec'')
+        ;; EP-0025 (rf2-398kql): the per-instance `:data-schema`→marks bridge
+        ;; (rf2-fm1cpl) is REMOVED. It re-keyed the spawned type's schema-derived
+        ;; `:sensitive?` / `:large?` `[:data …]` marks under the INSTANCE id so a
+        ;; `:rf.machine/transition` trace carrying `:actor-id` = the instance id
+        ;; would redact the marked `:data` slot. With schema-field classification
+        ;; killed in favour of frame-declared paths as the sole app-db mechanism,
+        ;; there is no per-instance schema-marks table to populate; a spawned
+        ;; actor's `:data` redaction (if any) rides the FRAME's declared paths.
         ;; Per rf2-vsigt — record the spawned actor in the frame's
         ;; spawn-order channel so frame-destroy can walk in reverse-
         ;; creation order per Spec 005 §Cross-Spec Interactions §1.

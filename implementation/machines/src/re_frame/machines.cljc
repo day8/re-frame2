@@ -516,9 +516,11 @@
 ;; Per rf2-jm2u63 — the SSR hydration projector for durable machine snapshots.
 ;; `re-frame.ssr.payload-policy/project-runtime-db` consults this hook to project
 ;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted /
-;; elided per the owning machine's `:data-schema` `:sensitive?` / `:large?`
-;; classification under `:rf.egress/ssr-hydration` BEFORE it rides the wire —
-;; closing the raw-classified-machine-data hydration leak (EP-0015 §6/§8).
+;; elided per the FRAME's declared `:sensitive` / `:large {:app-db …}` paths
+;; (EP-0015) under `:rf.egress/ssr-hydration` BEFORE it rides the wire — closing
+;; the raw-classified-machine-data hydration leak. (EP-0025, rf2-398kql: the
+;; prior machine `:data-schema`→marks classification layer is removed —
+;; frame-owned classification is the sole app-db mechanism.)
 ;; Late-bound so SSR never statically requires the machines artefact.
 (late-bind/set-fn! :machines/project-ssr-runtime-db
                    machines-ssr/project-ssr-runtime-db)

@@ -25,8 +25,6 @@
             [re-frame.error :as error]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
             [re-frame.machines.cofx-attach :as cofx-attach]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
@@ -44,36 +42,35 @@
 
 ;; ---- single-registration-home flag (rf2-genufr) ---------------------------
 ;;
-;; A machine that carries a `:data-schema` has TWO registration-time
-;; side-effects that BOTH must run or the schema is silently inert AND a
-;; privacy leak (a `:sensitive?` `:data` slot egresses raw):
+;; A machine that carries a `:data-schema` MUST flow through the single
+;; registration home so the `:rf/machine?` / `:rf/machine` registration-
+;; metadata stamp runs — the `:where :machine-data` post-commit walker resolves
+;; the `:data-schema` THROUGH `(machine-meta id)`, so without the stamp the
+;; schema validates NOTHING.
 ;;
-;;   1. the `:rf/machine?` / `:rf/machine` registration-metadata stamp — the
-;;      `:where :machine-data` post-commit walker resolves the `:data-schema`
-;;      THROUGH `(machine-meta id)`, so without the stamp the schema validates
-;;      nothing; and
-;;   2. `register-data-schema-marks!` — bridges the schema's `:sensitive?` /
-;;      `:large?` per-slot markers into snapshot-egress redaction.
-;;
-;; `register-machine-event!` below is the SINGLE HOME that runs BOTH (it is
-;; the body of `reg-machine*` AND the new event-`:schema` arity). The bare
-;; `(reg-event id meta (make-machine-handler spec))` direct path runs
-;; NEITHER automatically — which is exactly how this bug hid. So
+;; `register-machine-event!` below is the SINGLE HOME that stamps it (it is the
+;; body of `reg-machine*` AND the new event-`:schema` arity). The bare
+;; `(reg-event id meta (make-machine-handler spec))` direct path does NOT stamp
+;; it — which is exactly how a `:data-schema` could go silently inert. So
 ;; `make-machine-handler` FAILS LOUD when it is handed a `:data-schema`-bearing
 ;; spec OUTSIDE the home (`*in-registration-home?*` unbound to true): a
-;; schema-bearing machine MUST flow through `reg-machine` / `reg-machine*` so
-;; both side-effects run. The home, plus the spawned-actor materialisation
-;; seams (`handler-meta-for` / `resolve-actor-handler-meta`, which run the
-;; marks bridge themselves), bind the flag around their `make-machine-handler`
-;; calls. A schema-LESS machine has nothing inert to leak, so the bare direct
-;; path stays legal for it (the Story testbed / schema-free examples rely on
-;; it).
+;; schema-bearing machine MUST flow through `reg-machine` / `reg-machine*`. The
+;; home, plus the spawned-actor materialisation seams (`handler-meta-for` /
+;; `resolve-actor-handler-meta`), bind the flag around their
+;; `make-machine-handler` calls. A schema-LESS machine has nothing to validate,
+;; so the bare direct path stays legal for it (the Story testbed / schema-free
+;; examples rely on it).
+;;
+;; EP-0025 (rf2-398kql): the home formerly ran a SECOND `:data-schema` side-
+;; effect — `register-data-schema-marks!`, the schema→marks redaction bridge.
+;; That bridge is REMOVED (schema-field classification killed in favour of
+;; frame-declared paths), so the home now runs only the validation-stamp.
 (def ^:dynamic *in-registration-home?*
   "True while `make-machine-handler` is invoked from a registration site that
-  ALSO stamps the `:rf/machine?` / `:rf/machine` meta AND runs
-  `register-data-schema-marks!` (the single home, or the spawned-actor
-  resolver seams). When false/unbound, a `:data-schema`-bearing spec handed to
-  `make-machine-handler` is an unstamped-schema misconfiguration — fail loud."
+  ALSO stamps the `:rf/machine?` / `:rf/machine` meta (the single home, or the
+  spawned-actor resolver seams). When false/unbound, a `:data-schema`-bearing
+  spec handed to `make-machine-handler` is an unstamped-schema misconfiguration
+  — fail loud (the schema would validate nothing)."
   false)
 
 ;; The reserved creation marker `:rf.machine/start` (renamed from
@@ -763,13 +760,16 @@
   ;; Per rf2-genufr — fail-loud guard. A `:data-schema`-bearing spec MUST be
   ;; registered through the single home (`reg-machine` / `reg-machine*` / the
   ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
-  ;; `:rf/machine` meta stamp AND `register-data-schema-marks!` BOTH run. The
-  ;; bare `(reg-event id meta (make-machine-handler spec))` direct path runs
-  ;; neither — so a `:data-schema` reached here outside the home would be
-  ;; silently inert (validates nothing) AND a privacy leak (a `:sensitive?`
-  ;; `:data` slot egresses raw). Surface it at the moment of construction
-  ;; rather than letting it no-op. A schema-LESS spec is unaffected — the bare
-  ;; direct path stays legal for it.
+  ;; `:rf/machine` registration-metadata stamp runs — the `:where :machine-data`
+  ;; post-commit walker resolves the `:data-schema` THROUGH `(machine-meta id)`,
+  ;; so without the stamp the schema validates NOTHING. The bare `(reg-event id
+  ;; meta (make-machine-handler spec))` direct path does not stamp it — so a
+  ;; `:data-schema` reached here outside the home would be silently inert.
+  ;; Surface it at the moment of construction rather than letting it no-op. A
+  ;; schema-LESS spec is unaffected — the bare direct path stays legal for it.
+  ;; (EP-0025, rf2-398kql: the schema→marks redaction half of this guard's
+  ;; rationale is gone — schema props no longer classify `:data` for egress —
+  ;; but the validation-stamp half still requires the home, so the guard stays.)
   (when (and (:data-schema machine)
              (not *in-registration-home?*))
     (error/throw-error!
@@ -777,16 +777,13 @@
       'rf-machines/make-machine-handler
       (str "make-machine-handler was handed a machine spec carrying a "
            ":data-schema via the bare (reg-event id meta "
-           "(make-machine-handler spec)) direct path. That path stamps "
-           "neither the :rf/machine? / :rf/machine registration "
-           "metadata (so the :data-schema validates NOTHING) NOR the "
-           ":sensitive? / :large? redaction marks (so a sensitive :data "
-           "slot egresses RAW to the trace bus / AI-MCP). Register the "
-           "machine through reg-machine / reg-machine* — and when the "
-           "machine ALSO validates its outer event vector, use the "
-           "event-:schema arity: (reg-machine id {:schema EventSchema} "
-           "machine) or (reg-machine* id machine {:schema EventSchema}). "
-           "These run both side-effects.")
+           "(make-machine-handler spec)) direct path. That path does NOT "
+           "stamp the :rf/machine? / :rf/machine registration metadata, so "
+           "the :data-schema validates NOTHING. Register the machine through "
+           "reg-machine / reg-machine* — and when the machine ALSO validates "
+           "its outer event vector, use the event-:schema arity: (reg-machine "
+           "id {:schema EventSchema} machine) or (reg-machine* id machine "
+           "{:schema EventSchema}).")
       {:recovery :use-reg-machine
        :extra    {:data-schema (:data-schema machine)}}))
   ;; Per rf2-f9tu — `build-initial-snapshot` runs lazily INSIDE the
@@ -934,122 +931,38 @@
                       ;; trace.
                       (commit-or-finalize ctx step-result boot-result)))))))))))))
 
-;; ---- :data-schema redaction bridge (EP-0005, rf2-w46fpt) ------------------
+;; ---- :data-schema redaction bridge: REMOVED (EP-0025, rf2-398kql) ---------
 ;;
 ;; A machine's `:data-schema` (the renamed `:schema` key — rf2-rcim4m) is a
-;; Malli EDN form that validates the machine's `:data` slot. Per Spec 015 §6
-;; State machines, a `:sensitive?` / `:large?` Malli marker anywhere in that
-;; schema MUST be honoured in snapshot egress (`project-machine-tags` →
-;; `:before` / `:after` / `:snapshot` on every `:rf.machine/transition`), not
-;; only in the validation-failure trace (which already routes through the
-;; schema-aware redactor — `data_validation.cljc`, rf2-o69h5).
+;; Malli EDN form that VALIDATES the machine's `:data` slot. That validation is
+;; UNTOUCHED. What is gone is the EP-0005 schema→MARKS redaction bridge
+;; (`register-data-schema-marks!`, rf2-w46fpt / rf2-qpibk0): it extracted each
+;; `:sensitive?` / `:large?` per-`:data`-slot prop from the `:data-schema`,
+;; rooted it under `[:data …]`, and recorded it in core's schema-sourced
+;; marks side-table so `project-machine-tags` / the SSR projector would redact
+;; the marked snapshot slot at egress.
 ;;
-;; The bridge mirrors how `reg-app-schema` + `add-marks` compose for app-db:
-;; `reg-app-schema` runs the schemas walker to extract per-slot `:sensitive?` /
-;; `:large?` paths into the frame's elision registry, where they UNION with
-;; `add-marks`-sourced paths. Here the per-slot paths are walked from the
-;; `:data-schema`, rooted under `[:data …]` to match the snapshot shape, and
-;; UNION'd into the machine's `:event`-keyed marks entry (machine marks key
-;; under `:event` because a machine IS an event handler). A machine that ALSO
-;; carries a manual `register-marks!` keeps both sets — Spec 015's
-;; union-by-source, not last-write-wins (Mike ruling #3).
-
-(defn- root-paths-under-data
-  "Root each extracted `{path declaration}` schema path under `[:data …]` so it
-  matches the machine snapshot shape (the snapshot carries `:state` and the
-  reserved `:rf/*` keys alongside `:data`; only `:data` is the user-domain
-  surface the schema governs). Returns a vector of path vectors."
-  [decls]
-  (mapv (fn [path] (into [:data] path)) (keys decls)))
-
-(defn register-data-schema-marks!
-  "EP-0005 — bridge the machine `:data-schema`'s `:sensitive?` / `:large?`
-  per-slot markers into snapshot-egress redaction. Extracts the marked paths
-  from `(:data-schema machine)` via the schemas walker, roots them under
-  `[:data …]` (to match the snapshot shape), and records them under
-  `machine-id` in the SCHEMA-SOURCED marks table via
-  `:marks/declare-machine-schema-marks!`.
-
-  Per rf2-qpibk0 the schema marks live in a table SEPARATE from the
-  author-sourced `:event` marks entry; `marks/marks-for :event machine-id`
-  UNIONS the two at read time. This makes the schema-vs-author composition
-  (Spec 015 §union-by-source, EP-0005 ruling #3 — a machine with both a
-  `:data-schema` AND a manual `register-marks!` keeps both) truly
-  ORDER-INDEPENDENT: the `reg-event` registration's bare-meta
-  `register-marks!` REPLACES the `:event` entry (clearing any manual machine
-  marks), but it cannot drop the schema marks because they are not stored
-  there — and a manual `register-marks!` called AFTER `reg-machine` likewise
-  cannot clobber them. The prior bridge (rf2-w46fpt) re-unioned manual marks
-  CAPTURED before `reg-event` ran, which only held for manual-before; the
-  separate-table read-time union removes that asymmetry, so no `prior-marks`
-  capture is needed.
-
-  Per rf2-fm1cpl this is PUBLIC because the spawn path
-  (`lifecycle-fx.spawn/spawn-fx`) re-runs the bridge keyed under the SPAWNED
-  INSTANCE id. A spawned actor's `:rf.machine/transition` /
-  `:rf.machine/snapshot-updated` trace carries `:actor-id` = the instance id
-  (`<type>#<n>` or the explicit `:fixed-actor-id`), NOT the type id — and
-  `re-frame.marks/project-machine-tags` resolves redaction marks via
-  `(marks-for :event <actor-id>)`. The type's `:data-schema` marks key under
-  the TYPE id, so without a per-instance bridge a spawned actor's `:sensitive?`
-  `:data` slot would egress RAW (the type-id lookup never fires for an
-  instance-id trace). Re-running this fn under the instance id at spawn time
-  keys the same schema-derived marks under the id the trace actually carries,
-  covering BOTH registered-type (`:machine-id`) and inline (`:definition`)
-  spawns uniformly via the resolved spec's `:data-schema`. The matching
-  destroy/finalize/frame-teardown lifecycle clears the per-instance entry via
-  `:marks/clear-machine-schema-marks!` (rf2-egvm4t).
-
-  Late-bound on optional seams, so the bridge degrades cleanly:
-    - `:schemas/extract-sensitive-paths-from-schema` /
-      `:schemas/extract-large-paths-from-schema` — absent when the schemas
-      artefact is not on the classpath (a machine with a `:data-schema` but no
-      schemas artefact validates nothing AND marks nothing — symmetric).
-    - `:marks/declare-machine-schema-marks!` — absent when the marks artefact
-      (core's `re-frame.marks`) is somehow unloaded; in the canonical build it
-      is always present.
-
-  Per Spec 009 §Production builds the whole bridge rides `interop/debug-enabled?`
-  — the egress surface it feeds (`project-machine-tags`) is itself gated, so
-  populating the marks table in a production build would be dead work. Returns
-  nil."
-  [machine-id machine]
-  (when interop/debug-enabled?
-    (let [schema    (:data-schema machine)
-          extract-s (when schema (late-bind/get-fn :schemas/extract-sensitive-paths-from-schema))
-          extract-l (when schema (late-bind/get-fn :schemas/extract-large-paths-from-schema))
-          declare!  (late-bind/get-fn :marks/declare-machine-schema-marks!)
-          ;; Schema-sourced slots, snapshot-rooted under [:data …].
-          schema-s  (when extract-s (root-paths-under-data (extract-s schema [])))
-          schema-l  (when extract-l (root-paths-under-data (extract-l schema [])))]
-      (when declare!
-        (let [marks (cond-> {}
-                      (seq schema-s) (assoc :sensitive (vec schema-s))
-                      (seq schema-l) (assoc :large     (vec schema-l)))]
-          ;; nil clears the entry (re-registration with no marked slot, or a
-          ;; schema-less re-registration over a previously-marked id); a
-          ;; non-empty marks map records the schema-sourced set.
-          (declare! machine-id (when (seq marks) marks))))))
-  nil)
+;; EP-0025 makes frame-declared `:sensitive` / `:large {:app-db …}` paths
+;; (`reg-frame`, EP-0015) the SOLE app-db data-classification mechanism and
+;; KILLS the schema-field classification axis. A machine that needs a durable
+;; `:data` slot redacted at egress now declares it on the frame (the snapshot
+;; lives in the frame's runtime-db partition); the `:data-schema` is for
+;; validation only. The spawn-time / restore-time per-instance bridge and the
+;; destroy-time clear (rf2-fm1cpl / rf2-egvm4t) are removed with it.
 
 ;; ---- the single registration home (rf2-genufr) ----------------------------
 
 (defn- register-machine-event!
   "THE single home for registering a machine as an event handler. Per
-  rf2-genufr it is the one place that runs BOTH `:data-schema` side-effects:
-
-    1. the `:rf/machine?` / `:rf/machine` registration-metadata stamp (so the
-       `:where :machine-data` walker resolves the `:data-schema` through
-       `(machine-meta id)`); and
-    2. `register-data-schema-marks!` (EP-0005 — bridges the schema's
-       `:sensitive?` / `:large?` per-slot markers into snapshot-egress
-       redaction).
+  rf2-genufr it stamps the `:rf/machine?` / `:rf/machine` registration metadata
+  so the `:where :machine-data` post-commit walker resolves the `:data-schema`
+  through `(machine-meta id)` (without the stamp the schema validates nothing).
 
   `reg-machine*` (both arities) routes through here, so the bare
-  `(reg-event id meta (make-machine-handler spec))` direct path — which ran
-  NEITHER side-effect and so left a `:data-schema` inert AND a privacy leak — is
-  no longer needed (and `make-machine-handler` now fails loud when handed a
-  `:data-schema`-bearing spec outside this home; see its guard).
+  `(reg-event id meta (make-machine-handler spec))` direct path — which does
+  not stamp the meta and so would leave a `:data-schema` inert — is no longer
+  needed (and `make-machine-handler` fails loud when handed a `:data-schema`-
+  bearing spec outside this home; see its guard).
 
   `opts` is an optional registration-metadata map (rf2-wgmipl). Its `:schema`
   key (when present) is the `:where :event` boundary validator for the
@@ -1058,9 +971,11 @@
   `:rf/machine?` / `:rf/machine` keys are stamped here and MUST NOT appear in
   `opts`.
 
-  Per rf2-qpibk0 the schema marks are recorded in a SEPARATE table that
-  `marks-for :event machine-id` unions with the author-sourced `:event` entry
-  at read time — so the schema-vs-manual composition is order-independent."
+  EP-0025 (rf2-398kql): the home formerly ran a SECOND `:data-schema` side-
+  effect — `register-data-schema-marks!`, the schema→marks redaction bridge.
+  That bridge is REMOVED; schema-field classification is killed in favour of
+  frame-declared `:sensitive` / `:large {:app-db …}` paths as the sole app-db
+  mechanism. The home now runs only the validation-stamp."
   [machine-id machine opts]
   (when (or (contains? opts :rf/machine?) (contains? opts :rf/machine))
     (error/throw-error!
@@ -1089,15 +1004,12 @@
                           :rf/machine? true
                           :rf/machine  machine)]
     (events/reg-event machine-id meta handler-fn)
-    ;; EP-0005 — bridge the `:data-schema`'s per-slot `:sensitive?` / `:large?`
-    ;; markers into snapshot-egress redaction. Per rf2-qpibk0 the schema marks
-    ;; are recorded in a SEPARATE table that `marks-for :event machine-id`
-    ;; unions with the author-sourced `:event` entry at read time — so the
-    ;; schema-vs-manual composition is order-independent regardless of whether
-    ;; a manual `register-marks!` ran before OR after `reg-machine` (no
-    ;; prior-marks capture needed; `reg-event`'s bare-meta `register-marks!`
-    ;; can no longer clobber the schema set).
-    (register-data-schema-marks! machine-id machine)
+    ;; EP-0025 (rf2-398kql): the `:data-schema`→marks redaction bridge is GONE.
+    ;; The `:data-schema` still VALIDATES `:data` (via the `:where :machine-data`
+    ;; post-commit walker, resolved through the `:rf/machine` meta stamped above),
+    ;; but its per-slot `:sensitive?` / `:large?` props no longer classify the
+    ;; machine's durable `:data` for trace / SSR egress — frame-declared
+    ;; `:sensitive` / `:large {:app-db …}` paths are the sole app-db mechanism.
     ;; Per EP-0017 slice-B.9 (rf2-mjmxgb) — the dev-only consumer-attachment
     ;; lints (consume-without-declaring + ambient-durable). Run here in the
     ;; home (with the machine-id known) over a locally-indexed copy so the
@@ -1168,11 +1080,10 @@
   [spec]
   (let [machine    (parallel/install-region-cache spec)
         ;; rf2-genufr — this materialisation seam stamps the `:rf/machine?` /
-        ;; `:rf/machine` meta below AND its caller (`resolve-actor-handler-meta`)
-        ;; re-runs the `register-data-schema-marks!` bridge for the instance, so
-        ;; it is a legitimate `make-machine-handler` home for a
-        ;; `:data-schema`-bearing spec — bind the flag so the fail-loud guard
-        ;; passes.
+        ;; `:rf/machine` meta below, so it is a legitimate `make-machine-handler`
+        ;; home for a `:data-schema`-bearing spec — bind the flag so the
+        ;; fail-loud guard passes. (EP-0025, rf2-398kql: the per-instance
+        ;; schema→marks bridge its caller once re-ran is gone.)
         handler-fn (binding [*in-registration-home?* true]
                      (make-machine-handler machine))]
     (events/event-handler-meta {:rf/machine? true :rf/machine machine}
@@ -1207,19 +1118,12 @@
   EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
   the live snapshot is read off the frame's runtime-db partition.
 
-  Per rf2-egvm4t this is ALSO the restore/replay REHYDRATION seam for a
-  spawned actor's per-instance `:data-schema` marks. The destroy / finalize /
-  frame-teardown lifecycle clears those marks (so a destroyed actor leaves no
-  marks residue), and `restore-epoch!` (since EP-0001) reverts the WHOLE
-  frame-state — both partitions — so it brings the runtime-db snapshot back
-  but does NOT re-run the spawn bridge that originally declared the marks. The
-  first dispatch to a
-  restored (or replayed) actor hits THIS cold path (no registered handler),
-  so re-running the bridge here under `actor-id` rehydrates the marks from the
-  restored snapshot's resolved spec (`:data-schema`) in lock-step with the
-  snapshot's reappearance. Idempotent (re-declaring is a plain table assoc)
-  and order-independent (rf2-qpibk0). A spec carrying no marked `:data-schema`
-  slot declares nothing — symmetric with `reg-machine`."
+  EP-0025 (rf2-398kql): this seam formerly ALSO re-ran the per-instance
+  `:data-schema`→marks bridge (rf2-egvm4t) to rehydrate a restored / replayed
+  actor's schema-derived snapshot-egress marks. That bridge is REMOVED —
+  schema-field classification is killed in favour of frame-declared paths — so
+  there are no per-instance schema marks to rehydrate here; the seam now only
+  materialises the handler-meta from the restored snapshot's spec."
   [event frame-id]
   (let [actor-id   (first event)
         ;; EP-0002 — `frame-id` is the cascade-threaded envelope frame the
@@ -1231,7 +1135,4 @@
         snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
         spec       (when snapshot (resolver/spec-from-snapshot snapshot))]
     (when spec
-      ;; rf2-egvm4t — rehydrate the per-instance schema marks the prior
-      ;; destroy cleared, from the restored snapshot's spec.
-      (register-data-schema-marks! actor-id spec)
       (handler-meta-for spec))))
