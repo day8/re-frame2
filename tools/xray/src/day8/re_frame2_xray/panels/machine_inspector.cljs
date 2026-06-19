@@ -185,19 +185,20 @@
 (defn- redact-snapshot
   "Redact one live machine snapshot `{:state :data …}` for `machine-id`
   through the snapshot-egress chokepoint. Wraps the snapshot as a
-  synthetic `:rf.machine/snapshot-updated` trace event and runs
-  `marks/project-trace-event`, which calls `project-machine-tags` to
-  redact `:snapshot.data` against the machine's `:event`-keyed marks
-  (the `:data-schema` `:sensitive?` / `:large?` slots the EP-0005 bridge
-  unioned in at `reg-machine`). A schemaless / unmarked machine has no
-  marks entry, so the chokepoint returns the snapshot reference
-  unchanged. Returns the redacted snapshot (or the input verbatim when
-  it is not a map, or when redaction is unavailable)."
-  [machine-id snapshot]
+  synthetic `:rf.machine/snapshot-updated` trace event — stamped with the
+  TARGET `frame-id` — and runs `marks/project-trace-event`, which calls
+  `project-machine-tags` to redact `:snapshot.data` against the FRAME's
+  declared snapshot-path classification (EP-0025, rf2-398kql — frame-owned;
+  `reg-frame` `:sensitive` / `:large {:app-db [[:rf.runtime/machines
+  :snapshots <id> :data …]]}`). A frame that declares no matching `:data`
+  path leaves the snapshot unchanged. Returns the redacted snapshot (or the
+  input verbatim when it is not a map, or when redaction is unavailable)."
+  [frame-id machine-id snapshot]
   (if-not (map? snapshot)
     snapshot
     (let [ev  {:operation :rf.machine/snapshot-updated
                :tags      {:machine-id machine-id
+                           :frame      frame-id
                            :snapshot   snapshot}}
           out (try (marks/project-trace-event ev)
                    (catch :default _ ev))]
@@ -205,13 +206,14 @@
 
 (defn- redact-live-snapshots
   "Redact a `{machine-id snapshot}` map of LIVE snapshots, per-slot, so a
-  `:sensitive?` / `:large?` `:data-schema` slot is `:rf/redacted` / size-
-  marked before any panel surface reads it. nil-safe; preserves nil
-  snapshot values (uninitialised machines)."
-  [snapshots]
+  FRAME-declared sensitive / large `:data` path is `:rf/redacted` / size-
+  marked before any panel surface reads it (EP-0025). `frame-id` is the
+  inspected (target) frame whose declarations classify the snapshot paths.
+  nil-safe; preserves nil snapshot values (uninitialised machines)."
+  [frame-id snapshots]
   (when (map? snapshots)
     (reduce-kv (fn [acc machine-id snapshot]
-                 (assoc acc machine-id (redact-snapshot machine-id snapshot)))
+                 (assoc acc machine-id (redact-snapshot frame-id machine-id snapshot)))
                {}
                snapshots)))
 
@@ -681,12 +683,14 @@
 
 (defn- machine-snapshots-value
   "The egress-redacted live snapshots map off the target frame's
-  runtime-db (`[:rf.runtime/machines :snapshots]`)."
-  [target-runtime-db]
+  runtime-db (`[:rf.runtime/machines :snapshots]`). `target-frame-id` is the
+  inspected frame whose declarations classify the snapshot `:data` paths
+  (EP-0025 — frame-owned redaction)."
+  [target-frame-id target-runtime-db]
   (when (map? target-runtime-db)
     (let [snapshots (get-in target-runtime-db
                             [:rf.runtime/machines :snapshots] {})]
-      (redact-live-snapshots snapshots))))
+      (redact-live-snapshots target-frame-id snapshots))))
 
 (defn- machine-definitions-value
   "The `{machine-id meta}` definition map for `machines` — each machine's spec
@@ -758,16 +762,18 @@
   ;; `:current-state-override` `:data`, after-rings, sim) would see RAW
   ;; `:data`. So each live snapshot is routed through the SAME
   ;; `project-trace-event` chokepoint as a synthetic
-  ;; `:rf.machine/snapshot-updated` event: a `:sensitive?` `:data-schema`
-  ;; slot lands as `:rf/redacted`, a `:large?` slot as the size marker,
-  ;; the plain siblings ride verbatim — exactly the trace-path treatment.
-  ;; A schemaless / unmarked machine registers no marks, so its snapshot
-  ;; passes through untouched (reference-preserving fast path inside
-  ;; `project-machine-tags`).
+  ;; `:rf.machine/snapshot-updated` event STAMPED with the target frame:
+  ;; a FRAME-declared sensitive `:data` path lands as `:rf/redacted`, a
+  ;; large one as the size marker, the plain siblings ride verbatim —
+  ;; exactly the trace-path treatment (EP-0025, rf2-398kql — durable machine
+  ;; `:data` classification is frame-owned). A frame declaring no matching
+  ;; `:data` path leaves the snapshot untouched (reference-preserving fast
+  ;; path inside `project-machine-tags`).
   (rf/reg-sub :rf.xray/machine-snapshots
+    :<- [:rf.xray/target-frame]
     :<- [:rf.xray/target-frame-runtime-db]
-    (fn [target-runtime-db _query]
-      (machine-snapshots-value target-runtime-db)))
+    (fn [[target-frame-id target-runtime-db] _query]
+      (machine-snapshots-value target-frame-id target-runtime-db)))
 
   ;; The registered-machine-definition map for every machine. The
   ;; machine-snapshots / machine-definitions test-only override seams
