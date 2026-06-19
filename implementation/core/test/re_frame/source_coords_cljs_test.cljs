@@ -213,3 +213,44 @@
       ;; from an empty segment) so the round trip still recovers it
       (is (= {:ns "?" :handler-id "bare" :line 1 :col 2}
              (round-trip :bare {:line 1 :column 2}))))))
+
+;; ---- parse-view-id (rf2-ztxnm8 / rf2-16znzb) --------------------------------
+;;
+;; The canonical inverse of `format-view-id`, collapsing the reader that was
+;; reimplemented inline in Xray's fallback view-walker and the re-frame2-pair
+;; preload runtime's `view-entity`. These tests pin the read contract (Spec 006
+;; §View tagging contract §Attribute value format) and the round-trip against
+;; the REAL `re-frame.adapter.context/format-view-id` so the format + parse pair
+;; can never drift apart — the data-rf-view analogue of the parse-source-coord
+;; round-trip above.
+
+(deftest parse-view-id-namespaced-keyword
+  (testing "rf2-ztxnm8: a stringified namespaced keyword parses back to the keyword"
+    (is (= :rf.foo/bar (source-coords/parse-view-id ":rf.foo/bar")))))
+
+(deftest parse-view-id-bare-keyword
+  (testing "rf2-ztxnm8: a leading-colon body with no slash → unqualified keyword"
+    (is (= :bare (source-coords/parse-view-id ":bare")))))
+
+(deftest parse-view-id-raw-string
+  (testing "rf2-ztxnm8: a non-colon-prefixed value is a non-keyword id, returned verbatim"
+    (is (= "raw-string" (source-coords/parse-view-id "raw-string")))))
+
+(deftest parse-view-id-nil-and-non-string
+  (testing "rf2-ztxnm8: nil / non-string input returns nil and never throws"
+    (is (nil? (source-coords/parse-view-id nil)))
+    (is (nil? (source-coords/parse-view-id 42)))
+    (is (nil? (source-coords/parse-view-id :keyword)))))
+
+(deftest format-view-id-then-parse-round-trips
+  (testing "rf2-ztxnm8: (parse-view-id (format-view-id id)) recovers the registry id"
+    (let [round-trip (fn [id]
+                       (source-coords/parse-view-id
+                         (adapter-context/format-view-id id)))]
+      ;; namespaced keyword id
+      (is (= :rf.foo/bar (round-trip :rf.foo/bar)))
+      ;; unqualified keyword id (legal at the registrar)
+      (is (= :bare (round-trip :bare)))
+      ;; dotted ns + hyphenated name
+      (is (= :my-app.cart.view/apply-coupon-button
+             (round-trip :my-app.cart.view/apply-coupon-button))))))

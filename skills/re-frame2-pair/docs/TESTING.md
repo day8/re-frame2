@@ -18,6 +18,7 @@ for run instructions.
 parser logic:
 
 - `parse_rf2_coord_test.clj` — `parse-rf2-coord`
+- `parse_view_id_test.clj` — `parse-view-id` (`data-rf-view` reader)
 - `app_db_reset_test.clj` — `app-db-reset!` failure-mode envelopes
 - `multi_frame_test.clj` — operating-frame resolution
 - `preload_sentinel_test.clj` — session-sentinel shape

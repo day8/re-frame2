@@ -176,6 +176,64 @@
              :line       (parse-coord-int line-part)
              :col        (parse-coord-int col-part)}))))))
 
+;; ---- data-rf-view attribute parser (rf2-ztxnm8 / rf2-16znzb) ---------------
+;;
+;; The inverse of `re-frame.adapter.context/format-view-id` (re-exported as
+;; `re-frame.views/format-view-id` / `re-frame.substrate.spine/format-view-id`).
+;; The formatter renders a registry id keyword into the `data-rf-view` DOM-
+;; attribute value via `(str id)` — `:rf.foo/bar` → `":rf.foo/bar"`; this parser
+;; recovers the id from that string. It lives HERE — beside `parse-source-coord`,
+;; in the source-coord contract owner (Spec 006 §View tagging contract /
+;; §Source-coord annotation) — because the read rule used to live ONLY in
+;; `format-view-id`'s docstring + Spec 006 prose and was re-implemented inline by
+;; every consumer (the Xray fallback view-walker and the re-frame2-pair preload
+;; runtime's `view-entity`). Co-locating format + parse keeps the round-trip a
+;; single source of truth (rf2-ztxnm8 collapses those re-derivations — the
+;; data-rf-view analogue of the `parse-source-coord` work in rf2-nr7vf2).
+;;
+;; Tool-Pair.md declares the attribute value opaque to consumers and warns
+;; downstream callers MUST NOT depend on the parsed shape's stability across
+;; re-frame2 versions. Canonicalising the parser in the contract owner ties the
+;; format and its inverse to the same version boundary.
+
+(defn parse-view-id
+  "Parse a `data-rf-view` attribute value back into the registry id. The
+  inverse of `re-frame.adapter.context/format-view-id` (re-exported as
+  `re-frame.views/format-view-id` / `re-frame.substrate.spine/format-view-id`),
+  which renders the id via `(str id)`.
+
+      \":rf.foo/bar\"  → :rf.foo/bar         ;; namespaced keyword id
+      \":bare\"        → :bare               ;; unqualified keyword id
+      \"raw-string\"   → \"raw-string\"      ;; non-keyword id (unusual)
+
+  A leading `:` marks a stringified keyword: the body is split on the first
+  `/` to recover namespace / name; a body with no `/` becomes an unqualified
+  keyword. Any other (non-colon-prefixed) string is a non-keyword id and is
+  returned verbatim. Returns nil for nil / non-string input; never throws.
+
+  Per Spec 006 §View tagging contract §Attribute value format and
+  Spec-Schemas §`:rf/view-id-attr`.
+
+  Tool-Pair.md declares the attribute value opaque to consumers; this parser
+  exists so tooling's DOM → registry-id bridge can be useful, but downstream
+  callers MUST NOT depend on the parsed shape's stability across re-frame2
+  versions."
+  [attr-val]
+  (cond
+    (or (nil? attr-val) (not (string? attr-val)))
+    nil
+
+    ;; Leading colon → keyword. Splits on the first `/` to recover ns/name.
+    (and (pos? (count attr-val)) (= ":" (subs attr-val 0 1)))
+    (let [body  (subs attr-val 1)
+          slash (str/index-of body "/")]
+      (if (nil? slash)
+        (keyword body)
+        (keyword (subs body 0 slash) (subs body (inc slash)))))
+
+    :else
+    attr-val))
+
 ;; ---- co-located per-element machine source (rf2-npvsx) -------------------
 ;;
 ;; The registered machine spec carries ONE cohesive map per guard / action /

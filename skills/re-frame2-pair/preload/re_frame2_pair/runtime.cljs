@@ -3188,6 +3188,20 @@
    across re-frame2 versions)."
   source-coords/parse-source-coord)
 
+(def ^:private parse-view-id
+  "Parse re-frame2's `data-rf-view` attribute into the registry id keyword
+   (or the raw string for a non-keyword id), or nil.
+
+   Alias of the canonical `re-frame.source-coords/parse-view-id` (the source-
+   coord contract owner) — the inverse of `format-view-id`. This reader used to
+   be reimplemented inline in `view-entity` here and in Xray's fallback view-
+   walker; rf2-ztxnm8 collapsed both onto the one canonical impl in core (the
+   data-rf-view analogue of rf2-nr7vf2's `parse-source-coord` work). See that fn
+   for the value format (Spec 006 §View tagging contract §Attribute value
+   format) and the Tool-Pair opacity caveat (downstream callers MUST NOT depend
+   on the parsed shape's stability across re-frame2 versions)."
+  source-coords/parse-view-id)
+
 (defn- parse-rc-src
   "Parse re-com's `data-rc-src` attribute into {:file :line :column}.
    Expected shapes: 'app/cart.cljs:42', 'app/cart.cljs:42:8'."
@@ -3656,17 +3670,11 @@
   (if (nil? view-root)
     {:view-id nil :reason :no-tagged-view-root}
     (let [attr     (.getAttribute view-root "data-rf-view")
-          ;; Reuse the same parse the fallback view-walker uses
-          ;; (Spec 006): leading-colon → keyword, else raw string.
-          view-id  (cond
-                     (or (nil? attr) (not (string? attr))) nil
-                     (and (pos? (count attr)) (= ":" (subs attr 0 1)))
-                     (let [body  (subs attr 1)
-                           slash (.indexOf body "/")]
-                       (if (neg? slash)
-                         (keyword body)
-                         (keyword (subs body 0 slash) (subs body (inc slash)))))
-                     :else attr)
+          ;; The canonical `data-rf-view` reader (the inverse of
+          ;; `format-view-id`): leading-colon → keyword, else raw string
+          ;; (Spec 006 §View tagging contract). Same parse the fallback
+          ;; view-walker uses — both now alias core's `parse-view-id`.
+          view-id  (parse-view-id attr)
           ;; Source-coord: the attribute carries <ns>:<sym>:<line>:<col>;
           ;; handler-meta augments with :file (the four-segment attr can't
           ;; carry an absolute path — Tool-Pair §Where the DOM-to-source
