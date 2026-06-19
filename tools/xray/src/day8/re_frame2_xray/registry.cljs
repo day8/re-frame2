@@ -980,16 +980,12 @@
     ;; Read-only: assembling the graph pins nothing, dispatches nothing.
     (derivation-graph/install!)
     ;; Module-view tab (EP-0013 disposition 6, rf2-wtg9z4) — Dynamic L4
-    ;; tab: the (realm, frame) address space of the running process
-    ;; (`re-frame.realm/realm-ids` × `re-frame.frame/frame-realm`, the EP-0013
-    ;; disposition-3 address halves, read off the internal substrate —
-    ;; EP-0023 retained-internal, pl97nd.2). The disposition-6 demand-trigger
-    ;; surface
-    ;; for per-module ownership/capability/classification/provenance —
-    ;; the MODULES section is scaffolded behind the awaiting-seam caption
-    ;; until the public realm→installed-app provenance read seam
-    ;; graduates (follow-up bead). Read-only: enumerating realms/frames
-    ;; pins nothing, dispatches nothing.
+    ;; tab: the per-module ownership/capability/provenance read off the default
+    ;; realm's installed app value (`re-frame.realm/installed-app`, the internal
+    ;; substrate — EP-0023 retained-internal, pl97nd.2). The disposition-6
+    ;; demand-trigger surface. The (realm, frame) address-space view was removed
+    ;; under rf2-70owfr (afdlyr single-default-realm collapse). Read-only:
+    ;; reading the installed app value pins nothing, dispatches nothing.
     (module-view/install!)
     ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
