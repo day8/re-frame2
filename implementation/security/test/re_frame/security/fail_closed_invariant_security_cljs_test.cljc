@@ -35,11 +35,15 @@
       (w3qgc#2 + rf2-3bv8o.)
 
     - SSR HYDRATION payload (`ssr.hydrate/hydrate-event-handler`): a
-      deserialised, untrusted payload that is not a map — or whose app-db
-      slice is present-but-not-a-map — MUST be REJECTED (the existing
-      client app-db left unchanged + a `:rf.error/malformed-hydration-payload`
-      diagnostic), NEVER installed as the whole app-db under the locked
-      `:replace-app-db` policy. (rf2-gro94, the new boundary of the class.)
+      deserialised, untrusted payload that is not a map — or whose
+      `:rf/app-db` OR `:rf/runtime-db` slice is present-but-not-a-map —
+      MUST be REJECTED (the existing client frame-state left unchanged + a
+      `:rf.error/malformed-hydration-payload` diagnostic), NEVER installed
+      as the whole partition under the locked `:replace-frame-state`
+      policy. EP-0001 (rf2-vzld77 / rf2-g00l2t) made `:rf/runtime-db` an
+      equally load-bearing frame-state slice; the corpus exercises BOTH
+      partitions so a regression dropping either branch trips this gate
+      (rf2-gro94, rf2-kzhcv3).
 
   This namespace fails RED if ANY boundary coerces a malformed / untrusted
   input to success. A new boundary that forgets to fail closed (or an
@@ -314,7 +318,19 @@
 
 (def ^:private malformed-hydration-payloads
   "Untrusted hydration payloads that MUST be rejected. A non-map payload,
-  or a map whose app-db slice is present-but-not-a-map."
+  a map whose `:rf/app-db` slice is present-but-not-a-map, OR a map whose
+  `:rf/runtime-db` slice is present-but-not-a-map.
+
+  EP-0001 (rf2-vzld77 / rf2-g00l2t) made `:rf/runtime-db` an equally
+  load-bearing frame-state slice: the production guard
+  (`re-frame.ssr.hydrate/malformed-hydration-payload!`) fails closed when
+  EITHER partition slice is present-but-non-map. The cross-surface
+  security corpus must therefore exercise BOTH partitions, else a
+  regression that drops the `:rf/runtime-db` branch from the production
+  guard would slip past this fail-closed invariant (rf2-kzhcv3). The
+  malformed-runtime-db cases are paired with a VALID `:rf/app-db` so the
+  invariant proves the WHOLE payload is rejected (app-db left unchanged),
+  not partially installed."
   [nil
    "a string payload"
    42
@@ -322,10 +338,25 @@
    :keyword
    ["a" "vector"]
    #{:a :set}
+   ;; --- present-but-non-map :rf/app-db slice ---
    {:rf/app-db "not-a-map"}      ;; slice present but a string
    {:rf/app-db 42}               ;; slice present but a number
    {:rf/app-db [:not :a :map]}   ;; slice present but a vector
-   {:rf/app-db true}])           ;; slice present but a boolean
+   {:rf/app-db true}             ;; slice present but a boolean
+   ;; --- present-but-non-map :rf/runtime-db slice (rf2-kzhcv3) ---
+   ;;     each paired with a VALID app-db slice, so the only thing that
+   ;;     can fail the payload is the malformed runtime-db — proving the
+   ;;     whole payload is rejected rather than installing the good
+   ;;     app-db and dropping the bad runtime-db.
+   {:rf/app-db {:ok 1} :rf/runtime-db "not-a-map"}    ;; runtime-db a string
+   {:rf/app-db {:ok 1} :rf/runtime-db 42}             ;; runtime-db a number
+   {:rf/app-db {:ok 1} :rf/runtime-db [:not :a :map]} ;; runtime-db a vector
+   {:rf/app-db {:ok 1} :rf/runtime-db true}           ;; runtime-db a boolean
+   {:rf/app-db {:ok 1} :rf/runtime-db false}          ;; runtime-db false
+   ;; runtime-db malformed even with NO app-db slice (no-server-app-db
+   ;; fallback shape) must still reject — runtime-db alone is load-bearing.
+   {:rf/runtime-db "not-a-map"}
+   {:rf/runtime-db [:not :a :map]}])
 
 (deftest malformed-hydration-payload-never-installs
   (testing "rf2-gro94 — a malformed / untrusted hydration payload is
@@ -377,6 +408,58 @@
       (is (= existing-db (:db result)))
       (is (zero? (count (ops traces :rf.error/malformed-hydration-payload)))))))
 
+;; ---- coherent-frame-state: malformed runtime-db leaves BOTH partitions ----
+
+(def ^:private existing-runtime-db
+  {:rf.runtime/ssr {:hydration {:version 7}}
+   :client/runtime-seeded true})
+
+(defn- hydrate-with-runtime
+  "Like `hydrate-with`, but ALSO seeds an existing `:rf.db/runtime`
+  coeffect so a rejection's effect on the runtime-db partition is
+  observable. Returns `{:result <handler-return> :traces <vec>}`."
+  [payload]
+  (let [out (atom nil)
+        traces (capture
+                 #(reset! out (hydrate/hydrate-event-handler
+                                {:db            existing-db
+                                 :rf.db/runtime existing-runtime-db
+                                 :rf.frame/id   :rf/default}
+                                [:rf/hydrate payload])))]
+    {:result @out :traces traces}))
+
+(deftest malformed-runtime-db-leaves-both-partitions-unchanged
+  (testing "rf2-kzhcv3 — coherent-frame-state contract: a payload whose
+            :rf/runtime-db slice is present-but-non-map (even alongside a
+            VALID :rf/app-db slice) is rejected as a WHOLE — the existing
+            app-db (:db) AND the existing runtime-db (:rf.db/runtime) are
+            both left unchanged, the diagnostic fires, and the good app-db
+            slice is NOT partially installed. Mirrors the SSR-artefact
+            pin (re_frame/ssr_hydration_test.clj) at the cross-surface
+            security boundary."
+    (doseq [payload [{:rf/app-db {:would-install 1} :rf/runtime-db "not-a-map"}
+                     {:rf/app-db {:would-install 1} :rf/runtime-db [:bad]}
+                     {:rf/app-db {:would-install 1} :rf/runtime-db 42}
+                     {:rf/runtime-db "not-a-map"}]]
+      (let [{:keys [result traces]} (hydrate-with-runtime payload)]
+        (is (= existing-db (:db result))
+            (str "payload " (pr-str payload)
+                 " must leave app-db unchanged (the good app-db slice must"
+                 " NOT be partially installed), got " (pr-str (:db result))))
+        ;; A rejection returns {:db db} — no :rf.db/runtime effect — so the
+        ;; runtime-db partition rides through unchanged (the effect is
+        ;; absent, leaving the seeded runtime-db in place).
+        (is (nil? (:rf.db/runtime result))
+            (str "payload " (pr-str payload)
+                 " must emit NO :rf.db/runtime effect (runtime-db partition"
+                 " left unchanged), got " (pr-str (:rf.db/runtime result))))
+        (is (pos? (count (ops traces :rf.error/malformed-hydration-payload)))
+            (str "payload " (pr-str payload)
+                 " must emit :rf.error/malformed-hydration-payload"))
+        (is (or (nil? (:fx result)) (empty? (:fx result)))
+            (str "payload " (pr-str payload)
+                 " must fire no compatibility-check fxs"))))))
+
 ;; ---- property: non-map payloads + non-map slices always fail closed -------
 
 (def ^:private gen-non-map
@@ -385,25 +468,38 @@
     (gen/gen-int -100 100)))
 
 (deftest non-map-hydration-inputs-always-fail-closed
-  (testing "rf2-gro94 — property: a non-map payload, OR a map carrying a
-            non-map app-db slice, is ALWAYS rejected — app-db unchanged +
+  (testing "rf2-gro94 / rf2-kzhcv3 — property: a non-map payload, OR a map
+            carrying a non-map :rf/app-db slice, OR a map carrying a non-map
+            :rf/runtime-db slice, is ALWAYS rejected — app-db unchanged +
             the diagnostic fires. One installed-garbage case = one
-            fail-open."
+            fail-open. Both load-bearing partition slices (:rf/app-db AND
+            :rf/runtime-db, per EP-0001) are exercised."
     (let [result
           (gen/for-all
             gen-non-map 200 23
             (fn [bad]
               (let [;; (i) the whole payload is the non-map `bad`
                     p1 (hydrate-with bad)
-                    ;; (ii) a map payload whose app-db slice is `bad`
+                    ;; (ii) a map payload whose :rf/app-db slice is `bad`
                     ;;      (skip the maps — a map slice is the valid case)
                     p2 (when-not (map? bad)
-                         (hydrate-with {:rf/app-db bad}))]
+                         (hydrate-with {:rf/app-db bad}))
+                    ;; (iii) a map payload carrying a VALID :rf/app-db but a
+                    ;;       non-map :rf/runtime-db slice — must reject the
+                    ;;       WHOLE payload (app-db left unchanged), not
+                    ;;       partially install the good app-db (rf2-kzhcv3).
+                    p3 (when-not (map? bad)
+                         (hydrate-with {:rf/app-db {:ok 1} :rf/runtime-db bad}))
+                    failed-closed?
+                    (fn [p]
+                      (or (nil? p)
+                          (and (= existing-db (:db (:result p)))
+                               (pos? (count (ops (:traces p)
+                                                 :rf.error/malformed-hydration-payload))))))]
                 (and (= existing-db (:db (:result p1)))
                      (pos? (count (ops (:traces p1) :rf.error/malformed-hydration-payload)))
-                     (or (nil? p2)
-                         (and (= existing-db (:db (:result p2)))
-                              (pos? (count (ops (:traces p2) :rf.error/malformed-hydration-payload)))))))))]
+                     (failed-closed? p2)
+                     (failed-closed? p3)))))]
       (is (nil? result)
           (str "a malformed hydration input was not failed closed: "
                (pr-str (when result (dissoc result :threw))))))))
