@@ -1,6 +1,6 @@
 # Operations catalogue
 
-The op vocabulary the skill operates through. Every op runs over the **MCP transport** (the only transport this skill exposes) — see [`mcp-transport.md`](mcp-transport.md). The MCP form is shown in the Invocation column. The bash shims under `scripts/` are retired from the skill's tool surface; their shell counterparts are catalogued in the [Bash-shim appendix](#bash-shim-appendix-not-reachable-from-this-skill) for the project's own e2e harness only.
+The op vocabulary the skill operates through. Every op runs over the **MCP transport** (the only transport this skill exposes) — see [`mcp-transport.md`](mcp-transport.md). The MCP form is shown in the Invocation column.
 
 Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `eval-cljs {form: "<runtime call>"}`. Dedicated MCP tools (`orient`, `dispatch`, `dispatch-dry-run`, `snapshot`, `get-path`, `read-sub`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, `trace-window`, `watch-epochs`, `tail-build`, `subscribe`, `unsubscribe`, the operating-frame trio, the time-travel writes) cover the broader concerns.
 
@@ -19,7 +19,6 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 - [Signal recording + blocking waits](#signal-recording--blocking-waits)
 - [Hot-reload coordination](#hot-reload-coordination)
 - [Time-travel (epoch restore)](#time-travel-epoch-restore)
-- [Bash-shim appendix (not reachable from this skill)](#bash-shim-appendix-not-reachable-from-this-skill)
 - [Dropped from v1 (re-frame-pair) — surfaces with no v2 equivalent](#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent)
 
 ## Read
@@ -171,7 +170,7 @@ Two modes — `subscribe` (push) and `watch-epochs` (poll) — over the same und
 
 **Pull-mode poll (fallback).** The `watch-epochs` MCP tool is poll-only: each call returns the matching epochs that landed *after* `since-id`. To live-watch, call it repeatedly, passing the previous response's `:head-id` as the next `since-id`. Use this when the agent host doesn't surface `notifications/progress` to the model, or when you want a finite, controlled drain rather than a push stream.
 
-The tool's accepted args (`:additionalProperties false` — anything else is rejected): `since-id`, `pred`, `frame`, `limit`, `cursor`, `epochs-mode`, `dedup`, `include-sensitive`, `build`. There is **no** `window-ms`/`count`/`stream`/`stop` arg — those are bash-shim flags only (see the bash-shim appendix).
+The tool's accepted args (`:additionalProperties false` — anything else is rejected): `since-id`, `pred`, `frame`, `limit`, `cursor`, `epochs-mode`, `dedup`, `include-sensitive`, `build`. There is **no** `window-ms`/`count`/`stream`/`stop` arg — the MCP `watch-epochs` tool is poll-only (`since-id`/`cursor`); "run for N matches" / "stream until disconnect" are loops the agent runs, not tool args.
 
 | Op | Invocation | Behaviour |
 |---|---|---|
@@ -262,30 +261,6 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.
 
 **Caveat (always tell the user before restoring):** restore rewinds durable **frame-state** — both the app-db and runtime-db partitions (so machine snapshots, the route slice, and elision declarations *are* rewound too). What it does **not** undo: side effects that already fired (HTTP requests sent, navigation pushed, localStorage written, `:dispatch-later` already landed) and transient host state outside the durable partitions (in-flight HTTP handles, trace rings).
-
-## Bash-shim appendix (not reachable from this skill)
-
-The bash shims under `scripts/` are **retired from this skill's tool surface** — the `allowed-tools:` frontmatter carries no shell tool, so you cannot run them. They remain on disk only for the project's own e2e test harness and ad-hoc shell use outside the skill. Every op above is an MCP tool. This appendix documents the legacy mapping for the harness only; do not reach for it as a "fallback transport".
-
-For the harness, each MCP tool has a behavioural shell counterpart. Note the watch shim carries flags (`--window-ms`, `--count`, `--stream`, `--stop`) that have **no MCP equivalent** — the MCP `watch-epochs` tool is poll-only (`since-id`/`cursor`); those flags exist on the shim alone.
-
-| MCP tool | Shell counterpart (harness only) |
-|---|---|
-| `eval-cljs {form: "..."}` | `scripts/eval-cljs.sh '<form>'` |
-| `dispatch {event: "[:foo]"}` | `scripts/dispatch.sh '[:foo]'` |
-| `dispatch {event: "...", sync: true}` | `scripts/dispatch.sh '...' --sync` |
-| `dispatch {event: "...", frame: ":foo"}` | `scripts/dispatch.sh '...' --frame :foo` |
-| `dispatch {event: "...", trace: true}` | `scripts/dispatch.sh '...' --trace` |
-| `dispatch {event: "...", fx-overrides: {...}}` | `scripts/dispatch.sh '...' --fx-override :http=:stub-http` |
-| `trace-window {ms: N}` | `scripts/trace-window.sh N` |
-| `watch-epochs {pred: {...}, since-id: "..."}` (poll loop) | `scripts/watch-epochs.sh --window-ms ... --event-id-prefix ...` (shim-only `--window-ms`/`--count`/`--stream`/`--stop` modes) |
-| `tail-build {wait-ms: ..., probe: "..."}` | `scripts/tail-build.sh --wait-ms ... --probe '...'` |
-| `discover-app {}` | `scripts/discover-app.sh` |
-| `snapshot {...}` | _MCP-only_ (no shell counterpart; chain individual `eval-cljs.sh` calls for `snapshot`-style mega-reads) |
-| `get-path {path: "..."}` | _MCP-only_ (use `eval-cljs.sh '(re-frame2-pair.runtime/app-db-at [...])'` for a coarse equivalent) |
-| `subscribe` / `unsubscribe` | _MCP-only_ (push-mode requires `notifications/progress`; the shim approximates pull-mode with `scripts/watch-epochs.sh --stream`) |
-
-For full transport mechanics and the `:app-db` slice modes that only the MCP `snapshot` tool exposes, see [`mcp-transport.md`](mcp-transport.md).
 
 ## Dropped from v1 (re-frame-pair) — surfaces with no v2 equivalent
 
