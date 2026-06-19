@@ -834,12 +834,32 @@
   "Shared skeleton for the four-mutator precondition family (rf2-c0rv4v).
   `schema-check-fn` is a 0-arity thunk returning the failing schema-path
   vector for the candidate value (or [] for the valid / soft-pass cases);
-  it runs only on the `:else` branch after the frame-registered + drain
-  checks pass, so a frame-miss / in-flight-drain failure short-circuits
-  before any schema walk. Returns `{:outcome :ok}` when all checks pass,
-  otherwise `{:outcome :fail :op <kw> :tags <map>}` matching the
-  precondition-failure shape of `check-restore-preconditions!`. Pure data —
-  no trace events emitted from here; emission is the caller's job."
+  it runs only on the `:else` branch after the frame-registered + drain +
+  history-enabled checks pass, so a frame-miss / in-flight-drain /
+  history-disabled failure short-circuits before any schema walk. Returns
+  `{:outcome :ok}` when all checks pass, otherwise
+  `{:outcome :fail :op <kw> :tags <map>}` matching the precondition-failure
+  shape of `check-restore-preconditions!`. Pure data — no trace events
+  emitted from here; emission is the caller's job.
+
+  Per rf2-unpldn: the four mutators each record a synthetic
+  `:rf.epoch/db-replaced` epoch so that `restore-epoch!` can rewind PAST the
+  injection — their caller's invariant is \"undo works after this call\"
+  (Tool-Pair §Pair-tool writes, the same invariant the artefact-missing
+  wrapper raises to honour at `core-epoch.cljc`). Under
+  `(rf/configure! {:epoch-history {:depth 0}})` the ring buffer is
+  DISABLED by documented design (Tool-Pair §Time-travel — depth 0 retains
+  no history; consume via `register-epoch-listener!`), so the synthetic
+  undo-anchor can never land in the ring and `restore-epoch!` of it would
+  fail `:rf.epoch/restore-unknown-epoch`. A silent `true` return would lie
+  about the undo invariant exactly as a silent no-op would on the
+  artefact-missing path. So a depth-0 injection is REJECTED loudly via the
+  in-artefact failure channel (a structured `:rf.epoch/replace-history-disabled`
+  trace + `false` return), mirroring the artefact-missing throw's intent
+  while using the same precondition-failure mechanism as the sibling
+  `replace-during-drain` / `replace-schema-mismatch` modes. Read paths
+  (`epoch-history` / `register-epoch-listener!`) are unaffected — only the
+  undo-recording WRITE surfaces refuse."
   [frame-id schema-check-fn]
   (let [frame-result (frame-exists-or-fail frame-id)]
     (cond
@@ -853,8 +873,17 @@
        :op      :rf.epoch/replace-during-drain
        :tags    {:frame frame-id}}
 
+      ;; (3) History disabled (depth 0)? The synthetic undo-anchor cannot
+      ;; land in the (disabled) ring, so the undo-works-after invariant is
+      ;; unsatisfiable — reject loudly rather than return a false success
+      ;; (rf2-unpldn).
+      (not (pos? (state/depth)))
+      {:outcome :fail
+       :op      :rf.epoch/replace-history-disabled
+       :tags    {:frame frame-id}}
+
       :else
-      ;; (3) Schema mismatch? The caller's schema walk yields the failing
+      ;; (4) Schema mismatch? The caller's schema walk yields the failing
       ;; paths (or [] for the valid / soft-pass cases).
       (let [failing (schema-check-fn)]
         (if (seq failing)

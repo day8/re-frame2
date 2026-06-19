@@ -318,9 +318,22 @@
 (defn set-last-settled-epoch!
   "Record `epoch-id` as the most-recently-settled epoch for `frame-id`.
   Called from `settle!` after the record lands in the ring so post-settle
-  render emits can be attributed back to this cascade (rf2-qs6dl)."
+  render emits can be attributed back to this cascade (rf2-qs6dl).
+
+  rf2-unpldn (companion): gated on a POSITIVE configured depth. The anchor
+  is the back-fill target the post-settle render / sub-run / unmount readers
+  resolve (`last-settled-epoch-id`); it must only ever name an epoch that is
+  actually retained in the ring. Under `(rf/configure! {:epoch-history
+  {:depth 0}})` the ring is disabled and `record!` appends nothing, so an
+  anchor set here would be a PHANTOM — it would name a non-ring epoch-id and
+  the back-fill splice would resolve a `nil` index (no-op) or, worse, a stale
+  one. Gating here keeps the invariant central across all three callers
+  (`commit-record!`, the synthetic-replace recorder, and `perform-restore!`'s
+  re-anchor): no anchor without a ring record to anchor to. The readers all
+  `when-let` off `last-settled-epoch-id`, so a nil anchor degrades cleanly to
+  no back-fill — correct under depth 0."
   [frame-id epoch-id]
-  (when (and frame-id epoch-id)
+  (when (and frame-id epoch-id (pos? (depth)))
     (swap! last-settled-epoch assoc frame-id epoch-id))
   nil)
 
@@ -675,56 +688,89 @@
   invocation is gone — the split was inlined here, rf2-c0rv4v.) Conjes the
   raw delta element onto a vector (or absent) real slot; a slot already
   collapsed to a non-vector scalar (an unusual shape) is left untouched
-  (the delta is subsumed). The record index is resolved once up-front
-  (within-frame drain is single-threaded — Spec 002 §Run-to-completion — so
-  no append can shift it between this deref and the swap). nil when the
-  epoch is absent from the ring (evicted, or fired before any cascade
-  settled)."
+  (the delta is subsumed).
+
+  rf2-qh13yf — SNAPSHOT CONSISTENCY. The index AND the spliced record are
+  resolved from ONE `@histories` value, INSIDE the `swap!` update fn, which
+  re-derives the index from the CAS-retried map on every attempt. The prior
+  code resolved the index against one `@histories` deref (`history-for`),
+  then read the record off a SECOND deref, then `update-in`'d at the
+  up-front index — three reads of a mutable atom. Its docstring justified
+  the single up-front resolution by 'within-frame drain is single-threaded
+  so no append can shift it', but that premise is FALSE for the back-fill:
+  it fires at React COMMIT / DEREF / TEARDOWN time, OUTSIDE any drain (see
+  the §post-settle back-fill design note), so a real cascade `record!` for
+  the SAME frame can append between the two derefs. At ring cap that append
+  EVICTS the front record and shifts every index down by one — the stale
+  up-front `idx` then named (and `update-in` spliced) the WRONG record. By
+  finding the index from the map the `swap!` is actually CAS-committing
+  against (`epoch-index` on the retried frame-vector), the splice always
+  lands on the record whose `:epoch-id` matches, regardless of any
+  interleaved append/eviction. nil when the epoch is absent from the ring
+  (evicted before the splice, or fired before any cascade settled)."
   [frame-id epoch-id slot event row]
-  (let [idx (epoch-index (history-for frame-id) epoch-id)]
-    (when idx
-      (let [record  (get-in @histories [frame-id idx])
-            ;; Was there anything to splice? `:trace-events` is appended only
-            ;; when the record retained its raw stream (keep-window); a
-            ;; non-nil `row` rides the structured `slot`. No delta → the swap
-            ;; is a pass-through (e.g. an unmount on a record whose trace
-            ;; stream was already dropped by the keep-window cap); the
-            ;; sensitivity rollup is NOT touched when there is no delta to
-            ;; carry it, matching the prior `compute-delta` nil short-circuit.
-            append? (contains? record :trace-events)
-            row?    (some? row)
-            delta?  (or append? row?)
-            ;; rf2-j1ec6.1 (Security.md:109 §Sensitive rollup): the record-
-            ;; level `:rf.epoch/sensitive?` rollup MUST consider :trace-events
-            ;; overlap, but `build-record` computes it ONCE at settle time over
-            ;; the SETTLE-TIME events; a post-settle back-fill of a
-            ;; `:sensitive?`-stamped trace event would otherwise leave the
-            ;; rollup stale-false. `privacy/sensitive?` is pure — read it once
-            ;; here (depends only on `event`) so the swap fn OR's it into the
-            ;; rollup fail-CLOSED (mayor-ruled option a). The OR is
-            ;; monotonic/idempotent (only flips false→true, never clears a
-            ;; settle-time true), so it rides safely inside the CAS-retried
-            ;; swap.
-            sens?   (privacy/sensitive? event)
-            splice-slot (fn [rec real-slot dv]
-                          (cond
-                            (vector? (get rec real-slot))
-                            (update rec real-slot conj dv)
+  (let [;; rf2-j1ec6.1 (Security.md:109 §Sensitive rollup): the record-level
+        ;; `:rf.epoch/sensitive?` rollup MUST consider :trace-events overlap,
+        ;; but `build-record` computes it ONCE at settle time over the
+        ;; SETTLE-TIME events; a post-settle back-fill of a `:sensitive?`-
+        ;; stamped trace event would otherwise leave the rollup stale-false.
+        ;; `privacy/sensitive?` is pure and depends only on `event` (not on any
+        ;; @histories snapshot), so it is hoisted out of the swap; the swap fn
+        ;; OR's it into the rollup fail-CLOSED (mayor-ruled option a). The OR is
+        ;; monotonic/idempotent (only flips false→true, never clears a
+        ;; settle-time true), so it rides safely inside the CAS-retried swap.
+        sens?   (privacy/sensitive? event)
+        row?    (some? row)
+        splice-slot (fn [rec real-slot dv]
+                      (cond
+                        (vector? (get rec real-slot))
+                        (update rec real-slot conj dv)
 
-                            (not (contains? rec real-slot))
-                            (assoc rec real-slot [dv])
+                        (not (contains? rec real-slot))
+                        (assoc rec real-slot [dv])
 
-                            :else            ; real slot already a scalar
-                            rec))            ; delta subsumed
-            splice (fn [rec]
-                     (if-not delta?
-                       rec                   ; no delta → pure pass-through
-                       (cond-> rec
-                         append? (splice-slot :trace-events event)
-                         row?    (splice-slot slot row)
-                         sens?   (assoc :rf.epoch/sensitive? true))))]
-        (-> (swap! histories update-in [frame-id idx] splice)
-            (get-in [frame-id idx]))))))
+                        :else            ; real slot already a scalar
+                        rec))            ; delta subsumed
+        ;; rf2-qh13yf: operate on the WHOLE @histories map so the index is
+        ;; re-derived from the SAME (CAS-retried) value the splice rewrites —
+        ;; never against a separate, possibly-shifted deref. When the epoch is
+        ;; no longer in the frame's ring (evicted, or never landed) the map is
+        ;; returned unchanged and the post-swap read-back yields nil.
+        splice-map (fn [m]
+                     (let [history (get m frame-id)
+                           idx     (epoch-index history epoch-id)]
+                       (if (nil? idx)
+                         m
+                         (let [record (nth history idx)
+                               ;; Was there anything to splice? `:trace-events`
+                               ;; is appended only when THIS record retained its
+                               ;; raw stream (keep-window); a non-nil `row` rides
+                               ;; the structured `slot`. No delta → pass-through
+                               ;; (e.g. an unmount on a record whose trace stream
+                               ;; was already dropped by the keep cap); the
+                               ;; sensitivity rollup is NOT touched without a
+                               ;; delta to carry it. `append?` is read off the
+                               ;; RETRIED record so a CAS retry that re-resolves
+                               ;; a different record re-decides correctly.
+                               append? (contains? record :trace-events)
+                               delta?  (or append? row?)]
+                           (if-not delta?
+                             m              ; no delta → pure pass-through
+                             (assoc m frame-id
+                                    (assoc history idx
+                                           (cond-> record
+                                             append? (splice-slot :trace-events event)
+                                             row?    (splice-slot slot row)
+                                             sens?   (assoc :rf.epoch/sensitive? true)))))))))
+        ;; Read the spliced record back from the SAME post-swap value the
+        ;; update committed — re-derive the index there (it may differ from any
+        ;; pre-swap index if an append/eviction interleaved). nil when the
+        ;; epoch was not (or no longer) in the ring.
+        m'      (swap! histories splice-map)
+        history (get m' frame-id)
+        idx'    (epoch-index history epoch-id)]
+    (when idx'
+      (nth history idx'))))
 
 (defn back-fill-render!
   "Back-fill the RAW `render-event` and its projected `:renders`
