@@ -1776,17 +1776,20 @@
                           (icpt-reg/resolve-chain prepended-chain)
                           prepended-chain)
         base-chain      (apply-icpt-overrides resolved-chain icpt-overrides)
-        redaction-paths (privacy/schema-redaction-paths frame base-chain)
-        ;; Per rf2-461sp — user-installed `(rf/redact-interceptor paths)`
-        ;; interceptors expose their paths on the interceptor map so the
-        ;; pre-chain trace projection (`:run-start`, `emit-cascade-
-        ;; trailers`) honours them too. Each user `:before` ALSO runs
-        ;; during chain execution and extends `:rf/redacted-event`
-        ;; in-chain, which is what the schema-redaction interceptor
-        ;; (when also installed) composes with. The union here is the
-        ;; OUT-OF-CHAIN projection used by emit sites that fire BEFORE
-        ;; the chain.
-        user-paths      (privacy/user-redaction-paths base-chain)
+        ;; rf2-ivr38u — fused single-pass collection of the frame-declared
+        ;; sensitive-path overlap (`:schema-paths`) AND the user-installed
+        ;; `(rf/redact-interceptor paths)` paths (`:user-paths`) over the
+        ;; SAME `base-chain`, replacing the prior two independent chain
+        ;; walks. Per rf2-461sp — user-installed redact interceptors expose
+        ;; their paths on the interceptor map so the pre-chain trace
+        ;; projection (`:run-start`, `emit-cascade-trailers`) honours them
+        ;; too. Each user `:before` ALSO runs during chain execution and
+        ;; extends `:rf/redacted-event` in-chain, which is what the schema-
+        ;; redaction interceptor (when also installed) composes with. The
+        ;; union here is the OUT-OF-CHAIN projection used by emit sites that
+        ;; fire BEFORE the chain.
+        {redaction-paths :schema-paths
+         user-paths      :user-paths} (privacy/collect-redaction-paths frame base-chain)
         redacted-chain  (if (seq redaction-paths)
                           (into [(privacy/schema-redaction-interceptor
                                    redaction-paths)]
