@@ -28,10 +28,10 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.registration :as registration]
+            [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -92,9 +92,7 @@
         defn       (:definition args)]
     (cond
       defn        defn
-      machine-id  (let [m (registrar/lookup :event machine-id)]
-                    (when (:rf/machine? m)
-                      (:rf/machine m))))))
+      machine-id  (resolver/spec-from-registry machine-id))))
 
 (defn- unregistered-spawn-type?
   "Per rf2-ywv74m (Mike ruling, 2026-06-15): a `:spawn` / `:spawn-all`

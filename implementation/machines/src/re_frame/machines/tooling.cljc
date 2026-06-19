@@ -108,14 +108,13 @@
 
 (defn- machine-spec
   "The registered machine SPEC for `machine-id` (the value at `:rf/machine`),
-  or nil when no machine is registered under that id. The same registrar read
-  `re-frame.machines/machine-meta` performs — inlined here so this sibling does
-  not require the `re-frame.machines` facade (which requires THIS sibling for
-  its JVM alias, so the dependency must point one way)."
+  or nil when no machine is registered under that id. Delegates to the leaf
+  `resolver/spec-from-registry` — the same registrar read
+  `re-frame.machines/machine-meta` performs (this sibling requires `resolver`
+  directly, NOT the `re-frame.machines` facade, which requires THIS sibling for
+  its JVM alias — the dependency must point one way)."
   [machine-id]
-  (let [m (registrar/lookup :event machine-id)]
-    (when (:rf/machine? m)
-      (:rf/machine m))))
+  (resolver/spec-from-registry machine-id))
 
 (defn- registered-machine-ids
   "Every registered machine-id — every `:event` registration whose metadata
