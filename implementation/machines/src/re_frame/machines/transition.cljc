@@ -2853,7 +2853,28 @@
                       `:rf.machine.history/restored` trace from it."
   [machine snapshot transition transition-phase]
   (let [src-path      (state-path (:state snapshot))
-        decl-path     (:decl-path transition (vec (take 1 src-path)))
+        ;; rf2-h16qii — the transition's DECLARATION path: the absolute path
+        ;; of the state node whose `:on` / `:always` / `:after` table this
+        ;; transition was declared in. It anchors the LCA geometry below —
+        ;; `target-path` resolves a keyword target as a SIBLING at this level
+        ;; (`(conj (drop-last decl-path) target)`), and `:same-state` resolves
+        ;; to `decl-path` itself. Every in-tree caller stamps `:decl-path`
+        ;; (`pick-transition` / the `:always` / `:after` pick sites, then
+        ;; `machine-transition-single` `(assoc :decl-path …)`), so the default
+        ;; is reached ONLY by a pure-fn / hand-built / future caller of the
+        ;; public `apply-transition-once`. The default is ROOT (`[]`): a
+        ;; transition with no declared owning node is, by definition, declared
+        ;; on the machine ROOT — `target-path` then resolves a keyword target
+        ;; to a top-level sibling (`[target]`) and `:same-state` to the root,
+        ;; which is the correct geometry for a root-declared targetless /
+        ;; self transition. The pre-fix default `(take 1 src-path)` GUESSED
+        ;; depth-1 (the first element of the active leaf's path) — wrong for a
+        ;; root-declared transition (its decl-path is `[]`, not `[<top>]`), so
+        ;; the LCA / exit / entry cascade diverged. (A transition declared
+        ;; DEEPER than root without a stamped `:decl-path` is not a reachable
+        ;; in-tree case; the root default is the principled, geometry-correct
+        ;; choice for the only caller that hits it.)
+        decl-path     (:decl-path transition [])
         raw-target    (:target transition)
         ;; `targetless?` is the structural "no `:target` declared" predicate.
         ;; It is NOT the same as the effective `internal?` flag computed
