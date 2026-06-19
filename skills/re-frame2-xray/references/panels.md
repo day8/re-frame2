@@ -319,34 +319,24 @@ Question: **What raw trace events fired during this epoch?**
 
 The underlying stream the Epoch + Views tabs summarise. **Focused-epoch
 scoped** (per §021 §1.2 — no aggregate-across-epochs view), rendered as a
-**single flat oldest-first row list** — the 4-band phase hierarchy /
-envelope is GONE (#2545, because it was hard to scan). Each row
-is six columns: **Δt · stage · area badge · what-happened · target/detail
-· duration**.
+**single flat oldest-first row list**, click-to-expand per row. The row
+anatomy (the six columns, the per-row stage column + colour-coded left edge
+that recover the phase shape, the inline error/warning treatment) is the
+normative subject of **§023 §3 + §3a** — the one detail Xray honours by
+construction is that the stage label + edge colour resolve through the
+Epoch panel's OWN badge taxonomy, so the Trace stage column matches the
+Epoch numbered cascade (one step model). Cite §023 for the column /
+stage / severity detail rather than re-encoding it here.
 
-The phase shape the bands conveyed is recovered flatly per-row by:
+Two USAGE facts the operator needs to route correctly:
 
-- a **stage column** naming the Epoch-panel pipeline step the op belongs
- to — `DISPATCH · COEFFECT · HANDLER · FLOW · SIDE EFFECTS ·
- SUBSCRIPTIONS · VIEWS`; and
-- a **colour-coded left edge** in that stage's colour.
-
-Both the stage label and the edge colour resolve through the Epoch
-panel's OWN badge taxonomy (`panels.epoch.badge`) — **not** a parallel
-palette — so the Trace stage column + edge match the Epoch numbered
-cascade exactly (one step model, DRY). Errors / warnings are
-cross-cutting (§023 §7): the row renders inline at its chronological
-point, its left edge riding the severity colour over the stage colour.
-
-**No filtering UI**: the focused epoch IS the scope, so the
-panel-local chip filters (and clear-filters) are gone — the only
-drill-down is per-row click, which opens the **edn-inspector** on the
-row's raw trace-event map inline. **No film-strip header** —
-the L2 events list owns spine focus navigation.
-
-(Spec 009's `trace-buffer` filter vocabulary — `:op-type`,
-`:dispatch-id`, the tag axes — is real for the *programmatic* API but is
-**not** surfaced as Trace-panel UI.)
+- **No filtering UI** — the focused epoch IS the scope, so the only
+ drill-down is per-row click, which opens the **edn-inspector** on the
+ row's raw trace-event map inline. (Spec 009's `trace-buffer` filter
+ vocabulary — `:op-type`, `:dispatch-id`, the tag axes — is real for the
+ *programmatic* API but is **not** surfaced as Trace-panel UI.)
+- **No film-strip header** — the L2 events list owns spine focus
+ navigation (this tab opts out, see §Panel-by-panel above).
 
 **Open when:** "show me every raw op in this epoch", "is `:rf.fx/*`
 firing as expected?", "what order did these emit in?"
@@ -466,53 +456,41 @@ implementation at
 Question: **Where is my server state — what owns it, and is it stale?**
 (Display label **Resources**, plural-noun convention; internal tab id
 `:resources`.) The Xray surface for re-frame2's declarative server-state
-(Spec 016 §Xray and AI tooling). Sections, top → bottom:
+(Spec 016 §Xray and AI tooling). The sections, top → bottom, name the
+read; the per-section anatomy + the EP-0016 trace-op vocabulary they
+project (`:rf.resource/scope-resolved`, `:rf.mutation/replied`, the
+`:invalidation` facet, `:refetch-populated?`, `:resolved-nil?`, …) is the
+normative subject of **§024** + spec/016 — cite those rather than
+re-encoding the field-by-field detail here:
 
 - **STATIC RESOURCE REGISTRY** — every registered resource + scope,
  stale-after, GC-after, and the routes that activate it.
 - **LIVE INSTANCES** (per frame) — each scoped cache entry with state,
- generation, owner count, and freshness; scope/params summarized.
+ generation, owner count, and freshness.
 - **WORK LEDGER** — live fetch attempts (running · cancellable ·
  deadline); host handles are inaccessible by design.
-- **ROUTE / RESOURCE GRAPH** — blocking activations are the SSR wait
- points; plus the lifecycle timeline (the ordered `:rf.resource/*` rows)
- and cache growth.
-- **SCOPE RESOLUTION TIMELINE** (EP-0016 D3) — the
- `:rf.resource/scope-resolved` rows: which named `reg-resource-scope`
- resolver ran, its declared input names, the resolved scope (summarized —
- a scope carries PII), and the **fail-closed nil evidence**
- (`:resolved-nil?` — the scope-requiring site got nil and produced NO
- global fallback). This is where you read the named scope resolver
- resolution timeline.
+- **ROUTE / RESOURCE GRAPH** — blocking activations (the SSR wait
+ points), the lifecycle timeline, and cache growth.
+- **SCOPE RESOLUTION TIMELINE** (EP-0016 D3) — which named
+ `reg-resource-scope` resolver ran, its inputs, and the resolved scope —
+ including the fail-closed nil evidence (a scope-requiring site that got
+ nil and produced NO global fallback).
 - **MUTATION CONTINUATIONS + SCOPED INVALIDATION** (EP-0016 D1/D2) — the
  surface that makes the doctrine "`:reply-to` is for workflow;
- populate/patch/invalidate are for cache" visible:
- - **`:reply-to` continuation evidence** off the `:rf.mutation/replied`
-   trace (mutation phase 6, after cache consequences + instance
-   settlement) — the mutation id, instance, work id, accepted reply
-   `:status`, and the call-site `:reply-to` event **target**. A row is
-   positive evidence the accepted reply continued into app workflow.
- - **Descriptor-level invalidation evidence** off the mutation settlement
-   op (`:rf.mutation/succeeded` / `:rf.mutation/failed`, the
-   `:invalidation` facet): the descriptor count, each descriptor's
-   **resolved scope** + tags + `:cross-scope?` + `:refetch-populated?`,
-   the **fail-closed `:unresolved`** `{:from-db …}` ids (resolved nil →
-   NO invalidation, never an implicit global blast), and the
-   `:populate-exempt` keys (populated keys spared from this mutation's
-   own refetch). The per-PASS decision summary stays on
-   `:rf.resource/invalidated` (matched / refetched / left-stale).
+ populate/patch/invalidate are for cache" visible: `:reply-to`
+ continuation evidence (did the accepted reply continue into app
+ workflow?) and descriptor-level invalidation evidence (which scopes a
+ write resolved, refetched, or left stale — fail-closed, never an
+ implicit global blast).
 - **SCOPE AUDIT** — every `:rf.scope/global` use + lints.
 
-**The stale/suppressed absence rule.** A `:reply-to` row appears *only*
-for an accepted terminal reply — a **stale or superseded** reply (a
-re-execute under the same instance won, or `[:rf.mutation/clear …]` fired)
-**never** fires the continuation; it surfaces as a `:rf.mutation/stale-suppressed`
-trace instead. The same absence-is-evidence rule holds read-side: a fresh
-read that an `ensure` skips, or an entry the runtime suppresses on a
-superseded reply, shows as `:rf.resource/cache-hit` /
-`:rf.resource/stale-suppressed`, not a fetch. So "my `:reply-to` didn't
-fire" / "my read didn't refetch" is answered by the *presence of the
-suppression op*, not a missing row.
+**The absence-is-evidence rule.** A continuation / refetch that the
+runtime *suppresses* (a stale or superseded reply, an `ensure` that skips
+a fresh read) surfaces as its own suppression op (`:rf.mutation/stale-suppressed`,
+`:rf.resource/cache-hit` / `:rf.resource/stale-suppressed`), not as a
+missing row — so "my `:reply-to` didn't fire" / "my read didn't refetch"
+is answered by the *presence of the suppression op*. (The op names + the
+full settlement facet live in §024.)
 
 **Read-only** — opening this panel pins nothing: it dispatches no
 `:rf.resource/ensure`, attaches no owner, refetches nothing, extends no
@@ -544,57 +522,31 @@ does it live, who owns it?** — across families, in one place. (Display
 label **Graph**; internal tab id `:derivation-graph`.) Xray's UI over the
 **EP-0014 derivation/process algebra graph** and the **named first
 consumer** of EP-0014's structured graph accessor. Every declared fact
-and process in the host app — subscriptions, flows, resources, route
-facts, machine processes + selectors — is a node in **one**
-node-and-edge graph over the frame fold.
+and process in the host app — across **all five contributor families**
+(subscriptions, flows, resources, route facts, machine processes +
+selectors) — is a node in **one** node-and-edge graph over the frame
+fold. (A family with no registrations in the host app contributes no
+nodes — the *per-app* no-machines / no-resources story, not a per-tool
+boundary.)
 
-- **Classification by the two closed superkinds.** Each node is grouped +
- classified by its `:kind` — exactly `:derivation` or `:process` — read
- off `:kind` alone (a tool MUST classify knowing only the two
- superkinds). The refined kinds (`:resource-process`, `:route-fact`,
- `:machine-process`, `:machine-selector`) are the **colour** axis (family
- accent), never the contract; an unknown future refinement still renders
- and classifies off its superkind.
-- **Per-panel static ↔ live toggle** (its OWN toggle, in the panel
- header — distinct from the L1 Dynamic/Static mode pill). **Static**: the
- registration-derived graph for the picked frame's **realm** (the
- registrar is realm-owned, EP-0013 — in a single-realm app that is the
- default realm, so it reads as "what's registered"; a sibling realm has
- its own); a parametric sub shows the `:parametric` marker and contributes
- **no** edge — the **don't-execute rule** (static inspection never invokes
- param/scope functions).
- **Live**: the graph realized in the observed frame — concrete
- subscription query vectors with realized edges, active resource keys,
- live machine instances, the materialized route slice with its nav-token
- owner.
-- **Contributor coverage — all five families.** The panel composes the
- five EP-0014 contributor families — **subscriptions, flows, routes,
- resources, and machines** (machine processes *and* selectors, with
- precise machine→selector edges). Xray statically `:require`s the flows,
- routing, resources, and machines tooling siblings (subs live in core), so
- every family feeds the one graph. A family with **no registrations in the
- host app** contributes no nodes — but that is the *per-app* no-machines /
- no-resources story (the host registered none), not a *per-tool*
- dependency boundary.
-- **Authority is an axis, not a storage class.** Each node carries its
- storage / evaluation / lifecycle (owner) classifications; remote-backed
- nodes (resources) additionally carry an **authority** chip. A resource's
- storage class is still **local** (the frame's runtime-db, like any
- runtime-managed value); *remote* describes its **authority** — where the
- value is sourced/owned upstream — a distinct axis from where it is
- stored. Read the chip as "locally stored, locally read, upstream source
- of truth", never as app-db/runtime-db placement. (The EP-0014 ruled
- split: a remote fact has a local storage class; "remote" is its
- authority.)
-- **On-box raw, off-box redacted.** On-box rendering shows raw value
- summaries (the developer is entitled to their own app's values; previews
- are bounded for ergonomics, not privacy). The off-box egress boundary —
- shipping the graph to a remote agent or a serialized capture — projects
- each node's value-bearing fields through the frame's wire-elision policy
- (per-frame, fail-closed), preserving node + edge structure.
+The classification model (the two closed superkinds `:derivation` /
+`:process` read off `:kind` alone, the refined kinds as the colour axis),
+the per-panel **static ↔ live** toggle semantics (its OWN toggle, distinct
+from the L1 mode pill; the static-side **don't-execute rule**), and the
+off-box egress projection are the normative subject of **spec/Derivations.md
++ EP-0014 + §025** — cite those for the rule detail rather than re-encoding
+it here.
 
-**Read-only** — observing the graph pins nothing, dispatches nothing,
-mutates no host state.
+Two caveats this skill owns (cited from SKILL.md + the Out-of-scope
+section rather than re-paragraphed there):
+
+> **Authority is an axis, not a storage class.** Remote-backed nodes
+> (resources) carry an **authority** chip. A resource's *storage* class is
+> still **local** (the frame's runtime-db, like any runtime-managed value);
+> *remote* describes its **authority** — where the value is sourced/owned
+> upstream — a distinct axis from where it is stored. Read the chip as
+> "locally stored, locally read, upstream source of truth", never as
+> app-db/runtime-db placement (the EP-0014 ruled split).
 
 > **The graph accessor is internal, not a public API.** The Graph tab
 > *consumes* EP-0014's internal `re-frame.derivation.graph` composer — a
@@ -603,6 +555,9 @@ mutates no host state.
 > defers the public name until a third consumer (beyond Xray + the
 > conformance fixtures) needs it. Route users to **open the Graph tab**;
 > do **not** tell them to call a public graph API from app code.
+
+**Read-only** — observing the graph pins nothing, dispatches nothing,
+mutates no host state; on-box raw, off-box redacted.
 
 **Open when:** "where does this value come from?", "show me the whole
 derivation graph", "what's the dependency graph for this page?", "is this
