@@ -719,6 +719,106 @@
     (is (some? (get (frame/frame-runtime-db-value :rf/default) :rf.runtime/elision))
         "the :rf.runtime/elision subsystem child coexists with :rf.runtime/routing post-commit")))
 
+(deftest drain-time-propagated-mark-survives-same-event-runtime-effect
+  ;; rf2-upx16k — the PRIVACY FAIL-OPEN the gom797 test above misses.
+  ;;
+  ;; gom797 (`runtime-db-whole-value-effect-preserves-flow-elision-declarations`)
+  ;; marks the input BEFORE dispatch, so the propagated output declaration is
+  ;; already in the LIVE registry — and, crucially, also in the chain-start
+  ;; `runtime-before` snapshot the router captured by reference. Reconciling the
+  ;; runtime effect against THAT snapshot still carries the declaration forward,
+  ;; so the bug stays hidden.
+  ;;
+  ;; This test exercises the missed path: the propagated output mark
+  ;; MATERIALISES ONLY AT THE DRAIN-TIME TOPO REFRESH (the input is marked AFTER
+  ;; reg-flow, so it is absent at reg-flow time — the
+  ;; `propagation-fires-when-mark-added-AFTER-reg-flow` scenario). The refresh
+  ;; writes the new `[:derived]` declaration into the LIVE runtime-db
+  ;; `[:rf.runtime/elision]` slot DURING the `:after` chain — AFTER the router
+  ;; captured `runtime-before` (the pre-handler coeffect, injected by reference
+  ;; at chain start, whose elision slot is PRE-refresh). When the SAME event's
+  ;; handler ALSO returns a `:rf.db/runtime` effect SILENT about elision,
+  ;; reconciling against the stale `runtime-before` carries the PRE-refresh
+  ;; (mark-less) registry forward and the commit OVERWRITES the just-written
+  ;; `[:derived]` declaration — so the flow-derived sensitive output egresses
+  ;; RAW on the same event's db egress (and would stay raw until the next drain
+  ;; re-propagates). The fix reconciles against the LIVE runtime-db read at
+  ;; commit, so the freshly-propagated mark survives. Framework-authority
+  ;; handlers return runtime effects routinely (routing / machines), so this is
+  ;; not exotic.
+  (testing "a flow output mark freshly propagated at the drain-time refresh
+            SURVIVES a same-event `:rf.db/runtime` effect commit — the derived
+            slot does NOT egress raw (privacy mark is not overwritten by the
+            stale chain-start runtime-before snapshot)"
+    ;; Framework-authority handler: seeds app-db (so the flow's input value is
+    ;; present and the flow recomputes) AND returns a whole-value
+    ;; `:rf.db/runtime` effect SILENT about elision (seeds only
+    ;; :rf.runtime/routing — the routine framework-authority shape).
+    (reg-fw-runtime-handler! :seed-both
+      (fn [{:keys [db]} _]
+        {:db (merge db {:secret-in "S"})
+         :rf.db/runtime {:rf.runtime/routing {:current {:page :home}}}}))
+    (rf/reg-flow {:id     :derive
+                  :inputs [[:secret-in]]
+                  :output (fn [s] {:copy s})
+                  :path   [:derived]})
+    ;; Mark the input AFTER reg-flow — so the propagated [:derived] output
+    ;; declaration is ABSENT at reg-flow time and materialises ONLY at the
+    ;; drain-time topo refresh (the chain-start runtime-before snapshot's
+    ;; elision slot will NOT carry it).
+    (marks/add-marks :rf/default {[:secret-in] :sensitive})
+    (is (not (contains? (sensitive-decls :rf/default) [:derived]))
+        "the propagated output mark is ABSENT before the drain (input marked after reg-flow)")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed-both])
+    ;; POST-COMMIT: the propagated declaration must survive the same-event
+    ;; runtime-effect commit (this is the assertion that fails fail-open).
+    (is (contains? (sensitive-decls :rf/default) [:derived])
+        "the drain-propagated [:derived] declaration SURVIVES the same-event runtime-db commit")
+    ;; The runtime effect actually committed (the routing seed landed) AND the
+    ;; elision sub-tree coexists with it post-commit.
+    (is (= :home
+           (get-in (frame/frame-runtime-db-value :rf/default)
+                   [:rf.runtime/routing :current :page]))
+        "the framework-authority runtime-db effect committed durably")
+    (is (some? (get (frame/frame-runtime-db-value :rf/default) :rf.runtime/elision))
+        "the :rf.runtime/elision subsystem child coexists with :rf.runtime/routing post-commit")
+    ;; THE LOAD-BEARING PRIVACY ASSERTION (the channel the bug leaks on):
+    ;; egress the COMMITTED app-db through the wire-walker, which reads the
+    ;; COMMITTED runtime-db `[:rf.runtime/elision]` registry (`registry-of` →
+    ;; the live container). This is the db-diff / view / sub egress channel.
+    ;; Pre-fix the commit overwrote the freshly-propagated [:derived] mark
+    ;; (reconciled against the stale chain-start runtime-before snapshot), so
+    ;; the derived slot egressed RAW here. Post-fix the mark survives the
+    ;; commit, so the slot redacts. (The t2/computed-result trace assertions
+    ;; below project DURING the chain against the post-refresh LIVE registry, so
+    ;; they redact in BOTH the buggy and fixed cases — they do NOT distinguish
+    ;; the bug; this committed-registry egress is the one that does.)
+    (let [committed-db (frame/frame-app-db-value :rf/default)
+          egressed     (binding [frame/*current-frame* :rf/default]
+                         (elision/elide-wire-value committed-db {:frame :rf/default}))]
+      (is (= privacy/redacted-sentinel (get-in egressed [:derived]))
+          "the flow-derived sensitive output is REDACTED on egress against the
+           COMMITTED elision registry — the freshly-propagated mark was not
+           clobbered by the commit's stale runtime-before reconcile (privacy
+           fail-open closed). This is the db-diff / view / sub channel the leak
+           rode pre-fix.")
+      (is (= "S" (get-in committed-db [:secret-in]))
+          "the marked INPUT value did commit to app-db (sanity: the flow had a
+           value to derive from)"))
+    ;; The same-event t2 pending-db snapshot is also redacted (consistency —
+    ;; this projects against the post-refresh live registry during the chain).
+    (let [t2 (last (filterv #(= :rf.event/db-pending-post-flow (:operation %))
+                            @*captured*))
+          stamped (-> t2 :tags :rf.event/db)]
+      (is (some? t2) "a post-flow pending-db (t2) trace fired")
+      (is (= privacy/redacted-sentinel (get-in stamped [:derived]))
+          "the flow-derived sensitive output is redacted on the same-event t2 snapshot"))
+    ;; And the per-flow :rf.flow/computed :result is redacted too (the mark
+    ;; reaches the flow trace, not just the db snapshot).
+    (is (= privacy/redacted-sentinel (computed-result :derive))
+        "the :rf.flow/computed :result is redacted (the propagated mark holds)")))
+
 (deftest propagation-flow-dag-upstream-to-downstream
   (testing "flow→flow DAG propagation: flow B reading flow A's sensitive
             output :path inherits A's propagated mark. The topo-ordered drain

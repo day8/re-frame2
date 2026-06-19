@@ -1215,9 +1215,30 @@
             ;; effect value against the pre-commit runtime-db so the registry
             ;; survives unless the effect speaks about it explicitly (a
             ;; full-frame install / deliberate clear is honoured verbatim).
+            ;;
+            ;; rf2-upx16k (privacy fail-open): reconcile against the LIVE
+            ;; runtime-db read AT COMMIT, NOT the chain-start `runtime-before`
+            ;; snapshot. The flow drain's `refresh-flow-output-declarations!`
+            ;; writes propagated output-sensitivity marks straight into the
+            ;; LIVE runtime-db `[:rf.runtime/elision]` slot DURING the `:after`
+            ;; chain (after `runtime-before` was captured by reference in
+            ;; `assemble-initial-ctx`). When the handler ALSO returns a
+            ;; `:rf.db/runtime` effect, reconciling against the STALE snapshot
+            ;; carries the PRE-refresh registry forward and the commit overwrites
+            ;; the just-written mark — so a flow-derived sensitive path egresses
+            ;; RAW for one commit (until the next drain re-propagates). Reading
+            ;; the live runtime-db here picks up the refreshed marks: the
+            ;; registry the reconcile preserves is the freshest one, not the
+            ;; one captured before the drain ran. (The whole-frame-install /
+            ;; deliberate-clear path is unaffected — an effect that carries
+            ;; `:rf.runtime/elision` is still honoured verbatim.) `runtime-before`
+            ;; remains the rollback target below — rollback must restore the
+            ;; PRE-handler state, so it correctly stays the chain-start snapshot.
+            live-runtime-db (when rt-effect?
+                              (frame/frame-runtime-db-value frame))
             new-runtime-db (when rt-effect?
                              (elision/reconcile-runtime-db-effect
-                               (:rf.db/runtime effects) runtime-before))
+                               (:rf.db/runtime effects) live-runtime-db))
             ;; Map the EFFECT keys (:db / :rf.db/runtime) to the frame-state
             ;; PARTITION keys (:rf.db/app / :rf.db/runtime). `:db` scopes to
             ;; the app-db partition; `:rf.db/runtime` to runtime-db. A
