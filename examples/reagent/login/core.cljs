@@ -363,8 +363,14 @@
                                      :action :lock-account}]}}
 
       :error-shown
+      ;; Direct retry from :error-shown re-enters :submitting and must clear the
+      ;; prior `:error` first — otherwise the obsolete failure message stays
+      ;; visible (the view renders `:auth.login/error` whenever non-nil) as if it
+      ;; still applied to the request now in flight. Same `:clear-error` action
+      ;; as the :idle entry transition.
       {:on {:auth.login/dismiss {:target :idle}
-            :auth.login/submit  {:target :submitting}}}
+            :auth.login/submit  {:target :submitting
+                                 :action :clear-error}}}
 
       :authed
       ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
