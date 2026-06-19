@@ -107,22 +107,6 @@
       (is (empty? (unknown-opt-warnings recorded))
           ":frame is a recognised opt — no warning"))))
 
-(deftest no-warning-for-realm-opt
-  (testing "EP-0013 step 4 (rf2-a15n62): a realm-routed `{:realm r :frame f}`
-            dispatch — the shipped public envelope — emits no unknown-opt
-            warning; `:realm` is a recognised opt build-envelope honours"
-    (rf/reg-frame :game {:doc "non-default frame target"})
-    (rf/reg-event :game/tick {:frame :game} (fn [{:keys [db]} _] {:db db}))
-    (let [recorded (record-traces! ::realm)]
-      ;; `:rf.realm/default` keeps the dispatch on the default realm (so the
-      ;; default-seated `:game` frame resolves and the dispatch completes),
-      ;; while exercising the `:realm` opts key through build-envelope's
-      ;; known-opts check — the path the conformance test drives live with a
-      ;; constructed non-default realm (`{:realm :live/a :frame :live/f}`).
-      (rf/dispatch-sync [:game/tick] {:realm :rf.realm/default :frame :game})
-      (is (empty? (unknown-opt-warnings recorded))
-          ":realm + :frame are both recognised opts — no warning"))))
-
 (deftest no-warning-for-source-and-origin-opts
   (testing "the full known set is accepted without warning"
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
@@ -161,11 +145,10 @@
     ;; EP-0017 §6 / slice-B.8 per-call cofx mint policy (rf2-5spzo7) —
     ;; build-envelope reads it and threads it through to the satisfaction
     ;; step's mint-policy resolution, so it belongs in the honoured set.
-    ;; `:realm` is the EP-0013 step 4 (rf2-a15n62) realm-routing opt —
-    ;; build-envelope reads it off the opts map to resolve `realm-id` and
-    ;; stamps the non-default result onto the envelope as `:rf.realm/id`, so
-    ;; the PUBLIC opts spelling `:realm` belongs in the honoured set.
+    ;; (The `:realm` opt was removed under the realm-substrate collapse —
+    ;; rf2-9w37t2 / rf2-afdlyr — every dispatch is the single default realm,
+    ;; so build-envelope no longer reads a realm dimension.)
     (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
              :source-detail :origin :rf.cofx :rf.cofx/mint-policy
-             :rf.trace/call-site :rf.machine/internal? :realm}
+             :rf.trace/call-site :rf.machine/internal?}
            diag/known-dispatch-opts))))

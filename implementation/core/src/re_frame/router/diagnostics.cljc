@@ -129,18 +129,10 @@
                             config's policy, else the router's `:live` default
                             (rf2-5spzo7)
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
-    :rf.machine/internal?   machine-internal continuation flag (front-queue)
-    :realm                  EP-0013 step 4 (rf2-a15n62) realm-routing opt —
-                            the REALM half of the carried (realm, frame)
-                            address (a realm map or id). `build-envelope`
-                            reads it to resolve `realm-id` and stamps the
-                            non-default result onto the envelope as the
-                            SEPARATE `:rf.realm/id` fact. `:realm` is the
-                            PUBLIC opts spelling; `:rf.realm/id` is the carried
-                            envelope key, never a caller-supplied opt."
+    :rf.machine/internal?   machine-internal continuation flag (front-queue)"
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
-    :rf.machine/internal? :realm})
+    :rf.machine/internal?})
 
 (defn reject-retired-dispatch-opts!
   "Throw `:rf.error/dispatched-at-retired` when a `dispatch` /

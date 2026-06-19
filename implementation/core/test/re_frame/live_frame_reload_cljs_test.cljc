@@ -487,76 +487,13 @@
         (finally
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
 
-;; ---- the NON-DEFAULT-REALM leg (rf2-vnduo9) -------------------------------
-;;
-;; The reprojection flush runs on `interop/next-tick` (`deferred-flush!`), by
-;; which point the router's per-drain `*current-realm*` binding has UNWOUND to
-;; nil. `reproject-live-frame!`'s reads + `set-generation!` swap all re-key the
-;; registry via `(frame-key *current-realm* id)`. So a NON-default-realm
-;; image-loaded frame — keyed by its `[realm-id frame-id]` address — would be
-;; ENUMERATED by the old bare-`:id` `image-loaded-frame-ids`, but every
-;; subsequent per-frame re-key under nil `*current-realm*` would MISS its address
-;; → silent no-op → its generation stays STALE. The fix has
-;; `reproject-live-frames!` enumerate `image-loaded-frame-addresses` (carrying
-;; each frame's own `:realm`, read off the record) and bind `*current-realm*` per
-;; frame via `call-with-realm` so each re-key resolves the frame's OWN address.
-;;
-;; Not reachable via the public `make-frame` (default-realm-only per EP-0024);
-;; reachable via the internal substrate, which binds `*current-realm*` around a
-;; frame's creation when seating it into a realm (`seat-into-realm!`). This test
-;; mirrors that by binding `frame/*current-realm*` ONLY around creation + the
-;; read-backs, and running `reproject-live-frames!` with `*current-realm*` nil —
-;; exactly the next-tick-flush condition where the latent bug bites.
-
-(deftest reproject-swaps-a-non-default-realm-image-loaded-frame
-  (testing "reproject-live-frames! swaps a NON-default-realm image-loaded frame's
-            generation even though the flush runs with *current-realm* nil
-            (rf2-vnduo9): the frame is enumerated WITH its realm and re-keyed
-            under it, so the source-store change is actually picked up rather than
-            silently no-op'd against a bare-id miss."
-    (let [snapshot @source-store/kind->id->ns->descriptor
-          realm-id :rf.realm/vnduo9-test]
-      (try
-        (source-store/record-descriptor!
-          :event :nd/inc
-          {:rf.provenance/ns "nd.feature" :kind :event :id :nd/inc
-           :handler-fn ::nd-original})
-        (let [img (image/image {:id :nd/img :include-ns ["nd.feature"]})
-              ;; Create the image-loaded frame UNDER a non-default realm — the
-              ;; record is keyed `[realm-id :nd/main]` and stamped `:realm realm-id`
-              ;; (the internal seat-into-realm! shape). `make-frame` runs
-              ;; `reg-frame` which reads `*current-realm*` for the key + stamp.
-              _ (binding [frame/*current-realm* realm-id]
-                  (lf/make-frame {:id :nd/main :images [img]}))]
-          (testing "the frame is image-loaded under its non-default realm address"
-            (binding [frame/*current-realm* realm-id]
-              (is (= ::nd-original
-                     (:handler-fn (asm/resolve-descriptor
-                                    (frame/frame-generation :nd/main)
-                                    :event :nd/inc))))))
-          (testing "the bare-id (default-realm) lookup MISSES it — it is genuinely
-                    non-default-realm, so a realm-unaware flush would no-op"
-            (is (nil? (frame/frame-generation :nd/main))))
-          ;; Hot reload the selected source slot (new impl, same (kind,id,ns)).
-          (source-store/record-descriptor!
-            :event :nd/inc
-            {:rf.provenance/ns "nd.feature" :kind :event :id :nd/inc
-             :handler-fn ::nd-reloaded})
-          ;; THE FAILING PATH: reproject with *current-realm* nil (the next-tick
-          ;; flush condition). Pre-fix this returns {} (the non-default-realm frame
-          ;; is enumerated but its per-frame re-key misses → stale generation).
-          (let [moved (lf/reproject-live-frames!)]
-            (testing "reproject reports the non-default-realm frame as moved"
-              (is (contains? moved :nd/main))
-              (is (contains? (:changed (get moved :nd/main)) [:event :nd/inc])))
-            (testing "its generation actually swapped to the reloaded impl (not stale)"
-              (binding [frame/*current-realm* realm-id]
-                (is (= ::nd-reloaded
-                       (:handler-fn (asm/resolve-descriptor
-                                      (frame/frame-generation :nd/main)
-                                      :event :nd/inc))))))))
-        (finally
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+;; The NON-DEFAULT-REALM reproject leg (rf2-vnduo9) was RETIRED under the
+;; realm-substrate collapse (rf2-9w37t2 / rf2-afdlyr): every frame lives in the
+;; single default realm, so `reproject-live-frames!` enumerates the realm-free
+;; `image-loaded-frame-ids` and no per-frame `*current-realm*` re-key is needed.
+;; The default-realm reproject behaviour is covered by the explicit/composed
+;; reproject tests above (source-store-change-reprojects-an-explicit-image-frame,
+;; reproject-composed-frame-on-one-member-ns-change, …).
 
 ;; ===========================================================================
 ;; 9. AUTO-reprojection: a `reg-*` change reprojects the affected explicit-image
