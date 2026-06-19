@@ -12,7 +12,8 @@
   `shell/shell-view` now takes a `:frame-id` opt (default
   `defaults/default-frame-id` = `:rf/xray`). The `chrome-shell` wrapper
   (`panel_views.cljs`) is `reg-view*`-registered, so its render runs
-  under the Story per-variant `frame-provider` and `(rf/current-frame-id)`
+  under the Story per-variant frame scope (the namespace-preserving
+  `frame-provider-existing` twin) and `(rf/current-frame-id)`
   resolves to the variant frame the canvas allocated for THIS cell. We
   thread that frame into `[shell/shell-view {:frame-id …}]`, so each
   chrome cell's app-db (focused epoch, selected tab, theme, modal

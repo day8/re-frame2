@@ -99,7 +99,7 @@
 
 (deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
   (testing "rf2-crhr8 + rf2-5gl5r — mount-epoch-panel! installs
-            handlers, wraps epoch-panel/Panel in `[rf/frame-provider
+            handlers, wraps epoch-panel/Panel in `[rf/frame-provider-existing
             {:frame :rf/xray} [Panel]]`, delegates to substrate-
             adapter/render, and returns the adapter's unmount fn.
             (Replaces the prior mount-event-detail! coverage; the
@@ -192,9 +192,10 @@
 
 (deftest mount-shell-renders-shell-view-without-extra-wrapper
   (testing "rf2-crhr8 — mount-shell! delegates the full 4-layer shell.
-            The shell-view itself owns its `frame-provider` (per the
-            shell docstring) so the mount fn renders [shell-view {:mode
-            :inline}] directly — no outer wrapper."
+            The shell-view itself installs its own scope provider
+            (`frame-provider-existing`, per the shell docstring) so the
+            mount fn renders [shell-view {:mode :inline}] directly — no
+            outer wrapper."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [substrate-adapter/render render-stub]
         (panels/mount-shell! :mount-point)
@@ -204,11 +205,11 @@
           (is (= :inline (:mode (second tree))))
           ;; The shell mounts via a reg-view-registered view; the
           ;; captured render-tree's first element is that view fn (not
-          ;; a frame-provider — the shell owns its own provider).
+          ;; a provider — the shell installs its own scope provider).
           (is (not= rf/frame-provider (first tree))
               "mount-shell! does NOT add an outer frame-provider — the
-               shell-view contains its own per spec/007 §The 4-layer
-               chrome"))))))
+               shell-view contains its own scope provider per spec/007
+               §The 4-layer chrome"))))))
 
 (deftest mount-shell-supports-mode-opt
   (let [[capture _ render-stub] (make-render-stub)]

@@ -567,7 +567,8 @@
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register the single, plain host frame, scope the boot
-  ;; dispatch, and wrap the render in a `frame-provider` (carried invariant).
+  ;; dispatch, and wrap the render in a `frame-provider-existing` (the
+  ;; frame is already created by `reg-frame`; carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:edn-inspector/reset]))

@@ -834,7 +834,8 @@
   ;; run-step event. The runner cursor lives in app-db `:step`.
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register the host frame, scope the boot dispatch, and wrap
-  ;; the render in a `frame-provider` (the carried invariant).
+  ;; the render in a `frame-provider-existing` (scope-only — the host
+  ;; frame is already `reg-frame`'d; the carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:standard-epochs/reset]))

@@ -338,9 +338,11 @@
 
      Per /spec/007-Stories.md §Relationship with frames + tools/story
      feature-set §4.2: each variant cell wraps the rendered view in a
-     `frame-provider` scoped to the variant id, so the view's
-     subscribe / dispatch (resolved via React context at render time)
-     target the per-variant frame the runtime allocated. Without the
+     `frame-provider-existing`-style scope (the namespace-preserving
+     `canvas/frame-provider-ns-safe`) on the variant id — the frame is
+     already allocated by the runtime — so the view's subscribe /
+     dispatch (resolved via React context at render time) target the
+     per-variant frame the runtime allocated. Without the
      wrap, subscriptions run under no carried frame and fail with
      `:rf.error/no-frame-context` (EP-0002). Before EP-0002, this same
      gap fell through to `:rf/default`, which is why the four counter
@@ -393,11 +395,13 @@
               ;; React-context default at the workspace's mount site,
               ;; and the variant body's :counter/initialise dispatches
               ;; (which DID route to the variant's frame) become
-              ;; invisible to the view. Plain `rf/frame-provider` goes
-              ;; through Reagent's `:>` interop which calls `(name kw)`
-              ;; on prop values and drops the namespace before React
-              ;; sees it; `canvas/frame-provider-ns-safe` bypasses that
-              ;; via a direct `React.createElement` call.
+              ;; invisible to the view. Plain
+              ;; `rf/frame-provider-existing` (scope-only — the frame is
+              ;; already allocated) goes through Reagent's `:>` interop
+              ;; which calls `(name kw)` on prop values and drops the
+              ;; namespace before React sees it;
+              ;; `canvas/frame-provider-ns-safe` bypasses that via a
+              ;; direct `React.createElement` call.
               ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
               ;; the immediate wrapper around the decorated view (same
               ;; reason as canvas.cljs) so the a11y panel can scope

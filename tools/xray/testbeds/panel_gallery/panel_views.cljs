@@ -42,9 +42,10 @@
   Story per-variant frame into `[shell/shell-view {:frame-id …}]`, so
   the shell's app-db lives in the VARIANT frame — N chrome cells in one
   workspace are fully isolated and each variant's `:events` seed THAT
-  frame directly. (Pre rf2-1w07r the shell hardcoded `[frame-provider
-  {:frame :rf/xray}]`, so every cell's reads collided on the one global
-  `:rf/xray` app-db regardless of the variant frame.)
+  frame directly. (Pre rf2-1w07r the shell hardcoded a scope-only
+  `[frame-provider-existing {:frame :rf/xray}]`, so every cell's reads
+  collided on the one global `:rf/xray` app-db regardless of the
+  variant frame.)
 
   ## Facade-mount discipline (rf2-043uz)
 
