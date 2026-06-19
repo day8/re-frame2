@@ -285,6 +285,20 @@
                include-digests? (assoc :digest (sha256-hex v)))]
     {:rf.size/large-elided body}))
 
+(defn- marker-opts
+  "The `->marker` option map for a declared-`:large` node — derived from the
+  matched `large-decl` (its `:hint` / `:source`) and the walk `ctx` (its
+  `:as-of-epoch` / `:include-digests?`). Single source for the BYTE-IDENTICAL
+  4-key option map the path-based walker (`walk`) and the value-match large
+  collector (`collect-large-markers!`) each pass to `->marker` (rf2-4p0bxp).
+  Both call sites carry the same `:as-of-epoch` / `:include-digests?` keys on
+  their respective `ctx`, so the marker is identical whichever arm emits it."
+  [large-decl ctx]
+  {:hint             (:hint large-decl)
+   :reason           (:source large-decl)
+   :as-of-epoch      (:as-of-epoch ctx)
+   :include-digests? (:include-digests? ctx)})
+
 (defn- warn-large-unschema'd!
   [frame-id path bytes]
   (when interop/debug-enabled?
@@ -453,6 +467,31 @@
             (transient #{})
             decl-paths)))
 
+(defn- reduce-indexed-forks
+  "Descend a POSITIONAL container `coll` (a vector OR a seq), tracking an
+  integer element index `i` from 0 and forking the candidate
+  declaration-coordinate set through that index via `fork-index-paths`. For
+  each element this threads an accumulator by calling
+  `(step acc element i forked-decl-paths)`, where `forked-decl-paths` is
+  `(fork-index-paths decl-paths i decl-prefixes)`. Returns the final `acc`.
+
+  This is the single home for the 'descend a positional container tracking an
+  integer index, forking decl-paths via fork-index-paths' micro-shape that
+  otherwise recurs across the path-based walker (`walk-indexed` / `walk-seq`)
+  and the large-value collector (`collect-large-markers!`'s vector / seq
+  branches) (rf2-zp0g04). `reduce` iterates a vector in index order, so the
+  vector and seq cases share one traversal; the volatile index reproduces the
+  per-element `(conj path i)` exactly. The caller owns `acc`'s identity
+  (transient vector for the walkers, transient `[raw marker]` accumulator for
+  the collector) and what `step` does with each element."
+  [coll decl-paths decl-prefixes step acc]
+  (let [idx (volatile! -1)]
+    (reduce (fn [a x]
+              (let [i (vswap! idx inc)]
+                (step a x i (fork-index-paths decl-paths i decl-prefixes))))
+            acc
+            coll)))
+
 (defn- decl-match
   "Test the candidate declaration-coordinate set against a declaration
   table `tbl` (`:sensitive` or `:large`). Returns the matched declaration
@@ -478,32 +517,21 @@
       (empty m)
       m)))
 
-(defn- walk-indexed
-  [v path decl-paths ctx]
-  (let [decl-prefixes (:decl-prefixes ctx)
-        n             (count v)]
-    (loop [i 0 acc (transient [])]
-      (if (< i n)
-        (recur (inc i)
-               (conj! acc (walk (nth v i)
-                                (conj path i)
-                                (fork-index-paths decl-paths i decl-prefixes)
-                                ctx)))
-        (persistent! acc)))))
-
-(defn- walk-seq
-  [xs path decl-paths ctx]
-  (let [decl-prefixes (:decl-prefixes ctx)
-        idx           (volatile! -1)]
+(defn- walk-positional
+  "Walk a POSITIONAL container `coll` (a vector OR a seq), reproducing each
+  element at its integer-indexed path `(conj path i)` and forking the
+  candidate decl-paths through the index. Both the vector (`:vector`) and seq
+  (`:sequential`) walk arms share this body (rf2-zp0g04): each yields a
+  persistent vector of walked elements (a seq normalises to a vector here, as
+  the prior `walk-seq` did)."
+  [coll path decl-paths ctx]
+  (let [decl-prefixes (:decl-prefixes ctx)]
     (persistent!
-      (reduce (fn [acc v]
-                (vswap! idx inc)
-                (conj! acc (walk v
-                                 (conj path @idx)
-                                 (fork-index-paths decl-paths @idx decl-prefixes)
-                                 ctx)))
-              (transient [])
-              xs))))
+      (reduce-indexed-forks
+        coll decl-paths decl-prefixes
+        (fn [acc x i forked]
+          (conj! acc (walk x (conj path i) forked ctx)))
+        (transient [])))))
 
 (defn- walk
   [v path decl-paths ctx]
@@ -529,16 +557,13 @@
         ;; sentinel is non-matchable so the walker descends into nothing
         ;; on a re-projection pass). Per rf2-fq8ep.
         v
-        (->marker v path {:hint             (:hint large-decl)
-                          :reason           (:source large-decl)
-                          :as-of-epoch      (:as-of-epoch ctx)
-                          :include-digests? (:include-digests? ctx)}))
+        (->marker v path (marker-opts large-decl ctx)))
 
       (map? v)
       (walk-map v path decl-paths ctx)
 
       (vector? v)
-      (walk-indexed v path decl-paths ctx)
+      (walk-positional v path decl-paths ctx)
 
       (set? v)
       ;; Set elements are nameless collection coordinates — the runtime
@@ -547,7 +572,7 @@
       (into #{} (map #(walk % path decl-paths ctx)) v)
 
       (seq? v)
-      (walk-seq v path decl-paths ctx)
+      (walk-positional v path decl-paths ctx)
 
       :else
       (do
@@ -990,10 +1015,7 @@
       ;; path-based egress would emit, and do NOT descend (the whole subtree
       ;; is the blob). A nil / already-marker value contributes nothing.
       (and large-decl (some? node) (not (marker? node)))
-      (conj! acc! [node (->marker node path {:hint             (:hint large-decl)
-                                             :reason           (:source large-decl)
-                                             :as-of-epoch      (:as-of-epoch ctx)
-                                             :include-digests? (:include-digests? ctx)})])
+      (conj! acc! [node (->marker node path (marker-opts large-decl ctx))])
 
       (map? node)
       (let [decl-prefixes (:decl-prefixes ctx)]
@@ -1002,20 +1024,15 @@
                                              (fork-decl-paths decl-paths k decl-prefixes) ctx))
                    acc! node))
 
-      (vector? node)
-      (let [decl-prefixes (:decl-prefixes ctx)]
-        (reduce (fn [a i]
-                  (collect-large-markers! a (nth node i) (conj path i)
-                                          (fork-index-paths decl-paths i decl-prefixes) ctx))
-                acc! (range (count node))))
-
-      (seq? node)
-      (let [decl-prefixes (:decl-prefixes ctx)
-            idx           (volatile! -1)]
-        (reduce (fn [a x]
-                  (collect-large-markers! a x (conj path (vswap! idx inc))
-                                          (fork-index-paths decl-paths @idx decl-prefixes) ctx))
-                acc! node))
+      ;; Positional container (vector OR seq): descend each element at its
+      ;; integer-indexed path, forking decl-paths through the index — the
+      ;; shared `reduce-indexed-forks` micro-shape (rf2-zp0g04).
+      (or (vector? node) (seq? node))
+      (reduce-indexed-forks
+        node decl-paths (:decl-prefixes ctx)
+        (fn [a x i forked]
+          (collect-large-markers! a x (conj path i) forked ctx))
+        acc!)
 
       (set? node)
       (reduce (fn [a x] (collect-large-markers! a x path decl-paths ctx)) acc! node)
