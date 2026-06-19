@@ -927,53 +927,6 @@
           (assoc :rf.cofx/requires-parsed requires-parsed))))
     id))
 
-(defn normalize-relowered-meta
-  "Normalize a PROJECTED event's registration metadata back into the
-  AUTHORED metadata shape `reg-event` accepts, so a projected app-value event
-  descriptor can be re-lowered through the one `reg-event` form (EP-0018,
-  rf2-untip9).
-
-  An app value projected off the live registrar (`av/app-value`) carries each
-  event's EFFECTIVE registrar metadata under `:metadata` — including the slots
-  `register-event!` GENERATES rather than the author supplies:
-
-    * `:interceptors` — the EFFECTIVE chain `reg-event` assembled: the author's
-      interceptor REFERENCES at the head, the inline `:rf/event-handler`
-      framework wrapper (`:rf/default? true`) appended at the tail. Re-feeding
-      that effective chain to `reg-event` makes `validate-meta-interceptors!`
-      read the inline wrapper as an AUTHORED inline interceptor and reject it
-      `:rf.error/inline-interceptor-removed` (chains are reference-only since
-      EP-0022). The author's chain is the references with the framework wrapper
-      removed — the documented recovery `(remove :rf/default? interceptors)`
-      (`resolve-interceptors`).
-    * `:rf.cofx/requires-parsed` — the normalised cofx-requirement vector
-      `register-event!` derives from the authored `:rf.cofx/requires`. `reg-event`
-      regenerates it, so a stale projected copy is dropped (the author's
-      `:rf.cofx/requires` survives and is re-parsed).
-
-  Stripping the regenerated slots (and recovering the author's reference chain)
-  yields a metadata map structurally identical to what the author originally
-  passed `reg-event`, so re-lowering re-validates the references, re-parses the
-  cofx requirements, and re-appends a FRESH framework wrapper — a faithful
-  round-trip. A CONSTRUCTED descriptor (from `module`) never carries these
-  generated slots, so this is a no-op on it: an authored `:interceptors` chain
-  is references-only (no `:rf/default?` entry to strip) and carries no
-  `:rf.cofx/requires-parsed`. INTERNAL."
-  [meta]
-  (if-not (map? meta)
-    meta
-    (cond-> (dissoc meta :rf.cofx/requires-parsed)
-      ;; Recover the author's reference chain from the effective chain by
-      ;; dropping the framework-default wrapper(s). Done ONLY when the chain
-      ;; actually carries a `:rf/default?` entry, so an authored
-      ;; references-only chain is left byte-identical (and an empty residual
-      ;; chain is removed rather than passed as `[]`).
-      (some :rf/default? (:interceptors meta))
-      (as-> m (let [user-refs (filterv (complement :rf/default?) (:interceptors meta))]
-                (if (seq user-refs)
-                  (assoc m :interceptors user-refs)
-                  (dissoc m :interceptors)))))))
-
 (defn reg-event
   "Register a `(fn [coeffects event-vec] effect-map)` event handler under
   `id` — the ONE public event-registration form (EP-0018, ruled
