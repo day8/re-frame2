@@ -30,8 +30,8 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-registry :as registry]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as registry]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -52,7 +52,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   (rf/with-frame :rf/default

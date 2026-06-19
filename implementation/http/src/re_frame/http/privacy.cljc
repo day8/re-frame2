@@ -1,4 +1,4 @@
-(ns re-frame.http-privacy
+(ns re-frame.http.privacy
   "Spec 014 §Privacy — sensitive-data honouring for `:rf.http/managed` (rf2-bma05).
 
   HTTP is the canonical privacy surface: passwords ride request bodies,
@@ -15,21 +15,21 @@
   primitives they compose). The two leaf surfaces it draws on live in
   sibling namespaces:
 
-  - `re-frame.http-privacy-headers` — header denylist + `redact-headers`.
-  - `re-frame.http-url` — query-param denylist + `redact-url` /
+  - `re-frame.http.privacy-headers` — header denylist + `redact-headers`.
+  - `re-frame.http.url` — query-param denylist + `redact-url` /
     `redact-url-query-string`. (URL *building* — `url-encode` /
-    `params->query` / `merge-params` — lives in `re-frame.http-encoding`,
+    `params->query` / `merge-params` — lives in `re-frame.http.encoding`,
     not here.)
 
   Three cooperating mechanisms, mirroring Spec 009's schema-first
   privacy split:
 
-  1. **Header denylist** (`re-frame.http-privacy-headers`) — a canonical
+  1. **Header denylist** (`re-frame.http.privacy-headers`) — a canonical
      set of always-sensitive header names. Redacted in trace events
      regardless of the handler / request `:sensitive?` flag, because
      the headers' names themselves declare them sensitive.
 
-  2. **Query-param denylist** (`re-frame.http-url`, rf2-2p8wr) — a
+  2. **Query-param denylist** (`re-frame.http.url`, rf2-2p8wr) — a
      canonical set of always-sensitive query-string parameter names
      (e.g. `api_key`, `access_token`, `auth`). URLs carrying these
      params are redacted **inline** in every `:rf.http/*` trace event
@@ -75,15 +75,15 @@
   builds the trace surface elides entirely; the privacy machinery is
   moot, and no walker runs against the denylists without the trace
   surface."
-  (:require [re-frame.http-privacy-headers :as headers]
-            [re-frame.http-url :as url]
+  (:require [re-frame.http.privacy-headers :as headers]
+            [re-frame.http.url :as url]
             [re-frame.late-bind :as late-bind]))
 
 ;; rf2-m00e7p — internal alias for terse composer call sites below; the
-;; canonical home is the sibling leaf `re-frame.http-url` (carries no
+;; canonical home is the sibling leaf `re-frame.http.url` (carries no
 ;; privacy deps, so no leaf→parent cycle). Private — `http-privacy` no
 ;; longer carries a public re-export of the sentinel (the public surface
-;; is `re-frame.http-url/redacted-sentinel`, itself a re-export of the
+;; is `re-frame.http.url/redacted-sentinel`, itself a re-export of the
 ;; canonical `re-frame.privacy/redacted-sentinel` in core).
 (def ^:private redacted-sentinel url/redacted-sentinel)
 

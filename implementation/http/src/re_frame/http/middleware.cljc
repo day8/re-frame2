@@ -1,7 +1,7 @@
-(ns re-frame.http-middleware
+(ns re-frame.http.middleware
   "Per-frame request- AND response-side interceptor chain for `:rf.http/managed`.
 
-  Extracted from `re-frame.http-managed` per rf2-3i9b. Per rf2-6y3q
+  Extracted from `re-frame.http.managed` per rf2-3i9b. Per rf2-6y3q
   (Spec 014 §Middleware): each frame has an ordered chain of HTTP
   interceptors. Each interceptor is an interceptor-map carrying an
   optional `:before` (request-side transform, fired in registration
@@ -71,8 +71,8 @@
   against frame A does not fire for a request dispatched from frame B."
   (:require [re-frame.error        :as error]
             [re-frame.frame        :as frame]
-            [re-frame.http-encoding :as encoding]
-            [re-frame.http-privacy :as privacy]
+            [re-frame.http.encoding :as encoding]
+            [re-frame.http.privacy :as privacy]
             [re-frame.interop      :as interop]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace        :as trace]))

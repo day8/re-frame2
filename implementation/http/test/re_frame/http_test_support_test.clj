@@ -1,5 +1,5 @@
 (ns re-frame.http-test-support-test
-  "Smoke test for the `re-frame.http-test-support` leaf — required in
+  "Smoke test for the `re-frame.http.test-support` leaf — required in
   the same PR as the new namespace per the per-leaf smoke-test
   convention (rf2-cdmle).
 
@@ -36,18 +36,18 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.http-test-support :as http-test-support]))
+            [re-frame.http.test-support :as http-test-support]))
 
 ;; Ensure each test starts from a known registrar — clear, then reload
 ;; the test-support ns so its load-time registration fires.
 (use-fixtures :each
   (fn [t]
     (registrar/clear-all!)
-    (require 're-frame.http-test-support :reload)
+    (require 're-frame.http.test-support :reload)
     (t)))
 
 (deftest canned-stub-fxs-register-on-test-support-load
-  (testing "loading re-frame.http-test-support registers both canned-stub fx ids"
+  (testing "loading re-frame.http.test-support registers both canned-stub fx ids"
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-success))
         ":rf.http/managed-canned-success registered")
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
@@ -89,7 +89,7 @@
           (late-bind/set-fn! :router/dispatch! original))))))
 
 (deftest stub-family-late-bind-hooks-publish-on-test-support-load
-  (testing "rf2-lwmgw — loading re-frame.http-test-support publishes the
+  (testing "rf2-lwmgw — loading re-frame.http.test-support publishes the
             :http/with-managed-request-stubs* late-bind hook that
             re-frame.core-http resolves through. Without this ns required,
             rf/with-managed-request-stubs* raises :rf.error/http-artefact-missing

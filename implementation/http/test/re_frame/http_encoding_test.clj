@@ -1,5 +1,5 @@
 (ns re-frame.http-encoding-test
-  "Direct unit coverage for the pure-fn helpers in `re-frame.http-encoding`
+  "Direct unit coverage for the pure-fn helpers in `re-frame.http.encoding`
   (rf2-9dro2; follow-on from rf2-q1z1u F2).
 
   Extended under rf2-ohwgm (http test-coverage audit) with the request-side
@@ -22,8 +22,8 @@
      floor of zero (never negative)"
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.http-encoding :as encoding]
-            [re-frame.util-json :as util-json]))
+            [re-frame.http.encoding :as encoding]
+            [re-frame.http.json :as util-json]))
 
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 

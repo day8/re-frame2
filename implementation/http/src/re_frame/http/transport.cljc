@@ -1,10 +1,10 @@
-(ns re-frame.http-transport
+(ns re-frame.http.transport
   "Shared (platform-neutral) attempt-and-retry lifecycle for
   `:rf.http/managed`.
 
   The platform transports live in per-platform sibling adapter
-  namespaces (rf2-hp772l): `re-frame.http-transport-cljs` owns the Fetch
-  path (`cljs-fetch` + `classify-cljs-error`); `re-frame.http-transport-jvm`
+  namespaces (rf2-hp772l): `re-frame.http.transport-cljs` owns the Fetch
+  path (`cljs-fetch` + `classify-cljs-error`); `re-frame.http.transport-jvm`
   owns the `java.net.http.HttpClient` path (`jvm-fetch` +
   `classify-jvm-error`) and the per-row CLJS-only-key degradation tracing
   (`check-cljs-only-keys!`). This namespace owns everything else —
@@ -26,15 +26,15 @@
   backoff `maybe-retry!` decides between retry, immediate-final-failure,
   and successful completion based on the failing attempt's failure
   category and the request's `:retry` config."
-  (:require [re-frame.http-decode       :as decode]
-            [re-frame.http-encoding     :as encoding]
-            [re-frame.http-middleware   :as middleware]
-            [re-frame.http-privacy      :as privacy]
-            [re-frame.http-privacy-body :as privacy-body]
-            [re-frame.http-registry     :as registry]
-            [re-frame.http-reply        :as http-reply]
-            [re-frame.http-transport-cljs :as transport-cljs]
-            [re-frame.http-transport-jvm  :as transport-jvm]
+  (:require [re-frame.http.decode       :as decode]
+            [re-frame.http.encoding     :as encoding]
+            [re-frame.http.middleware   :as middleware]
+            [re-frame.http.privacy      :as privacy]
+            [re-frame.http.privacy-body :as privacy-body]
+            [re-frame.http.registry     :as registry]
+            [re-frame.http.reply        :as http-reply]
+            [re-frame.http.transport-cljs :as transport-cljs]
+            [re-frame.http.transport-jvm  :as transport-jvm]
             [re-frame.interop           :as interop]
             [re-frame.trace             :as trace])
   #?(:clj (:import [java.util.concurrent CompletableFuture])))
@@ -115,7 +115,7 @@
 
 ;; rf2-zqefg3.2 — the canonical-reply lowering seam (EP-0011 §Managed HTTP
 ;; Lowering). Every completion (success / failure / abort) now flows through
-;; ONE canonical reply map built in `re-frame.http-reply` — `:status`,
+;; ONE canonical reply map built in `re-frame.http.reply` — `:status`,
 ;; `:work/id` `[:rf.work/http logical-id issuance attempt]` (rf2-azcmd3),
 ;; `:work/kind :http`,
 ;; `:work/status`, `:attempt`, `:rf.frame/id`, `:completed-at`, and
@@ -130,7 +130,7 @@
 
 (defn- reply-ctx
   "Project the transport ctx onto the data-only correlation/identity facts
-  `re-frame.http-reply` consumes to build a canonical reply map. Reads the
+  `re-frame.http.reply` consumes to build a canonical reply map. Reads the
   host completion clock ONCE here, at finalisation, and threads it as
   `:completed-at` (the reply handler MUST NOT re-read the clock —
   Managed-Effects §Causal completion metadata).

@@ -1,8 +1,8 @@
-(ns re-frame.util-json
+(ns re-frame.http.json
   "Tiny shared JSON helpers.
 
-  Extracted from `re-frame.http-managed` per rf2-p7da. The decode path
-  in `re-frame.http-encoding` needs a JSON reader; on CLJS that is the
+  Extracted from `re-frame.http.managed` per rf2-p7da. The decode path
+  in `re-frame.http.encoding` needs a JSON reader; on CLJS that is the
   browser's `js/JSON.parse`, on the JVM it is Cheshire (a hard dep
   since rf2-dgsu1 — see the artefact's `deps.edn` for the rationale).
 
@@ -14,7 +14,7 @@
   `json-stringify` / `json-parse` codepaths onto core consumers that
   never issue an HTTP request. If a second consumer needs JSON down the
   track, lift this namespace to core (the ns name is already neutral —
-  `re-frame.util-json`, not `re-frame.http.util-json`).
+  `re-frame.http.json`, not `re-frame.http.util-json`).
 
   ## API
 

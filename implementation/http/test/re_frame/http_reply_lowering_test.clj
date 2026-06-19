@@ -29,9 +29,9 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-reply :as http-reply]
-            [re-frame.http-test-support]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.reply :as http-reply]
+            [re-frame.http.test-support]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.reply :as reply]
@@ -57,8 +57,8 @@
   ;; (rf2-5vdfrm) — a reply handler declaring `:rf.cofx/requires [:rf/time-ms]`
   ;; needs its supplier registered.
   (require 're-frame.cofx :reload)
-  (require 're-frame.http-managed :reload)
-  (require 're-frame.http-test-support :reload)
+  (require 're-frame.http.managed :reload)
+  (require 're-frame.http.test-support :reload)
   (rf/with-frame :rf/default
     (t)))
 

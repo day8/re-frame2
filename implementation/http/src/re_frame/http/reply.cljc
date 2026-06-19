@@ -1,4 +1,4 @@
-(ns re-frame.http-reply
+(ns re-frame.http.reply
   "Spec 014 — lower `:rf.http/managed` onto the uniform reply envelope
   (EP-0011 §Managed HTTP Lowering / §Public Compatibility Sugar; the
   canonical contract is `spec/Managed-Effects.md` §The uniform reply

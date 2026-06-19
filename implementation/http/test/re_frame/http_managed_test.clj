@@ -11,24 +11,24 @@
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.util-json :as util-json]
+            [re-frame.http.json :as util-json]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
-            [re-frame.http-decode :as http-decode]
-            [re-frame.http-encoding :as http-encoding]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.decode :as http-decode]
+            [re-frame.http.encoding :as http-encoding]
+            [re-frame.http.managed :as http-managed]
             [re-frame.late-bind :as late-bind]
             ;; rf2-cdmle — the canned-stub fxs no longer register at
-            ;; `re-frame.http-managed` load time. This test file uses
+            ;; `re-frame.http.managed` load time. This test file uses
             ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
             ;; throughout, so it opts in by requiring the test-support ns.
             ;; Loading registers `:rf.http/managed-canned-success` and
             ;; `:rf.http/managed-canned-failure` against the same handler
             ;; bodies the earlier `(when interop/debug-enabled? ...)` gate
             ;; wired up.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -53,16 +53,16 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   ;; rf2-cdmle — clear-all! above wipes the canned-stub fx registrations
-  ;; that re-frame.http-test-support put into the registrar at first
+  ;; that re-frame.http.test-support put into the registrar at first
   ;; load. Reload the test-support ns so its registration body fires
   ;; again for the next test (mirrors the http-managed reload above).
-  (require 're-frame.http-test-support :reload)
+  (require 're-frame.http.test-support :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   ;; rf2-r5m22 — the per-frame HTTP interceptor chain lives in a separate
-  ;; registry (internal to `re-frame.http-middleware`; observe via
+  ;; registry (internal to `re-frame.http.middleware`; observe via
   ;; `http-managed/interceptors-snapshot`), NOT the registrar `clear-all!`
   ;; wipes above. Tests that register `:before` / `:after` interceptors
   ;; (the canned-path `:after` coverage) must clear it between tests, or
@@ -1210,7 +1210,7 @@
       (late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! recorded conj [ev opts])))
       (try
-        (re-frame.http-test-support/install-managed-request-stubs!
+        (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "/x"] {:reply {:ok {:stubbed true}}}})
         (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
               ex      (try (stub-fx {:frame :rf/default :event [:azrcs/erase]}
@@ -1223,7 +1223,7 @@
           (is (empty? @recorded)
               "NO synthetic reply was dispatched — the invalid request is rejected, not masked"))
         (finally
-          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (re-frame.http.test-support/uninstall-managed-request-stubs!)
           (late-bind/set-fn! :router/dispatch! original))))))
 
 ;; ---- 11a-vn8qjv. scoped stubs compose under nesting -----------------------
@@ -1284,25 +1284,25 @@
     (let [stub-id :rf.http/managed-test-stub]
       (is (nil? (registrar/handler :fx stub-id))
           "no stub fx registered before install")
-      (re-frame.http-test-support/install-managed-request-stubs!
+      (re-frame.http.test-support/install-managed-request-stubs!
         {[:get "/outer"] {:reply {:ok {:from :outer}}}})
       (let [outer-handler (registrar/handler :fx stub-id)]
         (is (some? outer-handler) "outer install registered the stub fx")
         ;; Nested install replaces the handler in place.
-        (re-frame.http-test-support/install-managed-request-stubs!
+        (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "/inner"] {:reply {:ok {:from :inner}}}})
         (is (not (identical? outer-handler (registrar/handler :fx stub-id)))
             "inner install replaced the handler")
         ;; Inner uninstall RESTORES the outer handler (stack discipline).
-        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (re-frame.http.test-support/uninstall-managed-request-stubs!)
         (is (identical? outer-handler (registrar/handler :fx stub-id))
             "inner uninstall restored the outer install's handler")
         ;; Outer uninstall clears (no prior on the stack).
-        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (re-frame.http.test-support/uninstall-managed-request-stubs!)
         (is (nil? (registrar/handler :fx stub-id))
             "balanced top-level install/uninstall leaves no leaked test fx")
         ;; Idempotent: an extra uninstall is a safe no-op.
-        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (re-frame.http.test-support/uninstall-managed-request-stubs!)
         (is (nil? (registrar/handler :fx stub-id))
             "extra uninstall is an idempotent no-op")))))
 
@@ -1311,9 +1311,9 @@
 ;; Per rf2-cdmle (follow-up to rf2-zk08x): the gate that decides whether
 ;; the canned-stub fxs (`:rf.http/managed-canned-success` /
 ;; `:rf.http/managed-canned-failure`) register moved from
-;; `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` to
+;; `(when interop/debug-enabled? ...)` inside `re-frame.http.managed` to
 ;; the require boundary itself. The fxs now register under
-;; `re-frame.http-test-support`; production code paths must not require
+;; `re-frame.http.test-support`; production code paths must not require
 ;; that namespace.
 ;;
 ;; Why the change: `interop/debug-enabled?` is unconditionally true on the
@@ -1326,7 +1326,7 @@
 ;; `scripts/check-elision.cjs` sentinels still pin the bundle absence).
 ;;
 ;; This file's reset-runtime fixture re-requires
-;; `re-frame.http-test-support :reload` between tests, so the canned
+;; `re-frame.http.test-support :reload` between tests, so the canned
 ;; stubs ARE registered for the bulk of the suite (the methodology
 ;; check below pins that). The standalone negative-assertion test that
 ;; exercises the absence path (test-support absent → canned stubs
@@ -1335,7 +1335,7 @@
 ;; pass the absence assertion.
 
 (deftest canned-stub-fxs-registered-when-test-support-required
-  (testing "rf2-cdmle methodology check — with re-frame.http-test-support
+  (testing "rf2-cdmle methodology check — with re-frame.http.test-support
             in the require closure (this ns requires it at the top), the
             two canonical canned-stub fxs MUST be registered. The
             absence test in re-frame.http-test-support-absent-test would
@@ -1343,13 +1343,13 @@
     ;; The fixture has just reloaded http-test-support, so the canned
     ;; stubs are present. The production-eligible fxs are present too.
     (is (some? (registrar/lookup :fx :rf.http/managed))
-        ":rf.http/managed is dev+prod — always registered by re-frame.http-managed")
+        ":rf.http/managed is dev+prod — always registered by re-frame.http.managed")
     (is (some? (registrar/lookup :fx :rf.http/managed-abort))
-        ":rf.http/managed-abort is dev+prod — always registered by re-frame.http-managed")
+        ":rf.http/managed-abort is dev+prod — always registered by re-frame.http.managed")
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-success))
-        ":rf.http/managed-canned-success registered when re-frame.http-test-support is required")
+        ":rf.http/managed-canned-success registered when re-frame.http.test-support is required")
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
-        ":rf.http/managed-canned-failure registered when re-frame.http-test-support is required")))
+        ":rf.http/managed-canned-failure registered when re-frame.http.test-support is required")))
 
 ;; ---- 12. decode reflection metadata ---------------------------------------
 
@@ -2192,7 +2192,7 @@
         ;; A :before that throws AFTER the chain starts.
         (rf/reg-http-interceptor :xmp74u/boom
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
-        (re-frame.http-test-support/install-managed-request-stubs!
+        (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
         (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
               ;; TOP-LEVEL :sensitive? true (NOT [:request :sensitive?]).
@@ -2224,7 +2224,7 @@
           (is (true? (:sensitive? w))
               ":sensitive? stamped on the stub-path failure trace, matching production"))
         (finally
-          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (re-frame.http.test-support/uninstall-managed-request-stubs!)
           (trace/unregister-listener! listener-id)
           (late-bind/set-fn! :router/dispatch! original))))))
 
@@ -2243,7 +2243,7 @@
         (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :xmp74u/boom2
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
-        (re-frame.http-test-support/install-managed-request-stubs!
+        (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
         (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
               _ex     (try
@@ -2262,6 +2262,6 @@
           (is (not (true? (:sensitive? w)))
               ":sensitive? not stamped for a non-sensitive request"))
         (finally
-          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (re-frame.http.test-support/uninstall-managed-request-stubs!)
           (trace/unregister-listener! listener-id)
           (late-bind/set-fn! :router/dispatch! original))))))

@@ -1,5 +1,5 @@
 (ns re-frame.util-json-cljs-test
-  "CLJS-side unit coverage for `re-frame.util-json` (rf2-mih7n;
+  "CLJS-side unit coverage for `re-frame.http.json` (rf2-mih7n;
   follow-on from rf2-q1z1u F3).
 
   Background. The JVM `util_json_test.clj` covers the Cheshire branch
@@ -29,7 +29,7 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.util-json :as util-json]))
+            [re-frame.http.json :as util-json]))
 
 (deftest cljs-json-parse-malformed-throws
   (testing "rf2-mih7n — malformed JSON inputs throw under

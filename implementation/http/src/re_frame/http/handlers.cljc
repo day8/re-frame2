@@ -1,7 +1,7 @@
-(ns re-frame.http-handlers
+(ns re-frame.http.handlers
   "The `:rf.http/managed` + `:rf.http/managed-abort` fx handler bodies.
 
-  Extracted from `re-frame.http-managed` per rf2-0eyp2 — the façade now
+  Extracted from `re-frame.http.managed` per rf2-0eyp2 — the façade now
   re-exports these and wires them into `fx/reg-fx` at load time, but
   the handler logic lives here alongside the other per-concern siblings
   (`http-encoding`, `http-registry`, `http-middleware`, `http-transport`,
@@ -24,13 +24,13 @@
   (:require [clojure.string]
             [re-frame.error          :as error]
             [re-frame.frame          :as frame]
-            [re-frame.http-encoding  :as encoding]
-            [re-frame.http-middleware :as middleware]
-            [re-frame.http-privacy   :as privacy]
-            [re-frame.http-registry  :as registry]
-            [re-frame.http-reply     :as http-reply]
-            [re-frame.http-transport :as transport]
-            [re-frame.http-transport-jvm :as transport-jvm]))
+            [re-frame.http.encoding  :as encoding]
+            [re-frame.http.middleware :as middleware]
+            [re-frame.http.privacy   :as privacy]
+            [re-frame.http.registry  :as registry]
+            [re-frame.http.reply     :as http-reply]
+            [re-frame.http.transport :as transport]
+            [re-frame.http.transport-jvm :as transport-jvm]))
 
 ;; ---- rf2-apwkm — closed-set `:retry :on` validation ----------------------
 ;;

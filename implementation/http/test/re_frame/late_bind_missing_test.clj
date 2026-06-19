@@ -10,7 +10,7 @@
   regression.
 
   Strategy: the http artefact IS on the classpath here (the test ns
-  requires `re-frame.http-managed`, which fires the late-bind hook
+  requires `re-frame.http.managed`, which fires the late-bind hook
   registrations at ns-load). To simulate the absent-artefact state we
   flip the relevant late-bind hook to nil for the duration of the
   assertion, then restore it in `finally`. Identical mechanism as the
@@ -20,8 +20,8 @@
   prose at the call sites in `re-frame.core`.
 
   Per rf2-lwmgw the `:http/with-managed-request-stubs*` late-bind hook
-  publishes from `re-frame.http-test-support` (alongside the stub macros
-  themselves) — this ns requires `re-frame.http-test-support` so the hook
+  publishes from `re-frame.http.test-support` (alongside the stub macros
+  themselves) — this ns requires `re-frame.http.test-support` so the hook
   resolves, and the `with-hook-as-nil` helper still flips it to nil to
   simulate the absent-artefact state. The raw install/uninstall pair is no
   longer a `re-frame.core` façade export (rf2-ntwwyt) and carries no hook /
@@ -31,12 +31,12 @@
             [re-frame.late-bind :as late-bind]
             ;; Loading http-managed registers its production late-bind
             ;; hooks (middleware, registry). The stub-family hooks
-            ;; publish from `re-frame.http-test-support` per rf2-lwmgw.
+            ;; publish from `re-frame.http.test-support` per rf2-lwmgw.
             ;; The `with-hook-as-nil` helper below re-establishes the
             ;; absent state by flipping the hook value at runtime;
             ;; restoration in `finally` keeps cross-test isolation intact.
-            [re-frame.http-managed]
-            [re-frame.http-test-support]))
+            [re-frame.http.managed]
+            [re-frame.http.test-support]))
 
 (defn- with-hook-as-nil
   "Run `f` with the named late-bind hook set to nil. Restores the
@@ -51,7 +51,7 @@
 
 ;; The raw install/uninstall pair is no longer a `re-frame.core` façade
 ;; export (rf2-ntwwyt) — it carries no late-bind hook and no missing-artefact
-;; throw contract; tests call `re-frame.http-test-support/install-managed-
+;; throw contract; tests call `re-frame.http.test-support/install-managed-
 ;; request-stubs!` / `uninstall-managed-request-stubs!` directly. Only the
 ;; `with-managed-request-stubs*` façade plumbing retains the throw contract.
 

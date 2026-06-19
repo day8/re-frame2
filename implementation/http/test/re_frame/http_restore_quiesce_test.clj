@@ -25,9 +25,9 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-registry :as http-registry]
-            [re-frame.http-transport :as http-transport]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as http-registry]
+            [re-frame.http.transport :as http-transport]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -45,7 +45,7 @@
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   (frame/ensure-default-frame!)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   (http-managed/clear-all-in-flight!)
   (rf/with-frame :rf/default
     (t)))

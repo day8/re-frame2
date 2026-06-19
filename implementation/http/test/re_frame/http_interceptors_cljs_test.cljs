@@ -21,7 +21,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.http-managed :as http-managed]))
+            [re-frame.http.managed :as http-managed]))
 
 ;; EP-0002 (rf2-nn0jqa): the no-`:frame` `reg-http-interceptor` /
 ;; `clear-http-interceptor` calls below resolve the frame through the

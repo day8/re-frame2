@@ -1,6 +1,6 @@
 (ns re-frame.http-decode-test
   "Direct unit coverage for the response-body decode pipeline in
-  `re-frame.http-decode` (rf2-ohwgm; follow-on from the http test-coverage
+  `re-frame.http.decode` (rf2-ohwgm; follow-on from the http test-coverage
   audit `ai/findings/2026-05-21-testcov-http.md`).
 
   Per Spec 014 §Decoding / §`:auto`, schema-driven decode is the
@@ -17,7 +17,7 @@
   / `malli.transform/json-transformer` succeeds at runtime — the
   schema branch exercises the real Malli decode + coerce + validate."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http-decode :as decode]
+            [re-frame.http.decode :as decode]
             [re-frame.trace :as trace]))
 
 ;; `decode-response-body` is public; `malli-decode` is private — reach it

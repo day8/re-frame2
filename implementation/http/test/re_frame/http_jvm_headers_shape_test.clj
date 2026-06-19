@@ -27,9 +27,9 @@
   the `defn-` stays private to the namespace.
 
   rf2-hp772l — `jvm-headers->map` is JVM-platform-transport internal and
-  now lives in the per-platform adapter ns `re-frame.http-transport-jvm`."
+  now lives in the per-platform adapter ns `re-frame.http.transport-jvm`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http-transport-jvm :as http-transport-jvm])
+            [re-frame.http.transport-jvm :as http-transport-jvm])
   (:import [java.net.http HttpHeaders]
            [java.util List Map]
            [java.util.function BiPredicate]))

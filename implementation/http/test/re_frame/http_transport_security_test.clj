@@ -1,5 +1,5 @@
 (ns re-frame.http-transport-security-test
-  "Unit tests for `re-frame.http-transport` security-relevant guards.
+  "Unit tests for `re-frame.http.transport` security-relevant guards.
 
   Beads:
    - rf2-9lun0 — invalid headers surface as `:rf.warning/http-header-invalid`
@@ -8,10 +8,10 @@
                  (defaulted to 30000 at the handler) so the JDK
                  HttpClient applies a wall-clock read timeout."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.http-handlers]
-            [re-frame.http-privacy :as privacy]
-            [re-frame.http-transport]
-            [re-frame.http-transport-jvm]
+            [re-frame.http.handlers]
+            [re-frame.http.privacy :as privacy]
+            [re-frame.http.transport]
+            [re-frame.http.transport-jvm]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace])
   (:import [java.net.http HttpClient HttpClient$Redirect HttpRequest]
@@ -20,11 +20,11 @@
 
 ;; rf2-hp772l — the JVM platform transport (request building, client
 ;; memoisation, classification, CLJS-only-key degradation tracing) lives
-;; in the per-platform adapter ns `re-frame.http-transport-jvm`. The
+;; in the per-platform adapter ns `re-frame.http.transport-jvm`. The
 ;; public seams are reached directly; the genuinely-internal helpers
 ;; (`redirect->policy`) via `#'` against that named adapter.
 (def ^:private jvm-build-request
-  re-frame.http-transport-jvm/jvm-build-request)
+  re-frame.http.transport-jvm/jvm-build-request)
 
 (defn- with-trace-capture [body-fn]
   (let [captured (atom [])
@@ -146,7 +146,7 @@
 
 ;; ---- rf2-it1cd — normalise-args applies the 30000 default ---------------
 
-(def ^:private normalise-args @#'re-frame.http-handlers/normalise-args)
+(def ^:private normalise-args @#'re-frame.http.handlers/normalise-args)
 
 (deftest normalise-args-defaults-timeout-ms-to-30000
   (testing "rf2-it1cd — when the args map omits `:timeout-ms`, the
@@ -252,7 +252,7 @@
 
 ;; ---- rf2-1jcpm — CLJS-only-key warning redaction (JVM) -------------------
 
-(def ^:private check-cljs-only-keys! re-frame.http-transport-jvm/check-cljs-only-keys!)
+(def ^:private check-cljs-only-keys! re-frame.http.transport-jvm/check-cljs-only-keys!)
 
 (deftest cljs-only-key-warning-redacts-denylisted-query-params
   (testing "rf2-1jcpm — the JVM warning for an ignored CLJS-only key
@@ -295,10 +295,10 @@
 ;; ---- rf2-ee38b.7 — JVM honours the spec's `:redirect` envelope key -------
 
 (def ^:private redirect->policy
-  @#'re-frame.http-transport-jvm/redirect->policy)
+  @#'re-frame.http.transport-jvm/redirect->policy)
 
 (def ^:private jvm-http-client-for
-  re-frame.http-transport-jvm/jvm-http-client-for)
+  re-frame.http.transport-jvm/jvm-http-client-for)
 
 (deftest jvm-redirect-policy-maps-spec-values
   (testing "rf2-ee38b.7 — `:redirect` maps onto the JDK redirect policy.
@@ -342,7 +342,7 @@
   `:rf.http/timeout` with `:elapsed-ms` / `:limit-ms`). The CLJS path
   always populated both; the JVM path emitted nil for both. `:elapsed-ms`
   legitimately stays nil on JVM (the JDK exposes no elapsed value)."
-    (let [classify re-frame.http-transport-jvm/classify-jvm-error
+    (let [classify re-frame.http.transport-jvm/classify-jvm-error
           t   (java.net.http.HttpTimeoutException. "request timed out")
           out (classify t 5000 nil)]
       (is (= :rf.http/timeout (:kind out)))
@@ -353,7 +353,7 @@
 
 ;; Reach the private fn via #' so the public surface stays unchanged.
 (def ^:private classify-jvm-error
-  re-frame.http-transport-jvm/classify-jvm-error)
+  re-frame.http.transport-jvm/classify-jvm-error)
 
 (deftest classify-jvm-error-uses-instance-checks-only
   (testing "rf2-q3ts4 — HttpTimeoutException → :rf.http/timeout (instance match)"
@@ -405,7 +405,7 @@
 ;; happen — there is only one site) is caught.
 
 (def ^:private emit-and-dispatch-failure!
-  @#'re-frame.http-transport/emit-and-dispatch-failure!)
+  @#'re-frame.http.transport/emit-and-dispatch-failure!)
 
 (defn- with-router-capture
   "Stub the late-bind `:router/dispatch!` hook to capture dispatched

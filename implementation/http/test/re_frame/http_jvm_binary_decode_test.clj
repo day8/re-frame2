@@ -30,8 +30,8 @@
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-transport-jvm :as transport-jvm]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.transport-jvm :as transport-jvm]
             [re-frame.test-support :as test-support])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
@@ -52,7 +52,7 @@
   (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   (http-managed/clear-all-in-flight!)
   (http-managed/clear-all-http-interceptors!)
   (rf/with-frame :rf/default

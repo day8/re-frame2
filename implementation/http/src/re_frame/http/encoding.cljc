@@ -1,10 +1,10 @@
-(ns re-frame.http-encoding
+(ns re-frame.http.encoding
   "Pure-fn helpers for the `:rf.http/managed` request/response pipeline.
 
-  Extracted from `re-frame.http-managed` per rf2-3i9b. The fns here are
+  Extracted from `re-frame.http.managed` per rf2-3i9b. The fns here are
   fully pure — they touch no atoms and dispatch no events — so they are
   trivially testable and shared by the unified Fetch (CLJS) +
-  `HttpClient` (JVM) transport in `re-frame.http-transport`.
+  `HttpClient` (JVM) transport in `re-frame.http.transport`.
 
   Surfaces (post-rf2-5ijhk split):
 
@@ -37,7 +37,7 @@
   (:require [clojure.string  :as str]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
-            [re-frame.util-json :as util-json])
+            [re-frame.http.json :as util-json])
   #?(:clj (:import [java.net URLEncoder])))
 
 ;; ---- query string + URL helpers -------------------------------------------

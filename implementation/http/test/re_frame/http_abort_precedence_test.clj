@@ -18,7 +18,7 @@
   finalise seam is driven DIRECTLY with the abort intent already recorded
   on the handle (the transport-classification precedence, pinned without
   any cross-thread timing). The abort-wins seam in
-  `re-frame.http-transport` (`finalise-failure!` / `finalise-success!`
+  `re-frame.http.transport` (`finalise-failure!` / `finalise-success!`
   re-sample the handle's `:aborted?` cell after winning the once-only CAS)
   collapses the observable outcome to `:rf.http/aborted` regardless of
   which side classified first.
@@ -39,9 +39,9 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-registry :as http-registry]
-            [re-frame.http-transport :as http-transport]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as http-registry]
+            [re-frame.http.transport :as http-transport]
             [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -67,7 +67,7 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   (machines/reset-timers!)
   (http-managed/clear-all-in-flight!)
   (rf/with-frame :rf/default

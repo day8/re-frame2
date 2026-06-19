@@ -1,8 +1,8 @@
-(ns re-frame.http-decode
+(ns re-frame.http.decode
   "Response-body decoding for `:rf.http/managed`. Per Spec 014 §Decoding
   / §`:auto` (rf2-5ijhk split).
 
-  Extracted from `re-frame.http-encoding` per rf2-5ijhk — the original
+  Extracted from `re-frame.http.encoding` per rf2-5ijhk — the original
   encoding namespace mixed five concerns; this sibling isolates the
   decode pipeline (`content-type-of`, `sniff-decoder`, `malli-decode`,
   `decode-response-body`).
@@ -37,7 +37,7 @@
             [re-frame.error   :as error]
             [re-frame.interop :as interop]
             [re-frame.trace   :as trace]
-            [re-frame.util-json :as util-json]))
+            [re-frame.http.json :as util-json]))
 
 (defn content-type-of
   "Per Spec 014 §Request envelope — HTTP header names are case-insensitive.

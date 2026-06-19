@@ -55,15 +55,15 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.http-managed :as http-managed]
-            [re-frame.http-registry :as http-registry]
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as http-registry]
             ;; rf2-cdmle — required only to keep the test-support
             ;; canned-stub fx ids registered (mirrors http-managed-test's
             ;; require closure). This file does NOT use the stubs; the
             ;; abort path is exercised by writing directly into the
             ;; in-flight registry with a recording abort-fn (mirrors
             ;; routing_http_composed_corners_test.clj's pattern).
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -89,8 +89,8 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (require 're-frame.http-managed :reload)
-  (require 're-frame.http-test-support :reload)
+  (require 're-frame.http.managed :reload)
+  (require 're-frame.http.test-support :reload)
   (http-managed/clear-all-in-flight!)
   (rf/with-frame :rf/default
     (let [captured (atom [])]
