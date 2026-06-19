@@ -302,6 +302,41 @@
   machines chart + export IDENTICALLY)."}
   reenter? g/reenter?)
 
+(defn- transition-edge
+  "Project ONE transition `candidate` into an edge-map (or `nil` to drop),
+  owning the `internal?` / target-resolution / `:internal?` / `:reenter?`
+  scaffolding that the five trigger sites (`on-done-edges`,
+  `collect-state-edges`'s `:on` / `:after` / `:always`, and
+  `collect-machine-edges`) otherwise repeat verbatim.
+
+  `internal?` (rf2-mnp93.4 / rf2-5uhdaz) is a map candidate that OMITS
+  `:target` — it self-anchors on `self-path` and is flagged `:internal? true`
+  (a hanging action chip that runs only its `:action`). A targeted candidate
+  resolves via `resolve` (a fn of the candidate's `:target`); a `nil` resolve
+  (e.g. a `:same-state` machine-level fallback with no concrete root state)
+  drops the edge.
+
+  Callers pass:
+    - `base`     — the trigger-specific base map (`:from` / `:event` / any
+                   trigger flags like `:after` / `:always?` / `:on-done?` /
+                   `:machine-level?`). `:guard` / `:action` are filled here
+                   from the candidate.
+    - `self-path`— the path the internal case self-anchors on (the source
+                   state path, or `[]` for the machine root).
+    - `resolve`  — a fn `(:target candidate) → target-path-or-nil`."
+  [candidate base self-path resolve]
+  (let [internal? (and (map? candidate)
+                       (not (contains? candidate :target)))
+        tp        (if internal? self-path (resolve (:target candidate)))]
+    (when (or internal? tp)
+      (cond-> (assoc base
+                     :to     tp
+                     :guard  (:guard candidate)
+                     :action (:action candidate))
+        internal?            (assoc :internal? true)
+        ;; rf2-9dj21r — the external-restart opt-in.
+        (reenter? candidate) (assoc :reenter? true)))))
+
 (defn on-done-edges
   "rf2-41goo — emit the completion edge(s) for a node's `:on-done`
   (Spec 005 §The done-state signal — XState v5 `onDone`).
@@ -330,24 +365,17 @@
   compound's own path / the parallel-root sentinel); it rides the edge as
   `:done-path` so the SCXML emitter can mint `done.state.<id>` faithfully."
   [done-path state-path on-done-spec]
+  ;; rf2-9dj21r — a target-bearing `:on-done` may opt in to `:reenter?`;
+  ;; `transition-edge` carries it. The internal (action-only) `:on-done`
+  ;; self-anchors on the compound's own path as a terminal done chip.
   (keep (fn [candidate]
-          (let [internal? (and (map? candidate)
-                               (not (contains? candidate :target)))
-                tp        (if internal?
+          (transition-edge candidate
+                            {:from      (vec state-path)
+                             :event     :rf.machine/done
+                             :on-done?  true
+                             :done-path (vec done-path)}
                             (vec state-path)
-                            (resolve-target-path state-path (:target candidate)))]
-            (when tp
-              (cond-> {:from      (vec state-path)
-                       :to        tp
-                       :event     :rf.machine/done
-                       :on-done?  true
-                       :done-path (vec done-path)
-                       :guard     (:guard candidate)
-                       :action    (:action candidate)}
-                internal? (assoc :internal? true)
-                ;; rf2-9dj21r — carry the external-restart axis (a
-                ;; target-bearing `:on-done` may opt in to `:reenter?`).
-                (reenter? candidate) (assoc :reenter? true)))))
+                            #(resolve-target-path state-path %)))
         (g/transition-candidates on-done-spec)))
 
 (defn- collect-state-edges
@@ -372,87 +400,46 @@
   completion edge (sibling target, or a terminal affordance for the
   action-only form) via `on-done-edges`."
   [state-path state-node]
-  (let [edges-from
+  (let [self-anchor  (vec state-path)
+        resolve-tgt  #(resolve-target-path state-path %)
+        edges-from
         (concat
          (mapcat (fn [[event-id spec]]
                    (keep (fn [candidate]
-                           (let [internal? (and (map? candidate)
-                                                (not (contains? candidate :target)))
-                                 tp        (if internal?
-                                             (vec state-path)
-                                             (resolve-target-path state-path
-                                                                  (:target candidate)))]
-                             (when tp
-                               (cond-> {:from   state-path
-                                        :to     tp
-                                        :event  event-id
-                                        :guard  (:guard candidate)
-                                        :action (:action candidate)}
-                                 internal? (assoc :internal? true)
-                                 ;; rf2-9dj21r — the external-restart opt-in.
-                                 (reenter? candidate) (assoc :reenter? true)))))
+                           (transition-edge candidate
+                                            {:from state-path :event event-id}
+                                            self-anchor resolve-tgt))
                          (g/transition-candidates spec)))
                  (:on state-node))
+         ;; rf2-mnp93.4 — an internal (action-only, no-`:target`) `:after`
+         ;; candidate is a documented Spec 005 shape (the timer just runs an
+         ;; `:action`; the config is unchanged). `transition-edge` self-anchors
+         ;; + flags `:internal?` exactly as the `:on` branch — pre-fix
+         ;; `resolve-target-path` returned nil for a target-less candidate, so
+         ;; `keep` SILENTLY DROPPED it (inconsistent even WITHIN the chart:
+         ;; internal `:on` rendered, internal `:after` did not).
          (mapcat (fn [[delay spec]]
                    (keep (fn [candidate]
-                           ;; rf2-mnp93.4 — an internal (action-only,
-                           ;; no-`:target`) `:after` candidate is a
-                           ;; documented Spec 005 shape (the timer just
-                           ;; runs an `:action`; the config is unchanged).
-                           ;; Self-anchor + flag `:internal?`, exactly as
-                           ;; the `:on` branch above already does — pre-fix
-                           ;; `resolve-target-path` returned nil for a
-                           ;; target-less candidate, so `keep` SILENTLY
-                           ;; DROPPED it (inconsistent even WITHIN the chart:
-                           ;; internal `:on` rendered, internal `:after` did
-                           ;; not).
-                           (let [internal? (and (map? candidate)
-                                                (not (contains? candidate :target)))
-                                 tp        (if internal?
-                                             (vec state-path)
-                                             (resolve-target-path state-path
-                                                                  (:target candidate)))]
-                             (when tp
-                               (cond-> {:from   state-path
-                                        :to     tp
-                                        :event  (keyword (str "after-" delay))
-                                        :after  delay
-                                        :guard  (:guard candidate)
-                                        :action (:action candidate)}
-                                 internal? (assoc :internal? true)
-                                 ;; rf2-9dj21r — the external-restart opt-in.
-                                 (reenter? candidate) (assoc :reenter? true)))))
+                           (transition-edge candidate
+                                            {:from  state-path
+                                             :event (keyword (str "after-" delay))
+                                             :after delay}
+                                            self-anchor resolve-tgt))
                          (g/transition-candidates spec)))
                  (:after state-node))
-         (mapcat (fn [candidate]
-                   ;; rf2-mnp93.4 — an internal (action-only) `:always`
-                   ;; candidate (the canonical re-evaluate-while-condition
-                   ;; loop is a TARGETLESS guarded `:always`, Spec 005
-                   ;; §:reenter? vs a self-`:target` on `:always`) self-
-                   ;; anchors + flags `:internal?` like the `:on`/`:after`
-                   ;; branches — pre-fix it was silently dropped.
-                   (let [internal? (and (map? candidate)
-                                        (not (contains? candidate :target)))
-                         tp        (if internal?
-                                     (vec state-path)
-                                     (resolve-target-path state-path
-                                                          (:target candidate)))]
-                     (when tp
-                       [(cond-> {:from   state-path
-                                 :to     tp
-                                 :event  :always
-                                 :always? true
-                                 :guard  (:guard candidate)
-                                 :action (:action candidate)}
-                          internal? (assoc :internal? true)
-                          ;; rf2-9dj21r — carry the flag faithfully even on
-                          ;; `:always` (a self-target on `:always` is rejected
-                          ;; at registration, so `:reenter?` is a no-op there —
-                          ;; but the viz never silently drops author-declared
-                          ;; keys, and a cross/ancestor `:always` target may
-                          ;; legitimately carry it).
-                          (reenter? candidate) (assoc :reenter? true))])))
-                 (g/transition-candidates (:always state-node)))
+         ;; rf2-mnp93.4 — an internal (action-only) `:always` candidate (the
+         ;; canonical re-evaluate-while-condition loop is a TARGETLESS guarded
+         ;; `:always`, Spec 005 §:reenter? vs a self-`:target` on `:always`)
+         ;; self-anchors + flags `:internal?` like the `:on`/`:after` branches —
+         ;; pre-fix it was silently dropped. `:reenter?` is carried faithfully
+         ;; even though a self-target on `:always` is rejected at registration
+         ;; (no-op there); a cross/ancestor `:always` target may legitimately
+         ;; carry it, and the viz never silently drops author-declared keys.
+         (keep (fn [candidate]
+                 (transition-edge candidate
+                                  {:from state-path :event :always :always? true}
+                                  self-anchor resolve-tgt))
+               (g/transition-candidates (:always state-node)))
          ;; rf2-41goo — the compound / region-compound `:on-done`
          ;; completion edge (XState `onDone`). The done node is THIS node
          ;; (its path is the `done.state.<id>` the engine raises).
@@ -829,28 +816,16 @@
   (when (seq machine-on)
     (mapcat
       (fn [[event-id spec]]
+        ;; rf2-5uhdaz — an internal (omit-`:target`) candidate is a documented
+        ;; Spec 005 shape; `transition-edge` self-anchors it on the root node
+        ;; (`:to []`), mirroring `collect-state-edges` / `collect-parallel-
+        ;; root-edges`. `:same-state` (a sentinel value, not an omitted key) has
+        ;; no concrete root state and resolves to nil → dropped.
         (keep (fn [candidate]
-                ;; rf2-5uhdaz — an internal (omit-`:target`) candidate is a
-                ;; documented Spec 005 shape; self-anchor it on the root
-                ;; node, mirroring `collect-state-edges` / `collect-parallel-
-                ;; root-edges`. `:same-state` (no `:target` key omitted, but a
-                ;; sentinel value) has no concrete root state and falls through
-                ;; to the `tp == nil` drop below.
-                (let [internal? (and (map? candidate)
-                                     (not (contains? candidate :target)))
-                      tp        (if internal?
-                                  []
-                                  (resolve-target-path [] (:target candidate)))]
-                  (when (or internal? tp)
-                    (cond-> {:from           []
-                             :to             tp
-                             :event          event-id
-                             :guard          (:guard candidate)
-                             :action         (:action candidate)
-                             :machine-level? true}
-                      internal?            (assoc :internal? true)
-                      ;; rf2-9dj21r — carry the external-restart axis.
-                      (reenter? candidate) (assoc :reenter? true)))))
+                (transition-edge candidate
+                                 {:from [] :event event-id :machine-level? true}
+                                 []
+                                 #(resolve-target-path [] %)))
               (g/transition-candidates spec)))
       machine-on)))
 
@@ -862,50 +837,42 @@
 ;; read unchanged.
 (def ^:private normalise-root-targets g/normalise-root-targets)
 
-(defn- collect-parallel-root-edges
-  "rf2-3v3gv1 — emit edges for a `:type :parallel` machine's OWN top-level
-  `:on` (the ROOT parallel transition — the ancestor fallback for its regions,
-  Spec 005 §Root parallel `:on`). Shipped runtime semantics: when no region
-  handles the event the root `:on` fires, moving one or more REGION-QUALIFIED
-  targets atomically (untargeted regions stay put). Pre-fix the chart
-  projection modelled the per-region `:on` fallbacks (via `project-flat` →
-  `collect-machine-edges`) but DROPPED the parallel root's own `:on`, so Xray
-  could neither render the transition in topology nor highlight it on a focused
-  event.
+(defn- collect-parallel-root-edges*
+  "Shared projector for a `:type :parallel` machine's OWN top-level root
+  transitions (the `:on` and `:after` collectors below). Owns the
+  region-qualified-targets / base-map / one-edge-per-target / targetless-
+  self-anchor / `:reenter?` scaffolding once; the two callers differ ONLY in:
+
+    - `root-map`     — the trigger-keyed map (`(:on def)` / `(:after def)`),
+    - `event-fn`     — derives the `:event` keyword from the loop key
+                       (event-id verbatim, or `:after-<delay>`), AND
+    - `extra-base`   — a fn of the loop key returning trigger-specific base
+                       keys (`{}` for `:on`; `{:after delay
+                       :parallel-root-after? true}` for `:after`).
 
   Each candidate projects ONCE PER region-qualified target, sourced from the
-  synthetic MACHINE-ROOT node (`machine-root-id`) into the region's
-  in-region target — exactly as a flat machine's `collect-machine-edges`
-  fallback sources its chip from the root. The edge carries:
-
-    - `:from []` (the root context, so `edge-source-id` mints `machine-root-id`),
-    - `:to [<region> & <in-region-path>]` (the absolute region-qualified path
-      the runtime applies — its node-id is `region-scoped-id` of the region +
-      in-region path, re-pointed in `project-parallel` below),
-    - `:machine-level? true` (an inherited root fallback — distinct from a
-      region-local transition; the fired-edge matcher + SCXML emitter key off
-      this), AND
-    - `:parallel-root-on? true` (this is the PARALLEL root's `:on`, not a flat
-      machine-level fallback — `project-parallel` re-points its `:target` to
-      the region-scoped node rather than a top-level state).
-
-  A TARGETLESS / action-only root `:on` candidate (no region-qualified target)
-  self-anchors on the machine-root node and is flagged `:internal? true`,
-  rendering as a hanging action chip (the parallel-root `:on-done` shape) — it
-  runs the action / `:fx` and moves no region. Returns a seq of edge maps."
-  [root-on]
-  (when (seq root-on)
+  synthetic MACHINE-ROOT node (`machine-root-id`) into the region's in-region
+  target — exactly as a flat machine's `collect-machine-edges` fallback sources
+  its chip from the root. The edge carries `:from []` (the root context),
+  `:to [<region> & <in-region-path>]` (the absolute region-qualified path),
+  `:machine-level? true` (an inherited root fallback) and `:parallel-root-on?
+  true` (re-pointed to the region-scoped node by `project-parallel`). A
+  TARGETLESS / action-only candidate self-anchors on the machine-root node as
+  an `:internal?` chip (moves no region). Returns a seq of edge maps."
+  [root-map event-fn extra-base]
+  (when (seq root-map)
     (mapcat
-      (fn [[event-id spec]]
+      (fn [[k spec]]
         (mapcat
           (fn [candidate]
             (let [targets (normalise-root-targets (:target candidate))
-                  base    {:from              []
-                           :event             event-id
-                           :guard             (:guard candidate)
-                           :action            (:action candidate)
-                           :machine-level?    true
-                           :parallel-root-on? true}]
+                  base    (merge {:from              []
+                                  :event             (event-fn k)
+                                  :guard             (:guard candidate)
+                                  :action            (:action candidate)
+                                  :machine-level?    true
+                                  :parallel-root-on? true}
+                                 (extra-base k))]
               (if (seq targets)
                 ;; One edge per region-qualified target (single- or multi-
                 ;; region). `:to` is the absolute region-qualified path.
@@ -918,7 +885,23 @@
                 [(cond-> (assoc base :to [] :internal? true)
                    (reenter? candidate) (assoc :reenter? true))])))
           (g/transition-candidates spec)))
-      root-on)))
+      root-map)))
+
+(defn- collect-parallel-root-edges
+  "rf2-3v3gv1 — emit edges for a `:type :parallel` machine's OWN top-level
+  `:on` (the ROOT parallel transition — the ancestor fallback for its regions,
+  Spec 005 §Root parallel `:on`). Shipped runtime semantics: when no region
+  handles the event the root `:on` fires, moving one or more REGION-QUALIFIED
+  targets atomically (untargeted regions stay put). Pre-fix the chart
+  projection modelled the per-region `:on` fallbacks (via `project-flat` →
+  `collect-machine-edges`) but DROPPED the parallel root's own `:on`, so Xray
+  could neither render the transition in topology nor highlight it on a focused
+  event.
+
+  The `:event` is the event-id verbatim and there are no trigger-specific extra
+  base keys; all scaffolding lives in `collect-parallel-root-edges*`."
+  [root-on]
+  (collect-parallel-root-edges* root-on identity (constantly nil)))
 
 (defn- collect-parallel-root-after-edges
   "rf2-m3otj2 — emit edges for a `:type :parallel` machine's OWN top-level
@@ -931,38 +914,16 @@
   collected ONLY the root `:on` and DROPPED the root `:after`, so a valid
   machine-lifetime timeout was invisible in topology.
 
-  Structurally identical to `collect-parallel-root-edges` — each candidate
-  projects ONCE PER region-qualified target from the synthetic MACHINE-ROOT
-  node into the region's in-region target — but each edge additionally carries
-  `:after <delay>` (so `event-segment` paints the `⌚ <delay>ms` glyph) and is
-  flagged `:parallel-root-after? true` (the timer-driven sibling of
-  `:parallel-root-on?`). A TARGETLESS / action-only root `:after` self-anchors
-  on the machine-root node as an `:internal?` chip (a hanging delayed-action
-  affordance, moves no region). Returns a seq of edge maps."
+  Reuses `collect-parallel-root-edges*` — the only per-trigger differences are
+  the `:event` derivation (`:after-<delay>`) and the extra base keys `:after
+  <delay>` (so `event-segment` paints the `⌚ <delay>ms` glyph) +
+  `:parallel-root-after? true` (the timer-driven sibling of
+  `:parallel-root-on?`)."
   [root-after]
-  (when (seq root-after)
-    (mapcat
-      (fn [[delay spec]]
-        (mapcat
-          (fn [candidate]
-            (let [targets (normalise-root-targets (:target candidate))
-                  base    {:from                 []
-                           :event                (keyword (str "after-" delay))
-                           :after                delay
-                           :guard                (:guard candidate)
-                           :action               (:action candidate)
-                           :machine-level?       true
-                           :parallel-root-on?    true
-                           :parallel-root-after? true}]
-              (if (seq targets)
-                (map (fn [tgt]
-                       (cond-> (assoc base :to (vec tgt))
-                         (reenter? candidate) (assoc :reenter? true)))
-                     targets)
-                [(cond-> (assoc base :to [] :internal? true)
-                   (reenter? candidate) (assoc :reenter? true))])))
-          (g/transition-candidates spec)))
-      root-after)))
+  (collect-parallel-root-edges*
+    root-after
+    (fn [delay] (keyword (str "after-" delay)))
+    (fn [delay] {:after delay :parallel-root-after? true})))
 
 ;; ---- public projection --------------------------------------------------
 
