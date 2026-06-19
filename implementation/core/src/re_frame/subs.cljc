@@ -264,6 +264,30 @@
                   :rf.sub/input-signals (or input-signals [])})
     id))
 
+(defn- register-single-source-sub!
+  "Shared registrar write for the layer-1-SHAPED single-source FRAMEWORK
+  reader kinds (`:runtime-db`, `:frame-state`) — the body `reg-runtime-sub`
+  and `reg-frame-state-sub` differ on ONLY by the `input-kind` keyword. Each
+  reads ONE frame-state container directly (no `:<-` / `input-fn` producer,
+  so `:input-signals` is empty `[]`).
+
+  rf2-ehexnw — VALIDATE marks fail-loud BEFORE the registrar write; marks are
+  DERIVED from the registrar meta at read time, no imperative stash. Emits the
+  Spec 009 §`:rf.sub/create` materialisation trace. Returns `id`."
+  [id meta handler-fn input-kind]
+  (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
+    (validate! :sub meta))
+  (registrar/register! :sub id
+    (assoc (source-coords/merge-coords meta)
+           :handler-fn    handler-fn
+           :input-kind    input-kind
+           :input-signals []))
+  (trace/emit! :rf.sub :rf.sub/create
+               {:rf.sub/id            id
+                :rf.sub/input-kind    input-kind
+                :rf.sub/input-signals []})
+  id)
+
 (defn reg-runtime-sub
   "Register a FRAMEWORK subscription whose single layer-1-shaped signal
   source is the frame's **runtime-db** projection rather than app-db
@@ -281,20 +305,7 @@
   `reg-sub`. Returns `id`."
   ([id handler-fn] (reg-runtime-sub id {} handler-fn))
   ([id meta handler-fn]
-   ;; rf2-ehexnw — VALIDATE marks fail-loud before the registrar write; marks
-   ;; are DERIVED from the registrar meta at read time, no imperative stash.
-   (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-     (validate! :sub meta))
-   (registrar/register! :sub id
-     (assoc (source-coords/merge-coords meta)
-            :handler-fn    handler-fn
-            :input-kind    :runtime-db
-            :input-signals []))
-   (trace/emit! :rf.sub :rf.sub/create
-                {:rf.sub/id            id
-                 :rf.sub/input-kind    :runtime-db
-                 :rf.sub/input-signals []})
-   id))
+   (register-single-source-sub! id meta handler-fn :runtime-db)))
 
 (defn reg-frame-state-sub
   "Register a FRAMEWORK subscription whose single layer-1-shaped signal
@@ -321,20 +332,7 @@
   `reg-sub` / `reg-runtime-sub`. Returns `id`."
   ([id handler-fn] (reg-frame-state-sub id {} handler-fn))
   ([id meta handler-fn]
-   ;; rf2-ehexnw — VALIDATE marks fail-loud before the registrar write; marks
-   ;; are DERIVED from the registrar meta at read time, no imperative stash.
-   (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-     (validate! :sub meta))
-   (registrar/register! :sub id
-     (assoc (source-coords/merge-coords meta)
-            :handler-fn    handler-fn
-            :input-kind    :frame-state
-            :input-signals []))
-   (trace/emit! :rf.sub :rf.sub/create
-                {:rf.sub/id            id
-                 :rf.sub/input-kind    :frame-state
-                 :rf.sub/input-signals []})
-   id))
+   (register-single-source-sub! id meta handler-fn :frame-state)))
 
 (defn clear-sub
   "Unregister a subscription. Zero-arity clears every registered sub
@@ -659,6 +657,9 @@
                              :resolved-inputs  []
                              :frame            frame-id})))
         body-fn       (:handler-fn sub-meta)
+        ;; Read the discriminator ONCE — it drives the single-source detection,
+        ;; the container resolution, and the memoised-body dispatch below.
+        input-kind    (:input-kind sub-meta)
         ;; A `:db` layer-1 sub specifically (the narrow single-source kind whose
         ;; input is the app-db container) — used by the dev-only output-marks
         ;; resolve + the not-cached symmetric-input-release guard below.
@@ -670,7 +671,12 @@
         ;; a single-source reader over the WHOLE frame-state value (both
         ;; partitions, so the body re-runs on EITHER an app-db or a runtime-db
         ;; change).
-        layer-1?      (= :db (:input-kind sub-meta))
+        layer-1?      (= :db input-kind)
+        ;; The single-source container resolver for this kind (`:db` → app-db,
+        ;; `:runtime-db` → runtime-db, `:frame-state` → whole frame-state), or
+        ;; nil for the producer kinds (`:static` / `:parametric` / a miss). One
+        ;; lookup shared by the `inputs` and `memoised-body` cond branches below.
+        container-fn  (single-source-container-for input-kind)
         ;; Produce the realized input query-vectors for THIS concrete
         ;; cache entry from the sub's input producer (Spec 006
         ;; §Subscription input producers): `[]` for layer-1, the literal
@@ -699,11 +705,10 @@
         ;; EITHER partition (EP-0016 D3 slice 3). Layer-2+ subscribes each
         ;; realized input.
         inputs        (cond
-                        (single-source-container-for (:input-kind sub-meta))
-                        [((single-source-container-for (:input-kind sub-meta)) frame-id)]
+                        container-fn [(container-fn frame-id)]
                         input-error? []
-                        :else       (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
-        parametric?   (= :parametric (:input-kind sub-meta))
+                        :else        (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
+        parametric?   (= :parametric input-kind)
         memoised-body (cond
                         input-error?
                         ;; Recovery body: a constant nil reaction (Spec 009
@@ -718,7 +723,9 @@
                         ;; vs runtime-db projection vs the whole frame-state
                         ;; container). A `:frame-state` body receives the full
                         ;; frame-state value `{:rf.db/app … :rf.db/runtime …}`.
-                        (single-source-input-kinds (:input-kind sub-meta))
+                        ;; `container-fn` is exactly the single-source membership
+                        ;; (its map keys ARE `single-source-input-kinds`).
+                        container-fn
                         (subs-memo/make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
 
@@ -1268,14 +1275,15 @@
           (trace/emit! :rf.sub :rf.sub/run
                        {:rf.sub/id      query-id
                         :rf.sub/query-v query-v})
-          (let [body-fn  (:handler-fn meta)
+          (let [body-fn    (:handler-fn meta)
+                input-kind (:input-kind meta)
                 ;; EP-0001 (rf2-vzld77): `:db` and `:runtime-db` are both
                 ;; single-source readers — `compute-sub` passes the supplied
                 ;; value straight to the body for either. For a `:runtime-db`
                 ;; sub the caller supplies the runtime-db value (or a
                 ;; frame-state value, from which `compute-sub` extracts the
                 ;; right partition — see below).
-                layer-1? (single-source-input-kinds (:input-kind meta))
+                layer-1?   (single-source-input-kinds input-kind)
                 ;; Produce the realized input query-vectors from the sub's
                 ;; input producer — the SAME three-mode model as the
                 ;; reactive cache path (Spec 006 §Subscription input
@@ -1306,7 +1314,7 @@
                           ;; whole sub to nil (already emitted above).
                           nil
                           (try
-                          (let [parametric? (= :parametric (:input-kind meta))
+                          (let [parametric? (= :parametric input-kind)
                                 raw (cond
                                       ;; Layer-1-shaped (`:db` / `:runtime-db` /
                                       ;; `:frame-state` — see the `layer-1?` set
@@ -1319,7 +1327,7 @@
                                       ;; right slice when `db` is a frame-state
                                       ;; value (rf2-vzld77).
                                       layer-1?
-                                      (body-fn (partition-value-for-sub db (:input-kind meta)) query-v)
+                                      (body-fn (partition-value-for-sub db input-kind) query-v)
 
                                       ;; PARAMETRIC subs deliver a VECTOR of
                                       ;; resolved input values (producer
