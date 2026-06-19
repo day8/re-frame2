@@ -193,14 +193,17 @@
                 ;; (production-survivable — fan out on the always-on error
                 ;; channel THEN throw); ONE :rf/event-handler wrapper
                 ;; (:rf/default? true), :event/kind gone, reg-event-ctx NOT a
-                ;; public facade var; realm-routing preserved (a15n62). Every
-                ;; assertion is ADVERSARIAL — a re-introduced old form, a second
-                ;; wrapper id, a returning :event/kind, or a reg-event-ctx
-                ;; facade promotion goes RED. The contract spans the events
-                ;; runtime + the public facade + the error-emit channel + the
-                ;; realm registrar — wider than any single artefact's test tree
-                ;; — so (like reply-conformance/ + derivation-conformance/) it
-                ;; lives in its own top-level event-conformance/ surface.
+                ;; public facade var. Every assertion is ADVERSARIAL — a
+                ;; re-introduced old form, a second wrapper id, a returning
+                ;; :event/kind, or a reg-event-ctx facade promotion goes RED.
+                ;; The contract spans the events runtime + the public facade +
+                ;; the error-emit channel — wider than any single artefact's
+                ;; test tree — so (like reply-conformance/ +
+                ;; derivation-conformance/) it lives in its own top-level
+                ;; event-conformance/ surface. (No realm-routing/frame-query
+                ;; section: the realm substrate collapsed in EP-0023/EP-0024;
+                ;; that contract is locked in core's facade-frame-read + the
+                ;; sibling event-frame-isolation conformance ns.)
                 ;; Namespaces end in `-cljs-test`, so they run under the
                 ;; always-on :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is event-conformance/deps.edn `:test`.

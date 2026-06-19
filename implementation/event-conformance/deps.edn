@@ -31,8 +31,16 @@
 ;;   - ONE unified `:rf/event-handler` wrapper (`:rf/default? true`); the
 ;;     `:event/kind` sub-tag is GONE; `reg-event-ctx` is NOT a public
 ;;     (doc'd) facade var.
-;;   - realm-routing is PRESERVED for `reg-event` — the public registrar
-;;     resolves through the owning frame's realm registrar (a15n62).
+;;
+;; This tier carries NO realm-routing / frame-query section. The EP-0013
+;; multi-realm substrate was retired in the EP-0023/EP-0024 realm collapse
+;; (rf2-afdlyr / rf2-tu2vr7) — there is no public realm query coordinate;
+;; the public read grammar is FRAME-TARGETED over a live frame's sealed
+;; image generation. The frame/query read contract (`rf/handler-meta` /
+;; `rf/registrations` / `rf/handler-ids` `{:frame …}`) is locked in core's
+;; `re-frame.facade-frame-read-cljs-test`, and the live-dispatch isolation
+;; leg in the sibling `re-frame.event-frame-isolation-conformance-cljs-test`
+;; — not restated here.
 ;;
 ;; Where the in-core `re-frame.reg-event-cljs-test` carries the narrow
 ;; per-feature unit checks, this tier is the ADVERSARIAL umbrella LOCK:
@@ -41,7 +49,7 @@
 ;; re-appearing `:event/kind` sub-tag, or a `reg-event-ctx` promotion back
 ;; onto the public facade would turn it RED. It lives in its own
 ;; cross-artefact surface because the contract spans the events runtime,
-;; the public facade, the error-emit channel, and the realm registrar.
+;; the public facade, and the error-emit channel.
 ;;
 ;; ## Why this deps.edn exists
 ;;
@@ -61,7 +69,7 @@
 ;; This artefact ships nothing, so the top-level `:deps` is empty. The
 ;; cross-artefact source the test namespaces `:require`
 ;; (`re-frame.core` — the public facade; plus the internal
-;; `re-frame.events` / `re-frame.error-emit` / `re-frame.realm` /
+;; `re-frame.events` / `re-frame.error-emit` /
 ;; `re-frame.registrar` / `re-frame.frame` / `re-frame.test-support` /
 ;; `re-frame.substrate.plain-atom` from core) is pulled in under the
 ;; `:test` alias only. `:extra-paths` is JUST `["test"]` so the cognitect
@@ -84,9 +92,9 @@
    ;; core carries the WHOLE one-form event contract: the public facade
    ;; (`re-frame.core`), the events runtime + retired stubs
    ;; (`re-frame.events`), the always-on error channel
-   ;; (`re-frame.error-emit`), the realm registrar
-   ;; (`re-frame.realm` / `re-frame.registrar` / `re-frame.frame`), the
-   ;; default substrate, and the shared test harness.
+   ;; (`re-frame.error-emit`), the registrar + frame registry
+   ;; (`re-frame.registrar` / `re-frame.frame`), the default substrate,
+   ;; and the shared test harness.
    :extra-deps  {day8/re-frame2 {:local/root "../core"}
                  ;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
