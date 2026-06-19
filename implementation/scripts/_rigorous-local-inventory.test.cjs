@@ -7,8 +7,9 @@
  * It had drifted behind that sweep: it ran `test:story-feature-load`,
  * `test:xray-feature-gate`, and `test:story-static` but omitted
  * `test:story-play-scripts` (a sweep command) and `test:examples-compile`
- * (the example-build compile gate that test.yml's cljs-browser job runs before
- * Playwright install). A developer running `scripts/test-rigorous-local.sh`
+ * (the example-build compile gate that test.yml runs in its own parallel
+ * cljs-examples-compile job — split out of cljs-browser per rf2-9cw850). A
+ * developer running `scripts/test-rigorous-local.sh`
  * before a release-sized change could get `PASS rigorous local suite` without
  * the example-compile coverage gate or the Story play-script browser gate —
  * exactly the wiring regressions those gates were added to catch.

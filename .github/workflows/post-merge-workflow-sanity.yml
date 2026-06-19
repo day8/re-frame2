@@ -120,6 +120,7 @@ jobs:
             "docs.yml"                        # already runs on push (paths-filtered)
             "lint.yml"                        # already runs on push (via PR-merge push)
             "portability.yml"                 # already runs on push to main
+            "post-merge-playground-freshness.yml"  # already runs on push (paths-filtered, incl. its own file)
           )
           is_excluded() {
             local f="$1"
