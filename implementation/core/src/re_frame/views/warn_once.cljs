@@ -11,7 +11,8 @@
   per-process set; `make-reset-runtime-fixture` clears it via the chained
   `:adapter/clear-warn-once-caches!` hook (enrolled through the governance
   chokepoint `register-warn-once-clear-fn!`, rf2-z79p8)."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.adapter.context :as adapter-context]
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- non-DOM-root warning ------------------------------------------------
 
@@ -38,11 +39,11 @@
   (when-not (contains? @warned-non-dom-roots id)
     (swap! warned-non-dom-roots conj id)
     (when (exists? js/console)
+      ;; Shared builder (rf2-t9s6p6); nil substrate-name = the Reagent
+      ;; hiccup-walk path carries no substrate qualifier, so the message
+      ;; text is byte-identical to the pre-extraction inline string.
       (.warn js/console
-        (str "[re-frame] reg-view " id " — root element is "
-             (pr-str head) "; data-rf2-source-coord skipped (Spec 006 "
-             "§Source-coord annotation: pair tools fall back to :rf/id "
-             "for non-DOM roots).")))))
+        (adapter-context/non-dom-root-warning id head nil)))))
 
 ;; Enrol the `warned-non-dom-roots` cache into the chained
 ;; `:adapter/clear-warn-once-caches!` hook, via the canonical governance

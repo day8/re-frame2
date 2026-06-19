@@ -899,11 +899,7 @@
     're-frame.substrate.spine/build-frame-provider-element)
   (apply adapter-context/provider-element
          frame-kw
-         (cond
-           (nil? children)              nil
-           (array? children)            (array-seq children)
-           (sequential? children)       children
-           :else                        [children])))
+         (adapter-context/normalize-children children)))
 
 ;; ---- render flush for tests ----------------------------------------------
 ;;
@@ -995,29 +991,15 @@
 ;; confirms the `data-rf2-source-coord` literal is absent from
 ;; production builds.
 
-(defn format-source-coord
-  "Render captured registry coords as the attribute value shape
-  `<ns>:<sym>:<line>:<col>`. Mirrors re-frame.views/format-source-coord
-  so DOM output is identical across substrates."
-  [id coords]
-  (let [ns-part  (or (namespace id) "?")
-        sym-part (name id)
-        line     (:line coords)
-        col      (:column coords)]
-    (str ns-part ":" sym-part ":"
-         (if line (str line) "?")
-         ":"
-         (if col (str col) "?"))))
-
-(defn format-view-id
-  "Render the registry id keyword as the `:data-rf-view` attribute
-  value. Returns `(str id)` so `:rf.foo/bar` → `\":rf.foo/bar\"`. The
-  walker reads it back via `(keyword (subs s 1))` when the leading `:`
-  is present. Per Spec 006 §View tagging contract (rf2-01il5).
-  Mirrors re-frame.views.source-coord-annotation/format-view-id so
-  the attribute value is identical across substrates."
-  [id]
-  (str id))
+;; `format-source-coord` / `format-view-id` are the pure string projections
+;; of the annotation attribute VALUES — shared with the Reagent hiccup walk
+;; through the leaf `re-frame.adapter.context` so the React-element-clone
+;; path here and the hiccup path in `re-frame.views.source-coord-annotation`
+;; emit byte-identical `data-rf2-source-coord` / `data-rf-view` values
+;; across substrates (rf2-t9s6p6). Aliased to the spine's historical names
+;; so call sites in `make-wrap-view` are unchanged.
+(def format-source-coord adapter-context/format-source-coord)
+(def format-view-id       adapter-context/format-view-id)
 
 (defn make-warn-once-cache
   "Return an `(atom #{})` for tracking per-id warn-once emission. Each
@@ -1047,11 +1029,7 @@
     (when-not (contains? @cache-atom id)
       (swap! cache-atom conj id)
       (.warn js/console
-        (str "[re-frame] reg-view " id " — root element is "
-             (pr-str type-tag) " (" substrate-name "); "
-             "data-rf2-source-coord skipped "
-             "(Spec 006 §Source-coord annotation: pair tools fall back to "
-             ":rf/id for non-DOM roots).")))))
+        (adapter-context/non-dom-root-warning id type-tag substrate-name)))))
 
 (defn- dom-element?
   "True if the React element's `type` is a string (a DOM tag like
