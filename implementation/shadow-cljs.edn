@@ -388,10 +388,12 @@
  ;; `re-frame.testbed.open-in-editor-server/handler` (a JVM-only `.clj`,
  ;; on the classpath via the `../tools/testbed-support/src` source path
  ;; above). The handler answers
- ;; `GET|POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>` by
- ;; resolving the (classpath-relative) `:file` against the live
- ;; source-paths at RUNTIME and launching the editor via the
- ;; `launch-editor` npm package — the JS-ecosystem standard (Vite
+ ;; `POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>` (with OPTIONS
+ ;; for the CORS preflight) by resolving the (classpath-relative) `:file`
+ ;; against the live source-paths at RUNTIME and launching the editor via
+ ;; the `launch-editor` npm package. POST-only + loopback-guarded by
+ ;; design — a GET/HEAD drive-by must never launch an editor (405; the
+ ;; historic Vite / react-dev-utils CVE class) — the JS-ecosystem standard (Vite
  ;; /__open-in-editor, CRA, Next). shadow tries the static file roots
  ;; FIRST, so the handler only ever sees the synthetic endpoint path (no
  ;; file on disk matches it); per-file requests like /main.js fall
