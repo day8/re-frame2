@@ -826,6 +826,51 @@
       (thunk))
     (thunk)))
 
+(defn call-in-request-scope
+  "Invoke `thunk` with the request frame's FULL realm-aware scope established:
+  the carried realm (`*current-realm*`), the realm's resolution registrar
+  (`registrar/*registrar*`), AND the operating frame (`*current-frame*`) — the
+  composed nesting
+
+    (call-with-realm realm-id
+      (fn [] (call-with-frame-realm-registrar (frame frame-id)
+               (fn [] (binding [*current-frame* frame-id] (thunk))))))
+
+  i.e. exactly what `with-frame` expands to (`*current-frame*` rebind), wrapped
+  by the two realm bindings. This is the host-adapter request-scope seam (the
+  SSR-ring non-streaming render walk, the streaming shell / continuation /
+  final-payload drains, and the render-time error-projection path all share it):
+  every per-frame side channel the body touches addresses the `(realm, frame)`
+  slot (`frame-address`), every registered-view / head / route lookup resolves
+  through the owning realm's registrar, and `*current-frame*` is the body's
+  operating frame.
+
+  EP-0013 §Realm Conformance (rf2-bzw8gd / rf2-nu5w48 / rf2-tbr67x): the THREE
+  bindings are coherent and ALL-OR-NOTHING — a site that bound the realm + the
+  frame but FORGOT the registrar would render the default realm's views from a
+  non-default-realm frame (a realm-leak). Single-sourcing the nest here removes
+  that per-site footgun.
+
+  `realm-id` is supplied EXPLICITLY rather than re-derived from `frame-id`
+  because the streaming writer runs on a DAEMON thread with no ambient
+  `*current-realm*`: there, `(frame frame-id)` under a nil carried realm would
+  MISS a non-default-realm frame (it is keyed by `[realm frame-id]`, not the
+  bare id) and `frame-realm` would yield nil. The request thread captures the
+  realm-id (`frame-realm`) while `*current-realm*` is bound and hands it across
+  the thread boundary. `(frame frame-id)` for the registrar is resolved INSIDE
+  the realm binding, so it finds the realm frame on either thread. nil / default
+  `realm-id` ⇒ NO realm binding and (for a default-realm frame) NO registrar
+  binding — the byte-identical single-realm path; only `*current-frame*` is
+  bound, exactly as a bare `with-frame` would. A plain fn (not a macro) so CLJS
+  sibling-ns callers need no `:require-macros`."
+  [realm-id frame-id thunk]
+  (call-with-realm realm-id
+    (fn []
+      (call-with-frame-realm-registrar (frame frame-id)
+        (fn []
+          (binding [*current-frame* frame-id]
+            (thunk)))))))
+
 (defn frame-meta
   "Per Spec 002 §The public registrar query API and Spec-Schemas
   §`:rf/frame-meta`: return the effective metadata map for a frame as a

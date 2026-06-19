@@ -168,11 +168,8 @@
 ;; chunk has committed, so they correctly degrade to a truncate-and-close
 ;; rather than re-stamping a status the wire has already sent.
 
-(defn- ->utf8 ^bytes [^String s]
-  (.getBytes s StandardCharsets/UTF_8))
-
 (defn- write-chunk! [^OutputStream out ^String s]
-  (.write out (->utf8 s))
+  (.write out (.getBytes s StandardCharsets/UTF_8))
   (.flush out))
 
 (defn render-streaming-shell!
@@ -225,14 +222,16 @@
   ;; deferral is a separate axis — blocking ROUTE resources still settle before
   ;; the shell, exactly as in the non-streaming path.
   (ssr/drain-blocking-resources! frame-id opts)
-  ;; rf2-bzw8gd / EP-0013 §Realm Conformance: route the shell render walk's
-  ;; registered-view + head/route lookups through the request frame's OWN realm
-  ;; registrar (streaming counterpart of the non-streaming `build-full-response*`
-  ;; binding). A default-realm frame binds nothing (byte-identical path).
-  (frame/call-with-frame-realm-registrar
-   (frame/frame frame-id)
+  ;; rf2-bzw8gd / rf2-tqjc7h / EP-0013 §Realm Conformance: route the shell
+  ;; render walk's registered-view + head/route lookups through the request
+  ;; frame's OWN realm scope (streaming counterpart of the non-streaming
+  ;; `build-full-response*` binding) via `call-in-request-scope`. We run on the
+  ;; REQUEST thread where the handler already bound the carried realm, so
+  ;; re-binding it from `frame-realm` is an idempotent same-realm rebind; the
+  ;; helper also binds the realm registrar + operating frame as one coherent
+  ;; nest. A default-realm frame binds nothing (byte-identical path).
+  (frame/call-in-request-scope (frame/frame-realm frame-id) frame-id
    (fn []
-   (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
           head-bag   (if (:head opts)
                        {:head-html (:head opts) :html-attrs nil :body-attrs nil}
@@ -266,7 +265,7 @@
        ;; `*current-realm*` is bound) so the daemon writer thread — which has no
        ;; carried realm — can re-establish it around the continuation render
        ;; walk. nil ⇒ default realm (byte-identical path).
-       :realm-id      (frame/frame-realm frame-id)})))))
+       :realm-id      (frame/frame-realm frame-id)}))))
 
 ;; ---- chunk writer (daemon thread, AFTER the head commits) ---------------
 ;;
@@ -412,21 +411,17 @@
       (loop [queue (into clojure.lang.PersistentQueue/EMPTY continuations)]
         (when-let [entry (peek queue)]
           (let [{:keys [id html delta failed? continuations]}
-                ;; rf2-bzw8gd: re-establish the frame's realm on this DAEMON
-                ;; thread (the request thread's `*current-realm*` does not cross
-                ;; the thread boundary) so `render-continuation`'s frame lookups +
+                ;; rf2-bzw8gd / rf2-tqjc7h: re-establish the frame's full
+                ;; realm-aware request scope on this DAEMON thread (the request
+                ;; thread's `*current-realm*`/`*current-frame*` do not cross the
+                ;; thread boundary), so `render-continuation`'s frame lookups +
                 ;; registered-view resolution route through the owning realm.
-                ;; `call-with-realm` binds `*current-realm*` so `(frame frame-id)`
-                ;; resolves the non-default realm's frame record;
-                ;; `call-with-frame-realm-registrar` then binds that realm's
-                ;; registrar. Both no-op for the default realm (byte-identical).
-                (frame/call-with-realm realm-id
+                ;; `call-in-request-scope` binds realm + realm-registrar +
+                ;; operating-frame as one coherent nest; nil/default realm-id is
+                ;; the byte-identical single-realm path.
+                (frame/call-in-request-scope realm-id frame-id
                   (fn []
-                    (frame/call-with-frame-realm-registrar
-                      (frame/frame frame-id)
-                      (fn []
-                        (rf/with-frame frame-id
-                          (streaming/render-continuation frame-id entry))))))
+                    (streaming/render-continuation frame-id entry)))
                 tmpl-fn (if failed?
                           streaming/failed-template
                           streaming/resolved-template)]
@@ -535,49 +530,40 @@
       ;; as `:phase :final-payload` rather than leaking out as the prior
       ;; `:continuation-template`/`:shell-html` phase.
       (vreset! phase [:final-payload nil])
-      ;; rf2-tbr67x / EP-0013 §Realm Conformance: re-establish the frame's
-      ;; carried realm on THIS daemon thread around `build-final-payload`, the
-      ;; SAME `call-with-realm realm-id` binding the continuation render uses
-      ;; above. `build-final-payload` reads the projected app-db / runtime-db
-      ;; via `frame/frame-app-db-value` / `frame/frame-runtime-db-value`, which
-      ;; resolve `(frame frame-id)` through `frame/*current-realm*`. The writer
+      ;; rf2-tbr67x / rf2-nu5w48 / EP-0013 §Realm Conformance: re-establish the
+      ;; frame's FULL realm-aware request scope on THIS daemon thread around the
+      ;; post-drain hash recompute + `build-final-payload`, the SAME
+      ;; `call-in-request-scope` the continuation render uses above. The writer
       ;; thread has NO ambient realm (the request thread's `*current-realm*`
-      ;; does not cross the thread boundary), so a non-default-realm frame
-      ;; stored at the `[realm frame-id]` slot was MISSED here — the final
-      ;; `__rf_payload` carried nil / wrong app-db + runtime-db even though the
-      ;; streamed HTML (shell + continuations) came from the realm frame. nil
-      ;; `realm-id` ⇒ default realm ⇒ NO binding (byte-identical single-realm
-      ;; path), exactly like the continuation-render rebinding.
-      (let [final-payload (frame/call-with-realm realm-id
-                            (fn []
-                              (rf/with-frame frame-id
-                                ;; rf2-1kqvbx — re-resolve the root view against
-                                ;; the POST-drain frame state and recompute the
-                                ;; full-document hash over it, so the payload's
-                                ;; `:rf/render-hash` describes the SAME moment as
-                                ;; its post-drain `:rf/app-db`. Routed through
-                                ;; the SAME realm registrar the shell render walk
-                                ;; used (rf2-bzw8gd) so registered-view + head
-                                ;; lookups resolve in the owning realm; a
-                                ;; default-realm frame binds nothing
-                                ;; (byte-identical). Falls back to the pre-drain
-                                ;; `doc-hash` when no `:root-view` could be
-                                ;; re-resolved (defensive — `validate-construction-opts!`
-                                ;; requires `:root-view`, so this is belt-and-braces).
-                                (let [post-drain-hash
-                                      (if root-view
-                                        (frame/call-with-frame-realm-registrar
-                                          (frame/frame frame-id)
-                                          (fn []
-                                            (lifecycle/render-document-hash
-                                              (lifecycle/resolve-root-view root-view)
-                                              head-bag)))
-                                        doc-hash)]
-                                  (streaming/build-final-payload
-                                    frame-id post-drain-hash
-                                    {:version       version
-                                     :schema-digest schema-digest
-                                     :payload       payload})))))]
+      ;; does not cross the thread boundary), so without the realm binding a
+      ;; non-default-realm frame stored at the `[realm frame-id]` slot is MISSED:
+      ;; `build-final-payload`'s `frame/frame-app-db-value` /
+      ;; `frame/frame-runtime-db-value` reads (and the root-view re-resolution's
+      ;; registered-view / head lookups) resolve `(frame frame-id)` through
+      ;; `frame/*current-realm*` + the realm registrar. nil `realm-id` ⇒ default
+      ;; realm ⇒ NO binding (byte-identical single-realm path), exactly like the
+      ;; continuation-render rebinding.
+      (let [final-payload
+            (frame/call-in-request-scope realm-id frame-id
+              (fn []
+                ;; rf2-1kqvbx — re-resolve the root view against the POST-drain
+                ;; frame state and recompute the full-document hash over it, so
+                ;; the payload's `:rf/render-hash` describes the SAME moment as
+                ;; its post-drain `:rf/app-db`. Falls back to the pre-drain
+                ;; `doc-hash` when no `:root-view` could be re-resolved
+                ;; (defensive — `validate-construction-opts!` requires
+                ;; `:root-view`, so this is belt-and-braces).
+                (let [post-drain-hash
+                      (if root-view
+                        (lifecycle/render-document-hash
+                          (lifecycle/resolve-root-view root-view)
+                          head-bag)
+                        doc-hash)]
+                  (streaming/build-final-payload
+                    frame-id post-drain-hash
+                    {:version       version
+                     :schema-digest schema-digest
+                     :payload       payload}))))]
         ;; Shared id-pinned, `</script>`-escaped payload <script>
         ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
@@ -645,6 +631,116 @@
         (remove (fn [[k _v]]
                   (= "content-length" (str/lower-case (str k)))))
         headers-map))
+
+(defn- redirect-response!
+  "Short-circuit a streaming request to a bodiless Location response and
+  destroy the per-request frame inline. Shared (rf2-tqjc7h) by BOTH redirect
+  branches in `stream-handler`: the early `:on-create`-drain redirect and the
+  post-shell `resp2` re-read redirect.
+
+  A redirect short-circuits the stream — no chunked body, so the writer thread
+  (whose `finally` normally tears the frame down) is never spawned on this
+  branch. Without the inline `destroy-frame-quietly!` every redirected
+  streaming request would leak the frame + its three side-channel slots
+  (request / response / pending-error-trace) — a per-request leak on auth-gated
+  SSR routes where redirects are common (Spec 011 §Per-request frame teardown
+  contract). The 2-arg `ssr-response->ring-response` (no `content-type`)
+  matches the non-streaming redirect path — a bodiless redirect has no
+  meaningful Content-Type to default; `ssr-response->ring-response` ignores the
+  body arg on its `:redirect` branch (pipeline.clj)."
+  [resp frame-id]
+  (try
+    (pipeline/ssr-response->ring-response resp nil)
+    (finally
+      (lifecycle/destroy-frame-quietly! frame-id))))
+
+(defn- render-shell-or-projected-error
+  "Render the streaming shell on THIS (request) thread, BEFORE the chunked
+  response head commits. rf2-r06pc — the streaming counterpart of the
+  non-streaming post-render re-flush (rf2-c0bq1). The shell render is the
+  request's structural foundation; its failure modes MUST fail closed to a
+  non-200 (Spec 011 §744/§748/§954), NOT a silent 200 / truncated chunked body
+  from a detached daemon thread that can no longer stamp the status.
+
+  Returns the `render-streaming-shell!` result on a clean render, or — when the
+  shell render THROWS (a root-view / shell-walk throw) — a `reduced` wrapping
+  the PROJECTED non-200 error response. The throw is routed through
+  `project-render-throw->ring-response` (→ `:rf.error/ssr-render-failed`,
+  projector, non-200 projected error page) — the same wire-body contract as the
+  non-streaming `build-full-response` catch arm — NOT the `:on-error` transport
+  net; the frame is torn down inline (no writer was spawned). The caller derefs
+  a `reduced?` result and returns it directly; the outer handler try/catch
+  remains the net for the OTHER throws (head materialise, redirect materialise)
+  → `:on-error`.
+
+  A production reactive-sub throw during the shell render does NOT throw here —
+  it recovers to nil but buffers a fail-closed 500 on the always-on error-emit
+  substrate (rf2-vvwmi); the caller's post-shell `ssr/get-response` re-read
+  drains that buffer and stamps the 500 onto the response accumulator before
+  the chunked head is materialised."
+  [frame-id opts]
+  (try
+    (render-streaming-shell! frame-id opts)
+    (catch Throwable t
+      (let [err-resp (pipeline/project-render-throw->ring-response frame-id t opts)]
+        (lifecycle/destroy-frame-quietly! frame-id)
+        (reduced err-resp)))))
+
+(defn- stream-rendered-response
+  "Materialise the chunked response head from the (post-shell re-read) response
+  accumulator `resp2`, wire the pipe, and spawn the daemon writer — the
+  non-redirect leaf of `stream-handler` once the shell is known-renderable.
+
+  rf2-z5azc — MATERIALISE the head (status / headers / cookies) from `resp2`
+  BEFORE constructing the pipe or spawning the writer. Cookie / header
+  serialisation CAN throw at materialise time on a value that escaped the fx
+  boundary's partial validation — e.g. a `:max-age` carrying CR/LF, which
+  `cookie->set-cookie-header` rejects but the runtime `validate-cookie!` does
+  not. If the writer were spawned first, that throw would orphan the pipe (the
+  daemon writer pumps the full body into a reader-less pipe, blocks once the
+  16 KiB buffer fills, and leaks one live thread per request). Building
+  `resp-map` first lets a head-materialisation failure short-circuit to the
+  handler's outer catch BEFORE any thread or pipe exists → on-error, no detached
+  writer, no orphaned pipe.
+
+  rf2-h3dg0 — STRIP any `Content-Length` header (case-insensitively) from the
+  materialised head before wiring the chunk-writer body. App / server init can
+  `:rf.server/set-header` (or `append-header`) a `Content-Length` during the
+  `:on-create` drain — a fixed length that is meaningless (and actively harmful)
+  once the body becomes a chunk-producing PipedInputStream of unknown final
+  size. Left in place, a Ring server may honour that length instead of chunked
+  transfer framing → truncated HTML / clients blocked on the wrong byte count /
+  lost chunks, violating Spec 011's chunked-transfer streaming contract.
+
+  rf2-ekwda — the writer runs on a DAEMON thread: one blocked on `.write` to the
+  bounded 16 KiB pipe of a slow-loris client must NOT keep the JVM alive at
+  shutdown. Its `finally` tears the frame down (off the response-close path,
+  via the slower destroy)."
+  [frame-id rendered resp2 content-type opts]
+  (let [;; No body default-stamp here (we pass our own InputStream); `:body` is
+        ;; assoc'd after the writer is wired below.
+        resp-map (-> (pipeline/ssr-response->ring-response resp2 "" content-type)
+                     (update :headers strip-content-length))
+        ;; 16 KiB pipe buffer — large enough to absorb the shell chunk in one
+        ;; write so the writer rarely blocks on a slow consumer, small enough
+        ;; that one stuck client doesn't pin a non-trivial chunk of heap.
+        pipe-in  (PipedInputStream. (* 16 1024))
+        pipe-out (PipedOutputStream. pipe-in)]
+    (doto
+      (Thread.
+        ^Runnable
+        (fn writer-thread []
+          (try
+            (run-streaming-writer! pipe-out frame-id rendered opts)
+            (finally
+              ;; The writer's own finally closes the pipe; the frame teardown
+              ;; happens here so it does NOT block the response close on the
+              ;; slower destroy path.
+              (lifecycle/destroy-frame-quietly! frame-id))))
+        ^String (str "rf2-ssr-streaming-" (name frame-id)))
+      (.setDaemon true)
+      (.start))
+    (assoc resp-map :body pipe-in)))
 
 (defn stream-handler
   "Return a synchronous Ring handler that streams SSR responses via
@@ -790,212 +886,44 @@
             ;; No-op for a default-realm frame (byte-identical single-realm
             ;; path); it does NOT cross into the spawned writer thread (which
             ;; carries its realm via `:realm-id`).
+            ;; rf2-r06pc — the request-thread body, top-down: read the response
+            ;; accumulator; on a `:redirect` short-circuit BEFORE any chunked
+            ;; head / writer; otherwise render the shell on THIS thread (failing
+            ;; closed to a projected non-200 on a render throw), re-read the
+            ;; accumulator for a fail-closed status a recovered-to-nil sub
+            ;; buffered during the render (rf2-vvwmi), and stream — committing
+            ;; the chunked head ONLY once the shell is known-renderable. The
+            ;; helpers (`render-shell-or-projected-error`, `stream-rendered-
+            ;; response`, `redirect-response!`) carry the per-step rationale.
             (frame/call-with-realm (frame/frame-realm frame-id)
-             (fn []
-              (let [resp (ssr/get-response frame-id)]
-              (if (some? (:redirect resp))
-                ;; Redirect short-circuits the stream — no chunked body,
-                ;; so the writer thread (whose `finally` normally tears
-                ;; the frame down) is never spawned. Destroy the per-
-                ;; request frame inline BEFORE returning, or every
-                ;; redirected streaming request leaks the frame + its
-                ;; three side-channel slots (request / response /
-                ;; pending-error-trace) — a per-request leak on auth-
-                ;; gated SSR routes where redirects are common (Spec 011
-                ;; §Per-request frame teardown contract). The 2-arg form
-                ;; (no `content-type`) matches the non-streaming redirect
-                ;; path — a bodiless redirect has no meaningful Content-
-                ;; Type to default.
-                (try
-                  (pipeline/ssr-response->ring-response resp nil)
-                  (finally
-                    (lifecycle/destroy-frame-quietly! frame-id)))
-                ;; Streaming path. rf2-r06pc — RENDER THE SHELL on THIS
-                ;; (request) thread BEFORE committing the chunked response
-                ;; head, the streaming counterpart of the non-streaming
-                ;; post-render re-flush (rf2-c0bq1). The shell render is
-                ;; the request's structural foundation; its failure modes
-                ;; MUST fail closed to a non-200 (Spec 011 §744/§748/§954),
-                ;; NOT a silent 200/truncated chunked body from a detached
-                ;; daemon thread that can no longer stamp the status.
-                ;;
-                ;;   - A root-view / shell-walk throw propagates here and
-                ;;     is routed through `project-render-throw->ring-
-                ;;     response` (→ `:rf.error/ssr-render-failed`, projector,
-                ;;     non-200 projected error page) — same wire-body
-                ;;     contract as the non-streaming `build-full-response`
-                ;;     catch arm.
-                ;;   - A production reactive-sub throw during the shell
-                ;;     render recovers to nil (the walk does NOT throw) but
-                ;;     buffers a fail-closed 500 on the always-on error-emit
-                ;;     substrate (rf2-vvwmi). The post-shell `ssr/get-
-                ;;     response` re-read drains that buffer and stamps the
-                ;;     500 onto the response accumulator BEFORE the chunked
-                ;;     head is materialised — so the committed wire status
-                ;;     is the fail-closed 500, never the stale pre-render
-                ;;     200 (the rendered shell still streams as the body,
-                ;;     exactly as the non-streaming handler ships the
-                ;;     recovered body with the 500 — the status is the
-                ;;     fail-closed signal).
-                ;;
-                ;; NO pipe and NO writer thread is constructed until the
-                ;; shell is known-renderable (clean render AND a success
-                ;; status). A shell-render throw is caught by the dedicated
-                ;; inner try below and converted to the PROJECTED error
-                ;; response (NOT the `:on-error` transport net) — matching
-                ;; the non-streaming `build-full-response` catch arm, where
-                ;; a render-time throw projects rather than escaping to
-                ;; `:on-error`. The handler's OUTER try/catch remains the
-                ;; net for the OTHER throws (head materialise, redirect
-                ;; materialise) → `:on-error`.
-                (let [rendered  (try
-                                  (render-streaming-shell! frame-id opts)
-                                  (catch Throwable t
-                                    ;; Shell render threw — fail closed to
-                                    ;; the projected non-200 error page on
-                                    ;; THIS thread, tear the frame down
-                                    ;; inline (no writer was spawned), and
-                                    ;; return. The deref below never runs.
-                                    (let [err-resp (pipeline/project-render-throw->ring-response
-                                                     frame-id t opts)]
-                                      (lifecycle/destroy-frame-quietly! frame-id)
-                                      (reduced err-resp))))]
-                  (if (reduced? rendered)
-                    @rendered
-                    ;; Shell rendered without throwing. Re-read the
-                    ;; response accumulator to surface any fail-closed
-                    ;; status a recovered-to-nil reactive sub buffered
-                    ;; during the shell render (rf2-vvwmi / rf2-r06pc) —
-                    ;; the streaming analogue of `build-full-response*`'s
-                    ;; post-render `ssr/flush-response!` re-read (rf2-c0bq1).
-                    ;; A production reactive sub that throws mid-render
-                    ;; recovers to nil and BUFFERS a fail-closed 500 on the
-                    ;; always-on error-emit substrate; `ssr/get-response`
-                    ;; drains that buffer and stamps the 500 onto `resp2`.
-                    ;; We MATERIALISE the chunked response head from
-                    ;; `resp2`, so the wire status is the fail-closed 500
-                    ;; — never the stale pre-render 200 the OLD writer-
-                    ;; thread order shipped (Spec 011 §744/§750).
-                    ;;
-                    ;; A deliberate app-set non-200 (`:rf.server/set-status`)
-                    ;; surfaces here too and rides the wire unchanged —
-                    ;; identical to the non-streaming handler, which streams
-                    ;; the rendered body with whatever post-flush status the
-                    ;; accumulator carries (the status is the fail-closed
-                    ;; signal; the body is moot under a non-200).
-                    ;;
-                    ;; rf2-5knxf.1 — a `:redirect` is the ONE accumulator
-                    ;; state that must NOT stream a body: a 3xx + Location is
-                    ;; a bodiless wire response (Spec 011 §Redirect
-                    ;; precedence), so streaming a full HTML document under it
-                    ;; would ship a malformed redirect AND spawn a body-
-                    ;; pumping writer for a request the contract says has no
-                    ;; body. The non-streaming handler gets this for free —
-                    ;; `ssr-response->ring-response` ignores the body arg on
-                    ;; its `:redirect` branch (pipeline.clj). The streaming
-                    ;; path must branch EXPLICITLY because it would otherwise
-                    ;; overwrite the materialised `:body ""` with the pipe and
-                    ;; start the writer. In v1 a `:redirect` cannot surface at
-                    ;; this post-shell re-read (it is only set by the
-                    ;; `:rf.server/redirect` fx during the `:on-create` drain,
-                    ;; which the EARLY redirect branch above already catches;
-                    ;; the error projector stamps `:status` only, never
-                    ;; `:redirect` — error_listener.cljc). This branch is
-                    ;; defense-in-depth for a future render-phase fx /
-                    ;; projector / hand-built accumulator that learns to
-                    ;; redirect — and it aligns the code with this very
-                    ;; comment's parity claim.
-                    (let [resp2 (ssr/get-response frame-id)]
-                      (if (some? (:redirect resp2))
-                        ;; Bodiless redirect — mirror the EARLY :on-create
-                        ;; redirect branch above (and the non-streaming
-                        ;; `pipeline.clj` redirect branch): materialise the
-                        ;; Location response with NO body, spawn NO writer,
-                        ;; and destroy the per-request frame inline (no writer
-                        ;; thread will run its teardown `finally`). The 2-arg
-                        ;; form passes no `content-type` — a bodiless redirect
-                        ;; has no meaningful Content-Type to default, matching
-                        ;; the non-streaming + early-branch redirect paths.
-                        (try
-                          (pipeline/ssr-response->ring-response resp2 nil)
-                          (finally
-                            (lifecycle/destroy-frame-quietly! frame-id)))
-                        ;; Non-redirect — the streaming path. Materialise the
-                        ;; head, wire the pipe, spawn the writer.
-                        (let [;; rf2-z5azc — MATERIALISE the response head
-                              ;; (status / headers / cookies) from the re-read
-                              ;; `resp2` BEFORE constructing the pipe or
-                              ;; spawning the writer. Cookie / header
-                              ;; serialisation CAN throw at materialise time on
-                              ;; a value that escaped the fx boundary's partial
-                              ;; validation — e.g. a `:max-age` carrying CR/LF,
-                              ;; which `cookie->set-cookie-header` rejects but
-                              ;; the runtime `validate-cookie!` does not. If we
-                              ;; spawned the writer first, that throw would
-                              ;; orphan the pipe (the daemon writer pumps the
-                              ;; full body into a reader-less pipe, blocks once
-                              ;; the 16 KiB buffer fills, and leaks one live
-                              ;; thread per request). By building `resp-map`
-                              ;; first, a head-materialisation failure short-
-                              ;; circuits to the outer catch BEFORE any thread
-                              ;; or pipe exists → on-error, no detached writer,
-                              ;; no orphaned pipe.
-                              ;;
-                              ;; No body default-stamp here (we pass our own
-                              ;; InputStream); `:body` is assoc'd after the
-                              ;; writer is wired below.
-                              ;;
-                              ;; rf2-h3dg0 — STRIP any `Content-Length` header
-                              ;; (case-insensitively) from the materialised
-                              ;; head before wiring the chunk-writer body. App
-                              ;; / server init can `:rf.server/set-header` (or
-                              ;; `append-header`) a `Content-Length` during the
-                              ;; `:on-create` drain — a fixed length that is
-                              ;; meaningless (and actively harmful) once the
-                              ;; body becomes a chunk-producing PipedInputStream
-                              ;; of unknown final size. Left in place, a Ring
-                              ;; server may honour that length instead of using
-                              ;; chunked transfer framing → truncated HTML /
-                              ;; clients blocked on the wrong byte count / lost
-                              ;; chunks, violating Spec 011's chunked-transfer
-                              ;; streaming contract. The non-streaming handler
-                              ;; never hits this — its body is a finished string
-                              ;; whose Content-Length (if any) is correct. The
-                              ;; streaming path owns transfer framing for the
-                              ;; InputStream body, so it MUST drop the stale
-                              ;; length and let the server frame the stream.
-                              resp-map (-> (pipeline/ssr-response->ring-response
-                                             resp2 "" content-type)
-                                           (update :headers strip-content-length))
-                              ;; 16 KiB pipe buffer — large enough to absorb the
-                              ;; shell chunk in one write so the writer thread
-                              ;; rarely blocks on a slow consumer, small enough
-                              ;; that one stuck client doesn't pin a non-trivial
-                              ;; chunk of heap per request.
-                              pipe-in  (PipedInputStream. (* 16 1024))
-                              pipe-out (PipedOutputStream. pipe-in)]
-                          ;; Daemon thread (rf2-ekwda): a writer blocked on
-                          ;; `.write` to the bounded 16 KiB pipe of a slow-loris
-                          ;; client must NOT keep the JVM alive at shutdown. The
-                          ;; ns + handler docstrings and both test namespaces
-                          ;; assert daemon semantics; this is what makes that
-                          ;; contract real.
-                          (doto
-                            (Thread.
-                              ^Runnable
-                              (fn writer-thread []
-                                (try
-                                  (run-streaming-writer! pipe-out frame-id rendered opts)
-                                  (finally
-                                    ;; The writer's own finally closes the
-                                    ;; pipe; the frame teardown happens here so
-                                    ;; it does NOT block the response close on
-                                    ;; the slower destroy path.
-                                    (lifecycle/destroy-frame-quietly! frame-id))))
-                              ^String (str "rf2-ssr-streaming-" (name frame-id)))
-                            (.setDaemon true)
-                            (.start))
-                          (assoc resp-map :body pipe-in)))))))))) ;; close let/if + (fn []) + call-with-realm (rf2-nu5w48)
+              (fn []
+                (let [resp (ssr/get-response frame-id)]
+                  (if (some? (:redirect resp))
+                    ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
+                    (redirect-response! resp frame-id)
+                    (let [rendered (render-shell-or-projected-error frame-id opts)]
+                      (if (reduced? rendered)
+                        ;; Shell render threw — return the projected error page
+                        ;; (frame already torn down inline).
+                        @rendered
+                        ;; Shell rendered cleanly. Re-read the accumulator to
+                        ;; surface any fail-closed status (rf2-vvwmi /
+                        ;; rf2-c0bq1) before materialising the chunked head.
+                        ;;
+                        ;; rf2-5knxf.1 — a `:redirect` here is defense-in-depth:
+                        ;; in v1 it cannot surface at the post-shell re-read
+                        ;; (only the `:on-create`-drain `:rf.server/redirect`
+                        ;; sets it, caught by the early branch above; the error
+                        ;; projector stamps `:status` only, never `:redirect`).
+                        ;; The branch aligns the streaming path with the
+                        ;; non-streaming handler's redirect-ignores-body parity
+                        ;; for a future render-phase fx / hand-built accumulator
+                        ;; that learns to redirect.
+                        (let [resp2 (ssr/get-response frame-id)]
+                          (if (some? (:redirect resp2))
+                            (redirect-response! resp2 frame-id)
+                            (stream-rendered-response
+                              frame-id rendered resp2 content-type opts)))))))))
             (catch Throwable t
               ;; get-response throw, redirect-materialise throw, OR (per
               ;; rf2-z5azc) a head-materialisation throw raised BEFORE the
