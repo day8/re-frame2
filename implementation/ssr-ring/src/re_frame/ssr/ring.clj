@@ -92,7 +92,6 @@
     - Async Ring handler (3-arity) — synchronous-only in v1;
       extension is additive."
   (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.cookie :as cookie]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
@@ -411,27 +410,14 @@
         (if short-circuit
           short-circuit
           (try
-            ;; rf2-nu5w48 / EP-0013 §Realm Conformance: bind the request
-            ;; frame's OWN realm around the accumulator read + the redirect
-            ;; short-circuit so the per-frame response side channel is
-            ;; addressed by the `(realm, frame)` slot (`frame/frame-address`),
-            ;; not the default realm's bare-id slot. `ssr/get-response` reads
-            ;; the realm's accumulated status/headers/cookies/redirect, and the
-            ;; redirect materialiser ships THAT realm's response. The non-error
-            ;; render branch (`build-full-response*`) re-establishes the realm
-            ;; binding around its own render walk (rf2-bzw8gd); the error path
-            ;; binds it inside `project-render-throw->ring-response`. Both
-            ;; no-op for a default-realm frame (byte-identical single-realm
-            ;; path). The redirect branch does no view resolution, so it only
-            ;; needs `call-with-realm` (the side-channel addressing dimension);
-            ;; the registrar is bound by the branches that resolve views.
-            (frame/call-with-realm (frame/frame-realm frame-id)
-              (fn []
-                (let [resp (ssr/get-response frame-id)]
-                  (if (some? (:redirect resp))
-                    ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                    (pipeline/ssr-response->ring-response resp nil)
-                    (pipeline/build-full-response frame-id resp opts)))))
+            ;; `ssr/get-response` reads the per-frame accumulated
+            ;; status/headers/cookies/redirect, and the redirect materialiser
+            ;; ships that response; both name the frame explicitly.
+            (let [resp (ssr/get-response frame-id)]
+              (if (some? (:redirect resp))
+                ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
+                (pipeline/ssr-response->ring-response resp nil)
+                (pipeline/build-full-response frame-id resp opts)))
             (catch Throwable t
               ;; rf2-ljjh0 — `safe-on-error` contains a throwing
               ;; caller `:on-error`: a bug in the caller's transport-

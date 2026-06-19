@@ -47,7 +47,6 @@
   (`:replace-frame-state`) when it lands."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
@@ -222,16 +221,11 @@
   ;; deferral is a separate axis — blocking ROUTE resources still settle before
   ;; the shell, exactly as in the non-streaming path.
   (ssr/drain-blocking-resources! frame-id opts)
-  ;; rf2-bzw8gd / rf2-tqjc7h / EP-0013 §Realm Conformance: route the shell
-  ;; render walk's registered-view + head/route lookups through the request
-  ;; frame's OWN realm scope (streaming counterpart of the non-streaming
-  ;; `build-full-response*` binding) via `call-in-request-scope`. We run on the
-  ;; REQUEST thread where the handler already bound the carried realm, so
-  ;; re-binding it from `frame-realm` is an idempotent same-realm rebind; the
-  ;; helper also binds the realm registrar + operating frame as one coherent
-  ;; nest. A default-realm frame binds nothing (byte-identical path).
-  (frame/call-in-request-scope (frame/frame-realm frame-id) frame-id
-   (fn []
+  ;; rf2-bzw8gd / rf2-tqjc7h: pin `*current-frame*` to the request frame for the
+  ;; shell render walk (`rf/with-frame`), the streaming counterpart of the
+  ;; non-streaming `build-full-response*` binding. Covers the registered-view +
+  ;; head/route lookups. Runs on the REQUEST thread.
+  (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
           head-bag   (if (:head opts)
                        {:head-html (:head opts) :html-attrs nil :body-attrs nil}
@@ -260,12 +254,7 @@
        :head-bag      head-bag
        :doc-hash      doc-hash
        :shell-html    shell-html
-       :continuations continuations
-       ;; rf2-bzw8gd: capture the frame's realm-id on the REQUEST thread (where
-       ;; `*current-realm*` is bound) so the daemon writer thread — which has no
-       ;; carried realm — can re-establish it around the continuation render
-       ;; walk. nil ⇒ default realm (byte-identical path).
-       :realm-id      (frame/frame-realm frame-id)}))))
+       :continuations continuations})))
 
 ;; ---- chunk writer (daemon thread, AFTER the head commits) ---------------
 ;;
@@ -355,7 +344,7 @@
           ;; destructured here. rf2-1kqvbx — `:head-bag` rides along so the
           ;; post-drain final-payload hash folds in the SAME head channel.
           {:keys [head-html html-attrs body-attrs
-                  doc-hash head-bag shell-html continuations realm-id]} rendered
+                  doc-hash head-bag shell-html continuations]} rendered
           shell-opts (merge opts
                             {:html-attrs  html-attrs
                              :body-attrs  body-attrs
@@ -411,17 +400,12 @@
       (loop [queue (into clojure.lang.PersistentQueue/EMPTY continuations)]
         (when-let [entry (peek queue)]
           (let [{:keys [id html delta failed? continuations]}
-                ;; rf2-bzw8gd / rf2-tqjc7h: re-establish the frame's full
-                ;; realm-aware request scope on this DAEMON thread (the request
-                ;; thread's `*current-realm*`/`*current-frame*` do not cross the
-                ;; thread boundary), so `render-continuation`'s frame lookups +
-                ;; registered-view resolution route through the owning realm.
-                ;; `call-in-request-scope` binds realm + realm-registrar +
-                ;; operating-frame as one coherent nest; nil/default realm-id is
-                ;; the byte-identical single-realm path.
-                (frame/call-in-request-scope realm-id frame-id
-                  (fn []
-                    (streaming/render-continuation frame-id entry)))
+                ;; rf2-bzw8gd / rf2-tqjc7h: pin `*current-frame*` on this DAEMON
+                ;; thread (the request thread's `*current-frame*` does not cross
+                ;; the thread boundary), so `render-continuation`'s frame lookups
+                ;; + registered-view resolution operate on the request frame.
+                (rf/with-frame frame-id
+                  (streaming/render-continuation frame-id entry))
                 tmpl-fn (if failed?
                           streaming/failed-template
                           streaming/resolved-template)]
@@ -449,16 +433,14 @@
             ;; redacts under `:rf.egress/ssr-hydration`. `project-delta` runs
             ;; the raw delta through `payload-policy/apply-policy` +
             ;; `project-app-db-egress` under the request frame on THIS daemon
-            ;; thread (inside the carried realm + `with-frame` scope re-bound
-            ;; above for the continuation render — so `project-app-db-egress`'s
-            ;; frame walk resolves the realm frame's elision registry). A delta
-            ;; that projects to empty (every changed key off-allowlist, or all
-            ;; redacted away to an empty map) emits NO script.
-            (let [projected (frame/call-with-realm realm-id
-                              (fn []
-                                (rf/with-frame frame-id
-                                  (streaming/project-delta delta frame-id
-                                                           {:payload payload}))))]
+            ;; thread (inside the `with-frame` scope — so
+            ;; `project-app-db-egress`'s frame walk resolves the frame's elision
+            ;; registry). A delta that projects to empty (every changed key
+            ;; off-allowlist, or all redacted away to an empty map) emits NO
+            ;; script.
+            (let [projected (rf/with-frame frame-id
+                              (streaming/project-delta delta frame-id
+                                                       {:payload payload}))]
               (when (and (not failed?) (map? projected) (seq projected))
                 (vreset! phase [:continuation-delta id])
                 (write-chunk! out (streaming/hydrate-delta-script id (pr-str projected)))))
@@ -478,7 +460,7 @@
       ;; hashes it, and fires a spurious `:rf.ssr/hydration-mismatch` against
       ;; the stale pre-drain hash (Spec 011 §Hydration equivalence rule). So we
       ;; RE-RESOLVE the root view here — on this daemon thread, inside the
-      ;; carried realm + frame binding, AFTER the drain loop — and recompute
+      ;; `rf/with-frame` binding, AFTER the drain loop — and recompute
       ;; the full-document hash over the post-drain tree via the SAME
       ;; `lifecycle/render-document-hash` mechanism (folding the carried
       ;; `head-bag`, drain-invariant in v1). The streamed-shell
@@ -530,40 +512,32 @@
       ;; as `:phase :final-payload` rather than leaking out as the prior
       ;; `:continuation-template`/`:shell-html` phase.
       (vreset! phase [:final-payload nil])
-      ;; rf2-tbr67x / rf2-nu5w48 / EP-0013 §Realm Conformance: re-establish the
-      ;; frame's FULL realm-aware request scope on THIS daemon thread around the
-      ;; post-drain hash recompute + `build-final-payload`, the SAME
-      ;; `call-in-request-scope` the continuation render uses above. The writer
-      ;; thread has NO ambient realm (the request thread's `*current-realm*`
-      ;; does not cross the thread boundary), so without the realm binding a
-      ;; non-default-realm frame stored at the `[realm frame-id]` slot is MISSED:
-      ;; `build-final-payload`'s `frame/frame-app-db-value` /
-      ;; `frame/frame-runtime-db-value` reads (and the root-view re-resolution's
-      ;; registered-view / head lookups) resolve `(frame frame-id)` through
-      ;; `frame/*current-realm*` + the realm registrar. nil `realm-id` ⇒ default
-      ;; realm ⇒ NO binding (byte-identical single-realm path), exactly like the
-      ;; continuation-render rebinding.
+      ;; rf2-tbr67x / rf2-nu5w48: pin `*current-frame*` on THIS daemon thread
+      ;; around the post-drain hash recompute + `build-final-payload` (the
+      ;; request thread's `*current-frame*` does not cross the thread boundary),
+      ;; the SAME `rf/with-frame` the continuation render uses above. The
+      ;; root-view re-resolution's registered-view / head lookups + the payload
+      ;; reads operate on the request frame.
       (let [final-payload
-            (frame/call-in-request-scope realm-id frame-id
-              (fn []
-                ;; rf2-1kqvbx — re-resolve the root view against the POST-drain
-                ;; frame state and recompute the full-document hash over it, so
-                ;; the payload's `:rf/render-hash` describes the SAME moment as
-                ;; its post-drain `:rf/app-db`. Falls back to the pre-drain
-                ;; `doc-hash` when no `:root-view` could be re-resolved
-                ;; (defensive — `validate-construction-opts!` requires
-                ;; `:root-view`, so this is belt-and-braces).
-                (let [post-drain-hash
-                      (if root-view
-                        (lifecycle/render-document-hash
-                          (lifecycle/resolve-root-view root-view)
-                          head-bag)
-                        doc-hash)]
-                  (streaming/build-final-payload
-                    frame-id post-drain-hash
-                    {:version       version
-                     :schema-digest schema-digest
-                     :payload       payload}))))]
+            (rf/with-frame frame-id
+              ;; rf2-1kqvbx — re-resolve the root view against the POST-drain
+              ;; frame state and recompute the full-document hash over it, so
+              ;; the payload's `:rf/render-hash` describes the SAME moment as
+              ;; its post-drain `:rf/app-db`. Falls back to the pre-drain
+              ;; `doc-hash` when no `:root-view` could be re-resolved
+              ;; (defensive — `validate-construction-opts!` requires
+              ;; `:root-view`, so this is belt-and-braces).
+              (let [post-drain-hash
+                    (if root-view
+                      (lifecycle/render-document-hash
+                        (lifecycle/resolve-root-view root-view)
+                        head-bag)
+                      doc-hash)]
+                (streaming/build-final-payload
+                  frame-id post-drain-hash
+                  {:version       version
+                   :schema-digest schema-digest
+                   :payload       payload})))]
         ;; Shared id-pinned, `</script>`-escaped payload <script>
         ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
@@ -870,22 +844,6 @@
         (if short-circuit
           short-circuit
           (try
-            ;; rf2-nu5w48 / EP-0013 §Realm Conformance: bind the request
-            ;; frame's OWN realm around the request-thread body so every
-            ;; per-frame side channel it reads — the early `ssr/get-response`
-            ;; drain read, the post-shell `ssr/get-response` re-read, and the
-            ;; response materialisation on BOTH redirect short-circuits — is
-            ;; addressed by the `(realm, frame)` slot (`frame/frame-address`),
-            ;; not the default realm's bare-id slot. `render-streaming-shell!`
-            ;; re-establishes the realm registrar around its OWN render walk
-            ;; (rf2-bzw8gd) and captures `:realm-id` for the daemon writer to
-            ;; carry across the thread boundary; the shell-render error path
-            ;; binds it inside `project-render-throw->ring-response`
-            ;; (rf2-nu5w48). This request-thread binding closes the redirect +
-            ;; accumulator-read gaps the render-walk binding did not cover.
-            ;; No-op for a default-realm frame (byte-identical single-realm
-            ;; path); it does NOT cross into the spawned writer thread (which
-            ;; carries its realm via `:realm-id`).
             ;; rf2-r06pc — the request-thread body, top-down: read the response
             ;; accumulator; on a `:redirect` short-circuit BEFORE any chunked
             ;; head / writer; otherwise render the shell on THIS thread (failing
@@ -895,35 +853,33 @@
             ;; the chunked head ONLY once the shell is known-renderable. The
             ;; helpers (`render-shell-or-projected-error`, `stream-rendered-
             ;; response`, `redirect-response!`) carry the per-step rationale.
-            (frame/call-with-realm (frame/frame-realm frame-id)
-              (fn []
-                (let [resp (ssr/get-response frame-id)]
-                  (if (some? (:redirect resp))
-                    ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                    (redirect-response! resp frame-id)
-                    (let [rendered (render-shell-or-projected-error frame-id opts)]
-                      (if (reduced? rendered)
-                        ;; Shell render threw — return the projected error page
-                        ;; (frame already torn down inline).
-                        @rendered
-                        ;; Shell rendered cleanly. Re-read the accumulator to
-                        ;; surface any fail-closed status (rf2-vvwmi /
-                        ;; rf2-c0bq1) before materialising the chunked head.
-                        ;;
-                        ;; rf2-5knxf.1 — a `:redirect` here is defense-in-depth:
-                        ;; in v1 it cannot surface at the post-shell re-read
-                        ;; (only the `:on-create`-drain `:rf.server/redirect`
-                        ;; sets it, caught by the early branch above; the error
-                        ;; projector stamps `:status` only, never `:redirect`).
-                        ;; The branch aligns the streaming path with the
-                        ;; non-streaming handler's redirect-ignores-body parity
-                        ;; for a future render-phase fx / hand-built accumulator
-                        ;; that learns to redirect.
-                        (let [resp2 (ssr/get-response frame-id)]
-                          (if (some? (:redirect resp2))
-                            (redirect-response! resp2 frame-id)
-                            (stream-rendered-response
-                              frame-id rendered resp2 content-type opts)))))))))
+            (let [resp (ssr/get-response frame-id)]
+              (if (some? (:redirect resp))
+                ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
+                (redirect-response! resp frame-id)
+                (let [rendered (render-shell-or-projected-error frame-id opts)]
+                  (if (reduced? rendered)
+                    ;; Shell render threw — return the projected error page
+                    ;; (frame already torn down inline).
+                    @rendered
+                    ;; Shell rendered cleanly. Re-read the accumulator to
+                    ;; surface any fail-closed status (rf2-vvwmi /
+                    ;; rf2-c0bq1) before materialising the chunked head.
+                    ;;
+                    ;; rf2-5knxf.1 — a `:redirect` here is defense-in-depth:
+                    ;; in v1 it cannot surface at the post-shell re-read
+                    ;; (only the `:on-create`-drain `:rf.server/redirect`
+                    ;; sets it, caught by the early branch above; the error
+                    ;; projector stamps `:status` only, never `:redirect`).
+                    ;; The branch aligns the streaming path with the
+                    ;; non-streaming handler's redirect-ignores-body parity
+                    ;; for a future render-phase fx / hand-built accumulator
+                    ;; that learns to redirect.
+                    (let [resp2 (ssr/get-response frame-id)]
+                      (if (some? (:redirect resp2))
+                        (redirect-response! resp2 frame-id)
+                        (stream-rendered-response
+                          frame-id rendered resp2 content-type opts)))))))
             (catch Throwable t
               ;; get-response throw, redirect-materialise throw, OR (per
               ;; rf2-z5azc) a head-materialisation throw raised BEFORE the
