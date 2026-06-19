@@ -69,7 +69,12 @@
   is the ONE projection predicate every capture site now consults —
   any of the three operations targeting the frame is a captured
   failure (spec/009 §Error contract; rf2-294yq5)."
-  (:require [re-frame.elision :as elision])
+  (:require [re-frame.elision :as elision]
+            ;; rf2-7737vq — the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`), replacing Story's
+            ;; hand-rolled `[:tags :frame]` read. Core framework leaf, so
+            ;; the require keeps this ns at the leaf of the cycle graph.
+            [re-frame.trace   :as trace])
   (:refer-clojure :exclude [error]))
 
 (def pipeline-exception-operations
@@ -90,11 +95,12 @@
   predicate every Story phase-capture site (runtime loaders/events,
   play, frame setup/teardown) consults so a cofx / user-interceptor
   failure is captured with the same fidelity as a handler throw
-  (rf2-294yq5.2). Reads the canonical `:frame` tag (spec/009
-  §Per-frame routing)."
+  (rf2-294yq5.2). Reads the raw event's frame via the canonical
+  `re-frame.trace/trace-event-frame` reader (`[:tags :frame]` — spec/009
+  §Frame identity on the raw event, rf2-7737vq)."
   [frame-id ev]
   (and (contains? pipeline-exception-operations (:operation ev))
-       (= frame-id (get-in ev [:tags :frame]))))
+       (= frame-id (trace/trace-event-frame ev))))
 
 (defn- elide-ex-data
   "Project an `ex-data` map through `re-frame.elision/elide-wire-value`

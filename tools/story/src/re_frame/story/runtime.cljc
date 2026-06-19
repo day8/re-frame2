@@ -144,7 +144,7 @@
                       ;; rf2-6z4znr — resolve the suppress decision against
                       ;; the event's own frame (per-(tool,frame) visibility).
                       (config/suppress-sensitive? ev)
-                      (config/note-suppressed! (get-in ev [:tags :frame]))
+                      (config/note-suppressed! (trace/trace-event-frame ev))
 
                       (story-error/pipeline-exception-event? variant-id ev)
                       (swap! collected conj ev)))]

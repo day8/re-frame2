@@ -30,6 +30,10 @@
   that accidentally requires a stories ns sees the namespace load but
   with no registrations, every Story query returns empty."
   (:require [re-frame.privacy    :as privacy]
+            ;; rf2-7737vq — the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`), replacing Story's
+            ;; hand-rolled `[:tags :frame]` read.
+            [re-frame.trace      :as trace]
             ;; EP-0015 (rf2-3t26eh): the on-box dev visibility choice is a
             ;; named `:rf.egress/*` profile resolved through the framework's
             ;; centralized projection table — NOT a process-global on/off
@@ -675,13 +679,16 @@
   (privacy/sensitive? ev))
 
 (defn event-frame
-  "Return the frame a trace event targets — its `[:tags :frame]` slot — or
-  nil for a frameless emit (registration-time, outermost-dispatch lookup
-  failures). The frame Story's listeners resolve the per-frame egress
-  profile against (EP-0015 issue 7)."
+  "Return the frame a RAW trace event targets — its `[:tags :frame]` slot
+  — or nil for a frameless emit (registration-time, outermost-dispatch
+  lookup failures). The frame Story's listeners resolve the per-frame
+  egress profile against (EP-0015 issue 7). Reads via the canonical
+  `re-frame.trace/trace-event-frame` reader (rf2-7737vq); the `map?`
+  guard keeps the accessor total for the non-map inputs Story's
+  defensive call sites may pass."
   [ev]
   (when (map? ev)
-    (get-in ev [:tags :frame])))
+    (trace/trace-event-frame ev)))
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by a Story-registered listener
