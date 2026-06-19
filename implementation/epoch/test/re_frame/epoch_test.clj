@@ -2849,6 +2849,106 @@
     (is (= {:totally :different :shape true}
            (rf/app-db-value :test/loose)))))
 
+;; ---- rf2-unpldn: depth-0 undo-works-after invariant ----------------------
+;;
+;; The four synthetic mutators each record a :rf.epoch/db-replaced undo-anchor
+;; so restore-epoch! can rewind PAST the injection — their caller's invariant is
+;; "undo works after this call" (Tool-Pair §Pair-tool writes). Under
+;; (rf/configure! {:epoch-history {:depth 0}}) the ring buffer is DISABLED by
+;; documented design (Tool-Pair §Time-travel — depth 0 retains no history;
+;; consume via register-epoch-listener!), so the synthetic anchor can never land
+;; in the ring. Pre-fix: state/record! early-returned under its pos-depth guard,
+;; so NOTHING landed, yet perform-replace! returned true AND re-anchored
+;; last-settled-epoch (a PHANTOM anchor naming a non-ring epoch-id) — a tool/pair
+;; gesture believed it could rewind and could not (restore-epoch! of that id
+;; failed :rf.epoch/restore-unknown-epoch). Contract chosen: LOUD REJECT —
+;; depth 0 means "history disabled", so force-appending the anchor would
+;; contradict the spec; instead reject loudly via the in-artefact failure
+;; channel (the analogue of the artefact-missing throw at core_epoch.cljc:111).
+
+(deftest replace-app-db!-depth-0-rejects-no-false-undo
+  (testing "rf2-unpldn — under depth 0 (ring disabled) replace-app-db!
+            returns FALSE and emits :rf.epoch/replace-history-disabled rather
+            than a false success; app-db is unchanged and NO phantom
+            last-settled anchor is left (the undo-works-after invariant is
+            honoured by refusing, not by lying)"
+    (rf/configure! {:epoch-history {:depth 0}})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (is (= {:n 0} (rf/app-db-value :test/main)))
+    ;; Pre-condition: depth 0 retains no history (the existing documented
+    ;; behaviour) and no anchor has been set by the seed dispatch.
+    (is (= [] (rf/epoch-history :test/main)) "depth 0 retains no ring history")
+    (is (nil? (state/last-settled-epoch-id :test/main))
+        "no last-settled anchor under depth 0 (companion phantom-anchor gate)")
+
+    (let [recorded (record-trace!)
+          ok?      (rf/replace-app-db! :test/main {:n 999})]
+      (is (false? ok?)
+          "replace-app-db! is REJECTED under depth 0 — NOT a false true")
+      (is (= {:n 0} (rf/app-db-value :test/main))
+          "app-db unchanged — the rejected injection is a no-op")
+      (is (= [] (rf/epoch-history :test/main))
+          "still no ring history — nothing force-appended")
+      (is (nil? (state/last-settled-epoch-id :test/main))
+          "NO phantom anchor left behind (would have named a non-ring epoch-id
+           pre-fix, breaking later back-fill / undo attribution)")
+      (let [ev (some (fn [ev]
+                       (when (= :rf.epoch/replace-history-disabled (:operation ev))
+                         ev))
+                     @recorded)]
+        (is (some? ev) ":rf.epoch/replace-history-disabled fired")
+        (is (= :error (:op-type ev)))
+        (is (= :test/main (:frame (:tags ev))))))))
+
+(deftest four-mutators-all-reject-under-depth-0
+  (testing "rf2-unpldn — all four synthetic mutators (replace-app-db! /
+            reset-app-db! / replace-runtime-db! / replace-frame-state!) reject
+            uniformly under depth 0 via the shared precondition skeleton; none
+            leaves a phantom anchor"
+    (rf/configure! {:epoch-history {:depth 0}})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (is (false? (rf/replace-app-db!     :test/main {:n 1}))   "replace-app-db! rejected")
+    (is (false? (rf/reset-app-db!       :test/main))          "reset-app-db! rejected")
+    (is (false? (rf/replace-runtime-db! :test/main {:rf.runtime/machines {}}))
+        "replace-runtime-db! rejected")
+    (is (false? (rf/replace-frame-state! :test/main
+                                         {:rf.db/app {:n 2} :rf.db/runtime {}}))
+        "replace-frame-state! rejected")
+    (is (= {:n 0} (rf/app-db-value :test/main))
+        "app-db untouched by any of the four rejected injections")
+    (is (nil? (state/last-settled-epoch-id :test/main))
+        "no phantom anchor from any of the four")))
+
+(deftest replace-app-db!-positive-depth-still-records-undo-anchor
+  (testing "rf2-unpldn — the depth-0 reject does NOT regress the normal
+            positive-depth path: with depth > 0 the synthetic anchor still
+            lands and restore-epoch! of a prior epoch rewinds past the
+            injection (the undo-works-after invariant holds)"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (is (true? (rf/replace-app-db! :test/main {:n 999}))
+        "positive depth: injection succeeds")
+    (let [history (rf/epoch-history :test/main)
+          head    (last history)]
+      (is (= :rf.epoch/db-replaced (:event-id head))
+          "the synthetic undo-anchor landed in the ring")
+      (is (= (:epoch-id head) (state/last-settled-epoch-id :test/main))
+          "last-settled anchors to a REAL ring epoch (no phantom)")
+      ;; restore-epoch! of the seed epoch rewinds PAST the injection — undo works.
+      (let [seed-epoch (some #(when (= :seed (:event-id %)) %) history)]
+        (is (some? seed-epoch))
+        (is (true? (rf/restore-epoch! :test/main (:epoch-id seed-epoch))))
+        (is (= {:n 7} (rf/app-db-value :test/main))
+            "undo works after the injection — restore rewound past it")))))
+
 (deftest replace-app-db!-subs-re-fire
   (testing "Subscribers route off the post-reset app-db value (the
             substrate's reactive container drives sub re-evaluation,

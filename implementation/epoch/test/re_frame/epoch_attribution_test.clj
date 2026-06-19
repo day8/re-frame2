@@ -1805,3 +1805,129 @@
         (is (contains? (rendered-view-ids e) :counter-view)
             "post-failure render attributes to the unchanged last-settled
              epoch — the re-anchor is success-only")))))
+
+;; ===========================================================================
+;; rf2-qh13yf — back-fill splice is SNAPSHOT-CONSISTENT under interleaved
+;;               eviction at ring cap
+;; ===========================================================================
+;;
+;; THE BUG: `state/back-fill-event!` resolved the record's ring index against
+;; ONE `@histories` deref (`epoch-index (history-for frame-id) epoch-id`), then
+;; read the record off a SECOND deref and `update-in`'d at the up-front index.
+;; Its docstring justified the single up-front resolution by "within-frame
+;; drain is single-threaded, so no append can shift it" — but the back-fill
+;; fires at React COMMIT / DEREF / TEARDOWN time, OUTSIDE any drain, so a real
+;; cascade `record!` for the SAME frame can append between the two derefs. At
+;; ring CAP that append EVICTS the front record and shifts every index down by
+;; one, so the stale up-front index named (and spliced) the WRONG record.
+;;
+;; THE FIX (rf2-qh13yf): the index AND the spliced record are re-derived from
+;; the SINGLE CAS-retried `@histories` value, INSIDE the one `swap!` update fn.
+;; The splice therefore always lands on the record whose `:epoch-id` matches,
+;; regardless of any interleaved append / eviction.
+;;
+;; These tests reproduce the eviction-shift deterministically (single-threaded
+;; — drive `record!` to evict between capturing the target and back-filling it),
+;; then assert the back-fill is index-shift-IMMUNE. They hit the ACTUAL failing
+;; path: a stale-index splice would surface as a row on the WRONG epoch (or a
+;; row on a surviving record when the target was evicted).
+
+(defn- bf-sub-event
+  "A bare reactive `:rf.sub/run` trace-event map (the shape
+  `back-fill-sub-run!` appends), plus its structured `:sub-runs` row. Driven
+  through `state/back-fill-sub-run!` DIRECTLY (the production post-settle path)
+  so the test controls the exact @histories state the splice resolves against."
+  [frame-id sub-id value]
+  {:event {:op-type   :rf.sub
+           :operation :rf.sub/run
+           :tags      {:rf.sub/id    sub-id
+                       :frame        frame-id
+                       :rf.sub/value value}}
+   :row   {:sub-id sub-id :value value}})
+
+(deftest qh13yf-back-fill-splices-target-by-id-not-stale-index
+  (testing "rf2-qh13yf — when an eviction at ring cap SHIFTS the target
+            epoch's index between the back-fill's would-be index resolution
+            and its splice, the splice lands on the epoch matching epoch-id
+            (re-derived inside the swap), NOT the stale positional neighbour."
+    ;; depth 3 — small cap so an append after filling evicts the front.
+    (rf/configure! {:epoch-history {:depth 3 :trace-events-keep 50}})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+
+    ;; Fill the ring to cap (3 records): indices 0,1,2.
+    (rf/dispatch-sync [:seed] {:frame :test/main})   ; idx 0 (event :seed)
+    (rf/dispatch-sync [:inc]  {:frame :test/main})   ; idx 1 (event :inc, n=1)
+    (rf/dispatch-sync [:inc]  {:frame :test/main})   ; idx 2 (event :inc, n=2)
+
+    (let [history-before (rf/epoch-history :test/main)
+          ;; Target the MIDDLE epoch (idx 1). After one eviction it shifts to
+          ;; idx 0 — a stale-index splice would hit the record now at idx 1.
+          target         (nth history-before 1)
+          target-id      (:epoch-id target)
+          neighbour-at-1 (:epoch-id (nth history-before 2))] ; what slides to idx 1
+      (is (= 3 (count history-before)) "ring is at cap")
+
+      ;; INTERLEAVE: a cascade record! appends at cap → evicts idx 0, every
+      ;; surviving record shifts down by one. The target moves 1 → 0.
+      (rf/dispatch-sync [:inc] {:frame :test/main})  ; n=3; evicts old idx 0
+
+      (let [history-after (rf/epoch-history :test/main)
+            target-idx'   (some (fn [i] (when (= target-id (:epoch-id (nth history-after i))) i))
+                                (range (count history-after)))]
+        (is (= 3 (count history-after)) "still at cap after the evicting append")
+        (is (= 0 target-idx')
+            "the target epoch shifted from index 1 to index 0 (eviction)")
+        (is (not= target-id (:epoch-id (nth history-after 1)))
+            "a DIFFERENT epoch now occupies the stale index 1")
+
+        ;; NOW back-fill the target by id. The naive stale-index path would
+        ;; have spliced into index 1 (the wrong epoch); the fix re-derives the
+        ;; index inside the swap and lands on the target by id.
+        (let [{:keys [event row]} (bf-sub-event :test/main :late-sub 99)]
+          (state/back-fill-sub-run! :test/main target-id event row))
+
+        (let [t          (epoch-by-id :test/main target)
+              wrong       (epoch-by-id :test/main {:epoch-id (:epoch-id (nth history-after 1))})]
+          (is (contains? (sub-run-ids t) :late-sub)
+              "the back-fill landed on the TARGET epoch (matched by id, not
+               the stale index 1)")
+          (is (not (contains? (sub-run-ids wrong) :late-sub))
+              "the epoch at the stale index 1 was NOT mis-spliced")
+          (is (= target-id (:epoch-id t))
+              "the spliced record really is the target")
+          (is (= neighbour-at-1 (:epoch-id (nth (rf/epoch-history :test/main) 1)))
+              "the index-1 neighbour is untouched and still the same epoch"))))))
+
+(deftest qh13yf-back-fill-of-evicted-target-is-nil-no-wrong-splice
+  (testing "rf2-qh13yf — when the target epoch is EVICTED before the back-fill
+            runs, the back-fill resolves no index in the live ring, returns nil,
+            and splices NOTHING into the record that took its old position
+            (a stale up-front index would have spliced the evicted target's old
+            slot into a surviving, unrelated epoch)."
+    (rf/configure! {:epoch-history {:depth 2 :trace-events-keep 50}})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})  ; idx 0 — the soon-evicted target
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ; idx 1
+
+    (let [target-id (:epoch-id (first (rf/epoch-history :test/main)))]
+      ;; Evict the front (the target) by appending past cap.
+      (rf/dispatch-sync [:inc] {:frame :test/main})  ; evicts idx 0 (target)
+      (rf/dispatch-sync [:inc] {:frame :test/main})  ; evicts again — target long gone
+
+      (is (nil? (epoch-by-id :test/main {:epoch-id target-id}))
+          "the target epoch is no longer in the ring (evicted)")
+
+      (let [{:keys [event row]} (bf-sub-event :test/main :ghost-sub 7)
+            result (state/back-fill-sub-run! :test/main target-id event row)]
+        (is (nil? result)
+            "back-fill of an evicted target returns nil (no record to splice)")
+        ;; No surviving record received the ghost row.
+        (is (every? (fn [r] (not (contains? (sub-run-ids r) :ghost-sub)))
+                    (rf/epoch-history :test/main))
+            "no surviving epoch was mis-spliced with the evicted target's
+             back-fill (the stale-index wrong-record splice the fix kills)")))))

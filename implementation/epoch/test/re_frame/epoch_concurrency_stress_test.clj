@@ -635,3 +635,123 @@
                   (str frame-id ": the back-filled rows carry the full raw "
                        "value set 0.." (dec stress-iters)
                        " verbatim — none lost, none redacted at storage.")))))))))
+
+;; ---- Scenario 5 (rf2-qh13yf) ----------------------------------------------
+;;
+;; BACK-FILL vs INTERLEAVED EVICTION at ring cap. `back-fill-event!` fires at
+;; React commit / deref / teardown time, OUTSIDE any drain, so a cascade
+;; `record!` for the SAME frame can interleave with it. Pre-fix the back-fill
+;; resolved the target record's ring index against ONE `@histories` deref, then
+;; read / spliced against later derefs; at ring CAP an interleaved append EVICTS
+;; the front record and shifts every index down by one, so the stale up-front
+;; index spliced the WRONG record. The fix re-derives the index from the SINGLE
+;; CAS-retried `@histories` value inside the one `swap!`.
+;;
+;; This scenario pins ONE frame at a small ring cap and runs two contending
+;; thread groups against it:
+;;   * a RECORDER thread that fires `iters` `dispatch-sync` settles — each at
+;;     cap evicts the front, churning indices continuously;
+;;   * BACK-FILLER threads that, in a tight loop, snapshot the live ring, pick a
+;;     real (currently-present) epoch-id, and `back-fill-sub-run!` a uniquely-
+;;     tagged row onto it.
+;;
+;; Invariant (snapshot consistency): EVERY back-filled row that the fix accepts
+;; (the target was still present at splice time) lands on the epoch whose
+;; `:epoch-id` matches the tag the row carries — NEVER on a positional
+;; neighbour. After the run we walk the final ring and assert no surviving
+;; record carries a `:sub-runs` row whose embedded target-id != that record's
+;; own epoch-id. A stale-index wrong-record splice surfaces as exactly such a
+;; mismatch. Neither thread group may throw.
+;;
+;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
+
+(deftest back-fill-snapshot-consistent-under-interleaved-eviction-stress
+  (testing (str "back-fill vs " stress-iters
+                " interleaved cap-evicting settles — every accepted back-fill "
+                "lands on the epoch matching its embedded target-id, never a "
+                "stale-index neighbour (rf2-qh13yf)")
+    ;; Small cap so the recorder's settles continuously evict + shift indices.
+    (let [cap 8]
+      (rf/configure! {:epoch-history {:depth cap :trace-events-keep 50}})
+      (rf/reg-frame :qh13yf.race/main {:doc "back-fill vs eviction race frame"})
+      (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
+      ;; Seed the ring to cap so back-fillers have live targets from the start.
+      (dotimes [i cap] (rf/dispatch-sync [:bump i] {:frame :qh13yf.race/main}))
+
+      (let [recorder-done (atom false)
+            errors        (atom [])
+            accepted      (atom 0)
+            n-fillers     (max 2 (quot n-threads 2))
+            latch         (CountDownLatch. 1)
+            ;; Each back-filled row embeds the TARGET epoch-id it was aimed at,
+            ;; so the post-run walk can detect a wrong-record splice (the row's
+            ;; embedded target-id != the record it actually landed on).
+            bf-event (fn [target-id]
+                       {:op-type   :rf.sub
+                        :operation :rf.sub/run
+                        :tags      {:rf.sub/id     :race-sub
+                                    :frame         :qh13yf.race/main
+                                    :rf.sub/value  target-id}})
+            recorder
+            (future
+              (.await latch)
+              (try
+                (dotimes [i stress-iters]
+                  (rf/dispatch-sync [:bump (+ cap i)] {:frame :qh13yf.race/main}))
+                (catch Throwable t (swap! errors conj t))
+                (finally (reset! recorder-done true))))
+            fillers
+            (vec
+              (for [_ (range n-fillers)]
+                (future
+                  (.await latch)
+                  (try
+                    (loop []
+                      (when-not @recorder-done
+                        (let [hist (rf/epoch-history :qh13yf.race/main)]
+                          (when (seq hist)
+                            (let [target-id (:epoch-id (rand-nth hist))
+                                  ;; embed the target-id as the row's :value so a
+                                  ;; mis-splice is detectable; back-fill returns
+                                  ;; nil when the target evicted before the splice.
+                                  result (state/back-fill-sub-run!
+                                           :qh13yf.race/main target-id
+                                           (bf-event target-id)
+                                           {:sub-id :race-sub :value target-id})]
+                              (when (some? result) (swap! accepted inc)))))
+                        (recur)))
+                    (catch Throwable t (swap! errors conj t))))))]
+        (.countDown latch)
+        (is (not= ::timeout (await-future recorder)) "recorder completed")
+        (doseq [f fillers]
+          (is (not= ::timeout (await-future f)) "back-filler completed"))
+
+        ;; --- Invariant 0: no exception escaped either thread group.
+        (is (empty? @errors)
+            (str "no thread threw; got " (count @errors) " exceptions: "
+                 (pr-str (mapv #(.getMessage ^Throwable %) (take 3 @errors)))))
+
+        ;; --- Invariant 1 (snapshot consistency): every back-filled row on a
+        ;;     surviving record embeds THAT record's own epoch-id. A row whose
+        ;;     embedded target-id differs from the record it sits on is a
+        ;;     stale-index wrong-record splice (the bug).
+        (let [final-hist (rf/epoch-history :qh13yf.race/main)
+              mis-spliced
+              (for [record final-hist
+                    row     (:sub-runs record)
+                    :when   (= :race-sub (:sub-id row))
+                    :when   (not= (:value row) (:epoch-id record))]
+                {:landed-on (:epoch-id record) :aimed-at (:value row)})]
+          (is (empty? mis-spliced)
+              (str "every accepted back-fill landed on the epoch matching its "
+                   "embedded target-id; got " (count mis-spliced)
+                   " wrong-record splices (stale-index bug): "
+                   (pr-str (vec (take 5 mis-spliced))))))
+
+        ;; --- Diagnostic: the back-fillers actually accepted some splices
+        ;;     (a quiescent run would vacuously pass invariant 1).
+        (is (pos? @accepted)
+            (str "back-fillers accepted " @accepted
+                 " splices (a positive count means the race window was "
+                 "actually exercised; some attempts return nil when the "
+                 "target evicted before the splice)."))))))
