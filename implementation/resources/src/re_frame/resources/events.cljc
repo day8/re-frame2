@@ -335,7 +335,34 @@
                      ;; it) — treat the fresh entry as already-`:success` or
                      ;; the route hangs forever (Spec 016 §Route integration).
                      ;; No-op for a non-route-owned / non-blocking resource.
-                     (route/drain-blocking scoped-key hit :success))]
+                     (route/drain-blocking scoped-key hit :success))
+            ;; rf2-k9u4h3 — a fresh-skip that attaches a NEW owner to a
+            ;; previously OWNER-FREE entry must (re)arm polling. The original
+            ;; load may have settled while owner-free (`succeeded-handler` arms
+            ;; NO poll timer for an owner-free settle — a poll never pins an
+            ;; owner-free entry); the entry then sat `:loaded` with no poll
+            ;; armed. A later `ensure` from a live owner serves the cached value
+            ;; via this fresh-skip and — before this fix — emitted no
+            ;; `:rf.resource/schedule-timers`, so the SWR `refetchInterval`
+            ;; analogue silently never started. The entry now HAS an active
+            ;; owner, so polling MUST arm, mirroring the success-path arming
+            ;; (Spec 016 §Polling — a `:poll` timer is armed after a settle while
+            ;; the entry has at least one active owner). We also re-arm the
+            ;; advisory stale / GC timers (cancel-then-arm) so a fresh-skip that
+            ;; revives an owner-free entry re-establishes the full timer set the
+            ;; success path would have armed, never double-arming (the fx is
+            ;; cancel-then-arm by construction). Gated on a previously-owner-free
+            ;; entry: a fresh-skip onto an already-owned entry adds another lease
+            ;; but its timers are already live, so it re-arms nothing here.
+            was-owner-free? (empty? (:active-owners entry))
+            arm-timers?    (and owner-newly-attached? was-owner-free?)
+            spec           (registry/resource-meta (:resource/id entry))
+            poll-delay-ms  (when (and arm-timers? (seq (:active-owners hit)))
+                             (state/positive-or-nil (:poll-interval-ms spec)))
+            stale-delay-ms (when arm-timers?
+                             (state/positive-or-nil (:stale-after-ms spec)))
+            gc-delay-ms    (when arm-timers?
+                             (state/positive-or-nil (:gc-after-ms spec)))]
         (trace/emit! :rf.event :rf.resource/cache-hit
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause})
@@ -346,7 +373,18 @@
                        {:rf.frame/id frame-id :resource/key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
                         :work/id nil :joined-in-flight? false}))
-        {:rf.db/runtime rdb'})
+        ;; arm the poll (+ re-arm stale / GC) for an owner-free entry just
+        ;; revived by a new lease, mirroring the success-path arming. Only
+        ;; emitted when the resource declares at least one of poll / stale / GC.
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms poll-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource/key   scoped-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  poll-delay-ms
+                        :server?        (state/server-frame? frame-id)}]])))
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
       ;; do NOT start a new generation. Join the SAME work-ledger record
