@@ -631,18 +631,19 @@
         "sensitive slots redact when the caller did NOT opt in")))
 
 (deftest drain-form-resolves-elision-frame-per-element
-  ;; rf2-1we9fa — the trace-walk arm resolves the elision `:frame` PER
-  ;; ELEMENT inside the walk, NOT once for the whole drain. Cascade
-  ;; bundles are keyed by `[frame dispatch-id]`, so an all-frame stream —
-  ;; or a filter frame that differs from the operating frame — carries
-  ;; cascades from several frames in one tick. Per EP-0015 sensitive/large
-  ;; declarations are per-frame, so each element MUST be elided against its
-  ;; OWN frame: a cascade record's `:frame` slot, else a frameless event's
-  ;; `[:tags :frame]` / `:frame`. The operating frame
-  ;; (`(re-frame2-pair.runtime/current-frame)`) survives as the GENUINELY
-  ;; FRAMELESS FALLBACK only (EP-0002 rf2-bd4div: the nREPL eval thread
-  ;; carries no ambient `with-frame` scope, so a truly frameless element
-  ;; would otherwise fail closed and redact away).
+  ;; rf2-1we9fa / rf2-7737vq — the trace-walk arm resolves the elision
+  ;; `:frame` PER ELEMENT inside the walk BY LAYER, NOT once for the whole
+  ;; drain. Cascade bundles are keyed by `[frame dispatch-id]`, so an
+  ;; all-frame stream — or a filter frame that differs from the operating
+  ;; frame — carries cascades from several frames in one tick. Per EP-0015
+  ;; sensitive/large declarations are per-frame, so each element MUST be
+  ;; elided against its OWN frame: a DERIVED cascade record's top-level
+  ;; `:frame` slot, else a frameless RAW event's frame via the canonical
+  ;; `re-frame.trace/trace-event-frame` reader ([:tags :frame]). The
+  ;; operating frame (`(re-frame2-pair.runtime/current-frame)`) survives
+  ;; as the GENUINELY FRAMELESS FALLBACK only (EP-0002 rf2-bd4div: the
+  ;; nREPL eval thread carries no ambient `with-frame` scope, so a truly
+  ;; frameless element would otherwise fail closed and redact away).
   ;;
   ;; This test REPLACES the prior `drain-form-threads-operating-frame`,
   ;; which PINNED the buggy "one operating frame for every cascade"
@@ -651,12 +652,13 @@
   (let [form (sub/drain-form "sub-frame" :trace true false)]
     (is (str/includes? form "(re-frame2-pair.runtime/current-frame)")
         "the operating frame is resolved app-side as the frameless fallback")
-    ;; The per-element resolution: cascade record `:frame`, then frameless
-    ;; `[:tags :frame]`, then the operating-frame fallback.
+    ;; The per-element resolution: DERIVED cascade record top-level
+    ;; `:frame`, then a RAW event's frame via the canonical reader, then
+    ;; the operating-frame fallback.
     (is (str/includes? form "(:frame x)")
-        "each element's own :frame slot is the first elision-frame source")
-    (is (str/includes? form "(get-in x [:tags :frame])")
-        "a frameless event's [:tags :frame] is the second source")
+        "each element's own top-level :frame slot is the first elision-frame source")
+    (is (str/includes? form "(re-frame.trace/trace-event-frame x)")
+        "a frameless RAW event's frame reads via the canonical reader (the second source)")
     (is (str/includes? form "(or (:frame x)")
         "the per-element frame falls through (or ...) to the fallback")
     (is (str/includes? form "(assoc base-opts :frame frame)")

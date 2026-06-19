@@ -54,9 +54,12 @@
  (and (or (nil? operation) (= operation (:operation ev)))
  (or (nil? op-type) (= op-type (:op-type ev)))
  (or (nil? severity) (= severity (:op-type ev)))
- (or (nil? frame) (= frame
- (or (:frame ev)
- (get-in ev [:tags :frame]))))
+ ;; rf2-7737vq — mirror the runtime's canonical
+ ;; `re-frame.trace/trace-event-frame` read: a RAW trace event carries
+ ;; frame identity ONLY under `[:tags :frame]`. (Inlined as the
+ ;; `get-in` the canonical reader is implemented as, because this bb
+ ;; mirror can't `:require` the CLJS preload / the CLJC trace ns.)
+ (or (nil? frame) (= frame (get-in ev [:tags :frame])))
  (or (nil? event-id) (= event-id
  (get-in ev [:tags :rf.trace/event-id])))
  (or (nil? handler-id) (= handler-id
@@ -327,10 +330,14 @@
  (is (not (trace-matches? filter-map {:time 99})))
  (is (not (trace-matches? filter-map {:time 201})))))
 
-(deftest trace-filter-frame-falls-back-to-tags
+(deftest trace-filter-frame-reads-tags-frame
+ ;; rf2-7737vq — a RAW trace event carries frame identity ONLY under
+ ;; `[:tags :frame]`. The prior top-level-`:frame` fallback is gone, so a
+ ;; top-level-only `:frame` no longer matches the frame filter axis.
  (let [filter-map {:frame :stories}]
  (is (trace-matches? filter-map {:tags {:frame :stories}}))
- (is (trace-matches? filter-map {:frame :stories}))
+ (is (not (trace-matches? filter-map {:frame :stories}))
+ "a stray top-level :frame is not a raw-event shape — it does not match")
  (is (not (trace-matches? filter-map {:tags {:frame :rf/default}})))))
 
 (deftest epoch-filter-matches-by-event-id
