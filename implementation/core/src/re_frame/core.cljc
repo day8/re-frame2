@@ -90,20 +90,20 @@
             ;; bundle-isolation neutral and production-surviving (the
             ;; always-on observability stream is NOT DCE'd, by design).
             [re-frame.observability :as observability]
-            ;; EP-0013 D2: the app-value ns — EP-0023 RETAINED-INTERNAL substrate.
-            ;; EP-0023 (rf2-pl97nd.2) REMOVED the public facade re-exports it once
-            ;; backed (`rf/module` / `rf/app` / `rf/app-*` / `rf/install!` /
-            ;; `rf/reinstall!`); the ns stays as the registrar-backed installation
-            ;; path during migration. It is still REQUIRED HERE for its ns-load
-            ;; SIDE-EFFECT — it publishes the `:app-value/project` late-bind hook
-            ;; `re-frame.realm/installed-app` consults to project a realm's
-            ;; installed app VALUE over its registrar (bound at boot; a static
-            ;; require would close a load cycle), and core wires the descriptor
-            ;; lowering hooks (`:app-value/install-descriptor!` et al.) it consults
-            ;; (see below). The ns pulls only `re-frame.realm` + `re-frame.registrar`
-            ;; + `re-frame.late-bind` (core spine), so it is bundle-isolation
-            ;; neutral. The alias is no longer referenced directly now the facade
-            ;; re-exports are gone; the require is load-side-effect-only.
+            ;; EP-0013 D2: the app-value ns — EP-0023 RETAINED-INTERNAL substrate,
+            ;; collapsed to the PROJECTION seam only (rf2-csgz8l: the public
+            ;; facade re-exports `rf/module` / `rf/app` / `rf/app-*` / `rf/install!`
+            ;; / `rf/reinstall!` were removed by rf2-pl97nd.2, and the construction
+            ;; + install/reinstall machinery they backed was retired under the
+            ;; realm-substrate collapse). It is still REQUIRED HERE for its ns-load
+            ;; SIDE-EFFECT — it publishes the `:app-value/project` +
+            ;; `:app-value/reconcile-installed` late-bind hooks
+            ;; `re-frame.realm/installed-app` consults to project a realm's app
+            ;; VALUE over its registrar (bound at boot; a static require would
+            ;; close a load cycle). The ns pulls only `re-frame.realm` +
+            ;; `re-frame.late-bind` (core spine), so it is bundle-isolation
+            ;; neutral. The alias is not referenced directly (the facade
+            ;; re-exports are gone); the require is load-side-effect-only.
             [re-frame.app-value :as app-value]
             ;; EP-0023 (rf2-10nggz): the realm machinery is RETAINED INTERNAL
             ;; substrate (the registrar-backed installation/resolution spine);
@@ -2036,282 +2036,23 @@
 ;; `(rf/migration-explain :rf/app)` / `(rf/migration-explain :rf/module)` and
 ;; EP-0023 §Backwards Compatibility.
 
-;; ---- app-value installation (EP-0013 D2 stage 7) -------------------------
-;;
-;; The LAST D2 slice: seat an immutable app value into a runtime realm.
-;; `install!` makes a constructed (stage-6) app value the program a realm
-;; dispatches/subscribes/resolves against — capability-checked first (the
-;; app's `:rf.app/requires` must be satisfiable by the realm, fail loud on unmet),
-;; then the descriptors are lowered into the realm's registrar and the seated
-;; value recorded at the realm boundary. `reinstall!` hot-reloads a realm by
-;; diffing the new app value against the installed one and applying the delta,
-;; returning the diff. Both DEFAULT to the process default realm, so seating an
-;; app value is byte-identical to the `reg-*` sugar that registered the same
-;; ids — zero ergonomic regression; the ordinary namespace-load sugar path is
-;; untouched. `rf/install!` / `rf/reinstall!` are the reserved-vocabulary names
-;; ruled in EP-0013 issue 1.
-
-;; ---- the kind-aware descriptor lowering seam (the install! bridge) --------
-;;
-;; A CONSTRUCTED app value's descriptor (from `module`) carries the HIGH-LEVEL
-;; registration form — a raw `:handler` + the `:doc`/`:schema` metadata — NOT
-;; the wrapped, dispatch-ready registrar metadata (the event interceptor chain,
-;; the sub `:input-kind`/`:input-signals`). To make a seated descriptor
-;; actually DISPATCHABLE/RESOLVABLE, `install!` must lower it through the SAME
-;; kind-specific registration logic the `reg-*` sugar path uses —
-;; `register-event!` wraps the handler into the `:rf/event-handler` interceptor;
-;; `reg-sub` parses input signals; `reg-fx`/`reg-cofx` stamp their slots. That
-;; logic lives in `re-frame.events` / `re-frame.subs` / `re-frame.fx` /
-;; `re-frame.cofx` / `re-frame.frame`, which `re-frame.app-value` must NOT
-;; require (it is a leaf on the realm/registrar spine, bundle-isolation
-;; neutral). So core — which already pulls all those reg surfaces — publishes a
-;; `:app-value/install-descriptor!` late-bind hook that `app-value/install!`
-;; consults per descriptor.
-;;
-;; EP-0013 §Implementation step 7 defines the FIRST descriptor-format kinds —
-;; `:event`/`:sub`/`:fx`/`:cofx` AND `:frame`. All five are wired here through
-;; their real registration logic (`:frame` → `reg-frame`, which creates the
-;; frame container + runs `:on-create` + installs classification — the malformed
-;; flat slot that `reg-frame` never produces is the rf2-chc8vs gap this closes).
-;;
-;; Step 8 DEFERS the rest (`:route`/`:flow`/`:resource`/`:mutation`/`:view`/
-;; `:head`/`:error-projector`/`:resource-scope`): each has real registration
-;; logic (route compile, flow input-signal parse, scope wiring, …) the flat
-;; registrar lowering BYPASSES, so flat-lowering one seats a slot the subsystem
-;; cannot consume. Rather than silently seat that malformed slot, the hook
-;; REFUSES LOUDLY — a diagnosable `:rf.error/unsupported-descriptor-kind` naming
-;; the unsupported kind + the wired set + that it is a later slice — per EP-0013
-;; issue-12 (refuse-loudly is fail-closed) + the corpus no-silent-swallow rule
-;; (rf2-3nbl5.1). The flat fallback in `register-descriptor!` now only ever runs
-;; for a projected descriptor of a wired kind whose `:metadata` already carries
-;; the registrar slot (when the hook is unbound — e.g. a production bundle that
-;; never loaded core's reg surfaces).
-
-(def ^:private install-deferred-kinds
-  "EP-0013 step-8 registration kinds whose install lowering is NOT yet wired.
-  Each carries real registration logic (route compile, flow input-signal parse,
-  resource/mutation/scope wiring, view handler wrap, SSR head + error-projector
-  registration) the flat registrar lowering bypasses, so `install!` REFUSES
-  LOUDLY rather than seat a malformed flat slot the subsystem cannot consume —
-  fail-closed per EP-0013 issue-12. Wiring these is a later slice."
-  #{:route :flow :resource :mutation :resource-scope :view :head :error-projector})
-
-(def ^:private install-wired-kinds
-  "EP-0013 step-7 FIRST descriptor-format kinds — those `install-descriptor!`
-  lowers through their real registration logic. The complement of
-  `install-deferred-kinds` within the Spec 001 registrar taxonomy."
-  #{:event :sub :fx :cofx :frame})
-
-(defn- install-descriptor!
-  "Lower one app-value registration descriptor into the realm's registrar
-  through its kind's real registration path, so a constructed (high-level)
-  descriptor becomes dispatch/resolve-ready exactly as a `reg-*` call would.
-
-  Handles the EP-0013 step-7 first-format kinds — `:event`/`:sub`/`:fx`/`:cofx`
-  AND `:frame` — through their real `reg-*` logic, returning `true`. `:frame`
-  lowers through `reg-frame` (atomic create-and-register: a frame container,
-  `:on-create`, classification install), so a seated frame is a REAL frame that
-  appears in `frame-ids` — not the malformed flat slot the registrar-only path
-  produced (rf2-chc8vs). EP-0018 (rf2-xhfxcs.14): an `:event` descriptor
-  lowers straight through the ONE public `reg-event` runtime fn (coeffects in,
-  a closed effects map out); the former `:event/kind` sub-discriminator is
-  gone, so every module event seats through the one shape.
-
-  For the step-8-DEFERRED kinds (`install-deferred-kinds`) THROWS
-  `:rf.error/unsupported-descriptor-kind` (the ex-data IS the diagnostic —
-  naming the kind + the wired set + that its install lowering is a later slice)
-  rather than silently flat-lowering a slot the subsystem cannot consume —
-  fail-closed per EP-0013 issue-12 + the no-silent-swallow rule.
-
-  Returns `false` for any other kind to signal `install!` should fall back to
-  the flat registrar lowering — reached only by a projected descriptor when the
-  hook is unbound (the flat path round-trips a projected descriptor unchanged)."
-  [kind id {:keys [handler metadata source owner]}]
-  ;; Fold the descriptor's lifted `:source` envelope back into the metadata the
-  ;; reg fn sees, so an explicitly-supplied source coordinate (issue 8: a
-  ;; non-macro / code-gen host) survives the lower→register round-trip. The reg
-  ;; fns merge the macro `*pending-coords*` over this, so a real macro-path coord
-  ;; still wins when present. Carry the `:owner` (module provenance) through too
-  ;; so the realm's registrar records which module installed each registration.
-  (let [meta (cond-> (merge source (or metadata {}))
-               (some? owner) (assoc :owner owner))]
-    (cond
-      (contains? install-deferred-kinds kind)
-      (error/throw-error!
-        :rf.error/unsupported-descriptor-kind
-        'rf/install!
-        (str "rf/install!: descriptor kind " kind
-             " is not yet installable — its real registration"
-             " logic is a later EP-0013 slice (step 8). install!"
-             " wires " (pr-str install-wired-kinds) " so far;"
-             " seating " kind " through the flat registrar would"
-             " produce a slot the subsystem cannot consume."
-             " Register it through its own reg-* sugar.")
-        {:recovery :register-through-reg-*-sugar
-         :extra    {:kind     kind
-                    :id       id
-                    :wired    install-wired-kinds
-                    :deferred install-deferred-kinds}})
-
-      :else
-      (case kind
-        ;; EP-0018 (rf2-xhfxcs.14): an event descriptor lowers straight through
-        ;; the ONE public `reg-event` runtime fn (coeffects in, a closed effects
-        ;; map out). The former `:event/kind` sub-discriminator + the per-kind
-        ;; reg fns are gone — every module event seats through the one shape.
-        ;;
-        ;; rf2-untip9: a PROJECTED descriptor (from `av/app-value`) carries the
-        ;; EFFECTIVE registrar metadata — the assembled `:interceptors` chain
-        ;; whose tail is the inline `:rf/event-handler` framework wrapper, plus
-        ;; the generated `:rf.cofx/requires-parsed`. Re-feeding those generated
-        ;; slots to `reg-event` makes its reference-only validation reject the
-        ;; wrapper (`:rf.error/inline-interceptor-removed`). `normalize-relowered-meta`
-        ;; strips them back to the authored shape (recovering the author's
-        ;; reference chain), so a projected/reconciled app value re-lowers
-        ;; faithfully; it is a no-op on a constructed descriptor.
-        :event (do (events/reg-event id (events/normalize-relowered-meta meta) handler) true)
-        :sub   (do (subs/reg-sub id meta handler) true)
-        :fx    (do (fx/reg-fx id meta handler) true)
-        :cofx  (do (cofx/reg-cofx id meta handler) true)
-        :frame (do (frame/reg-frame id meta) true)
-        false))))
-
-(late-bind/set-fn! :app-value/install-descriptor! install-descriptor!)
-
-(defn- refuse-unsupported-install!
-  "The PREFLIGHT counterpart of `install-descriptor!`'s kind-boundary throw.
-  Given an app value's full `[kind id]` registration pairs, THROWS
-  `:rf.error/unsupported-descriptor-kind` (enumerating the blocking `[kind id]`s)
-  when ANY names a step-8-DEFERRED kind (`install-deferred-kinds`), BEFORE the
-  seating loop lowers a single descriptor (rf2-c6armm.8 #2).
-
-  `install-descriptor!` already throws on a deferred kind, but it throws
-  MID-LOOP — after the loop has already lowered kinds 1..N-1. For most wired
-  kinds that mid-loop throw is harmless: `seat-into-realm!` snapshots the
-  realm's registrar atom and restores it on any throw, so a half-populated
-  registrar rolls back cleanly. But `:frame` is the exception — `reg-frame`
-  creates a LIVE frame container (a side-channel write to the process
-  `frame/frames` atom, plus `:on-create` + classification side effects) that the
-  registrar-only rollback does NOT undo. So a multi-descriptor app that lowers a
-  `:frame` BEFORE hitting a deferred kind would leave the frame container, its
-  classification, and its `:on-create` residue live even though the registrar
-  rolled back and no `:app` was recorded — the exact `false installed-app /
-  failed-install` leak rf2-c6armm.8 #2 names.
-
-  Preflighting every kind here, before any lowering, closes that window: a
-  refused install creates NO live frame because the throw precedes the loop.
-  This is the install-path symmetry of `refuse-unsupported-removal!` (the
-  removal-path preflight) — both refuse-loudly at the KIND BOUNDARY before any
-  mutation, fail-closed per EP-0013 issue-12 + the no-silent-swallow rule. The
-  per-descriptor `install-descriptor!` throw stays as the in-loop backstop (a
-  bundle whose preflight hook is unbound still refuses, just later).
-
-  Published as `:app-value/refuse-unsupported-install!` (mirroring the removal
-  hook) so the leaf `re-frame.app-value` ns preflights through core rather than
-  re-stating the deferred-kind set; no-op fallback when the hook is unbound (a
-  bundle that never loaded core's reg surfaces — the in-loop throw still fires)."
-  [kind-id-pairs]
-  (let [blocking      (->> kind-id-pairs
-                           (filter (fn [[kind _]] (contains? install-deferred-kinds kind)))
-                           (sort)
-                           (vec))
-        [first-kind
-         first-id]    (first blocking)]
-    (when (seq blocking)
-      (error/throw-error!
-        :rf.error/unsupported-descriptor-kind
-        'rf/install!
-        (str "rf/install!: cannot seat the descriptor(s) "
-             (pr-str blocking) " — their kinds are step-8-DEFERRED "
-             "(" (pr-str install-deferred-kinds) "), whose real "
-             "registration logic is a later EP-0013 slice. install! "
-             "wires " (pr-str install-wired-kinds) " so far; seating "
-             "a deferred kind through the flat registrar would produce "
-             "a slot the subsystem cannot consume. Refused BEFORE any "
-             "lowering so no partially-seated runtime state (e.g. a "
-             "live :frame container) leaks from a failed install. "
-             "Register the deferred kinds through their own reg-* "
-             "sugar.")
-        {:recovery :register-through-reg-*-sugar
-         ;; `:kind`/`:id` name the FIRST blocking pair (the same shape
-         ;; `install-descriptor!`'s in-loop throw carried, so the
-         ;; single-deferred-kind diagnostic is unchanged); `:blocking`
-         ;; enumerates every blocking pair (the whole-app preflight).
-         :extra    {:kind     first-kind
-                    :id       first-id
-                    :blocking blocking
-                    :deferred install-deferred-kinds
-                    :wired    install-wired-kinds}}))))
-
-(late-bind/set-fn! :app-value/refuse-unsupported-install! refuse-unsupported-install!)
-
-(defn- refuse-unsupported-removal!
-  "The REMOVAL-path counterpart of `install-descriptor!`'s kind-boundary throw.
-  Given the `:removed` `[kind id]` pairs of a `reinstall!` diff, THROWS
-  `:rf.error/unsupported-descriptor-kind` (enumerating the blocking
-  `[kind id]`s) when any names a step-8-DEFERRED kind (`install-deferred-kinds`)
-  — symmetric with the add/changed path, which already throws via
-  `install-descriptor!`. The descriptor diff does not own step-8 kinds in EITHER
-  direction in this slice: a deferred kind is not yet app-value-INSTALLABLE, so
-  it is not app-value-REMOVABLE either.
-
-  Without this, `reinstall!`'s `:removed` path would call `registrar/unregister!`
-  UNCONDITIONALLY for every removed `[kind id]`. A step-8 kind registered through
-  its OWN sugar (`reg-mutation`/`reg-resource`/`reg-route`/`reg-flow`/…) DOES
-  reach the realm's registrar and IS projected into the diff's old-app, so a
-  `reinstall!` that omits a sugar-registered step-8 id would land it in `:removed`
-  and silently `unregister!` it — running NO subsystem teardown (in-flight
-  mutation/resource abort, routing `:current`, flow owner-rebind), the same
-  silent-orphan window `refuse-live-frame-removal!` closed for `:frame`. This is
-  the symmetric closure on the removal path (rf2-cquy9u, completing the
-  rf2-7zn9kg kind-boundary ruling).
-
-  Throws BEFORE any mutation so a refused reinstall leaves the realm untouched.
-  Published as `:app-value/refuse-unsupported-removal!` (mirroring the install
-  hook) so the leaf `re-frame.app-value` ns refuses through core rather than
-  re-stating the deferred-kind set — when the hook is unbound (a bundle that
-  never loaded core's reg surfaces) the removal path falls back to the bare
-  `registrar/unregister!`, exactly as `install-descriptor!` falls back to the
-  flat registrar lowering."
-  [removed]
-  (let [blocking (->> removed
-                      (filter (fn [[kind _]] (contains? install-deferred-kinds kind)))
-                      (sort)
-                      (vec))]
-    (when (seq blocking)
-      (error/throw-error!
-        :rf.error/unsupported-descriptor-kind
-        'rf/reinstall!
-        (str "rf/reinstall!: cannot remove the descriptor(s) "
-             (pr-str blocking) " — their kinds are step-8-DEFERRED "
-             "(" (pr-str install-deferred-kinds) "), not yet "
-             "installable through the descriptor diff, so they are "
-             "not removable through it either. A step-8 kind "
-             "registered via its own sugar (reg-mutation / "
-             "reg-resource / reg-route / reg-flow / …) stays owned "
-             "by that sugar's clear-* lifecycle — unregistering it "
-             "through the app-value diff would skip the subsystem "
-             "teardown (in-flight abort, routing :current, flow "
-             "owner-rebind) and silently orphan its live instances. "
-             "Clear it through its own clear-* surface before "
-             "reinstalling without it.")
-        {:recovery :clear-through-reg-*-sugar
-         :extra    {:removed  blocking
-                    :deferred install-deferred-kinds
-                    :wired    install-wired-kinds}}))))
-
-(late-bind/set-fn! :app-value/refuse-unsupported-removal! refuse-unsupported-removal!)
-
 ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the realm install / hot-reload
 ;; / constructor / query facade — `rf/install!`, `rf/reinstall!`, `rf/realm`,
-;; `rf/dispose-realm!`, `rf/realm-ids`, `rf/installed-app` — is REMOVED from the
+;; `rf/dispose-realm!`, `rf/realm-ids`, `rf/installed-app` — was REMOVED from the
 ;; public facade. The public model targets a FRAME (a process-local frame id, or
 ;; a direct frame object for tests) whose image generation determines
 ;; registration resolution; the public hot-reload path is `reload-images!`
-;; against a frame target. The realm machinery REMAINS in `re-frame.realm` /
-;; `re-frame.app-value` as internal substrate (the registrar-backed installation
-;; path that `install!`/`reinstall!` above still wire through the late-bind
-;; hooks), but it is no longer presented as public vocabulary. See
+;; against a frame target.
+;;
+;; EP-0023 realm-substrate collapse (rf2-afdlyr, rf2-csgz8l): the EP-0013 D2
+;; install!/reinstall! seating machinery in `re-frame.app-value` was RETIRED
+;; (test-only — no production consumer; the live registration path is `reg-*`
+;; sugar + image-assembly). The kind-aware descriptor-lowering + refuse-loudly
+;; preflight hooks core published to feed it (`:app-value/install-descriptor!`,
+;; `:app-value/refuse-unsupported-install!`, `:app-value/refuse-unsupported-
+;; removal!`) went with it. `re-frame.app-value` retains only the projection
+;; seam (`app-value` → `:app-value/project` / `:app-value/reconcile-installed`),
+;; which `re-frame.realm/installed-app` consults for the Xray Module-view. See
 ;; `(rf/migration-explain :rf/install!)` / `:rf/realm` / `:rf/installed-app` and
 ;; EP-0023 §Backwards Compatibility.
 
