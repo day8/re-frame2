@@ -93,9 +93,8 @@
 
   Internal helper; exposed (with `^:no-doc`) so the sibling
   `re-frame.marks` ns — which writes through the SAME slot via
-  `add-marks` / `set-marks` / `clear-app-db-marks!` — can share a
-  single source of truth for the prune logic. Not part of the
-  public API.
+  `add-marks` / `set-marks` — can share a single source of truth
+  for the prune logic. Not part of the public API.
 
   EP-0001 (rf2-vzld77): operates on the runtime-db partition value (the
   elision registry is durable framework state — Conventions §Reserved
@@ -167,9 +166,9 @@
 
   Internal helper; exposed (with `^:no-doc`) so the sibling
   `re-frame.marks` ns — which mutates the SAME slot from its
-  `add-marks` / `set-marks` / `clear-app-db-marks!`
-  paths — can share a single source of truth for the read-transform-
-  write skeleton. Not part of the public API.
+  `add-marks` / `set-marks` paths — can share a single source of
+  truth for the read-transform-write skeleton. Not part of the
+  public API.
 
   EP-0001 (rf2-vzld77): writes through `frame/swap-runtime-db!` (the
   runtime-db partition of the one physical frame-state container) — the

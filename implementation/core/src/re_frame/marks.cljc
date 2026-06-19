@@ -36,9 +36,10 @@
   `:source :marks`. The frame-owned (`:source :frame`, EP-0015 §3) and
   marks-sourced declarations union at lookup time — a path declared
   sensitive by EITHER source is sensitive. (`add-marks` / `set-marks`
-  are DEMOTED off the public façade — EP-0015 §3, rf2-mngp4o — and remain
-  as internal / test / generated-code helpers; durable app-db
-  classification is authored on the frame. The former
+  are DEMOTED off the public façade — EP-0015 §3, rf2-mngp4o — and their
+  `:marks/*` late-bind hooks are GONE (rf2-gjp7t6, they had zero consumers);
+  they survive ONLY as test / conformance helpers reached by direct require.
+  Durable app-db classification is authored on the frame. The former
   schema→app-db-egress route is gone post-EP-0015 §8.)"
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
@@ -688,10 +689,7 @@
   resolved `new-s` (`:sensitive-declarations`) and `new-l` (`:declarations`)
   maps: assoc the slot when its map is non-empty, dissoc it when empty so an
   emptied slot vanishes rather than lingering as `{}`. The single helper behind
-  `add-marks` / `set-marks` / `clear-app-db-marks!`, which hand-inlined this
-  same cond-> three times (rf2-mo9ekx). `clear-app-db-marks!` passes `base {}`,
-  where the empty-slot dissoc is a harmless no-op on an absent key — the result
-  is byte-identical to its prior seq-only cond->."
+  `add-marks` / `set-marks`, which hand-inlined this same cond-> (rf2-mo9ekx)."
   [base new-s new-l]
   (cond-> base
     (seq new-s)    (assoc :sensitive-declarations new-s)
@@ -699,9 +697,9 @@
     (seq new-l)    (assoc :declarations new-l)
     (empty? new-l) (dissoc :declarations)))
 
-(defn add-marks
-  "Additively merge path-marks into the `app-db` mark-set of `frame-id`.
-  Per Spec 015 §App-db marks (per frame).
+(defn ^:no-doc add-marks
+  "TEST / CONFORMANCE-ONLY (rf2-gjp7t6). Additively merge path-marks into the
+  `app-db` mark-set of `frame-id`. Per Spec 015 §App-db marks (per frame).
 
   `path->mark` is a map from `get-in`-shaped path vectors to mark
   keywords (`:sensitive` or `:large`). Paths supplied here MERGE into
@@ -722,9 +720,12 @@
   observation surfaces (trace bus, Xray, MCP, third-party log sinks)
   consult at emission time.
 
-  NOTE: not a public façade fn (EP-0015 §3, rf2-mngp4o) — frame-owned
+  NOTE: NOT a public façade fn and NOT reachable through a late-bind hook
+  (EP-0015 §3, rf2-mngp4o removed the imperative façade export; rf2-gjp7t6
+  removed the `:marks/add-marks` hook — it had zero consumers). Frame-owned
   `:sensitive` / `:large` classification is the public authoring surface;
-  this is an internal / test / generated-code helper.
+  this fn survives ONLY as a test / conformance helper, reached by direct
+  require from the marks tests + the conformance corpus harness.
 
   Frame-owned declarations (`reg-frame` `:sensitive` / `:large {:app-db …}`,
   `:source :frame`) are preserved — the two declaration sources union at
@@ -741,9 +742,9 @@
           (write-elision-slots (or reg {}) new-s new-l)))))
   frame-id)
 
-(defn set-marks
-  "Replace the `app-db` mark-set of `frame-id` with `path->mark`.
-  Per Spec 015 §App-db marks (per frame).
+(defn ^:no-doc set-marks
+  "TEST / CONFORMANCE-ONLY (rf2-gjp7t6). Replace the `app-db` mark-set of
+  `frame-id` with `path->mark`. Per Spec 015 §App-db marks (per frame).
 
   `path->mark` is a map from `get-in`-shaped path vectors to mark
   keywords (`:sensitive` or `:large`). Paths supplied here REPLACE the
@@ -763,9 +764,12 @@
   observation surfaces (trace bus, Xray, MCP, third-party log sinks)
   consult at emission time.
 
-  NOTE: not a public façade fn (EP-0015 §3, rf2-mngp4o) — frame-owned
+  NOTE: NOT a public façade fn and NOT reachable through a late-bind hook
+  (EP-0015 §3, rf2-mngp4o removed the imperative façade export; rf2-gjp7t6
+  removed the `:marks/set-marks` hook — it had zero consumers). Frame-owned
   `:sensitive` / `:large` classification is the public authoring surface;
-  this is an internal / test / generated-code helper.
+  this fn survives ONLY as a test / conformance helper, reached by direct
+  require from the marks tests + the conformance corpus harness.
 
   Frame-owned declarations (`reg-frame` `:sensitive` / `:large {:app-db …}`,
   `:source :frame`) are preserved — only the `:source :marks` entries are
@@ -785,18 +789,6 @@
               new-l   (assoc-paths carry-l large-paths)]
           (write-elision-slots (or reg {}) new-s new-l)))))
   frame-id)
-
-(defn clear-app-db-marks!
-  "Drop every `add-marks` / `set-marks`-sourced declaration for
-  `frame-id`. Frame-sourced (`:source :frame`) declarations are preserved.
-  Returns nil. Test-isolation only; production code rarely needs this."
-  [frame-id]
-  (elision/swap-elision-slot! frame-id
-    (fn [reg]
-      (let [new-s (without-marks-sourced (:sensitive-declarations reg))
-            new-l (without-marks-sourced (:declarations reg))]
-        (write-elision-slots {} new-s new-l))))
-  nil)
 
 ;; ---- emit-time projection ------------------------------------------------
 ;;
@@ -1887,5 +1879,10 @@
 (late-bind/set-fn! :marks/mark-sub-output!    mark-sub-output!)
 (late-bind/set-fn! :marks/clear-marks!        clear-marks!)
 (late-bind/set-fn! :marks/clear-sub-output-marks! clear-sub-output-marks!)
-(late-bind/set-fn! :marks/add-marks           add-marks)
-(late-bind/set-fn! :marks/set-marks           set-marks)
+;; NOTE: the `:marks/add-marks` / `:marks/set-marks` hooks are GONE (rf2-gjp7t6).
+;; EP-0015 §3 (rf2-mngp4o) removed the public imperative façade exports, and the
+;; hooks themselves had ZERO consumers — they were kept only for directory-
+;; contract symmetry. The underlying `add-marks` / `set-marks` fns survive as
+;; test / conformance-only helpers (^:no-doc), reached by DIRECT REQUIRE from
+;; the marks tests + the conformance corpus harness — never through a late-bind
+;; hook. With no consumer the publications were dead weight.
