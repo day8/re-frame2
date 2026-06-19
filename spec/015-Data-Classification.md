@@ -88,7 +88,7 @@ Two spellings of the same English word live deliberately at different layers, an
 | Spelling | Layer | Shape | Owner |
 |---|---|---|---|
 | `:sensitive` (no `?`) | durable frame-wide / transient-payload classification | a **path map** (`{:app-db [[:auth :token]]}`) or a vector of paths (`[[:password]]`) | frame config (`reg-frame`) / registration metadata |
-| `:sensitive?` (with `?`) | owner-local schema'd-slot classification | a **boolean Malli prop** on a single schema slot (`[:token {:sensitive? true} :string]`) | a `:data-schema` / `:params-schema` / `:decode` schema |
+| `:sensitive?` (with `?`) | owner-local schema'd-slot classification of a *transient* product | a **boolean Malli prop** on a single schema slot (`[:token {:sensitive? true} :string]`) | a resource `:data-schema` / `:params-schema` or an HTTP-body `:decode` schema (EP-0025: NOT a machine `:data-schema` — durable machine `:data` is frame-classified) |
 
 The `?` follows the predicate-suffix convention: `:sensitive?` answers a yes/no question about **one slot**, so it is a boolean; `:sensitive` names a **set of paths**, so it is a collection. Reusing `:sensitive false` to declassify a derived output is therefore forbidden (`:sensitive` is already a path collection at that layer) — declassification has its own key, [`:rf.egress/output-sensitivity`](#derived-sensitivity). `:large` / `:large?` carry the identical distinction.
 
@@ -182,37 +182,38 @@ Paths in a registration's `:sensitive` / `:large` index into that registration's
 
 Durable runtime-subsystem state introduced by resources and mutations follows its own owner rule (below); it is **not** classified as a transient registration payload merely because it is declared by `reg-resource` or `reg-mutation`.
 
-### Machine-owned durable classification (EP-0005 composition, not replacement)
+### Machine-owned durable classification (frame-owned; EP-0025 reversal of the EP-0005 redaction bridge)
 
-> **Ruled 2026-06-11 (EP-0015 issue 12): NO supersession of EP-0005.** The schema-first machine surface stands. This section is **composition** — how the schema-first machine surface composes with frame-owned and registration-owned policy — **not replacement**. There are no top-level machine `:sensitive` / `:large` keys; a considered proposal to add them was rejected.
+> **Ruled 2026-06-20 (EP-0025, rf2-398kql): frame-declared paths are the SOLE app-db / runtime-db data-classification mechanism.** This REVERSES the EP-0005 schema→marks redaction bridge for machine `:data` and the earlier 2026-06-11 "no supersession of EP-0005" ruling (EP-0015 issue 12). A machine's `:data-schema` `:sensitive?` / `:large?` per-slot props NO LONGER classify the machine's durable `:data` for trace / SSR egress. The `:data-schema` still **validates** `:data` (EP-0005's rename + validation stand); only the classification bridge is removed.
 
-Machine `:data` is durable process state owned by the machine definition (analogous to XState's `context`; guards and actions read it, and the instance's lifetime makes it a long-lived sensitive surface). Machine `:data` classification is **schema-first**: a machine declares which `:data` slots are sensitive or large by attaching `:sensitive?` / `:large?` Malli props to the slots of its **`:data-schema`** (the validator for the `:data` slot, per [005-StateMachines](005-StateMachines.md)).
+Machine `:data` is durable process state owned by the machine definition (analogous to XState's `context`; guards and actions read it, and the instance's lifetime makes it a long-lived sensitive surface). The machine snapshot — `{:state :data :tags …}` — lives in the frame's **runtime-db** partition at `[:rf.runtime/machines :snapshots <actor-id>]` ([005-StateMachines §Where snapshots live](005-StateMachines.md)). Like every other durable path in a frame's state, a sensitive or large `:data` slot is classified **by the frame** via `reg-frame` `:sensitive` / `:large {:app-db …}` (EP-0015 §Frame-owned durable classification, the sole app-db mechanism):
 
 ```clojure
+(rf/reg-frame :checkout
+  {:sensitive {:app-db [[:rf.runtime/machines :snapshots :checkout/payment :data :payment :token]]}
+   :large     {:app-db [[:rf.runtime/machines :snapshots :checkout/payment :data :payment :receipt-pdf]]}})
+
+;; The machine's :data-schema still VALIDATES :data; it no longer classifies it.
 (rf/reg-machine :checkout/payment
   {:data-schema
    [:map
     [:payment [:map
-               [:token       {:sensitive? true} :string]
-               [:receipt-pdf {:large? true}     :bytes]]]]
+               [:token       :string]
+               [:receipt-pdf :bytes]]]]
    :initial :collecting
    :states  {:collecting {:on {:submit :charging}}
              :charging    {:spawn {:src :checkout/charge :on-done :done}}
              :done        {}}})
-
-;; Xray's Machine Inspector renders the :data slot with marks resolved:
-;;   :data {:payment {:token       :rf/redacted
-;;                    :receipt-pdf :rf/large {:bytes 84219 :head "%PDF-1.4…"}}}
 ```
 
 Semantics:
 
-- `:sensitive?` / `:large?` slot props are extracted at registration and rooted under `[:data …]` to match the machine-snapshot shape — `[:payment :token {:sensitive? true}]` in the schema marks `[:data :payment :token]` in the snapshot (the snapshot also carries `:state` and other reserved keys per [005 §Reserved snapshot-internal keys](005-StateMachines.md#reserved-snapshot-internal-keys)).
+- Machine `:data` egress classification is **frame-owned**, resolved through the frame's elision registry like any other durable path — the projection / trace-egress / SSR-hydration boundaries consult the frame's declarations, not a schema-derived per-machine marks table.
 - Machine **transition payloads** remain *transient* payloads and are classified by the transition / registration metadata that introduces them, not by the machine's durable `:data` policy.
 - Sensitive wins over large, using the same rule as frame-owned app-db policy.
-- A marked `:data` slot is redacted in **every** `:rf.machine/*` trace slot it appears in: the `:before` / `:after` / `:snapshot` maps on `:rf.machine/transition` / `:rf.machine/snapshot-updated`; the booted `:data` map on `:rf.machine/started`; the `:input {:data …}` sub-map on `:rf.machine/guard-evaluated` / `:rf.machine/action-ran`; and the per-step `:data-delta` maps in a transition `:cascade`. The dispatched `:event` carried alongside machine `:data` is redacted against the event handler's own marks, not the machine's `:data` marks.
+- The machine `:data-schema`'s per-slot `:sensitive?` props **still** drive validation-FAILURE-trace redaction (the `:where :machine-data` validation path, [010-Schemas §`:sensitive?`](010-Schemas.md)) — that is a property of the validator's own egress product, a DIFFERENT axis from durable `:data` classification. Only the durable-`:data`-classification bridge (snapshot / SSR egress) is reversed.
 
-**Why schema-first stands (issue 12 grounds).** Per-slot props on a declared schema *are* owner-declares-policy for an owner whose natural declaration surface is a schema; co-located props are structurally immune to the schema-rename drift that a sibling path map would carry. With issues 5 and 11 ruled onto schema props as well, machines, resources, and HTTP bodies now share **one** mechanism (per-slot `:sensitive?` / `:large?` on the owning schema); superseding EP-0005 would make machines the odd one out in the opposite direction. The `:sensitive` (frame path map) vs `:sensitive?` (per-slot schema prop) distinction recorded above is exactly what lets the same word serve both owners without collision.
+**Why frame-owned (EP-0025 grounds).** One mechanism, one place: secrets in durable frame state are recorded as `:rf/path` vectors on the frame. The machine snapshot is durable runtime-db state inside a frame, so it classifies the same way every other durable path does — there is no second schema-attached route. This removes the EP-0005 schema→marks bridge (registration-time extraction, the per-machine / per-instance schema-marks side-table, the spawn/destroy marks lifecycle) in favour of the single frame-owned registry. The `:sensitive` (frame path map) vs `:sensitive?` (per-slot schema prop) distinction recorded above still applies to the surviving schema-prop owners (resource `:data-schema` / `:params-schema`, HTTP-body `:decode`) and to validation-failure-trace redaction.
 
 ### Resource and mutation durable classification
 
@@ -235,7 +236,7 @@ The ownership rule does not change: resource and mutation definitions own the du
 
 A schema's job is shape, validation, explainability, and digestable contracts. Egress policy for **durable app-db paths** belongs to the **frame**, not to a `reg-app-schema` value. EP-0015 removes schema-attached `:sensitive?` / `:large?` from the *guide-level* app-db classification path so the public model does not teach two equivalent ways (frame policy vs schema metadata) to classify the same app-db path. Implementations may keep schema extraction as an internal migration importer that lowers into the frame-owned registry, but it is not a co-equal public route.
 
-This is **not** in tension with the schema-prop owners above. The rule is precise: **schemas must not be a *second* route to classify a durable app-db path that the frame already owns.** Where a schema *is* the owner's natural declaration surface — machine `:data-schema`, resource `:data-schema` / `:params-schema`, an HTTP request's `:decode` schema — per-slot props are the *one and only* route for that owner's data, and there is no competing frame-config route for those shapes. One owner, one route.
+This is **not** in tension with the schema-prop owners above. The rule is precise: **schemas must not be a *second* route to classify a durable app-db / runtime-db path that the frame already owns.** Where a schema *is* the owner's natural declaration surface for a *transient, non-frame-state* product — a resource `:data-schema` / `:params-schema` (covering the request/response shape on the wire), an HTTP request's `:decode` schema (the reply body) — per-slot props are the *one and only* route for that owner's data, and there is no competing frame-config route for those shapes. Durable frame state, by contrast — app-db paths AND the machine snapshot's `:data` (runtime-db state inside a frame) — is classified by the frame (EP-0025: the machine `:data-schema`→marks bridge is reversed; machine `:data` joins the frame-owned model). One owner, one route.
 
 ## Projection
 
@@ -543,7 +544,7 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | `data-classification/sensitive-wins-over-large.edn` | A path declared in both `:sensitive` and `:large` projects as `:rf/redacted` (optionally `{:bytes N}`); no large marker that could leak path / size / digest is emitted. |
 | `data-classification/frame-http-carrier-extends-defaults.edn` | A frame-local `:sensitive {:http {:headers ["X-Honeycomb-Team"]}}` redacts that header **in addition to** the immutable built-in defaults; no frame can remove a built-in default. |
 | `data-classification/event-arg-sensitive-path-redacts.edn` | A `reg-event` with `:sensitive [[:password]]`, dispatched with `{:password "secret"}`, projects `[:event-id {:password :rf/redacted}]`. |
-| `data-classification/machine-data-schema-prop-redacts.edn` | A `reg-machine` whose `:data-schema` marks `[:payment :token {:sensitive? true}]`, after a transition writing a token into `:data`, projects `:rf/redacted` at `[:data :payment :token]` in `:rf.machine/snapshot-updated`. |
+| `data-classification/machine-data-frame-declared-redacts.edn` | A frame declaring `:sensitive {:app-db [[:rf.runtime/machines :snapshots <id> :data :payment :token]]}`, after a transition writes a token into the machine's `:data`, projects `:rf/redacted` at `[:data :payment :token]` in `:rf.machine/snapshot-updated` (EP-0025 — frame-owned; the machine `:data-schema` `:sensitive?` slot does NOT classify durable `:data`). |
 | `data-classification/project-egress-omits-event-args-off-box.edn` | `project-egress` of an `:rf.observe/handled-event` under `:rf.egress/off-box-observability` carries `:frame` / `:event-id` / `:status` / `:elapsed-ms` / `:effects` / correlation ids and **omits the `:event` args slot entirely**. |
 | `data-classification/project-egress-fails-closed-no-frame.edn` | `project-egress` of a value with no known frame **fails closed** (does not synthesize `:rf/default`). |
 | `data-classification/observability-sink-receives-projected-record.edn` | A frame declaring an `:observability {:handled-events [{:sink … :rf.egress/profile :rf.egress/off-box-observability}]}` sink, with the sink fn registered via `register-observability-sink!`, delivers an **already-projected** `:rf.observe/handled-event` record to the sink on each processed event (the off-box default omits the `:event` args slot); a declared `:errors` sink likewise receives a projected `:rf.observe/error` record on a handler exception, with a frame-sensitive path inside the error's `:event` redacted. An unresolved frame or absent `:observability` policy routes **nothing** (no `:rf/default` synthesis). |
@@ -558,13 +559,14 @@ Per-artefact unit tests cover implementation-specific propagation mechanism; the
 
 - [EP-0015 (Frame-Owned Egress Policy)](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the accepted proposal this Spec graduates; §Specification (1–16) and the twelve dispositioned open issues are the rationale record.
 - [EP-0007 (One Name Per Fact)](../docs/EP/EP-0007-one-name-per-fact.md) — rule 3 (cross-layer distinctions are named rules) grounds the `:sensitive` / `:sensitive?` pairing.
-- [EP-0005 (Machine `:data` Schema)](../docs/EP/EP-0005-machine-data-schema.md) — the schema-first machine surface this Spec composes with (not replaced; issue 12).
+- [EP-0005 (Machine `:data` Schema)](../docs/EP/EP-0005-machine-data-schema.md) — the machine `:data-schema` (VALIDATION) stands; its schema→marks redaction bridge is REVERSED by [EP-0025](../docs/EP/EP-0025-frame-declared-sole-data-classification.md).
+- [EP-0025 (Frame-Declared Paths As The Sole Data Classification)](../docs/EP/EP-0025-frame-declared-sole-data-classification.md) — kills schema-attached `:sensitive?` / `:large?` field classification for app-db / runtime-db (incl. machine `:data`); frame-declared paths are the one mechanism.
 - [001-Registration §Registration grammar](001-Registration.md#registration-grammar) — the metadata-map shape registration-owned `:sensitive` / `:large` extend.
 - [002-Frames §Routing — the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope) — the event arg-map shape event marks index into; the no-default-frame rule projection inherits.
-- [005-StateMachines §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) — the schema-first machine surface; `reg-machine` carries no `:sensitive` / `:large` key.
+- [005-StateMachines §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) — frame-owned machine `:data` classification (EP-0025); `reg-machine` carries no `:sensitive` / `:large` key.
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — the sub-cache dependency graph derived-sensitivity propagation traverses.
 - [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model), [§Production elision](009-Instrumentation.md#production-elision) — the emit site and the dev-stream gate.
-- [010-Schemas](010-Schemas.md) — schemas describe shape and validation; per-slot props are the *one* route only for schema-owned data (machine / resource / HTTP-body), not a second route for frame-owned app-db paths.
+- [010-Schemas](010-Schemas.md) — schemas describe shape and validation; per-slot props are the *one* route only for schema-owned *transient* data (resource / HTTP-body), not a second route for frame-owned app-db / runtime-db paths (incl. machine `:data`, EP-0025).
 - [011-SSR](011-SSR.md) — the allowlist-first hydration boundary the `:rf.egress/ssr-hydration` profile projects after.
 - [014-HTTPRequests](014-HTTPRequests.md) — HTTP carrier names (frame-local extensions) and response-body classification via the request's `:decode` schema (issue 5).
 - [016-Resources](016-Resources.md) — durable resource / mutation runtime-subsystem classification via `:data-schema` / `:params-schema` props; fail-closed scope and hydration metadata-only projection preserved.
