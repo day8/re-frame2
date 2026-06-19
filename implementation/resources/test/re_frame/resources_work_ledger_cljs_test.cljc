@@ -658,3 +658,151 @@
               "frame B's attempt still in flight — untouched by frame A's reply")
           (is (not= :loaded (:status (entry fb scoped-key)))
               "frame B's entry not settled by frame A"))))))
+
+;; ===========================================================================
+;; rf2-wyan7e — resource-key → work-id inverse index: prune visits only the
+;; settling key's rows (O(rows-for-key)) instead of scanning the whole ledger
+;; (O(all-work)). These pure tests pin the index-driven prune against a
+;; reference FULL-SCAN prune (the prior semantics) so the optimisation is
+;; behaviour-preserving, and pin the index as a derived projection of the
+;; ledger (== a full rebuild, self-healing on a wholesale-installed ledger).
+;; ===========================================================================
+
+(defn- reference-prune-full-scan
+  "The PRIOR `prune-terminal-for-key` semantics, kept here as the behaviour
+  oracle: a FULL ledger scan for the key's terminal rows, retaining `keep-tail`
+  newest-by-:started-at. Index-free — the result the new index-driven prune
+  must reproduce exactly (modulo the inverse-index sidecar key)."
+  [runtime-db resource-key keep-tail]
+  (let [ledger (:rf.runtime/work-ledger runtime-db)
+        rk-id  (state/key-id resource-key)
+        terminal-for-key
+        (->> ledger
+             (filter (fn [[_ r]] (and (= rk-id (state/key-id (:resource/key r)))
+                                      (work-ledger/terminal? (:status r)))))
+             (sort-by (fn [[_ r]] (or (:started-at r) 0)) >))
+        drop-ids (->> terminal-for-key (drop keep-tail) (map key))]
+    (if (seq drop-ids)
+      (update runtime-db :rf.runtime/work-ledger
+              (fn [l] (reduce dissoc l drop-ids)))
+      runtime-db)))
+
+(defn- record-for
+  [scoped-key generation status started-at]
+  {:work/id      [:rf.work/resource scoped-key generation]
+   :work/kind    :resource
+   :resource/key scoped-key
+   :generation   generation
+   :status       status
+   :started-at   started-at})
+
+(defn- build-ledger
+  "Build a `:rf.runtime/work-ledger` map (byte-keyed) from a seq of records, AND
+  maintain the inverse index via `put-record` (so the index is live, the
+  realistic in-session shape)."
+  [records]
+  (reduce (fn [rdb r] (work-ledger/put-record rdb (:work/id r) r))
+          {}
+          records))
+
+(deftest prune-terminal-for-key-matches-full-scan-reference
+  (testing "rf2-wyan7e — the index-driven prune drops EXACTLY the rows the
+            prior full-scan prune dropped, across mixed keys / statuses / tails"
+    (let [ka (state/scoped-resource-key :rf.scope/global :wl/a {:id 1})
+          kb (state/scoped-resource-key :rf.scope/global :wl/b {:id 2})
+          ;; ka: 5 terminal (varied started-at) + 1 running; kb: 2 terminal
+          records [(record-for ka 1 :completed 100)
+                   (record-for ka 2 :failed    300)
+                   (record-for ka 3 :completed 200)
+                   (record-for ka 4 :cancelled 500)
+                   (record-for ka 5 :suppressed 400)
+                   (record-for ka 6 :running   600)
+                   (record-for kb 1 :completed 50)
+                   (record-for kb 2 :failed    70)]
+          rdb (build-ledger records)]
+      (doseq [keep-tail [0 1 3 10]]
+        (let [new-rdb (work-ledger/prune-terminal-for-key rdb ka keep-tail)
+              ref-rdb (reference-prune-full-scan rdb ka keep-tail)]
+          (is (= (:rf.runtime/work-ledger ref-rdb)
+                 (:rf.runtime/work-ledger new-rdb))
+              (str "ledger after prune differs from full-scan reference at tail "
+                   keep-tail))
+          (testing "the running (non-terminal) row + the other key's rows are
+                    NEVER pruned"
+            (is (some? (get-in new-rdb (work-ledger/record-path
+                                         [:rf.work/resource ka 6]))))
+            (is (some? (get-in new-rdb (work-ledger/record-path
+                                         [:rf.work/resource kb 1]))))
+            (is (some? (get-in new-rdb (work-ledger/record-path
+                                         [:rf.work/resource kb 2])))))
+          (testing "the inverse index stays == a full rebuild from the ledger"
+            (is (= (-> new-rdb work-ledger/recompute-ledger-index
+                       :rf.runtime/work-ledger-by-key)
+                   (:rf.runtime/work-ledger-by-key new-rdb))
+                "inverse index drift vs full rebuild")))))))
+
+(deftest prune-self-heals-on-wholesale-installed-ledger
+  (testing "rf2-wyan7e — a ledger installed wholesale (hydration / restore /
+            replace-frame-state!) carries NO inverse index; the first prune
+            rebuilds it from ground truth and still matches the full scan"
+    (let [ka (state/scoped-resource-key :rf.scope/global :wl/h {:id 1})
+          ;; install the ledger DIRECTLY (no put-record), so no index sidecar
+          records [(record-for ka 1 :completed 100)
+                   (record-for ka 2 :completed 200)
+                   (record-for ka 3 :failed    300)
+                   (record-for ka 4 :running   400)]
+          installed (reduce (fn [rdb r]
+                              (assoc-in rdb (work-ledger/record-path (:work/id r)) r))
+                            {} records)]
+      (is (not (contains? installed :rf.runtime/work-ledger-by-key))
+          "precondition: installed ledger has no inverse index")
+      (let [new-rdb (work-ledger/prune-terminal-for-key installed ka 1)
+            ref-rdb (reference-prune-full-scan installed ka 1)]
+        (is (= (:rf.runtime/work-ledger ref-rdb)
+               (:rf.runtime/work-ledger new-rdb))
+            "self-healed prune matches the full-scan reference")
+        (is (contains? new-rdb :rf.runtime/work-ledger-by-key)
+            "the inverse index was rebuilt")
+        (is (= (-> new-rdb work-ledger/recompute-ledger-index
+                   :rf.runtime/work-ledger-by-key)
+               (:rf.runtime/work-ledger-by-key new-rdb))
+            "rebuilt index == full rebuild")))))
+
+(deftest ledger-inverse-index-equals-full-rebuild-under-random-mutation
+  (testing "rf2-wyan7e — across a randomised sequence of put-record /
+            prune-record / prune-terminal-for-key ops, the incrementally
+            maintained inverse index equals a full rebuild after EVERY op"
+    (let [seed    (atom 88172645)
+          nextint (fn [n]
+                    (let [x (-> (* @seed 1103515245) (+ 12345) (bit-and 0x7fffffff))]
+                      (reset! seed x)
+                      (mod x n)))
+          keys'   (mapv #(state/scoped-resource-key :rf.scope/global :wl/r {:id %})
+                        (range 5))
+          ;; seed the index live so put/prune keep it in step from step 0
+          start   (work-ledger/recompute-ledger-index {:rf.runtime/work-ledger {}})]
+      (loop [step 0, rdb start, gen 0]
+        (if (= step 500)
+          (is true "500 randomised ledger ops stayed in lock-step with the rebuild")
+          (let [op  (nextint 3)
+                k   (nth keys' (nextint (count keys')))
+                rdb' (case op
+                       ;; put a fresh record
+                       0 (let [g (inc gen)
+                               r (record-for k g
+                                             (nth [:running :completed :failed :cancelled]
+                                                  (nextint 4))
+                                             (nextint 1000))]
+                           (work-ledger/put-record rdb [:rf.work/resource k g] r))
+                       ;; prune one terminal tail for the key
+                       1 (work-ledger/prune-terminal-for-key rdb k (nextint 3))
+                       ;; prune a specific record (if any exist for the key)
+                       2 (let [g (inc (nextint (inc gen)))]
+                           (work-ledger/prune-record rdb [:rf.work/resource k g])))
+                full (-> rdb' work-ledger/recompute-ledger-index
+                         :rf.runtime/work-ledger-by-key)]
+            (is (= full (:rf.runtime/work-ledger-by-key rdb'))
+                (str "inverse-index drift at step " step " op " op))
+            (is (every? seq (vals (:rf.runtime/work-ledger-by-key rdb')))
+                "no empty inverse-index buckets")
+            (recur (inc step) rdb' (if (zero? op) (inc gen) gen))))))))
