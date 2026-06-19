@@ -64,8 +64,10 @@
   both are nil the handle is unindexed and only reachable via natural
   completion.
 
-  rf2-ee38b.7 — the convenience 2-arity `[request-id handle]` was
-  dropped; it had no production caller (the single call site in
+  rf2-ee38b.7 — `record-in-flight!`'s own convenience 2-arity
+  `[request-id handle]` was dropped (this is distinct from
+  `clear-in-flight!`'s live 2-arity below, which is retained); it had no
+  production caller (the single call site in
   `http-transport/run-attempt!` always passes the 3-arity with an
   actor-id, possibly nil) and no test depended on it."
   [request-id actor-id handle]

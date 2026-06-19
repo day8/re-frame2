@@ -277,6 +277,10 @@
                            :else                      requested-decode)
         parse-opts       (when max-decoded-keys {:max-decoded-keys max-decoded-keys})]
     (cond
+      ;; A custom `:decode` fn owns its own body handling: the empty-2xx
+      ;; body normalisation (the `:json`/`:auto` arms' `empty-2xx-json-body?`
+      ;; → nil) deliberately does NOT apply here — the fn receives the raw
+      ;; `body-text` (e.g. `""` for an empty 2xx body) and decides itself.
       (fn? requested-decode)
       (requested-decode body-text headers)
 

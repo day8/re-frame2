@@ -304,7 +304,7 @@ The cap is the SECOND line of defence; the FIRST line is `:request-content-type`
 > Cross-reference: see [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) and [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide posture this section grounds.
 
 ### JSON decoder hardening
-The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader. Per : the project's hand-rolled JSON fallback was deleted in favour of the hardened dep; the framework does not own a parser it would have to keep hardened against malformed-input classes.
+The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader: the project's hand-rolled JSON fallback was deleted in favour of the hardened dep; the framework does not own a parser it would have to keep hardened against malformed-input classes.
 
 Ports that ship a **hand-rolled** JSON / EDN reader (rather than depending on a hardened third-party parser) own the input-bounds contract directly. the reader MUST bounds-check unicode-escape sequences (`\uXXXX`) and surface structured `:rf.error/malformed-json` with `:reason` slots (e.g., `:reason :truncated-unicode-escape`, `:reason :invalid-hex-digit`) rather than letting truncated or invalid escapes become opaque host errors.
 
@@ -409,7 +409,7 @@ Implementations **MUST validate `:retry :on` at fx-call time** (when the `:rf.ht
 
 Both parts catch the misuse at the dispatch site rather than silently letting a useless retry policy ride for the request's lifetime (or, for `:rf.http/aborted`, deferring the rejection to retry-attempt time inside the transport loop).
 
-Per the spec tighten: implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
+Implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
 
 Each retry advances the carried epoch (per Pattern-StaleDetection); a stale request (e.g. one whose target route changed mid-retry) is suppressed without dispatching the reply.
 
