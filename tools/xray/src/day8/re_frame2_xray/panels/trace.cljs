@@ -429,40 +429,35 @@
 ;; triples to every `:rf.event/db-changed` row's `:db-diff` slot so the
 ;; view stays dumb-and-pure.
 ;;
-;; The row idiom mirrors the Event-panel APP-DB CHANGES section
-;; (`panels/event_detail.cljs` `db-change-row`, spec/021 §2.2 step 6
-;; mockup):
+;; The row idiom (spec/021 §2.2 step 6 mockup):
 ;;
 ;;     + [:path] new            (added — green)
 ;;     ~ [:path] old → new      (modified — amber)
 ;;     - [:path]                (removed — red — path alone)
 ;;
-;; The diff helper itself (`diff-paths`) is already extracted to
-;; `app_db_diff_helpers.cljc` (shared); the render-side `db-change-row`
-;; in `event_detail.cljs` is private (`defn-`) — v1 keeps a small
-;; trace-flavoured duplicate here (denser layout, slightly different
-;; padding to fit the arc's row rhythm) per the rf2-b3zw2 brief's
-;; safer-move guidance (event_detail.cljs is post-#2114 stabilised; the
-;; lens cluster + B+ section reorder just landed). Dedupe is filed as a
-;; follow-on bead.
+;; The diff helper itself (`diff-paths`) is extracted to
+;; `app_db_diff_helpers.cljc` (shared); the render-side helpers below
+;; are this trace arc's changed-path renderer and are the SOLE copy of
+;; this table-style idiom. The Epoch panel renders changed paths in a
+;; deliberately distinct shape — single-line inline chrome
+;; (`epoch/view.cljs`), not a table — so there is no cross-panel
+;; duplication to dedupe.
 
 (def ^:private diff-op->glyph
-  "Cascade diff glyph per op (spec/021 §10.3 / event_detail.cljs `op->glyph`)."
+  "Cascade diff glyph per op (spec/021 §10.3)."
   {:added    "+"
    :modified "~"
    :removed  "-"})
 
 (def ^:private diff-op->tone
-  "Glyph + path colour per op (spec/021 §10.3 / event_detail.cljs `op->tone`)."
+  "Glyph + path colour per op (spec/021 §10.3)."
   {:added    :green
    :modified :yellow
    :removed  :red})
 
 (defn- path-suffix
   "Stable testid suffix for a changed path — pr-str of the path vector
-  with characters that break a data-testid selector folded to `_`.
-  Mirrors event_detail.cljs's `path-suffix` so the testids read
-  consistently across the two panels."
+  with characters that break a data-testid selector folded to `_`."
   [path]
   (-> (str/join " " (map pr-str path))
       (str/replace #"\s+" "_")))
@@ -510,7 +505,7 @@
        [:span {:style db-diff-added-value-style}
         (edn/inspect-inline after)]
 
-       ;; :removed — path alone (spec/021 line 229 / event_detail `db-change-row`).
+       ;; :removed — path alone (spec/021 line 229).
        nil)]))
 
 (defn- db-diff-rows
