@@ -435,6 +435,119 @@
         (is (= :rf/default (:frame r)))))))
 
 ;; ============================================================================
+;; rf2-n4x74b — component-attributed off-box record carries :failing-id.
+;; ----------------------------------------------------------------------------
+;; For the categories whose failing component is DISTINCT from the dispatched
+;; event — a user interceptor (`:rf.error/interceptor-exception`) or a coeffect
+;; supplier (`:rf.error/coeffect-exception`) — the always-on record's
+;; `:event-id` slot carries the EVENT id, so the classified failing component id
+;; (interceptor / cofx id) + `:reason` used to ride ONLY the dev-trace tags
+;; (DCE'd under `goog.DEBUG=false`). An off-box shipper saw the category but not
+;; WHICH component failed. The fix lifts `:failing-id` + `:reason` onto the
+;; always-on record for these categories (and ONLY these — handler-exception and
+;; the sub-* categories, whose failing id already EQUALS `:event-id`, are
+;; unchanged, keeping the tight record shape).
+;; ============================================================================
+
+(deftest interceptor-exception-record-carries-failing-interceptor-id
+  (testing "Per rf2-n4x74b: a user interceptor whose :after throws fans
+            `:rf.error/interceptor-exception` through the always-on listener
+            with the EVENT id in `:event-id` AND the failing INTERCEPTOR id in
+            `:failing-id` (distinct from the event) — so an off-box shipper
+            can tell WHICH interceptor failed in production, not just the
+            category. `:reason` rides too."
+    (let [seen (atom [])
+          boom-after (rf/->interceptor
+                       :id :n4x74b/boom-after
+                       :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
+      (rf/register-listener! :errors :test/recorder
+                             (fn [record] (swap! seen conj record)))
+      (rf/reg-interceptor* :n4x74b/boom-after boom-after)
+      (rf/reg-event :n4x74b/with-throwing-interceptor
+                    {:interceptors [:n4x74b/boom-after]}
+                    (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
+      (rf/dispatch-sync [:n4x74b/with-throwing-interceptor])
+      (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
+                    @seen)]
+        (is (some? r) "listener received :rf.error/interceptor-exception")
+        (is (= :n4x74b/with-throwing-interceptor (:event-id r))
+            ":event-id carries the EVENT id (unchanged)")
+        (is (= :n4x74b/boom-after (:failing-id r))
+            ":failing-id carries the failing INTERCEPTOR id (distinct from the
+             event) — the off-box record now attributes the component (rf2-n4x74b)")
+        (is (string? (:reason r))
+            ":reason rides the always-on record too")
+        (is (some? (:exception r)) ":exception present")))))
+
+(deftest interceptor-before-exception-record-carries-failing-interceptor-id
+  (testing "Per rf2-n4x74b: the :before-phase variant — an interceptor whose
+            :before throws is attributed to the interceptor id on the always-on
+            record too (the same classification applies to both phases)."
+    (let [seen (atom [])
+          boom-before (rf/->interceptor
+                        :id :n4x74b/boom-before
+                        :before (fn [_ctx] (throw (ex-info "before boom" {}))))]
+      (rf/register-listener! :errors :test/recorder
+                             (fn [record] (swap! seen conj record)))
+      (rf/reg-interceptor* :n4x74b/boom-before boom-before)
+      (rf/reg-event :n4x74b/before-throws
+                    {:interceptors [:n4x74b/boom-before]}
+                    (fn [{:keys [db]} _] {:db db}))
+      (rf/dispatch-sync [:n4x74b/before-throws])
+      (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
+                    @seen)]
+        (is (some? r) "listener received :rf.error/interceptor-exception")
+        (is (= :n4x74b/before-throws (:event-id r)) ":event-id carries the event id")
+        (is (= :n4x74b/boom-before (:failing-id r))
+            ":failing-id carries the failing interceptor id on the :before path too")))))
+
+(deftest coeffect-exception-record-carries-failing-cofx-id
+  (testing "Per rf2-n4x74b: a coeffect supplier that throws during context
+            assembly fans `:rf.error/coeffect-exception` through the always-on
+            listener. The always-on record carries the failing COFX id in
+            `:failing-id` (the supplier id, distinct from the dispatched event)
+            so off-box shippers attribute the failing supplier — not just the
+            category. `:reason` rides too."
+    (let [seen (atom [])]
+      (rf/register-listener! :errors :test/recorder
+                             (fn [record] (swap! seen conj record)))
+      (rf/reg-cofx :n4x74b/boom-cofx
+        (fn [] (throw (ex-info "cofx supplier boom" {}))))
+      (rf/reg-event :n4x74b/needs-boom-cofx
+        {:rf.cofx/requires [:n4x74b/boom-cofx]}
+        (fn [_ _] {}))
+      (try (rf/dispatch-sync [:n4x74b/needs-boom-cofx])
+           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+      (let [r (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
+                    @seen)]
+        (is (some? r) "listener received :rf.error/coeffect-exception")
+        (is (= :n4x74b/boom-cofx (:failing-id r))
+            ":failing-id carries the failing COFX supplier id (distinct from the
+             event-id slot) — the off-box record attributes the component (rf2-n4x74b)")
+        (is (string? (:reason r))
+            ":reason rides the always-on record too")))))
+
+(deftest handler-exception-record-omits-redundant-failing-id
+  (testing "Per rf2-n4x74b: for handler-exception the failing id EQUALS the
+            event id, so NO redundant `:failing-id` is stamped — the tight
+            record shape is unchanged (the lift is guarded on failing-id being
+            DISTINCT from event-id)."
+    (let [seen (atom [])]
+      (rf/register-listener! :errors :test/recorder
+                             (fn [record] (swap! seen conj record)))
+      (rf/reg-event :n4x74b/handler-throws
+                    (fn [{:keys [db]} _] {:db (throw (ex-info "handler boom" {}))}))
+      (rf/dispatch-sync [:n4x74b/handler-throws])
+      (let [r (some (fn [x] (when (= :rf.error/handler-exception (:error x)) x))
+                    @seen)]
+        (is (some? r) "listener received :rf.error/handler-exception")
+        (is (not (contains? r :failing-id))
+            "handler-exception record carries NO :failing-id (it would be
+             redundant with :event-id — the tight shape is preserved)")
+        (is (= :n4x74b/handler-throws (:event-id r))
+            ":event-id carries the event id (the failing handler IS the event)")))))
+
+;; ============================================================================
 ;; rf2-bxud9v — sub error records carry the failing SUB's source-coord.
 ;; ----------------------------------------------------------------------------
 ;; The always-on `error-coords-by-id` registry is keyed by `[registry-kind
