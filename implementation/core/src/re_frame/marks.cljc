@@ -989,11 +989,27 @@
 ;; the resolved "is this sub's most recent value sensitive?" answer for
 ;; emit-time consultation. Frame-scoped because subs are frame-scoped.
 
-(defonce ^:private frame->sub-id->sensitive?
+;; ONE axis-keyed propagation table (rf2-2s595w): `{<axis> {<frame-id>
+;; {<sub-id> true}}}` where `<axis>` is `:sensitive` or `:large`. The prior
+;; fully-parallel twin atoms (`frame->sub-id->sensitive?` /
+;; `frame->sub-id->large?`) carried byte-identical assoc-in / dissoc structure
+;; per axis; collapsing into one defonce atom keyed by axis removes the twin
+;; while preserving the `[frame-id sub-id]` nesting under each axis (so a
+;; per-frame clear still drops both axes' entries for the frame). Empty in
+;; production — only `mark-sub-output!` writes it, and the sub-cache invokes
+;; that only under `debug-enabled?`.
+(defonce ^:private frame->sub-id->marks
   (atom {}))
 
-(defonce ^:private frame->sub-id->large?
-  (atom {}))
+(defn- swap-axis-flag
+  "Fold a single `axis` (`:sensitive` / `:large`) flag for `[frame-id sub-id]`
+  into the propagation map `m`: set the leaf `true` when `flag?`, else dissoc
+  the sub-id from the axis's frame entry. The shared per-axis update the twin
+  atoms each hand-inlined."
+  [m axis frame-id sub-id flag?]
+  (if flag?
+    (assoc-in m [axis frame-id sub-id] true)
+    (update-in m [axis frame-id] dissoc sub-id)))
 
 (defn mark-sub-output!
   "Record the resolved sensitive/large state of a sub's most recent
@@ -1002,36 +1018,33 @@
   emit sites read via `sub-output-sensitive?` / `sub-output-large?`.
 
   INVARIANT: the sub-cache only invokes this under `debug-enabled?`, so the
-  propagation table (`frame->sub-id->sensitive?` / `…->large?`) is EMPTY in
-  production. Any consumer reading it MUST be dev-gated too — an always-on
-  egress consumer would read empty and fail open."
+  propagation table (`frame->sub-id->marks`) is EMPTY in production. Any
+  consumer reading it MUST be dev-gated too — an always-on egress consumer
+  would read empty and fail open."
   [frame-id sub-id sensitive? large?]
-  (swap! frame->sub-id->sensitive?
+  (swap! frame->sub-id->marks
          (fn [m]
-           (if sensitive?
-             (assoc-in m [frame-id sub-id] true)
-             (update m frame-id dissoc sub-id))))
-  (swap! frame->sub-id->large?
-         (fn [m]
-           (if large?
-             (assoc-in m [frame-id sub-id] true)
-             (update m frame-id dissoc sub-id))))
+           (-> m
+               (swap-axis-flag :sensitive frame-id sub-id sensitive?)
+               (swap-axis-flag :large     frame-id sub-id large?))))
   nil)
 
 (defn sub-output-sensitive?
   [frame-id sub-id]
-  (true? (get-in @frame->sub-id->sensitive? [frame-id sub-id])))
+  (true? (get-in @frame->sub-id->marks [:sensitive frame-id sub-id])))
 
 (defn sub-output-large?
   [frame-id sub-id]
-  (true? (get-in @frame->sub-id->large? [frame-id sub-id])))
+  (true? (get-in @frame->sub-id->marks [:large frame-id sub-id])))
 
 (defn clear-sub-output-marks!
-  ([] (reset! frame->sub-id->sensitive? {})
-      (reset! frame->sub-id->large? {})
+  ([] (reset! frame->sub-id->marks {})
       nil)
-  ([frame-id] (swap! frame->sub-id->sensitive? dissoc frame-id)
-              (swap! frame->sub-id->large? dissoc frame-id)
+  ([frame-id] (swap! frame->sub-id->marks
+                     (fn [m]
+                       (-> m
+                           (update :sensitive dissoc frame-id)
+                           (update :large dissoc frame-id))))
               nil))
 
 (defn- frame-elision-decls?
