@@ -101,11 +101,12 @@
 
   Per rf2-ndfjo — silent-idempotent guard: an already-destroyed actor
   (all liveness signals gone) is a no-op. Returns `true` iff the actor
-  was live and torn down this call, `false` for the silent no-op — so
-  callers (notably `destroy-spawn-all-children!`) can gate their
-  `:rf.machine/destroyed` emit on the actor having actually been live,
-  preventing a double-destroyed trace for join-cancelled survivors the
-  resolution cascade already tore down. Mirrors the `live?` gate
+  was live and torn down this call, and `nil` (the `when`'s falsey value;
+  rf2-ny0yrz CL4 — narrowed from the earlier `false` wording) for the
+  silent no-op — so callers (notably `destroy-spawn-all-children!`) can
+  gate their `:rf.machine/destroyed` emit on the truthy live-and-torn-down
+  return, preventing a double-destroyed trace for join-cancelled survivors
+  the resolution cascade already tore down. Mirrors the `live?` gate
   `destroy-single!` carries (rf2-lbjnz)."
   [frame-id actor-id]
   (when (actor-live? frame-id actor-id (frame/frame-runtime-db-value frame-id))

@@ -37,6 +37,42 @@
       (is (= wid (m-reply/spawn-work-id :a/b#3 [:x])))
       (is (= wid (read-string (pr-str wid)))))))
 
+;; ---- (rf2-ny0yrz C4) cross-platform actor-generation determinism ----------
+;; CLJS `js/parseInt "3abc" 10` leniently yields 3, while CLJ
+;; `Long/parseLong "3abc"` THROWS → falls through to generation 1. A
+;; `:fixed-actor-id` carrying a `#` followed by a non-fully-numeric suffix
+;; therefore minted DIFFERENT work-ids per platform — a determinism break.
+;; The CLJS branch now tests `#"\d+"` (fully numeric) before parseInt so
+;; both platforms default a malformed suffix to generation 1.
+
+(deftest actor-generation-numeric-suffix
+  (testing "a fully-numeric #n suffix parses to n on both platforms"
+    (is (= 1  (m-reply/actor-generation :auth/flow#1)))
+    (is (= 7  (m-reply/actor-generation :auth/flow#7)))
+    (is (= 12 (m-reply/actor-generation :app/child#12)))))
+
+(deftest actor-generation-no-suffix-is-one
+  (testing "an id with no #n suffix is generation 1 (explicit :fixed-actor-id)"
+    (is (= 1 (m-reply/actor-generation :explicit/actor)))))
+
+(deftest actor-generation-malformed-suffix-is-one-cross-platform
+  (testing "C4: a # followed by a NON-fully-numeric suffix is generation 1 on
+            BOTH CLJ and CLJS (no lenient js/parseInt divergence)"
+    ;; partially-numeric: CLJS js/parseInt used to yield 3 here; CLJ threw → 1
+    (is (= 1 (m-reply/actor-generation :weird/actor#3abc))
+        "partially-numeric suffix defaults to generation 1 on both platforms")
+    ;; non-numeric suffix: NaN (CLJS) / throw (CLJ) — both already → 1
+    (is (= 1 (m-reply/actor-generation :weird/actor#abc)))
+    ;; empty suffix (trailing #): both → 1
+    (is (= 1 (m-reply/actor-generation :weird/actor#)))
+    ;; whitespace / sign-prefixed: js/parseInt is lenient about leading
+    ;; whitespace; CLJ Long/parseLong is not — both must agree on 1.
+    (is (= 1 (m-reply/actor-generation (keyword "weird" "actor# 4"))))))
+
+(deftest actor-generation-nil-safe
+  (testing "nil id (no live counterpart) → nil"
+    (is (nil? (m-reply/actor-generation nil)))))
+
 ;; ---- canonical spawned-actor reply maps -----------------------------------
 
 (deftest success-reply-is-canonical

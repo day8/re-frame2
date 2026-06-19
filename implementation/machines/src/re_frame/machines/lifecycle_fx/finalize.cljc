@@ -111,6 +111,53 @@
 ;; address. `finalize` requires `parallel`, never the reverse — no cycle.
 (def all-regions-final? parallel/all-regions-final?)
 
+(defn- region-final-leaf-nodes
+  "Per Spec 005 §Final states + §Parallel regions (rf2-g13nm2 C2): resolve
+  every region's active final leaf-node from the post-transition `state`
+  map (a `{region-name region-state}` map). Returns an ordered seq of
+  `[region-name leaf-node]` in the state-map's iteration order — the basis
+  for the cross-region `:output-key` scan below."
+  [machine state]
+  (map (fn [[region-name region-state]]
+         [region-name
+          (transition/node-at (get-in machine [:regions region-name])
+                              (transition/state-path region-state))])
+       state))
+
+(defn- parallel-output-key
+  "Per Spec 005 §Final states (rf2-g13nm2 C2): resolve a finishing PARALLEL
+  machine's `:output-key` by scanning EVERY region's final leaf — not just
+  the first region's. Returns the first (state-map order) region leaf that
+  declares an `:output-key`, or nil when no region designates output.
+
+  The pre-fix code read `:output-key` from `(first state)` only, so a
+  machine declaring `:output-key` on a NON-FIRST region silently reported
+  `result = nil`. Scanning all region leaves makes `:output-key` work on
+  ANY region (the spec never restricted it to the first), and a genuine
+  CONFLICT — two regions declaring DIFFERENT `:output-key`s — emits
+  `:rf.error/machine-parallel-output-key-conflict` and deterministically
+  keeps the first-region declaration (last-region-loses would be just as
+  arbitrary; first-in-state-order is the stable, documented tiebreak)."
+  [machine state frame-id machine-id]
+  (let [declared (->> (region-final-leaf-nodes machine state)
+                      (filter (fn [[_ node]] (contains? node :output-key))))
+        keys'    (distinct (map (fn [[_ node]] (:output-key node)) declared))]
+    (when (> (count keys') 1)
+      (trace/emit-error! :rf.error/machine-parallel-output-key-conflict
+                         {:actor-id    machine-id
+                          :frame       frame-id
+                          :output-keys (vec keys')
+                          :chosen      (first keys')
+                          :reason      (str "A parallel machine declares :output-key on "
+                                            "more than one region with DIFFERENT keys "
+                                            (pr-str (vec keys'))
+                                            "; the first region's :output-key wins. "
+                                            "Declare :output-key on a single region (or the "
+                                            "same key consistently) to make the reported "
+                                            "result unambiguous.")
+                          :recovery    :first-region-output-key-used}))
+    (some (fn [[_ node]] (:output-key node)) declared)))
+
 (defn- find-spawn-spec-at
   "Walk `parent-spec`'s state tree to the node at `invoke-id` (the
   absolute prefix-path stamped at spawn time) and return that node's
@@ -174,11 +221,17 @@
         next-snapshot (if exit-ok? (result/snap exit-result) next-snapshot)
         exit-fx       (if exit-ok? (vec (result/fx exit-result)) [])
         runtime-db    (if exit-ok?
-                        ;; Project the post-`:exit` snapshot back into
-                        ;; runtime-db so any reader between `:exit` and the
-                        ;; teardown projection (e.g. `:on-done` reading
-                        ;; the child via `[:rf.runtime/machines :snapshots]`) sees the
-                        ;; final state's writes.
+                        ;; rf2-ny0yrz CL4 — narrowed: project the post-`:exit`
+                        ;; CHILD snapshot back into runtime-db so any reader of
+                        ;; the runtime-db between here and the teardown dissoc
+                        ;; observes the final state's `:exit`-time `:data`
+                        ;; writes on the FINISHING child. (The child's
+                        ;; `result` is computed directly from `next-snapshot`
+                        ;; below, NOT re-read from runtime-db, and `:on-done`
+                        ;; reads the PARENT's `:data` — the earlier comment's
+                        ;; "`:on-done` reading the child" example was
+                        ;; inaccurate; the projection's purpose is runtime-db
+                        ;; consistency for the finalize cascade's own reads.)
                         (assoc-in runtime-db (paths/snapshot-path machine-id) next-snapshot)
                         runtime-db)
         _             (when (not exit-ok?)
@@ -188,24 +241,23 @@
                         (traces/emit-destroy-exit-failure!
                           machine-id frame-id (result/info exit-result)))]
   (let [child-data (:data next-snapshot)
-        ;; Resolve the final state-node so we can extract `:output-key`.
-        final-node (cond
-                     (parallel/parallel? machine)
-                     ;; All regions are final per `all-regions-final?` — pick
-                     ;; any region's leaf for the output-key resolution. The
-                     ;; conventional choice is the first region's leaf; apps
-                     ;; with cross-region output needs declare `:output-key`
-                     ;; on every region's terminal leaf consistently.
-                     (let [state (:state next-snapshot)
-                           [region-name region-state] (first state)
-                           region-body (get-in machine [:regions region-name])]
-                       (transition/node-at region-body
+        parallel?  (parallel/parallel? machine)
+        ;; Resolve the FIRST region's final leaf (parallel) / the single
+        ;; final leaf (flat) — the representative node `:error?` is read
+        ;; from. Parallel error-terminal routing keeps its first-region
+        ;; convention; only `:output-key` scans every region (C2 below).
+        final-node (if parallel?
+                     (let [[region-name region-state] (first (:state next-snapshot))]
+                       (transition/node-at (get-in machine [:regions region-name])
                                             (transition/state-path region-state)))
-
-                     :else
                      (transition/node-at machine
                                           (transition/state-path (:state next-snapshot))))
-        output-key  (:output-key final-node)
+        ;; Per rf2-g13nm2 C2: a PARALLEL machine's `:output-key` may live on
+        ;; ANY region's terminal leaf, not just the first. Scan all regions
+        ;; (error on conflict); a flat machine reads its single leaf.
+        output-key  (if parallel?
+                      (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
+                      (:output-key final-node))
         result      (when output-key (get child-data output-key))
         ;; Per Spec 005 §Final states §`:on-error` (rf2-5hlsh; XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a

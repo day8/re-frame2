@@ -19,7 +19,8 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -248,6 +249,108 @@
         (is (= :ready (:state (snapshot :sup/fn-test))))
         ;; :c was cancelled.
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:c ids)])))))))
+
+;; ---- (rf2-ny0yrz C5) unsatisfiable join warning --------------------------
+;;
+;; A {:n N} / {:fn} (or :all / :any) join with NO :on-any-failed silently
+;; hangs forever once enough children fail that the success condition is
+;; unreachable. The runtime now emits a one-shot
+;; :rf.warning/spawn-all-join-unsatisfiable on the fold that first makes the
+;; join unsatisfiable.
+
+(defn- record-warnings!
+  "Register a listener capturing :rf.warning/spawn-all-join-unsatisfiable
+  traces into an atom; returns [atom unregister-fn]."
+  [k]
+  (let [a (atom [])]
+    (trace-tooling/register-listener!
+      k (fn [ev]
+          (when (= :rf.warning/spawn-all-join-unsatisfiable (:operation ev))
+            (swap! a conj ev))))
+    [a #(trace-tooling/unregister-listener! k)]))
+
+(deftest n-of-join-unsatisfiable-after-failures-warns
+  (testing "C5: a {:n 3} join with no :on-any-failed warns once when failures
+            make 3-done unreachable (and the parent stays hung)"
+    (let [[warns unregister!] (record-warnings! ::unsat-n)
+          child  (mk-child :sup/unsat-n :done :failed)
+          parent {:initial :idle
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working
+                   ;; 4 children, need 3 done, NO :on-any-failed.
+                   {:spawn-all
+                    {:children         [{:id :a :machine-id :child/un-a :start [:set-id :a]}
+                                        {:id :b :machine-id :child/un-b :start [:set-id :b]}
+                                        {:id :c :machine-id :child/un-c :start [:set-id :c]}
+                                        {:id :d :machine-id :child/un-d :start [:set-id :d]}]
+                     :join             {:n 3}
+                     :on-child-done    :done
+                     :on-child-error   :failed
+                     :on-some-complete [:phase/done]}
+                    :on    {:phase/done :ready}}
+                   :ready {}}}]
+      (try
+        (doseq [k [:child/un-a :child/un-b :child/un-c :child/un-d]]
+          (rf/reg-machine k child))
+        (rf/reg-machine :sup/unsat-n parent)
+        (rf/dispatch-sync [:sup/unsat-n [:start]])
+        (let [ids (:children (get-in (frame-db) [:rf.runtime/machines :spawned :sup/unsat-n [:working]]))]
+          ;; one done (need 3 of 4 — still satisfiable: 1 done + 3 pending = 4 ≥ 3)
+          (rf/dispatch-sync [(:a ids) [:go]])
+          (is (empty? @warns) "still satisfiable after 1 done — no warning yet")
+          ;; one fail → 1 done, 1 failed, 2 pending → max-possible = 3 ≥ 3 (still OK)
+          (rf/dispatch-sync [(:b ids) [:fail]])
+          (is (empty? @warns) "still satisfiable after 1 fail — no warning yet")
+          ;; second fail → 1 done, 2 failed, 1 pending → max-possible = 2 < 3 → UNSAT
+          (rf/dispatch-sync [(:c ids) [:fail]])
+          (is (= 1 (count @warns))
+              "exactly one :rf.warning/spawn-all-join-unsatisfiable on the fold that broke it")
+          ;; a further fail must NOT re-warn (one-shot)
+          (rf/dispatch-sync [(:d ids) [:fail]])
+          (is (= 1 (count @warns)) "no duplicate warning on subsequent failures")
+          (is (= :working (:state (snapshot :sup/unsat-n)))
+              "the parent stays hung on the :spawn-all state (the documented footgun)")
+          (let [w (first @warns)]
+            (is (= :sup/unsat-n (get-in w [:tags :actor-id])))
+            (is (= {:n 3} (get-in w [:tags :join])))))
+        (finally (unregister!))))))
+
+(deftest n-of-join-with-on-any-failed-does-not-warn
+  (testing "C5 control: a join WITH :on-any-failed resolves on the first
+            failure, so the unsatisfiable warning never fires"
+    (let [[warns unregister!] (record-warnings! ::unsat-guarded)
+          child  (mk-child :sup/guarded-n :done :failed)
+          parent {:initial :idle
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working
+                   {:spawn-all
+                    {:children         [{:id :a :machine-id :child/gn-a :start [:set-id :a]}
+                                        {:id :b :machine-id :child/gn-b :start [:set-id :b]}
+                                        {:id :c :machine-id :child/gn-c :start [:set-id :c]}
+                                        {:id :d :machine-id :child/gn-d :start [:set-id :d]}]
+                     :join             {:n 3}
+                     :on-child-done    :done
+                     :on-child-error   :failed
+                     :on-some-complete [:phase/done]
+                     :on-any-failed    [:phase/failed]}
+                    :on    {:phase/done   :ready
+                            :phase/failed :error}}
+                   :ready {}
+                   :error {}}}]
+      (try
+        (doseq [k [:child/gn-a :child/gn-b :child/gn-c :child/gn-d]]
+          (rf/reg-machine k child))
+        (rf/reg-machine :sup/guarded-n parent)
+        (rf/dispatch-sync [:sup/guarded-n [:start]])
+        (let [ids (:children (get-in (frame-db) [:rf.runtime/machines :spawned :sup/guarded-n [:working]]))]
+          (rf/dispatch-sync [(:a ids) [:fail]])
+          (is (empty? @warns)
+              ":on-any-failed resolved the join on the first failure — no unsat warning")
+          (is (= :error (:state (snapshot :sup/guarded-n)))
+              "the join resolved via :on-any-failed"))
+        (finally (unregister!))))))
 
 ;; ---- registration-time validation ----------------------------------------
 

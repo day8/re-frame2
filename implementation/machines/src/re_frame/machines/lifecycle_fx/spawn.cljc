@@ -411,7 +411,19 @@
         ;; an actor's liveness IS its snapshot, and the snapshot was never
         ;; installed).
         rejected?  (spawn-rejected? spec'' spawned-id initial-snap)]
-    (when-not rejected?
+    ;; (rf2-g13nm2 C3) Gate the ENTIRE accepted-spawn cascade — the
+    ;; `:rf.machine.spawn/spawned` trace, the snapshot/system-id/spawn-slot
+    ;; install, AND the `:start` (or synthetic) dispatch — on BOTH the spawn
+    ;; being accepted (`not rejected?`) AND the frame being LIVE (`old-rt`).
+    ;; When the frame was destroyed / never existed, `old-rt` is nil and
+    ;; `spawned-id` is nil (the `:else` allocator branch above): firing the
+    ;; spawned trace and dispatching `[nil <start>]` for an actor that was
+    ;; NEVER installed is an atomicity violation (a phantom spawn signal +
+    ;; a dispatch into the void). The pre-fix code gated only the install on
+    ;; `old-rt`, leaving the trace + dispatch to fire regardless. Now a
+    ;; destroyed-frame spawn is a clean no-op — no trace, no install, no
+    ;; dispatch — symmetric with the schema-reject path's atomicity.
+    (when (and (not rejected?) old-rt)
       (trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     ;; `:machine-id` is the spec-time registered TYPE (xor
@@ -438,7 +450,7 @@
       ;; allocated from the frame's runtime-db (the hand-emitted-spawn
       ;; fallback path), `rt-after-alloc` already carries the bumped counter —
       ;; install the snapshot on top of that.
-      (when old-rt
+      (do
         (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
                         {:system-id system-id
                          :parent-id parent-id
