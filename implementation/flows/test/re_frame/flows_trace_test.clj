@@ -583,6 +583,58 @@
              the failing handler was macro-registered above)")))))
 
 ;; ---------------------------------------------------------------------------
+;; 5b'. The flow-eval boundary re-throw carries the CANONICAL thrown-error
+;;      shape (rf2-cjr635).
+;;
+;; Pre-fix, `evaluate-flow!`'s catch re-threw a hand-rolled ex-info carrying
+;; ONLY `:rf.flow/failed-id` — NO `:rf.error/id`, no `:where`, no
+;; `:recovery` — and a `(or <native-msg> ":rf.error/flow-eval-exception")`
+;; message form that DODGED `check_thrown_error_messages.py` (it is not a
+;; bare-literal first arg) so it could silently regress to the keyword-only
+;; shape. A tool reading `(:rf.error/id (ex-data e))` got nil (a Machine-
+;; readable-errors violation). The fix routes through `error/throw-error!`
+;; like every other flows throw. The router surfaces the rethrown ex-info
+;; ITSELF as the `:exception` slot of the cascade-level
+;; `:rf.error/flow-eval-exception` record, so we inspect its ex-data there.
+;; ---------------------------------------------------------------------------
+
+(deftest flow-eval-boundary-rethrow-carries-canonical-thrown-error-shape
+  (testing "the re-thrown flow-eval ex-info carries :rf.error/id + :where +
+            :recovery + the :rf.flow/failed-id attribution in :extra, with a
+            human message bearing the greppability token (rf2-cjr635)"
+    (let [seen (atom [])]
+      (rf/register-listener! :errors
+        :test/flow-eval-shape-recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-flow {:id     :boom
+                    :inputs [[:n]]
+                    :output (fn [_] (throw (ex-info "flow boom" {:why :test})))
+                    :path   [:doomed]})
+      (rf/dispatch-sync [:init])
+      (is (= 1 (count @seen)) "one error-emit record fired for the throw")
+      (let [thrown (:exception (first @seen))
+            data   (ex-data thrown)]
+        (is (some? thrown) "the rethrown ex-info reached the substrate record")
+        (is (= :rf.error/flow-eval-exception (:rf.error/id data))
+            ":rf.error/id is the canonical machine discriminator (was nil pre-fix)")
+        (is (= 'rf/run-flows-on-db (:where data))
+            ":where names the user-facing surface symbol (bare canonical slot)")
+        (is (= :no-recovery (:recovery data))
+            ":recovery names the disposition (matches the catalogue row)")
+        (is (string? (:reason data)) ":reason is a human sentence")
+        (is (= :boom (:rf.flow/failed-id data))
+            "the flow-attribution slot rides through (now under :extra)")
+        (is (some? (:cause data))
+            "the original exception is preserved under :cause for introspection")
+        ;; Spec 009 §The thrown-error shape rule 4: trailing greppability token.
+        (is (re-find #"\[:rf\.error/flow-eval-exception\]" (ex-message thrown))
+            "the derived message carries the [:rf.error/<id>] token")
+        ;; And it is NOT the retired keyword-only message shape.
+        (is (not= ":rf.error/flow-eval-exception" (ex-message thrown))
+            "message is a human sentence, not the bare keyword")))))
+
+;; ---------------------------------------------------------------------------
 ;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit (rf2-eb4lp)
 ;;
 ;; Pre-fix, a cycle introduced through `:rf.fx/reg-flow` from a handler's
