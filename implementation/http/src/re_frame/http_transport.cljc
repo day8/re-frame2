@@ -56,7 +56,15 @@
   Managed-Effects §restore (\"epoch restore MUST NOT revive host work\") a
   pre-restore completion MUST NOT deliver to its original `:rf/reply-to` target.
   Both still emit their trace facts (the suppressed-attempt's stale envelope);
-  only the app dispatch is suppressed."
+  only the app dispatch is suppressed.
+
+  Cross-ref: this set gates only the REPLY. For `:request-id-superseded`
+  the canonical EP-0011 stale-trace is NOT emitted here — it is emitted
+  separately by `managed-handler` → `emit-superseded-stale-trace!` at
+  supersede time (the `:epoch-restored` sibling is emitted by
+  `http-registry/abort-in-flight-for-frame!`). `dispatch-aborted!` here
+  fires only the `:rf.http/aborted` error trace and then suppresses the
+  reply for these reasons."
   #{:request-id-superseded :epoch-restored})
 
 (defn reply-suppressing-abort-reason?
@@ -423,8 +431,11 @@
   clear the registry, then land here so an aborted request looks
   identical to consumers regardless of which lifecycle phase it was in.
   `reason` is `:user` / `:actor-destroyed` / `:request-id-superseded` /
-  `:timeout`. `ctx` must carry `:request-id`, `:actor-id`, `:url`,
-  `:sensitive?`.
+  `:epoch-restored` — the genuine cancellation reasons that flip the
+  handle's `:aborted?` cell and reach this path. A `:timeout` is NOT an
+  abort: it classifies to `:rf.http/timeout` (a failure kind) and routes
+  through `maybe-retry!` → `finalise-failure!`, never here. `ctx` must
+  carry `:request-id`, `:actor-id`, `:url`, `:sensitive?`.
 
   Per Managed-Effects §Cancellation (rf2-yrrpe2): an `:actor-destroyed`
   abort whose reply target is OBSOLETE — its event-id names the destroyed
@@ -467,8 +478,8 @@
              (reply-target-id ctx) (:actor-id ctx)))
       (emit-actor-destroy-stale-trace! (reply-ctx ctx))
 
-      ;; Other abort reasons (`:user`, `:timeout`) and actor-destroy aborts
-      ;; whose target is still meaningful (an ordinary event) deliver the
+      ;; Other abort reasons (`:user`) and actor-destroy aborts whose
+      ;; target is still meaningful (an ordinary event) deliver the
       ;; failure reply normally as a live `:status :cancelled`.
       :else
       (dispatch-failure! ctx failure))))
