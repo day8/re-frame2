@@ -4146,7 +4146,7 @@ Registration is a single line in `registry.cljs`:
 
 …idempotent per the orchestrator's `compare-and-set!` sentinel.
 The shell-side mount sits alongside `[app-db-segment-inspector/Popup]`
-in `shell.cljs`'s overlay block, INSIDE the `rf/frame-provider
+in `shell.cljs`'s overlay block, INSIDE the `rf/frame-provider-existing
 {:frame :rf/xray}` wrapper so subscribes resolve to Xray's frame.
 
 ##### §10.0.7.2 Per-panel "open in popup" affordance (rf2-l4625 · rf2-7sdja)

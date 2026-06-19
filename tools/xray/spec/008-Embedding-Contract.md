@@ -36,8 +36,9 @@ ribbon-driven filters, and — load-bearing — the row-click →
 `:rf.xray/focus` (`018-Event-Spine.md` §4 + §6).
 
 It honours the same shape as every other mount fn — installs handlers,
-ensures the `:rf/xray` frame, wraps the view in `[rf/frame-provider
-{:frame :rf/xray} …]`, returns an `unmount`. Per `018-Event-Spine.md`
+ensures the `:rf/xray` frame, wraps the view in `[rf/frame-provider-existing
+{:frame :rf/xray} …]` (scope-only — the frame is ensured above, not
+created by the wrapper), returns an `unmount`. Per `018-Event-Spine.md`
 §4 the list owns its own height via `:rf.xray/events-list-height-px`;
 the host caps the visible band through its mount-point CSS (the contract
 is "the host owns the container size" — §Embed props inventory).

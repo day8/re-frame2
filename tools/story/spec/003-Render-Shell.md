@@ -152,8 +152,9 @@ The workspace body's optional `:isolation` slot tunes the mount
 strategy for `:variants-grid`:
 
 - `:isolated` (default) — every cell mounts in parallel; each wraps
-  its rendered view in a per-variant frame-provider. Baseline
-  frame-isolation contract.
+  its rendered view in a per-variant scope provider (the
+  namespace-preserving `frame-provider-existing` twin — the variant
+  frame is already allocated). Baseline frame-isolation contract.
 - `:shared` — cells mount ONE at a time with a prev/next navigator
   (◀ N/total ▶). Same serialised-mount strategy `:tabs` (rf2-ktnl8)
   uses, scoped to the implicit `:variants-grid` enumeration.

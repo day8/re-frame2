@@ -105,7 +105,9 @@
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:login/flow [:login/dismiss]]))
   ;; Wire the live-app↔Story-shell hash router (shared helper). The live-app
-  ;; root is frame-scoped via `live-app-root` (the `frame-provider` wrapper).
+  ;; root is frame-scoped via `live-app-root` (the
+  ;; `frame-provider-existing` wrapper — scope-only into the already-
+  ;; registered `:rf/default` frame).
   ;; The `:story-subdir` opt (rf2-77wqzi) hands the host this testbed's
   ;; tool-relative source subdir; the host resolves the on-disk
   ;; open-in-editor project-root (build-env define or `?project-root=`

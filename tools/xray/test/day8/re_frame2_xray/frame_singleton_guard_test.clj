@@ -2,8 +2,8 @@
   "Guard test for the EPIC rf2-1w07r frame-singleton class.
 
   Xray was historically locked to a singleton `:rf/xray` frame: the
-  shell hardcoded `[frame-provider {:frame :rf/xray}]` and every
-  out-of-render affordance dispatched a bare `{:frame :rf/xray}`
+  shell hardcoded a scope-only `[frame-provider-existing {:frame
+  :rf/xray}]` and every out-of-render affordance dispatched a bare `{:frame :rf/xray}`
   literal. Two shells on one page then collided on the one global
   app-db. The de-singleton refactor (rf2-lnluk + rf2-r0o63)
   parameterized the shell frame and made every out-of-render dispatch

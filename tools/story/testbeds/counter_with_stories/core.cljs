@@ -90,7 +90,8 @@
   ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
   ;; boot work (seed dispatch + elision listener install) inside its scope.
   ;; The live-app render is frame-scoped via `live-app-root` (the
-  ;; `frame-provider` wrapper passed to the host below).
+  ;; `frame-provider-existing` wrapper passed to the host below — the
+  ;; `:rf/default` frame is already `reg-frame`'d above).
   ;;
   ;; EP-0015 §8: durable app-db size/sensitivity classification is FRAME-owned
   ;; — declared here as `:large {:app-db …}` so the `:user/avatar-pdf` slot

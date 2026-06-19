@@ -954,7 +954,8 @@
   ;; dispatches to it. The per-track machine frames are reg-frame'd inside
   ;; the `:machine-epochs/select` handler (a real cascade — `*handler-scope*`
   ;; bound), so each track's `:on-create` async-queues correctly. The
-  ;; render is wrapped in a `frame-provider` on the shell frame.
+  ;; render is wrapped in a `frame-provider-existing` on the shell frame
+  ;; (scope-only — the shell frame is already `reg-frame`'d).
   (rf/reg-frame shell-frame {})
   ;; Seed the SHELL frame's bookkeeping, then auto-select the default track so
   ;; the operator lands on a live arc (the SHELL-FRAME-FIRST-PAINT smaller

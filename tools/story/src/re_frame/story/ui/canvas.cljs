@@ -62,8 +62,12 @@
 
 (defn frame-provider-ns-safe
   "A Reagent component that scopes a namespaced frame keyword to its
-  subtree via the React context backing `rf/frame-provider` — but
-  bypasses Reagent's prop-conversion so the namespace is preserved.
+  subtree via the React context backing `rf/frame-provider-existing` —
+  but bypasses Reagent's prop-conversion so the namespace is preserved.
+  Scope-only: the variant's frame is already allocated by `allocate!`'s
+  `rf/make-frame`, so this neither creates nor owns a frame (it is the
+  namespace-preserving twin of `rf/frame-provider-existing`, never the
+  owned-lifecycle `rf/frame-provider`).
 
   Usage:
     [frame-provider-ns-safe {:frame :story.counter/clicked-three-times}
@@ -608,13 +612,14 @@
        :else
        (let [resolved-view (rf/view view-id)]
          (if resolved-view
-           ;; The variant's frame is allocated; scope the rendered
-           ;; view's subscribe / dispatch to it via a frame-provider
-           ;; that preserves the namespace of a `:story.x/y`-shaped
+           ;; The variant's frame is already allocated; scope the
+           ;; rendered view's subscribe / dispatch to it (scope-only,
+           ;; like `rf/frame-provider-existing`) via a provider that
+           ;; preserves the namespace of a `:story.x/y`-shaped
            ;; variant id (per rf2-c5jz; the rf2-zme7 fix path). The
-           ;; standard `rf/frame-provider` uses Reagent's `:>` interop
-           ;; which calls `(name kw)` on prop values and drops the
-           ;; namespace before React sees it.
+           ;; standard `rf/frame-provider-existing` uses Reagent's `:>`
+           ;; interop which calls `(name kw)` on prop values and drops
+           ;; the namespace before React sees it.
            ;;
            ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on the
            ;; immediate wrapper around the user-authored decorated view
