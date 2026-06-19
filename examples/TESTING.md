@@ -315,8 +315,10 @@ The exception is bounded by four conditions, all of which must hold:
    NOT be co-required into one runtime.** Stock builds as
    `:examples/counter` (`:init-fn counter.core/run`); slim builds as
    `:examples/counter-slim-and-fast`
-   (`:init-fn counter-slim-and-fast.core/run`) — two independent `:browser`
-   modules with distinct build-ids, init-fns, and namespaces. They never
+   (`:init-fn counter-slim-and-fast.bundle-isolation-entry/run`, the
+   gate-owned entry that delegates to the teaching `core/boot!`) — two
+   independent `:browser` modules with distinct build-ids, init-fns, and
+   namespaces. They never
    share a JS runtime, so the identical registry ids never collide. The
    collision is purely theoretical *and already prevented by the build
    split*; it is not a risk the convention needs to guard against here.

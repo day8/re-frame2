@@ -15,38 +15,29 @@
    `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` and the
    slim adapter's IMPL-SPEC §1.4 + §1.8 + §8 — deliberately not duplicated.
 
-   The boot mirrors `counter-slim-and-fast.core/run` exactly (same adapter,
-   frame, boot dispatch, lazy client mount), with the one fixture concern
-   woven in: the pure-CLJS `render-to-static-markup` exercise runs under the
-   frame scope, before the client mount, so the static render's orphaned SSR
-   subscription is torn down (fixture/prove-pure-cljs-ssr! clears the
-   sub-cache) and the browser mount below owns the only live
-   `[:counter/value]` reaction."
-  (:require [reagent2.dom.client                            :as rdc]
-            [re-frame.core                                  :as rf]
-            [re-frame.views]
-            [re-frame.adapter.reagent-slim                  :as reagent-slim-adapter]
+   The boot is NOT re-copied here: this entry calls the shared
+   `counter-slim-and-fast.core/boot!` (the single source of truth for the
+   boot — same adapter, frame, boot dispatch, lazy client mount), so the
+   gate-owned path cannot drift from the teaching `core/run`. The one fixture
+   concern is the `on-frame` pre-mount hook `boot!` accepts: the pure-CLJS
+   `render-to-static-markup` exercise runs under the frame scope, before the
+   client mount, so the static render's orphaned SSR subscription is torn down
+   (fixture/prove-pure-cljs-ssr! clears the sub-cache) and the browser mount
+   owns the only live `[:counter/value]` reaction."
+  (:require [re-frame.views]
             [counter-slim-and-fast.core                     :as core]
             [counter-slim-and-fast.bundle-isolation-fixture :as fixture]))
 
 (defn run []
-  ;; Same boot as core/run — init the slim adapter, register the app frame,
-  ;; dispatch the boot event under the frame scope — plus the fixture's
-  ;; pure-CLJS SSR exercise woven in at the one point its ordering requires.
-  (rf/init! reagent-slim-adapter/adapter)
-  (rf/reg-frame core/app-frame {})
-  (rf/with-frame core/app-frame
-    (rf/dispatch-sync [:counter/initialise])
-    ;; Bundle-isolation fixture, not app practice. The static render derefs
-    ;; `[:counter/value]`, so it runs inside the frame scope established above;
-    ;; it caches an orphaned reaction with no component to unmount it, so the
-    ;; fixture clears the sub-cache in a `finally`. Running it here — before the
-    ;; client mount — means the browser mount below starts from a clean
-    ;; sub-cache and owns the only live `[:counter/value]` reaction.
-    (fixture/prove-pure-cljs-ssr! [core/counter-app]))
-  (when (exists? js/document)
-    (when-not @core/react-root
-      (reset! core/react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @core/react-root
-                [rf/frame-provider-existing {:frame core/app-frame}
-                 [core/counter-app]])))
+  ;; Delegate to the ONE canonical boot in `core/boot!` (init the slim adapter,
+  ;; register the app frame, dispatch the boot event under the frame scope, then
+  ;; lazily mount). There is no copied boot sequence to drift from `core/run`.
+  ;; The only fixture concern is woven in via the `on-frame` pre-mount hook:
+  ;;
+  ;; Bundle-isolation fixture, not app practice. The static render derefs
+  ;; `[:counter/value]`, so it must run inside the frame scope `boot!` opens; it
+  ;; caches an orphaned reaction with no component to unmount it, so the fixture
+  ;; clears the sub-cache in a `finally`. `boot!` runs the hook before the client
+  ;; mount, so the browser mount starts from a clean sub-cache and owns the only
+  ;; live `[:counter/value]` reaction.
+  (core/boot! #(fixture/prove-pure-cljs-ssr! [core/counter-app])))
