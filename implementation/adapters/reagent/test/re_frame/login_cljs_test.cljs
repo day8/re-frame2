@@ -49,6 +49,10 @@
   (get-in (rf/frame-state-value f)
           [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow :data]))
 
+(defn- machine-state [f]
+  (get-in (rf/frame-state-value f)
+          [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow :state]))
+
 (defn- collect-machine-data-traces!
   "Run `f` while collecting `:rf.error/schema-validation-failure` traces with
    `:where :machine-data`. Returns the captured (filtered) trace vector."
@@ -145,3 +149,39 @@
             "the string failure message committed into the machine's :data")
         (is (= 1 (:attempts (machine-data f)))
             "the attempt counter advanced (the transition committed)")))))
+
+;; ---------------------------------------------------------------------------
+;; (4) direct retry from :error-shown clears the prior :error (rf2-qx9b1y)
+;; ---------------------------------------------------------------------------
+
+(deftest retry-clears-prior-error
+  (testing "a direct retry from :error-shown clears the stale :error as the machine re-enters :submitting"
+    ;; First request: a synchronous failure lands the flow in :error-shown with
+    ;; a non-nil :error (the message the view renders).
+    (reg-sync-failure-override! :login.test/retry-failure
+                                {:status 401 :message "Invalid credentials."})
+    ;; Second request (the RETRY): a no-op managed-HTTP fx that issues NO reply,
+    ;; so the machine parks in :submitting and we can observe the :error slot
+    ;; while the request is still in flight.
+    (rf/reg-fx :login.test/retry-noop
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx _args] nil))
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
+      ;; Drive idle → submitting → error-shown (per-call override → failure).
+      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit valid-creds]]
+                        {:frame        f
+                         :fx-overrides {:rf.http/managed :login.test/retry-failure}})
+      (is (= :error-shown (machine-state f))
+          "the failed login settled in :error-shown")
+      (is (= "Invalid credentials." (:error (machine-data f)))
+          "the prior failure message is visible in :error-shown")
+      ;; Resubmit directly from :error-shown with the no-op override so the
+      ;; machine parks in :submitting and the :error slot is observable
+      ;; mid-flight.
+      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit valid-creds]]
+                        {:frame        f
+                         :fx-overrides {:rf.http/managed :login.test/retry-noop}})
+      (is (= :submitting (machine-state f))
+          "the retry re-entered :submitting (no reply issued by the no-op fx)")
+      (is (nil? (:error (machine-data f)))
+          "the :clear-error action cleared the stale error on the retry transition"))))
