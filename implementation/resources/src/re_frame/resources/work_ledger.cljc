@@ -361,11 +361,83 @@
   [work-id]
   [:rf.runtime/work-ledger (work-id-id work-id)])
 
+;; ---- resource-key → work-id inverse index (rf2-wyan7e) --------------------
+;;
+;; `prune-terminal-for-key` runs after EVERY resource settle to trim terminal
+;; rows for the settling key. Filtering the WHOLE ledger to find that key's
+;; rows is O(W) over all in-flight + terminal work across all resources, per
+;; settle. This inverse index `{<rk-id> #{<work-id-id> …}}` (mirroring the
+;; resource `:tag-index`) lets the prune visit ONLY the settling key's rows.
+;;
+;; It is a PURE derived projection of the ledger (a row contributes its
+;; `work-id-id` to its `(:resource/key row)`'s bucket), so it is rebuilt — never
+;; trusted — wherever the ledger is installed wholesale (hydration / restore):
+;; `prune-terminal-for-key` self-heals by rebuilding the whole index when it
+;; finds the ledger populated but the index absent (the post-hydration shape),
+;; so no SSR / restore install site has to thread it. Maintained incrementally
+;; on the live path by `put-record` (add) / `prune-record` + the prune (remove).
+
+(def work-ledger-by-key-key
+  "Reserved runtime-db key for the work-ledger's resource-key → work-id-id
+  inverse index `{<rk-id> #{<work-id-id> …}}`. Recomputable-from-the-ledger
+  (rebuilt on hydration / restore, never trusted from a snapshot — mirrors the
+  resource `:tag-index`). Per Spec 016 §Ledger row retention (rf2-wyan7e)."
+  :rf.runtime/work-ledger-by-key)
+
+(defn recompute-ledger-index
+  "Rebuild the `:rf.runtime/work-ledger-by-key` inverse index
+  `{<rk-id> #{<work-id-id> …}}` from the ledger map in `runtime-db`. The single
+  authoritative full rebuild the hydration / restore self-heal uses (a pure
+  projection of the ledger). Returns the updated runtime-db."
+  [runtime-db]
+  (let [ledger (:rf.runtime/work-ledger runtime-db)
+        idx    (reduce-kv
+                 (fn [acc wid-id record]
+                   (let [rk-id (state/key-id (:resource/key record))]
+                     (update acc rk-id (fnil conj #{}) wid-id)))
+                 {}
+                 ledger)]
+    (assoc runtime-db work-ledger-by-key-key idx)))
+
+;; The incremental maintainers act ONLY when the index already EXISTS in the
+;; runtime-db. A wholesale ledger install (epoch restore / SSR hydrate /
+;; replace-frame-state! / router rollback / test fixtures) does NOT carry the
+;; index (a derived projection never trusted from a snapshot), so leaving it
+;; absent is the signal `prune-terminal-for-key` rebuilds it from ground truth
+;; ONCE — a `put-record` that ran first must NOT half-build it and mask that
+;; rebuild. Once present, every put/prune keeps it complete and in step.
+
+(defn- index-present? [runtime-db] (contains? runtime-db work-ledger-by-key-key))
+
+(defn- index-add
+  "Add `work-id-id` to its `rk-id` bucket in the inverse index — ONLY when the
+  index already exists (see the comment above). Pure."
+  [runtime-db rk-id work-id-id*]
+  (if (index-present? runtime-db)
+    (update-in runtime-db [work-ledger-by-key-key rk-id] (fnil conj #{}) work-id-id*)
+    runtime-db))
+
+(defn- index-remove
+  "Remove `work-id-id` from its `rk-id` bucket in the inverse index, dropping an
+  emptied bucket entirely (the recompute shape never leaves empty buckets) —
+  ONLY when the index already exists. Pure."
+  [runtime-db rk-id work-id-id*]
+  (if (index-present? runtime-db)
+    (let [s (disj (get-in runtime-db [work-ledger-by-key-key rk-id] #{}) work-id-id*)]
+      (if (seq s)
+        (assoc-in runtime-db [work-ledger-by-key-key rk-id] s)
+        (update runtime-db work-ledger-by-key-key dissoc rk-id)))
+    runtime-db))
+
 (defn put-record
   "Write `record` at the work-ledger byte-keyed slot for `work-id` in
-  `runtime-db`. Returns the updated runtime-db."
+  `runtime-db`, and register it in the resource-key inverse index when that
+  index is live (rf2-wyan7e — the index member is idempotent, so re-putting an
+  updated record is a no-op for the index). Returns the updated runtime-db."
   [runtime-db work-id record]
-  (assoc-in runtime-db (record-path work-id) record))
+  (-> runtime-db
+      (assoc-in (record-path work-id) record)
+      (index-add (state/key-id (:resource/key record)) (work-id-id work-id))))
 
 (defn get-record
   "Read the work record under `work-id` from `runtime-db`, or nil."
@@ -382,12 +454,16 @@
     runtime-db))
 
 (defn prune-record
-  "Remove the work record under `work-id` from `runtime-db`. Used when a
-  terminal row is pruned on the linked entry's next successful transition
-  (Spec 016 §Ledger row retention and identity). Returns the updated
-  runtime-db."
+  "Remove the work record under `work-id` from `runtime-db`, and drop it from
+  the resource-key inverse index (rf2-wyan7e). Used when a terminal row is
+  pruned on the linked entry's next successful transition (Spec 016 §Ledger row
+  retention and identity). No-op for the index when no record exists. Returns
+  the updated runtime-db."
   [runtime-db work-id]
-  (update runtime-db :rf.runtime/work-ledger dissoc (work-id-id work-id)))
+  (let [wid-id (work-id-id work-id)
+        record (get-in runtime-db [:rf.runtime/work-ledger wid-id])]
+    (cond-> (update runtime-db :rf.runtime/work-ledger dissoc wid-id)
+      record (index-remove (state/key-id (:resource/key record)) wid-id))))
 
 (defn update-record-by-id
   "Apply `f` (and `args`) to the work record under an ALREADY-COMPUTED byte
@@ -420,21 +496,46 @@
   `keep-tail` defaults to `default-terminal-tail`."
   ([runtime-db resource-key] (prune-terminal-for-key runtime-db resource-key default-terminal-tail))
   ([runtime-db resource-key keep-tail]
+   ;; rf2-wyan7e — self-heal: a wholesale-installed ledger (hydration /
+   ;; restore) arrives with NO inverse index (it is a derived projection, never
+   ;; trusted from the wire). Rebuild it ONCE here so the per-key visit below is
+   ;; bounded; live operation keeps it in step via put-record / prune-record.
+   ;; A ledger present but index absent is exactly the post-install shape.
    (let [ledger (:rf.runtime/work-ledger runtime-db)
+         runtime-db (if (and (seq ledger)
+                             (not (contains? runtime-db work-ledger-by-key-key)))
+                      (recompute-ledger-index runtime-db)
+                      runtime-db)
          ;; rf2-9e0tyq — match by CEDN-1 byte identity, not `=` over the
          ;; `:resource/key` vector (which would `=`-collapse a list- and a
          ;; vector-params key and prune both resources' rows).
          rk-id  (state/key-id resource-key)
+         ;; rf2-wyan7e — visit ONLY this key's rows (via the inverse index)
+         ;; instead of scanning the WHOLE ledger per settle (O(rows-for-key)
+         ;; rather than O(all-work)). The index members ARE this key's row ids.
+         ledger (:rf.runtime/work-ledger runtime-db)
+         this-key-ids (get-in runtime-db [work-ledger-by-key-key rk-id])
          ;; terminal rows for this key, newest-first by :started-at
          terminal-for-key
-         (->> ledger
-              (filter (fn [[_ r]] (and (= rk-id (state/key-id (:resource/key r)))
-                                       (terminal? (:status r)))))
+         (->> this-key-ids
+              (keep (fn [wid-id]
+                      (let [r (get ledger wid-id)]
+                        (when (and r (terminal? (:status r)))
+                          [wid-id r]))))
               (sort-by (fn [[_ r]] (or (:started-at r) 0)) >))
-         drop-ids (->> terminal-for-key (drop keep-tail) (map key))]
+         drop-ids (->> terminal-for-key (drop keep-tail) (map first))]
      (if (seq drop-ids)
-       (update runtime-db :rf.runtime/work-ledger
-               (fn [l] (reduce dissoc l drop-ids)))
+       (-> runtime-db
+           (update :rf.runtime/work-ledger
+                   (fn [l] (reduce dissoc l drop-ids)))
+           ;; keep the inverse index in step with the dropped rows
+           (update-in [work-ledger-by-key-key rk-id]
+                      (fn [s] (let [s' (reduce disj (or s #{}) drop-ids)]
+                                (when (seq s') s'))))
+           ;; drop an emptied bucket entirely (recompute shape: no empty sets)
+           (as-> rdb (if (nil? (get-in rdb [work-ledger-by-key-key rk-id]))
+                       (update rdb work-ledger-by-key-key dissoc rk-id)
+                       rdb)))
        runtime-db))))
 
 ;; ---- host-side handle side table (Spec 016 §Frame work ledger) ------------
