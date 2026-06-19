@@ -1224,17 +1224,36 @@
 
 (defn lower-inline-event
   "Lower an inline `:reg-event` descriptor's raw fn body into the runnable
-  event-handler slots (`:handler-fn` + the `:interceptors` chain carrying the
-  `:rf/event-handler` wrapper) — the same shape `register-event!` stores and
-  `event-handler-meta` produces. `_meta` is the inline entry's metadata map
-  (unused for events: the descriptor already carries the inline `:metadata`,
-  and the only event-meta slot affecting the runnable chain — author-declared
-  `:interceptors` references — is an advanced inline shape out of this slice's
-  scope); `impl` is the raw handler fn. Returns ONLY the two runnable slots
-  (`{:handler-fn … :interceptors …}`) so image-assembly merges them onto the
+  event-handler slots — the same shape `register-event!` stores and
+  `event-handler-meta` produces: `:handler-fn` + the `:interceptors` chain
+  carrying the `:rf/event-handler` wrapper, PLUS `:rf.cofx/requires-parsed`
+  when the inline entry declared `:rf.cofx/requires`.
+
+  `meta` is the inline entry's metadata map. The only AUTHORED meta slots this
+  lowering acts on are the cofx-requirements: `:rf.cofx/requires` is parsed via
+  `cofx/parse-requires` into `:rf.cofx/requires-parsed`, exactly as
+  `register-event!` does (EP-0017 §4/§5). This is load-bearing: the
+  satisfaction step (`router/assemble-initial-ctx`) reads the TOP-LEVEL
+  `:rf.cofx/requires-parsed` slot to deliver the declared coeffects, so an
+  inline image-loaded event MUST carry it or its declared facts are silently
+  dropped (rf2-khi7xr — a fail-open drop, violating EP-0017 §5 uniform
+  declared-only delivery and the EP-0023 §Image Fragments \"both paths lower to
+  the same runtime descriptor shape\" contract). A malformed / duplicate
+  declaration fails loud at lowering (`:rf.error/cofx-request-invalid` /
+  `:rf.error/cofx-name-collision`), mirroring registration.
+
+  The other event-meta slot affecting the runnable chain — author-declared
+  `:interceptors` references — remains an advanced inline shape out of this
+  slice's scope (the descriptor already carries the inline `:metadata` for
+  introspection). `impl` is the raw handler fn.
+
+  Returns ONLY the runnable slots so image-assembly merges them onto the
   descriptor, preserving `:impl` + provenance for replacement-winner
   coordinates and dedupe."
-  [_meta impl]
-  (event-handler-meta impl))
+  [meta impl]
+  (let [requires-parsed (cofx/parse-requires :rf/image-inline-event
+                                             (:rf.cofx/requires meta))]
+    (cond-> (event-handler-meta impl)
+      (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed))))
 
 (late-bind/set-fn! :image/lower-inline-event lower-inline-event)
