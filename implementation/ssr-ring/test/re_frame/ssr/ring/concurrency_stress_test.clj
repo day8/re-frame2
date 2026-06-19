@@ -27,7 +27,12 @@
 
   ## Test scope
 
-  Three tests, all tagged `^:stress`:
+  Three tests, all tagged `^:stress` so the default test gate skips them
+  (rf2-bv2qqm). The `:test` alias in deps.edn passes `-e :slow -e :stress`
+  to the runner, so cognitect-test-runner drops these vars on the PR/local
+  gate; the `:slow-test` alias passes `-i :slow -i :stress` to run them,
+  and the nightly `.github/workflows/expensive-tests.yml` job +
+  `scripts/test-rigorous-local.sh` invoke that alias so coverage is kept.
 
     1. `concurrent-streaming-requests-isolate-state` — N=8 threads each
        fire M=20 requests against one Jetty-hosted `stream-handler`.

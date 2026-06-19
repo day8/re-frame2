@@ -147,7 +147,7 @@
 
 ;; ---- the stress test ------------------------------------------------------
 
-(deftest flow-reg-eval-clear-stress
+(deftest ^:stress flow-reg-eval-clear-stress
   ;; rf2-ztw5p — mirrors rf2-1gpx8's pattern for the flows surface.
   ;;
   ;; The two pinned counter invariants are the same as rf2-35rgj /

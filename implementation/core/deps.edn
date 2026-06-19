@@ -112,7 +112,34 @@
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+         ;; rf2-bv2qqm — the default PR/local gate (incl. the fast-PR
+         ;; spine `scripts/test-fast-pr.sh`, which runs this artefact)
+         ;; EXCLUDES the heavy `^:stress` namespace
+         ;; (`concurrency_stress_test`, three 5000-iter × 8-thread
+         ;; scenarios). The runner passes `-e` through to
+         ;; cognitect-test-runner verbatim. Coverage is NOT lost: the
+         ;; `:slow-test` alias below runs the excluded tests, invoked by
+         ;; the nightly `expensive-tests.yml` job +
+         ;; `scripts/test-rigorous-local.sh`.
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
+
+  ;; rf2-bv2qqm — nightly/rigorous slow-test gate. INCLUDES ONLY the
+  ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
+  ;; excludes), so `:test` + `:slow-test` together cover every test once.
+  :slow-test
+  {:extra-paths ["test"]
+   :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                 day8/re-frame2-machines   {:local/root "../machines"}
+                 day8/re-frame2-routing    {:local/root "../routing"}
+                 day8/re-frame2-flows      {:local/root "../flows"}
+                 day8/re-frame2-http       {:local/root "../http"}
+                 day8/re-frame2-ssr        {:local/root "../ssr"}
+                 day8/re-frame2-epoch      {:local/root "../epoch"}
+                 day8/re-frame2-resources  {:local/root "../resources"}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                 io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow:
   ;; the release workflow runs `clojure -M:clein deploy` from this

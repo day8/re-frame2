@@ -41,8 +41,12 @@
        the total bytes the test churned — proves no large object graph
        is retained past frame destruction.
 
-  Marked `^:slow` so the default test gate skips it; CI runs it via the
-  `:slow-test` alias (see `:test` alias filter in deps.edn).
+  Marked `^:slow` so the default test gate skips it (rf2-bv2qqm). The
+  `:test` alias in deps.edn passes `-e :slow -e :stress` to the runner, so
+  cognitect-test-runner drops these vars on the PR/local gate; the
+  `:slow-test` alias passes `-i :slow -i :stress` to run them, and the
+  nightly `.github/workflows/expensive-tests.yml` job +
+  `scripts/test-rigorous-local.sh` invoke that alias so coverage is kept.
 
   Iteration counts:
     - quick smoke (in this file): 2_000 requests.

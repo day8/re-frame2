@@ -48,9 +48,13 @@
   recently as part of rf2-wp0w4's PR #1176; this JVM stress is
   complementary, not redundant.
 
-  Tagged `^:stress` per the rf2-q4twq convention so the default test
-  runner can opt out via `:exclude :stress` when CI wall-clock budget
-  is tight."
+  Tagged `^:stress` per the rf2-q4twq convention. The default `:test`
+  alias in deps.edn passes `-e :slow -e :stress` to the runner, so
+  cognitect-test-runner drops these vars on the PR/local gate; the
+  `:slow-test` alias passes `-i :slow -i :stress` to run them, and the
+  nightly `.github/workflows/expensive-tests.yml` job +
+  `scripts/test-rigorous-local.sh` invoke that alias so coverage is kept
+  (rf2-bv2qqm wired the exclude — it was previously inert)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
