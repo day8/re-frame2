@@ -1028,6 +1028,23 @@
               (swap! frame->sub-id->large? dissoc frame-id)
               nil))
 
+(defn- frame-elision-decls?
+  "True when `frame-id`'s runtime-db elision registry carries any declaration
+  under `decl-key` (`:sensitive-declarations` or `:declarations`). The single
+  axis-parameterized read behind `resolve-sub-output-marks`'s layer-1 footgun
+  check (rf2-hkly6h) — the two near-identical container-read blocks differed
+  only in this sub-key.
+
+  EP-0001 (rf2-vzld77): the elision registry is durable framework state in the
+  frame's runtime-db partition at `[:rf.runtime/elision …]` (Conventions
+  §Reserved runtime-db keys), so the layer-1 footgun check reads the runtime-db
+  projection, not app-db."
+  [frame-id decl-key]
+  (let [container (frame/runtime-db-container frame-id)
+        rt        (when container (adapter/read-container container))
+        decls     (get-in rt [:rf.runtime/elision decl-key])]
+    (boolean (seq decls))))
+
 (defn resolve-sub-output-marks
   "Compute the sensitive/large flags that should be stamped onto a sub's
   output, given the sub's registered marks + input-signals' propagation
@@ -1066,21 +1083,13 @@
         ;; *actually* read; the conservative reading is "if there's
         ;; any sensitive path, the sub MAY have read it"). Spec 015
         ;; §Propagation rules acknowledges this is footgun prevention
-        ;; not security-grade taint.
-        ;; EP-0001 (rf2-vzld77): the elision registry is durable framework
-        ;; state in the frame's runtime-db partition at `[:rf.runtime/elision …]`
-        ;; (Conventions §Reserved runtime-db keys), so the layer-1 footgun
-        ;; check reads the runtime-db projection, not app-db.
+        ;; not security-grade taint. The two registry reads are the same
+        ;; axis-parameterized `frame-elision-decls?` differing only in the
+        ;; declaration sub-key (rf2-hkly6h).
         any-sens?   (when layer-1?
-                      (let [container (frame/runtime-db-container frame-id)
-                            rt        (when container (adapter/read-container container))
-                            decls     (get-in rt [:rf.runtime/elision :sensitive-declarations])]
-                        (boolean (seq decls))))
+                      (frame-elision-decls? frame-id :sensitive-declarations))
         any-large?  (when layer-1?
-                      (let [container (frame/runtime-db-container frame-id)
-                            rt        (when container (adapter/read-container container))
-                            decls     (get-in rt [:rf.runtime/elision :declarations])]
-                        (boolean (seq decls))))
+                      (frame-elision-decls? frame-id :declarations))
         sensitive?  (cond
                       (= :rf.egress/sensitive output-sens) true
                       (= :rf.egress/public output-sens)    false
