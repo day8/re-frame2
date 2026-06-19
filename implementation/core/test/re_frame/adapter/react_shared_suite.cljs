@@ -3946,6 +3946,162 @@
               (finally
                 (try (.unmount root2) (catch :default _ nil)))))))))))
 
+;; ---- getSnapshot tracks the committed reaction (rf2-sqhjtu) ---------------
+;;
+;; THE BUG. `use-subscribe` fetches a render-phase reaction HANDLE with a
+;; balanced `subs/subscribe` + immediate `subs/unsubscribe` round-trip
+;; (net-zero ref-count, so an abandoned render leaks nothing). On a FIRST
+;; mount with no prior cache entry, that round-trip drives the cache slot
+;; 1 → 0 and DISPOSES the render-phase reaction (its source watches are
+;; removed, it is evicted from the cache). The DURABLE committed reaction is
+;; then built post-commit inside the `useSyncExternalStore` subscribe
+;; callback — a DIFFERENT object that owns the live watch + the cache
+;; ref-count.
+;;
+;; The pre-fix `get-snap` (the `getSnapshot` React calls on every render to
+;; read the store value) closed over and dereferenced the RENDER-PHASE
+;; handle. Because a disposed reaction still recomputes pull-based on deref,
+;; the rendered VALUE stayed correct for ordinary app-db updates — which is
+;; exactly why the existing call-balance/DOM-value assertions pass while the
+;; snapshot reads a disposed first-render handle. The hazard React's
+;; `useSyncExternalStore` contract guards against (getSnapshot must read a
+;; stable, LIVE source) is real: the disposed handle has no source watches,
+;; duplicates the sub-body recompute on every snapshot read, and on sub
+;; re-registration / hot-reload still closes over the OLD reaction (and its
+;; old body) rather than the committed cached one.
+;;
+;; THE PROOF (object-identity, not value). A value assertion cannot fail
+;; deterministically here — both the disposed handle and the committed
+;; reaction recompute the same live value. So we prove the snapshot's SOURCE
+;; OBJECT: spy `subs/subscribe` to wrap every returned reaction in a thin
+;; deref-recording proxy that delegates IDeref/IWatchable to the real
+;; reaction and tags each deref with a per-real-reaction generation. After a
+;; first mount (render-phase handle disposed; committed reaction freshly
+;; built) we force a re-render (which does NOT re-run the `[stable-key]`-keyed
+;; memo or re-invoke the commit-owned subscribe-fn) and assert the
+;; `get-snap`-driven deref hits the generation of the reaction CURRENTLY IN
+;; THE CACHE (the committed one), never the disposed render-phase handle. On
+;; the pre-fix spine the deref hits the disposed-handle generation.
+
+(defn assert-use-subscribe-getsnapshot-tracks-committed-reaction
+  "rf2-sqhjtu: after a first mount, `get-snap` (React's `getSnapshot`) must
+  deref the DURABLE committed cached reaction, not the disposed render-phase
+  handle. Proven by object identity: a `subs/subscribe` spy wraps each
+  returned reaction in a deref-recording proxy tagged with a per-real-reaction
+  generation; the committed reaction is the one left in the cache after mount.
+  A forced re-render re-runs `get-snap` (without re-running the stable-key memo
+  or re-invoking subscribe-fn); the recorded deref generation MUST be the
+  committed/cached reaction's, not the disposed first-render handle's.
+
+  cfg keys: reuses the refcount-probe surface
+    :probe-refcount-element / :refcount-target / :rc-frame / :rc-query"
+  [{:keys [name probe-refcount-element refcount-target rc-frame rc-query]}]
+  (testing (str name " — use-subscribe getSnapshot tracks the committed reaction, not the disposed render-phase handle (rf2-sqhjtu)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! refcount-target rc-frame)
+      (rf/reg-frame rc-frame {:doc "rf2-sqhjtu getSnapshot-tracks-committed probe frame"})
+      (rf/reg-event ::gs-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+      (rf/dispatch-sync [::gs-seed] {:frame rc-frame})
+      (rf/reg-event ::gs-inc (fn [{:keys [db]} _] {:db {:m (inc (:m db))}}))
+      (rf/reg-sub rc-query (fn [db _] (:m db)))
+      (let [cache-key-v      [rc-query]
+            cache            (:sub-cache (frame/frame rc-frame))
+            real-subscribe   subs/subscribe
+            ;; per-real-reaction generation + the deref log (generation of
+            ;; the reaction each `get-snap` deref hit, in order).
+            gen-counter      (atom 0)
+            real->gen        (atom {})           ;; real reaction -> gen int
+            deref-log        (atom [])           ;; gens, in deref order
+            gen-of           (fn [real]
+                               (or (get @real->gen real)
+                                   (let [g (swap! gen-counter inc)]
+                                     (swap! real->gen assoc real g)
+                                     g)))
+            ;; A deref-recording proxy delegating to the REAL reaction. The
+            ;; spine derefs THIS (records the gen) and add-watch/remove-watch
+            ;; THIS (delegated to the real reaction so on-change still fires).
+            ;; `subs/unsubscribe` is by (frame, query), not by object, so the
+            ;; proxy needs no IDisposable — disposal hits the real reaction via
+            ;; the cache.
+            wrap             (fn [real]
+                               (let [g (gen-of real)]
+                                 (reify
+                                   IDeref
+                                   (-deref [_]
+                                     (swap! deref-log conj g)
+                                     @real)
+                                   IWatchable
+                                   (-add-watch [this k f]
+                                     (add-watch real k (fn [_ _ old nu] (f k this old nu)))
+                                     this)
+                                   (-remove-watch [_ k]
+                                     (remove-watch real k)
+                                     nil)
+                                   ;; Never invoked by the spine (the real
+                                   ;; reaction owns notification through its own
+                                   ;; source watches); present only to satisfy
+                                   ;; the IWatchable protocol surface. No-op.
+                                   (-notify-watches [_ _old _nu] nil))))
+            mount-node       (make-mount-node!)
+            root             (react-dom-client/createRoot mount-node)]
+        ;; Preserve subs/subscribe's 1-/2-arity shape (the spine binds the
+        ;; arity-2 invoke slot); both bodies route to the canonical 2-arity
+        ;; REAL directly (no Var recur double-trip — same discipline as the
+        ;; rf2-mwft2 spy) and wrap the returned reaction.
+        (with-redefs [subs/subscribe
+                      (fn spy-subscribe
+                        ([query-v]
+                         (wrap (real-subscribe (frame/resolve-current-frame) query-v)))
+                        ([frame-id query-v]
+                         (wrap (real-subscribe frame-id query-v))))]
+          (try
+            (act-fn (fn [] (.render root (probe-refcount-element))))
+            ;; The committed reaction is the one the cache holds (ref-count 1).
+            ;; On a first mount the render-phase handle was disposed + evicted,
+            ;; so it is a DIFFERENT object — distinct generation.
+            (let [committed-real (get-in @cache [cache-key-v :reaction])
+                  committed-gen  (get @real->gen committed-real)]
+              (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                  "after mount exactly one durable committed ref is pinned")
+              (is (some? committed-gen)
+                  "the committed cached reaction was seen through the subscribe spy")
+              ;; Force a re-render of the SAME mounted component. React re-reads
+              ;; get-snap; the `[stable-key]`-keyed memo does NOT re-run and the
+              ;; commit-owned subscribe-fn is NOT re-invoked, so get-snap's
+              ;; source is whatever it captured at mount — the committed reaction
+              ;; (fix) or the disposed render-phase handle (bug).
+              (reset! deref-log [])
+              (act-fn (fn [] (.render root (probe-refcount-element))))
+              (is (seq @deref-log)
+                  "the forced re-render drove at least one get-snap deref")
+              ;; THE LOAD-BEARING ASSERTION. Every get-snap deref on the
+              ;; re-render hit the COMMITTED cached reaction's generation — NOT
+              ;; the disposed first-render handle's. Pre-fix this is the
+              ;; render-phase handle's (different) generation.
+              (is (every? #(= committed-gen %) @deref-log)
+                  (str "get-snap derefs ONLY the committed cached reaction "
+                       "(gen " committed-gen ") on re-render — not the disposed "
+                       "render-phase handle. Observed deref gens " @deref-log))
+              ;; A dispatch-driven update also reads the committed reaction:
+              ;; the watch fires on-change (from the committed reaction), React
+              ;; re-reads get-snap, and the snapshot tracks the live committed
+              ;; source. Value stays correct AND the source is the committed one.
+              (reset! deref-log [])
+              (act-fn (fn [] (rf/dispatch-sync [::gs-inc] {:frame rc-frame})))
+              (is (= "m=1" (.-textContent mount-node))
+                  "post-dispatch the committed snapshot reflects the new value")
+              (is (every? #(= committed-gen %) @deref-log)
+                  (str "post-dispatch get-snap still derefs ONLY the committed "
+                       "cached reaction (gen " committed-gen "). Observed "
+                       @deref-log)))
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                "post-unmount the committed ref is released (no leak from the proxy path)")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
 ;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
 ;;
 ;; The shared spine's `use-subscribe` useEffect cleanup calls

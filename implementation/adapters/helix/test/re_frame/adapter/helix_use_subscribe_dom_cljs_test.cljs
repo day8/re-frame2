@@ -283,6 +283,12 @@
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
 
+;; rf2-sqhjtu — getSnapshot must deref the durable COMMITTED reaction, not the
+;; disposed render-phase handle (the React useSyncExternalStore disposed-
+;; reaction hazard). Object-identity proof; reuses the refcount-probe surface.
+(deftest use-subscribe-getsnapshot-tracks-committed-reaction
+  (suite/assert-use-subscribe-getsnapshot-tracks-committed-reaction cfg))
+
 ;; rf2-40a84 — flush-render! synchronously commits a pending render (the
 ;; proof the pair-MCP headless dispatch→render loop depends on).
 (deftest flush-render-synchronously-commits
