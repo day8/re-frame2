@@ -2,27 +2,29 @@
   "rf2-jm2u63 — durable machine snapshots must NOT hydrate raw classified
   `:data`.
 
-  EP-0015 §6/§8: durable machine `:data` classification is owned by the
-  machine `:data-schema` `:sensitive?` / `:large?` per-slot props, and
-  hydration is a serialized-state egress boundary projected under
-  `:rf.egress/ssr-hydration`. The SSR `:rf/runtime-db` payload ships
-  `:rf.runtime/machines` so the client re-materialises actors — but the prior
-  `project-runtime-db` copied the machines slice WHOLESALE, so a snapshot whose
-  `:data-schema` marks a slot `:sensitive?` (an auth token in machine data) or
-  `:large?` shipped that field RAW in the hydration blob.
+  EP-0025 (rf2-398kql): durable machine `:data` egress classification is
+  FRAME-OWNED — the frame declares the machine snapshot's `:data` path sensitive
+  / large via `reg-frame` `:sensitive` / `:large {:app-db …}` (the absolute
+  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]`, the
+  sole app-db mechanism). Hydration is a serialized-state egress boundary
+  projected under `:rf.egress/ssr-hydration`. The SSR `:rf/runtime-db` payload
+  ships `:rf.runtime/machines` so the client re-materialises actors — but the
+  prior `project-runtime-db` copied the machines slice WHOLESALE, so a snapshot
+  whose `:data` the frame classifies sensitive/large shipped that field RAW.
 
   This pins the fix end-to-end on the ACTUAL SSR projection path
   (`re-frame.ssr.payload-policy/project-runtime-db` →
-  `re-frame.ssr.payload-policy/build-payload`), with a real `reg-machine`
-  `:data-schema` and the machines artefact loaded (so the late-bound
-  `:machines/project-ssr-runtime-db` hook is bound). The schemas artefact
-  provides the schema-mark walker the `reg-machine` bridge consults."
+  `re-frame.ssr.payload-policy/build-payload`), with a real `reg-machine` (whose
+  `:data-schema` still VALIDATES `:data`) and a FRAME-declared classification of
+  the snapshot `:data` path; the machines artefact is loaded so the late-bound
+  `:machines/project-ssr-runtime-db` hook is bound. (EP-0025 removed the EP-0005
+  `:data-schema`→marks SSR-classification bridge; classification is frame-side.)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; Loading machines publishes :machines/project-ssr-runtime-db +
-            ;; the reg-machine schema-mark bridge; schemas + schemas.malli
-            ;; provide the schema-mark walker the bridge consults.
+            ;; Loading machines publishes :machines/project-ssr-runtime-db.
             [re-frame.machines]
+            ;; marks/add-marks declares the frame-owned snapshot classification.
+            [re-frame.marks :as marks]
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -33,12 +35,12 @@
 (def ^:private auth-id :rf.ssr-machine/auth)
 
 (def ^:private auth-schema
-  "A machine `:data-schema` with one sensitive slot, one large slot, and a
-  plain sibling that must ride the hydration wire verbatim."
+  "A machine `:data-schema` — VALIDATION ONLY (EP-0025: props no longer
+  classify). The frame, not the schema, classifies the snapshot `:data` path."
   [:map
    [:retries :int]
-   [:token   {:sensitive? true} [:maybe :string]]
-   [:blob    {:large? true}     [:maybe :string]]])
+   [:token   [:maybe :string]]
+   [:blob    [:maybe :string]]])
 
 (defn- reg-auth-machine! []
   (rf/reg-machine auth-id
@@ -47,6 +49,15 @@
      :data-schema auth-schema
      :states      {:anon   {:on {:login :authed}}
                    :authed {}}}))
+
+(defn- declare-frame-marks!
+  "Declare the machine snapshot's `:data` token slot SENSITIVE and blob slot
+  LARGE on the ambient `:rf/default` frame (the frame-owned classification, the
+  sole app-db mechanism) by its absolute runtime-db snapshot path."
+  []
+  (marks/add-marks :rf/default
+    {[:rf.runtime/machines :snapshots auth-id :data :token] :sensitive
+     [:rf.runtime/machines :snapshots auth-id :data :blob]  :large}))
 
 (defn- runtime-db-with-secret-snapshot
   "A runtime-db carrying ONE durable machine snapshot whose `:data` holds a
@@ -64,17 +75,18 @@
 ;; ---- the leak regression (project-runtime-db) -----------------------------
 
 (deftest sensitive-machine-data-redacted-in-hydration-projection
-  (testing "a :sensitive? :data-schema slot inside a durable machine snapshot
-            is redacted to :rf/redacted in the SSR :rf/runtime-db projection;
-            the :large? slot elides; the plain sibling rides verbatim"
+  (testing "a frame-declared sensitive :data path inside a durable machine
+            snapshot is redacted to :rf/redacted in the SSR :rf/runtime-db
+            projection; the large path elides; the plain sibling rides verbatim"
     (reg-auth-machine!)
+    (declare-frame-marks!)
     (let [slice    (payload-policy/project-runtime-db
                      (runtime-db-with-secret-snapshot))
           snapshot (get-in slice [:rf.runtime/machines :snapshots auth-id])]
       (is (= :rf/redacted (get-in snapshot [:data :token]))
-          ":sensitive? token redacted in the hydration runtime-db slice")
+          "frame-declared token redacted in the hydration runtime-db slice")
       (is (contains? (get-in snapshot [:data :blob]) :rf.size/large-elided)
-          ":large? blob elided to the size marker")
+          "frame-declared blob elided to the size marker")
       (is (= 2 (get-in snapshot [:data :retries]))
           "plain sibling rides the wire verbatim")
       (is (= :authed (:state snapshot))
@@ -88,6 +100,7 @@
   (testing "the full :rf/hydration-payload's :rf/runtime-db carries the
             redacted/elided machine :data, not the raw classified fields"
     (reg-auth-machine!)
+    (declare-frame-marks!)
     (let [rt-slice (payload-policy/project-runtime-db
                      (runtime-db-with-secret-snapshot))
           payload  (payload-policy/build-payload
@@ -101,8 +114,8 @@
           "the hydration blob the client receives carries no raw secret")
       (is (not (.contains (pr-str payload) "huge-blob-value"))))))
 
-(deftest schemaless-machine-snapshot-rides-verbatim
-  (testing "a machine with no :data-schema marks ships its snapshot :data
+(deftest undeclared-machine-snapshot-rides-verbatim
+  (testing "a machine whose frame declares nothing ships its snapshot :data
             verbatim — the projection is precise, not a blanket scrub"
     (rf/reg-machine :rf.ssr-machine/plain
       {:initial :idle :data {:public "ok"} :states {:idle {}}})
