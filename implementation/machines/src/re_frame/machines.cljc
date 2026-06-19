@@ -149,9 +149,7 @@
   coords) for `machine-id`, or nil if no machine is registered under
   that id. Per Spec 005 §Querying machines."
   [machine-id]
-  (let [m (registrar/lookup :event machine-id)]
-    (when (:rf/machine? m)
-      (:rf/machine m))))
+  (resolver/spec-from-registry machine-id))
 
 (defn machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the

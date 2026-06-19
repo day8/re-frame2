@@ -46,8 +46,7 @@
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
-            [re-frame.machines.result :as result]
-            [re-frame.registrar :as registrar]))
+            [re-frame.machines.result :as result]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -60,11 +59,7 @@
   nil when neither resolves — the actor was already torn down, or the
   destroy targets a non-machine event id."
   [actor-id snapshot]
-  (or (resolver/spec-from-snapshot snapshot)
-      (when actor-id
-        (let [m (registrar/lookup :event actor-id)]
-          (when (:rf/machine? m)
-            (:rf/machine m))))))
+  (resolver/spec-from-id-or-snapshot actor-id snapshot))
 
 (defn run-child-exit!
   "Run the destroy-time `:exit` cascade for the actor identified by

@@ -37,6 +37,22 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+(defn spec-from-registry
+  "Resolve a registered machine's SPEC from `machine-id` via the `:event`
+  registrar's `:rf/machine?` / `:rf/machine` stamp (Spec 005 §Querying
+  machines). Returns the spec map, or nil when `machine-id` does not name
+  a registered machine (a plain event handler, or no entry at all).
+
+  This is the canonical one-liner over the
+  `(let [m (registrar/lookup :event id)] (when (:rf/machine? m) (:rf/machine m)))`
+  idiom that several lifecycle-fx + querying call sites repeat — the
+  registered-TYPE leg of spawned-actor / parent / singleton spec
+  resolution."
+  [machine-id]
+  (let [m (registrar/lookup :event machine-id)]
+    (when (:rf/machine? m)
+      (:rf/machine m))))
+
 (defn spec-from-snapshot
   "Resolve the machine SPEC for a spawned actor from its `snapshot`'s
   `:rf/machine-type` reserved slot (per Spec 005 §Reserved
@@ -56,9 +72,25 @@
   (let [t (:rf/machine-type snapshot)]
     (cond
       (map? t)     t
-      (keyword? t) (let [m (registrar/lookup :event t)]
-                     (when (:rf/machine? m)
-                       (:rf/machine m))))))
+      (keyword? t) (spec-from-registry t))))
+
+(defn spec-from-id-or-snapshot
+  "Resolve a machine SPEC for `id` (a singleton's registered handler key,
+  a spawned actor's instance address, or a spawning parent's id) preferring
+  the registered TYPE, falling back to the `snapshot`'s `:rf/machine-type`:
+
+    (or (spec-from-registry id) (spec-from-snapshot snapshot)).
+
+  Per rf2-a2sn1 the two legs are mutually exclusive for any one id — a
+  registered singleton has a registrar entry but no `:rf/machine-type` on
+  its snapshot, while a spawned actor carries no per-instance registrar
+  entry but stamps `:rf/machine-type` on its snapshot — so the `or` order
+  is behaviourally irrelevant and either leg resolves at most one spec.
+  Returns nil when neither resolves (the actor was already torn down, or
+  the id names a non-machine event)."
+  [id snapshot]
+  (or (spec-from-registry id)
+      (spec-from-snapshot snapshot)))
 
 (defn resolvable?
   "True iff the actor identified by `actor-id` in `db` resolves to a live

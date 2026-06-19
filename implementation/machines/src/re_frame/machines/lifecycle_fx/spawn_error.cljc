@@ -38,8 +38,7 @@
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
-            [re-frame.machines.transition :as transition]
-            [re-frame.registrar :as registrar]))
+            [re-frame.machines.transition :as transition]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,11 +50,9 @@
   `finalize-machine` does for `:on-done`."
   [db parent-id]
   (when parent-id
-    (let [m (registrar/lookup :event parent-id)]
-      (if (:rf/machine? m)
-        (:rf/machine m)
-        (resolver/spec-from-snapshot
-          (get-in db (paths/snapshot-path parent-id)))))))
+    (resolver/spec-from-id-or-snapshot
+      parent-id
+      (get-in db (paths/snapshot-path parent-id)))))
 
 (defn- find-spawn-spec-at
   "Walk `parent-spec`'s state tree to the `:spawn`-bearing node at `invoke-id`

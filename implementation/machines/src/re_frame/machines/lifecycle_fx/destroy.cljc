@@ -81,6 +81,68 @@
                 (contains? (get-in runtime-db (paths/snapshot-path)) actor-id))
            (some #(= actor-id %) (spawn-order/frame-order frame-id)))))
 
+(defn- teardown-live-actor!
+  "The shared ordered teardown pipeline for a LIVE actor (the caller has
+  already confirmed liveness). Both destroy entry-points — the per-actor
+  `destroy-single-actor!` and the keyword/tracked `destroy-single!` — run
+  this IDENTICAL ordered sequence; they differ only in actor-id resolution
+  (done in the caller) and whether they emit the `:rf.machine/destroyed`
+  trace (passed as `emit-destroyed!-fn`).
+
+  Ordered steps (Spec 005 §Declarative `:spawn` §Composition with explicit
+  `:entry` / `:exit`; §Cancellation cascade D6-D8):
+
+    1. (rf2-nahfm) run the active configuration's `:exit` cascade BEFORE
+       any teardown work — fires `:exit`-emitted fx via do-fx and writes
+       any `:data` updates back to the (about-to-be-dissoc'd) snapshot;
+    2. (rf2-wvkn) abort in-flight `:rf.http/managed` requests;
+    3. (rf2-egvm4t) drop the actor's per-instance `:data-schema` marks so
+       no marks-table residue survives (symmetric with the snapshot dissoc
+       + registrar unregister below);
+    4. (rf2-82a0u) cancel armed `:after` timers, one
+       `:rf.machine.timer/cancelled :reason :on-destroy` trace per timer;
+    5. apply the unified teardown projection (`teardown/teardown-actor`),
+       capturing the released `:system-id` via a side channel so we keep a
+       single runtime-db read + single write (machine snapshots are durable
+       runtime-db state, rf2-vzld77). `teardown-args` selects the slots the
+       projection prunes (`{:actor-id …}` for the per-actor form; the
+       tracked map adds `:parent-id` / `:invoke-id`);
+    6. emit `:rf.machine/destroyed` via the optional `emit-destroyed!-fn`
+       (called with the released sid) — `destroy-single!` emits here so the
+       trace lands after `:exit` (rf2-iilco); `destroy-single-actor!`'s
+       callers own the emit, so they pass nil;
+    7. (rf2-vsigt) forget the actor from the per-frame spawn-order channel
+       REGARDLESS of whether the runtime-db swap landed — by the time
+       frame-destroy runs the container may already be nil but the
+       spawn-order entry still needs clearing;
+    8. when the swap landed, emit `:rf.machine/system-id-released` and
+       unregister the live event handler (last, so an in-flight trace emit
+       against the actor still resolves before the slot disappears).
+
+  Returns the `db-swapped?` flag from the teardown projection."
+  [frame-id actor-id teardown-args emit-destroyed!-fn]
+  (exit-cascade/run-child-exit! frame-id actor-id)
+  (finalize/abort-actor-in-flight-http! actor-id)
+  (finalize/clear-actor-schema-marks! actor-id)
+  (timer/cancel-actor-timers! frame-id actor-id)
+  ;; `teardown-actor` returns [new-runtime-db released-sid]; `swap-runtime-db!`
+  ;; expects a fn returning the new runtime-db only, so capture the sid via a
+  ;; volatile side channel.
+  (let [sid         (volatile! nil)
+        db-swapped? (frame/swap-runtime-db! frame-id
+                                            (fn [runtime-db]
+                                              (let [[new-rt released-sid]
+                                                    (teardown/teardown-actor runtime-db teardown-args)]
+                                                (vreset! sid released-sid)
+                                                new-rt)))]
+    (when emit-destroyed!-fn
+      (emit-destroyed!-fn @sid))
+    (spawn-order/forget! frame-id actor-id)
+    (when db-swapped?
+      (traces/emit-system-id-released! frame-id @sid actor-id)
+      (registrar/unregister! :event actor-id))
+    db-swapped?))
+
 (defn destroy-single-actor!
   "Destroy a single spawned actor against the frame's container: run
   the active configuration's `:exit` cascade (rf2-nahfm), apply the
@@ -89,6 +151,8 @@
   `:rf.http/managed` requests (rf2-wvkn), emit the
   `:system-id-released` trace, unregister the live event handler, and
   forget the actor from the per-frame spawn-order channel (rf2-vsigt).
+  The ordered teardown pipeline is shared with `destroy-single!` via
+  `teardown-live-actor!`.
 
   Used by `destroy-machine-fx` for the keyword-form imperative
   destroy AND iterated for each child in a `:spawn-all` teardown, AND
@@ -110,42 +174,11 @@
   `destroy-single!` carries (rf2-lbjnz)."
   [frame-id actor-id]
   (when (actor-live? frame-id actor-id (frame/frame-runtime-db-value frame-id))
-    ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
-    ;; BEFORE any teardown work. This fires `:exit`-emitted fx via
-    ;; do-fx and writes any `:data` updates back to the snapshot —
-    ;; both transient (the snapshot is dissoc'd two steps later).
-    (exit-cascade/run-child-exit! frame-id actor-id)
-    (finalize/abort-actor-in-flight-http! actor-id)
-    ;; (rf2-egvm4t) Drop the actor's per-instance :data-schema marks so the
-    ;; destroyed actor leaves no marks-table residue (symmetric with the
-    ;; snapshot dissoc + registrar unregister below).
-    (finalize/clear-actor-schema-marks! actor-id)
-    ;; (rf2-82a0u) Cancel any armed `:after` timers the destroyed
-    ;; actor owns, emitting one `:rf.machine.timer/cancelled :reason
-    ;; :on-destroy` trace per timer. The epoch invariant already
-    ;; backstops firing-correctness; the explicit sweep releases the
-    ;; host-clock handle promptly and stamps the destroy attribution
-    ;; the Xray Handler section consumes.
-    (timer/cancel-actor-timers! frame-id actor-id)
-    ;; `teardown-actor` returns [new-runtime-db released-sid];
-    ;; `swap-runtime-db!` expects a fn returning the new runtime-db only.
-    ;; Capture sid via a side channel so we keep a single read + single
-    ;; write. Machine snapshots are durable runtime-db state (rf2-vzld77).
-    (let [sid (volatile! nil)
-          db-swapped? (frame/swap-runtime-db! frame-id
-                                              (fn [runtime-db]
-                                                (let [[new-rt released-sid]
-                                                      (teardown/teardown-actor runtime-db {:actor-id actor-id})]
-                                                  (vreset! sid released-sid)
-                                                  new-rt)))]
-      ;; (rf2-vsigt) Forget the actor regardless of whether the runtime-db
-      ;; swap landed — by the time frame-destroy runs, the container
-      ;; may already be nil but the spawn-order entry still needs
-      ;; clearing.
-      (spawn-order/forget! frame-id actor-id)
-      (when db-swapped?
-        (traces/emit-system-id-released! frame-id @sid actor-id)
-        (registrar/unregister! :event actor-id)))
+    ;; This site does NOT emit `:rf.machine/destroyed` — its callers
+    ;; (`destroy-spawn-all-children!`, the frame-destroy walker) own that
+    ;; emit, gating it on this fn's truthy return so each actor's destroyed
+    ;; trace fires exactly once (rf2-ndfjo). So no emit-destroyed callback.
+    (teardown-live-actor! frame-id actor-id {:actor-id actor-id} nil)
     ;; rf2-ndfjo — signal to callers (`destroy-spawn-all-children!`) that
     ;; this actor was live and torn down this call, so they emit
     ;; `:rf.machine/destroyed` exactly once. The `when` returns nil for
@@ -266,50 +299,33 @@
         live?     (or (actor-live? frame-id actor-id old-db)
                       (and tracked? (some? slot-id)))]
     (when live?
-      (let [released-sid (teardown/find-system-id-for-actor old-db actor-id)]
-        ;; (rf2-nahfm) Run the active configuration's `:exit` cascade
-        ;; BEFORE the teardown projection clears the snapshot — and
-        ;; BEFORE the `:rf.machine/destroyed` trace (rf2-iilco). Per Spec
-        ;; 005 §Declarative `:spawn` §Composition with explicit `:entry` /
-        ;; `:exit` (005:2138) the `:exit` action gets to read the actor's
-        ;; final snapshot before the auto-destroy clears it, so a consumer
-        ;; observing the db between `:exit` and `:rf.machine/destroyed`
-        ;; sees the live snapshot. This mirrors `finalize-machine`'s order
-        ;; (exit cascade → teardown → destroyed) so both destroy entry-
-        ;; points share one ordering convention.
-        (exit-cascade/run-child-exit! frame-id actor-id)
-        (finalize/abort-actor-in-flight-http! actor-id)
-        ;; (rf2-egvm4t) Drop the actor's per-instance :data-schema marks so the
-        ;; destroyed actor leaves no marks-table residue.
-        (finalize/clear-actor-schema-marks! actor-id)
-        ;; (rf2-82a0u) Cancel any armed `:after` timers the destroyed
-        ;; actor owns — see `destroy-single-actor!` for the rationale.
-        (timer/cancel-actor-timers! frame-id actor-id)
-        (frame/swap-runtime-db! frame-id
-                                (fn [runtime-db]
-                                  (first (teardown/teardown-actor
-                                           runtime-db {:actor-id  actor-id
-                                                       :parent-id parent-id
-                                                       :invoke-id invoke-id}))))
+      ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
+      ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace
+      ;; (rf2-iilco): per Spec 005 §Declarative `:spawn` §Composition with
+      ;; explicit `:entry` / `:exit` (005:2138) the `:exit` action reads the
+      ;; actor's final snapshot before the auto-destroy clears it, so a
+      ;; consumer observing the db between `:exit` and `:rf.machine/destroyed`
+      ;; sees the live snapshot. This mirrors `finalize-machine`'s order
+      ;; (exit cascade → teardown → destroyed) so both destroy entry-points
+      ;; share one ordering convention.
+      (teardown-live-actor!
+        frame-id actor-id
+        {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
         ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
         ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
         ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
         ;; the destroyed-trace-shape contract for the `destroy-single!` site.
-        ;; `released-sid` was resolved from `old-db` above, before teardown
-        ;; mutated the reverse index — symmetric with `finalize-machine`.
-        (traces/emit-destroyed! {:frame     frame-id
-                                 :actor-id  actor-id
-                                 :system-id released-sid
-                                 :parent-id parent-id
-                                 :invoke-id invoke-id})
-        (traces/emit-system-id-released! frame-id released-sid actor-id)
-        ;; Unregister the live handler. Last so any in-flight trace emit
-        ;; against the actor still resolves before the slot disappears.
-        (registrar/unregister! :event actor-id)
-        ;; (rf2-vsigt) Forget the actor from the per-frame spawn-order
-        ;; channel so frame destroy's reverse-creation walk doesn't trip
-        ;; over a stale entry.
-        (spawn-order/forget! frame-id actor-id)))
+        ;; `released-sid` is the binding the teardown projection released —
+        ;; resolved from the reverse index BEFORE the dissoc, symmetric with
+        ;; `finalize-machine` and with the pre-teardown `old-db` read it
+        ;; replaces (the `:system-ids` index is untouched by the exit cascade
+        ;; / abort / mark-clear / timer-cancel steps, so the value is equal).
+        (fn [released-sid]
+          (traces/emit-destroyed! {:frame     frame-id
+                                   :actor-id  actor-id
+                                   :system-id released-sid
+                                   :parent-id parent-id
+                                   :invoke-id invoke-id}))))
     nil))
 
 (defn destroy-machine-fx
