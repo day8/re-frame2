@@ -141,6 +141,54 @@
     (is (nil? (entry (feed-key :is1/feed))))))
 
 ;; ===========================================================================
+;; 1b. the SCALAR :has-data? / :state subs over an infinite feed (rf2-3fynns)
+;;
+;;   The scalar `:rf.resource/has-data?` and `:rf.resource/state` subs ALSO
+;;   apply to an infinite feed (Spec 016 §Subscriptions — the family is
+;;   resource-kind agnostic). An infinite feed's `:data` is the page VECTOR,
+;;   seeded EMPTY (`[]`) before page 0 lands, so the scalar `(some? :data)`
+;;   test would WRONGLY read an empty/never-loaded feed as `:has-data? true`
+;;   (and `:rf.resource/state` would return the self-contradictory
+;;   `{:status :loading … :has-data? true}`). Both scalar subs must route
+;;   through the shared `state/has-data?` derivation (the same one
+;;   `:rf.resource/infinite-state` uses), so the two PUBLIC sub families agree.
+;; ===========================================================================
+
+(deftest scalar-has-data?-false-for-empty-infinite-feed
+  (testing "an EMPTY (never-loaded) infinite feed has a live entry with :data []"
+    (rf/reg-resource :is1b/feed (feed-spec))
+    (ensure! :is1b/feed)                       ;; entry now exists, :status :loading
+    (let [e (entry (feed-key :is1b/feed))]
+      (is (some? e) "ensure created the durable feed entry")
+      (is (= [] (:data e)) "an unloaded infinite feed seeds the page vector empty")
+      (is (= :loading (:status e)) "first load, no usable data ⇒ :loading"))
+    (testing "the scalar :rf.resource/has-data? reads FALSE (empty page vector)"
+      (is (false? @(rf/subscribe [:rf.resource/has-data? (q :is1b/feed)]))
+          "an empty page vector is NO usable data — must match state/has-data?"))
+    (testing "the scalar :rf.resource/state's :has-data? agrees (and isn't self-contradictory)"
+      (let [vm @(rf/subscribe [:rf.resource/state (q :is1b/feed)])]
+        (is (= :loading (:status vm)) "still first-loading")
+        (is (false? (:has-data? vm))
+            ":has-data? false for an empty feed — not the self-contradictory true")
+        (is (true? (:loading? vm)) "first load with no usable data")))
+    (testing "the scalar and infinite-feed sub families AGREE on :has-data?"
+      (is (= @(rf/subscribe [:rf.resource/has-data? (q :is1b/feed)])
+             (:has-data? @(rf/subscribe [:rf.resource/state (q :is1b/feed)]))
+             (:has-data? @(rf/subscribe [:rf.resource/infinite-state (q :is1b/feed)]))
+             false)
+          "all three public :has-data? readings concur on the empty feed"))))
+
+(deftest scalar-has-data?-true-once-a-page-lands
+  (testing "once page 0 lands the scalar :has-data? flips TRUE (≥1 page)"
+    (load-page-0! :is1c/feed (page [:a :b] "c1"))
+    (is (true? @(rf/subscribe [:rf.resource/has-data? (q :is1c/feed)])))
+    (is (true? (:has-data? @(rf/subscribe [:rf.resource/state (q :is1c/feed)]))))
+    (is (= @(rf/subscribe [:rf.resource/has-data? (q :is1c/feed)])
+           (:has-data? @(rf/subscribe [:rf.resource/infinite-state (q :is1c/feed)]))
+           true)
+        "the scalar and infinite families agree on a loaded feed")))
+
+;; ===========================================================================
 ;; 2. :rf.resource/items merges pages in order (the headline read)
 ;; ===========================================================================
 

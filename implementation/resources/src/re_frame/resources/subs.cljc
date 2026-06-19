@@ -340,7 +340,13 @@
          :loading?      (= :loading (:status e))
          :fetching?     (= :fetching (:status e))
          :stale?        (stale? e)
-         :has-data?     (some? (:data e))}
+         ;; `:has-data?` via the shared `state/has-data?` derivation, NOT the
+         ;; scalar `(some? :data)`: an infinite feed's `:data` is the page
+         ;; VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as
+         ;; usable data (rf2-3fynns). `state/has-data?` branches on the
+         ;; feed shape (`(seq data)`), so the scalar `:state` sub and
+         ;; `:infinite-state` never disagree.
+         :has-data?     (state/has-data? e)}
         ;; `:keep-previous?` projection — previous-key data shown while this
         ;; key first-loads, WITHOUT polluting this entry's cache / tags.
         (previous-projection rt e)))))
@@ -390,9 +396,13 @@
 
 (defn has-data?-sub-fn
   "Project `:rf.resource/has-data?` — usable data present. Per Spec 016
-  §Status semantics."
+  §Status semantics. Routed through the shared `state/has-data?` derivation
+  (NOT the scalar `(some? :data)`): an infinite feed's `:data` is the page
+  VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as usable data
+  (rf2-3fynns). `state/has-data?` branches on the feed shape (`(seq data)`),
+  so this scalar sub and `:rf.resource/infinite-state` never disagree."
   [frame-state [_id payload]]
-  (some? (:data (entry-for (runtime-of frame-state) (app-of frame-state) payload))))
+  (state/has-data? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn previous-data-sub-fn
   "Project `:rf.resource/previous-data` — the prior key's data projected
