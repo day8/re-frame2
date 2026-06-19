@@ -422,10 +422,13 @@
 (defn- merge-schema-marks
   "Union the author-sourced `manual` marks entry with the schema-sourced
   `schema` marks entry into one resolved declaration. Both arguments are the
-  canonical `{:sensitive [...] :large [...] :sensitive? bool :large? bool}`
-  shape (or nil). Returns the union, or nil when both are nil/empty — so a
-  machine with neither manual nor schema marks reads as `nil` (the same
-  no-marks signal `marks-for` returned before this table existed).
+  canonical `{:sensitive [...] :large [...] :output-sensitivity <enum>
+  :large? bool}` shape (or nil) — `:output-sensitivity` is the closed
+  `:rf.egress/*` declassification enum that EP-0015 issue 9 substituted for the
+  rejected `:sensitive?` boolean, unioned here via `union-output-sensitivity`.
+  Returns the union, or nil when both are nil/empty — so a machine with neither
+  manual nor schema marks reads as `nil` (the same no-marks signal `marks-for`
+  returned before this table existed).
 
   Set-union of paths plus monotone-OR of whole-output flags — commutative,
   so the union does not depend on which source is treated as `existing`
@@ -500,8 +503,11 @@
 (defn declare-machine-schema-marks!
   "Record a machine's `:data-schema`-derived marks under `machine-id` in the
   schema-sourced table (rf2-qpibk0). `marks` is the canonical
-  `{:sensitive [paths] :large [paths] :sensitive? bool :large? bool}` shape
-  (snapshot-rooted under `[:data …]`), or nil to clear the entry. Returns nil.
+  `{:sensitive [paths] :large [paths] :output-sensitivity <enum> :large? bool}`
+  shape (snapshot-rooted under `[:data …]`), or nil to clear the entry —
+  `:output-sensitivity` is the closed `:rf.egress/*` declassification enum that
+  EP-0015 issue 9 substituted for the rejected `:sensitive?` boolean. Returns
+  nil.
 
   Kept separate from the author-sourced registrar `:event` entry so
   `marks-for :event machine-id` unions the two at read time — order-
@@ -980,7 +986,12 @@
   "Record the resolved sensitive/large state of a sub's most recent
   output. Called by the sub-cache after `compute-and-cache!` resolves
   the value. The flags fold into the propagation table; downstream
-  emit sites read via `sub-output-sensitive?` / `sub-output-large?`."
+  emit sites read via `sub-output-sensitive?` / `sub-output-large?`.
+
+  INVARIANT: the sub-cache only invokes this under `debug-enabled?`, so the
+  propagation table (`frame->sub-id->sensitive?` / `…->large?`) is EMPTY in
+  production. Any consumer reading it MUST be dev-gated too — an always-on
+  egress consumer would read empty and fail open."
   [frame-id sub-id sensitive? large?]
   (swap! frame->sub-id->sensitive?
          (fn [m]
@@ -1027,7 +1038,11 @@
   Size still uses the `:large?` whole-output override (size has no
   declassification analogue — EP-0015 issue 9 is sensitivity-only).
 
-  Returns `[sensitive? large?]`."
+  Returns `[sensitive? large?]`. INVARIANT: the input-signal propagation reads
+  go through `sub-output-sensitive?` / `sub-output-large?`, whose table is only
+  populated under `debug-enabled?` (see `mark-sub-output!`) — so this resolver,
+  and any consumer of its result, MUST be dev-gated; in production the table is
+  empty and propagation would silently fail open."
   [frame-id sub-id input-signals layer-1?]
   (let [marks       (sub-marks sub-id)
         output-sens (:output-sensitivity marks)

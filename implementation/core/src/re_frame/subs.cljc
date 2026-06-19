@@ -713,6 +713,9 @@
     ;; registration meta. Late-bound — when the marks
     ;; artefact is absent, this is a silent no-op. Gated by debug so
     ;; production builds DCE the lookup.
+    ;; INVARIANT: this `mark!` write only happens under `debug-enabled?`, so the
+    ;; sub-output marks table is EMPTY in production — any future egress consumer
+    ;; reading it MUST be dev-gated too, or it reads empty and fails open.
     (when interop/debug-enabled?
       (when sub-meta
         (when-let [resolve (late-bind/get-fn :marks/resolve-sub-output-marks)]
@@ -1280,11 +1283,16 @@
                           (try
                           (let [parametric? (= :parametric (:input-kind meta))
                                 raw (cond
-                                      ;; Layer-1 (`:db`) reads app-db directly;
+                                      ;; Layer-1-shaped (`:db` / `:runtime-db` /
+                                      ;; `:frame-state` — see the `layer-1?` set
+                                      ;; above): `:db` reads app-db directly,
                                       ;; `:runtime-db` reads the runtime-db
-                                      ;; partition. `partition-value-for-sub`
-                                      ;; extracts the right slice when `db` is a
-                                      ;; frame-state value (rf2-vzld77).
+                                      ;; partition, `:frame-state` reads the
+                                      ;; whole frame-state value (both
+                                      ;; partitions, EP-0016 D3).
+                                      ;; `partition-value-for-sub` extracts the
+                                      ;; right slice when `db` is a frame-state
+                                      ;; value (rf2-vzld77).
                                       layer-1?
                                       (body-fn (partition-value-for-sub db (:input-kind meta)) query-v)
 
