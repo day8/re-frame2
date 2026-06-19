@@ -47,6 +47,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.trace :as trace]
             [re-frame.trace.tooling :as trace-tooling]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.self-noise :as self-noise]))
@@ -135,13 +136,15 @@
   nil)
 
 (defn- frameless-event?
-  "True when `event` has neither a top-level `:frame` slot nor a
-  `:rf.trace/dispatch-id` under `:tags` — the framework's per-frame
-  rings would have skipped it (per the B3 ruling) and Xray's
-  secondary ring is the only place it can be retained."
+  "True when `event` carries neither a frame nor a `:rf.trace/dispatch-id`
+  under `:tags` — the framework's per-frame rings would have skipped it
+  (per the B3 ruling) and Xray's secondary ring is the only place it can
+  be retained. Reads the RAW trace-event frame via the canonical reader
+  `re-frame.trace/trace-event-frame` ([:tags :frame] — rf2-7737vq); the
+  prior divergent top-level `:frame` check is removed (raw events never
+  carry a top-level `:frame`)."
   [event]
-  (and (nil? (:frame event))
-       (nil? (get-in event [:tags :frame]))
+  (and (nil? (trace/trace-event-frame event))
        (nil? (get-in event [:tags :rf.trace/dispatch-id]))))
 
 ;; ---- microtask-coalesced mirror sync (D3=b ruling) ---------------------
@@ -316,7 +319,7 @@
       ;; bump the per-frame suppressed counter so the `[● REDACTED N]`
       ;; indicator surfaces. EP-0015 per-(tool,frame) reveal grain.
       (config/suppress-sensitive? event)
-      (config/note-suppressed! (get-in event [:tags :frame]))
+      (config/note-suppressed! (trace/trace-event-frame event))
 
       :else
       (do

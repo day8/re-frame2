@@ -83,6 +83,12 @@
             ;; panel's :devtools/preloads), so requiring the tooling ns
             ;; directly here is bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
+            ;; rf2-7737vq: the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`). A plain public defn on
+            ;; the trace contract ns (NOT a facade export); requiring it
+            ;; here is the bundle-isolation-safe dev-tier dependency the
+            ;; trace tooling sibling above already establishes.
+            [re-frame.trace :as trace]
             [re-frame.interop :as interop]
             ;; rf2-uv2q2: the canonical Editscript-A* diff engine. Used by
             ;; get-app-db-diff to project the changed-paths slice diff its
@@ -529,35 +535,37 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; EP-0015 frame-owned egress: a trace event's VALUES must project under the
-;; classification of the FRAME THAT EMITTED IT. A trace event carries its
-;; frame on `[:tags :frame]` (the router stamps it on most in-cascade emits)
-;; or top-level `:frame` — the same precedence the framework's
-;; `trace.tooling`/`trace.projection` frame-routing reads. For a per-frame
-;; ring read (`get-trace-buffer`) every surviving event already belongs to
-;; the resolved frame, but `get-issues` MERGES rings across frames, so each
-;; event must project under its OWN frame, not one ambient/resolved frame.
-;; When an event carries no frame (a frameless emit), fall back to the
-;; accessor's resolved frame so the read and the projection stay aligned;
-;; a truly frameless value then fails closed in the walker.
+;; classification of the FRAME THAT EMITTED IT. These are RAW trace events
+;; (the `get-trace-buffer` / `get-issues` reads forward `{:flat true}`
+;; ring slices), so each event's frame rides under `[:tags :frame]` — read
+;; via the canonical reader `re-frame.trace/trace-event-frame` (rf2-7737vq).
+;; For a per-frame ring read (`get-trace-buffer`) every surviving event
+;; already belongs to the resolved frame, but `get-issues` MERGES rings
+;; across frames, so each event must project under its OWN frame, not one
+;; ambient/resolved frame. When an event carries no frame (a frameless
+;; emit), fall back to the accessor's resolved frame so the read and the
+;; projection stay aligned; a truly frameless value then fails closed in
+;; the walker. The prior divergent top-level `:frame` fallback is removed
+;; (raw events never carry top-level `:frame` per the ruling).
 
-(defn- trace-event-frame
-  "Resolve the frame-id a trace event belongs to for value egress
-  (EP-0015 frame-owned projection). Reads `[:tags :frame]` then top-level
-  `:frame` (the framework trace frame-routing precedence). `fallback` is
-  the accessor's resolved frame, used when the event carries none. rf2-5b2ct2."
+(defn- egress-event-frame
+  "Resolve the frame-id a RAW trace event belongs to for value egress
+  (EP-0015 frame-owned projection). Reads the event's `[:tags :frame]`
+  via the canonical `re-frame.trace/trace-event-frame` reader; `fallback`
+  is the accessor's resolved frame, used when the event carries none.
+  rf2-5b2ct2 · rf2-7737vq."
   [ev fallback]
-  (or (get-in ev [:tags :frame])
-      (:frame ev)
+  (or (trace/trace-event-frame ev)
       fallback))
 
 (defn- egress-trace-event
   "Egress one trace event's VALUES under its OWN frame's classification
   (EP-0015 frame-owned egress, rf2-5b2ct2). The event's frame resolves
-  from its `[:tags :frame]` / top-level `:frame`, falling back to the
+  from its `[:tags :frame]` (canonical reader), falling back to the
   accessor's resolved `fid`. `egress-opts` carries the caller's
   `:include-sensitive?` / `:include-large?` opt-ins."
   [ev fid egress-opts]
-  (egress-value ev (assoc egress-opts :frame (trace-event-frame ev fid))))
+  (egress-value ev (assoc egress-opts :frame (egress-event-frame ev fid))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inspection band (9 accessors)

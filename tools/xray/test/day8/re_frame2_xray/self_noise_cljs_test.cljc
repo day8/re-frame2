@@ -41,29 +41,36 @@
 
 ;; ---- predicate ----------------------------------------------------------
 
-(deftest xray-internal-event?-top-level-frame
-  (testing ":frame at top level — true iff = :rf/xray"
-    (is (true?  (self-noise/xray-internal-event? {:frame :rf/xray})))
-    (is (false? (self-noise/xray-internal-event? {:frame :rf/default})))
-    (is (false? (self-noise/xray-internal-event? {:frame :rf/main})))
-    (is (false? (self-noise/xray-internal-event? {:frame nil})))
-    (is (false? (self-noise/xray-internal-event? {})))))
-
-(deftest xray-internal-event?-tags-frame-fallback
-  (testing ":frame absent at top, present under :tags — fall-back applies"
+(deftest xray-internal-event?-reads-tags-frame
+  ;; rf2-7737vq: the predicate now reads the RAW trace-event frame via the
+  ;; canonical reader `re-frame.trace/trace-event-frame` ([:tags :frame]).
+  ;; Per the ruling a raw trace event carries frame identity ONLY under
+  ;; [:tags :frame]; the prior top-level-`:frame` fallback is gone.
+  (testing ":frame under :tags — true iff = :rf/xray"
     (is (true?  (self-noise/xray-internal-event?
                   {:tags {:frame :rf/xray}})))
     (is (false? (self-noise/xray-internal-event?
                   {:tags {:frame :rf/default}})))
     (is (false? (self-noise/xray-internal-event?
+                  {:tags {:frame :rf/main}})))
+    (is (false? (self-noise/xray-internal-event?
                   {:tags {:frame nil}})))
     (is (false? (self-noise/xray-internal-event?
-                  {:tags {}}))))
-  (testing "top-level wins when both present"
+                  {:tags {}})))
+    (is (false? (self-noise/xray-internal-event? {})))))
+
+(deftest xray-internal-event?-ignores-stray-top-level-frame
+  ;; rf2-7737vq: a stray top-level `:frame` is NOT a public raw-event shape;
+  ;; the canonical reader ignores it. A raw event whose `[:tags :frame]` is
+  ;; absent reads as frameless regardless of a top-level `:frame`.
+  (testing "top-level-only :frame is ignored (raw events frame under :tags)"
+    (is (false? (self-noise/xray-internal-event? {:frame :rf/xray})))
+    (is (false? (self-noise/xray-internal-event? {:frame :rf/default}))))
+  (testing "[:tags :frame] is authoritative when both are present"
     (is (true?  (self-noise/xray-internal-event?
-                  {:frame :rf/xray :tags {:frame :rf/default}})))
+                  {:frame :rf/default :tags {:frame :rf/xray}})))
     (is (false? (self-noise/xray-internal-event?
-                  {:frame :rf/default :tags {:frame :rf/xray}})))))
+                  {:frame :rf/xray :tags {:frame :rf/default}})))))
 
 (deftest xray-internal-event?-realistic-shapes
   (testing "shapes mirroring real :rf.sub/run + :rf.view/render envelopes"
@@ -75,12 +82,12 @@
                    :tags {:rf.sub/id  :rf.xray/trace-buffer
                           :rf.sub/query-v [:rf.xray/trace-buffer]
                           :frame   :rf/xray}})))
-    ;; View re-render from a Xray panel — :frame at top level per
-    ;; re-frame.views/emit-render-trace!.
+    ;; View re-render from a Xray panel — :frame rides under :tags per
+    ;; re-frame.views/emit-view-render-trace! (the emit passes :frame in
+    ;; the tags map; build-event never hoists it top-level — rf2-7737vq).
     (is (true?  (self-noise/xray-internal-event?
                   {:operation :rf.view/render :op-type :rf.view
                    :id 18 :time 1001
-                   :frame :rf/xray
                    :tags  {:rf.view/render-key 42 :frame :rf/xray}})))
     ;; Host event — must not be filtered.
     (is (false? (self-noise/xray-internal-event?
@@ -119,10 +126,11 @@
 #?(:cljs
    (defn- xray-view-render-event []
      ;; Realistic `:rf.view/render` emit from a Xray panel re-rendering.
-     ;; `:frame` is hoisted top-level per re-frame.views/emit-render-trace!.
+     ;; `:frame` rides under `:tags` per re-frame.views/emit-view-render-trace!
+     ;; (the emit passes it in the tags map; build-event never hoists it
+     ;; top-level — rf2-7737vq).
      {:operation :rf.view/render :op-type :rf.view
       :id 3 :time 1002
-      :frame :rf/xray
       :tags  {:rf.view/render-key 42 :frame :rf/xray}}))
 
 #?(:cljs

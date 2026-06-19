@@ -57,7 +57,8 @@
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
-            [day8.re-frame2-xray.theme.tokens :as tokens]))
+            [day8.re-frame2-xray.theme.tokens :as tokens]
+            [re-frame.trace :as trace]))
 
 ;; ---- area-badge classification (spec/023 §3 · §5) -----------------------
 ;;
@@ -694,12 +695,15 @@
 ;; substrate supplies no timing, §6).
 
 (defn frame-of
-  "Project the event's frame routing key. Per Spec 009 every trace event
-  that names a frame uses `:frame` under `:tags`; consumers also fall
-  back to a top-level `:frame` (defensive)."
+  "Project the event's frame routing key. Reads the RAW trace-event
+  frame via the canonical reader `re-frame.trace/trace-event-frame`
+  (its `[:tags :frame]` slot — Spec 009 §Frame identity on the raw
+  event, rf2-7737vq). The prior defensive top-level `:frame` fallback is
+  removed: per the ruling raw trace events carry frame identity ONLY
+  under `[:tags :frame]`; a top-level `:frame` belongs to derived /
+  projection records, not the raw rows this projection consumes."
   [ev]
-  (or (get-in ev [:tags :frame])
-      (:frame ev)))
+  (trace/trace-event-frame ev))
 
 (defn realm-of
   "Project the event's runtime realm id — the `:rf.realm/id` stamp
