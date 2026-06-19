@@ -1324,13 +1324,61 @@
     (assoc-in [:input :event]
               (summarize-spawn-error-event (get-in tags [:input :event])))))
 
+;; The runtime-db prefix under which a machine snapshot lives, per EP-0001 /
+;; Spec 005 §Where snapshots live: `[:rf.runtime/machines :snapshots <actor-id>]`.
+;; A frame classifies a durable machine `:data` slot by declaring the ABSOLUTE
+;; runtime-db path (e.g. `[:rf.runtime/machines :snapshots :checkout/payment
+;; :data :token]`, EP-0025) in its elision registry. The machine trace
+;; `:before` / `:after` / `:snapshot` slots carry the SNAPSHOT value (rooted at
+;; the snapshot, not the runtime-db root), so the frame's absolute declaration
+;; is re-rooted SNAPSHOT-relative by stripping this prefix before it can match.
+(def ^:private machine-snapshot-prefix [:rf.runtime/machines :snapshots])
+
+(defn frame-snapshot-marks
+  "Compute the SNAPSHOT-relative sensitive/large path set the FRAME declares for
+  the machine snapshot keyed under `actor-id` (EP-0025, rf2-398kql) — the
+  frame-owned replacement for the removed `:data-schema`→marks bridge. Reads the
+  frame's elision-registry declarations (`:source :frame`, installed by
+  `reg-frame` `:sensitive` / `:large {:app-db …}`), keeps only those rooted at
+  `[:rf.runtime/machines :snapshots <actor-id> …]`, and strips that prefix so
+  the remaining path indexes into the snapshot value the trace slot carries
+  (e.g. `[… :data :token]`). Returns `{:sensitive [paths] :large [paths]}` (slot
+  omitted when empty), or nil when `frame-id` is nil or the frame declares no
+  matching snapshot path.
+
+  Public so the machines SSR-hydration projector (`re-frame.machines.ssr`) can
+  reuse the SAME re-rooting for its `:data`-map projection (one level deeper —
+  it strips the leading `:data` segment too)."
+  [frame-id actor-id]
+  (when (and frame-id actor-id)
+    (let [prefix (conj machine-snapshot-prefix actor-id)
+          n      (count prefix)
+          under  (fn [decls]
+                   (into []
+                         (comp (filter #(and (>= (count %) n)
+                                             (= prefix (subvec (vec %) 0 n))))
+                               (map #(subvec (vec %) n)))
+                         (keys decls)))
+          sens   (under (elision/sensitive-declarations frame-id))
+          large  (under (elision/declarations frame-id))]
+      (when (or (seq sens) (seq large))
+        (cond-> {}
+          (seq sens)  (assoc :sensitive sens)
+          (seq large) (assoc :large large))))))
+
 (defn- project-machine-tags
-  "Walk machine `:data`-bearing trace tag shapes. Marks declared on
-  `reg-machine` (and bridged from the `:data-schema`) are paths rooted at the
-  SNAPSHOT — per Spec 015 §6. State machines — so common marks are written as
-  `[:data :jwt]`, `[:data :user :ssn]`, etc. Machine `:data` surfaces in
-  several differently-shaped trace slots, and per rf2-20d6k2 EVERY one is
-  redacted so a `:sensitive?` / `:large?` slot never egresses raw:
+  "Walk machine `:data`-bearing trace tag shapes. Marks are paths rooted at the
+  SNAPSHOT — per Spec 015 §State machines — so common marks are written as
+  `[:data :jwt]`, `[:data :user :ssn]`, etc.
+
+  EP-0025 (rf2-398kql): the marks come from the FRAME's declared classification
+  of the machine snapshot path (`frame-snapshot-marks`, the frame-owned sole
+  app-db mechanism), UNIONED with any author marks on the machine's `:event`
+  registration meta. The prior machine `:data-schema`→marks bridge (EP-0005) is
+  removed — a `:sensitive?` / `:large?` `:data`-slot prop no longer classifies
+  durable `:data` for egress. Machine `:data` surfaces in several differently-
+  shaped trace slots, and per rf2-20d6k2 EVERY one is redacted so a declared
+  slot never egresses raw:
 
     - `:before` / `:after` / `:snapshot` (`:rf.machine/transition`,
       `:rf.machine/snapshot-updated`) — FULL snapshot maps; the snapshot-rooted
@@ -1350,16 +1398,17 @@
       same handler-scope `:sensitive?` stamp as `:before` / `:after` per Spec
       005 §Privacy).
 
-  All slots resolve marks via the SAME actor/machine-id lookup, so a spawned
-  instance's id-keyed schema marks (rf2-fm1cpl) cover the instance's traces.
-  Per rf2-ws5thu / rf2-yyvtk5 the live-actor instance address rides under
-  `:actor-id` on every live-runtime row (`:rf.machine/transition` /
-  `:rf.machine/snapshot-updated` plus the guard / action / microstep /
-  history rows yyvtk5 completed), reserving `:machine-id` for the registered
-  TYPE; the lookup prefers `:actor-id` and falls back to `:machine-id` for the
-  rows that still legitimately carry the addressed-id under that key
-  (`:rf.machine/started` — the BIRTH signal keyed by the type/singleton id)."
-  [tags]
+  All slots resolve marks via the SAME (frame, actor/machine-id) lookup, so a
+  spawned instance's snapshot path (keyed under its instance id in the frame's
+  declarations) covers the instance's traces. Per rf2-ws5thu / rf2-yyvtk5 the
+  live-actor instance address rides under `:actor-id` on every live-runtime row
+  (`:rf.machine/transition` / `:rf.machine/snapshot-updated` plus the guard /
+  action / microstep / history rows yyvtk5 completed), reserving `:machine-id`
+  for the registered TYPE; the lookup prefers `:actor-id` and falls back to
+  `:machine-id` for the rows that still legitimately carry the addressed-id
+  under that key (`:rf.machine/started` — the BIRTH signal keyed by the
+  type/singleton id)."
+  [tags frame-id]
   ;; The CHILD-OWNED synthetic on-error payload and the `:start` payload are
   ;; summarized UNCONDITIONALLY (independent of the parent/spawn machine's
   ;; marks) — rf2-0gdic7 / rf2-lft14p / rf2-mxboxi. Run these first so they
@@ -1368,7 +1417,18 @@
   ;; child's `:start` args are unclassifiable here at all).
   (let [tags       (project-spawn-synthetic-payloads tags)
         machine-id (or (:actor-id tags) (:machine-id tags))
-        marks      (marks-when :event machine-id)]
+        ;; EP-0025: union the FRAME's snapshot-path classification (the sole
+        ;; app-db mechanism — `frame-snapshot-marks`) with any author marks on
+        ;; the machine's `:event` registration meta. Both are snapshot-rooted
+        ;; `[:data …]` path sets.
+        author     (marks-when :event machine-id)
+        frame-mk   (frame-snapshot-marks frame-id machine-id)
+        marks      (let [s (into (vec (:sensitive author)) (:sensitive frame-mk))
+                         l (into (vec (:large author))     (:large frame-mk))]
+                     (when (or (seq s) (seq l))
+                       (cond-> {}
+                         (seq s) (assoc :sensitive s)
+                         (seq l) (assoc :large l))))]
     (if-not marks
       tags
       (let [[sens large] (mark-paths marks)
@@ -1454,15 +1514,20 @@
 
   Per rf2-yyvtk5 the `:rf.error/machine-action-exception` row now addresses
   the throwing LIVE actor instance under `:actor-id` (reserving `:machine-id`
-  for the registered TYPE); the schema lookup prefers `:actor-id` and falls
-  back to `:machine-id` so a spawned instance's id-keyed `:data-schema` marks
-  still gate the exception payload."
-  [tags]
+  for the registered TYPE); the lookup prefers `:actor-id` and falls back to
+  `:machine-id` so a spawned instance's snapshot path still gates the exception
+  payload.
+
+  EP-0025 (rf2-398kql): the \"machine declares ANY `:sensitive` mark\" decision
+  now consults the FRAME's snapshot-path classification (the sole app-db
+  mechanism) unioned with any author `:event` registration marks — the machine
+  `:data-schema`→marks bridge that once contributed here is removed."
+  [tags frame-id]
   (let [machine-id (or (:actor-id tags) (:machine-id tags))
-        marks      (marks-when :event machine-id)]
+        author     (marks-when :event machine-id)
+        frame-mk   (frame-snapshot-marks frame-id machine-id)]
     (if (and (contains? tags :exception-data)
-             marks
-             (seq (:sensitive marks)))
+             (or (seq (:sensitive author)) (seq (:sensitive frame-mk))))
       (redact-exception-data-slot tags)
       tags)))
 
@@ -1686,7 +1751,7 @@
                       (project-sub-tags frame-id)
 
                       (and (map? tags) (machine-op? operation))
-                      (project-machine-tags)
+                      (project-machine-tags frame-id)
 
                       ;; rf2-9vx0jk — the dev-only `:rf.interceptor/override-
                       ;; summary` tag on `:rf.event/run-start` carries id/count-
@@ -1726,7 +1791,7 @@
                       (and (map? tags)
                            (not= :rf.flow/failed operation)
                            (contains? tags :exception-data))
-                      (project-machine-error-tags)
+                      (project-machine-error-tags frame-id)
 
                       ;; rf2-x9haxl — the `:rf.error/machine-action-wrote-db`
                       ;; trace carries the STRIPPED `:db` value (the whole app-db

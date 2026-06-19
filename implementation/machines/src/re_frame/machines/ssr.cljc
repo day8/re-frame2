@@ -48,7 +48,7 @@
   does not SSR carries none of this path; an SSR app without machines sees the
   hook unbound and ships the (already machine-less) runtime-db unchanged.
   Pure / host-agnostic CLJC — SSR runs on the JVM."
-  (:require [re-frame.projection :as projection]))
+  (:require [re-frame.marks :as marks]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -56,33 +56,42 @@
   "Project ONE machine snapshot's `:data` for the SSR hydration boundary.
 
   `actor-id` is the snapshot's key (the singleton machine-id OR a spawned
-  instance id). `frame-id` is the SSR request frame whose app-db / runtime-db
-  classification governs the projection (nil ⇒ no frame walk ⇒ `:data` rides
-  verbatim).
+  instance id). `frame-id` is the SSR request frame whose runtime-db machine-
+  snapshot classification governs the projection (nil ⇒ no frame walk ⇒ `:data`
+  rides verbatim).
 
   EP-0025 (rf2-398kql): machine `:data` egress classification is FRAME-OWNED.
-  When `frame-id` resolves, the snapshot's `:data` is projected through the
-  merged frame-owned `re-frame.projection/project-egress` under the
-  `:rf.egress/ssr-hydration` profile, so any `:data` path the frame classifies
-  `:sensitive` / `:large {:app-db …}` (EP-0015) redacts / elides via SHARED
-  primitives (never a machines-private elider). The prior OWNER-schema layer —
-  the machine `:data-schema` `:sensitive?` / `:large?` per-slot marks resolved
-  through `marks/marks-for :event actor-id` — is REMOVED with the schema→marks
-  bridge; `actor-id` is retained in the signature for caller symmetry.
+  A frame classifies a durable machine `:data` slot by declaring the absolute
+  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]` via
+  `reg-frame` `:sensitive` / `:large {:app-db …}` (EP-0015, the sole app-db
+  mechanism). `re-frame.marks/frame-snapshot-marks` re-roots those declarations
+  snapshot-relative (`[:data …]`); here we strip the leading `:data` segment to
+  index into the snapshot's bare `:data` map and redact via the SHARED frame-
+  independent `re-frame.marks/redact-with-paths` walker — `:sensitive` slots to
+  `:rf/redacted`, `:large` to the `:rf.size/large-elided` marker (sensitive
+  wins). The prior OWNER-schema layer — the machine `:data-schema` `:sensitive?`
+  / `:large?` per-slot marks — is REMOVED with the schema→marks bridge.
 
   The snapshot's NON-`:data` slots (`:state`, `:tags`, `:rf/machine-type`, the
   reserved spawn-counter slot, …) are durable structural facts the client needs
   to re-materialise the actor — they ride VERBATIM. Returns the snapshot with
   its `:data` projected (or unchanged when the snapshot carries no `:data`, or
-  when `frame-id` is nil)."
-  [_actor-id snapshot frame-id]
+  when the frame classifies no matching `:data` path)."
+  [actor-id snapshot frame-id]
   (if-not (and (map? snapshot) (contains? snapshot :data) frame-id)
     snapshot
-    (assoc snapshot :data
-           (projection/project-egress
-             (:data snapshot)
-             {:frame             frame-id
-              :rf.egress/profile :rf.egress/ssr-hydration}))))
+    (let [{:keys [sensitive large]} (marks/frame-snapshot-marks frame-id actor-id)
+          ;; frame-snapshot-marks returns snapshot-rooted paths ([:data …]);
+          ;; the SSR projector walks the bare :data MAP, so strip the leading
+          ;; :data segment to index into it directly.
+          strip   (fn [paths] (into [] (comp (filter #(= :data (first %)))
+                                             (map #(subvec (vec %) 1)))
+                                    paths))
+          s-paths (strip sensitive)
+          l-paths (strip large)]
+      (if (or (seq s-paths) (seq l-paths))
+        (assoc snapshot :data (marks/redact-with-paths (:data snapshot) s-paths l-paths))
+        snapshot))))
 
 (defn project-ssr-runtime-db
   "Project the `:rf.runtime/machines` slice of `runtime-db` for the SSR
