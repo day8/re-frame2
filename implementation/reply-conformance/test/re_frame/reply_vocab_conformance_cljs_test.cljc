@@ -187,6 +187,27 @@
                                  :frame     :app/main}
                                 "nav-2")))
 
+;; rf2-bphg8v — the route loader's LIVE success completion (carried nav-token
+;; still current) builds its OWN `:status :ok` reply envelope via
+;; `re-frame.routing.reply/live-reply` (rf2-2avo53) — NOT the HTTP transport's
+;; success reply. It carries the route `:work/id` head `:rf.work/route`,
+;; `:work/kind :route`, the loader's decoded `:value`, the carried frame, and
+;; the causal `:completed-at`. So the route family DOES shape a success row of
+;; its own; the cross-family table must exercise it (the prior `:success nil`
+;; left the route live-reply path unguarded by the umbrella vocabulary tier).
+(def ^:private route-ctx
+  {:route-id     :route/article
+   :nav-token    "nav-1"
+   :loader-id    :article/loaded
+   :frame        :app/main
+   :completed-at completion-time-ms})
+
+(defn- route-live-reply []
+  (route-reply/live-reply route-ctx {:title "Welcome"}))
+
+(defn- route-success-no-time []
+  (route-reply/live-reply (dissoc route-ctx :completed-at) {:title "Welcome"}))
+
 (defn- resource-stale-reply []
   (let [carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
         current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}]
@@ -274,12 +295,18 @@
                    :reason    :on-exit})
     :stale     after-stale-reply}
 
-   ;; The route loader's success / error flow THROUGH the HTTP transport
-   ;; (covered by the :http row); the family itself shapes ONLY the
-   ;; nav-token stale suppression.
+   ;; The route loader's underlying HTTP TRANSPORT success / error flow
+   ;; through the HTTP transport (covered by the :http row). But the route
+   ;; wrapper ALSO builds its OWN live `:status :ok` reply envelope when the
+   ;; carried nav-token is still current (rf2-2avo53 `live-reply`): that route
+   ;; envelope — `:work/kind :route`, route `:work/id` head, decoded `:value`,
+   ;; carried frame + `:completed-at` — is what `:success` exercises here
+   ;; (rf2-bphg8v). The family does not shape its own error/cancel reply (those
+   ;; ride the HTTP transport); it shapes the live success + the nav-token
+   ;; stale suppression.
    {:family    :route
     :work-head :rf.work/route
-    :success   nil
+    :success   route-live-reply
     :error     nil
     :cancel    nil
     :stale     route-stale-reply}])
@@ -376,8 +403,9 @@
 ;; shape (the umbrella regression the bead names — rf2-ear61v).
 ;;
 ;; The families whose SUCCESS fixture seeds a completion time: HTTP, resource,
-;; mutation, machine. (The timer's success builder and the route family shape
-;; only the stale path here; their success row is N/A — but the absence half
+;; mutation, machine, and route (the route live-reply threads `:completed-at`
+;; uniformly — rf2-bphg8v / rf2-2avo53). (The timer's success builder shapes
+;; only the stale path here; its success row is N/A — but the absence half
 ;; below holds EVERY success-producing family to the omit-when-absent rule.)
 ;; ---------------------------------------------------------------------------
 
@@ -412,7 +440,9 @@
                                                          :completed-at completion-time-ms})
     :no-time mutation-success-no-time}
    {:family :machine  :with-time #(m-reply/success-reply machine-ctx {:user-id "u-42"})
-    :no-time machine-success-no-time}])
+    :no-time machine-success-no-time}
+   {:family :route    :with-time route-live-reply
+    :no-time route-success-no-time}])
 
 (deftest completion-time-propagates-uniformly-across-families
   (testing "EP-0017 — every family supplied a causal completion time threads
