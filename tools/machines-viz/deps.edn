@@ -56,7 +56,25 @@
                        day8/re-frame2-test-quiet
                        {:local/root "../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                       ;; rf2-ir5nah — TEST-ONLY engine dep for the
+                       ;; engine-grammar PARITY tests
+                       ;; (engine_grammar_parity_test.cljc). machines-viz
+                       ;; hand-MIRRORS the engine's machine-grammar walk +
+                       ;; target resolution (Mike-ruled rf2-ir5nah opt (b):
+                       ;; the mirror is by-design — bundle-isolation +
+                       ;; JVM-portability make a shared :require infeasible);
+                       ;; the parity tests feed representative machine-defs
+                       ;; through BOTH the viz copy and the engine fn and
+                       ;; assert equal output, so a silent drift becomes a
+                       ;; RED gate. This dep lives ONLY on the :test alias —
+                       ;; the shipped jar (:clein/build :src-dirs ["src"])
+                       ;; never carries it, so bundle isolation (which gates
+                       ;; the production BUNDLE, not the test classpath)
+                       ;; holds: nothing under implementation/ requires this
+                       ;; jar, and this jar's src never requires the engine.
+                       day8/re-frame2-machines
+                       {:local/root "../../implementation/machines"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Clojars deploy. Mirrors tools/xray/deps.edn — the release
