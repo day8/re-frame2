@@ -440,8 +440,8 @@
           ;; to the cascade that captured the callback. nil outside any
           ;; cascade (a genuinely top-of-stack frameless op) — `cond->`'d
           ;; in so absent rather than nil.
-          (let [did (some-> trace/*handler-scope* :dispatch-id)]
-            (when did {:rf.trace/dispatch-id did}))
+          (when-let [did (some-> trace/*handler-scope* :dispatch-id)]
+            {:rf.trace/dispatch-id did})
           extra)))
 
 (defn emit-no-frame-context!
@@ -758,7 +758,7 @@
   resolution-routing seam (EP-0013 staging step 4, rf2-a15n62)."
   [frame-record]
   (let [rid (:realm frame-record)]
-    (when (and rid (not (= rid realm/default-realm-id)))
+    (when (and rid (not= rid realm/default-realm-id))
       ;; A non-default realm — resolve its OWN registrar atom. `realm/registrar`
       ;; reads the `:registrar` slot off the realm map; nil when the realm was
       ;; disposed out from under a live frame (defensive — falls through to no
@@ -891,6 +891,15 @@
            (:lifecycle f)
            {:id (:id f)})))
 
+(def ^:private live-frame-id-xf
+  "Transducer over `@frames` `[addr record]` pairs → the `:id` of each
+  registered, non-destroyed frame. The shared front of both `frame-ids`
+  arities (the 1-arity composes a prefix filter after it). The frame-id is
+  read from the record's own `:id` slot, NOT the map key, since the key is a
+  frame ADDRESS (EP-0013 step 4, rf2-a15n62)."
+  (comp (remove (fn [[_ f]] (-> f :lifecycle :destroyed?)))
+        (map (fn [[_ f]] (:id f)))))
+
 (defn frame-ids
   "All registered, non-destroyed frame ids.
 
@@ -913,19 +922,27 @@
   realms collapses to one entry, since these are unqualified ids); a tool that
   wants per-realm membership uses `re-frame.realm/realm-frames`."
   ([]
-   (into #{}
-         (comp (filter (fn [[_ f]] (not (-> f :lifecycle :destroyed?))))
-               (map (fn [[_ f]] (:id f))))
-         @frames))
+   (into #{} live-frame-id-xf @frames))
   ([ns-prefix]
    (let [prefix (str ns-prefix)]
      (into #{}
-           (comp (filter (fn [[_ f]] (not (-> f :lifecycle :destroyed?))))
-                 (map (fn [[_ f]] (:id f)))
+           (comp live-frame-id-xf
                  (filter (fn [k]
                            (when-let [ns (namespace k)]
                              (clojure.string/starts-with? ns prefix)))))
            @frames))))
+
+(defn- image-loaded-frame-record?
+  "True for a frame record that is image-loaded AND publicly enumerable: it
+  carries a resolved image `:generation`, is not destroyed, and its id is a
+  PUBLIC id (the reserved `:rf.frame/<gensym>` namespace — no-id / direct
+  frames — excluded). The single selection predicate `image-loaded-frame-ids`
+  and `image-loaded-frame-addresses` share; both differ only in what they
+  PROJECT off the selected record. INTERNAL."
+  [f]
+  (and (some? (:generation f))
+       (not (-> f :lifecycle :destroyed?))
+       (not= "rf.frame" (namespace (:id f)))))
 
 (defn image-loaded-frame-ids
   "Return the set of PUBLIC frame ids whose record currently carries a resolved
@@ -944,9 +961,7 @@
   frames."
   []
   (into #{}
-        (comp (filter (fn [[_ f]] (and (some? (:generation f))
-                                       (not (-> f :lifecycle :destroyed?))
-                                       (not= "rf.frame" (namespace (:id f))))))
+        (comp (filter (fn [[_ f]] (image-loaded-frame-record? f)))
               (map (fn [[_ f]] (:id f))))
         @frames))
 
@@ -969,9 +984,7 @@
   INTERNAL."
   []
   (into #{}
-        (comp (filter (fn [[_ f]] (and (some? (:generation f))
-                                       (not (-> f :lifecycle :destroyed?))
-                                       (not= "rf.frame" (namespace (:id f))))))
+        (comp (filter (fn [[_ f]] (image-loaded-frame-record? f)))
               (map (fn [[_ f]] {:realm (or (:realm f) realm/default-realm-id)
                                 :id    (:id f)})))
         @frames))
@@ -1261,6 +1274,24 @@
   (commit-frame-transition! id {app-partition-key     (get frame-state app-partition-key)
                                 runtime-partition-key (get frame-state runtime-partition-key)}))
 
+(defn- swap-partition!
+  "Mutate ONE partition `pk` of `id`'s physical frame-state container in place:
+  read the current frame-state, recompute the partition slice as
+  `(apply f old-slice args)`, write back the frame-state with only that slice
+  replaced (the sibling partition carried forward by identity), and return the
+  new slice — or nil for an unknown/destroyed frame. The shared read-recompute-
+  write-back mechanics behind `swap-frame-db!` (app-db partition) and
+  `swap-runtime-db!` (runtime-db partition); both differ ONLY by `pk`. Under
+  the single-drainer invariant (Spec 002 §Single drainer per frame) the
+  read-then-replace is effectively atomic — `commit-frame-transition!` is the
+  only writer during fx drain. INTERNAL."
+  [id pk f args]
+  (when-let [container (frame-state-container id)]
+    (let [current   (adapter/read-container container)
+          new-slice (apply f (get current pk) args)]
+      (adapter/replace-container! container (assoc current pk new-slice))
+      new-slice)))
+
 (defn swap-frame-db!
   "Mutate the frame's app-db PARTITION: read the current app-db value,
   compute `(apply f db args)`, and install the result into the app-db
@@ -1281,13 +1312,7 @@
   `swap-runtime-db!` to mutate the `:rf.db/runtime` partition (`:rf.runtime/*`
   children). This surface mutates only the app-db partition."
   [id f & args]
-  (when-let [container (frame-state-container id)]
-    (let [current (adapter/read-container container)
-          old-db  (get current app-partition-key)
-          new-db  (apply f old-db args)]
-      (adapter/replace-container! container
-                                  (assoc current app-partition-key new-db))
-      new-db)))
+  (swap-partition! id app-partition-key f args))
 
 (defn swap-runtime-db!
   "Mutate the frame's runtime-db PARTITION: read the current runtime-db
@@ -1305,13 +1330,7 @@
   frame contract — runtime-db is reserved BY CONVENTION (decision #4); this
   is the framework-authority write surface."
   [id f & args]
-  (when-let [container (frame-state-container id)]
-    (let [current        (adapter/read-container container)
-          old-runtime-db (get current runtime-partition-key)
-          new-runtime-db (apply f old-runtime-db args)]
-      (adapter/replace-container! container
-                                  (assoc current runtime-partition-key new-runtime-db))
-      new-runtime-db)))
+  (swap-partition! id runtime-partition-key f args))
 
 ;; ---- lifecycle-vs-drain serialization (rf2-2woz9) -------------------------
 ;;
@@ -2225,7 +2244,7 @@
   ;; registrar, byte-identical.
   [realm-id id]
   (if-let [reg (and realm-id
-                    (not (= realm-id realm/default-realm-id))
+                    (not= realm-id realm/default-realm-id)
                     (some-> (realm/realm realm-id) realm/registrar))]
     (binding [registrar/*registrar* reg]
       (registrar/unregister! :frame id))
