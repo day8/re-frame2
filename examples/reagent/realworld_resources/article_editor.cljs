@@ -49,7 +49,7 @@
    `:reply-to` target — the resources-variant expression of the same shapes."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             [re-frame.resources]
             ;; Flows ship in day8/re-frame2-flows (Spec 013). Loading the ns
             ;; publishes its late-bind hooks so the `:rf.fx/reg-flow` effect

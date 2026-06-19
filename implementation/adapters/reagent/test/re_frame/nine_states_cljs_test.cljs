@@ -29,12 +29,12 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
-            ;; `re-frame.http-test-support` registers
+            ;; `re-frame.http.test-support` registers
             ;; `:rf.http/managed-canned-failure` — the fx the failing Story
             ;; variant routes `:rf.http/managed` to. nine-states.core
             ;; already pulls it transitively, but require it here so this
             ;; ns is self-sufficient.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [nine-states.core]
             ;; Requiring the example's Story file brings
             ;; `:nine-states.story/load-failing` (the variant's setup

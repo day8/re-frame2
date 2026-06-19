@@ -25,11 +25,11 @@
             ;; to the framework-shipped canned stubs). Loading the ns here
             ;; registers the `:rf.http/managed` fx family so the override
             ;; mechanism can target a real fx-id.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; :fx-overrides into :rf.http/managed-canned-* relies on
             ;; those fx ids being registered. Registration lives in
-            ;; re-frame.http-test-support.
-            [re-frame.http-test-support]
+            ;; re-frame.http.test-support.
+            [re-frame.http.test-support]
             ;; The canned-failure / canned-success stubs below delegate
             ;; to the framework-shipped `:rf.http/managed-canned-*` fxs
             ;; via the registrar so the example demo (views.cljs) and

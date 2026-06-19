@@ -77,11 +77,11 @@
             ;; resource/mutation transport (Spec 016 §Transport). Loading the
             ;; ns registers the `:rf.http/managed` fx the resource + mutation
             ;; runtime lowers each read/write onto.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; The framework-shipped canned-success fx the demo stub delegates
             ;; to (Spec 014 §Testing) — the explicit opt-in for a demo app with
             ;; no backend.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             ;; Resources ship in day8/re-frame2-resources. Requiring the ns at
             ;; app boot wires the late-bind hooks + registrations (the resource
             ;; sub family AND the mutation runtime + `:rf.mutation/*` subs);

@@ -67,11 +67,11 @@
             ;; built-in resource transport (Spec 016 §Transport). Loading
             ;; the ns registers the `:rf.http/managed` fx the resource
             ;; runtime lowers each page fetch onto.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; The framework-shipped canned-success fx the demo stub
             ;; delegates to (Spec 014 §Testing). Requiring it is the explicit
             ;; opt-in for a demo / test app with no backend.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             ;; Resources ship in day8/re-frame2-resources. Requiring the ns at
             ;; app boot wires the late-bind hooks + registrations (including
             ;; the infinite sub family); without it `rf/reg-resource` throws

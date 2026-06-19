@@ -55,15 +55,15 @@
             ;; built-in resource transport (Spec 016 §Transport). Loading
             ;; the ns registers the `:rf.http/managed` fx the resource
             ;; runtime lowers each ensure onto.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; This example ships no backend, so it overrides
             ;; `:rf.http/managed` with a per-URL canned stub that delegates
             ;; to the framework-shipped `:rf.http/managed-canned-success`
             ;; (Spec 014 §Testing — the same reply shape a live server would
             ;; produce). The canned-stub fx ids register from
-            ;; re-frame.http-test-support, NOT from re-frame.http-managed;
+            ;; re-frame.http.test-support, NOT from re-frame.http.managed;
             ;; requiring it is the explicit opt-in for a test/demo app.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             ;; Resources ship in day8/re-frame2-resources. Requiring the
             ;; ns at app boot wires the late-bind hooks + registrations;
             ;; without it, `rf/reg-resource` below throws

@@ -41,7 +41,7 @@
    Writes do NOT retry by default (reads-retry / writes-don't, Spec 014); a
    mutation arms `:retry` only if its `:request` declares it, and none here do."
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             [re-frame.resources]
             [realworld-resources.http :as rh]
             [realworld-resources.schema :as schema]))

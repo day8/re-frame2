@@ -80,17 +80,17 @@
             ;; `:rf/machine-has-tag?` framework subs resolve.
             [re-frame.machines]
             ;; Managed-HTTP ships in day8/re-frame2-http.
-            ;; Requiring re-frame.http-managed at app boot triggers its
+            ;; Requiring re-frame.http.managed at app boot triggers its
             ;; load-time fx registrations (`:rf.http/managed` and
             ;; family); without it, dispatching `:rf.http/managed`
             ;; (used below in the load-todos fx) would fail with
             ;; :rf.error/no-such-fx.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; :fx-overrides redirect :rf.http/managed to the canned
             ;; stubs (:rf.http/managed-canned-success/failure) below.
             ;; The canned-stub fx ids register from
-            ;; re-frame.http-test-support.
-            [re-frame.http-test-support]
+            ;; re-frame.http.test-support.
+            [re-frame.http.test-support]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))

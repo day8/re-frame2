@@ -33,7 +33,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
             ;; canned-failure stub (`:rf.http/managed-canned-failure`).
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [login.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 

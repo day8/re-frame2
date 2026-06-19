@@ -34,12 +34,12 @@
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`); without it,
             ;; dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; rf2-cdmle — this testbed drives :rf.http/managed-canned-failure
             ;; directly via :fx (see below). Per the gate change, the
-            ;; canned-stub fx ids register from re-frame.http-test-support.
+            ;; canned-stub fx ids register from re-frame.http.test-support.
             ;; A testbed IS a test affordance, so requiring it is correct.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -85,7 +85,7 @@
 ;; The framework-shipped `:rf.http/managed-canned-failure` synthesises a
 ;; failure reply via the same late-bind dispatch path the live transport
 ;; uses, but it does NOT call `trace/emit-error!`. The live failure path
-;; (`re-frame.http-transport/finalise-failure!`) emits a single
+;; (`re-frame.http.transport/finalise-failure!`) emits a single
 ;; `:rf.http/<kind>` error-trace event before dispatching the reply; the
 ;; canned stub skips it. The testbed README documents an ordered
 ;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx

@@ -45,8 +45,8 @@
             ;; the mutation runtime, managed-HTTP lowering, and the late-bound
             ;; routing integration resolve); the actual fetch is overridden by
             ;; the capturing stub.
-            [re-frame.http-managed]
-            [re-frame.http-test-support]
+            [re-frame.http.managed]
+            [re-frame.http.test-support]
             [re-frame.resources]
             [re-frame.resources.route :as resources-route]
             [re-frame.resources.state :as state]

@@ -25,10 +25,10 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas]
             [re-frame.machines]
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; :fx-overrides redirect :rf.http/managed to :rf.http/managed-canned-*;
-            ;; the canned-stub fx ids register from re-frame.http-test-support.
-            [re-frame.http-test-support]
+            ;; the canned-stub fx ids register from re-frame.http.test-support.
+            [re-frame.http.test-support]
             [re-frame.adapter.helix :as helix-adapter]))
 
 ;; ============================================================================
