@@ -478,7 +478,8 @@
   drain emitted exactly one pipeline-exception trace; matching that keeps
   tools from double-recording a captured trace AND a propagated Throwable)."
   [cofx-id failing-id frame-id ^Throwable t]
-  (let [msg #?(:clj (.getMessage t) :cljs (.-message t))]
+  ;; rf2-vzrxp3: nil-safe extractor (a thrown non-Error value has no message).
+  (let [msg (error/ex-message-safe t)]
     (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
       (emit-error-both! :rf.error/coeffect-exception nil failing-id frame-id t 0 (interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id

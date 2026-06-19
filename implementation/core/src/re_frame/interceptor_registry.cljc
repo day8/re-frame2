@@ -372,8 +372,8 @@
                     (throw-factory-arity!
                       ref id
                       (str "the `:factory` for interceptor `" id "` threw while building "
-                           "for arg `" (pr-str arg) "`: " #?(:clj (.getMessage ^Throwable e)
-                                                             :cljs (.-message e)) ".")))))]
+                           ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
+                           "for arg `" (pr-str arg) "`: " (error/ex-message-safe e) ".")))))]
     (cond
       ;; Factory returned an executable interceptor value (a map with
       ;; :before / :after / :id) — STAMP the registry id over it so the
