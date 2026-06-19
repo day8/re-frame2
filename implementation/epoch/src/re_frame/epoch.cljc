@@ -517,6 +517,10 @@
 ;;   :rf.epoch/replace-during-drain  — called while drain is in flight
 ;;   :rf.epoch/replace-schema-mismatch — `new-db` fails the frame's
 ;;                                              registered app-schema set
+;;   :rf.epoch/replace-history-disabled — epoch ring disabled (depth 0); the
+;;                                              synthetic undo-anchor cannot land
+;;                                              so the undo invariant is
+;;                                              unsatisfiable (rf2-unpldn)
 ;;
 ;; On success: records a synthetic `:rf/epoch-record` (so undo via
 ;; `restore-epoch!` works against the previous state), emits
@@ -676,6 +680,10 @@
     :rf.error/no-such-handler                   — frame not registered
     :rf.epoch/replace-during-drain       — drain in flight
     :rf.epoch/replace-schema-mismatch    — new-db fails app-schema
+    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
+                                                  the synthetic undo-anchor
+                                                  cannot land so undo would not
+                                                  work after this call (rf2-unpldn)
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 
@@ -722,6 +730,9 @@
     :rf.epoch/replace-schema-mismatch    — new-runtime-db fails the
                                                    framework-owned runtime-db
                                                    validator (reg-runtime-schema)
+    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
+                                                   the synthetic undo-anchor
+                                                   cannot land (rf2-unpldn)
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 
@@ -759,6 +770,9 @@
                                                    OR the runtime-db partition
                                                    fails the framework-owned
                                                    runtime-db validator
+    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
+                                                   the synthetic undo-anchor
+                                                   cannot land (rf2-unpldn)
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 

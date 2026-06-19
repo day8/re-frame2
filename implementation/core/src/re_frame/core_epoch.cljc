@@ -99,6 +99,11 @@
     :rf.epoch/replace-during-drain       — drain in flight
     :rf.epoch/replace-schema-mismatch    — `new-db` fails the
                                                    frame's app-schema set
+    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
+                                                   the synthetic undo-anchor
+                                                   cannot land, so undo would
+                                                   not work after this call
+                                                   (rf2-unpldn)
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds
   (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
@@ -146,6 +151,9 @@
     :rf.epoch/replace-schema-mismatch    — `runtime-db` fails the
                                                    framework-owned runtime-db
                                                    validator (reg-runtime-schema)
+    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
+                                                   the synthetic undo-anchor
+                                                   cannot land (rf2-unpldn)
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds
   (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
@@ -179,6 +187,9 @@
                                                    OR the runtime-db partition
                                                    fails the framework-owned
                                                    runtime-db validator
+    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
+                                                   the synthetic undo-anchor
+                                                   cannot land (rf2-unpldn)
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds
   (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
