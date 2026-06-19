@@ -124,8 +124,14 @@
   {:doc "Register page." :path "/register"})
 
 (rf/reg-route :realworld.user/settings
-  {:doc  "User settings page (requires auth)."
+  {:doc  "User settings page (requires auth). `:on-match` seeds the settings
+          draft from the authenticated user ONCE on route entry — the same
+          route-entry seam the `:rf.http/managed` sibling uses (its settings
+          route also `:on-match [[:settings/load]]`). The settings view is then
+          a pure Form-1 that NEVER dispatches out of band, so a re-render can no
+          longer re-run the load and clobber in-progress field edits."
    :path "/settings"
+   :on-match [[:settings/load]]
    :tags #{:requires-auth}})
 
 (rf/reg-route :realworld.editor/new
