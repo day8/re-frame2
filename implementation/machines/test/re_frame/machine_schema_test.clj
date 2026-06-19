@@ -123,6 +123,75 @@
                        [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
             "the machine's snapshot returns to its pre-handler value")))))
 
+;; ---- (2b) macrostep boundary on a SPAWNED actor (rf2-2t9xn3) -------------
+
+(deftest spawned-actor-macrostep-violation-rolls-back-and-emits
+  (testing "a SPAWNED actor (no per-instance handler) whose transition action
+            returns schema-violating :data must roll back the macrostep and
+            emit :where :machine-data — the schema resolves off the snapshot's
+            :rf/machine-type, not via machine-meta (rf2-2t9xn3)"
+    (let [ChildSchema [:map [:n pos-int?]]
+          ;; The child boots with valid :data {:n 1}; a :tick transition runs
+          ;; the :break action returning {:data {:n 0}} (violates pos-int?) via
+          ;; the ordinary macrostep path (NOT the escape hatch).
+          child-spec  {:initial     :booting
+                       :data        {:n 1}                ;; valid at spawn
+                       :data-schema ChildSchema
+                       :actions     {:break (fn [_] {:data {:n 0}})}
+                       :states      {:booting {:on {:tick {:target :running
+                                                           :action :break}}}
+                                     :running {}}}
+          parent-spec {:initial :start
+                       :data    {}
+                       :states  {:start    {:on {:go :spawning}}
+                                 :spawning {:entry
+                                            (fn [_]
+                                              {:fx [[:rf.machine/spawn
+                                                     {:fixed-actor-id :rf.machine-schema/spawned-macrostep
+                                                      :definition     child-spec}]]})}}}]
+      (rf/reg-machine :rf.machine-schema/spawn-macrostep-parent parent-spec)
+      (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:noop]])
+      ;; Spawn the child (valid :data {:n 1} → installs).
+      (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:go]])
+      (is (= 1 (:n (:data (get-in (rf/runtime-db-value :rf/default)
+                                  [:rf.runtime/machines :snapshots
+                                   :rf.machine-schema/spawned-macrostep]))))
+          "precondition: the spawned child installed with valid :data {:n 1}")
+      (let [snap-before (get-in (rf/runtime-db-value :rf/default)
+                                [:rf.runtime/machines :snapshots
+                                 :rf.machine-schema/spawned-macrostep])
+            db-before   (rf/runtime-db-value :rf/default)
+            traces      (collect-traces!
+                          #(rf/dispatch-sync [:rf.machine-schema/spawned-macrostep [:tick]]))
+            trace-ev    (first traces)
+            tag         (:tags trace-ev)]
+        (is (= 1 (count traces))
+            "exactly one :where :machine-data trace fired on the violating macrostep")
+        (is (= :machine-data (:where tag))
+            "trace's :where tag pins the boundary")
+        (is (= :rf.machine-schema/spawned-macrostep (:machine-id tag))
+            "tag carries :machine-id identifying the failing spawned actor")
+        (is (= :macrostep (:phase tag))
+            "tag's :phase pins the macrostep lifecycle position")
+        (is (zero? (:n (:value tag)))
+            "tag carries the offending :data value (:n 0)")
+        (is (true? (:rollback? tag))
+            "tag declares :rollback? true (commit must be rolled back)")
+        ;; The whole point: the macrostep ROLLS BACK — the violating :data
+        ;; does not commit. Pre-fix, machine-meta returns nil for the spawned
+        ;; actor → validation is skipped → {:n 0} commits and no rollback fires.
+        (is (= snap-before
+               (get-in (rf/runtime-db-value :rf/default)
+                       [:rf.runtime/machines :snapshots
+                        :rf.machine-schema/spawned-macrostep]))
+            "the spawned actor's snapshot returns to its pre-handler value (rolled back)")
+        (is (= 1 (:n (:data (get-in (rf/runtime-db-value :rf/default)
+                                    [:rf.runtime/machines :snapshots
+                                     :rf.machine-schema/spawned-macrostep]))))
+            "the violating :data {:n 0} did NOT commit — :n stays the valid 1")
+        (is (= db-before (rf/runtime-db-value :rf/default))
+            "post-rollback runtime-db equals pre-handler runtime-db")))))
+
 ;; ---- (3) bootstrap-time validation: initial :data violates --------------
 
 (deftest bootstrap-violation-emits-and-rolls-back

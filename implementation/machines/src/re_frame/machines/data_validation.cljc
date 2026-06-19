@@ -140,12 +140,43 @@
             false)))
     true))
 
+(defn- resolve-data-schema
+  "Resolve the `:data-schema` for `machine-id` whose live snapshot is
+  `snapshot` (the would-be-merged / freshly-committed value). A SINGLETON
+  resolves through the registered event handler (`:machines/machine-meta`);
+  a SPAWNED actor has NO per-instance handler — its TYPE rides the snapshot's
+  `:rf/machine-type` reserved slot, so it resolves through
+  `:machines/spec-from-snapshot` (rf2-a2sn1). Returns the schema or nil
+  (no schema / unresolvable spec).
+
+  Both resolvers are consumed through the late-bind table to keep this
+  leaf namespace free of a require cycle through `re-frame.machines` /
+  `lifecycle-fx.resolver`. When the machines facade has not yet bound the
+  hooks (cannot happen on the live fx / router path — the validator is
+  invoked FROM the loaded facade) the resolver short-circuits to nil = no
+  validation."
+  [machine-id snapshot]
+  (or (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
+                (meta-fn machine-id))
+              :data-schema)
+      (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
+                (spec-fn snapshot))
+              :data-schema)))
+
 (defn validate-machine-data!
   "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
-  `runtime-db` and validate its `:data` against the registered machine's
+  `runtime-db` and validate its `:data` against the resolved machine's
   `:data-schema`. Returns true iff every snapshot conformed (or carried no
   schema / no validator); false on first failure with the per-snapshot trace
   already emitted.
+
+  rf2-2t9xn3: schema resolution goes through `resolve-data-schema`, which
+  resolves a SINGLETON via `machine-meta` AND falls back to the snapshot's
+  `:rf/machine-type` (`:machines/spec-from-snapshot`) for a SPAWNED actor.
+  A spawned actor has no per-instance registration, so a `machine-meta`-only
+  lookup returned nil for it and its `:data` was never validated at the
+  macrostep boundary — a schema-violating action committed without rollback
+  (the spawn-time `validate-spawn-data!` only catches the INITIAL data).
 
   EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
   this validator runs against the new RUNTIME-DB value (the `:rf.db/runtime`
@@ -163,22 +194,21 @@
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
   ;; be invoked uniformly.
   (if interop/debug-enabled?
-    (if-let [machine-meta (late-bind/get-fn-cached :machines/machine-meta)]
-      ;; Per the validate-app-schema! pattern (rf2-wkxng): validate EVERY
-      ;; snapshot (no short-circuit) so each failing machine surfaces its
-      ;; own trace (consumers see the full set), AND-conjoining the per-
-      ;; snapshot conform decision so the router decides rollback
-      ;; deterministically. A snapshot whose machine declares no `:data-schema`
-      ;; (or whose spec `machine-meta` can't resolve) conforms vacuously.
-      (reduce-kv
-        (fn [ok? machine-id snapshot]
-          (and (if-let [schema (some-> (machine-meta machine-id) :data-schema)]
-                 (validate-snapshot-data! machine-id snapshot schema :macrostep)
-                 true)
-               ok?))
-        true
-        (get-in runtime-db (paths/snapshot-path)))
-      true)
+    ;; Per the validate-app-schema! pattern (rf2-wkxng): validate EVERY
+    ;; snapshot (no short-circuit) so each failing machine surfaces its
+    ;; own trace (consumers see the full set), AND-conjoining the per-
+    ;; snapshot conform decision so the router decides rollback
+    ;; deterministically. A snapshot whose machine declares no `:data-schema`
+    ;; (or whose spec resolves to nil for both a singleton AND a spawned
+    ;; actor) conforms vacuously.
+    (reduce-kv
+      (fn [ok? machine-id snapshot]
+        (and (if-let [schema (resolve-data-schema machine-id snapshot)]
+               (validate-snapshot-data! machine-id snapshot schema :macrostep)
+               true)
+             ok?))
+      true
+      (get-in runtime-db (paths/snapshot-path)))
     true))
 
 (defn validate-spawn-data!
@@ -202,27 +232,6 @@
       (validate-snapshot-data! spawned-id snapshot schema :spawn)
       true)
     true))
-
-(defn- resolve-data-schema
-  "Resolve the `:data-schema` for `machine-id` whose live snapshot is
-  `snapshot` (the would-be-merged value). A SINGLETON resolves through the
-  registered event handler (`:machines/machine-meta`); a SPAWNED actor has
-  NO per-instance handler — its TYPE rides the snapshot's `:rf/machine-type`
-  reserved slot, so it resolves through `:machines/spec-from-snapshot`
-  (rf2-a2sn1). Returns the schema or nil (no schema / unresolvable spec).
-
-  Both resolvers are consumed through the late-bind table to keep this
-  leaf namespace free of a require cycle through `re-frame.machines` /
-  `lifecycle-fx.resolver`. When the machines facade has not yet bound the
-  hooks (cannot happen on the live fx path — the fx is dispatched FROM the
-  loaded facade) the resolver short-circuits to nil = no validation."
-  [machine-id snapshot]
-  (or (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
-                (meta-fn machine-id))
-              :data-schema)
-      (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
-                (spec-fn snapshot))
-              :data-schema)))
 
 (defn validate-update-snapshot-data!
   "rf2-wrrvs7 — sibling validator for the `:rf.machine/update-snapshot`
