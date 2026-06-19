@@ -25,6 +25,7 @@
   extraction) and `re-frame.flows.registry` (per-frame `flows` +
   `last-inputs` atoms, `reg-flow` / `clear-flow`)."
   (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.flows.registry :as registry]
             [re-frame.flows.topo :as topo]
             [re-frame.interop :as interop]
@@ -449,16 +450,39 @@
           ;; nothing more (per Spec 013 §Failure semantics / §Resolved
           ;; decisions). The failing frame is already in scope at the
           ;; router boundary (it is the frame being drained), so it is not
-          ;; duplicated here. The original exception remains the `:cause`
-          ;; for stack-trace introspection. Symmetric with Spec 013
-          ;; §Failure semantics rule 4: the per-flow trace fires first
-          ;; with flow attribution; the cascade-level error preserves the
-          ;; same attribution at the substrate boundary.
-          (throw (ex-info (or #?(:clj (.getMessage ^Throwable e)
-                                 :cljs (.-message e))
-                              ":rf.error/flow-eval-exception")
-                          {:rf.flow/failed-id flow-id}
-                          e)))))))
+          ;; duplicated here. Symmetric with Spec 013 §Failure semantics
+          ;; rule 4: the per-flow trace fires first with flow attribution;
+          ;; the cascade-level error preserves the same attribution at the
+          ;; substrate boundary.
+          ;;
+          ;; rf2-cjr635: route through the canonical thrown-error builder
+          ;; (`error/throw-error!`, Spec 009 §The thrown-error shape) like
+          ;; every OTHER flows throw (`topo.cljc` cycle / overlap,
+          ;; `registry.cljc` frame-not-live). The hand-rolled re-throw
+          ;; carried ONLY `:rf.flow/failed-id` — no `:rf.error/id`, no
+          ;; `:where`, no `:recovery` — so a tool reading
+          ;; `(:rf.error/id (ex-data e))` got nil (a Machine-readable-errors
+          ;; violation), and its `(or <native-msg> ":rf.error/…")` message
+          ;; form dodged `check_thrown_error_messages.py` so it could
+          ;; silently regress to the bare-keyword shape. The builder DERIVES
+          ;; the human message from `:reason` + the `[:rf.error/<id>]` token
+          ;; and stamps the canonical `{:rf.error/id :where :recovery
+          ;; :reason}` ex-data. The flow-attribution slot rides in `:extra`;
+          ;; the original exception rides in `:extra :cause` for stack-trace
+          ;; introspection (the router surfaces the rethrown ex-info ITSELF
+          ;; as the `:exception` slot of `:rf.error/flow-eval-exception`).
+          (error/throw-error!
+            :rf.error/flow-eval-exception
+            'rf/run-flows-on-db
+            (str "a flow's :output fn threw while recomputing flow "
+                 (pr-str flow-id)
+                 " during the drain; the event aborts before the :db install "
+                 "(no partial commit, app-db unchanged) and the flow "
+                 "re-attempts on the next drain. Fix the :output fn so it "
+                 "does not throw on the inputs it is given.")
+            {:recovery :no-recovery
+             :extra    {:rf.flow/failed-id flow-id
+                        :cause             e}}))))))
 
 (defn run-flows-on-db
   "Per Spec 013 §Drain integration (rf2-u0zz5) + EP-0001 §535-551
