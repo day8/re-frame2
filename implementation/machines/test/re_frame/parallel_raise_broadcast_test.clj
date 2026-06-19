@@ -200,14 +200,21 @@
                    :states  {:z {:on {:go {:action :start}}}}}}}
           original {:state {:loop :run :idle :z} :data {:token :keep}}
           r        (machines/machine-transition spec original [:go])]
-      (is (result/ok? r)
-          "depth-exceeded yields an :ok rollback Result, not a :fail")
-      (is (= {:loop :run :idle :z} (:state (result/snap r)))
-          "macrostep rolled back atomically — both regions' states uncommitted")
-      (is (= {:token :keep} (:data (result/snap r)))
-          ":data rolled back to the original — no partial cascade survives")
-      (is (= [] (result/fx r))
-          "no fx survive the depth-bound rollback"))))
+      ;; rf2-y3jv8q — a parallel re-broadcast depth-bound abort is a FAILED
+      ;; macrostep, not an :ok rollback no-op (parity with the flat drain;
+      ;; XState v5 throws on the runaway). The `:fail` threads NO snapshot /
+      ;; fx, so the whole macrostep — both regions' states, the looping
+      ;; region's :data writes, and every accumulated fx — is discarded. The
+      ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
+      ;; snapshot committed in runtime-db.
+      (is (result/fail? r)
+          "depth-exceeded yields a :fail (failed macrostep), not an :ok no-op")
+      (is (result/depth-abort? r)
+          "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
+      (is (nil? (result/snap r))
+          "a :fail threads no snapshot — both regions' states stay uncommitted")
+      (is (nil? (result/fx r))
+          "a :fail threads no fx — no partial cascade or fx survives the abort"))))
 
 ;; ---- 6. region :always still fires on a re-broadcast transition ----------
 

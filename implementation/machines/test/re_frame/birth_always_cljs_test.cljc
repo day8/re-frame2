@@ -265,10 +265,13 @@
       (is (= :r-boot (:right state))
           "region :right's birth `:always` (guard false) stayed at its initial leaf"))))
 
-(deftest pure-birth-always-depth-limit-rolls-back-to-initial
-  (testing "a birth `:always` cycle trips `:always-depth-limit` and rolls
-            back atomically to the POST-cascade initial configuration — the
-            initial state survives, only the runaway settle is abandoned"
+(deftest pure-birth-always-depth-limit-surfaces-as-failed-macrostep
+  (testing "a birth `:always` cycle trips `:always-depth-limit` and surfaces
+            as a FAILED macrostep (rf2-y3jv8q — XState v5 throws on such a
+            runaway). The `:fail` carries the `::depth-abort?` sentinel and
+            threads NO snapshot; atomic rollback is enforced by the failure
+            surface (the lifecycle handler short-circuits to `{}`, leaving the
+            post-cascade initial configuration committed)"
     (let [m {:initial :a
              :data    {}
              :always-depth-limit 5
@@ -277,9 +280,11 @@
                        :b {:always [{:guard :p? :target :a}]}}}
           initial (parallel/build-initial-snapshot m {:bootstrap-pending? false})
           r       (parallel/apply-initial-entry-cascade m initial)]
-      (is (result/ok? r) "birth returns :ok (atomic rollback, not a :fail)")
-      (is (= :a (:state (result/snap r)))
-          "the birth `:always` cycle rolled back to the initial state :a"))))
+      (is (result/fail? r) "birth returns a :fail (failed macrostep), not an :ok no-op")
+      (is (result/depth-abort? r)
+          "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
+      (is (nil? (result/snap r))
+          "a :fail threads no snapshot — the runaway settle commits nothing"))))
 
 ;; ===========================================================================
 ;; LIVE — eager `[:rf.machine/start]` and lazy first-event birth

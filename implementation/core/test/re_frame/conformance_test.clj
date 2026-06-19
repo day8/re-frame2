@@ -1158,8 +1158,21 @@
                              (catch Throwable e
                                {:re-frame.machines.result/snap nil
                                 :re-frame.machines.result/fx   [:error (.getMessage e)]}))
-          snap-out      (:re-frame.machines.result/snap r)
-          fx-out        (:re-frame.machines.result/fx r)
+          ;; rf2-y3jv8q — a bounded-depth abort (`:always` / `:raise` depth
+          ;; limit tripped on a runaway cycle) now returns a `result/fail`
+          ;; carrying the `::depth-abort?` sentinel, NOT an `:ok` rollback
+          ;; no-op (XState v5 throws on such a cycle). The fixture's
+          ;; `:expect-next-snapshot` / `:expect-effects` capture the
+          ;; atomic-rollback contract (the macrostep does not commit), so
+          ;; project a depth-abort `:fail` onto the observable rollback shape:
+          ;; next-snapshot is the INPUT snapshot, effects empty. Detected via
+          ;; the fully-qualified keyword literals so this ns keeps avoiding a
+          ;; static require on the machines artefact.
+          depth-abort?  (and (= :fail (:re-frame.machines.result/tag r))
+                             (true? (get-in r [:re-frame.machines.result/info
+                                               :re-frame.machines.result/depth-abort?])))
+          snap-out      (if depth-abort? (:snapshot call) (:re-frame.machines.result/snap r))
+          fx-out        (if depth-abort? [] (:re-frame.machines.result/fx r))
           want-snap     (:expect-next-snapshot call)
           want-fx       (or (:expect-effects call) [])
           ok-snap?      (= want-snap snap-out)

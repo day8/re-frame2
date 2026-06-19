@@ -149,15 +149,22 @@
                                         (get-in ev [:tags :rf/op-type-id]
                                                 (:op-type-id ev)))
                                 (swap! seen conj ev)))]
-        ;; Just assert the macrostep rolls back to the original snapshot
-        ;; (depth bound halts the cascade uncommitted) — the snapshot stays
-        ;; at :idle, fx empty.
+        ;; rf2-y3jv8q — a depth-bound abort is now a FAILED macrostep, not an
+        ;; :ok rollback no-op (XState v5 throws on such a runaway). The pure
+        ;; surface returns a `result/fail` carrying the `::depth-abort?`
+        ;; sentinel; atomic rollback is still guaranteed — a `:fail` threads
+        ;; NO snapshot / fx, so nothing intermediate escapes the abort. (The
+        ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
+        ;; snapshot committed in runtime-db.)
         (let [r (machines/machine-transition spec {:state :idle :data {}} [:start])]
-          (is (result/ok? r) "depth-exceeded returns an :ok rollback, not a :fail")
-          (is (= :idle (:state (result/snap r)))
-              "macrostep rolled back atomically — snapshot uncommitted")
-          (is (= [] (result/fx r))
-              "no fx survive the depth-bound rollback"))))))
+          (is (result/fail? r)
+              "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
+          (is (result/depth-abort? r)
+              "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
+          (is (nil? (result/snap r))
+              "a :fail threads no snapshot — nothing intermediate survives")
+          (is (nil? (result/fx r))
+              "a :fail threads no fx — no accumulated side-effect leaks the abort"))))))
 
 ;; ---- 6. depth-bound rollback is TRULY atomic (x4s9t.1) --------------------
 ;;
@@ -193,9 +200,15 @@
                              :on {:to-a :a}}}}
           original {:state :idle :data {:n 0}}
           r        (machines/machine-transition spec original [:start])]
-      (is (result/ok? r) "depth-exceeded returns an :ok rollback, not a :fail")
-      (is (= original (result/snap r))
-          "snapshot rolled all the way back to the ORIGINAL — no intermediate
-           :a/:b state or bumped :n survived")
-      (is (= [] (result/fx r))
-          "EVERY accumulated :side-effect fx was discarded with the macrostep"))))
+      ;; rf2-y3jv8q — the abort is a FAILED macrostep. Atomic rollback is
+      ;; enforced by the `:fail` threading NO snapshot / fx: every intermediate
+      ;; :a/:b state, bumped :n, and accumulated :side-effect fx is discarded
+      ;; with the macrostep (there is nothing to commit on a `:fail`).
+      (is (result/fail? r)
+          "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
+      (is (result/depth-abort? r)
+          "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
+      (is (nil? (result/snap r))
+          "a :fail threads no snapshot — no intermediate :a/:b state or bumped :n survives")
+      (is (nil? (result/fx r))
+          "a :fail threads no fx — EVERY accumulated :side-effect was discarded"))))

@@ -3818,27 +3818,39 @@
                 ;; ---- (1) PREFER `:always` — settle eventless first --------
                 (some? always-m)
                 (if (>= always-depth always-limit)
-                  (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                         {;; rf2-yyvtk5 — the aborting actor is
-                                          ;; a LIVE INSTANCE. Its address is
-                                          ;; `:rf/parent-id` (stamped by
-                                          ;; `prepare-machine-ctx`; the spec map
-                                          ;; forbids `:id`), or `:id` for a
-                                          ;; singleton (whose registration id IS
-                                          ;; its live address). It rides under
-                                          ;; `:actor-id`; `:machine-id` is the
-                                          ;; registered TYPE.
-                                          :actor-id   (or (:rf/parent-id m)
-                                                          (:id m))
-                                          :depth      always-depth
-                                          :path       visited
-                                          ;; Per rf2-ko8jb: epoch-capture
-                                          ;; admission requires `:frame`.
-                                          :frame      (:rf/frame m)
-                                          :recovery   :no-recovery})
-                      ;; Macrostep rolls back atomically — no cascade survives
-                      ;; the abort.
-                      (result/ok rollback-snapshot []))
+                  ;; rf2-y3jv8q — a tripped `:always` depth limit is a FAILED
+                  ;; macrostep, not a benign no-op. XState v5 THROWS on such a
+                  ;; runaway eventless cycle. Emit the precise error category
+                  ;; (the single trace for the trip) and return a `result/fail`
+                  ;; carrying the `::depth-abort?` sentinel so it routes through
+                  ;; the handler's failure path (`trace-action-failure!`
+                  ;; short-circuits to `{}` — no snapshot write reaches
+                  ;; runtime-db, so the rollback to the pre-event snapshot is
+                  ;; preserved). The pre-fix `(result/ok rollback-snapshot [])`
+                  ;; surfaced as `next == snapshot` ⇒ a no-op (no
+                  ;; `:rf.machine/transition`, no error to the return),
+                  ;; indistinguishable from a guard-blocked no-op and silently
+                  ;; swallowing the triggering event.
+                  (let [info {;; rf2-yyvtk5 — the aborting actor is a LIVE
+                              ;; INSTANCE. Its address is `:rf/parent-id`
+                              ;; (stamped by `prepare-machine-ctx`; the spec map
+                              ;; forbids `:id`), or `:id` for a singleton (whose
+                              ;; registration id IS its live address). It rides
+                              ;; under `:actor-id`; `:machine-id` is the
+                              ;; registered TYPE.
+                              :error-id   :rf.error/machine-always-depth-exceeded
+                              :actor-id   (or (:rf/parent-id m)
+                                              (:id m))
+                              :depth      always-depth
+                              :path       visited
+                              ;; Per rf2-ko8jb: epoch-capture admission requires
+                              ;; `:frame`.
+                              :frame      (:rf/frame m)
+                              :recovery   :no-recovery}]
+                    (trace/emit-error! :rf.error/machine-always-depth-exceeded info)
+                    ;; Macrostep rolls back atomically — no cascade survives the
+                    ;; abort; the `result/fail` carries no `::snap`/`::fx`.
+                    (result/depth-abort info))
                   ;; Per rf2-82a0u: `:always` microstep's transition `:action`
                   ;; `action-ran` emit carries `:phase :always` so the Handler
                   ;; section can group eventless cascades distinctly from
@@ -3921,26 +3933,32 @@
                       (result/with-microsteps always-depth)
                       (result/with-cascade cascade))
                   (if (>= raise-depth raise-limit)
-                    (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
-                                           {;; rf2-yyvtk5 — the aborting actor is
-                                            ;; a LIVE INSTANCE; its address is
-                                            ;; `:rf/parent-id` (stamped by
-                                            ;; `prepare-machine-ctx`; the spec
-                                            ;; map forbids `:id`), or `:id` for a
-                                            ;; singleton. It rides under
-                                            ;; `:actor-id`; `:machine-id` is the
-                                            ;; registered TYPE.
-                                            :actor-id   (or (:rf/parent-id m)
-                                                            (:id m))
-                                            :depth      raise-depth
-                                            ;; Per rf2-ko8jb: epoch-capture
-                                            ;; admission requires `:frame`.
-                                            :frame      (:rf/frame m)
-                                            :recovery   :no-recovery})
-                        ;; Macrostep rolls back atomically — neither the
-                        ;; partially-advanced snapshot nor the accumulated
-                        ;; effects survive the abort.
-                        (result/ok rollback-snapshot []))
+                    ;; rf2-y3jv8q — a tripped `:raise` depth limit is a FAILED
+                    ;; macrostep, not a benign no-op (mirrors the `:always`
+                    ;; abort above). Emit the precise category, then return a
+                    ;; `result/fail` carrying the `::depth-abort?` sentinel so
+                    ;; the runaway raise cycle routes through the handler's
+                    ;; failure path and the triggering event is no longer
+                    ;; silently swallowed.
+                    (let [info {;; rf2-yyvtk5 — the aborting actor is a LIVE
+                                ;; INSTANCE; its address is `:rf/parent-id`
+                                ;; (stamped by `prepare-machine-ctx`; the spec
+                                ;; map forbids `:id`), or `:id` for a singleton.
+                                ;; It rides under `:actor-id`; `:machine-id` is
+                                ;; the registered TYPE.
+                                :error-id   :rf.error/machine-raise-depth-exceeded
+                                :actor-id   (or (:rf/parent-id m)
+                                                (:id m))
+                                :depth      raise-depth
+                                ;; Per rf2-ko8jb: epoch-capture admission
+                                ;; requires `:frame`.
+                                :frame      (:rf/frame m)
+                                :recovery   :no-recovery}]
+                      (trace/emit-error! :rf.error/machine-raise-depth-exceeded info)
+                      ;; Macrostep rolls back atomically — neither the
+                      ;; partially-advanced snapshot nor the accumulated effects
+                      ;; survive the abort.
+                      (result/depth-abort info))
                     (let [[_ ev]       (first pending)
                           rest-pending (subvec pending 1)
                           ;; rf2-xsdn5h — re-run the consumer-attachment ensure

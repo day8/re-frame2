@@ -194,6 +194,29 @@
            :reason            reason})))
     {}))
 
+(defn- handle-step-failure!
+  "Route a `result/fail` macrostep to the handler's `{}` short-circuit
+  (atomic rollback — no snapshot write reaches runtime-db) per Spec 005
+  §Bounded depth / §Final states §`:on-error`.
+
+  rf2-y3jv8q — a bounded-depth abort (`:always` / `:raise` depth limit
+  tripped on a runaway cycle, the XState-v5-throws case) is a DISTINCT
+  failure from a thrown action: the engine already emitted the precise
+  `:rf.error/machine-{always,raise}-depth-exceeded` category at the abort
+  site (the single trace for the trip), so re-emitting the generic
+  `:rf.error/machine-action-exception` here would be a misleading second
+  signal. For a depth-abort we therefore SKIP `trace-action-failure!`
+  (which also routes the spawn-`:on-error` control flow — irrelevant to a
+  depth trip) and return `{}` directly. A thrown-action `:fail` keeps the
+  existing `trace-action-failure!` routing (the action-exception trace +
+  the spawn-`:on-error` dispatch). Both paths short-circuit the handler to
+  `{}`, so neither writes the post-event snapshot — the pre-event snapshot
+  stays committed in runtime-db (the atomic-rollback contract)."
+  [ctx event reason r]
+  (if (result/depth-abort? r)
+    {}
+    (trace-action-failure! ctx event reason (result/info r))))
+
 ;; ---- 4-step pipeline (rf2-2zzyg) ------------------------------------------
 ;;
 ;; The handler-fn returned by `make-machine-handler` decomposes into four
@@ -824,9 +847,14 @@
           (let [ctx         (ensure-bootstrap-cofx ctx)
                 boot-result (maybe-boot ctx)]
             (if (result/fail? boot-result)
-              (trace-action-failure! ctx [transition/start-marker]
-                                     "Machine initial-entry action threw."
-                                     (result/info boot-result))
+              ;; rf2-y3jv8q — route both a thrown initial-entry action AND a
+              ;; birth-time bounded-depth abort (a born-state `:always` / raise
+              ;; runaway) through the shared failure handler: a depth-abort
+              ;; skips the misleading action-exception re-emit (its precise
+              ;; category fired in-engine) while both atomically roll back.
+              (handle-step-failure! ctx [transition/start-marker]
+                                    "Machine initial-entry action threw."
+                                    boot-result)
               (result/with-ok [post-boot-snap boot-fx] boot-result
                 ;; Per rf2-gl588 — PURE init-kick (the Job-B cut-point,
                 ;; sub-decision (b)): when the routed inner event IS the
@@ -889,9 +917,16 @@
                   (let [ctx (ensure-ctx-cofx ctx post-boot-snap)
                         step-result (run-step ctx post-boot-snap)]
                     (if (result/fail? step-result)
-                      (trace-action-failure! ctx (:inner-event ctx)
-                                             "Machine action threw."
-                                             (result/info step-result))
+                      ;; rf2-y3jv8q — route both a thrown transition action AND
+                      ;; a bounded-depth abort (the runaway `:always` / `:raise`
+                      ;; cycle, XState-v5-throws case) through the shared
+                      ;; failure handler. A depth-abort surfaces as a FAILED
+                      ;; macrostep (atomic rollback, the precise depth-exceeded
+                      ;; category already emitted in-engine) rather than the
+                      ;; pre-fix silent no-op that swallowed the event.
+                      (handle-step-failure! ctx (:inner-event ctx)
+                                            "Machine action threw."
+                                            step-result)
                       ;; Per rf2-n9f4z: pass the full `boot-result` (fx +
                       ;; bootstrap-entry cascade), not just `boot-fx`, so a
                       ;; same-call bootstrap's entry cascade prepends the

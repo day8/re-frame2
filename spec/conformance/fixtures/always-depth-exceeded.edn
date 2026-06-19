@@ -45,8 +45,18 @@
    ;; :b's :always fires (microstep 2, → :a). And so on. After 5 microsteps the
    ;; cascade halts.
    ;;
-   ;; The snapshot does NOT commit — the externally-visible state remains :start.
-   ;; The runtime emits :rf.error/machine-always-depth-exceeded.
+   ;; Per rf2-y3jv8q this runaway is a FAILED macrostep, not a benign no-op:
+   ;; the engine returns a `result/fail` carrying the depth-abort sentinel
+   ;; (XState v5 THROWS on such an eventless cycle). The atomic-rollback
+   ;; contract (Spec 005 §Bounded depth) is preserved by the failure surface —
+   ;; a `:fail` threads NO snapshot / fx, and the lifecycle handler
+   ;; short-circuits to `{}`, leaving the pre-event :start snapshot committed.
+   ;; The conformance runner projects the depth-abort `:fail` onto the
+   ;; observable rollback shape below: the externally-visible next-snapshot is
+   ;; the INPUT snapshot (state stays :start) and no effects survive. The
+   ;; runtime emits :rf.error/machine-always-depth-exceeded (error-grade) — NOT
+   ;; the benign :rf.machine.event/unhandled-no-op a guard-blocked decline
+   ;; would, so the runaway is distinguishable.
    :expect-next-snapshot {:state :start :data {}}
    :expect-effects       []
    :expect-trace

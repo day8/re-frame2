@@ -565,18 +565,23 @@
                         :actions shared-actions
                         :states  {:loop {:on {:e0 {:action :a/raise}}}}}
           ;; Both calls MUST return (not hang / SOE). The harness running to
-          ;; completion is the settle proof; we additionally assert the
-          ;; returned snapshot is a well-formed leaf config.
+          ;; completion is the settle proof. Per rf2-y3jv8q an unbounded
+          ;; :always / :raise cycle now surfaces as a FAILED macrostep at the
+          ;; depth bound (XState v5 throws on such a runaway) — a `result/fail`
+          ;; carrying the `::depth-abort?` sentinel, NOT an :ok rollback no-op
+          ;; that masqueraded as a guard-blocked decline.
           r-always (machines/machine-transition
                      always-cycle (initial-snapshot always-cycle) [:noop])
           r-raise  (machines/machine-transition
                      raise-cycle (initial-snapshot raise-cycle) [:e0])]
-      (is (result/ok? r-always) "always-cycle returns an :ok Result (settled at depth bound)")
-      (is (state-is-leaf? always-cycle (:state (result/snap r-always)))
-          "settled always-cycle snapshot is a leaf config")
-      (is (result/ok? r-raise) "raise-cycle returns an :ok Result (settled at depth bound)")
-      (is (state-is-leaf? raise-cycle (:state (result/snap r-raise)))
-          "settled raise-cycle snapshot is a leaf config")
+      (is (result/depth-abort? r-always)
+          "always-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
+      (is (nil? (result/snap r-always))
+          "the depth-abort :fail threads no snapshot (atomic rollback — no partial leaf commits)")
+      (is (result/depth-abort? r-raise)
+          "raise-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
+      (is (nil? (result/snap r-raise))
+          "the depth-abort :fail threads no snapshot (atomic rollback — no partial leaf commits)")
       ;; And over the random corpus: every step of every drawn machine
       ;; returned (the loop below cannot complete if any macrostep hangs).
       (let [completed
