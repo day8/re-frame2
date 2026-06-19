@@ -4,8 +4,7 @@
   Covers:
   - Priority tiers (data-test > id > aria-label > nth-of-type).
   - Attribute-value escaping (backslash + double-quote).
-  - Nth-of-type fallback geometry.
-  - `selector-kind` diagnostic returns the right tier."
+  - Nth-of-type fallback geometry."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.recorder.selector :as sel]))
 
@@ -89,15 +88,6 @@
            (sel/pick-selector
              {:tag "div"
               :attrs {"id" "a\\b"}})))))
-
-;; ---- selector-kind diagnostic --------------------------------------------
-
-(deftest selector-kind-reports-tier
-  (is (= :data-test  (sel/selector-kind {:attrs {"data-test" "x"}})))
-  (is (= :id         (sel/selector-kind {:attrs {"id" "x"}})))
-  (is (= :aria-label (sel/selector-kind {:attrs {"aria-label" "x"}})))
-  (is (= :nth-of-type (sel/selector-kind {:attrs {} :index-of-type 2})))
-  (is (= :none       (sel/selector-kind {:attrs {} :index-of-type nil}))))
 
 ;; ---- attribute-priority is the documented data ---------------------------
 

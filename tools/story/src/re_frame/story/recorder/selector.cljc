@@ -122,20 +122,6 @@
   (or (some (partial attribute-selector (or attrs {})) attribute-priority)
       (nth-of-type-fallback shape)))
 
-(defn selector-kind
-  "Diagnostic: tell the caller WHICH tier `pick-selector` picked.
-  Returns one of `:data-test` / `:id` / `:aria-label` / `:nth-of-type`
-  / `:none`. Used by the translator to attach a hint when the
-  brittle fallback fires."
-  [{:keys [attrs index-of-type]}]
-  (let [a (or attrs {})]
-    (cond
-      (not (blank? (get a "data-test")))  :data-test
-      (not (blank? (get a "id")))         :id
-      (not (blank? (get a "aria-label"))) :aria-label
-      (some? index-of-type)               :nth-of-type
-      :else                               :none)))
-
 ;; ---- impure (CLJS-only DOM shape extractor) -----------------------------
 
 #?(:cljs
