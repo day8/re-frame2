@@ -112,16 +112,25 @@ A tool's own chrome — Story's panel grid, Xray's inspector views — is regist
 
 ## The substrate-agnostic ergonomic surface
 
-These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope** (`frame-provider`, `with-frame` / `with-new-frame`), **hold** (`frame-handle` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
+These surfaces work the same across Reagent, UIx, and Helix. They're how views interact with the running app without being tied to any single substrate's idiom. They sort into three intents: **scope** (`frame-provider-existing`, `with-frame`), **own** (`frame-provider`, `with-new-frame`), **hold** (`frame-handle` — the one public carry primitive), and **override** (the `{:frame …}` opt, rowed in [01 — Core](01-core.md)). The full design lives at [Spec 002 §The multi-frame surface](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ### `frame-provider`
 
-- **Kind**: Reagent component
+- **Kind**: Reagent component (UI-owned lifecycle boundary)
 - **Signature**:
   ```clojure
-  [rf/frame-provider {:frame :todo} & children]
+  [rf/frame-provider {:id :todo :images [todo-image]} & children]
   ```
-- **Description**: "Children inside this provider see `:todo` as their current frame." Lexical scope for the implicit frame; nestable; pairs with `with-frame` for non-component code.
+- **Description**: The view-owned lifecycle boundary — it **creates** the frame on mount (via `make-frame`, taking the same constructor opts: `:id` / `:images` / `:initial-db` / record-config), provides its id to descendants, and **destroys** it on unmount. Reach for it when a component should own a frame for exactly as long as it is mounted (comparison pages, Story canvases, embedded widgets, modal stacks). To merely *scope* an already-created frame, use `frame-provider-existing` (below).
+
+### `frame-provider-existing`
+
+- **Kind**: Reagent component (scope-only)
+- **Signature**:
+  ```clojure
+  [rf/frame-provider-existing {:frame :todo} & children]
+  ```
+- **Description**: "Children inside this provider see `:todo` as their current frame." Scopes a React subtree to a frame that **already exists** (created by `make-frame` / `reg-frame`, a tool runtime, or an enclosing `frame-provider`); creates / refreshes / destroys nothing. Takes `:frame` **only** — a lifecycle opt fails loud. The scope-into-React counterpart to `with-frame` (which a dynamic var cannot serve across React's render boundary).
 
 ### `with-frame` / `with-new-frame`
 
@@ -258,14 +267,15 @@ In the entries below, `<adapter>` stands for the adapter namespace alias the con
   ```
 - **Description**: "What frame am I in?" — for components that need to thread the frame through hand-written child callbacks.
 
-### `<adapter>/frame-provider`
+### `<adapter>/frame-provider` / `<adapter>/frame-provider-existing`
 
-- **Kind**: component (function)
-- **Signature**:
+- **Kind**: components (functions)
+- **Signatures**:
   ```clojure
-  ($ frame-provider {:frame :session :children […]})
+  ($ frame-provider {:id :session :images [session-image] :children […]})     ;; own (create/destroy)
+  ($ frame-provider-existing {:frame :session :children […]})                 ;; scope an existing frame
   ```
-- **Description**: The component-shaped equivalent of Reagent's `frame-provider`. The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's frame-provider chain composes across substrate boundaries.
+- **Description**: The component-shaped equivalents of Reagent's `frame-provider` (UI-owned lifecycle) and `frame-provider-existing` (scope-only). The underlying React Context (`re-frame.adapter.context`) is **shared** across all three substrates, so a mixed-substrate app's provider chain composes across substrate boundaries.
 
 ### `<adapter>/wrap-view`
 

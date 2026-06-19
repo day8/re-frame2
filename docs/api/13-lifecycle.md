@@ -164,12 +164,12 @@ Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md
   (rf/configure! {:trace-buffer {:cascades-retained 200}})
   (rf/reg-frame :app/main {:on-create [:app/boot]})        ;; register the app frame
   (rdom/render
-    [rf/frame-provider {:frame :app/main}                  ;; establish it at the root
+    [rf/frame-provider-existing {:frame :app/main}         ;; scope it at the root
      [views/root]]
     (js/document.getElementById "app")))
 ```
 
-That's the whole boot, and it stays inside the **application-boot** lane end to end: `init!` installs the adapter and runtime capabilities (it creates no frame); the side-effecting requires register the handlers / subs / routes into the registrar; `reg-frame` + `frame-provider` create the app frame and establish it at the root, so every bare `dispatch` / `subscribe` under the tree resolves against it (and the frame's `:on-create` `[:app/boot]` runs the **frame-startup** lane); `configure` tunes the runtime; the substrate's render fn mounts the root view. No adapter-author surface appears — `init!` stands in for the whole install lane.
+That's the whole boot, and it stays inside the **application-boot** lane end to end: `init!` installs the adapter and runtime capabilities (it creates no frame); the side-effecting requires register the handlers / subs / routes into the registrar; `reg-frame` creates the app frame and `frame-provider-existing` scopes it at the root, so every bare `dispatch` / `subscribe` under the tree resolves against it (and the frame's `:on-create` `[:app/boot]` runs the **frame-startup** lane); `configure` tunes the runtime; the substrate's render fn mounts the root view. No adapter-author surface appears — `init!` stands in for the whole install lane.
 
 ## See also
 

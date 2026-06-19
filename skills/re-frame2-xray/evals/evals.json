@@ -149,7 +149,7 @@
  "name": "panel-route-modules",
  "should_trigger": true,
  "prompt": "Which Xray tab shows me what realms and frames are installed and which modules / app values each realm composed in?",
- "expected_output": "The agent routes to the Dynamic Modules tab (internal id :module-view, mnemonic u, :order 9) — the EP-0013 module / realm / app-value lens that projects the (realm, frame) topology (rf/realm-ids · rf/frame-ids · rf/frame-realm) plus the per-module provenance read off each realm's installed app value (rf/installed-app). It names Modules as one of the 9 Dynamic tabs, NOT a Static tab, and NOT an omitted/absent tab. It may note Modules is an L4-only registry tab (focusable, no standalone mount facade).",
+ "expected_output": "The agent routes to the Dynamic Modules tab (internal id :module-view, mnemonic u, :order 9) — the EP-0013 module / realm / app-value lens (retained-internal under EP-0023) that projects the (realm, frame) topology (re-frame.realm/realm-ids · rf/frame-ids · re-frame.frame/frame-realm) plus the per-module provenance read off each realm's installed app value (re-frame.realm/installed-app). It names Modules as one of the 9 Dynamic tabs, NOT a Static tab, and NOT an omitted/absent tab. It may note Modules is an L4-only registry tab (focusable, no standalone mount facade).",
  "expectations": [
  "The output routes the 'what realms / frames / modules / app values are installed' question to the Dynamic Modules tab (the :module-view / EP-0013 module-realm-app-value lens).",
  "The output treats Modules as a SHIPPED Dynamic tab — it does NOT say Xray has no such tab, and does NOT misroute it to Static mode or to the Graph tab as the same thing.",

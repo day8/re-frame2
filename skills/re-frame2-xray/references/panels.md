@@ -629,16 +629,18 @@ The panel projects the `(realm, frame)` address space plus the
 per-module provenance read off each realm's installed app value:
 
 - **The realm / frame topology** — every installed **realm**
- (`rf/realm-ids`), the **frames** each realm owns
- (`rf/frame-ids` + `rf/frame-realm` mapping each frame to its owning
+ (`re-frame.realm/realm-ids`), the **frames** each realm owns
+ (`rf/frame-ids` + `re-frame.frame/frame-realm` mapping each frame to its owning
  realm). In a single-realm app this is one realm holding every frame; a
  multi-realm process shows the partition.
 - **Per-module provenance** — read off each realm's **installed app
- value** (`rf/installed-app`, EP-0013 disposition 6) — the modules /
+ value** (`re-frame.realm/installed-app`, EP-0013 disposition 6) — the modules /
  app-value composed into the realm at install time.
 
 The projection runs through the pure
-`module_view_helpers/project-module-view` over those public seams.
+`module_view_helpers/project-module-view` over those internal-substrate seams
+(EP-0023 removed the `rf/*` realm facade arities, pl97nd.2 — a tool reads the
+owning `re-frame.realm` / `re-frame.frame` namespaces directly).
 
 > **`:module-view` is an L4-only registry tab — no standalone mount
 > facade.** Like the Graph tab, Modules registers through `reg-l4-tab!`
@@ -656,7 +658,7 @@ tab activation re-renders the panel which re-derefs (a browse-on-open
 shape matching the other Static-style surfaces).
 
 **Read-only** — enumerating realms / frames and reading installed app
-values pins nothing and dispatches nothing (`rf/installed-app` is a STATIC
+values pins nothing and dispatches nothing (`re-frame.realm/installed-app` is a STATIC
 read of the install-time value, not a routing path).
 
 **Open when:** "what realms exist?", "which frames belong to which

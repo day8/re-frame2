@@ -22,7 +22,7 @@ Stories/variants/workspaces are downstream concerns. They are *enabled by* the f
 
 - Lets 002 and 004 stay focused on the foundation.
 - Lets the story-tool design evolve independently of foundation framework decisions.
-- `story/reg-story`/`story/reg-variant`/`story/reg-workspace` are sugar; everything is doable by hand with `reg-frame` + `reg-view` + `frame-provider`.
+- `story/reg-story`/`story/reg-variant`/`story/reg-workspace` are sugar; everything is doable by hand with `reg-frame` + `reg-view` + `frame-provider-existing`.
 
 ## Canonical id grammar
 
@@ -533,7 +533,7 @@ A variant *is* a frame, registered under its variant keyword. But variant `:setu
 
 So the variant's *frame* is a normal frame (no `:on-create`); the variant *library* handles the multi-event setup. This keeps `reg-frame :on-create` semantically simple (one event) while letting stories express their richer setup pattern.
 
-Workspaces are *not* frames (or not necessarily — they may be ordinary frames containing nested `frame-provider`s, one per included variant). Each variant included in a workspace renders inside its own `frame-provider`, isolated from siblings. This falls out of 002's design without extra machinery.
+Workspaces are *not* frames (or not necessarily — they may be ordinary frames containing nested `frame-provider-existing` scopes, one per included variant). Each variant's frame is **allocated by the variant machinery** (the `reg-frame` + setup phases above); a workspace cell then *scopes* that already-created variant frame into its React subtree with `frame-provider-existing` (the EP-0024 scope-only member of the name family — the Story tool's namespace-preserving `frame-provider-ns-safe` is its twin), isolating each cell from its siblings. This falls out of 002's design without extra machinery.
 
 ## Open questions
 

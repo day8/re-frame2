@@ -270,7 +270,7 @@ inline (see *Where issues surface now* below).
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016 §Xray and AI tooling): the static resource registry, per-frame **live instances** (state · generation · owners · freshness), the **work ledger** of live fetch attempts, the route/resource graph, lifecycle/invalidation/cache-growth, and a scope audit + lints. It is also the EP-0016 mutation-completion lens — **mutation `:reply-to` continuations** (the `:rf.mutation/replied` trace), **descriptor-level invalidation evidence** (the `:invalidation` facet on the mutation settlement op — per-descriptor resolved scope / tags / `:refetch-populated?`, plus the fail-closed `:unresolved` and `:populate-exempt` sets), and the **named scope resolver resolution timeline** (`:rf.resource/scope-resolved` — resolver id, declared inputs, resolved scope). **Read-only** — observing pins nothing; values are summarized (params/scopes/data redaction-aware), never raw. Reads the runtime-db resource slices decoupled — Xray does **not** `:require` the optional resources artefact, so the panel renders cleanly even when the host has no resources. | "Where's my server state, what owns it, and is it stale?" / "What fetches are in flight?" / "Did my mutation's `:reply-to` fire, and did it invalidate the right scopes?" / "Why didn't this read refetch?" |
 | **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process across **all five contributor families** (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. Each node carries its storage / evaluation / lifecycle (owner) classifications, plus an **authority chip** for remote-backed nodes (an *authority* axis, not a storage class — see below). A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances, the materialized route slice with its nav-token owner). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
-| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the **EP-0013 module / realm / app-value** address space: the projected `(realm, frame)` topology — every installed **realm** (`rf/realm-ids`), the **frames** it owns (`rf/frame-ids` · `rf/frame-realm`), and the **per-module provenance** read off each realm's installed app value (`rf/installed-app`). It answers "what's installed, and how is the process partitioned into realms / frames / modules?" — the structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating realms / frames and reading installed app values pins nothing and dispatches nothing (a static read of the install-time value, not a routing path). Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — the address space is a process-global fact (realms + frames live in the framework's registries). | "What realms exist, which frames belong to each, and what modules / app values are installed?" |
+| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the **EP-0013 module / realm / app-value** address space (retained-internal under EP-0023): the projected `(realm, frame)` topology — every installed **realm** (`re-frame.realm/realm-ids`), the **frames** it owns (`rf/frame-ids` · `re-frame.frame/frame-realm`), and the **per-module provenance** read off each realm's installed app value (`re-frame.realm/installed-app`). It answers "what's installed, and how is the process partitioned into realms / frames / modules?" — the structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating realms / frames and reading installed app values pins nothing and dispatches nothing (a static read of the install-time value, not a routing path). Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — the address space is a process-global fact (realms + frames live in the framework's registries). | "What realms exist, which frames belong to each, and what modules / app values are installed?" |
 
 #### What the Graph tab contributes (all five families)
 
@@ -317,10 +317,12 @@ views.)
 > but not independently mountable the way the other seven Dynamic panels
 > are. Route users to **open the Modules tab** (it ships); do not tell them
 > to call a `mount-module-view!` — there isn't one. The Modules tab reads
-> the **public** EP-0013 realm / frame seams (`rf/realm-ids`,
-> `rf/frame-ids`, `rf/frame-realm`) and the realm→installed-app read seam
-> (`rf/installed-app`); these are framework-public reads, but the tab is
-> still a shell-internal surface, not a public mount API.
+> the **retained-internal** EP-0013 realm substrate directly off its owning
+> namespaces (`re-frame.realm/realm-ids`, `re-frame.frame/frame-realm`) plus
+> the realm→installed-app read seam (`re-frame.realm/installed-app`) and the
+> retained-public `rf/frame-ids` — EP-0023 removed the `rf/*` realm facade
+> arities (pl97nd.2), so a tool reads the internal substrate directly; the
+> tab is itself a shell-internal surface, not a public mount API.
 
 #### Where issues surface now (no Issues tab)
 
@@ -361,9 +363,10 @@ realm, so this is just "what's registered". Order set by
 spec/007-UX-IA.md §Static mode: **Machines · Routes · Schemas · Flows ·
 Interceptors**.
 
-> **Realm-awareness limitation (EP-0013).** The public realm reads
-> `rf/realm-ids` (enumerate installed realms) and `rf/frame-realm` (a
-> frame's owning realm) have shipped, but Xray's *trace-driven* realm
+> **Realm-awareness limitation (EP-0013).** The retained-internal realm reads
+> `re-frame.realm/realm-ids` (enumerate installed realms) and
+> `re-frame.frame/frame-realm` (a frame's owning realm — EP-0023 removed the
+> `rf/*` facade arities, pl97nd.2) have shipped, but Xray's *trace-driven* realm
 > grouping and per-row realm stamping are **deferred** — they wait on the
 > framework stamping `:rf.realm/id` onto the Spec 009 observability
 > surfaces (a later core slice). Until then Xray enumerates frames from

@@ -85,13 +85,13 @@ The client's job is to land in the state the server finished in, without redoing
       ;; No payload script — a client-only first load. Seed normally.
       (rf/dispatch-sync [:app/initialise] {:frame :app})))
   (rdc/render react-root
-    [rf/frame-provider {:frame :app}
+    [rf/frame-provider-existing {:frame :app}
      [(rf/view :app/root)]]))
 ```
 
 Two things to hold onto here:
 
-- **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider`. That's the carried-frame rule from [Frames](frames.md), applied at boot.
+- **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider-existing`. That's the carried-frame rule from [Frames](frames.md), applied at boot.
 - **Hydration replaces; the server is authoritative.** `:rf/hydrate` installs the server's app-db *and* its serialisable runtime slice (machine snapshots, the route) in one atomic step, replacing whatever the client pre-seeded. This is locked, because a defaulting merge would bury "which side won?" bugs at every key. If you need client-only state to survive, re-register `:rf/hydrate` with your own explicit merge and own its semantics. A malformed payload is rejected wholesale (fail-closed); a missing one just means a normal client-only load — that's the `when-not` branch above.
 
 Server state declared as a [resource](server-state.md) (a value the framework fetches and caches for you) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch. See the [resources SSR example](../../../examples/reagent/resources_ssr/).

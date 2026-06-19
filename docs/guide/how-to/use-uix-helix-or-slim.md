@@ -88,12 +88,12 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 - **Take `dispatch` off `(rf/frame-handle)` at render time.** Here's the catch: the click fires later, outside render, where no frame context exists. But the handle captured the frame back when the component rendered, so the closed-over `dispatch` still targets the right one. That's why you grab it during render and never call a bare `rf/dispatch` from a callback.
 - **There is no `reg-view` macro here.** That sugar is Reagent-only. UIx components are plain `defui`, Helix components plain `defnc`. (`rf/reg-view*` exists for the rare component that needs a registry id.)
 
-Mount the root inside the adapter's `frame-provider`, using idiomatic `$` trailing children:
+Mount the root inside the adapter's `frame-provider-existing` (scoping the already-registered frame), using idiomatic `$` trailing children:
 
 ```clojure
 ;; react-root is your (uix-dom/create-root (js/document.getElementById "app"))
 (uix-dom/render-root
-  ($ uix-adapter/frame-provider {:frame :rf/default}
+  ($ uix-adapter/frame-provider-existing {:frame :rf/default}
      ($ counter-app))
   react-root)
 ```
@@ -102,7 +102,7 @@ Mount the root inside the adapter's `frame-provider`, using idiomatic `$` traili
 
     A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. That's deliberate — the frame is never inferred ([Frames](../concepts/frames.md)).
 
-Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `frame-handle` dispatch, and the same `($ helix-adapter/frame-provider {:frame ...} ...)` mount over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) line-for-line with [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/). All three adapters read the same React context object for frame routing, which means a provider chain even composes across substrates.
+Helix is the same decisions in Helix notation: `defnc` components built with `helix.dom`, the same `use-subscribe` (this time from `re-frame.adapter.helix`), the same `frame-handle` dispatch, and the same `($ helix-adapter/frame-provider-existing {:frame ...} ...)` mount over `react-dom/client`'s `createRoot`. If you want to see it side by side, compare [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) line-for-line with [`examples/uix/counter_uix/`](../../../examples/uix/counter_uix/). All three adapters read the same React context object for frame routing, which means a provider chain even composes across substrates.
 
 ## reagent-slim: kilobytes for capability
 
@@ -125,7 +125,7 @@ Mechanically it's a small swap: change your `reagent.*` requires to `reagent2.*`
 | Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-subscribe [:q])` | `(helix-adapter/use-subscribe [:q])` |
 | Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (rf/frame-handle))` | `(:dispatch (rf/frame-handle))` |
 | View form | `reg-view` + hiccup | `defui` + `$` | `defnc` + `helix.dom` |
-| `frame-provider` | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` | `($ helix-adapter/frame-provider {:frame f} ($ app))` |
+| `frame-provider-existing` (scope) | `[rf/frame-provider-existing {:frame f} [app]]` | `($ uix-adapter/frame-provider-existing {:frame f} ($ app))` | `($ helix-adapter/frame-provider-existing {:frame f} ($ app))` |
 
 There's one Reagent footgun that doesn't port at all, and that's good news: the lazy-seq deref trap — the "wrapped in doall" console warning. It exists because Reagent tracks derefs during render. Hooks, by contrast, capture their dependency at call time, so UIx and Helix are immune to it by construction.
 

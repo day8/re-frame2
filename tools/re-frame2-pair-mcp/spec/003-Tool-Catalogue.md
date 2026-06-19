@@ -621,10 +621,10 @@ addressing surface is the **frame** (`:all` / `:app` / `:operating` —
 EP-0023's `image -> frame -> event stream`). `:frames` additionally
 carries the **labeled-internal installation boundary** (the EP-0013 realm
 substrate, surfaced as implementation structure, not the central model):
-`:realms` (the internal installation-container ids — `(rf/realm-ids)`),
+`:realms` (the internal installation-container ids — `(re-frame.realm/realm-ids)`),
 `:operating-realm` (the container tier-3 sole-frame resolution scopes to),
 and `:frame-realms` (`{frame-id container-id}` for every registered frame
-— `(rf/frame-realm id)`). `:app` is scoped to the operating container. A
+— `(re-frame.frame/frame-realm id)`). `:app` is scoped to the operating container. A
 single-realm app (the common case) reports `:realms [:rf.realm/default]`
 and every frame's container as the default — the boundary collapses to a
 no-op.
@@ -3558,10 +3558,10 @@ the central model):
  :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating container
  :selected        <frame-id|nil>     ;; tier-2 session frame pin (nil = unset)
  :operating       <frame-id|nil>     ;; full resolution (nil = AMBIGUOUS)
- :realms          [<container-id> ...]   ;; (rf/realm-ids) — internal installation containers
+ :realms          [<container-id> ...]   ;; (re-frame.realm/realm-ids) — internal installation containers
  :operating-realm <container-id>         ;; the container tier-3 scopes to (default, absent a pin)
  :selected-realm  <container-id|nil>     ;; tier-2 container pin (no public pin; nil)
- :frame-realms    {<frame-id> <container-id> ...}}  ;; (rf/frame-realm id) per frame
+ :frame-realms    {<frame-id> <container-id> ...}}  ;; (re-frame.frame/frame-realm id) per frame
 ```
 
 `:operating nil` means ambiguous: two-plus app frames in the operating

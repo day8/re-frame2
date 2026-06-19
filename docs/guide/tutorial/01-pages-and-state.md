@@ -267,7 +267,7 @@ Finish `core.cljs` with the boot function your build invokes:
   ;; Back/Forward buttons. Idempotent, so hot reload is safe.
   (rf/install-history-listener!)
   (rdc/render root
-              [rf/frame-provider {:frame :rf/default}
+              [rf/frame-provider-existing {:frame :rf/default}
                [root-view]]))
 ```
 
@@ -277,7 +277,7 @@ Reading it top to bottom:
 2. `rf/reg-frame` creates the **frame** your app runs in: one isolated world of app-db, registrations, and subscriptions ([Frames](../concepts/frames.md)). What matters today is `:url-bound? true`, the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that declaration the address bar would never change.
 3. `dispatch-sync` runs the seed event synchronously, before the first render, so the feed never renders against an empty db. `with-frame` says which frame the dispatch targets.
 4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the very first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces.
-5. `frame-provider` scopes the mounted tree to the frame, so every `subscribe` and `dispatch` inside your views resolves to it.
+5. `frame-provider-existing` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it.
 
 ## See it move
 
