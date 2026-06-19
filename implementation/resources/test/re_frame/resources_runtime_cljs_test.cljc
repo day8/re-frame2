@@ -888,6 +888,107 @@
       (is (= #{k1}    (get-in rebuilt [:tag-index :t1])))
       (is (= #{k1 k2} (get-in rebuilt [:owner-index [:lease 1]]))))))
 
+;; ---- rf2-2c2mkh: incremental reindex == full rebuild (the safety net) ------
+;;
+;; `reindex-keys` maintains :tag-index / :owner-index INCREMENTALLY at the hot
+;; mutation sites (a settle / release / remove / GC / clear / optimistic
+;; apply-rollback touches a small known key set) instead of full-rebuilding via
+;; `recompute-indexes` on every op. The indexes are a PURE projection of
+;; :entries, so the incremental result MUST equal the full rebuild after every
+;; op — these tests are the round-trip pin that stops incremental drift creeping
+;; in (the audit's CORRECTNESS GUARD).
+
+(deftest reindex-keys-equals-full-rebuild-on-crafted-transitions
+  (testing "rf2-2c2mkh — reindex-keys over the touched keys yields EXACTLY what
+            recompute-indexes would produce, across create / tag-change /
+            owner-change / multi-key / remove transitions"
+    (let [ka "id-a" kb "id-b" kc "id-c"
+          ;; helper: assert reindex(touched) == full-rebuild for an old→new
+          ;; entries transition (subtree carries the OLD indexes built by a
+          ;; prior full rebuild — the realistic pre-mutation shape).
+          check (fn [old-entries new-entries touched]
+                  (let [old-subtree (state/recompute-indexes {:entries old-entries})
+                        new-subtree (assoc old-subtree :entries new-entries)
+                        incremental (state/reindex-keys new-subtree old-entries touched)
+                        full        (state/recompute-indexes new-subtree)]
+                    (is (= (:tag-index full)   (:tag-index incremental))
+                        (str "tag-index drift on touched " (vec touched)))
+                    (is (= (:owner-index full) (:owner-index incremental))
+                        (str "owner-index drift on touched " (vec touched)))))]
+      (testing "create one entry from empty"
+        (check {} {ka {:tags #{:t1 :shared} :active-owners #{[:lease 1]}}} [ka]))
+      (testing "tag replacement on a settle (owners unchanged)"
+        (check {ka {:tags #{:t1 :shared} :active-owners #{[:lease 1]}}}
+               {ka {:tags #{:t2 :shared} :active-owners #{[:lease 1]}}}
+               [ka]))
+      (testing "owner attach + release on one key"
+        (check {ka {:tags #{:t1} :active-owners #{[:lease 1]}}}
+               {ka {:tags #{:t1} :active-owners #{[:lease 1] [:route :r 7]}}}
+               [ka])
+        (check {ka {:tags #{:t1} :active-owners #{[:lease 1] [:route :r 7]}}}
+               {ka {:tags #{:t1} :active-owners #{[:lease 1]}}}
+               [ka]))
+      (testing "removal (entry vanishes) drops its members + empties the bucket"
+        (check {ka {:tags #{:only} :active-owners #{[:lease 9]}}
+                kb {:tags #{:shared} :active-owners #{}}}
+               {kb {:tags #{:shared} :active-owners #{}}}
+               [ka]))
+      (testing "multi-key clear-scope (two keys removed at once)"
+        (check {ka {:tags #{:a :shared} :active-owners #{[:lease 1]}}
+                kb {:tags #{:b :shared} :active-owners #{[:lease 1]}}
+                kc {:tags #{:c} :active-owners #{}}}
+               {kc {:tags #{:c} :active-owners #{}}}
+               [ka kb]))
+      (testing "reindexing an UNCHANGED key in the touched set is a no-op"
+        (check {ka {:tags #{:t1} :active-owners #{[:lease 1]}}
+                kb {:tags #{:t1} :active-owners #{[:lease 1]}}}
+               {ka {:tags #{:t1} :active-owners #{[:lease 1]}}
+                kb {:tags #{:t2} :active-owners #{[:lease 1]}}}
+               ;; ka did not change but is in the touched set anyway
+               [ka kb])))))
+
+(deftest reindex-keys-equals-full-rebuild-under-random-mutation-sequence
+  (testing "rf2-2c2mkh — across a long randomised sequence of single-key
+            mutations (create / retag / re-own / remove), the incrementally
+            maintained indexes equal the full rebuild after EVERY step"
+    (let [;; small deterministic LCG so the property runs identically on every
+          ;; platform / CI machine (no test.check dependency in the PR gate).
+          seed     (atom 2463534242)
+          nextint  (fn [n]
+                     (let [x (-> (* @seed 1103515245) (+ 12345) (bit-and 0x7fffffff))]
+                       (reset! seed x)
+                       (mod x n)))
+          key-ids  (mapv #(str "k" %) (range 8))
+          tags     [:t0 :t1 :t2 :shared]
+          owners   [[:lease 1] [:lease 2] [:route :r 1] [:route :r 2]]
+          rand-set (fn [pool]
+                     (set (keep (fn [x] (when (zero? (nextint 2)) x)) pool)))]
+      (loop [step 0
+             entries {}
+             ;; the incrementally maintained subtree (indexes derived from the
+             ;; SAME entries via reindex-keys after each step).
+             subtree (state/recompute-indexes {:entries {}})]
+        (if (= step 600)
+          (is true "600 randomised mutations stayed in lock-step with the rebuild")
+          (let [k        (nth key-ids (nextint (count key-ids)))
+                remove?  (and (contains? entries k) (zero? (nextint 4)))
+                new-entries (if remove?
+                              (dissoc entries k)
+                              (assoc entries k {:tags          (rand-set tags)
+                                                :active-owners (rand-set owners)}))
+                incremental (state/reindex-keys (assoc subtree :entries new-entries)
+                                                entries [k])
+                full        (state/recompute-indexes {:entries new-entries})]
+            (is (= (:tag-index full) (:tag-index incremental))
+                (str "tag-index drift at step " step " key " k))
+            (is (= (:owner-index full) (:owner-index incremental))
+                (str "owner-index drift at step " step " key " k))
+            ;; also pin: no empty membership buckets survive (matches the
+            ;; recompute-indexes shape — an emptied set is dropped entirely).
+            (is (every? seq (vals (:tag-index incremental)))   "no empty tag buckets")
+            (is (every? seq (vals (:owner-index incremental))) "no empty owner buckets")
+            (recur (inc step) new-entries incremental)))))))
+
 ;; ===========================================================================
 ;; 12. resource registrar sanity (re-affirm the registrar kind is closed)
 ;; ===========================================================================
