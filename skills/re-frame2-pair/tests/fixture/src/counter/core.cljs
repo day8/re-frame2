@@ -71,11 +71,12 @@
  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
  ;; absence — `:rf/default` is this fixture's app frame, registered
  ;; explicitly here (init! installs only the adapter). The boot dispatch
- ;; runs under the frame scope and the render is wrapped in a
- ;; `frame-provider` so the reg-view-injected dispatch/subscribe resolve
- ;; to it. re-frame2-pair attaches over nREPL and operates this frame.
+ ;; runs under the frame scope and the render is wrapped in
+ ;; `frame-provider-existing` (scope-only — the frame already exists from
+ ;; reg-frame) so the reg-view-injected dispatch/subscribe resolve to it.
+ ;; re-frame2-pair attaches over nREPL and operates this frame.
  (rf/init! reagent-adapter/adapter)
  (rf/reg-frame :rf/default {})
  (rf/with-frame :rf/default
   (rf/dispatch-sync [:counter/initialise]))
- (rdc/render root [rf/frame-provider {:frame :rf/default} [counter-app]]))
+ (rdc/render root [rf/frame-provider-existing {:frame :rf/default} [counter-app]]))

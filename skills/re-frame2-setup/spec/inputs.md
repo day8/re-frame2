@@ -25,7 +25,7 @@ For `re-frame.adapter.reagent`: how the adapter spec map is consumed; why `defon
 Used for *why*, not *what*. Cited by name in design rationale; not quoted in user-facing leaves.
 
 - **`spec/000-Vision.md`** — the AI-first design principles; backs the skill's discipline of minimal scaffolding.
-- **`spec/002-Frames.md`** — frame identity is carried, not found (EP-0002): `init!` creates no frame, so the setup skill teaches registering one app frame (`reg-frame`) and establishing it at the root with a `frame-provider`. There is no implicit `:rf/default`.
+- **`spec/002-Frames.md`** — frame identity is carried, not found (EP-0002): `init!` creates no frame, so the setup skill teaches registering one app frame (`reg-frame`) and scoping it at the root with `frame-provider-existing` (the scope-only member of the EP-0024 `frame-provider` name family — the frame already exists from `reg-frame`). There is no implicit `:rf/default`.
 - **`spec/Pattern-Boot.md`** — the canonical boot pattern; relevant once the author moves past first-counter (the SKILL.md routing table points there).
 
 ## 4. Authoring-discipline inputs
