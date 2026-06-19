@@ -64,8 +64,12 @@
     5. SOURCE-SCAN — derive the set of diagnostic/error/advisory
        categories actually EMITTED from non-test runtime source (the
        keyword arg to `emit-error!` / `emit-warning!` / `dispatch-on-
-       error!`, and the second keyword of an `emit!` whose op-type is
-       `:warning` / `:advisory`), across EVERY artefact's `src/` tree.
+       error!` / `emit-error-both!`, the second keyword of an `emit!`
+       whose op-type is `:warning` / `:advisory`, AND — rf2-scuobk — the
+       first literal keyword arg of the canonical thrown-error builders
+       `throw-error!` / `thrown-ex-info`, closing the THROW-axis blind
+       spot the emit-only scan left open), across EVERY artefact's `src/`
+       tree.
        Every emitted category must be catalogued OR on the explicit
        `out-of-catalogue-allow-list` (the EP-0008 audit-ruled intentional
        exclusions, rf2-r8oiw7). A new uncatalogued emitted category fails
@@ -296,17 +300,56 @@
   (re-pattern (str "emit!\\s+:(?:warning|advisory)\\s+"
                    "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
 
+(def ^:private throw-error-re
+  "`(… throw-error! :rf.<area>/<cat> …)` / `(… thrown-ex-info
+  :rf.<area>/<cat> …)` — the canonical thrown-error builders (Spec 009
+  §The thrown-error shape). The category keyword is the FIRST argument; it
+  may sit on the SAME line as the fn token or on the NEXT line (the
+  dominant multi-line idiom — `(error/throw-error!\\n  :rf.error/x\\n
+  'rf/where …)`), so `\\s+` spans newlines (the scan runs `re-seq` over the
+  whole slurped file string). The fn may be ns-qualified (`error/throw-
+  error!`, `rf-error/throw-error!`) or bare.
+
+  Closing the rf2-scuobk blind spot: the pre-existing emit scan (`emit-
+  error!` / `dispatch-on-error!` / `emit-warning!` / `emit-error-both!` /
+  `emit! :warning|:advisory`) saw only the trace/error-emit axis — it was
+  BLIND to the THROW axis, so a `:rf.error/*` category that the runtime
+  ONLY ever THROWS (a registration-time / dispatch-boundary `throw-error!`,
+  never trace-emitted) read as un-emitted and never forced a catalogue row.
+  A thrown ex-info registration rejection IS a catalogue category (Spec 009
+  §Error event catalogue marks it diagnostic-channel — it is not delivered
+  to the always-on error-emit listener, but it is an emitted `:rf.error/*`
+  the catalogue must carry). Even the PRODUCTION-REACHABLE dispatch-boundary
+  throws (`:rf.error/invalid-cofx`, `:rf.error/dispatched-at-retired` — NOT
+  gated on `interop/debug-enabled?`, so they fire in `:advanced` production)
+  are diagnostic-channel: they are pure `throw-error!`s that do NOT fan out
+  on the error-emit listener, so they ride the diagnostic channel for
+  catalogue purposes (the catalogue's thrown-ex-info-is-diagnostic rule).
+
+  Same CONSERVATIVE limitation as the emit scan: a category THROWN only via
+  a VARIABLE first arg (the shared per-surface throwers that take the
+  category as a parameter — `cofx/raise-removed!`, `std-interceptors`'
+  removed-stub table, `reply/reply-category->error-id`,
+  `machines/transition` `category`, `routing/registry` `error-kw`) is NOT
+  captured here; it under-reports, never false-positives. The dominant idiom
+  is the direct literal `(throw-error! :rf.x/y …)` form, so coverage is high."
+  (re-pattern (str "(?:throw-error!|thrown-ex-info)\\s+"
+                   "(:rf\\.[a-z][a-z0-9.]*/" category-kw-class ")")))
+
 (defn- emitted-categories
   "Scan every non-test source file for the diagnostic/error/advisory emit
-  chokepoints and return the SET of emitted category keywords. Pure text
-  scan — no classpath load — so it sees every artefact regardless of which
-  are on the test classpath."
+  AND throw chokepoints and return the SET of emitted category keywords.
+  Pure text scan — no classpath load — so it sees every artefact regardless
+  of which are on the test classpath. The throw arm (rf2-scuobk) harvests
+  the first literal keyword arg of `throw-error!` / `thrown-ex-info`, which
+  the original emit-only scan was blind to."
   []
   (->> (non-test-source-files)
        (mapcat (fn [f]
                  (let [src (slurp f)]
                    (concat (map second (re-seq emit-error-re src))
-                           (map second (re-seq emit-bang-warning-re src))))))
+                           (map second (re-seq emit-bang-warning-re src))
+                           (map second (re-seq throw-error-re src))))))
        (map (fn [s] (keyword (subs s 1)))) ;; ":rf.x/y" string → keyword
        set))
 
@@ -377,11 +420,49 @@
       `allow-list-stays-honest` forced exactly this co-edit (a listed entry that
       becomes catalogued must leave the allow-list).
 
-  The list is currently EMPTY — every emitted category is catalogued or ruled
-  intentionally out-of-catalogue with a 009 note. A new uncatalogued emitted
-  category lands here with a rationale, and the coverage test fails loudly until
-  it does."
-  #{})
+  THROW-AXIS WIDENING (rf2-scuobk). Extending the scan to the THROW chokepoints
+  (`throw-error!` / `thrown-ex-info` first literal arg) surfaced the catalogue
+  blind spot the bead names: a `:rf.error/*` category the runtime only ever
+  THROWS (never trace-emits) was invisible to the old emit-only scan. The
+  rf2-scuobk PR CATALOGUED the genuinely-emitted-but-uncatalogued throw
+  categories the widened scan found (the core registration / dispatch-boundary
+  throws, the flows / http / machines / resources / routing / ssr feature
+  throws — each a DIAGNOSTIC catalogue row, including the two
+  production-reachable dispatch-boundary throws `:rf.error/invalid-cofx` /
+  `:rf.error/dispatched-at-retired`: they fire in production but are pure
+  `throw-error!`s that never reach the error-emit listener, so they ride the
+  diagnostic channel for catalogue purposes). The allow-list below holds ONLY
+  the residue that must NOT become a catalogue row.
+
+  GENUINELY-INTERNAL-INVARIANT (NOT caller-fixable, NOT a public contract — no
+  catalogue row by design):
+    - `:rf.error/flow-cycle-extract-invariant` — `re-frame.flows.topo`'s
+      cycle-path-extraction dead-end guard. It fires ONLY when the topo state is
+      internally inconsistent (a Kahn-stuck node found no stuck dependency to
+      follow) — an impossible-by-construction state that signals a framework bug,
+      not a user error. The source explicitly contrasts it with the sibling
+      `:rf.error/flow-cycle` (a caller-fixable `:fix-registration` registration
+      rejection, which IS catalogued): \"that one is a genuine internal-invariant
+      violation, not caller-fixable\" (topo.cljc). An internal invariant is not a
+      consumer-facing error category, so it stays out of the catalogue.
+
+  TEMPORARY — REMOVED BY THE afdlyr REALM COLLAPSE (stage-2 in flight). These two
+  realm-substrate categories are being DELETED by the realm collapse (afdlyr); a
+  catalogue row would contradict their imminent removal, so they are held here
+  rather than catalogued. DROP both the moment afdlyr lands (the source emit sites
+  vanish, and `allow-list-stays-honest` will then fail on the stale-unemitted
+  drift, forcing the co-edit):
+    - `:rf.error/unknown-realm` — `re-frame.realm/update-realm!` fail-closed on an
+      unknown realm id; removed by afdlyr realm collapse.
+    - `:rf.error/unknown-registry-kind` — `re-frame.registrar/register!`
+      unknown-kind guard; removed by afdlyr realm collapse.
+
+  `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
+  emitted, forcing the co-edit so the list cannot rot into a silent blanket
+  suppression."
+  #{:rf.error/flow-cycle-extract-invariant
+    :rf.error/unknown-realm
+    :rf.error/unknown-registry-kind})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
@@ -396,8 +477,9 @@
       (is (.exists spec-009-file)
           (str "spec/009-Instrumentation.md not found at " spec-009-file))
       (is (seq rows) "catalogue parse yielded at least one row")
-      ;; A floor well below today's 163 rows — catches a broken parse
-      ;; without pinning an exact count (the vocabulary grows).
+      ;; A floor well below today's row count — catches a broken parse
+      ;; without pinning an exact count (the vocabulary grows; the
+      ;; rf2-scuobk throw-axis reconciliation added ~65 rows).
       (is (>= (count rows) 100)
           "catalogue parse yielded the full table (>= 100 rows), not a
            partial match from a shape change"))))
