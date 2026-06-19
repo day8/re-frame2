@@ -65,7 +65,14 @@
   --ex-accent-deep: #9C4F0E;  /* AA-safe text / filled-button background */
   --ex-accent-soft: #E5A23D;  /* warm gold — secondary highlight */
   --ex-success:     #4A7340;  /* forest green for connected/ok states */
-  --ex-warn:        #C49419;  /* warm amber for warnings */
+  /* --ex-warn (#C49419) is a DECORATIVE/large-fill amber only: as normal-text
+     foreground on the shared light surfaces it is ≤2.76:1 (sub-AA — 2.50:1 on
+     paper, 2.24:1 on sunken). Use --ex-warn-deep (#7E5F10) for warning TEXT and
+     for warning UI-component borders — it clears AA at ≥4.82:1 on every shipped
+     surface (5.38:1 paper, 4.82:1 sunken, 5.95:1 white) and the 3:1 non-text bar
+     (rf2-ihruwa). */
+  --ex-warn:        #C49419;  /* warm amber — decorative fill / accent only */
+  --ex-warn-deep:   #7E5F10;  /* AA-safe warning text / border */
   --ex-error:       #B23A2E;  /* warm oxblood for errors */
   --ex-info:        #3A6BA0;  /* warm slate-blue for informational */
 
@@ -107,7 +114,8 @@
   --hx-rule:         var(--ex-rule);
   --hx-rule-strong:  var(--ex-rule-strong);
   --hx-green:        var(--ex-success);
-  --hx-amber:        var(--ex-warn);
+  --hx-amber:        var(--ex-warn);       /* decorative warning fill/accent */
+  --hx-amber-deep:   var(--ex-warn-deep);  /* AA-safe warning text/border */
   --hx-red:          var(--ex-error);
   --hx-cyan:         var(--ex-info);
   --hx-mono:         var(--ex-mono);
