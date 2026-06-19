@@ -2,12 +2,10 @@
 
 The re-frame2-pair ops run over the **MCP server** — a persistent
 stdio JSON-RPC server that holds one nREPL socket open for the whole
-session (per-op latency ~5–50ms). This is the only transport the
-skill exposes; the bash shims under `scripts/` are retired from the
-skill's tool surface (no shell tool is in `allowed-tools:`) and
-remain on disk only for the project's own e2e test harness. The
-shell-counterpart mapping lives in [`ops.md` §Bash-shim appendix](ops.md#bash-shim-appendix-not-reachable-from-this-skill)
-for that harness; do not reach for it as a fallback transport.
+session (per-op latency ~5–50ms). This is the **only** transport the
+skill exposes (no shell tool is in `allowed-tools:`); treat the MCP
+tools as the complete operating surface. The `scripts/` shell shims
+exist only for the project's own e2e harness and are out of scope here.
 
 ## Install / configure (one-time)
 
@@ -272,12 +270,3 @@ answers `tools/list` but every `tools/call` returns
 
 Start shadow-cljs and retry — the server picks up the port on the
 next call.
-
-## The bash shims (out of scope for this skill)
-
-The shims under `scripts/` predate the MCP server and remain on disk
-only for the project's own e2e test harness and ad-hoc shell use
-outside the skill. They consume the same `re-frame2-pair.runtime`
-namespace — the runtime contract is transport-agnostic — but they are
-**not** reachable from this skill (no shell tool in `allowed-tools:`).
-Treat the MCP tools above as the complete operating surface.
