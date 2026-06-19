@@ -725,151 +725,33 @@
   [frame-id]
   (frame-key (or *current-realm* (frame-realm frame-id)) frame-id))
 
-;; ---- realm-routed resolution — the (realm, frame) address binding ----------
+;; ---- realm-routed resolution — the carried-realm binding -------------------
 ;;
-;; EP-0013 staging step 4 (rf2-a15n62): a frame REFERENCES its realm, and the
-;; realm owns the `(kind, id) → metadata` registrar a dispatch / subscription /
-;; fx / cofx resolves against (EP-0013 §Realm Conformance — "frames resolve
-;; handlers from their owning realm"). `registrar/active-registrar` reads the
-;; dynamic `registrar/*registrar*` (nil ⇒ the process-default), so routing a
-;; frame's live resolution through its realm is one dynamic binding DERIVED from
-;; the carried (realm, frame) address — NOT an ambient `with-realm` (EP-0002
-;; carried-invariant; the realm is read off the frame the envelope already
-;; carries, never inferred from process state).
-;;
-;; PERF — the universal hot path. The default-realm frame (every single-realm
-;; app) takes the ZERO-COST path: `frame-record-realm-registrar` returns nil
-;; (the realm's registrar IS the process-global atom, so binding it would be a
-;; no-op rebind), and `with-frame-realm-registrar` then does NOT bind at all —
-;; the cascade resolves through `active-registrar`'s nil-fast path exactly as
-;; before, byte-identical. A non-default-realm frame pays one realm-map lookup +
-;; one dynamic binding per cascade (not per resolution): the binding is
-;; established ONCE at `process-event!` / `subscribe` and covers every
-;; event / cofx / fx / sub lookup inside it.
-
-(defn frame-record-realm-registrar
-  "Given a FRAME RECORD (already resolved — the hot-path caller holds it),
-  return the realm's OWN registrar atom when the frame belongs to a
-  NON-default realm, else nil. nil is the signal that no binding is needed —
-  the default realm's registrar IS `registrar/kind->id->metadata`, so binding
-  it would be a no-op rebind; the caller leaves `registrar/*registrar*` unbound
-  (the byte-identical single-realm path). Returns nil for an absent realm
-  reference too (defensive — treated as the default realm). INTERNAL — the
-  resolution-routing seam (EP-0013 staging step 4, rf2-a15n62)."
-  [frame-record]
-  (let [rid (:realm frame-record)]
-    (when (and rid (not= rid realm/default-realm-id))
-      ;; A non-default realm — resolve its OWN registrar atom. `realm/registrar`
-      ;; reads the `:registrar` slot off the realm map; nil when the realm was
-      ;; disposed out from under a live frame (defensive — falls through to no
-      ;; binding, i.e. the default registrar, rather than NPE).
-      (when-let [r (realm/realm rid)]
-        (realm/registrar r)))))
-
-(defn realm-registrar-for-frame
-  "Frame-ID arity of `frame-record-realm-registrar`: resolve the frame record
-  for `id`, then its non-default realm registrar (or nil). The subscribe path
-  holds a frame-id (not the record) when it routes resolution. INTERNAL."
-  [id]
-  (when-let [f (frame id)]
-    (frame-record-realm-registrar f)))
-
-(defn normalize-realm-id
-  "Normalize a `:realm` dispatch opt / argument to a realm-id keyword. Accepts a
-  realm MAP, a realm-id KEYWORD (returned unchanged), or nil (⇒ the default
-  realm id — absence is the default realm, the documented rule). Delegates to
-  `realm/realm-id`. The router uses it to stamp `:rf.realm/id` onto the dispatch
-  envelope from the carried `:realm` opt (EP-0013 step 4, rf2-a15n62). INTERNAL."
-  [realm-or-id]
-  (realm/realm-id realm-or-id))
+;; rf2-afdlyr collapsed the realm substrate to a single default realm, so the
+;; per-cascade realm-registrar routing seam (the former
+;; `frame-record-realm-registrar` / `realm-registrar-for-frame` /
+;; `call-with-frame-realm-registrar` / `call-in-request-scope` cluster and the
+;; `:rf.realm/id`-stamping `normalize-realm-id`) was removed: every frame's
+;; registrar IS the process-global atom, so there is nothing to rebind. What
+;; remains is `call-with-realm`, the carried-realm binding the lifecycle paths
+;; (`destroy-frame!` / `reset-frame!`) thread so the realm-keyed registry
+;; lookups inside resolve to the addressed frame record; for the default realm
+;; it takes the no-binding branch, byte-identical to a realm-free design.
 
 (defn call-with-realm
   "Invoke `thunk` with `*current-realm*` bound to `realm-id` WHEN it is a
   non-default realm, else invoke `thunk` with NO binding (the byte-identical
   default-realm path — nil `*current-realm*`). Returns the thunk's value. The
-  router binds the carried realm around a whole drain so the bare-`frame-id`
-  registry lookups inside (`frame`, `frame-state-value`,
-  `frame-disposed-for-drain?`) resolve to the owning realm's frame record
-  (EP-0013 step 4, rf2-a15n62). A plain fn so CLJS sibling-ns callers need no
-  `:require-macros`. DERIVED from the carried address (EP-0002)."
+  frame-lifecycle paths (`destroy-frame!` / `reset-frame!`) bind the frame's
+  OWNING realm around the teardown / re-register so the realm-keyed registry
+  lookups inside (`frame`, `frame-state-value`) resolve to the addressed frame
+  record. A plain fn so CLJS sibling-ns callers need no `:require-macros`.
+  DERIVED from the carried address (EP-0002)."
   [realm-id thunk]
   (if (or (nil? realm-id) (= realm-id realm/default-realm-id))
     (thunk)
     (binding [*current-realm* realm-id]
       (thunk))))
-
-(defn call-with-frame-realm-registrar
-  "Invoke `thunk` with `registrar/*registrar*` bound to `frame-record`'s realm
-  registrar WHEN that frame belongs to a non-default realm; otherwise invoke
-  `thunk` with NO binding (the byte-identical default-realm path). Returns the
-  thunk's value. This is the resolution-routing seam (EP-0013 staging step 4,
-  rf2-a15n62): every event / subscription / fx / cofx lookup inside `thunk`
-  resolves through the owning frame's realm registrar coherently
-  (ALL-OR-NOTHING — routing only some would be an incoherent half-dispatch).
-
-  DERIVED from the carried (realm, frame) address (the frame the dispatch /
-  subscribe envelope carries), never from an ambient binding — the realm is read
-  off the frame, not inferred from process state (EP-0002 carried-invariant).
-
-  `frame-record` MUST be the already-resolved frame record (the hot-path callers
-  all hold it), so this adds no extra frame lookup. A plain fn (not a macro) so
-  CLJS callers in sibling namespaces use it with no `:require-macros` plumbing;
-  the JIT inlines the no-binding default-realm path. PERF: the default-realm
-  frame pays one `:realm` keyword read + one keyword `=` compare and then runs
-  `thunk` with ZERO dynamic-binding cost — byte-identical to the pre-realm path.
-  (Keyword equality uses `=`, NOT `identical?` — CLJS keyword literals are not
-  reliably reference-equal, so `identical?` on a realm-id would spuriously
-  classify the default realm as non-default and mis-key the frame.)"
-  [frame-record thunk]
-  (if-let [reg (frame-record-realm-registrar frame-record)]
-    (binding [registrar/*registrar* reg]
-      (thunk))
-    (thunk)))
-
-(defn call-in-request-scope
-  "Invoke `thunk` with the request frame's FULL realm-aware scope established:
-  the carried realm (`*current-realm*`), the realm's resolution registrar
-  (`registrar/*registrar*`), AND the operating frame (`*current-frame*`) — the
-  composed nesting
-
-    (call-with-realm realm-id
-      (fn [] (call-with-frame-realm-registrar (frame frame-id)
-               (fn [] (binding [*current-frame* frame-id] (thunk))))))
-
-  i.e. exactly what `with-frame` expands to (`*current-frame*` rebind), wrapped
-  by the two realm bindings. This is the host-adapter request-scope seam (the
-  SSR-ring non-streaming render walk, the streaming shell / continuation /
-  final-payload drains, and the render-time error-projection path all share it):
-  every per-frame side channel the body touches addresses the `(realm, frame)`
-  slot (`frame-address`), every registered-view / head / route lookup resolves
-  through the owning realm's registrar, and `*current-frame*` is the body's
-  operating frame.
-
-  EP-0013 §Realm Conformance (rf2-bzw8gd / rf2-nu5w48 / rf2-tbr67x): the THREE
-  bindings are coherent and ALL-OR-NOTHING — a site that bound the realm + the
-  frame but FORGOT the registrar would render the default realm's views from a
-  non-default-realm frame (a realm-leak). Single-sourcing the nest here removes
-  that per-site footgun.
-
-  `realm-id` is supplied EXPLICITLY rather than re-derived from `frame-id`
-  because the streaming writer runs on a DAEMON thread with no ambient
-  `*current-realm*`: there, `(frame frame-id)` under a nil carried realm would
-  MISS a non-default-realm frame (it is keyed by `[realm frame-id]`, not the
-  bare id) and `frame-realm` would yield nil. The request thread captures the
-  realm-id (`frame-realm`) while `*current-realm*` is bound and hands it across
-  the thread boundary. `(frame frame-id)` for the registrar is resolved INSIDE
-  the realm binding, so it finds the realm frame on either thread. nil / default
-  `realm-id` ⇒ NO realm binding and (for a default-realm frame) NO registrar
-  binding — the byte-identical single-realm path; only `*current-frame*` is
-  bound, exactly as a bare `with-frame` would. A plain fn (not a macro) so CLJS
-  sibling-ns callers need no `:require-macros`."
-  [realm-id frame-id thunk]
-  (call-with-realm realm-id
-    (fn []
-      (call-with-frame-realm-registrar (frame frame-id)
-        (fn []
-          (binding [*current-frame* frame-id]
-            (thunk)))))))
 
 (defn frame-meta
   "Per Spec 002 §The public registrar query API and Spec-Schemas
@@ -936,9 +818,8 @@
   "True for a frame record that is image-loaded AND publicly enumerable: it
   carries a resolved image `:generation`, is not destroyed, and its id is a
   PUBLIC id (the reserved `:rf.frame/<gensym>` namespace — no-id / direct
-  frames — excluded). The single selection predicate `image-loaded-frame-ids`
-  and `image-loaded-frame-addresses` share; both differ only in what they
-  PROJECT off the selected record. INTERNAL."
+  frames — excluded). The selection predicate `image-loaded-frame-ids` uses to
+  pick the records it projects ids off. INTERNAL."
   [f]
   (and (some? (:generation f))
        (not (-> f :lifecycle :destroyed?))
@@ -963,30 +844,6 @@
   (into #{}
         (comp (filter (fn [[_ f]] (image-loaded-frame-record? f)))
               (map (fn [[_ f]] (:id f))))
-        @frames))
-
-(defn image-loaded-frame-addresses
-  "Return the image-loaded frames as `{:realm <realm-id> :id <frame-id>}` maps —
-  the realm-AWARE companion to `image-loaded-frame-ids` the hot-reload
-  reprojection path enumerates. SAME selection (a `frames`-registry record with a
-  non-nil `:generation`, not destroyed, public `:id` — the `:rf.frame/` gensym
-  namespace excluded), but each entry also carries the frame's OWN realm
-  reference, read off the record's `:realm` slot (default-realm when absent), NOT
-  off the dynamic `*current-realm*`.
-
-  Reprojection runs on a `next-tick` flush where `*current-realm*` has unwound to
-  nil, so a non-default-realm image-loaded frame can only be re-keyed correctly if
-  its realm travels WITH its id (EP-0013 — the registry key is the (realm, frame)
-  ADDRESS, and a frame REFERENCES its realm). `reproject-live-frames!` binds
-  `*current-realm*` per frame from this `:realm` (via `call-with-realm`) before the
-  per-frame generation read / capability read / `set-generation!` swap, so each of
-  those re-keys to the frame's OWN address rather than missing on a bare-id lookup.
-  INTERNAL."
-  []
-  (into #{}
-        (comp (filter (fn [[_ f]] (image-loaded-frame-record? f)))
-              (map (fn [[_ f]] {:realm (or (:realm f) realm/default-realm-id)
-                                :id    (:id f)})))
         @frames))
 
 ;; ---- the internal value-read frame resolver seam (EP-0024, rf2-az1ct6) ----
