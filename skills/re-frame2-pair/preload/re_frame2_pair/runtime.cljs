@@ -617,11 +617,6 @@
   (swap! raw-state-config merge (select-keys opts [:allow-raw-state?]))
   (assoc @raw-state-config :ok? true))
 
-(defn raw-state-config-snapshot
-  "Return the current raw-state config — diagnostic helper."
-  []
-  (assoc @raw-state-config :ok? true))
-
 (defn- maybe-elide-for-tap
   "Walk `v` through `re-frame.core/elide-wire-value` when the raw-state
   gate is OFF, otherwise pass through. The walker substitutes large
@@ -1820,11 +1815,6 @@
   (swap! privacy-config merge (select-keys opts [:include-sensitive?]))
   (assoc @privacy-config :ok? true))
 
-(defn privacy-config-snapshot
-  "Return the current privacy config — diagnostic helper."
-  []
-  (assoc @privacy-config :ok? true))
-
 (defn- streaming-drop?
   "True when the streaming surface should drop `ev` for privacy reasons.
    Today: any trace event stamped `:sensitive? true` at the top level
@@ -2797,21 +2787,6 @@
            ;; Frame-untargetable / no-epoch — pass the structured failure
            ;; through, still echoing the resolved value.
            (assoc result :resolved event-v)))))))
-
-;; ---------------------------------------------------------------------------
-;; Effect stubs (per-call :fx-overrides)
-;; ---------------------------------------------------------------------------
-
-(defn pair-dispatch-with-fx-overrides!
-  "Dispatch with a Spec 002 §Per-frame and per-call overrides
-   `:fx-overrides` map. `overrides` is `{fx-id stub-id ...}` where
-   `stub-id` is a separately-registered `reg-fx`. Each stub redirects
-   for this dispatch only."
-  [event-v overrides & {:keys [sync? frame]}]
-  (let [opts {:origin :pair :fx-overrides overrides :frame frame}]
-    (if sync?
-      (pair-dispatch-sync! event-v opts)
-      (pair-dispatch! event-v opts))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch dry-run (rf2-17hvp)
