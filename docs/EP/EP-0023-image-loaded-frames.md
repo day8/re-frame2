@@ -23,6 +23,13 @@ Type: standards-track
 > caller migration) does **not** block graduation and is tracked under the
 > `rf2-32siq3` epic. This EP partially supersedes EP-0013, whose status is now
 > `superseded-by EP-0023`.
+>
+> **Substrate update 2026-06-19 (rf2-afdlyr):** the retained EP-0013 *multi-realm*
+> substrate was found to have no consumer and collapsed to a single default
+> realm; image assembly + frame isolation are now the governing isolation
+> architecture. See the *Addendum — multi-realm substrate retired* under
+> *Backwards Compatibility And EP-0013 Partial Supersession*. No new public
+> model; status stays `final`.
 
 ## Abstract
 
@@ -1686,6 +1693,61 @@ The proposed vocabulary relates to the current API like this:
 | `frame-state` | retained | EP-0001's serializable projection of a frame; this EP does not rename it. |
 
 The point is to make the public model smaller and more internally consistent while preserving the useful current machinery: registrations, frames, `runtime-db`, carried frame identity, frame-derived resolution, and the internal realm substrate where it still earns its keep.
+
+### Addendum — multi-realm substrate retired (rf2-afdlyr, 2026-06-19)
+
+> Post-graduation amendment. The dispositions above retained EP-0013's realm
+> machinery "internally." A subsequent pre-alpha review (rf2-afdlyr, Mike-ruled
+> 2026-06-19) found that the retained substrate's one remaining capability —
+> multi-realm isolation — had no consumer, and collapsed it. This addendum
+> narrows the "Retained internally" rows above; it introduces no new public
+> model. The public model remains `image -> frame -> event stream`, and that
+> stream is now the *governing* isolation architecture: image assembly plus
+> frame isolation are the whole story, with a single process-default realm as
+> the backing installation container.
+
+The review established that the retained multi-realm substrate had no live
+consumer: non-default realms were constructed only by the realm-conformance /
+realm-routing tests, the app-value `install!` / `reinstall!` live-reinstall
+machinery was exercised only by the `app_value_install` tests, and the
+host-transient inventory hatch had no production registrant. Frame isolation and
+the resolved image generation already owned what the realm uniquely held.
+
+**Ruling: collapse to a single default realm.** Retired (the multi-realm
+substrate is gone):
+
+- non-default realm construction / routing / query / lifecycle —
+  `construct-realm`, `register-realm!`, `dispose-realm!`, and the per-frame
+  realm routing/query/lifecycle threading in core / router / subs / live-frame;
+- the realm `install!` / `reinstall!` seating path and its host-transient
+  inventory extension hatch (superseded by image assembly + named ordered
+  late-bind teardown hooks);
+- SSR-ring per-frame realm routing, now a plain `with-frame frame-id` scope;
+- the orphaned frame-level realm helpers left after the threading was removed
+  (`call-in-request-scope`, `call-with-frame-realm-registrar`,
+  `frame-record-realm-registrar`, `realm-registrar-for-frame`,
+  `normalize-realm-id`, `image-loaded-frame-addresses`).
+
+Retained, narrowed to the single default realm: the registrar-seating seam,
+adapter selection, and the `installed-app` projection (whose one live consumer
+is the Xray module/image view). The a15n62 invariant is unchanged — live
+resolution is frame-derived; the implementation realizes it as
+`frame -> resolved image generation`, with the single default realm as the
+backing installation container.
+
+**What remains, honestly:** the multi-realm *substrate* is retired, but a
+residual realm-*addressing* dimension still threads the frame model under the
+single default realm — `frame-key` carries a realm-id component, `frame-address`
+and `*current-realm*` build on it, `call-with-realm` threads it through
+`destroy-frame!` / `reset-frame!`, and `frame-realm` feeds `frame-address` (read
+by its SSR side-channel consumers). Since there is now only ever the one default
+realm, this addressing vestige is dead weight scheduled for collapse — tracked
+as the afdlyr-completion follow-up (rf2-upgtq4: collapse `frame-key` to a bare
+frame id and drop `*current-realm*` / `frame-realm` / `call-with-realm`).
+
+This is a consequence of EP-0023, not a new conceptual surface; no separate EP
+is created. Tracking: rf2-afdlyr (the decision) and the residual-addressing
+follow-up rf2-upgtq4.
 
 ## Placement Rules And Rationale
 
