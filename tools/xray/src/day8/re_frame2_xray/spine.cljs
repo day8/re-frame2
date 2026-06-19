@@ -208,7 +208,7 @@
               cascades)
         (some #(when (= dispatch-id (:dispatch-id %)) %) cascades)))))
 
-(defn step-to-cascade
+(defn step-cascade
   "Step by `delta` (-1 for prev, +1 for next) from `current-id`
   through `cascades` and return the whole stepped cascade RECORD
   (carrying `:frame`).
@@ -241,10 +241,10 @@
 (defn step-dispatch-id
   "Compute the new `:dispatch-id` when stepping by `delta` (-1 for
   prev, +1 for next) from `current-id` through `cascades`. Thin
-  `:dispatch-id` projection of `step-to-cascade` (which see for the
+  `:dispatch-id` projection of `step-cascade` (which see for the
   step semantics). Returns nil only when `cascades` is empty."
   [cascades current-id delta]
-  (some-> (step-to-cascade cascades current-id delta) :dispatch-id))
+  (some-> (step-cascade cascades current-id delta) :dispatch-id))
 
 (defn epoch-id-for-cascade
   "Return the `:epoch-id` of the epoch record in `epoch-history` whose
@@ -565,7 +565,7 @@
          ;; foreign frame's same-id cascade when the step walk spans
          ;; frames (slot-frame unset, initial LIVE/head). frame + id stay
          ;; in lockstep with the row the user actually landed on.
-         stepped    (step-to-cascade focusable current-id delta)
+         stepped    (step-cascade focusable current-id delta)
          new-id     (:dispatch-id stepped)
          head-id    (head-dispatch-id focusable)]
      (if (or (nil? new-id)

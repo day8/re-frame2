@@ -334,7 +334,11 @@ additive — B never removes the URI path. (See also
    `:dev-http` Ring `:handler` —
    `re-frame.testbed.open-in-editor-server/handler`, a **JVM-only `.clj`**
    server fn — answers
-   `GET|POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>`. It
+   `POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>` (with
+   `OPTIONS` for the CORS preflight). The endpoint is **POST-only +
+   loopback-guarded by design** — it launches the developer's editor on
+   a local path, so a `GET`/`HEAD` drive-by must never trigger a launch
+   (rejected 405; the historic Vite / react-dev-utils CVE class). It
    resolves the (classpath-relative) `:file` against the live
    source-paths **at runtime on the dev machine** (the same context-
    class-loader `getResource` resolution as
