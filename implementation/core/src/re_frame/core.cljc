@@ -1920,10 +1920,14 @@
 
 ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the realm-family facade read
 ;; `rf/frame-realm` (the frame-side half of the retired `(realm, frame)`
-;; addressing model) is REMOVED from the public facade. `re-frame.frame/frame-realm`
-;; remains as internal substrate. The public model is `image -> frame -> event
-;; stream`; a frame is addressed by its process-local frame id, with no realm
-;; coordinate. See `(rf/migration-explain :rf.realm/frame-address)`.
+;; addressing model) was REMOVED from the public facade. The internal substrate
+;; reader `re-frame.frame/frame-realm` and the per-frame realm-membership view
+;; (`frames-by-realm` / `realm/realm-frames` / the frame record's `:realm` slot)
+;; were then removed entirely under rf2-70owfr — the afdlyr collapse leaves a
+;; single default realm, so a frame carries no realm reference. The public model
+;; is `image -> frame -> event stream`; a frame is addressed by its process-local
+;; frame id, with no realm coordinate. See
+;; `(rf/migration-explain :rf.realm/frame-address)`.
 
 (defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,

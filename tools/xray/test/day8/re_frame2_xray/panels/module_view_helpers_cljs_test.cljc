@@ -1,16 +1,15 @@
 (ns day8.re-frame2-xray.panels.module-view-helpers-cljs-test
-  "JVM + CLJS coverage for the Module-view pure-data helpers (rf2-wtg9z4
-  address space + rf2-at0oen per-module provenance — the EP-0013
-  disposition-6 demand-trigger surface).
+  "JVM + CLJS coverage for the Module-view pure-data helpers (rf2-wtg9z4 +
+  rf2-at0oen per-module provenance — the EP-0013 disposition-6 demand-trigger
+  surface).
 
-  Verifies the (realm, frame) address-space projection (EP-0013
-  disposition 3): realm→frames grouping, the realm-row shape, the
-  single/multi-realm classification, and the zero-ceremony posture (a
-  single-realm process projects ONE realm); AND the per-module provenance
-  projection (rf2-at0oen): the module-row shape (`:owns` / `:requires` /
-  registration kinds+count / source) read off a realm's installed app
-  value, the no-modules (load-order / sugar-only) case, and the seam-fed
-  `project-module-view` with `:provenance-available?` true."
+  Verifies the per-module provenance projection (rf2-at0oen): the module-row
+  shape (`:owns` / `:requires` / registration kinds+count / source) read off the
+  default realm's installed app value, the no-modules (load-order / sugar-only)
+  case, and the seam-fed `project-module-view` with `:provenance-available?`
+  true. (The (realm, frame) address-space grouping was removed under rf2-70owfr —
+  the afdlyr collapse leaves a single default realm, so there is no realm
+  grouping to test.)"
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.module-view-helpers :as h]))
@@ -56,24 +55,6 @@
   {:rf.app/id       :empty/app
    :modules         {}
    :rf.app/requires #{}})
-
-;; ---- realm-frames -------------------------------------------------------
-
-(deftest realm-frames-groups-by-resolver
-  (testing "frames group by their realm-of resolution"
-    (let [realm-of {:app/main  :rf.realm/default
-                    :app/cart  :rf.realm/default
-                    :other/x   :app/realm-b}
-          grouped  (h/realm-frames [:app/main :app/cart :other/x] realm-of)]
-      (is (= #{:app/main :app/cart} (get grouped :rf.realm/default)))
-      (is (= #{:other/x} (get grouped :app/realm-b))))))
-
-(deftest realm-frames-nil-resolution-falls-to-default
-  (testing "a frame whose realm-of returns nil buckets to the default realm
-            (absence = default realm — EP-0013 D1 rule)"
-    (let [grouped (h/realm-frames [:app/main :ghost] (constantly nil))]
-      (is (= #{:app/main :ghost} (get grouped :rf.realm/default))
-          "nil realm → default realm bucket"))))
 
 ;; ---- project-module-row -------------------------------------------------
 
@@ -142,149 +123,81 @@
           "MUST NOT collapse to nil — that would erase the constructed app")
       (is (= #{} requires)))))
 
-;; ---- project-realm-row --------------------------------------------------
-
-(deftest project-realm-row-shape-no-app
-  (testing "the realm-row (no installed app) carries id, sorted frames, count,
-            and module-less provenance slots"
-    (let [row (h/project-realm-row :rf.realm/default #{:app/cart :app/main})]
-      (is (= :rf.realm/default (:realm row)))
-      (is (= [:app/cart :app/main] (:frames row)) "frames sorted by str")
-      (is (= 2 (:frame-count row)))
-      (is (nil? (:modules row)) "no installed app → no modules")
-      (is (= #{} (:requires row)))
-      ;; reserved slots — ownership is per-module (`:modules … :owns`);
-      ;; classification is frame-owned (not a module fact).
-      (is (nil? (:owns row)))
-      (is (nil? (:classification row))))))
-
-(deftest project-realm-row-shape-with-app
-  (testing "the realm-row fills :modules + :requires from the installed app value"
-    (let [row (h/project-realm-row :rf.realm/default #{:app/main} cart-app)]
-      (is (= [:shop/cart] (mapv :module-id (:modules row))))
-      (is (= #{:rf.capability/http} (:requires row))))))
-
 ;; ---- project-module-view ------------------------------------------------
 
-(deftest project-module-view-single-realm-zero-ceremony
-  (testing "a single-realm process projects ONE realm, multi-realm? false
-            (zero-ceremony — the realm dimension stays implicit)"
-    (let [data (h/project-module-view #{:rf.realm/default}
-                                      [:app/main :app/cart]
-                                      (constantly :rf.realm/default))]
-      (is (= 1 (:realm-count data)))
-      (is (false? (:multi-realm? data)))
-      (is (= :rf.realm/default (:realm (first (:realms data)))))
-      (is (= [:app/cart :app/main] (:frames (first (:realms data)))))
+(deftest project-module-view-no-app-is-module-less
+  (testing "the 0-arity (no installed app) projects module-less — the
+            no-runtime / no-provenance call still works"
+    (let [data (h/project-module-view)]
       (is (true? (:provenance-available? data))
-          "the re-frame.realm/installed-app read seam has graduated (rf2-at0oen)"))))
+          "the re-frame.realm/installed-app read seam has graduated (rf2-at0oen)")
+      (is (nil? (:modules data)) "no installed app → no modules")
+      (is (= #{} (:requires data))))))
 
 (deftest project-module-view-fills-modules-from-seam
-  (testing "project-module-view reads the per-realm installed app value via the
-            installed-app-of resolver and fills each realm's :modules"
-    (let [installed-app-of {:rf.realm/default cart-app}
-          data (h/project-module-view #{:rf.realm/default}
-                                      [:app/main]
-                                      (constantly :rf.realm/default)
-                                      installed-app-of)
-          row  (first (:realms data))]
+  (testing "project-module-view reads the default realm's installed app value
+            and fills :modules + :requires"
+    (let [data (h/project-module-view cart-app)]
       (is (true? (:provenance-available? data)))
-      (is (= [:shop/cart] (mapv :module-id (:modules row))))
-      (is (= #{:rf.capability/http} (:requires row))))))
+      (is (= [:shop/cart] (mapv :module-id (:modules data))))
+      (is (= #{:rf.capability/http} (:requires data))))))
 
-(deftest project-module-view-no-resolver-is-module-less
-  (testing "the 3-arity (no installed-app-of) projects the address space with no
-            module provenance — the legacy address-only call still works"
-    (let [data (h/project-module-view #{:rf.realm/default}
-                                      [:app/main]
-                                      (constantly :rf.realm/default))]
+(deftest project-module-view-projected-app-is-module-less
+  (testing "a projected (load-order / sugar-only) app projects to nil :modules —
+            the honest no-provenance case"
+    (let [data (h/project-module-view projected-app)]
       (is (true? (:provenance-available? data)))
-      (is (nil? (:modules (first (:realms data))))))))
+      (is (nil? (:modules data)) "load-order app → nil modules (no provenance)"))))
 
-(deftest project-module-view-multi-realm
-  (testing "more than one realm → multi-realm? true, every realm present,
-            sorted by realm-id"
-    (let [realm-of {:app/main :rf.realm/default
-                    :other/x  :app/realm-b}
-          data     (h/project-module-view #{:rf.realm/default :app/realm-b}
-                                          [:app/main :other/x]
-                                          realm-of)]
-      (is (= 2 (:realm-count data)))
-      (is (true? (:multi-realm? data)))
-      (is (= [:app/realm-b :rf.realm/default]
-             (mapv :realm (:realms data)))
-          "realms sorted by realm-id str"))))
-
-(deftest project-module-view-empty-realm-still-present
-  (testing "an installed realm with no frames still appears (a realm can
-            exist with zero frames)"
-    (let [data (h/project-module-view #{:rf.realm/default :app/empty}
-                                      [:app/main]
-                                      (constantly :rf.realm/default))]
-      (is (= 2 (:realm-count data)))
-      (let [empty-row (first (filter #(= :app/empty (:realm %)) (:realms data)))]
-        (is (some? empty-row) "the frameless realm is present")
-        (is (= 0 (:frame-count empty-row)))
-        (is (= [] (:frames empty-row)))))))
-
-(deftest project-module-view-stale-frame-realm-never-strands
-  (testing "a frame resolving to a realm absent from realm-ids still gets a
-            row (defensive — a stale frame never strands the view)"
-    (let [data (h/project-module-view #{:rf.realm/default}
-                                      [:app/main :ghost]
-                                      {:app/main :rf.realm/default
-                                       :ghost    :app/gone})]
-      (is (contains? (set (map :realm (:realms data))) :app/gone)
-          "the orphan realm is surfaced rather than dropped"))))
+(deftest project-module-view-zero-module-app-is-present-but-empty
+  (testing "a CONSTRUCTED zero-module app projects to `[]` (provenance present,
+            no module rows) — distinct from the no-provenance nil"
+    (let [data (h/project-module-view zero-module-app)]
+      (is (= [] (:modules data)))
+      (is (vector? (:modules data)) "present-but-empty provenance, not nil"))))
 
 ;; ---- empty-state decision: any-modules? / any-provenance? ---------------
 
 (deftest any-modules?-detects-module-rows
-  (testing "any-modules? is true when some realm-row carries at least one
-            MODULE ROW"
-    (is (true? (h/any-modules? [{:realm :r1 :modules nil}
-                                {:realm :r2 :modules [{:module-id :m/a}]}])))
-    (is (false? (h/any-modules? [{:realm :r1 :modules nil}
-                                 {:realm :r2 :modules []}]))
-        "a zero-module constructed app ([]) carries NO module rows → false")))
+  (testing "any-modules? is true when the projected :modules carries at least
+            one MODULE ROW"
+    (is (true? (h/any-modules? [{:module-id :m/a}])))
+    (is (false? (h/any-modules? []))
+        "a zero-module constructed app ([]) carries NO module rows → false")
+    (is (false? (h/any-modules? nil))
+        "no provenance (nil) → no module rows → false")))
 
 (deftest any-provenance?-detects-constructed-app
   ;; rf2-e0mq7a — the predicate that separates the zero-module-app caption
   ;; (a constructed app with no modules) from the no-provenance caption (no
-  ;; constructed app anywhere). `:modules` is a VECTOR exactly when the realm's
-  ;; installed app was CONSTRUCTED (`[]` for a zero-module app); it is nil for
-  ;; the load-order / no-provenance case.
-  (testing "true when some realm carries a constructed app — including a
-            zero-module one (`:modules []`)"
-    (is (true? (h/any-provenance? [{:realm :r1 :modules nil}
-                                   {:realm :r2 :modules []}]))
+  ;; constructed app). `:modules` is a VECTOR exactly when the installed app was
+  ;; CONSTRUCTED (`[]` for a zero-module app); it is nil for the load-order /
+  ;; no-provenance case.
+  (testing "true when the app is constructed — including a zero-module one (`[]`)"
+    (is (true? (h/any-provenance? []))
         "an empty VECTOR is present provenance (a constructed zero-module app)")
-    (is (true? (h/any-provenance? [{:realm :r1 :modules [{:module-id :m/a}]}]))
+    (is (true? (h/any-provenance? [{:module-id :m/a}]))
         "a non-empty module vector is provenance too"))
-  (testing "false when NO realm carries a constructed app (every :modules nil)"
-    (is (false? (h/any-provenance? [{:realm :r1 :modules nil}
-                                    {:realm :r2 :modules nil}]))
-        "all load-order / no-provenance → no provenance anywhere")))
+  (testing "false when no constructed app (:modules nil)"
+    (is (false? (h/any-provenance? nil))
+        "load-order / no-provenance → no provenance")))
 
 (deftest empty-state-decision-three-way
   ;; rf2-e0mq7a — the decision the UI `modules-section-body` consumes. Pins the
   ;; three mutually-exclusive outcomes off the predicate pair so the panel's
   ;; caption choice is correct without a browser render.
   (testing "module rows present → render the module list (any-modules? true)"
-    (let [rows [{:realm :r :modules [{:module-id :m/a}]}]]
-      (is (true? (h/any-modules? rows)))))
+    (is (true? (h/any-modules? [{:module-id :m/a}]))))
   (testing "constructed zero-module app → zero-module-app caption, NOT the
             load-order caption (any-modules? false, any-provenance? true)"
-    (let [rows [{:realm :r :modules []}]]
-      (is (false? (h/any-modules? rows))
-          "no module rows → not the module list")
-      (is (true? (h/any-provenance? rows))
-          "provenance present → the zero-module-app branch, not no-provenance")))
-  (testing "no provenance anywhere → the load-order/no-provenance caption
+    (is (false? (h/any-modules? []))
+        "no module rows → not the module list")
+    (is (true? (h/any-provenance? []))
+        "provenance present → the zero-module-app branch, not no-provenance"))
+  (testing "no provenance → the load-order/no-provenance caption
             (any-modules? false AND any-provenance? false)"
-    (let [rows [{:realm :r :modules nil}]]
-      (is (false? (h/any-modules? rows)))
-      (is (false? (h/any-provenance? rows))))))
+    (is (false? (h/any-modules? nil)))
+    (is (false? (h/any-provenance? nil)))))
 
 (deftest no-modules-caption-explains-the-empty-state
   (testing "the no-modules caption names the load-order / sugar reason and the
@@ -335,11 +248,3 @@
           "frames app/install! as the retained-internal substrate")))
   (testing "the two empty-state captions are different strings"
     (is (not= h/no-modules-caption h/zero-module-app-caption))))
-
-;; ---- summaries ----------------------------------------------------------
-
-(deftest realm-summary-line-pluralizes
-  (is (= ":rf.realm/default · 1 frame"
-         (h/realm-summary-line {:realm :rf.realm/default :frame-count 1})))
-  (is (= ":rf.realm/default · 2 frames"
-         (h/realm-summary-line {:realm :rf.realm/default :frame-count 2}))))

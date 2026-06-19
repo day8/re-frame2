@@ -10,9 +10,11 @@
 
   ### EP-0013 substrate (retained internally)
 
-  The (realm, frame) ADDRESS SPACE of the running process (EP-0013
-  disposition 3): every installed runtime realm, and the frames each realm
-  holds, plus the per-module ownership / capability / descriptor provenance.
+  The per-module ownership / capability / descriptor provenance, read off the
+  default realm's installed app value. (The former (realm, frame) address-space
+  view — one row per realm, frames grouped by realm — was removed under
+  rf2-70owfr: the afdlyr realm-substrate collapse leaves a single default realm,
+  so grouping frames by realm was dead ceremony.)
 
   ### EP-0023 public model (rf2-32siq3.12)
 
@@ -40,10 +42,6 @@
   not using `rf/make-frame` image-loaded frames renders the calm no-image
   caption — the honest not-using-images state.
 
-      │ REALMS                                                          │
-      │   :rf.realm/default  · 2 frames                                 │
-      │     frames: :app/main  :app/cart                                │
-      │ ─────────────────────────────────────────────────────────────  │
       │ MODULES                                                         │
       │   :shop/cart                                                    │
       │     owns      :app-db [:cart]                                   │
@@ -77,31 +75,27 @@
   `re-frame.live-frame`; bundle isolation forbids `implementation/` requiring
   from `tools/`, not the reverse):
 
-    - `re-frame.realm/realm-ids`     — the installed realm ids;
-    - `rf/frame-ids`                 — the live frame ids (retained PUBLIC);
-    - `re-frame.frame/frame-realm`   — a frame's realm (the frame-side address);
-    - `re-frame.realm/installed-app` — a realm's installed app value, for the
-                                       per-module provenance (EP-0013
+    - `re-frame.realm/installed-app` — the default realm's installed app value,
+                                       for the per-module provenance (EP-0013
                                        disposition 6).
 
-  ## Zero-ceremony (single-realm unchanged)
+  ## Single default realm (realm-grouping removed — rf2-70owfr)
 
-  A single-realm process resolves `re-frame.realm/realm-ids` to exactly
-  `#{:rf.realm/default}`; the tab renders one realm with the realm
-  dimension implicit (no realm grouping ceremony) — the (realm) axis is
-  spelled only when more than one realm exists, exactly as a single-frame
-  app never spells a frame.
+  The afdlyr realm-substrate collapse leaves a single default realm, so the
+  former (realm, frame) address-space view — one row per realm, frames grouped
+  by realm — was removed. The MODULES section reads the per-module provenance off
+  the default realm's installed app directly; the frame/image dimension is the
+  FRAMES section's concern (the EP-0023 public model).
 
   ## Pure hiccup + helpers
 
   Same contract as every Xray panel — pure hiccup, no Reagent / UIx /
-  Helix. The pure data → data projection (address-space assembly, the
-  realm-row shape, single/multi-realm classification) lives in
+  Helix. The pure data → data projection (the module-row shape, the
+  app-modules projection, the empty-state classification) lives in
   `module_view_helpers.cljc` so the algebra runs under the JVM unit-test
   target."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.realm :as realm]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.common-helpers :as common]
@@ -126,27 +120,6 @@
 (def ^:private panel-scroll-container-style
   {:flex 1 :overflow "auto"})
 
-(def ^:private realm-row-style
-  {:display       "flex"
-   :align-items   "baseline"
-   :gap           "8px"
-   :padding       "2px 0"
-   :font-family   mono-stack
-   :font-size     "12px"})
-
-(def ^:private realm-id-style
-  {:color       (:accent tokens)
-   :font-weight 600})
-
-(def ^:private realm-meta-style
-  {:color (:text-tertiary tokens)})
-
-(def ^:private realm-frames-style
-  {:color       (:text-secondary tokens)
-   :padding     "1px 0 4px 18px"
-   :font-family mono-stack
-   :font-size   "11px"})
-
 (def ^:private awaiting-caption-style
   {:color       (:text-tertiary tokens)
    :font-family sans-stack
@@ -168,14 +141,6 @@
 
 (def ^:private module-fact-label-style
   {:color (:text-tertiary tokens)})
-
-(def ^:private module-realm-header-style
-  {:color          (:text-tertiary tokens)
-   :font-family    sans-stack
-   :font-size      "11px"
-   :letter-spacing "0.4px"
-   :text-transform "uppercase"
-   :padding        "6px 0 2px 0"})
 
 (def ^:private frame-id-style
   {:color       (:accent tokens)
@@ -253,25 +218,6 @@
         (str (:ns source)
              (when (:line source) (str ":" (:line source))))])]))
 
-;; ---- realm row -----------------------------------------------------------
-
-(defn- realm-row
-  "Render one realm: its id + frame count, with the realm's frames listed
-  beneath. Pure hiccup."
-  [{:keys [realm frames frame-count] :as _realm-row}]
-  (let [rid-name (name realm)]
-    [:div {:data-testid (str "rf-xray-module-view-realm-" rid-name)}
-     [:div {:style realm-row-style}
-      [:span {:data-testid (str "rf-xray-module-view-realm-" rid-name "-id")
-              :style       realm-id-style}
-       (str realm)]
-      [:span {:style realm-meta-style}
-       (str "· " frame-count " " (common/pluralize frame-count "frame"))]]
-     (when (seq frames)
-       [:div {:data-testid (str "rf-xray-module-view-realm-" rid-name "-frames")
-              :style       realm-frames-style}
-        (str "frames: " (str/join "  " (map str frames)))])]))
-
 ;; ---- EP-0023 image/frame row (rf2-32siq3.12) -----------------------------
 
 (defn- descriptor-rows
@@ -343,48 +289,36 @@
 ;; ---- public view ---------------------------------------------------------
 
 (defn- modules-section-body
-  "The MODULES section body — every realm's modules, grouped by realm only
-  when the process is multi-realm (zero-ceremony: a single-realm process
-  lists its modules with the realm dimension implicit). The empty-state is a
-  THREE-WAY decision (rf2-e0mq7a):
+  "The MODULES section body — the default realm's installed app's modules. The
+  empty-state is a THREE-WAY decision (rf2-e0mq7a):
 
-    1. some realm has module rows → render the module list.
-    2. some realm carries PROVENANCE (a constructed, installed app) but NO
-       realm has any modules (every constructed app has `:modules []`) →
-       render the zero-module-app caption — the installed-but-empty state.
-    3. no realm carries provenance at all (load-order / sugar-only) → render
-       the no-provenance caption.
+    1. the app has module rows → render the module list.
+    2. the app carries PROVENANCE (constructed + installed) but has NO modules
+       (`:modules []`) → render the zero-module-app caption — the
+       installed-but-empty state.
+    3. no provenance (load-order / sugar-only) → render the no-provenance
+       caption.
 
   Cases 2 and 3 are distinct: a zero-module constructed app must NOT render the
   load-order caption (which falsely claims the process never installed an app).
-  Pure hiccup."
-  [realms multi-realm?]
+  `modules` is the projected `:modules` value (nil / `[]` / a row vector). Pure
+  hiccup."
+  [modules]
   (cond
-    (h/any-modules? realms)
+    (h/any-modules? modules)
     (into [:div {:data-testid "rf-xray-module-view-modules-list"}]
-          (for [{:keys [realm modules] :as _r} realms
-                :when (seq modules)]
-            (with-meta
-              [:div {:data-testid (str "rf-xray-module-view-modules-realm-"
-                                       (name realm))}
-               ;; Spell the realm header only when more than one realm exists
-               ;; (zero-ceremony — single-realm keeps the realm implicit).
-               (when multi-realm?
-                 [:div {:style module-realm-header-style} (str realm)])
-               (into [:div]
-                     (for [m modules]
-                       (with-meta (module-row m)
-                         {:key (str (:module-id m))})))]
-              {:key (str realm)})))
+          (for [m modules]
+            (with-meta (module-row m)
+              {:key (str (:module-id m))})))
 
-    ;; Provenance present (constructed + installed) but no modules anywhere —
+    ;; Provenance present (constructed + installed) but no modules —
     ;; the honest installed-but-empty state, NOT the load-order caption.
-    (h/any-provenance? realms)
+    (h/any-provenance? modules)
     [:div {:data-testid "rf-xray-module-view-modules-zero-module-app"
            :style       awaiting-caption-style}
      h/zero-module-app-caption]
 
-    ;; No provenance on any realm — the load-order / sugar-only process.
+    ;; No provenance — the load-order / sugar-only process.
     :else
     [:div {:data-testid "rf-xray-module-view-modules-empty"
            :style       awaiting-caption-style}
@@ -395,18 +329,18 @@
   FRAMES/IMAGES section (`image -> frame -> event stream`: every live
   image-loaded frame as an execution context carrying its resolved image's
   `[kind id]` descriptors, rf2-32siq3.12) — then the RETAINED-INTERNAL
-  EP-0013 substrate below: the REALMS section (the (realm, frame) address
-  space, disposition 3) and the MODULES section (per-module ownership /
-  capability / descriptor provenance read off each realm's installed app
+  EP-0013 substrate below: the MODULES section (per-module ownership /
+  capability / descriptor provenance read off the default realm's installed app
   value via `re-frame.realm/installed-app`, disposition 6 · rf2-at0oen).
   Subscribes to `:rf.xray/image-view` (the public model) and
   `:rf.xray/module-view` (the substrate). A process running entirely on the
   `reg-*` sugar / load-order path has no constructed app value, so the MODULES
   section shows the honest no-module caption — which names the retained-internal
   app-composition substrate remedy and points back at the image/frame public
-  model."
+  model. (The former REALMS address-space section was removed under rf2-70owfr —
+  the afdlyr collapse leaves a single default realm.)"
   []
-  (let [{:keys [realms multi-realm?] :as _data}
+  (let [{:keys [modules] :as _data}
         @(rf/subscribe [:rf.xray/module-view])
         {:keys [frame-count] :as image-view}
         @(rf/subscribe [:rf.xray/image-view])]
@@ -417,63 +351,46 @@
       ;; frame as an execution context carrying its resolved image (the
       ;; generation's [kind id] descriptors), plus the frame-derived
       ;; resolution path. Rendered FIRST — EP-0023 is the public model; the
-      ;; EP-0013 realm/module sections below are the retained internal
-      ;; substrate (rf2-32siq3.12).
+      ;; EP-0013 module section below is the retained internal substrate
+      ;; (rf2-32siq3.12).
       (section/section-row
         {:label  "Frames"
          :testid "rf-xray-module-view-frames"
          :count* frame-count}
         (frames-section-body image-view))
-      ;; REALMS — the installed realms and each realm's frames (EP-0013
-      ;; substrate, retained internally).
-      (section/section-row
-        {:label  "Realms"
-         :testid "rf-xray-module-view-realms"
-         :count* (count realms)}
-        (into [:div {:data-testid "rf-xray-module-view-realms-list"}]
-              (for [r realms]
-                (with-meta (realm-row r) {:key (str (:realm r))}))))
       ;; MODULES — the per-module ownership / capability / descriptor
-      ;; provenance, read from each realm's installed app value via
+      ;; provenance, read from the default realm's installed app value via
       ;; `re-frame.realm/installed-app` (EP-0013 disposition 6, rf2-at0oen).
       (section/section-row
         {:label  "Modules"
          :testid "rf-xray-module-view-modules"}
-        (modules-section-body realms multi-realm?))]]))
+        (modules-section-body modules))]]))
 
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
   "Idempotent install for the Module-view tab's Xray-side registrations
-  (rf2-wtg9z4). Registers the address-space composite + the Dynamic L4
+  (rf2-wtg9z4). Registers the module-provenance composite + the Dynamic L4
   tab."
   []
-  ;; `:rf.xray/module-view` — the projected (realm, frame) address space PLUS
-  ;; the per-module provenance read off each realm's installed app value.
-  ;; Reads the INTERNAL realm/frame substrate seams (`re-frame.realm/realm-ids`
-  ;; · `re-frame.frame/frame-realm`) + the retained-public `rf/frame-ids`, and
-  ;; the realm→installed-app read seam (`re-frame.realm/installed-app`, EP-0013
-  ;; disposition 6) — EP-0023 retained-internal, read off the owning namespaces
-  ;; directly (pl97nd.2 removed the `rf/*` facade arities). Projects via the
-  ;; pure `module-view-helpers/project-module-view`. Read-only — enumerating
-  ;; realms/frames and reading installed app values pins nothing and dispatches
-  ;; nothing (`installed-app` is a STATIC read of the install-time value, not a
-  ;; routing path).
+  ;; `:rf.xray/module-view` — the per-module provenance read off the default
+  ;; realm's installed app value. Reads the realm→installed-app read seam
+  ;; (`re-frame.realm/installed-app`, EP-0013 disposition 6) — EP-0023
+  ;; retained-internal, read off the owning namespace directly (pl97nd.2 removed
+  ;; the `rf/*` facade arities). Projects via the pure
+  ;; `module-view-helpers/project-module-view`. Read-only — reading the installed
+  ;; app value pins nothing and dispatches nothing (`installed-app` is a STATIC
+  ;; read of the install-time value, not a routing path). (The realm-grouping
+  ;; address-space read was removed under rf2-70owfr — the afdlyr collapse leaves
+  ;; a single default realm.)
   ;;
-  ;; It does NOT compose off an `:rf.xray/*` app-db slot because the
-  ;; address space is a process-global fact (realms + frames live in the
-  ;; framework's registries, not Xray's app-db). The sub reads them
-  ;; directly at recompute time; a tab activation (`:rf.xray/select-tab`)
-  ;; re-renders the panel which re-derefs. (A future live-refresh signal
-  ;; can compose this off a frame/realm-lifecycle tick if the operator
-  ;; wants push updates; today the browse-on-open shape matches the other
-  ;; Static-style surfaces.)
+  ;; It does NOT compose off an `:rf.xray/*` app-db slot because the installed
+  ;; app value is a process-global fact (it lives in the framework's realm, not
+  ;; Xray's app-db). The sub reads it directly at recompute time; a tab
+  ;; activation (`:rf.xray/select-tab`) re-renders the panel which re-derefs.
   (rf/reg-sub :rf.xray/module-view
     (fn [_db _query]
-      (h/project-module-view (realm/realm-ids)
-                             (rf/frame-ids)
-                             frame/frame-realm
-                             realm/installed-app)))
+      (h/project-module-view (realm/installed-app))))
 
   ;; `:rf.xray/image-view` — the EP-0023 PUBLIC `image -> frame` model
   ;; (rf2-32siq3.12). Reads the EP-0023 live-frame registry + sealed image
