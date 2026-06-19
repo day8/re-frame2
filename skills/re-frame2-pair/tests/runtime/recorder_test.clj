@@ -35,52 +35,17 @@
 ;;;; Run: bb tests/runtime/recorder_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns recorder-test
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is run-tests testing]]
-            [clojure.walk :as walk]))
+            [runtime-support :as rt]))
 
-(def ^:private runtime-cljs-path
-  (some (fn [p] (when (.exists (io/file p)) p))
-        ["preload/re_frame2_pair/runtime.cljs"
-         "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
-         "../preload/re_frame2_pair/runtime.cljs"]))
-
-(when-not runtime-cljs-path
-  (binding [*out* *err*]
-    (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
-             (System/getProperty "user.dir")))
-  (System/exit 2))
-
-(defn- read-all-forms [^String src]
-  ;; CLJS-tolerant read: the recorder fns sit AFTER the streaming section,
-  ;; which uses `#js {...}` reader literals. Clojure's reader has no `js`
-  ;; tag, so without a default-data-reader the parse aborts mid-file and
-  ;; never reaches the recorder defns. A pass-through default reader keeps
-  ;; the parse going (we never evaluate the forms, only walk their shape).
-  (binding [*default-data-reader-fn* (fn [_tag v] v)]
-    (let [pbr (java.io.PushbackReader. (java.io.StringReader. src))]
-      (loop [acc []]
-        (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
-                        (catch Exception _ ::eof))]
-          (if (= ::eof form) acc (recur (conj acc form))))))))
-
-(def ^:private src (slurp runtime-cljs-path))
-(def ^:private all-forms (read-all-forms src))
-
-(defn- defn-form [sym]
-  (some (fn [form]
-          (when (and (seq? form)
-                     (#{'defn 'defn-} (first form))
-                     (= sym (second form)))
-            form))
-        all-forms))
-
-(defn- form-contains? [pred form]
-  (let [hit? (atom false)]
-    (walk/postwalk (fn [x] (when (pred x) (reset! hit? true)) x) form)
-    @hit?))
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
+;; (rf2-yrpt90). Alias the vars the assertions below use.
+(def ^:private defn-form rt/defn-named)
+(def ^:private form-contains? rt/form-contains?)
 
 (defn- mentions-sym? [form needle]
   (form-contains? #(= % needle) form))

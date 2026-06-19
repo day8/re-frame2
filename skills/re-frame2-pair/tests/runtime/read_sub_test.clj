@@ -32,57 +32,22 @@
 ;;;; Run:  bb tests/runtime/read_sub_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns read-sub-test
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
-            [clojure.test :refer [deftest is run-tests testing use-fixtures]]
-            [clojure.walk :as walk]))
+  (:require [clojure.test :refer [deftest is run-tests testing use-fixtures]]
+            [runtime-support :as rt]))
 
 ;; ---------------------------------------------------------------------------
 ;; PART 1 — Structural pins: the named fns exist in the real runtime source
 ;; and carry the no-silent-swallow slots. Mirrors the dispatch_consequence
 ;; structural-pin style so a refactor that drops the validation can't ship
-;; green.
+;; green. Shared locate+parse+walk scaffold lives in
+;; tests/runtime/_support.clj (rf2-yrpt90).
 ;; ---------------------------------------------------------------------------
 
-(def ^:private runtime-cljs-path
-  (some (fn [p] (when (.exists (io/file p)) p))
-        ["preload/re_frame2_pair/runtime.cljs"
-         "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
-         "../preload/re_frame2_pair/runtime.cljs"]))
-
-(when-not runtime-cljs-path
-  (binding [*out* *err*]
-    (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
-             (System/getProperty "user.dir")))
-  (System/exit 2))
-
-(defn- read-all-forms
-  "Read every top-level form. `*default-data-reader-fn*` swallows unknown
-   tagged literals (the `#js {...}` the CLJS preload carries) so the reader
-   doesn't HALT on the first `#js` and silently drop later forms."
-  [^String src]
-  (binding [*default-data-reader-fn* (fn [_tag v] v)]
-    (let [pbr (java.io.PushbackReader. (java.io.StringReader. src))]
-      (loop [acc []]
-        (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
-                        (catch Exception _ ::eof))]
-          (if (= ::eof form) acc (recur (conj acc form))))))))
-
-(def ^:private all-forms (read-all-forms (slurp runtime-cljs-path)))
-
-(defn- defn-named [sym]
-  (some (fn [form]
-          (when (and (seq? form)
-                     (#{'defn 'defn-} (first form))
-                     (= sym (second form)))
-            form))
-        all-forms))
-
-(defn- form-contains? [pred form]
-  (let [hit? (atom false)]
-    (walk/postwalk (fn [node] (when (pred node) (reset! hit? true)) node) form)
-    @hit?))
+(def ^:private defn-named rt/defn-named)
+(def ^:private form-contains? rt/form-contains?)
 
 (deftest defines-read-sub!
   (is (some? (defn-named 'read-sub!))

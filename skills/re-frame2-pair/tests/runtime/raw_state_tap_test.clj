@@ -21,46 +21,26 @@
 ;;;; Run: bb tests/runtime/raw_state_tap_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns raw-state-tap-test
- (:require [clojure.java.io :as io]
- [clojure.test :refer [deftest is run-tests testing]]
- [clojure.walk :as walk]))
+ (:require [clojure.test :refer [deftest is run-tests testing]]
+ [runtime-support :as rt]))
 
-(def ^:private runtime-cljs-path
- (some (fn [p] (when (.exists (io/file p)) p))
- ["preload/re_frame2_pair/runtime.cljs"
- "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
- "../preload/re_frame2_pair/runtime.cljs"]))
-
-(when-not runtime-cljs-path
- (binding [*out* *err*]
- (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
- (System/getProperty "user.dir")))
- (System/exit 2))
-
-(defn- read-all-forms [^String src]
- (let [pbr (java.io.PushbackReader.
- (java.io.StringReader. src))]
- (loop [acc []]
- (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
- (catch Exception _ ::eof))]
- (if (= ::eof form)
- acc
- (recur (conj acc form)))))))
-
-(def ^:private all-forms
- (read-all-forms (slurp runtime-cljs-path)))
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
+;; (rf2-yrpt90). Alias the vars the assertions below use.
 
 (defn- find-top-form
  "Find the top-level form whose head matches `head-sym` and whose first
- symbol slot matches `name-sym`. Returns nil when absent."
+ symbol slot matches `name-sym`. Returns nil when absent. (Local to this
+ test because it also matches `defonce`, unlike the shared `defn-named`.)"
  [head-sym name-sym]
  (some (fn [form]
  (when (and (seq? form)
  (= head-sym (first form))
  (= name-sym (second form)))
  form))
- all-forms))
+ rt/all-forms))
 
 (def ^:private configure-raw-state-form
  (find-top-form 'defn 'configure-raw-state!))
@@ -75,18 +55,7 @@
  ;; `defn-` because the helper is private.
  (find-top-form 'defn- 'maybe-elide-for-tap))
 
-;; ---------------------------------------------------------------------------
-;; Tree-walk helpers.
-;; ---------------------------------------------------------------------------
-
-(defn- form-contains? [pred form]
- (let [hit? (atom false)]
- (walk/postwalk
- (fn [node]
- (when (pred node) (reset! hit? true))
- node)
- form)
- @hit?))
+(def ^:private form-contains? rt/form-contains?)
 
 (defn- calls? [sym form]
  (form-contains?

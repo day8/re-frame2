@@ -43,11 +43,12 @@
 ;;;; Run: bb tests/runtime/cascade_summary_redaction_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns cascade-summary-redaction-test
-  (:require [clojure.java.io :as io]
-            [clojure.set]
+  (:require [clojure.set]
             [clojure.test :refer [deftest is run-tests testing]]
-            [clojure.walk :as walk]))
+            [runtime-support :as rt]))
 
 ;; ---------------------------------------------------------------------------
 ;; Mirror of preload/re_frame2_pair/runtime.cljs §Cascade summary
@@ -236,32 +237,16 @@
 ;; trips these.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private runtime-cljs-path
-  (some (fn [p] (when (.exists (io/file p)) p))
-        ["preload/re_frame2_pair/runtime.cljs"
-         "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
-         "../preload/re_frame2_pair/runtime.cljs"]))
-
-(defn- read-all-forms [^String src]
-  (let [pbr (java.io.PushbackReader. (java.io.StringReader. src))]
-    (loop [acc []]
-      (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
-                      (catch Exception _ ::eof))]
-        (if (= ::eof form) acc (recur (conj acc form)))))))
-
-(def ^:private all-forms
-  (when runtime-cljs-path (read-all-forms (slurp runtime-cljs-path))))
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
+;; (rf2-yrpt90). Alias the vars the assertions below use.
+(def ^:private runtime-cljs-path rt/runtime-cljs-path)
+(def ^:private form-contains? rt/form-contains?)
 
 (defn- top-level-named [kinds sym]
   (some (fn [form]
           (when (and (seq? form) (kinds (first form)) (= sym (second form)))
             form))
-        all-forms))
-
-(defn- form-contains? [pred form]
-  (let [hit? (atom false)]
-    (walk/postwalk (fn [node] (when (pred node) (reset! hit? true)) node) form)
-    @hit?))
+        rt/all-forms))
 
 (deftest source-defines-redact-sensitive-event-vector
   (is (some? runtime-cljs-path) "runtime.cljs must be locatable")

@@ -48,11 +48,13 @@
 ;;;; Run: bb tests/runtime/dom_readback_redaction_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
+(load-file (str (.getParent (java.io.File. *file*)) "/_support.clj"))
+
 (ns dom-readback-redaction-test
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is run-tests testing]]
-            [clojure.walk :as walk]))
+            [clojure.walk :as walk]
+            [runtime-support :as rt]))
 
 ;; ---------------------------------------------------------------------------
 ;; Mirror of the runtime's value-based derived-tree redaction. KEEP IN SYNC
@@ -182,35 +184,9 @@
 ;; regression in the cljs trips RED.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private runtime-cljs-path
-  (some (fn [p] (when (.exists (io/file p)) p))
-        ["preload/re_frame2_pair/runtime.cljs"
-         "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs"
-         "../preload/re_frame2_pair/runtime.cljs"]))
-
-(when-not runtime-cljs-path
-  (binding [*out* *err*]
-    (println "ERROR: cannot locate preload/re_frame2_pair/runtime.cljs from"
-             (System/getProperty "user.dir")))
-  (System/exit 2))
-
-(defn- read-all-forms [^String src]
-  (binding [*default-data-reader-fn* (fn [_tag v] v)]
-    (let [pbr (java.io.PushbackReader. (java.io.StringReader. src))]
-      (loop [acc []]
-        (let [form (try (read {:read-cond :allow :features #{:cljs}} pbr)
-                        (catch Exception _ ::eof))]
-          (if (= ::eof form) acc (recur (conj acc form))))))))
-
-(def ^:private all-forms (read-all-forms (slurp runtime-cljs-path)))
-
-(defn- defn-form [sym]
-  (some (fn [form]
-          (when (and (seq? form)
-                     (#{'defn 'defn-} (first form))
-                     (= sym (second form)))
-            form))
-        all-forms))
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
+;; (rf2-yrpt90). Alias the vars the assertions below use.
+(def ^:private defn-form rt/defn-named)
 
 (defn- mentions? [form needle]
   (let [hit? (atom false)]
