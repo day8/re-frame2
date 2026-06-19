@@ -133,8 +133,10 @@ the `Cmd/Ctrl+Shift+M` chord:
  its registrations from its resolved image, the EP-0023 `image -> frame`
  model). This is "what exists?", not "what just happened?". 5 tabs.
  *(Under the hood the registrar is owned by the frame's installation
- **realm**, the retained-internal substrate; that only surfaces in a
- multi-realm process — see §Static mode below.)*
+ **realm**, the retained-internal substrate. Post-EP-0023 that substrate
+ is collapsed to a single default realm — `re-frame.realm/realm-ids`
+ always resolves to exactly the one default realm — so it adds no public
+ browse dimension; see §Static mode below.)*
 
 Same design language, different temperature (per spec/007-UX-IA.md
 §Static mode). When the user wants to inspect a *single dispatch*, that's
@@ -272,7 +274,7 @@ inline (see *Where issues surface now* below).
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016 §Xray and AI tooling): the static resource registry, per-frame **live instances** (state · generation · owners · freshness), the **work ledger** of live fetch attempts, the route/resource graph, lifecycle/invalidation/cache-growth, and a scope audit + lints. It is also the EP-0016 mutation-completion lens — **mutation `:reply-to` continuations** (the `:rf.mutation/replied` trace), **descriptor-level invalidation evidence** (the `:invalidation` facet on the mutation settlement op — per-descriptor resolved scope / tags / `:refetch-populated?`, plus the fail-closed `:unresolved` and `:populate-exempt` sets), and the **named scope resolver resolution timeline** (`:rf.resource/scope-resolved` — resolver id, declared inputs, resolved scope). **Read-only** — observing pins nothing; values are summarized (params/scopes/data redaction-aware), never raw. Reads the runtime-db resource slices decoupled — Xray does **not** `:require` the optional resources artefact, so the panel renders cleanly even when the host has no resources. | "Where's my server state, what owns it, and is it stale?" / "What fetches are in flight?" / "Did my mutation's `:reply-to` fire, and did it invalidate the right scopes?" / "Why didn't this read refetch?" |
 | **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process across **all five contributor families** (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. Each node carries its storage / evaluation / lifecycle (owner) classifications, plus an **authority chip** for remote-backed nodes (an *authority* axis, not a storage class — see below). A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances, the materialized route slice with its nav-token owner). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
-| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame -> event stream`** public model, leading with the **FRAMES** section: each live frame as an execution context carrying its **resolved image** (the generation's `[kind id]` descriptors) + how it resolves `(kind id)` lookups. The retained-internal EP-0013 **realm / module** substrate (the `(realm, frame)` address space + per-module provenance off each realm's installed app value) renders BELOW — realm dimension implicit in a single-realm app, spelled only when >1 realm is present. The structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating frames / images / realms and reading installed app values pins nothing and dispatches nothing. Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — images, frames, and realms are process-global facts in the framework's registries. | "What frames exist, which image loaded each, and what modules / app values are installed?" |
+| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame -> event stream`** public model, leading with the **FRAMES** section: each live frame as an execution context carrying its **resolved image** (the generation's `[kind id]` descriptors) + how it resolves `(kind id)` lookups. The retained-internal EP-0013 **realm / module** substrate (per-module provenance off the installation realm's installed app value) renders BELOW. Post-EP-0023 that substrate is collapsed to default-only — `re-frame.realm/realm-ids` always resolves to exactly the single default realm — so the realm reads as a labeled-internal installation boundary for app-value provenance, not a multi-realm browse dimension. The structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating frames / images and reading installed app values pins nothing and dispatches nothing. Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — images and frames are process-global facts in the framework's registries. | "What frames exist, which image loaded each, and what modules / app values are installed?" |
 
 #### What the Graph tab contributes (all five families)
 
@@ -345,20 +347,22 @@ public model), so each tab is "what's registered in this frame". Order set
 by spec/007-UX-IA.md §Static mode: **Machines · Routes · Schemas · Flows ·
 Interceptors**.
 
-> **Realm is the retained-internal installation substrate (EP-0013 / EP-0023).**
-> Under the hood a frame's registrar is owned by its installation **realm**
-> (the realm owns the registrar/adapter/frame-registry; a frame belongs to
-> exactly one realm). Post-EP-0023 (graduated 2026-06-16) the realm is the
-> retained-INTERNAL substrate the public `image -> frame` model rides on, not
-> a peer public browse dimension. It surfaces **only in a multi-realm
-> process**, where it reads as the *internal installation realm*; a
-> single-realm app renders byte-identically with no realm ceremony, so for
-> the common case Static mode is just "what's registered in this frame". The
+> **Realm is the retained-internal installation substrate, collapsed to
+> default-only (EP-0013 / EP-0023).** Under the hood a frame's registrar is
+> owned by its installation **realm** (the realm owns the
+> registrar/adapter/frame-registry; a frame belongs to exactly one realm).
+> Post-EP-0023 (graduated 2026-06-16) the multi-realm substrate was
+> **collapsed to a single default realm**: `re-frame.realm/realm-ids` always
+> resolves to exactly `#{:rf.realm/default}`, non-default realm construction
+> was retired, so there is never more than one realm at runtime. The realm
+> is the retained-INTERNAL substrate the public `image -> frame` model rides
+> on, not a peer public browse dimension — it reads as a labeled-internal
+> installation boundary, never a "this process has N realms" browse axis.
+> Every app therefore renders the same single default realm with no realm
+> ceremony, so Static mode is just "what's registered in this frame". The
 > realm seams (`re-frame.realm/realm-ids`, `re-frame.frame/frame-realm` —
 > EP-0023 removed the `rf/*` facade arities, pl97nd.2) are read directly off
-> their owning namespaces. Xray's *trace-driven* per-row realm stamping is
-> still **deferred** (it waits on the framework stamping `:rf.realm/id` onto
-> the Spec 009 surfaces), so today every frame reads as the default realm.
+> their owning namespaces as an internal/tooling generation-bypass seam.
 > Source: `tools/xray/spec/007-UX-IA.md` §EP-0013 realm-awareness.
 
 | Tab | Mnem | One-line purpose | When you'd open it |
