@@ -24,9 +24,9 @@
             ;; trace fires (instead of an escaping `:rf.error/fx-handler-
             ;; exception`) when an invalid request header hits the managed
             ;; CLJS path. `re-frame.trace.tooling` owns the listener surface
-            ;; (rf2-qwm0a); `re-frame.http-privacy` carries the redaction
-            ;; sentinel for the denylist-scrub assertion.
-            [re-frame.http-privacy :as privacy]
+            ;; (rf2-qwm0a); `re-frame.http-url` carries the canonical redaction
+            ;; sentinel for the denylist-scrub assertion (rf2-m00e7p).
+            [re-frame.http-url :as http-url]
             [re-frame.test-support :as test-support]
             [re-frame.trace.tooling :as trace-tooling]))
 
@@ -593,7 +593,7 @@
 
 (deftest cljs-fetch-invalid-header-warning-redacts-denylisted-query-param
   (testing "rf2-f5pguu — the managed CLJS header-validation warning routes
-  its `:url` through `privacy/prepare-emit-tags` (same as the JVM path,
+  its `:url` through `re-frame.http-privacy/prepare-emit-tags` (same as the JVM path,
   rf2-1jcpm): a denylisted query param (`?api_key=…`) is scrubbed and
   `:sensitive?` is stamped at the top level of the trace event."
     (async done
@@ -619,7 +619,7 @@
                         "denylisted query-param value MUST be scrubbed in the trace URL")
                     (is (true? (:sensitive? w))
                         ":sensitive? stamped at top level — a denylisted param name is a signal")
-                    (is (= privacy/redacted-sentinel :rf/redacted)
+                    (is (= http-url/redacted-sentinel :rf/redacted)
                         "sanity: the redaction sentinel is the reserved keyword")))))
             (.then (fn [_] (done)))
             (.catch (fn [e]

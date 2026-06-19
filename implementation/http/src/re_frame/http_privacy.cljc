@@ -79,17 +79,13 @@
             [re-frame.http-url :as url]
             [re-frame.late-bind :as late-bind]))
 
-(def redacted-sentinel
-  "The framework-reserved redaction sentinel per Spec 009 §Privacy. Sits
-  in the `:rf/` reserved-keyword namespace so apps cannot legitimately
-  produce it as a payload value. Consumers wanting \"was this redacted?\"
-  check `(= :rf/redacted v)`.
-
-  rf2-ee38b.7 — re-exported from the canonical `re-frame.http-url`
-  definition so the keyword + its string form (`redacted-url-token`)
-  cannot drift across the privacy cluster. This var preserves the
-  public `re-frame.http-privacy/redacted-sentinel` surface."
-  url/redacted-sentinel)
+;; rf2-m00e7p — internal alias for terse composer call sites below; the
+;; canonical home is the sibling leaf `re-frame.http-url` (carries no
+;; privacy deps, so no leaf→parent cycle). Private — `http-privacy` no
+;; longer carries a public re-export of the sentinel (the public surface
+;; is `re-frame.http-url/redacted-sentinel`, itself a re-export of the
+;; canonical `re-frame.privacy/redacted-sentinel` in core).
+(def ^:private redacted-sentinel url/redacted-sentinel)
 
 ;; ---- frame-local carrier resolution (EP-0015 §3, rf2-ppkh3v) ---------------
 
