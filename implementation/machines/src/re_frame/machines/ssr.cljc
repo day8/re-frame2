@@ -90,7 +90,7 @@
           s-paths (strip sensitive)
           l-paths (strip large)]
       (if (or (seq s-paths) (seq l-paths))
-        (assoc snapshot :data (marks/redact-with-paths (:data snapshot) s-paths l-paths))
+        (update snapshot :data marks/redact-with-paths s-paths l-paths)
         snapshot))))
 
 (defn project-ssr-runtime-db
