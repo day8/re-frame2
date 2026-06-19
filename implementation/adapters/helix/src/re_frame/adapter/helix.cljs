@@ -85,9 +85,10 @@
   `:rf.error/owned-frame-provider-missing-id` (a `:frame` key with no `:id`
   is the common mistake and trips this guard — switch to `:id`, or use
   `frame-provider-existing {:frame …}` to merely scope). The three
-  React-shaped adapters share one React Context (per rf2-2qit Decision 2)
-  so a subtree under any frame-provider sees the right frame regardless of
-  which substrate rendered the provider.
+  React-shaped adapters share one React Context (the shared-context
+  decision — rf2-3yij Decision 2, carried into the Helix adapter as
+  rf2-2qit Decision 2) so a subtree under any frame-provider sees the
+  right frame regardless of which substrate rendered the provider.
 
   Idempotent re-mount (hot reload / React StrictMode dev double-invoke /
   Story re-evaluation): re-mounting under the same `:id` MUST NOT destroy
@@ -111,7 +112,7 @@
   under `$` for the element macro to mangle."
   [props]
   (owned-frame/owned-frame-react-element
-    (dissoc props :children)
+    props
     (:children props)
     're-frame.adapter.helix/frame-provider))
 
