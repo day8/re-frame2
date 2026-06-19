@@ -92,6 +92,25 @@
 
 (defn- validate-cookie-name!
   [n]
+  ;; rf2-d95o1y — type-guard BEFORE `(clojure.core/name n)`. A cookie
+  ;; `:name` is only a string or a `Named` (keyword / symbol); anything
+  ;; else (a Long `42`, a vector `[]`, a map `{}`, …) would make
+  ;; `clojure.core/name` throw a raw `ClassCastException` with nil
+  ;; ex-data, bypassing the documented `:rf.error/cookie-invalid-name`
+  ;; contract and reaching `:on-error` / adapter code as a generic host
+  ;; exception. Reject the unsupported type loudly through the same
+  ;; structured error id so the validation contract holds for every
+  ;; name shape, not just bad strings.
+  (when-not (or (string? n) (instance? clojure.lang.Named n))
+    (error/throw-error!
+      :rf.error/cookie-invalid-name
+      'rf.ssr/cookie->set-cookie-header
+      (str "cookie :name must be a string or a keyword/symbol; got a "
+           (.getName (class n)) " (" (pr-str n) "). Use a string or"
+           " keyword token-grammar cookie name.")
+      {:recovery :use-a-token-grammar-cookie-name
+       :extra    {:name n
+                  :type (.getName (class n))}}))
   (let [s (clojure.core/name n)]
     (if (http-validation/valid-token-name? s)
       s
@@ -145,56 +164,60 @@
       {:recovery :supply-a-cookie-name
        :extra    {:cookie cookie}}))
   ;; rf2-rpedl §P2.4 — RFC 6265 §4.1.1 cookie-name token grammar.
-  (validate-cookie-name! name)
-  ;; `Instant/ofEpochMilli` takes a primitive long; passing anything
-  ;; else (a string-shaped epoch from a misconfigured projector, a
-  ;; `java.util.Date`, …) would NPE deep inside the format path. Catch
-  ;; the type-mismatch up front with a clear
-  ;; `:rf.error/cookie-invalid-expires` so the misuse surfaces with the
-  ;; cookie's actual shape attached.
-  (when (and (some? expires) (not (integer? expires)))
-    (error/throw-error!
-      :rf.error/cookie-invalid-expires
-      'rf.ssr/cookie->set-cookie-header
-      (str ":expires must be an epoch-millis long; got "
-           (.getName (class expires))
-           ". Pass :expires as a long count of milliseconds since the epoch.")
-      {:recovery :supply-epoch-millis-long
-       :extra    {:expires expires
-                  :cookie  cookie}}))
-  ;; rf2-rpedl §P1.2 — gate every string-shaped attribute that gets
-  ;; concatenated into the Set-Cookie wire form. `:value` is URL-encoded
-  ;; (CR/LF/NUL come out as %0D/%0A/%00 — no injection path); `:expires`
-  ;; flows through `rfc1123-formatter` which only emits ASCII letters /
-  ;; digits / `, : SP`; `:secure` / `:http-only` are booleans. The
-  ;; remaining string-typed slots — `:domain`, `:path`, `:max-age`
-  ;; (callers sometimes pass strings), `:same-site` (string form
-  ;; tolerated by same-site-token) — are validated here.
-  (when (some? domain)    (validate-attribute-string! :domain    domain))
-  (when (some? path)      (validate-attribute-string! :path      path))
-  (when (some? max-age)   (validate-attribute-string! :max-age   max-age))
-  (when (some? same-site) (validate-attribute-string! :same-site same-site))
-  (let [parts (cond-> [(str (clojure.core/name name)
-                            "="
-                            (url-encode (or value "")))]
-                ;; Order doesn't matter to the RFC, but the canonical
-                ;; serving order in most libraries is:
-                ;;   Max-Age, Domain, Path, Expires, Secure, HttpOnly, SameSite
-                (some? max-age)  (conj (str "Max-Age=" max-age))
-                (some? domain)   (conj (str "Domain=" domain))
-                (some? path)     (conj (str "Path=" path))
-                (some? expires)
-                (conj (str "Expires="
-                           (.format rfc1123-formatter
-                                    (ZonedDateTime/ofInstant
-                                      ;; `expires` was type-checked above
-                                      ;; (`integer?`); coerce to a
-                                      ;; primitive long so the static-
-                                      ;; method dispatch picks the long
-                                      ;; arity without reflection.
-                                      (Instant/ofEpochMilli (long expires))
-                                      ZoneOffset/UTC))))
-                (true? secure)    (conj "Secure")
-                (true? http-only) (conj "HttpOnly")
-                (some? same-site) (conj (str "SameSite=" (same-site-token same-site))))]
-    (str/join "; " parts)))
+  ;; rf2-d95o1y — `validate-cookie-name!` returns the type-guarded,
+  ;; coerced name string; reuse it for the wire form so `(name …)` is
+  ;; not re-derived (and the type guard cannot be skipped on the wire
+  ;; path).
+  (let [name-str (validate-cookie-name! name)]
+    ;; `Instant/ofEpochMilli` takes a primitive long; passing anything
+    ;; else (a string-shaped epoch from a misconfigured projector, a
+    ;; `java.util.Date`, …) would NPE deep inside the format path. Catch
+    ;; the type-mismatch up front with a clear
+    ;; `:rf.error/cookie-invalid-expires` so the misuse surfaces with the
+    ;; cookie's actual shape attached.
+    (when (and (some? expires) (not (integer? expires)))
+      (error/throw-error!
+        :rf.error/cookie-invalid-expires
+        'rf.ssr/cookie->set-cookie-header
+        (str ":expires must be an epoch-millis long; got "
+             (.getName (class expires))
+             ". Pass :expires as a long count of milliseconds since the epoch.")
+        {:recovery :supply-epoch-millis-long
+         :extra    {:expires expires
+                    :cookie  cookie}}))
+    ;; rf2-rpedl §P1.2 — gate every string-shaped attribute that gets
+    ;; concatenated into the Set-Cookie wire form. `:value` is URL-encoded
+    ;; (CR/LF/NUL come out as %0D/%0A/%00 — no injection path); `:expires`
+    ;; flows through `rfc1123-formatter` which only emits ASCII letters /
+    ;; digits / `, : SP`; `:secure` / `:http-only` are booleans. The
+    ;; remaining string-typed slots — `:domain`, `:path`, `:max-age`
+    ;; (callers sometimes pass strings), `:same-site` (string form
+    ;; tolerated by same-site-token) — are validated here.
+    (when (some? domain)    (validate-attribute-string! :domain    domain))
+    (when (some? path)      (validate-attribute-string! :path      path))
+    (when (some? max-age)   (validate-attribute-string! :max-age   max-age))
+    (when (some? same-site) (validate-attribute-string! :same-site same-site))
+    (let [parts (cond-> [(str name-str
+                              "="
+                              (url-encode (or value "")))]
+                  ;; Order doesn't matter to the RFC, but the canonical
+                  ;; serving order in most libraries is:
+                  ;;   Max-Age, Domain, Path, Expires, Secure, HttpOnly, SameSite
+                  (some? max-age)  (conj (str "Max-Age=" max-age))
+                  (some? domain)   (conj (str "Domain=" domain))
+                  (some? path)     (conj (str "Path=" path))
+                  (some? expires)
+                  (conj (str "Expires="
+                             (.format rfc1123-formatter
+                                      (ZonedDateTime/ofInstant
+                                        ;; `expires` was type-checked above
+                                        ;; (`integer?`); coerce to a
+                                        ;; primitive long so the static-
+                                        ;; method dispatch picks the long
+                                        ;; arity without reflection.
+                                        (Instant/ofEpochMilli (long expires))
+                                        ZoneOffset/UTC))))
+                  (true? secure)    (conj "Secure")
+                  (true? http-only) (conj "HttpOnly")
+                  (some? same-site) (conj (str "SameSite=" (same-site-token same-site))))]
+      (str/join "; " parts))))

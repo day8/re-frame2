@@ -164,7 +164,34 @@
         (is (str/starts-with?
               (ssr-ring/cookie->set-cookie-header {:name ok :value "v"})
               (str ok "="))
-            (str "valid name " (pr-str ok) " should serialise"))))))
+            (str "valid name " (pr-str ok) " should serialise"))))
+
+    (testing "keyword / symbol names are coerced via clojure.core/name"
+      (doseq [named [:session 'session :data-1.2.3]]
+        (is (str/starts-with?
+              (ssr-ring/cookie->set-cookie-header {:name named :value "v"})
+              (str (clojure.core/name named) "="))
+            (str "Named cookie name " (pr-str named) " should serialise"))))
+
+    (testing "rf2-d95o1y — non-string / non-Named :name throws a STRUCTURED
+              :rf.error/cookie-invalid-name (not a raw ClassCastException)"
+      (doseq [bad [42 3.14 [] [1 2 3] {} {:k 1} #{1 2} true]]
+        (let [t (try
+                  (ssr-ring/cookie->set-cookie-header {:name bad :value "v"})
+                  ::no-throw
+                  (catch clojure.lang.ExceptionInfo e e)
+                  (catch Throwable e e))]
+          (is (instance? clojure.lang.ExceptionInfo t)
+              (str "non-Named name " (pr-str bad)
+                   " must throw an ex-info, not a raw host exception; got "
+                   (if (instance? Throwable t) (class t) t)))
+          (when (instance? clojure.lang.ExceptionInfo t)
+            (is (= :rf.error/cookie-invalid-name
+                   (:rf.error/id (ex-data t)))
+                (str "non-Named name " (pr-str bad)
+                     " must surface :rf.error/cookie-invalid-name"))
+            (is (= bad (:name (ex-data t)))
+                (str "ex-data must carry the offending :name value"))))))))
 
 ;; ===========================================================================
 ;; ssr-handler — happy path (Ring-level smoke)
