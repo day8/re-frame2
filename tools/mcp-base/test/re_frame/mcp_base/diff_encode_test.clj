@@ -726,21 +726,21 @@
               "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)"))))))
 
 (deftest decode-db-after-rejects-malformed-sections-slot
-  ;; rf2-y3qpv: a diff marker whose `:sections` slot is MISSING, `nil`,
-  ;; or `false` previously decoded to a no-op via `(or sections [])` —
-  ;; an empty seq satisfies `[:sequential section-schema]`, so the gate
-  ;; never tripped and the epoch's real `:db-after` change was silently
-  ;; ERASED back to `:db-before`. The raw slot is now validated, so a
-  ;; non-sequential `:sections` trips `:rf.error/bad-diff-sections`
-  ;; (Malli present). `:db-before` carries a real change so a regression
-  ;; (silent no-op) would observably hand back `{:a 1}` instead of throwing.
-  (testing "missing :sections slot throws"
-    (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before}}]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-sections"
-            (de/decode-db-after epoch)))))
+  ;; rf2-y3qpv: a diff marker whose `:sections` slot is `nil` or `false`
+  ;; previously decoded to a no-op via `(or sections [])` — an empty seq
+  ;; satisfies `[:sequential section-schema]`, so the gate never tripped
+  ;; and the epoch's real `:db-after` change was silently ERASED back to
+  ;; `:db-before`. The raw slot is now validated, so a PRESENT non-sequential
+  ;; `:sections` trips `:rf.error/bad-diff-sections` (Malli present).
+  ;; `:db-before` carries a real change so a regression (silent no-op) would
+  ;; observably hand back `{:a 1}` instead of throwing.
+  ;;
+  ;; rf2-71kxvb: a MISSING `:sections` key is now a marker-BODY shape
+  ;; violation (the closed two-key contract), so it trips the structural
+  ;; `:rf.error/bad-diff-marker` gate FIRST (see
+  ;; `decode-db-after-rejects-malformed-marker-body`). A PRESENT-but-falsey
+  ;; `:sections` still satisfies the closed key set, so the body gate passes
+  ;; and `validate-sections!` owns the `bad-diff-sections` verdict below.
   (testing ":sections nil throws"
     (let [epoch {:db-before {:a 1}
                  :db-after  {:rf.mcp/diff-from :db-before
@@ -757,15 +757,79 @@
             clojure.lang.ExceptionInfo
             #":rf\.error/bad-diff-sections"
             (de/decode-db-after epoch)))))
-  (testing "the malformed-slot throw names the DECODE-side boundary"
+  (testing "the present-but-falsey-slot throw names the DECODE-side boundary"
     (let [epoch {:db-before {:a 1}
-                 :db-after  {:rf.mcp/diff-from :db-before}}]
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections nil}}]
       (try
         (de/decode-db-after epoch)
         (is false "expected throw")
         (catch clojure.lang.ExceptionInfo e
           (is (= :rf.error/bad-diff-sections (:rf.error/id (ex-data e))))
           (is (= 'mcp-base/decode-db-after (:where (ex-data e)))))))))
+
+(deftest decode-db-after-rejects-malformed-marker-body
+  ;; rf2-71kxvb — the decoder recognizes a diff marker on the PRESENCE of
+  ;; the `:rf.mcp/diff-from` key (intent), then enforces the CLOSED
+  ;; marker-body contract (mcp-conformance `DiffFromBody`): EXACTLY
+  ;; `{:rf.mcp/diff-from :db-before, :sections [...]}` — two top-level keys,
+  ;; the marker value restricted to `:db-before`. A pure STRUCTURAL gate
+  ;; (no Malli), so it fires regardless of Malli presence. Previously:
+  ;;   - an extra sibling key slipped past (only `:sections` was checked);
+  ;;   - an unsupported marker value was treated as 'not a diff' and passed
+  ;;     THROUGH unchanged, letting a corrupt/third-party marker survive.
+  (testing "an extra sibling top-level key rejects (closed two-key contract)"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections []
+                             :sneaky   :key}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-marker"
+            (de/decode-db-after epoch)))))
+  (testing "a missing :sections key rejects (the closed pair is incomplete)"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-marker"
+            (de/decode-db-after epoch)))))
+  (testing "an unsupported :rf.mcp/diff-from value rejects (not a silent passthrough)"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-later  ;; only :db-before is conformant
+                             :sections []}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-marker"
+            (de/decode-db-after epoch)))))
+  (testing "the marker-body throw is value-free + names the DECODE-side boundary"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections []
+                             :secret   "sensitive-payload"}}]
+      (try
+        (de/decode-db-after epoch)
+        (is false "expected throw")
+        (catch clojure.lang.ExceptionInfo e
+          (let [data (ex-data e)]
+            (is (= :rf.error/bad-diff-marker (:rf.error/id data)))
+            (is (= 'mcp-base/decode-db-after (:where data)))
+            (is (= :no-recovery (:recovery data)))
+            (is (= #{:rf.mcp/diff-from :sections} (:expected-keys data)))
+            (is (= #{:rf.mcp/diff-from :sections :secret} (:actual-keys data)))
+            ;; value-free (EP-0015): no smuggled app-db payload anywhere in
+            ;; ex-data or the message.
+            (is (not (clojure.string/includes? (pr-str data) "sensitive-payload"))
+                "the offending value MUST NOT leak into the diagnostic"))))))
+  (testing "the canonical two-key marker still decodes (the gate is a guard, not a blanket reject)"
+    (let [epoch   {:db-before {:user {:name "ada" :age 30}}
+                   :db-after  {:user {:name "ada" :age 31}}}
+          encoded (de/diff-encode-db-after epoch)]
+      (is (= epoch (de/decode-db-after encoded))
+          "a well-formed {:rf.mcp/diff-from :db-before :sections [...]} round-trips")))
+  (testing "a no-marker full :db-after still passes through unchanged"
+    (let [epoch {:db-before {:a 1} :db-after {:a 1 :b 2}}]
+      (is (= epoch (de/decode-db-after epoch))))))
 
 (deftest decode-db-after-explicit-empty-sections-is-valid-no-change
   ;; rf2-y3qpv companion: an EXPLICIT `:sections []` is a legitimate
