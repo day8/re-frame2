@@ -60,7 +60,7 @@ The runtime offers two complementary dev-time tools: handler `:schema` (validate
    [:body    :string]
    [:authors [:vector [:map [:id :uuid] [:name :string]]]]])
 
-(rf/reg-app-schema [:article] Article)                          ;; dev-only — surfaces mismatches in dev
+(rf/reg-app-schema [:article :data] Article)                    ;; dev-only — validates the article PAYLOAD slice only
 
 (rf/reg-event :article/load
   {:doc    "Load one article by slug."
@@ -68,8 +68,8 @@ The runtime offers two complementary dev-time tools: handler `:schema` (validate
    :interceptors [:rf.schema/at-boundary]}                      ;; ALWAYS-ON ref — runs in production
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
-      {:db (assoc db :article (:value reply))}                  ;; reply is validated by Article on decode
-      {:db (assoc-in db [:article :status] :loading)
+      {:db (assoc-in db [:article :data] (:value reply))}       ;; reply is validated by Article on decode AND by the path schema in dev
+      {:db (assoc-in db [:article :status] :loading)            ;; lifecycle status lives off the schema'd payload path
        :fx [[:rf.http/managed
              {:request {:url (str "/articles/" slug)}
               :decode  Article}]]})))                            ;; ALWAYS-ON — Managed HTTP decode runs in prod
