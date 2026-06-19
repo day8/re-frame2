@@ -6,18 +6,19 @@
 ;;;; Why a parallel implementation lives here:
 ;;;;
 ;;;;   `preload/re_frame2_pair/runtime.cljs` is a CLJS-only file loaded
-;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It
-;;;;   uses `js/parseInt`, so it can't run under bb directly. The real shadow-cljs test build (planned per
-;;;;   `docs/TESTING.md` §1) will exercise the `.cljs` source in place
-;;;;   under Node — that's the canonical home for these tests once the
-;;;;   build is wired up.
-;;;;
-;;;;   Until then, this file mirrors the parser logic and asserts
-;;;;   behaviour against samples cribbed from re-frame2's own tests
+;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It now
+;;;;   aliases the CANONICAL parser `re-frame.source-coords/parse-source-coord`
+;;;;   (the source-coord contract owner; rf2-nr7vf2 collapsed the formerly-
+;;;;   triplicated parser onto it — the inverse of `format-source-coord`).
+;;;;   Loading that core `.cljc` ns under bb would drag in re-frame.interop +
+;;;;   the editor-uri sibling, so this script keeps a dependency-free mirror
+;;;;   of the four-segment parse and asserts behaviour against samples cribbed
+;;;;   from re-frame2's own tests
 ;;;;   (`implementation/reagent/test/re_frame/source_coord_dom_cljs_test.cljs`
 ;;;;   and `implementation/core/test/re_frame/ssr_source_coord_test.clj`)
-;;;;   so format drift in `runtime.cljs` shows up under `bb` until the
-;;;;   shadow-cljs harness lands.
+;;;;   so format drift shows up under `bb`. The canonical CLJS-side coverage
+;;;;   lives next to the parser in
+;;;;   `implementation/core/test/re_frame/source_coords_cljs_test.cljs`.
 ;;;;
 ;;;; Run:    bb tests/runtime/parse_rf2_coord_test.clj
 ;;;; Exit:   0 = pass, non-zero = fail.
@@ -27,11 +28,12 @@
             [clojure.test :refer [deftest is run-tests testing]]))
 
 ;; ---------------------------------------------------------------------------
-;; Mirror of preload/re_frame2_pair/runtime.cljs `parse-rf2-coord`.
+;; Mirror of the canonical `re-frame.source-coords/parse-source-coord`
+;; (which `preload/re_frame2_pair/runtime.cljs` aliases as `parse-rf2-coord`).
 ;;
-;; KEEP IN SYNC WITH preload/re_frame2_pair/runtime.cljs. Logic is identical except
-;; for `js/parseInt` -> `Long/parseLong` (bb runtime). The regex,
-;; segment count, and shape are the contract under test.
+;; KEEP IN SYNC WITH implementation/core/src/re_frame/source_coords.cljc.
+;; Logic is identical except for `js/parseInt` -> `Long/parseLong` (bb
+;; runtime). The regex, segment count, and shape are the contract under test.
 ;; ---------------------------------------------------------------------------
 
 (defn- parse-int-str [s]
@@ -39,7 +41,7 @@
     (Long/parseLong s)))
 
 (defn parse-rf2-coord
-  "See preload/re_frame2_pair/runtime.cljs for the canonical version.
+  "See re-frame.source-coords/parse-source-coord for the canonical version.
    Returns {:ns :handler-id :line :col} or nil."
   [attr-val]
   (when (and (string? attr-val) (seq attr-val))

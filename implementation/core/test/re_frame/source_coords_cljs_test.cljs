@@ -25,6 +25,7 @@
   (when no form-meta `:file` is available and `*file*` is the sentinel)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.source-coords :as source-coords]
             [re-frame.test-support :as test-support]))
 
@@ -154,3 +155,61 @@
 (deftest resolve-file-omits-when-both-nil
   (testing "rf2-mdjp: resolve-file returns nil when neither source supplies a file"
     (is (nil? (source-coords/resolve-file {} nil)))))
+
+;; ---- parse-source-coord (rf2-nr7vf2) ----------------------------------------
+;;
+;; The canonical inverse of `format-source-coord`, collapsing the parser
+;; that was reimplemented near-byte-for-byte in Story's element_inspector
+;; and the re-frame2-pair preload runtime. These tests pin the four-segment
+;; parse contract (Spec 006 §Attribute value format) and the round-trip
+;; against the REAL `re-frame.adapter.context/format-source-coord` so the
+;; format + parse pair can never drift apart.
+
+(deftest parse-source-coord-canonical-shape
+  (testing "rf2-nr7vf2: a four-segment value parses to {:ns :handler-id :line :col}"
+    (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
+           (source-coords/parse-source-coord "counter.core:counter-buttons:47:11")))))
+
+(deftest parse-source-coord-degraded-placeholders
+  (testing "rf2-nr7vf2: `?` placeholders parse the id portion; line/col are nil"
+    (is (= {:ns "rf.x" :handler-id "programmatic" :line nil :col nil}
+           (source-coords/parse-source-coord "rf.x:programmatic:?:?")))
+    (is (= {:ns "ns.x" :handler-id "view" :line 42 :col nil}
+           (source-coords/parse-source-coord "ns.x:view:42:?")))))
+
+(deftest parse-source-coord-dotted-and-hyphenated
+  (testing "rf2-nr7vf2: dotted ns + hyphenated handler-id parse cleanly"
+    (is (= {:ns "my-app.cart.view" :handler-id "apply-coupon-button" :line 125 :col 4}
+           (source-coords/parse-source-coord "my-app.cart.view:apply-coupon-button:125:4")))))
+
+(deftest parse-source-coord-malformed-returns-nil
+  (testing "rf2-nr7vf2: malformed input returns nil and never throws"
+    (is (nil? (source-coords/parse-source-coord "ns:view:42")))      ; too few
+    (is (nil? (source-coords/parse-source-coord "ns:view")))
+    (is (nil? (source-coords/parse-source-coord "a:b:1:2:3")))       ; too many
+    (is (nil? (source-coords/parse-source-coord ":handler:1:2")))    ; empty ns
+    (is (nil? (source-coords/parse-source-coord "ns::1:2")))         ; empty sym
+    (is (nil? (source-coords/parse-source-coord "")))
+    (is (nil? (source-coords/parse-source-coord nil)))
+    (is (nil? (source-coords/parse-source-coord 42)))
+    (is (nil? (source-coords/parse-source-coord :keyword)))))
+
+(deftest format-then-parse-round-trips
+  (testing "rf2-nr7vf2: (parse-source-coord (format-source-coord id coords)) recovers id + coords"
+    (let [round-trip (fn [id coords]
+                       (source-coords/parse-source-coord
+                         (adapter-context/format-source-coord id coords)))]
+      ;; numeric line + col
+      (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
+             (round-trip :counter.core/counter-buttons {:line 47 :column 11})))
+      ;; line only (column not captured -> `?` -> nil)
+      (is (= {:ns "ns.x" :handler-id "view" :line 42 :col nil}
+             (round-trip :ns.x/view {:line 42})))
+      ;; no coords at all (programmatic) -> both `?` -> nil
+      (is (= {:ns "ns.x" :handler-id "view" :line nil :col nil}
+             (round-trip :ns.x/view {})))
+      ;; namespaceless id -> formatter emits `?` ns, which the parser
+      ;; treats as a non-empty segment (the `?` is a literal char, distinct
+      ;; from an empty segment) so the round trip still recovers it
+      (is (= {:ns "?" :handler-id "bare" :line 1 :col 2}
+             (round-trip :bare {:line 1 :column 2}))))))

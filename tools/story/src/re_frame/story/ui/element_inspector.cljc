@@ -61,10 +61,9 @@
   attribute it reads is itself dev-only (elides via
   `interop/debug-enabled?`) — under prod the inspector would find no
   matches and click would no-op. Per Spec 009 §Production builds."
-  (:require [clojure.string :as str]
+  (:require [re-frame.source-coords :as source-coords]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
-                       [re-frame.source-coords :as source-coords]
                        [re-frame.story.ui.canvas-listeners :as canvas-listeners]
                        [re-frame.story.ui.open-in-editor :as open-in-editor]])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -95,29 +94,18 @@
 
 ;; ---- pure: parse + resolve coord ----------------------------------------
 
-(defn parse-coord
+(def parse-coord
   "Parse a `data-rf2-source-coord` attribute value into
   `{:ns :handler-id :line :col}` or nil. Per Spec 006 §Attribute value
   format — `<ns>:<sym>:<line>:<col>`, with `?` for missing coords.
 
-  Mirrors the parser in `skills/re-frame2-pair/.../runtime.cljs` (the
-  re-frame2-pair nREPL consumer that does the same DOM → id walk). Returns nil
-  for malformed input (too few / too many segments, empty ns or
-  handler-id, non-string input). Never throws."
-  [attr-val]
-  (when (and (string? attr-val) (seq attr-val))
-    (let [parts (str/split attr-val #":")]
-      (when (= 4 (count parts))
-        (let [[ns-part sym-part line-part col-part] parts
-              parse-int (fn [s]
-                          (when (and (string? s) (re-matches #"\d+" s))
-                            #?(:cljs (js/parseInt s 10)
-                               :clj  (Long/parseLong s))))]
-          (when (and (seq ns-part) (seq sym-part))
-            {:ns         ns-part
-             :handler-id sym-part
-             :line       (parse-int line-part)
-             :col        (parse-int col-part)}))))))
+  Alias of the canonical `re-frame.source-coords/parse-source-coord` (the
+  source-coord contract owner) — the inverse of `format-source-coord`. The
+  parser used to be reimplemented near-byte-for-byte here and in the
+  re-frame2-pair preload runtime; rf2-nr7vf2 collapsed both onto the one
+  canonical parser. Returns nil for malformed input (too few / too many
+  segments, empty ns or handler-id, non-string input). Never throws."
+  source-coords/parse-source-coord)
 
 (defn coord->handler-keyword
   "Build the registered view id keyword from a parsed coord. Returns nil
