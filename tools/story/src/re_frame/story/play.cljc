@@ -71,6 +71,10 @@
             ;; (`register-listener!` / `unregister-listener!`) lives in
             ;; `re-frame.trace.tooling` (production-DCE split).
             [re-frame.trace.tooling    :as trace-tooling]
+            ;; rf2-7737vq — the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/frame-of`), replacing Story's hand-rolled
+            ;; `[:tags :frame]` read.
+            [re-frame.trace            :as trace]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
@@ -93,11 +97,6 @@
 (defn- listener-id [frame-id]
   (keyword "re-frame.story.play"
            (str "trace-" (when frame-id (str frame-id)))))
-
-(defn- frame-of [ev]
-  ;; Per Spec 009 §Per-frame routing: the canonical tag key is :frame
-  ;; (rf2-shaa1 dropped the :frame-id alias from impl emit sites).
-  (get-in ev [:tags :frame]))
 
 ;; Per-frame pending-exception accumulator. The listener captures
 ;; `:rf.error/handler-exception` synchronously (from inside the running
@@ -150,7 +149,7 @@
      projection."
   [frame-id]
   (fn [ev]
-    (when (= frame-id (frame-of ev))
+    (when (= frame-id (trace/frame-of ev))
       (cond
         ;; rf2-6z4znr — resolve the suppress decision against THIS frame's
         ;; egress profile (the listener is already frame-scoped). Revealing a

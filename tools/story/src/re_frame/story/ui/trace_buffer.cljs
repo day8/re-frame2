@@ -32,6 +32,10 @@
             ;; rf2-qwm0a — listener API lives in
             ;; `re-frame.trace.tooling` (production-DCE split).
             [re-frame.trace.tooling :as trace-tooling]
+            ;; rf2-7737vq — the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`), replacing Story's
+            ;; hand-rolled `[:tags :frame]` read.
+            [re-frame.trace :as trace]
             [re-frame.story.config :as config]))
 
 ;; ---- the per-variant trace buffer ----------------------------------------
@@ -135,13 +139,13 @@
            (str "listener-" (when variant-id (str variant-id)))))
 
 (defn- variant-event?
-  "Filter predicate: true iff `ev` targets `variant-id`'s frame. The
-  trace events emit `:frame` under `:tags`; events that have no frame
-  scope (registry / global) match nothing. Per Spec 009 §Per-frame
-  routing — `:frame` is the canonical tag key (rf2-shaa1 dropped the
-  `:frame-id` alias from impl emit sites)."
+  "Filter predicate: true iff RAW trace event `ev` targets `variant-id`'s
+  frame. Reads via the canonical `re-frame.trace/trace-event-frame`
+  reader (its `[:tags :frame]` slot); events that have no frame scope
+  (registry / global) match nothing. Per Spec 009 §Frame identity on the
+  raw event (rf2-7737vq) — `:frame` rides under `:tags` on the raw layer."
   [variant-id ev]
-  (= variant-id (get-in ev [:tags :frame])))
+  (= variant-id (trace/trace-event-frame ev)))
 
 (defn register-listener!
   "Install a trace listener that appends every `variant-id`-scoped event
