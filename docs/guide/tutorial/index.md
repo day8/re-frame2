@@ -176,7 +176,7 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))   ;; 3. seed app-db before first render
   (rdc/render root
-    [rf/frame-provider {:frame :rf/default} ;; 4. the whole tree runs in this frame
+    [rf/frame-provider-existing {:frame :rf/default} ;; 4. the whole tree runs in this frame
      [shell]]))
 ```
 
@@ -196,7 +196,7 @@ The events, subs, and views here are just the quickstart's loop again — an eve
 
     An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`.
 
-**Move 4 — `frame-provider` wraps the tree.** The provider carries `:rf/default` down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it — much like a React context provider you've used before. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
+**Move 4 — `frame-provider-existing` wraps the tree.** The provider carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it — much like a React context provider you've used before. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
 
 !!! warning "Failure mode 3 — `:rf.error/no-frame-context` (at a subscribe)"
 
@@ -230,6 +230,6 @@ One event, one state, nothing else. **Keep Xray open for the whole tutorial.** E
 **You can now:**
 
 - Scaffold a re-frame2 project on the real toolchain: `deps.edn`, `package.json`, `shadow-cljs.edn`, a host page.
-- Boot an app honestly, and say what each move does: `init!` (substrate), `reg-frame` (the app's frame), `with-frame` + `dispatch-sync` (seed before first render), `frame-provider` (carry the frame down the tree).
+- Boot an app honestly, and say what each move does: `init!` (substrate), `reg-frame` (the app's frame), `with-frame` + `dispatch-sync` (seed before first render), `frame-provider-existing` (carry the frame down the tree).
 - Diagnose the four first-render failures by id: `:rf.error/no-adapter-installed`, `:rf.error/no-frame-context` (dispatch- and subscribe-side), `:rf.error/no-such-handler`, `:rf.error/no-such-fx`.
 - Run the app with Xray attached and read your first event row.

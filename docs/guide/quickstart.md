@@ -163,11 +163,11 @@ The snippets above are the whole app *except* for boot. Boot is the one place yo
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/initialise]))     ; seed before first render
   (rdc/render root
-              [rf/frame-provider {:frame :rf/default}
+              [rf/frame-provider-existing {:frame :rf/default}
                [counter/counter-app]]))
 ```
 
-A **frame** is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](concepts/images.md); by default that's the one implicit image projected from everything you've registered, so you don't name it. `frame-provider` scopes the mounted views to the frame, so every `subscribe` and `dispatch` inside resolves there. This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)).
+A **frame** is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](concepts/images.md); by default that's the one implicit image projected from everything you've registered, so you don't name it. `frame-provider-existing` scopes the mounted views to the already-registered frame, so every `subscribe` and `dispatch` inside resolves there. This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)).
 
 ---
 

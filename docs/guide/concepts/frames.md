@@ -48,11 +48,11 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
   ;; synchronously; by the time reg-frame returns, the cascade has settled.
   (rf/reg-frame :app {:on-create [:app/initialise]})
   (rdc/render react-root
-    [rf/frame-provider {:frame :app}
+    [rf/frame-provider-existing {:frame :app}
      [main-view]]))
 ```
 
-`frame-provider` establishes the frame for everything underneath it, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it. (`dispatch` sends an event into the queue; `subscribe` reads a derived value.) This covers the ones injected into [registered views](views.md) and the ones your event handlers cause. The frame is invisible inside its own scope — and that's a design rule, not an accident. Going multi-frame later must not change a line of your app code, which means single-frame code is forbidden from ever depending on which frame it's in.
+`frame-provider-existing` scopes the already-registered `:app` frame for everything underneath it, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it. (`dispatch` sends an event into the queue; `subscribe` reads a derived value.) This covers the ones injected into [registered views](views.md) and the ones your event handlers cause. The frame is invisible inside its own scope — and that's a design rule, not an accident. Going multi-frame later must not change a line of your app code, which means single-frame code is forbidden from ever depending on which frame it's in.
 
 Notice that `init!` created no frame. Nothing is implicit about which frame your root uses; you say so, once, at the root.
 
@@ -80,7 +80,7 @@ Here's the split pane, end to end:
 (rf/reg-sub :n (fn [db _] (:n db)))
 
 ;; Registered once. The injected `dispatch` / `subscribe` resolve against
-;; whichever frame-provider this view renders under.
+;; whichever frame this view renders under.
 (rf/reg-view counter-panel [label]
   [:div
    [:h3 label]
@@ -89,8 +89,8 @@ Here's the split pane, end to end:
 
 (rf/reg-view split-screen []
   [:div.split
-   [rf/frame-provider {:frame :pane/left}  [counter-panel "Left"]]
-   [rf/frame-provider {:frame :pane/right} [counter-panel "Right"]]])
+   [rf/frame-provider-existing {:frame :pane/left}  [counter-panel "Left"]]
+   [rf/frame-provider-existing {:frame :pane/right} [counter-panel "Right"]]])
 
 ;; At boot — after (rf/init! ...) — register the pane frames, then render
 ;; under the app's root provider (:app, registered in the boot snippet
@@ -100,7 +100,7 @@ Here's the split pane, end to end:
 (rf/reg-frame :pane/right {:on-create [::init]})
 
 (rdc/render react-root
-  [rf/frame-provider {:frame :app}
+  [rf/frame-provider-existing {:frame :app}
    [split-screen]])
 ```
 
