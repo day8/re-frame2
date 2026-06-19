@@ -77,6 +77,93 @@
          #js {:value frame-kw}
          children))
 
+(defn normalize-children
+  "Collapse a substrate element-macro's trailing-`$`-children value into a
+  flat positional arg list (rf2-7kii2). The native trailing-children idiom
+  hands a provider core whatever shape each substrate's element macro
+  stashes on `:children` — a JS ARRAY for multiple trailing children
+  (UIx's `(cljs.core/array …)`, Helix's `(into-array …)`), a SINGLE element
+  for one trailing child (Helix), a CLJS vector/seq, or `nil` (no
+  children). All four collapse here: a JS array is spread via `array-seq`,
+  an existing CLJS sequential is passed through, `nil` becomes no children,
+  and any lone non-collection child is wrapped. React keys multi-child
+  arrays correctly because the spread reaches `createElement` as distinct
+  positional args, not a single array child.
+
+  Shared by `re-frame.substrate.spine/build-frame-provider-element` (the
+  scope-only provider core) and `re-frame.views.owned-frame`'s
+  `owned-frame-fc` / `owned-frame-react-element` (the UI-owned provider
+  cores) so the three element builders normalise children one identical
+  way — `(apply provider-element frame-kw (normalize-children children))`."
+  [children]
+  (cond
+    (nil? children)        nil
+    (array? children)      (array-seq children)
+    (sequential? children) children
+    :else                  [children]))
+
+;; ---- source-coord annotation value formatters (Spec 006) ------------------
+;;
+;; The `data-rf2-source-coord` / `data-rf-view` DOM attribute VALUES are
+;; pure string projections of the registry slot's id + captured coords.
+;; The DOM output MUST be byte-identical across substrates (Reagent's
+;; hiccup walk in `re-frame.views.source-coord-annotation` and the
+;; React-element-clone walk in `re-frame.substrate.spine` produce the SAME
+;; attribute string for the same view), so the formatters live here once —
+;; a shared leaf both walks already require — rather than as drifting
+;; per-walk copies. The injection WALKS stay split (hiccup vs React-element
+;; are genuinely different); only these pure formatters are shared.
+
+(defn format-source-coord
+  "Render the registry slot's captured coords as the attribute value shape
+  `<ns>:<sym>:<line>:<col>`. The id keyword's namespace and name give us
+  `<ns>` and `<sym>`; `<line>` / `<col>` come from the captured coords
+  (CLJS reg-view macro at expansion time). `<col>` is `?` when the column
+  was not captured (the column-key is optional per Spec 001). Per Spec 006
+  §Source-coord annotation. Shared by the Reagent hiccup walk
+  (`re-frame.views.source-coord-annotation`) and the React-element-clone
+  walk (`re-frame.substrate.spine`) so the attribute value is identical
+  across substrates."
+  [id coords]
+  (let [ns-part  (or (namespace id) "?")
+        sym-part (name id)
+        line     (:line coords)
+        col      (:column coords)]
+    (str ns-part ":" sym-part ":"
+         (if line (str line) "?")
+         ":"
+         (if col (str col) "?"))))
+
+(defn format-view-id
+  "Render the registry id keyword as the `:data-rf-view` attribute value.
+  Returns `(str id)` so `:rf.foo/bar` → `\":rf.foo/bar\"`. The walker reads
+  it back via `(keyword (subs s 1))` when the leading `:` is present. Per
+  Spec 006 §View tagging contract (rf2-01il5). Shared by the Reagent and
+  React-element walks so the attribute value is identical across
+  substrates."
+  [id]
+  (str id))
+
+(defn non-dom-root-warning
+  "Build the one-shot `console.warn` text for a reg-view'd component whose
+  root element is a non-DOM root (a fn/class component or a React Fragment)
+  — the source-coord walk skips the annotation and pair tools fall back to
+  the registry's `:rf/id` (documented exemption per Spec 006 §Source-coord
+  annotation). `type-tag` is the offending root's head/type for the
+  diagnostic. `substrate-name` is an optional string identifying the host
+  substrate (\"UIx\", \"Helix\", …); it is omitted from the message when
+  nil — the Reagent hiccup-walk path passes nil (no substrate qualifier),
+  the React-element spine path passes its substrate name. Shared by
+  `re-frame.views.warn-once` and `re-frame.substrate.spine` so the message
+  text does not drift; each side keeps its OWN warn-once cache."
+  [id type-tag substrate-name]
+  (str "[re-frame] reg-view " id " — root element is "
+       (pr-str type-tag)
+       (when substrate-name (str " (" substrate-name ")"))
+       "; data-rf2-source-coord skipped "
+       "(Spec 006 §Source-coord annotation: pair tools fall back to "
+       ":rf/id for non-DOM roots)."))
+
 ;; ---- coercion helper for React-context reads ------------------------------
 ;;
 ;; Defensive cover for raw-hiccup Provider mounts. The canonical user-

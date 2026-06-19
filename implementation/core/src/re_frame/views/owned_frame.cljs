@@ -326,11 +326,7 @@
       #js [])
     (apply adapter-context/provider-element
            frame-id
-           (cond
-             (nil? children)        nil
-             (array? children)      (array-seq children)
-             (sequential? children) children
-             :else                  [children]))))
+           (adapter-context/normalize-children children))))
 
 (defn ^:no-doc owned-frame-react-element
   "Build the raw React element for the UI-owned frame-provider, for the
@@ -352,8 +348,4 @@
   (apply React/createElement
          owned-frame-fc
          #js {:rfOpts (owned-frame-opts props)}
-         (cond
-           (nil? children)        nil
-           (array? children)      (array-seq children)
-           (sequential? children) children
-           :else                  [children])))
+         (adapter-context/normalize-children children)))

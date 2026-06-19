@@ -81,23 +81,19 @@
   `data-rf2-source-coord` + `data-rf-view` DOM attributes (which DO
   work and are read by re-frame-pair, the view-walker, IDE jump-to-
   source tooling) ride the same wrapper unchanged."
-  (:require [re-frame.views.warn-once :as warn-once]))
+  (:require [re-frame.adapter.context :as adapter-context]
+            [re-frame.views.warn-once :as warn-once]))
 
-(defn format-source-coord
-  "Render the registry slot's captured coords as the attribute value
-  shape `<ns>:<sym>:<line>:<col>`. The id keyword's namespace and name
-  give us `<ns>` and `<sym>`; `<line>` / `<col>` come from the captured
-  coords (CLJS reg-view macro at expansion time). Per Spec 006
-  §Source-coord annotation."
-  [id coords]
-  (let [ns-part  (or (namespace id) "?")
-        sym-part (name id)
-        line     (:line coords)
-        col      (:column coords)]
-    (str ns-part ":" sym-part ":"
-         (if line (str line) "?")
-         ":"
-         (if col (str col) "?"))))
+;; `format-source-coord` / `format-view-id` are the pure string projections
+;; of the annotation attribute VALUES. They live in the shared leaf
+;; `re-frame.adapter.context` so the Reagent hiccup walk here and the
+;; React-element-clone walk in `re-frame.substrate.spine` produce byte-
+;; identical `data-rf2-source-coord` / `data-rf-view` values across
+;; substrates (rf2-t9s6p6). Re-exported under their historical names here
+;; so `re-frame.views/format-source-coord` (and the parity test referencing
+;; `#'re-frame.views/format-source-coord`) keep resolving.
+(def format-source-coord adapter-context/format-source-coord)
+(def format-view-id       adapter-context/format-view-id)
 
 (defn- dom-tag?
   "True if `head` is a Hiccup DOM-tag keyword. Reagent's React-fragment
@@ -107,14 +103,6 @@
   (and (keyword? head)
        (not= :<> head)
        (not= :> head)))
-
-(defn format-view-id
-  "Render the registry id keyword as the `:data-rf-view` attribute
-  value. Returns `(str id)` so `:rf.foo/bar` → `\":rf.foo/bar\"`. The
-  walker reads it back via `(keyword (subs s 1))` when the leading `:`
-  is present. Per Spec 006 §View tagging contract (rf2-01il5)."
-  [id]
-  (str id))
 
 (defn inject-source-coord-attr
   "Walk the user's render-fn output and merge `:data-rf2-source-coord`
