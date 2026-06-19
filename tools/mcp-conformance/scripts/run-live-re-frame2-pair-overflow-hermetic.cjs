@@ -680,6 +680,17 @@ function trustedExe(name) {
 const SETUP_COMMAND_TIMEOUT_MS =
   Number(process.env.HERMETIC_SETUP_TIMEOUT_MS) || 300_000;
 
+// Grace between the timeout SIGTERM and the SIGKILL escalation for a hung
+// setup child (rf2-i4d5wr). A well-behaved child reaps on SIGTERM within
+// this window; a SIGTERM-ignoring child gets SIGKILLed after it. This grace
+// is AWAITED (not a fire-and-forget `setTimeout` that the reject could
+// cancel), so a setup child that ignores SIGTERM is GUARANTEED to receive
+// SIGKILL before `runTrusted` rejects. `$HERMETIC_SETUP_SIGKILL_GRACE_MS`
+// shrinks it for the regression harness (`hermetic-setup-timeout.test.cjs`)
+// so the SIGTERM-ignoring arm runs fast; production CI never sets it.
+const SETUP_SIGKILL_GRACE_MS =
+  Number(process.env.HERMETIC_SETUP_SIGKILL_GRACE_MS) || 5_000;
+
 // Run a trusted setup command (resolved to an absolute path outside the
 // workspace via `trustedExe`) under an ASYNC spawn with an explicit
 // child-level timeout/kill.
@@ -697,9 +708,22 @@ const SETUP_COMMAND_TIMEOUT_MS =
 //
 // The async spawn keeps the event loop live, so both the per-command
 // timeout below AND the whole-run watchdog stay armed. On timeout we
-// SIGTERM the child, then SIGKILL after a short grace, and reject with an
-// orchestration error — surfacing as exit 2 (orchestration failure) within
+// SIGTERM the child, AWAIT its exit (bounded by `SETUP_SIGKILL_GRACE_MS`),
+// SIGKILL it if it ignored SIGTERM, then reject with an orchestration error
+// — surfacing as exit 2 (orchestration failure) shortly after
 // `SETUP_COMMAND_TIMEOUT_MS` rather than the multi-minute CI job timeout.
+//
+// rf2-i4d5wr: the pre-fix shape armed the SIGKILL as a fire-and-forget
+// `setTimeout` (`killTimer`) and then immediately `settle(reject, ...)`d.
+// But `settle` cleared `killTimer`, so the SIGKILL fallback was CANCELLED
+// on the very path that scheduled it. A setup child that ignored SIGTERM
+// would survive after the orchestrator reported "setup command hung —
+// killed", leaking npm/node children that hold locks/pipes. The fix makes
+// the SIGTERM→SIGKILL escalation an AWAITED sequence (the same shape the
+// teardown `makeCleanup` uses): the child is reaped (or has demonstrably
+// received SIGKILL) BEFORE the timeout promise rejects, and the reject no
+// longer cancels the kill. The happy path still settles promptly the moment
+// the child exits normally.
 function runTrusted(name, args, cwd) {
   const bin = trustedExe(name);
   // cross-spawn (async) handles the `.cmd` -> cmd.exe dispatch on Windows
@@ -717,36 +741,68 @@ function runTrusted(name, args, cwd) {
     let stdout = '';
     let stderr = '';
     let settled = false;
-    let killTimer = null;
+    let childExited = false;
+    let timedOut = false;
 
     const settle = (fn, arg) => {
       if (settled) return;
       settled = true;
-      if (killTimer) clearTimeout(killTimer);
       if (timer) clearTimeout(timer);
       fn(arg);
     };
 
     // Per-command hard cap, enforced by the live event loop (the whole
-    // point of the async spawn). On elapse: SIGTERM, then SIGKILL after a
-    // short grace, then reject as an orchestration failure.
+    // point of the async spawn). On elapse: SIGTERM, AWAIT the child's exit
+    // bounded by a grace, SIGKILL if it ignored SIGTERM, then reject as an
+    // orchestration failure.
+    //
+    // rf2-i4d5wr: the escalation is an AWAITED sequence, NOT a fire-and-
+    // forget `setTimeout` that `settle(reject)` could cancel. A child that
+    // ignores SIGTERM is therefore GUARANTEED to receive SIGKILL before the
+    // promise rejects; we never report "killed" while the child is still
+    // alive and un-SIGKILLed.
     const timer = setTimeout(() => {
       logErr(
         `${name} ${args.join(' ')} exceeded SETUP_COMMAND_TIMEOUT_MS ` +
           `(${SETUP_COMMAND_TIMEOUT_MS}ms) — killing the setup child`,
       );
-      try { child.kill('SIGTERM'); } catch {}
-      killTimer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch {}
-      }, 5000);
-      killTimer.unref();
-      settle(
-        reject,
-        new Error(
-          `${name} ${args.join(' ')} in ${cwd} timed out after ` +
-            `${SETUP_COMMAND_TIMEOUT_MS}ms (setup command hung — killed)`,
-        ),
-      );
+      // The timeout owns the rejection attribution from here: the `exit`
+      // handler observes `timedOut` and defers, so the message is "timed
+      // out", not "killed by <signal>" from our own SIGKILL.
+      timedOut = true;
+      // `void`: the IIFE owns the kill/await; it ends by `settle(reject)`ing.
+      void (async () => {
+        try { child.kill('SIGTERM'); } catch {}
+        const exitedOnTerm = await settledWithin(
+          waitForChildExit(child, () => childExited),
+          SETUP_SIGKILL_GRACE_MS,
+        );
+        if (!exitedOnTerm && !childExited) {
+          logErr(
+            `${name} ${args.join(' ')} did not exit ${SETUP_SIGKILL_GRACE_MS}ms ` +
+              'after SIGTERM — escalating to SIGKILL',
+          );
+          try { child.kill('SIGKILL'); } catch {}
+          // Best-effort observe the post-SIGKILL exit so we don't reject
+          // while the OS reap is still in flight. Bounded so a truly
+          // unkillable child (PID-namespace edge) can't wedge the run.
+          await settledWithin(
+            waitForChildExit(child, () => childExited),
+            SETUP_SIGKILL_GRACE_MS,
+          );
+        }
+        // Reject with the timeout attribution. `settle` is first-wins, so if
+        // the `exit` handler already rejected with "killed by SIGKILL" this
+        // is a no-op; either way the child has been SIGTERM'd→SIGKILL'd, not
+        // left alive.
+        settle(
+          reject,
+          new Error(
+            `${name} ${args.join(' ')} in ${cwd} timed out after ` +
+              `${SETUP_COMMAND_TIMEOUT_MS}ms (setup command hung — killed)`,
+          ),
+        );
+      })();
     }, SETUP_COMMAND_TIMEOUT_MS);
     timer.unref();
 
@@ -760,9 +816,20 @@ function runTrusted(name, args, cwd) {
     });
     child.on('error', (err) => settle(reject, err));
     child.on('exit', (code, signal) => {
+      // Record the exit so the timeout path's awaited grace
+      // (`waitForChildExit(child, () => childExited)`) sees a child that
+      // exited before/while we waited and stops escalating. rf2-i4d5wr.
+      childExited = true;
+      if (timedOut) {
+        // Our own timeout SIGTERM/SIGKILL reaped it. Defer the rejection to
+        // the timeout IIFE so the attribution is the timeout message, and so
+        // the awaited escalation observes this exit (it `await`s
+        // `waitForChildExit`, which resolves on this event). rf2-i4d5wr.
+        return;
+      }
       if (signal) {
-        // Signal-terminated (incl. our own timeout SIGKILL, which the
-        // timeout branch has already rejected for). Treat as a failure so a
+        // Signal-terminated by something OTHER than our timeout path (an
+        // external SIGTERM/SIGKILL, an OOM kill). Treat as a failure so a
         // killed setup child never reads as success.
         settle(
           reject,
@@ -1254,10 +1321,13 @@ if (require.main === module) {
   clearTimeout(watchdog);
 }
 
-// Exported for the rf2-wqi4n4 finding-2 regression harness. `runTrusted` is
-// the async, timeout-bounded setup-command spawn; the test drives it
-// against a never-exiting child to prove a hung setup command is killed
-// within `SETUP_COMMAND_TIMEOUT_MS` instead of wedging the event loop.
+// Exported for the rf2-wqi4n4 finding-2 + rf2-i4d5wr regression harness.
+// `runTrusted` is the async, timeout-bounded setup-command spawn; the test
+// drives it against (a) a never-exiting child to prove a hung setup command
+// is killed within `SETUP_COMMAND_TIMEOUT_MS` instead of wedging the event
+// loop, and (b) a SIGTERM-IGNORING child to prove the timeout path AWAITS
+// the SIGTERM grace then SIGKILLs it (the reject no longer cancels the
+// fallback) so the child is actually reaped, not leaked.
 //
 // `readPortFile` + `isContainmentEscape` are exported for the rf2-khav7l
 // call-site regression harness (`port-file-escape.test.cjs`): it drives
