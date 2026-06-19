@@ -884,11 +884,37 @@
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
              (ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
           "no-such-route shares the 404 :not-found mapping with no-such-handler"))
-    (testing ":rf.error/schema-validation-failure → 400 :bad-request
-              (previously untested)"
+    (testing ":rf.error/schema-validation-failure with a CLIENT-surface
+              :where (:event / :cofx) → 400 :bad-request (rf2-37o5by)"
       (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
-             (ssr/default-error-projector-fn {:operation :rf.error/schema-validation-failure}))
-          "schema-validation-failure is the only 400 arm"))
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/schema-validation-failure
+                :tags      {:where :event}}))
+          "an inbound-event payload failure is client-facing → 400")
+      (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/schema-validation-failure
+                :tags      {:where :cofx}}))
+          "a request-cofx failure is client-facing → 400"))
+    (testing ":rf.error/schema-validation-failure with a SERVER-surface
+              :where (:fx-args) → 500 (rf2-37o5by — gated 400 arm)"
+      (is (= ssr/fallback-public-error
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/schema-validation-failure
+                :tags      {:where :fx-args}}))
+          "a server-fx arg-schema failure is a SERVER-side defect, not bad
+           client input — it falls through to the locked generic-500 rather
+           than mislabelling a server bug as a client 400")
+      (is (= ssr/fallback-public-error
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/schema-validation-failure}))
+          "a schema-validation-failure with NO :where tag also falls through
+           to 500 — the 400 arm is opt-in on a client-surface :where, fail-safe")
+      (is (= ssr/fallback-public-error
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/schema-validation-failure
+                :tags      {:where :sub-return}}))
+          "a sub-return failure is likewise non-client → 500"))
     (testing "any other category → the locked generic-500 fallback"
       (is (= ssr/fallback-public-error
              (ssr/default-error-projector-fn {:operation :rf.error/handler-exception}))
@@ -2160,18 +2186,21 @@
             fires on malformed server fx args (Spec 011 §Standard fx /
             Spec-Schemas §Standard fx args schemas / Spec 010 §step 5)"
 
-    (testing ":rf.server/set-status with a non-int arg → rejected + skipped + projected 400"
+    (testing ":rf.server/set-status with a non-int arg → rejected + skipped + projected 500"
       ;; The bead's concrete failing scenario: a string status that
       ;; pre-rf2-kjf3m.2 rode straight onto the wire (Ring then emitted a
       ;; non-integer status). Now the :schema boundary rejects it before
       ;; set-status-fx runs, so the malformed "not-an-int" NEVER reaches
       ;; the accumulator. The fired :rf.error/schema-validation-failure
-      ;; ALSO routes through the always-on SSR error-projection substrate,
-      ;; which maps that category to 400 :bad-request (Spec 011 §Server
-      ;; error projection / error_projector.cljc line 65) and stamps 400
-      ;; onto the response — a clean, surfaced failure instead of a
-      ;; malformed wire status. End-to-end, the fix turns a silent wire
-      ;; defect into a proper 400.
+      ;; ALSO routes through the always-on SSR error-projection substrate.
+      ;;
+      ;; rf2-37o5by — the default projector's 400 arm is GATED on a
+      ;; CLIENT-surface `:where` (`:event` / `:cofx`). This failure is
+      ;; `:where :fx-args` — a SERVER-side defect: a server handler built a
+      ;; malformed fx args map. That is not bad client input, so it must
+      ;; NOT mislabel as a client-facing 400; it falls through to the
+      ;; locked generic-500. End-to-end, the fix still turns a silent wire
+      ;; defect into a clean surfaced failure — now correctly a 500.
       (rf/reg-event :bad/status
         (fn [_ _] {:fx [[:rf.server/set-status "not-an-int"]]}))
       (let [f      (frame/make-frame {:platform :server})
@@ -2185,10 +2214,12 @@
             "the malformed status was skipped — never reached the accumulator")
         (is (integer? status)
             "the wire status is an integer (the gap this bead closes)")
-        ;; … and the schema failure surfaced as a proper 400 :bad-request
-        ;; via the SSR error-projection substrate.
-        (is (= 400 status)
-            "schema-validation-failure projected to 400 :bad-request")))
+        ;; … and the schema failure surfaced as a 500 via the SSR
+        ;; error-projection substrate — a server-fx arg failure is a
+        ;; server-side defect, NOT a client 400 (rf2-37o5by gated arm).
+        (is (= 500 status)
+            "schema-validation-failure :where :fx-args projected to 500
+             :internal-error — the 400 arm is gated to :where :event/:cofx")))
 
     (testing ":rf.server/set-header missing :value → rejected + skipped"
       (rf/reg-event :bad/header
