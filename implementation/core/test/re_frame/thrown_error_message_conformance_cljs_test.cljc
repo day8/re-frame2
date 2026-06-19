@@ -36,7 +36,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
-            [re-frame.app-value :as app-value]
             [re-frame.realm :as realm]
             [re-frame.flows.registry :as flows-registry]
             [re-frame.flows.topo :as flows-topo]
@@ -230,29 +229,23 @@
     #(#'flows-topo/extract-cycle-path {:a #{}} #{:a})))
 
 ;; ============================================================================
-;; app-value / realm throws (rf2-p7kwpt) — the app-as-value and realm surface
-;; exemplars. Both previously threw with the legacy `:error/id` discriminator;
-;; they now route through the central builder so the message is a human sentence
-;; naming the public concept (app-value/app / realm/construct-realm) carrying the [:rf.error/<id>]
-;; token, with the canonical discriminator in `:rf.error/id`.
+;; realm throw (rf2-p7kwpt) — the realm surface exemplar. The realm-owned
+;; mutation seam routes through the central builder, so the message is a human
+;; sentence naming the public concept carrying the [:rf.error/<id>] token, with
+;; the canonical discriminator in `:rf.error/id`.
+;;
+;; (rf2-afdlyr: the `app-value/app` + `realm/construct-realm` exemplars were
+;; removed with the realm-substrate collapse — those construction surfaces no
+;; longer exist. The surviving realm-family throw is `update-realm!`'s
+;; `:rf.error/unknown-realm`, raised when a realm-owned mutation targets an
+;; unregistered realm id.)
 ;; ============================================================================
 
-(deftest app-value-throw-emits-conformant-shape
-  ;; rf2-p7kwpt — the app-as-value surface exemplar. A bad app-value/app input (a
-  ;; non-module :modules entry) routes through the central builder, so the
-  ;; message is a human sentence naming the public concept (app-value/app) carrying
-  ;; the [:rf.error/<id>] token, with the canonical discriminator in
-  ;; :rf.error/id (NOT the legacy :error/id slot).
-  (assert-conformant-throw!
-    "app-value/app (non-module :modules entry)"
-    :rf.error/invalid-app
-    #(app-value/app {:id :conf/app :modules [{:not :a-module}]})))
-
 (deftest realm-throw-emits-conformant-shape
-  ;; rf2-p7kwpt — the realm surface exemplar. A bad realm/construct-realm input (a missing
-  ;; :id) routes through the central builder: the message names realm/construct-realm and
-  ;; carries the token, with :rf.error/id as the SOLE discriminator.
+  ;; rf2-p7kwpt — the realm surface exemplar. A realm-owned mutation against an
+  ;; unregistered realm id routes through the central builder: the message names
+  ;; the concept and carries the token, with :rf.error/id as the SOLE discriminator.
   (assert-conformant-throw!
-    "realm/construct-realm (missing :id)"
-    :rf.error/invalid-realm
-    #(realm/construct-realm {})))
+    "realm/set-installed-app! (unknown realm id)"
+    :rf.error/unknown-realm
+    #(realm/set-installed-app! :conf/never-constructed {:rf.app/id :conf/app})))
