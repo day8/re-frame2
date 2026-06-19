@@ -592,13 +592,15 @@ below order the shipped panel uses, §026 §2):
  it resolves `(kind id)` lookups through that image. This is the model a
  consumer app developer reasons in.
 - **REALMS · MODULES** (the retained-internal installation substrate,
- below) — the `(realm, frame)` address space (every installed realm + the
- frames it owns) and per-module provenance read off each realm's installed
+ below) — per-module provenance read off the installation realm's installed
  app value. A frame belongs to exactly one realm; the realm owns the
- registrar/adapter/frame-registry. In a single-realm app the realm
- dimension is **implicit** (one realm holding every frame) — it is spelled
- only in a multi-realm process, where it reads as the *internal
- installation realm*, not a peer public browse dimension.
+ registrar/adapter/frame-registry. Post-EP-0023 the multi-realm substrate is
+ **collapsed to a single default realm** (`re-frame.realm/realm-ids` always
+ resolves to exactly `#{:rf.realm/default}`; non-default realm construction
+ was retired), so there is never more than one realm at runtime — the realm
+ reads as a labeled-internal installation boundary for app-value provenance,
+ not a peer public browse dimension and not a "this process has N realms"
+ axis.
 
 The projection runs through the pure
 `module_view_helpers/project-module-view`; the realm substrate seams are read
@@ -630,8 +632,10 @@ not a routing path).
 
 **Open when:** "what frames exist and which image loaded each?", "how does
 this frame resolve its registrations?", "what modules / app values are
-installed?", "how is this process partitioned across realms?" (the last
-only matters in a multi-realm process).
+installed?" — the public partitioning axis is `image -> frame`, not realms
+(the realm substrate is collapsed to the single default realm post-EP-0023;
+the realm appears only as the labeled-internal app-value provenance
+boundary).
 
 Spec: [`026-Module-View-Panel.md` §8](../../../tools/xray/spec/026-Module-View-Panel.md)
 + [`007-UX-IA.md` §EP-0013 realm-awareness](../../../tools/xray/spec/007-UX-IA.md);
