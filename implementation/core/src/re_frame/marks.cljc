@@ -683,6 +683,22 @@
           (or existing {})
           paths))
 
+(defn- write-elision-slots
+  "Rewrite the two app-db elision-registry declaration slots on `base` from the
+  resolved `new-s` (`:sensitive-declarations`) and `new-l` (`:declarations`)
+  maps: assoc the slot when its map is non-empty, dissoc it when empty so an
+  emptied slot vanishes rather than lingering as `{}`. The single helper behind
+  `add-marks` / `set-marks` / `clear-app-db-marks!`, which hand-inlined this
+  same cond-> three times (rf2-mo9ekx). `clear-app-db-marks!` passes `base {}`,
+  where the empty-slot dissoc is a harmless no-op on an absent key — the result
+  is byte-identical to its prior seq-only cond->."
+  [base new-s new-l]
+  (cond-> base
+    (seq new-s)    (assoc :sensitive-declarations new-s)
+    (empty? new-s) (dissoc :sensitive-declarations)
+    (seq new-l)    (assoc :declarations new-l)
+    (empty? new-l) (dissoc :declarations)))
+
 (defn add-marks
   "Additively merge path-marks into the `app-db` mark-set of `frame-id`.
   Per Spec 015 §App-db marks (per frame).
@@ -722,11 +738,7 @@
       (fn [reg]
         (let [new-s (assoc-paths (get reg :sensitive-declarations) sens-paths)
               new-l (assoc-paths (get reg :declarations) large-paths)]
-          (cond-> (or reg {})
-            (seq new-s)    (assoc :sensitive-declarations new-s)
-            (empty? new-s) (dissoc :sensitive-declarations)
-            (seq new-l)    (assoc :declarations new-l)
-            (empty? new-l) (dissoc :declarations))))))
+          (write-elision-slots (or reg {}) new-s new-l)))))
   frame-id)
 
 (defn set-marks
@@ -771,11 +783,7 @@
               carry-l (without-marks-sourced (get reg :declarations))
               new-s   (assoc-paths carry-s sens-paths)
               new-l   (assoc-paths carry-l large-paths)]
-          (cond-> (or reg {})
-            (seq new-s)    (assoc :sensitive-declarations new-s)
-            (empty? new-s) (dissoc :sensitive-declarations)
-            (seq new-l)    (assoc :declarations new-l)
-            (empty? new-l) (dissoc :declarations))))))
+          (write-elision-slots (or reg {}) new-s new-l)))))
   frame-id)
 
 (defn clear-app-db-marks!
@@ -787,9 +795,7 @@
     (fn [reg]
       (let [new-s (without-marks-sourced (:sensitive-declarations reg))
             new-l (without-marks-sourced (:declarations reg))]
-        (cond-> {}
-          (seq new-s) (assoc :sensitive-declarations new-s)
-          (seq new-l) (assoc :declarations new-l)))))
+        (write-elision-slots {} new-s new-l))))
   nil)
 
 ;; ---- emit-time projection ------------------------------------------------
