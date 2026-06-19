@@ -48,12 +48,10 @@
   failure modes). The runtime primitive returns `false` on any failure
   (the frame's app-db is unchanged); we surface that as
   `{:ok? false :reason :restore-rejected}`."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
 ;; The `epoch-id` arg is parsed as EDN with NO shape constraint — any
@@ -112,19 +110,16 @@
                                      "ring, or a drain is in flight. Read the structured reason "
                                      "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
                                      "filtered to :rf.epoch/*.")})))]
-          ;; rf2-6nks4 (finding-2): signal the raw-state posture to the
-          ;; runtime BEFORE the restore eval, so the cascade-summary it
-          ;; builds redacts a sensitive `:event-vector` under the default
-          ;; gate-OFF posture. Mirrors dispatch-dry-run's prelude shape
-          ;; (which restore-epoch's primitive internally drives) — we can
-          ;; not use the plain `eval-after-runtime!` prelude because that
-          ;; helper has no `signal-runtime!` step. The signal reconfigures
-          ;; the posture before every state-emitting eval (rf2-olvr5
-          ;; finding 2 — the runtime's posture resets on reload, so a
-          ;; cached-delivered flag would leave a post-reload restore tapping
-          ;; raw values); it is one tiny idempotent round-trip.
-          (-> (probe/ensure-runtime! conn build-id)
-              (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-              (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-              (.then on-value)
-              (.catch (fn [err] (probe/err->result :restore-epoch-failed err)))))))))
+          ;; rf2-6nks4 (finding-2): the signalled prelude signals the
+          ;; raw-state posture to the runtime BEFORE the restore eval, so
+          ;; the cascade-summary it builds redacts a sensitive
+          ;; `:event-vector` under the default gate-OFF posture. Mirrors
+          ;; dispatch-dry-run's prelude shape (which restore-epoch's
+          ;; primitive internally drives) — the plain `eval-after-runtime!`
+          ;; has no `signal-runtime!` step, so this uses the `-signalled!`
+          ;; sibling. The signal reconfigures the posture before every
+          ;; state-emitting eval (rf2-olvr5 finding 2 — the runtime's
+          ;; posture resets on reload, so a cached-delivered flag would
+          ;; leave a post-reload restore tapping raw values).
+          (probe/eval-after-runtime-signalled!
+            conn build-id form :restore-epoch-failed on-value))))))

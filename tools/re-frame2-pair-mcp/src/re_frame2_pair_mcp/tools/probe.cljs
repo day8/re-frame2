@@ -58,6 +58,7 @@
   (:require [cljs.reader]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 ;; ---------------------------------------------------------------------------
@@ -668,16 +669,22 @@
 ;; send, and how do I shape the response" — the prelude stops obscuring
 ;; the per-tool logic.
 ;;
-;; Tools that DON'T use this helper, and why:
-;;   - snapshot / get-path / subscribe — insert a `signal-runtime!` step
-;;     between `ensure-runtime!` and the eval (the raw-state tap gate,
-;;     rf2-c2dtu), so their prelude is a different shape.
+;; State-emitting tools wear the SAME chain plus ONE extra step: a
+;; `raw-state/signal-runtime!` reconfigure between `ensure-runtime!` and
+;; the eval (the raw-state tap gate, rf2-c2dtu) so the runtime is in its
+;; gated posture before the eval taps / egresses app-db.
+;; `eval-after-runtime-signalled!` is the sibling combinator for that
+;; shape — same prelude/postlude, the signal interposed.
+;;
+;; Tools that DON'T use either helper, and why:
 ;;   - eval-cljs — uses `resolve-and-preflight!` (fail-loud build
 ;;     resolution), not the plain `ensure-runtime!` probe.
 ;;   - watch-until / tail-build — poll a form on a cadence, not a single
-;;     eval.
-;;   - dispatch (`:await-render`) — threads the await-promise mailbox
-;;     between the eval and the result.
+;;     eval (the signal step lands, but the eval recurs inside a poll
+;;     loop, not as one terminal `.then`).
+;;   - subscribe — signals then opens a streaming controller whose
+;;     `.catch` must release the stream slot before `err->result`, so its
+;;     postlude is a different shape.
 ;;   - discover-app — chains a `runtime-health!` read after the probe.
 ;; ---------------------------------------------------------------------------
 
@@ -697,6 +704,32 @@
   call-sites."
   [conn build-id form fail-reason on-value]
   (-> (ensure-runtime! conn build-id)
+      (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+      (.then on-value)
+      (.catch (fn [err] (err->result fail-reason err)))))
+
+(defn eval-after-runtime-signalled!
+  "The shared single-eval prelude for STATE-EMITTING tools. Identical to
+  `eval-after-runtime!` except it interposes one extra step — a
+  `raw-state/signal-runtime!` reconfigure between `ensure-runtime!` and
+  the eval (the raw-state tap gate, rf2-c2dtu) — so the runtime is in its
+  gated (default-elided) posture before the eval taps / egresses app-db.
+
+  Confirm the runtime is preloaded for `(conn, build-id)`, signal the
+  raw-state posture, eval `form` over nREPL, pass the resolved value to
+  `on-value` (which returns the MCP envelope), and translate any
+  rejection via `err->result` keyed by `fail-reason`. Returns the Promise
+  of the MCP result.
+
+  `on-value` carries the part that genuinely differs per tool. The signal
+  re-runs on every call rather than caching a per-build flag — the
+  runtime's posture resets on reload (rf2-olvr5 finding 2). As with
+  `eval-after-runtime!`, `nrepl/cljs-eval-value` is resolved per-call (a
+  plain var reference) so the per-tool `set!`-based test seam keeps
+  working through this helper."
+  [conn build-id form fail-reason on-value]
+  (-> (ensure-runtime! conn build-id)
+      (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
       (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
       (.then on-value)
       (.catch (fn [err] (err->result fail-reason err)))))

@@ -9,8 +9,7 @@
   `re-frame2-pair-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
   builds the eval form, awaits the runtime response, and routes the
   result through `run-wire-pipeline` with `:kind :snapshot-map`."
-  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.eval-form :as ef]
+  (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame2-pair-mcp.tools.probe :as probe]
@@ -218,10 +217,9 @@
     ;; `:app` scope (reserved frames already excluded) pass through.
     (if-let [refused (guard/snapshot-refusal frames path mode)]
       (js/Promise.resolve refused)
-      (-> (probe/ensure-runtime! conn build-id)
-          (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
-          (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
-          (.then (fn [resp]
+      (probe/eval-after-runtime-signalled!
+        conn build-id form :snapshot-failed
+        (fn [resp]
                  ;; New eval-form shape (rf2-e35a5): `{:value <snap>
                  ;; :elided-count N}`. Defensively fall back to the
                  ;; bare-snap shape — a degraded runtime / stubbed
@@ -287,5 +285,4 @@
                                                        "(e.g. frames [\":rf/xray\"])."))
                                      path              (assoc :path path)
                                      (seq path-status) (assoc :path-not-found path-status))
-                                   {:dropped dropped :elided elided})))))
-          (.catch (fn [err] (probe/err->result :snapshot-failed err)))))))
+                                   {:dropped dropped :elided elided}))))))))
