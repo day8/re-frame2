@@ -122,8 +122,17 @@
                          :cljs (.lastIndexOf nm "#")))]
       (if (and i (nat-int? i) (pos? i))
         (let [suffix (subs nm (inc i))
-              n      #?(:clj  (try (Long/parseLong suffix) (catch Exception _ nil))
-                        :cljs (let [x (js/parseInt suffix 10)] (when-not (js/isNaN x) x)))]
+              ;; (rf2-ny0yrz C4) The CLJS branch must REJECT a non-fully-
+              ;; numeric suffix BEFORE `js/parseInt`: `js/parseInt "3abc" 10`
+              ;; leniently returns 3, whereas CLJ `Long/parseLong "3abc"`
+              ;; THROWS → falls through to generation 1. A `:fixed-actor-id`
+              ;; carrying a `#` followed by a malformed suffix would otherwise
+              ;; mint DIFFERENT work-ids per platform (a determinism break).
+              ;; Gating both platforms on a fully-numeric `#"\d+"` match makes
+              ;; them agree: a malformed suffix defaults to generation 1.
+              n      (when (re-matches #"\d+" suffix)
+                       #?(:clj  (try (Long/parseLong suffix) (catch Exception _ nil))
+                          :cljs (let [x (js/parseInt suffix 10)] (when-not (js/isNaN x) x))))]
           (or n 1))
         1))))
 

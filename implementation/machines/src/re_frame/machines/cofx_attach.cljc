@@ -383,11 +383,15 @@
         (persistent! diet)))))
 
 (defn- scope-for
-  "Return the `:states` scope a snapshot state resolves within. For a flat /
-  compound machine it is `(:states machine)`. For a parallel machine the
-  state is a region-name → region-state map; the closure is unioned across
-  every region's body (each region's path resolves within its own `:states`)
-  — see `ensure-set-for`."
+  "Return the machine's top-level `:states` map — the scope a FLAT /
+  COMPOUND machine's snapshot state resolves within. This is a plain
+  `(:states machine)` read; it does NOT handle the parallel-region case.
+
+  rf2-ny0yrz CL2: the per-region union for a PARALLEL machine lives in
+  `ensure-set-for` (it iterates each region's body via `region-machine`
+  and unions each region's own scope, plus the parallel root's own
+  transition surfaces) — NOT here. `scope-for` is called only on the
+  flat/compound path (and the root-level surfaces inside `ensure-set-for`)."
   [machine]
   (:states machine))
 

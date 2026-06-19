@@ -42,7 +42,20 @@
   keys of `:rf/patch` onto the snapshot at `[:rf.runtime/machines :snapshots <machine-id>]`
   in the emitting frame's runtime-db. No-op when the actor has no snapshot
   (destroyed / not-yet-materialised) or when `:rf/machine-id` is absent.
-  Per Spec 005 §Snapshot-level escape hatch."
+  Per Spec 005 §Snapshot-level escape hatch.
+
+  Validation scope (rf2-ny0yrz CL1): the merged candidate's `:data` IS
+  validated against the actor's `:data-schema` (rf2-wrrvs7, below). A
+  `:state` / `:meta` patch is NOT occupiability-checked — the escape hatch
+  trusts the caller to supply a `:state` that resolves to a real, occupiable
+  state-node of the machine's definition. A `:state` patch naming a non-
+  existent / non-occupiable node writes a snapshot the next transition will
+  treat as out-of-definition (the standard re-registration
+  `:rf.error/machine-state-not-in-definition` reconcile path applies on the
+  next dispatch); the patch fx itself does not run `state-resolves?` on the
+  candidate. This is the deliberate escape-hatch trade-off: the hatch is the
+  low-frequency \"I need to touch `:state` + something else atomically\"
+  primitive, not a guarded `:on`-transition."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant — the cascade envelope frame is the
         ;; fx-context `:frame`; a nil stamp is an invariant failure

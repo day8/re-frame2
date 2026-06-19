@@ -332,6 +332,85 @@
     (is (some? (registrar/lookup :event :rf2-gn80/par-partial))
         "machine handler is still live — :right hasn't reached :final? yet")))
 
+;; ---- (rf2-g13nm2 C2) :output-key on a NON-FIRST region's terminal leaf ----
+;; A spawned parallel child whose :output-key lives on a region OTHER than the
+;; first (state-map order) must still report that slot back through the
+;; parent's :spawn :on-done. The pre-fix finalize read :output-key from
+;; `(first state)` only, so a non-first region's :output-key silently yielded
+;; result=nil.
+
+(deftest parallel-output-key-on-non-first-region-reported
+  (testing "C2: a spawned parallel child reports :output-key from a NON-FIRST region"
+    (let [seen-result (atom :unset)]
+      (rf/reg-machine :rf2-gn80/par-child
+        {:type    :parallel
+         ;; :alpha is the FIRST region and carries NO :output-key; :beta (a
+         ;; later region) is the one declaring :output-key. Pre-fix this read
+         ;; nil because finalize only inspected the first region's leaf.
+         :regions {:alpha {:initial :run
+                           :states  {:run  {:on {:fin :done}}
+                                     :done {:final? true}}}
+                   :beta  {:initial :run
+                           :states  {:run  {:on {:fin {:target :done
+                                                       :action (fn [{data :data}]
+                                                                 {:data (assoc data :payload :beta/value)})}}}
+                                     :done {:final?     true
+                                            :output-key :payload}}}}})
+      (rf/reg-machine :rf2-gn80/par-observer
+        {:initial :working
+         :states
+         {:working
+          {:spawn {:machine-id :rf2-gn80/par-child
+                    :on-done (fn [{d :data r :result}]
+                               (reset! seen-result r)
+                               d)}}}})
+      (rf/dispatch-sync [:rf2-gn80/par-observer [:rf.machine.spawn/spawned]])
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-gn80/par-observer [:working]])]
+        (is (some? spawned-id) "parallel child was spawned")
+        ;; :fin is broadcast to both regions; both reach :final? → the child
+        ;; finishes and the parent's :on-done fires.
+        (rf/dispatch-sync [spawned-id [:fin]])
+        (is (= :beta/value @seen-result)
+            ":on-done received the :output-key slot from the NON-FIRST region (C2)")
+        (is (nil? (snapshot spawned-id))
+            "the parallel child auto-destroyed on all-regions-final")))))
+
+(deftest parallel-output-key-conflict-emits-error-and-first-region-wins
+  (testing "C2: two regions declaring DIFFERENT :output-keys emit an error trace; the first region wins"
+    (let [traces      (record-traces! ::okey-conflict)
+          seen-result (atom :unset)]
+      (rf/reg-machine :rf2-gn80/par-conflict-child
+        {:type    :parallel
+         :regions {:alpha {:initial :run
+                           :states  {:run  {:on {:fin {:target :done
+                                                       :action (fn [{data :data}]
+                                                                 {:data (assoc data :a-out :alpha/value)})}}}
+                                     :done {:final?     true
+                                            :output-key :a-out}}}
+                   :beta  {:initial :run
+                           :states  {:run  {:on {:fin {:target :done
+                                                       :action (fn [{data :data}]
+                                                                 {:data (assoc data :b-out :beta/value)})}}}
+                                     :done {:final?     true
+                                            :output-key :b-out}}}}})
+      (rf/reg-machine :rf2-gn80/par-conflict-observer
+        {:initial :working
+         :states
+         {:working
+          {:spawn {:machine-id :rf2-gn80/par-conflict-child
+                    :on-done (fn [{d :data r :result}]
+                               (reset! seen-result r)
+                               d)}}}})
+      (rf/dispatch-sync [:rf2-gn80/par-conflict-observer [:rf.machine.spawn/spawned]])
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-gn80/par-conflict-observer [:working]])]
+        (rf/dispatch-sync [spawned-id [:fin]])
+        (is (= :alpha/value @seen-result)
+            "the FIRST region's :output-key wins the conflict (deterministic tiebreak)")
+        (is (seq (traces-for traces :rf.error/machine-parallel-output-key-conflict))
+            "a :rf.error/machine-parallel-output-key-conflict trace was emitted")))))
+
 ;; ---- registration-time validation -----------------------------------------
 
 (deftest final-state-validations

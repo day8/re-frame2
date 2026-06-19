@@ -83,9 +83,18 @@
   `:fail` Result's `::info` map. Used by the outer cascade (transition,
   spawn) to enrich the inner failure (run-action / materialise-data) with
   the transition-level context (`:decl-path`, `:transition`,
-  `:state-path`) before re-raising."
+  `:state-path`) before re-raising.
+
+  rf2-ny0yrz CL3: guarded with `(if (fail? r) … r)`, symmetric with the
+  `with-handled` / `with-microsteps` / `with-cascade` siblings (which
+  pass a non-`:ok` Result through unchanged). A non-`:fail` Result returns
+  unchanged — `fail-with` only enriches an actual failure's `::info`, never
+  grafts a phantom `::info` onto an `:ok` Result (which would corrupt it
+  into a hybrid map carrying both `::snap`/`::fx` AND `::info`)."
   [r extra]
-  (assoc r ::info (merge (::info r) extra)))
+  (if (fail? r)
+    (assoc r ::info (merge (::info r) extra))
+    r))
 
 (defn snap
   "Read the post-transition snapshot off an `:ok` Result. One-char-shorter

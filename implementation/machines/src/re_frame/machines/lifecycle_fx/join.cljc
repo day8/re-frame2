@@ -121,6 +121,50 @@
 
       :else false)))
 
+(defn- join-unsatisfiable?
+  "Per rf2-ny0yrz C5: decide whether `spec`'s join condition can NEVER be
+  met by the remaining undecided children, given `join-state`'s current
+  `:done` / `:failed` folds. The footgun this guards: a `{:n N}` / `{:fn}`
+  (or `:any` / `:all`) join with NO `:on-any-failed` silently hangs FOREVER
+  once enough children have FAILED that the success condition is
+  unreachable — no resolution event ever dispatches, the parent rests on
+  the `:spawn-all` state, and nothing surfaces the dead join.
+
+  `max-possible-done` is the largest `:done` count still achievable — the
+  current `:done` plus every child not yet decided (every pending child
+  optimistically succeeding). The join is unsatisfiable when even that
+  ceiling cannot satisfy the condition:
+
+    - `:all`        — any failure makes all-done unreachable.
+    - `{:n N}`      — `max-possible-done < N`.
+    - `:any`        — `max-possible-done < 1` (every child failed).
+    - `{:fn pred}`  — opaque to look-ahead; only PROVABLY terminal once every
+                      child has reported (`done`+`failed` = total) and the
+                      predicate still rejects. (A custom pred MAY reject a
+                      future it would later accept, so we cannot predict mid-
+                      flight — but an all-reported-and-still-false join is
+                      definitively stuck.)
+
+  Returns false for a still-satisfiable (or already-resolved) join."
+  [spec join-state]
+  (let [join     (:join spec :all)
+        children (:children spec)
+        n-total  (count children)
+        n-done   (count (:done   join-state))
+        n-failed (count (:failed join-state))
+        n-decided (+ n-done n-failed)
+        n-pending (- n-total n-decided)
+        max-possible-done (+ n-done n-pending)]
+    (cond
+      (= :all join)               (pos? n-failed)
+      (= :any join)               (< max-possible-done 1)
+      (and (map? join) (pos-int? (:n join)))
+                                  (< max-possible-done (:n join))
+      (and (map? join) (fn? (:fn join)))
+                                  (and (zero? n-pending)
+                                       (not (join-condition-met? spec join-state)))
+      :else                       false)))
+
 (defn- compute-resolution
   "Pure. Given the post-bump `join-state'`, the join spec, and the
   arriving child's `kind` (:done | :failed), decide whether the join
@@ -465,6 +509,35 @@
                               :failed (update join-state :failed (fnil conj #{}) child-id))
                 resolution   (compute-resolution spec join-state' kind)
                 join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
+            ;; rf2-ny0yrz C5 — surface a join that just became UNSATISFIABLE.
+            ;; When a child FAILS and the spec has no `:on-any-failed`, the
+            ;; failure folds into `:failed` without resolving; once enough
+            ;; children have failed that the success condition is unreachable
+            ;; the join hangs forever, silently. Emit a one-shot advisory on
+            ;; the fold that FIRST makes the join unsatisfiable (it was
+            ;; satisfiable before this fold, and this fold did not resolve) so
+            ;; the operator sees the dead join + the likely fix (declare
+            ;; `:on-any-failed`). Advisory severity: the request is not
+            ;; recovered, but the actor is not crashed — this is a config
+            ;; footgun nudge, the dev-advisory family (`:on-spawn-return-
+            ;; ignored`, the cofx lints), not an operation-recovery emit.
+            (when (and (not (:resolved? resolution))
+                       (join-unsatisfiable? spec join-state')
+                       (not (join-unsatisfiable? spec join-state)))
+              (trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
+                           {:actor-id  parent-id
+                            :invoke-id invoke-id
+                            :join      (:join spec :all)
+                            :done      (:done   join-state')
+                            :failed    (:failed join-state')
+                            :total     (count (:children spec))
+                            :frame     frame-id
+                            :recovery  :join-hangs
+                            :reason    (str "A :spawn-all join can no longer be "
+                                            "satisfied — too many children have failed "
+                                            "and no :on-any-failed transition is declared, "
+                                            "so the join will hang forever. Declare "
+                                            ":on-any-failed to handle child failures.")}))
             (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
                                      child-id child-extra completed-at resolution)
             (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
