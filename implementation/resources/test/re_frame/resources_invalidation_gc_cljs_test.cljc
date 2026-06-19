@@ -122,6 +122,20 @@
                        {:resource/key scoped-key :work/id (:current-work e)
                         :generation (:generation e) :data data}])))
 
+(defn- fail!
+  "Feed an internal FAILED reply (a non-abort transport error) for a scoped
+  key, reading the LIVE entry's current work-id + generation. On an entry with
+  no usable data this is a FIRST-LOAD failure → `:error`."
+  [scoped-key reason]
+  (let [e (entry scoped-key)]
+    (rf/dispatch-sync [:rf.resource.internal/failed
+                       {:resource/key scoped-key :work/id (:current-work e)
+                        :generation (:generation e)
+                        :error {:kind :rf.http/server-error :reason reason}}])))
+
+(defn- last-schedule-for [scoped-key]
+  (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
+
 ;; ===========================================================================
 ;; 1. Exact tag invalidation — scoped default + cross-scope opt-in
 ;; ===========================================================================
@@ -583,6 +597,62 @@
               an owner-free + idle entry is removed"
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "GC removed the inactive entry"))))
+
+(deftest first-load-error-arms-gc-and-is-collected-after-release
+  ;; rf2-ar9pcx — a FIRST load that FAILS settles `:error` with `:current-work
+  ;; nil`. BEFORE the fix, GC timers were armed only on a SUCCESSFUL settle, so
+  ;; an owner-free errored entry was never reaped (an unbounded cache leak for
+  ;; the frame's life). The `:error` settle MUST now arm a GC timer (mirroring
+  ;; the success-path arming), and once owner-free + idle the fired GC re-check
+  ;; collects it.
+  (rf/reg-resource :gce/article (article-spec {:gc-after-ms 5000}))
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :gce/article {:slug "w"})]
+    (reset! scheduled-timers [])
+    (ensure! :gce/article scope "w" [:lease :gce 1])
+    (fail! k :transient-500)   ;; first load fails → :error (no usable data)
+    (testing "rf2-ar9pcx / Spec 016 §Stale and GC scheduling — a first-load
+              `:error` settle arms the GC timer (so the errored entry can be
+              reaped) — it was never armed before this fix"
+      (let [e (entry k)]
+        (is (= :error (:status e)) "first-load failure settled :error")
+        (is (nil? (:current-work e)) "no in-flight work after the error settle"))
+      (let [args (last-schedule-for k)]
+        (is (some? args) "schedule-timers emitted on the :error settle")
+        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
+        (is (nil? (:poll-delay-ms args)) "no poll timer for an errored entry")))
+    (testing "the owner releases → owner-free + idle + :error; the fired GC
+              re-check collects the errored entry (no longer leaked)"
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gce 1]}])
+      (is (empty? (:active-owners (entry k))) "entry now owner-free")
+      (is (= :error (:status (entry k))) "still :error, idle (no current-work)")
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+      (is (nil? (entry k)) "GC reaped the owner-free errored entry"))))
+
+(deftest background-refresh-failure-does-not-rearm-gc
+  ;; rf2-ar9pcx guard — a BACKGROUND-refresh failure (the entry keeps prior data
+  ;; and returns to `:loaded`) is NOT a first-load error: its stale/GC timers
+  ;; were armed on the prior success, and `entry-failed` makes no freshness
+  ;; change, so the refresh-failure settle re-arms NOTHING (no double-arm).
+  (rf/reg-resource :gcb/article (article-spec {:gc-after-ms 5000}))
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :gcb/article {:slug "w"})]
+    (ensure! :gcb/article scope "w" [:route :r 1])
+    (succeed! k {:title "W"})        ;; first load succeeds → :loaded, GC armed
+    ;; a background refetch that fails (entry keeps data, returns to :loaded)
+    (rf/dispatch-sync [:rf.resource/refetch {:resource :gcb/article :scope scope
+                                             :params {:slug "w"}}])
+    (reset! scheduled-timers [])
+    (fail! k :transient-503)         ;; background refresh failure
+    (testing "rf2-ar9pcx — a background-refresh failure (status :loaded, data
+              kept, :refresh-error) re-arms NO timer (the GC was already armed on
+              the prior success — no double-arm from the failure path)"
+      (let [e (entry k)]
+        (is (= :loaded (:status e)) "background refresh failure kept :loaded")
+        (is (= {:title "W"} (:data e)) "prior data kept")
+        (is (some? (:refresh-error e)) ":refresh-error recorded"))
+      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
+          "no schedule-timers re-armed on the background-refresh failure"))))
 
 (deftest gc-fired-skips-when-owner-reattached
   (rf/reg-resource :gck/article (article-spec {:gc-after-ms 1000}))

@@ -2226,8 +2226,10 @@
 
       :else
       (let [entry' (state/entry-failed entry {:error error})
-            op     (if (= :error (:status entry'))
+            first-load-error? (= :error (:status entry'))
+            op     (if first-load-error?
                      :rf.resource/failed :rf.resource/refresh-failed)
+            spec   (registry/resource-meta (:resource/id entry'))
             ;; the work row settles :failed (terminal) with the error
             ;; envelope as its outcome summary (Xray gets the summary). The
             ;; host handle is cleared (the attempt settled).
@@ -2245,7 +2247,25 @@
                        ;; kept, status back to :loaded) settles the slot like
                        ;; a success. drain-blocking keys on entry' status.
                        ;; (Spec 016 §Route integration.)
-                       (route/drain-blocking resource-key entry' :failure))]
+                       (route/drain-blocking resource-key entry' :failure))
+            ;; rf2-ar9pcx — a FIRST-LOAD `:error` settle MUST arm the GC timer
+            ;; (and the stale timer, if declared). GC timers are otherwise armed
+            ;; only on a SUCCESSFUL settle (`succeeded-handler`); a first load
+            ;; that fails goes to `:error` with `:current-work nil` and, before
+            ;; this fix, emitted NO `:rf.resource/schedule-timers` — so an
+            ;; owner-free errored entry was never reaped (an unbounded cache leak
+            ;; for the frame's life). Arming GC here mirrors the success-path
+            ;; arming; an errored entry is GC fodder, never a poll target, so no
+            ;; poll timer (symmetric with the owner-free / no-owner gate the
+            ;; success + release-owner paths already enforce). A BACKGROUND-
+            ;; refresh failure (entry returns to `:loaded`, prior data kept) is
+            ;; NOT re-armed here — its stale/GC timers were armed on the prior
+            ;; success and `entry-failed` makes no freshness change; re-arming
+            ;; would double-arm. Per Spec 016 §Stale and GC scheduling.
+            stale-delay-ms (when first-load-error?
+                             (state/positive-or-nil (:stale-after-ms spec)))
+            gc-delay-ms    (when first-load-error?
+                             (state/positive-or-nil (:gc-after-ms spec)))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -2254,7 +2274,19 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        {:rf.db/runtime rdb'}))))
+        ;; arm the GC (+ stale) timer on a first-load `:error` settle so an
+        ;; owner-free errored entry is reaped (cancel-then-arm via the fx; the
+        ;; re-check derives freshness/idle/owner-free from the durable facts).
+        ;; Only emitted when the resource declares at least one of GC / stale.
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource/key   resource-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  nil
+                        :server?        (state/server-frame? frame-id)}]]))))))
 
 (def ^:private aborted-event-failure
   "The synthetic `:rf.http/aborted` failure envelope the legacy
