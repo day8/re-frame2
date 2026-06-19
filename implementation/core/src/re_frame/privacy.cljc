@@ -50,9 +50,33 @@
 
 (defn- sensitive-declarations
   [frame-id]
-  (if-let [f (late-bind/get-fn :elision/sensitive-declarations)]
+  ;; rf2-ivr38u — HOT PATH (every dispatch, via `schema-redaction-paths`
+  ;; in the router's `prepare-handler-ctx`). The
+  ;; `:elision/sensitive-declarations` hook is published ONCE at boot
+  ;; (`re-frame.elision`, bottom of file) and never withdrawn in
+  ;; production — exactly the `get-fn-cached` sticky profile. Cached
+  ;; resolution avoids re-deref'ing the global `hooks` atom + re-walking
+  ;; its map on every dispatch; the cache invalidates on hook re-publish
+  ;; (`set-fn!`), so dev-time `(require 're-frame.elision :reload)` still
+  ;; swaps the resolved fn on the next dispatch.
+  (if-let [f (late-bind/get-fn-cached :elision/sensitive-declarations)]
     (f frame-id)
     {}))
+
+(defn- overlap-redaction-paths
+  "Given the handler chain's app-db `:path` slices and the frame's
+  declared sensitive app-db paths, return the distinct event-payload
+  paths whose path-scoped handler slice overlaps a sensitive path."
+  [db-paths sensitive-paths]
+  (vec
+    (distinct
+      (mapcat
+        (fn [db-path]
+          (keep (fn [sensitive-path]
+                  (when (path-prefix? db-path sensitive-path)
+                    (relative-path db-path sensitive-path)))
+                sensitive-paths))
+        db-paths))))
 
 (defn schema-redaction-paths
   "Return event-payload paths that should be redacted for a handler
@@ -61,18 +85,16 @@
   The overlap is computed against the frame's sensitive-declarations
   registry (frame-owned `:sensitive {:app-db …}` classification, EP-0015
   §3 / §8) — NOT against schema-attached `{:sensitive? true}` slot props,
-  which no longer feed this registry. The fn name is retained for callers."
+  which no longer feed this registry. The fn name is retained for callers.
+
+  rf2-ivr38u — DOMINANT-PATH SKIP: when the frame declares ZERO sensitive
+  app-db paths (the common case) there is no overlap to compute, so the
+  `handler-db-paths` chain walk + `mapcat` are bypassed entirely."
   [frame-id interceptors]
   (let [sensitive-paths (keys (sensitive-declarations frame-id))]
-    (vec
-      (distinct
-        (mapcat
-          (fn [db-path]
-            (keep (fn [sensitive-path]
-                    (when (path-prefix? db-path sensitive-path)
-                      (relative-path db-path sensitive-path)))
-                  sensitive-paths))
-          (handler-db-paths interceptors))))))
+    (if (seq sensitive-paths)
+      (overlap-redaction-paths (handler-db-paths interceptors) sensitive-paths)
+      [])))
 
 (defn- redact-path
   [payload path]
@@ -240,3 +262,40 @@
         (comp (filter redact-interceptor?)
               (mapcat :paths))
         interceptors))
+
+(defn collect-redaction-paths
+  "Single-pass fusion (rf2-ivr38u / rf2-tgea2z companion) of
+  `schema-redaction-paths` + `user-redaction-paths` over the SAME
+  resolved interceptor chain — read together by the router's
+  `prepare-handler-ctx` on every dispatch.
+
+  Walks `interceptors` ONCE, collecting in one reduce both:
+    * the handler chain's app-db `:path` slices (for the frame-declared
+      sensitive-path overlap), and
+    * the `redact-interceptor` `:paths` (user-declared payload paths).
+
+  Returns `{:schema-paths <vec> :user-paths <vec>}`, behaviour-identical
+  to calling `schema-redaction-paths` and `user-redaction-paths`
+  separately. The schema-path overlap is only computed when the frame
+  declares ≥1 sensitive app-db path (the dominant no-classification path
+  skips the overlap `mapcat` entirely); the single chain walk still
+  collects `:path` slices unconditionally so the overlap, when needed,
+  sees the same db-paths the two-walk form did."
+  [frame-id interceptors]
+  (let [sensitive-paths (keys (sensitive-declarations frame-id))
+        {:keys [db-paths user-paths]}
+        (reduce (fn [acc interceptor]
+                  (if (map? interceptor)
+                    (cond-> acc
+                      (some? (:path interceptor))
+                      (update :db-paths conj (:path interceptor))
+
+                      (= redact-interceptor-id (:id interceptor))
+                      (update :user-paths into (:paths interceptor)))
+                    acc))
+                {:db-paths [] :user-paths []}
+                interceptors)]
+    {:schema-paths (if (seq sensitive-paths)
+                     (overlap-redaction-paths db-paths sensitive-paths)
+                     [])
+     :user-paths   (vec user-paths)}))
