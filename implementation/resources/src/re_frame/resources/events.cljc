@@ -523,7 +523,13 @@
                                 :frame-id     frame-id
                                 :generation   generation
                                 :where        where}
-                               reply-overrides)))]
+                               reply-overrides)))
+            ;; rf2-sxyrzk — best-effort abort of the superseded prior attempt by
+            ;; the frame-QUALIFIED request-id (the token the prior lower
+            ;; registered); a bare work-id misses it. nil when not superseding or
+            ;; the transport has no abort capability (then no abort fx is added).
+            superseding-abort-fx (when superseding?
+                                   (work-ledger/abort-fx transport-id frame-id prior-work))]
         (trace/emit! :rf.event :rf.resource/work-started
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
@@ -554,10 +560,7 @@
                superseding?
                (-> (conj [:rf.resource/clear-work-handle
                           {:frame-id frame-id :work-id prior-work}])
-                   ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the
-                   ;; token the prior lower registered); a bare work-id misses it.
-                   (cond-> (work-ledger/abort-fx transport-id frame-id prior-work)
-                     (conj (work-ledger/abort-fx transport-id frame-id prior-work)))))}))))
+                   (cond-> superseding-abort-fx (conj superseding-abort-fx))))}))))
 
 (defn ensure-handler
   "`:rf.resource/ensure` — ensure a resource instance is loaded (load it
@@ -1931,9 +1934,9 @@
   an actor-destroy cancellation, or a timeout teardown to this kind). A
   failure envelope carrying this kind is a CANCELLATION, not a user-visible
   resource error (rf2-z70ujl). Note a `:request-id-superseded` abort never
-  even dispatches a reply (the transport suppresses it, Spec 014 §Abort
-  precedence) — so a superseded supersession is handled by the missing reply
-  + stale-suppression, not here."
+  even dispatches a reply — so a superseded supersession is handled by the
+  missing reply + stale-suppression, not here (Spec 014 §Abort precedence —
+  enforced by the transport, relied on here)."
   :rf.http/aborted)
 
 (defn- abort-failure?
