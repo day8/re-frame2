@@ -37,7 +37,8 @@
 ;;;;
 ;;;; File layout (top→bottom)
 ;;;; ------------------------
-;;;;   1. Bencode + nREPL socket client (inline, no Maven dep)
+;;;;   1. nREPL socket client (bencode codec shared from scripts/bencode.clj,
+;;;;      no Maven dep)
 ;;;;   2. Config / env (build-id, port-file discovery)
 ;;;;   3. Output helpers (`emit`, `die`)
 ;;;;   4. nREPL conveniences (`jvm-eval`, `cljs-eval`, `cljs-eval-value`)
@@ -67,75 +68,22 @@
 ;;;;
 ;;;; All ops return edn on stdout. Shells capture and forward.
 
+;; The minimal bencode codec is shared with the test stub
+;; (tests/shim/stub_nrepl.clj); it lives in scripts/bencode.clj and is
+;; loaded off this file's own location so cwd doesn't matter (rf2-qq7w2k).
+(load-file (str (.getParent (java.io.File. *file*)) "/bencode.clj"))
+
 (ns ops
-  (:require [clojure.edn :as edn]
+  (:require [bencode :as bc]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import (java.net Socket)
            (java.io PushbackInputStream)))
 
 ;; ---------------------------------------------------------------------------
-;; Minimal bencode + nREPL socket client
+;; nREPL socket client (bencode codec in scripts/bencode.clj)
 ;; ---------------------------------------------------------------------------
-;;
-;; bb doesn't ship a built-in nREPL client and we don't want a classpath
-;; dep just for this. Bencode is a 40-line protocol and nREPL speaks it
-;; directly over TCP; inline is simpler than bolting on Maven deps.
-
-(defn- bencode ^String [v]
-  (cond
-    (integer? v)   (str "i" v "e")
-    (string? v)    (let [bs (.getBytes ^String v "UTF-8")]
-                     (str (alength bs) ":" v))
-    (keyword? v)   (bencode (name v))
-    (map? v)       (str "d"
-                        (apply str (mapcat (fn [[k v]] [(bencode k) (bencode v)])
-                                           (sort-by (fn [[k _]] (if (keyword? k) (name k) (str k))) v)))
-                        "e")
-    (sequential? v) (str "l" (apply str (map bencode v)) "e")
-    (nil? v)       (bencode "")
-    :else          (bencode (pr-str v))))
-
-(defn- read-char [^PushbackInputStream in]
-  (let [b (.read in)]
-    (when (neg? b) (throw (ex-info "unexpected EOF" {})))
-    (char b)))
-
-(defn- bdecode [^PushbackInputStream in]
-  (let [c (read-char in)]
-    (case c
-      \i (let [sb (StringBuilder.)]
-           (loop [ch (read-char in)]
-             (if (= ch \e)
-               (Long/parseLong (.toString sb))
-               (do (.append sb ch) (recur (read-char in))))))
-      \l (loop [acc []]
-           (let [b (.read in)]
-             (cond (neg? b)          (throw (ex-info "unexpected EOF in list" {}))
-                   (= b (int \e))    acc
-                   :else             (do (.unread in b) (recur (conj acc (bdecode in)))))))
-      \d (loop [acc {}]
-           (let [b (.read in)]
-             (cond (neg? b)          (throw (ex-info "unexpected EOF in dict" {}))
-                   (= b (int \e))    acc
-                   :else             (do (.unread in b)
-                                         (let [k (bdecode in)
-                                               v (bdecode in)]
-                                           (recur (assoc acc k v)))))))
-      ;; digit — byte string of length N
-      (let [sb (StringBuilder.)]
-        (.append sb c)
-        (loop [ch (read-char in)]
-          (if (= ch \:)
-            (let [len (Long/parseLong (.toString sb))
-                  buf (byte-array len)]
-              (loop [read 0]
-                (when (< read len)
-                  (let [n (.read in buf read (- len read))]
-                    (when-not (pos? n) (throw (ex-info "EOF in string body" {})))
-                    (recur (+ read n)))))
-              (String. buf "UTF-8"))
-            (do (.append sb ch) (recur (read-char in)))))))))
 
 (defn- nrepl-eval-raw
   "Open a socket to nREPL at port, send an op eval of code-str, read
@@ -145,11 +93,11 @@
     (let [out (.getOutputStream sock)
           in  (PushbackInputStream. (.getInputStream sock))
           id  (str (random-uuid))
-          msg (bencode {"op" "eval" "code" code-str "id" id})]
+          msg (bc/encode {"op" "eval" "code" code-str "id" id})]
       (.write out (.getBytes ^String msg "UTF-8"))
       (.flush out)
       (loop [responses []]
-        (let [resp (bdecode in)
+        (let [resp (bc/decode in)
               responses' (conj responses resp)
               done? (and (= id (get resp "id"))
                          (some #{"done"} (get resp "status" [])))]

@@ -20,69 +20,19 @@
 ;;;; surface, not the runtime semantics. tests/runtime/ already covers
 ;;;; the pure CLJS logic; tests/e2e/ covers live nREPL.
 
+;; The minimal bencode codec is shared with the production shim
+;; (scripts/ops.clj); it lives in scripts/bencode.clj and is loaded off
+;; this file's own location so cwd doesn't matter (rf2-qq7w2k). The stub
+;; DECODES requests + ENCODES canned replies — the mirror of ops.clj.
+(load-file (str (.getParent (.getParentFile (.getParentFile (java.io.File. *file*))))
+                "/scripts/bencode.clj"))
+
 (ns stub-nrepl
-  (:require [clojure.java.io :as io]
+  (:require [bencode :as bc]
+            [clojure.java.io :as io]
             [clojure.string :as str])
   (:import (java.net ServerSocket Socket)
            (java.io PushbackInputStream)))
-
-;; ---------------------------------------------------------------------------
-;; bencode
-;; ---------------------------------------------------------------------------
-
-(defn- bencode ^String [v]
-  (cond
-    (integer? v)   (str "i" v "e")
-    (string? v)    (let [bs (.getBytes ^String v "UTF-8")]
-                     (str (alength bs) ":" v))
-    (keyword? v)   (bencode (name v))
-    (map? v)       (str "d"
-                        (apply str (mapcat (fn [[k v]] [(bencode k) (bencode v)])
-                                           (sort-by (fn [[k _]] (if (keyword? k) (name k) (str k))) v)))
-                        "e")
-    (sequential? v) (str "l" (apply str (map bencode v)) "e")
-    (nil? v)       (bencode "")
-    :else          (bencode (pr-str v))))
-
-(defn- read-char [^PushbackInputStream in]
-  (let [b (.read in)]
-    (when (neg? b) (throw (ex-info "unexpected EOF" {})))
-    (char b)))
-
-(defn- bdecode [^PushbackInputStream in]
-  (let [c (read-char in)]
-    (case c
-      \i (let [sb (StringBuilder.)]
-           (loop [ch (read-char in)]
-             (if (= ch \e)
-               (Long/parseLong (.toString sb))
-               (do (.append sb ch) (recur (read-char in))))))
-      \l (loop [acc []]
-           (let [b (.read in)]
-             (cond (neg? b)          (throw (ex-info "unexpected EOF in list" {}))
-                   (= b (int \e))    acc
-                   :else             (do (.unread in b) (recur (conj acc (bdecode in)))))))
-      \d (loop [acc {}]
-           (let [b (.read in)]
-             (cond (neg? b)          (throw (ex-info "unexpected EOF in dict" {}))
-                   (= b (int \e))    acc
-                   :else             (do (.unread in b)
-                                         (let [k (bdecode in)
-                                               v (bdecode in)]
-                                           (recur (assoc acc k v)))))))
-      (let [sb (StringBuilder.)]
-        (.append sb c)
-        (loop [ch (read-char in)]
-          (if (= ch \:)
-            (let [len (Long/parseLong (.toString sb))
-                  buf (byte-array len)]
-              (loop [read 0]
-                (when (< read len)
-                  (let [n (.read in buf read (- len read))]
-                    (when-not (pos? n) (throw (ex-info "EOF in string body" {})))
-                    (recur (+ read n)))))
-              (String. buf "UTF-8"))
-            (do (.append sb ch) (recur (read-char in)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Canned response table
@@ -127,7 +77,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- send-response [^java.io.OutputStream out m]
-  (.write out (.getBytes (bencode m) "UTF-8"))
+  (.write out (.getBytes (bc/encode m) "UTF-8"))
   (.flush out))
 
 (defn- handle-eval [out req cases]
@@ -173,7 +123,7 @@
     (with-open [in  (PushbackInputStream. (.getInputStream sock))
                 out (.getOutputStream sock)]
       (loop []
-        (let [req (try (bdecode in) (catch Exception _ ::eof))]
+        (let [req (try (bc/decode in) (catch Exception _ ::eof))]
           (when-not (= req ::eof)
             (case (get req "op")
               "clone"    (handle-clone out req)
