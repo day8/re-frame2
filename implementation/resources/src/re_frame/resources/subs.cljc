@@ -181,22 +181,35 @@
 
 (defn- active-mismatch-scope
   "The scope of a DIFFERENT active entry for `resource-id` — the heuristic's
-  evidence that the subscribed `sub-key` is a LIKELY scope mismatch. Scans
-  the cache `entries` for a key `[scope resource-id _params]` whose
-  `resource-id` matches `sub-key`'s but whose SCOPE differs, and whose entry
-  is active (`entry-active?`). Returns the first such scope, or nil when no
-  other scope for this resource is active. Pure."
-  [entries sub-key]
-  (let [[sub-scope rid _params] sub-key]
-    (some (fn [[_k-id entry]]
-            ;; rf2-9e0tyq — read the scope/rid from the entry's stored
-            ;; `:resource/key` VECTOR (the map key is now the opaque byte id).
-            (let [[scope r _p] (:resource/key entry)]
+  evidence that the subscribed `sub-key` is a LIKELY scope mismatch. Returns
+  the first such scope, or nil when no other scope for this resource is active.
+
+  rf2-tluunj — visits ONLY entries that currently hold an active owner, via the
+  `owner-index` (`{<owner> #{<key-id> …}}`), instead of scanning the WHOLE
+  `:entries` map on every `:rf.resource/state` sub recompute. The heuristic
+  only ever fires on an ACTIVE entry (`entry-active?`), and an entry is active
+  IFF it is a member of some owner-index bucket, so the owner-index members are
+  exactly the candidate set — every entry the old full scan would have passed
+  the `entry-active?` test for, and no more. Resolving each member to its entry
+  via `entry-path-by-id` keeps the rest of the predicate identical. Pure."
+  [resources-subtree sub-key]
+  (let [[sub-scope rid _params] sub-key
+        entries     (:entries resources-subtree)
+        owner-index (:owner-index resources-subtree)
+        ;; the byte key-ids of every entry holding ≥1 active owner — the union
+        ;; of the owner-index buckets (deduped). A non-from-caller-heavy cache
+        ;; with few active leases visits a handful of keys, not the whole cache.
+        active-ids  (reduce-kv (fn [acc _owner ids] (into acc ids)) #{} owner-index)]
+    (some (fn [k-id]
+            ;; rf2-9e0tyq — the index member IS the byte key-id; read the
+            ;; scope/rid off the entry's stored `:resource/key` VECTOR.
+            (let [entry        (get entries k-id)
+                  [scope r _p] (:resource/key entry)]
               (when (and (= r rid)
                          (not= scope sub-scope)
                          (entry-active? entry))
                 scope)))
-          entries)))
+          active-ids)))
 
 (defn maybe-warn-scope-mismatch!
   "Emit the dev-only likely-scope-mismatch warning (rf2-rsmiru) when a
@@ -224,9 +237,12 @@
       (when (and (= :rf.scope/from-caller (:scope spec))
                  ;; the subscribed entry has no active owner (or no entry) …
                  (not (entry-active? sub-entry)))
-        (let [entries       (get-in runtime-db (state/entries-path))
+        ;; rf2-tluunj — pass the whole resources subtree so the mismatch scan
+        ;; can use the `:owner-index` (visit only active entries) rather than
+        ;; scanning the entire `:entries` map on every reactive sub recompute.
+        (let [resources-subtree (get runtime-db state/resources-key)
               [sub-scope]   sub-key
-              active-scope  (active-mismatch-scope entries sub-key)]
+              active-scope  (active-mismatch-scope resources-subtree sub-key)]
           ;; … while a DIFFERENT scope for the same resource IS active.
           (when (some? active-scope)
             (let [dedupe-key [resource-id sub-scope active-scope]]
