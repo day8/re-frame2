@@ -28,10 +28,7 @@
   `:app-db` / `:assertions` slots through
   `re-frame.story-mcp.tools.egress` (rf2-73wuj)."
   (:require [re-frame.story :as story]
-            [re-frame.story.assertions :as assertions]
             [re-frame.story.async :as async]
-            [re-frame.story.requirements :as requirements]
-            [re-frame.story.result :as story-result]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -109,7 +106,7 @@
                          ;; agents to learn).
                          {:status     :error
                           :frame      vk
-                          :assertions [(story-result/assertion-record
+                          :assertions [(story/assertion-record
                                          {:assertion :rf.error/run-failed
                                           :passed?   false
                                           :error     true
@@ -241,9 +238,9 @@
 
   The records ride the SAME unified shape `run-variant` emits
   (spec/017 §Run result, rf2-ba86n.17): each record is normalized through
-  `re-frame.story.result/assertion-records` so it carries a derived
+  `re-frame.story/assertion-records` so it carries a derived
   `:status`, and the headline `:status` is the aggregate verdict over the
-  records (`requirements/aggregate-status` — the ONE rule:
+  records (`re-frame.story/aggregate-verdict` — the ONE rule:
   `:error` > `:fail` > `:cannot-run` > `:pass`). The clean break removed
   the re-derived `:passing?` boolean; `:status` is the one verdict, read
   off the records rather than recomputed as a green/red bit. `:failures`
@@ -267,14 +264,14 @@
   (targs/with-variant-id arguments
     (fn [vk]
       (let [incl?      (targs/include-sensitive? arguments)
-            raw        (assertions/read-assertions vk)
+            raw        (story/read-assertions vk)
             [scrubbed dropped] (egress/scrub-assertions+count raw incl?)
             ;; Stamp the derived :status on every record so the agent reads
             ;; the SAME unified record shape `run-variant` emits.
-            records    (story-result/assertion-records scrubbed)
+            records    (story/assertion-records scrubbed)
             failures   (filterv #(contains? failure-statuses (:status %)) records)
             payload    {:variant-id vk
-                        :status     (requirements/aggregate-status records nil)
+                        :status     (story/aggregate-verdict records nil)
                         :total      (count records)
                         :failures   failures
                         :assertions records}]

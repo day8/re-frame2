@@ -33,7 +33,6 @@
   the input-schema property whose wire form disallows it."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
-            [re-frame.story.schemas :as story-schemas]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -269,7 +268,7 @@
                 (let [wb-target   (when (and write-back? (:new-variant-id arguments))
                                     (args/fresh-keyword-checked
                                       (:new-variant-id arguments)
-                                      story-schemas/variant-id-shape?))]
+                                      story/valid-variant-id?))]
                  (if (and write-back? (:new-variant-id arguments) (nil? wb-target))
                   (result/error-result
                     (str ":new-variant-id " (pr-str (:new-variant-id arguments))
