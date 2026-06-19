@@ -3099,7 +3099,29 @@
          ;; Read the call-site from the envelope (already gated in
          ;; build-envelope) so the synchronous error emits below can
          ;; carry it without referencing the keyword a second time.
-         call-site    (:call-site envelope)]
+         call-site    (:call-site envelope)
+         ;; Nested-sync detection, hoisted out of the cond TEST position so
+         ;; the cond reads as flat test→result pairs. True when this call is
+         ;; reentering the SAME frame's running drain — either an explicit
+         ;; in-sync-drain flag is set, OR this thread is itself the active
+         ;; drainer (`same-thread-drain?`). nil frame-record is handled by the
+         ;; earlier cond clause, so deref-ing `(:router frame-record)` here is
+         ;; safe.
+         nested-sync?
+         (when frame-record
+           (let [router-state @(:router frame-record)
+                 ;; Per rf2-ynk7: `:in-drain?` now holds the drainer's
+                 ;; thread (or nil). Only flag as "nested" when the current
+                 ;; thread is the drainer — a different thread mid-drain is
+                 ;; a concurrent caller, which `drain-block!` handles
+                 ;; correctly by spin-CAS-waiting. CLJS: `:in-drain?` is
+                 ;; `true` or `nil`; the equality check still discriminates
+                 ;; (truthy = same-thread by construction on a single-
+                 ;; threaded host).
+                 same-thread-drain?
+                 #?(:clj  (identical? (:in-drain? router-state) (Thread/currentThread))
+                    :cljs (true? (:in-drain? router-state)))]
+             (or (:in-sync-drain? router-state) same-thread-drain?)))]
      (cond
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch-sync into a
@@ -3109,19 +3131,7 @@
        (trace/with-call-site call-site
          (emit-frame-destroyed! (first event) event (:frame envelope)))
 
-       (let [router-state @(:router frame-record)
-             ;; Per rf2-ynk7: `:in-drain?` now holds the drainer's
-             ;; thread (or nil). Only flag as "nested" when the current
-             ;; thread is the drainer — a different thread mid-drain is
-             ;; a concurrent caller, which `drain-block!` handles
-             ;; correctly by spin-CAS-waiting. CLJS: `:in-drain?` is
-             ;; `true` or `nil`; the equality check still discriminates
-             ;; (truthy = same-thread by construction on a single-
-             ;; threaded host).
-             same-thread-drain?
-             #?(:clj  (identical? (:in-drain? router-state) (Thread/currentThread))
-                :cljs (true? (:in-drain? router-state)))]
-         (or (:in-sync-drain? router-state) same-thread-drain?))
+       nested-sync?
        ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
        ;; SAME frame's running drain (sync or async) is an error — the
        ;; event would interleave with the outer handler's run-to-completion.
