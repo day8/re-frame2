@@ -46,7 +46,7 @@ There are three test namespaces, split by what each one asserts against — the 
 |---|---|---|
 | `re-frame.test-support` | Runtime state — frames, the registrar, app-db, the dispatch drain | `with-fresh-registrar`, `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`, `poll-until` |
 | `re-frame.test-helpers` | The view tree — hiccup data, `:data-testid` selectors, attached handlers | the `find-by-testid` family, `text-content`, `extract-handler` / `invoke-handler`, the `with-app-fixture` / `expect-text` / `wait-until` trio, `testid` |
-| `re-frame.http-test-support` | The HTTP boundary | canned-reply stub fxs, `with-managed-request-stubs` |
+| `re-frame.http.test-support` | The HTTP boundary | canned-reply stub fxs, `with-managed-request-stubs` |
 
 The full inventory is in [10 — Testing](../api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
 

@@ -1477,8 +1477,8 @@ reauthored.
 - Local source: `implementation/routing/src/re_frame/routing/nav_token.cljc`
 - Local source: `implementation/routing/src/re_frame/routing/can_leave.cljc`
 - Local source: `implementation/routing/src/re_frame/routing/scroll.cljc`
-- Local source: `implementation/http/src/re_frame/http_handlers.cljc`
-- Local source: `implementation/http/src/re_frame/http_managed.cljc`
+- Local source: `implementation/http/src/re_frame/http/handlers.cljc`
+- Local source: `implementation/http/src/re_frame/http/managed.cljc`
 - Local source: `implementation/flows/src/re_frame/flows/registry.cljc`
 - Local source: `implementation/ssr/src/re_frame/ssr/boot.cljc`
 - Local source: `implementation/ssr/src/re_frame/ssr/streaming/client.cljs`

@@ -6,7 +6,7 @@ The v1 add-on `day8.re-frame/http-fx` ships a single fx — `:http-xhrio` — wr
 
 > **Type B — ask first.** The failure surface is a re-thinking, not a structural lift. Surface the proposed `:rf.http/managed` shape per call site and wait for approval before editing.
 
-> **Verify before you write.** The request / reply shapes below are summarised from [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md). Re-read [§Request envelope](../../../spec/014-HTTPRequests.md#request-envelope), [§Reply addressing](../../../spec/014-HTTPRequests.md#reply-addressing), and [§Failure categories (closed set)](../../../spec/014-HTTPRequests.md#failure-categories-closed-set) against the live http artefact before emitting a request — the spec is the contract, this page is the on-ramp. `:rf.http/managed` ships in `day8/re-frame2-http` (per [M-31](breaking-changes.md#required-m-rules-by-trigger-surface)); a require of `re-frame.http-managed` registers the fx (without it the `:fx` runner raises `:rf.error/no-such-fx`).
+> **Verify before you write.** The request / reply shapes below are summarised from [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md). Re-read [§Request envelope](../../../spec/014-HTTPRequests.md#request-envelope), [§Reply addressing](../../../spec/014-HTTPRequests.md#reply-addressing), and [§Failure categories (closed set)](../../../spec/014-HTTPRequests.md#failure-categories-closed-set) against the live http artefact before emitting a request — the spec is the contract, this page is the on-ramp. `:rf.http/managed` ships in `day8/re-frame2-http` (per [M-31](breaking-changes.md#required-m-rules-by-trigger-surface)); a require of `re-frame.http.managed` registers the fx (without it the `:fx` runner raises `:rf.error/no-such-fx`).
 
 ## Detection
 
@@ -28,7 +28,7 @@ The shapes are similar — both take an args map and dispatch a result — but t
 | `:params` (query for GET, body for POST) | `:request :params` (always query) **or** `:request :body` (always body) | v1 overloaded `:params`; managed-HTTP splits them. Read `:method`: GET → `:request :params`; POST/PUT/PATCH → `:request :body`. See [§Request envelope](../../../spec/014-HTTPRequests.md#request-envelope). |
 | `:headers` | `:request :headers` | one-to-one (string → string map). |
 | `:format (ajax/json-request-format)` (request encoder fn) | `:request :request-content-type :json` (or `:form` / `:text`) | v1 took a fn; managed-HTTP takes a keyword sugar. `json-request-format`→`:json`, `url-request-format`→`:form`, `text-request-format`→`:text`. Custom formatters escalate. |
-| `:response-format (ajax/json-response-format {:keywords? true})` (decoder fn) | `:decode :json` (or `:text` / `:blob` / a Malli schema / a fn) | **Like-for-like ONLY when v1 keywordised.** `:decode :json` **always** keywordises JSON object keys (no `:keywords? false` knob — `re-frame.util-json/json-parse` keywordises unconditionally) and enforces the keyword-interning cap. So `:decode :json` is the like-for-like rewrite **only** for v1 sites that passed `{:keywords? true}`. v1 sites that used `{:keywords? false}`, **omitted** the response-format options, or whose handlers read **string** keys (`(get resp "id")`) get **silently keyword-shifted** — escalate (see the **String-key trap** note below). The **canonical upgrade** is `:decode <MalliSchema>` (validates the payload). See [§Decoding](../../../spec/014-HTTPRequests.md#decoding). |
+| `:response-format (ajax/json-response-format {:keywords? true})` (decoder fn) | `:decode :json` (or `:text` / `:blob` / a Malli schema / a fn) | **Like-for-like ONLY when v1 keywordised.** `:decode :json` **always** keywordises JSON object keys (no `:keywords? false` knob — `re-frame.http.json/json-parse` keywordises unconditionally) and enforces the keyword-interning cap. So `:decode :json` is the like-for-like rewrite **only** for v1 sites that passed `{:keywords? true}`. v1 sites that used `{:keywords? false}`, **omitted** the response-format options, or whose handlers read **string** keys (`(get resp "id")`) get **silently keyword-shifted** — escalate (see the **String-key trap** note below). The **canonical upgrade** is `:decode <MalliSchema>` (validates the payload). See [§Decoding](../../../spec/014-HTTPRequests.md#decoding). |
 | `:timeout` (ms; library default 0 / unbounded) | `:timeout-ms` (per-attempt; **default 30000**) | port an explicit `:timeout <ms>` to `:timeout-ms <ms>`; leave the default in place when v1 omitted it. Do **not** port to `:timeout-ms 0` / `nil` (unbounded) without operator confirmation — the 30s default is a security floor. See [§`:timeout-ms` security defaults](../../../spec/014-HTTPRequests.md#timeout-ms-security-defaults). |
 | `:on-success [:event-id]` | `:on-success [:event-id]` — payload reshapes | dispatch shape identical; the **payload becomes `{:kind :success :value <decoded>}`**, appended as the last event arg. The handler reads `{:keys [value]}`. See [§Reply addressing](../../../spec/014-HTTPRequests.md#reply-addressing). |
 | `:on-failure [:event-id]` (raw `XhrIo` response) | `:on-failure [:event-id]` — payload reshapes | dispatch shape identical; the **payload becomes `{:kind :failure :failure {:kind <:rf.http/*> ...}}`**. The handler keys off `(:kind failure)`, a closed `:rf.http/*` keyword — **not** the v1 `:status` / `:failure` enum. See [§Failure categories (closed set)](../../../spec/014-HTTPRequests.md#failure-categories-closed-set). |
@@ -115,7 +115,7 @@ A representative `:http-xhrio` request: fetch an article by slug, decode JSON, d
 ```clojure
 (ns my-app.articles
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]))                  ;; per M-31 — registers the :rf.http/* fxs
+            [re-frame.http.managed]))                  ;; per M-31 — registers the :rf.http/* fxs
 
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
@@ -156,7 +156,7 @@ What changed:
 - **`:timeout 10000` → `:timeout-ms 10000`.**
 - **`:on-success` payload `response` → `{:keys [value]}`** — the handler destructures `:value` from the `{:kind :success :value ...}` reply.
 - **`:on-failure` payload `{:status :response}` → `{:keys [failure]}`** keyed on `(:kind failure)`, the closed `:rf.http/*` taxonomy. Re-shaping the failure body is the substantial part of every per-call-site conversion — the operator decides which categories get distinct UX.
-- **`(:require [day8.re-frame.http-fx])` + `[ajax.core]` dropped; `(:require [re-frame.http-managed])` added** (M-31). The `day8.re-frame/http-fx` coord is dropped once every request is converted.
+- **`(:require [day8.re-frame.http-fx])` + `[ajax.core]` dropped; `(:require [re-frame.http.managed])` added** (M-31). The `day8.re-frame/http-fx` coord is dropped once every request is converted.
 
 ## Escalate — the agent surfaces and stops
 
@@ -174,7 +174,7 @@ Do **not** silently rewrite these; present the call site, the reason, and wait f
 - List every `:http-xhrio` call site found, whether the operator approved each rewrite, and the resulting `:rf.http/managed` shape (decode keyword vs schema; retry policy; abort surface).
 - List every `:on-failure` handler whose body was reshaped to the `:rf.http/*` taxonomy with file/line — the operator reviews for per-category UX the v1 surface did not allow.
 - List every site that hit the **String-key trap** (v1 `:keywords? false` / omitted response-format / string-key handler) with file/line and the operator's decision (keep string keys via `:decode :text` + parse, vs adopt keyword keys + update handlers/schemas) — a request that succeeds with a silently keyword-shifted payload is a latent regression.
-- When the `day8.re-frame/http-fx` dep is no longer referenced, flag it for removal; the operator confirms before the coord is dropped. The `day8/re-frame2-http` dep is added per M-31; `re-frame.http-managed` is required per namespace that dispatches the fx.
+- When the `day8.re-frame/http-fx` dep is no longer referenced, flag it for removal; the operator confirms before the coord is dropped. The `day8/re-frame2-http` dep is added per M-31; `re-frame.http.managed` is required per namespace that dispatches the fx.
 - List each escalation with file/line, the reason, and the recommended path.
 
 ---

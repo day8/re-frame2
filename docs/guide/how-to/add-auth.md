@@ -16,7 +16,7 @@ The token is a secret, so the slice ships with two protections. First, declare t
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
-;; Requires: [re-frame.core :as rf] [re-frame.http-managed] [re-frame.routing :as routing]
+;; Requires: [re-frame.core :as rf] [re-frame.http.managed] [re-frame.routing :as routing]
 ;; — requiring each artefact namespace registers its surface at load.
 (rf/reg-fx :auth.session/persist
   {:doc       "Persist (truthy :token) or clear (nil) the session token in localStorage."

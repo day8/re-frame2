@@ -124,7 +124,7 @@ implementation/
 
   http/                      day8/re-frame2-http — managed HTTP (Spec 014, rf2-5kpd).
     deps.edn                 :local/root dep on ../core.
-    src/re_frame/http_managed.cljc :rf.http/managed args-map, decode pipeline, retry,
+    src/re_frame/http/managed.cljc :rf.http/managed args-map, decode pipeline, retry,
                                    abort, frame-aware reply addressing.
     test/re_frame/                 JVM + CLJS http-managed tests.
 

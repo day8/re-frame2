@@ -4,7 +4,7 @@
 
 `:rf.http/managed` is one of the four shipped instances of the **managed external effect** umbrella — alongside state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*` (a WebSocket connection is the app/library-built case; re-frame2 does **not** ship `:rf.ws/*`). All four shipped surfaces inherit the eight common properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy, trace-bus observability, elision composition, built-in retry/abort/teardown, pair-tool override seam, in-flight registry). **Property 9 — the uniform reply envelope** — is the *async-only* property: it applies to the async-completing family (managed HTTP, resources, mutations, machine async work, route loaders, plus future/test timer surfaces), **not** to the synchronous-completing umbrella surfaces `:rf.server/*` / `:rf.flow/*`. Managed HTTP is in that async family — its completion is one reply map with a closed `:status` `{:ok :partial :error :cancelled :stale}`, delivered to a `:rf/reply-to` target, correlated by `:work/id`, with stale suppression. For HTTP the envelope is **internal**: the public reply surface you author against stays `:on-success` / `:on-failure` and the co-located `:rf/reply` + `:kind` sugar below, which lower to the envelope — you do not hand-write `:status` for a managed-HTTP call. (An HTTP `:request-id` is abort/correlation metadata, not a second stale-suppression key — the single attempt identity is `:work/id`.) See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; the rest of this leaf is HTTP-specific.
 
-> Managed-HTTP is **v1-optional** but shipped in the CLJS reference. It lives in `day8/re-frame2-http`; requiring `re-frame.http-managed` at app boot triggers its load-time registrations.
+> Managed-HTTP is **v1-optional** but shipped in the CLJS reference. It lives in `day8/re-frame2-http`; requiring `re-frame.http.managed` at app boot triggers its load-time registrations.
 
 ## When to use this pattern
 
@@ -144,7 +144,7 @@ For the machine-form wrapper in production, see the auth-flow in `patterns/boot.
 
 ## Pointers
 
-- Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`, ships in `re-frame.http-test-support`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
+- Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`, ships in `re-frame.http.test-support`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
 - Schema-driven decode → SKILL-REDIRECT.md → *EP — Schemas (010)*.
 - Retry-ownership worked example → `patterns/boot.md`.
 - `:spawn` substrate → SKILL-REDIRECT.md → *EP — State machines (005)*.

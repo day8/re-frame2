@@ -243,7 +243,7 @@ re-frame2 splits seven per-feature artefacts out of core. **Add them only when t
 | `day8/re-frame2-http` | `[:rf.http/managed ...]` as an `:fx` entry, or `:rf.http/managed` as a child machine (M-31) |
 | `day8/re-frame2-ssr` | `render-to-string` server-side (M-32) |
 | `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch`, or transitively via `re-frame2-pair` (no M-rule; pull only if directly used) |
-| `[re-frame.http-test-support]` (test-ns require, not a Maven dep) | managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`, M-31a) or the stub macros (`with-managed-request-stubs` family, M-65) appear in test code — add the require or the `rf/<stub>` re-exports raise `:rf.error/http-artefact-missing` |
+| `[re-frame.http.test-support]` (test-ns require, not a Maven dep) | managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`, M-31a) or the stub macros (`with-managed-request-stubs` family, M-65) appear in test code — add the require or the `rf/<stub>` re-exports raise `:rf.error/http-artefact-missing` |
 
 In practice: most v1 codebases use **none** of these, because none of these features exist in v1. State machines / flows / managed-HTTP / SSR are v2 additions. v1 codebases doing equivalent things by hand stay doing them by hand post-migration; you do **not** rewrite those into the new artefacts as part of the required migration. (Adopting them is opt-in; see the `O-N` rules.)
 

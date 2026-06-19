@@ -376,12 +376,12 @@ When a per-feature surface is in use, add the dep AND add the `:require` of the 
 | `reg-machine` / `sub-machine` | `day8/re-frame2-machines` | `re-frame.machines` |
 | `reg-route` / `:rf.route/*` events | `day8/re-frame2-routing` | `re-frame.routing` |
 | `reg-flow` / `:rf.fx/reg-flow` | `day8/re-frame2-flows` | `re-frame.flows` |
-| `[:rf.http/managed ...]` (and/or the `rf.http/get` / `post` / … verb helpers) | `day8/re-frame2-http` | `re-frame.http-managed` (registers the `:rf.http/managed` fx at ns-load) **plus** `re-frame.http` (the call-site verb helpers). Require **both** in any ns using managed HTTP — `re-frame.http` is verb helpers only and does **not** register the fx, so a require of `re-frame.http` alone fails at dispatch with `:rf.error/no-such-fx`. |
+| `[:rf.http/managed ...]` (and/or the `rf.http/get` / `post` / … verb helpers) | `day8/re-frame2-http` | `re-frame.http.managed` (registers the `:rf.http/managed` fx at ns-load) **plus** `re-frame.http` (the call-site verb helpers). Require **both** in any ns using managed HTTP — `re-frame.http` is verb helpers only and does **not** register the fx, so a require of `re-frame.http` alone fails at dispatch with `:rf.error/no-such-fx`. |
 | `render-to-string` (SSR) | `day8/re-frame2-ssr` | `re-frame.ssr` |
 | `epoch-history` / `restore-epoch` | `day8/re-frame2-epoch` | `re-frame.epoch` |
-| managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`) or stub macros (`with-managed-request-stubs` family) **in test code** (M-31a / M-65) | (no separate Maven dep — ships with `day8/re-frame2-http`) | `re-frame.http-test-support` (in the **test** ns require closure) |
+| managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`) or stub macros (`with-managed-request-stubs` family) **in test code** (M-31a / M-65) | (no separate Maven dep — ships with `day8/re-frame2-http`) | `re-frame.http.test-support` (in the **test** ns require closure) |
 
-The `:require` is what triggers the artefact's load-time hook registrations. Without it the public surface throws `:rf.error/<artefact>-artefact-missing` at the first call (the `re-frame.http-test-support` require is the test-side counterpart — its omission raises `:rf.error/http-artefact-missing` from the `rf/<stub>` re-exports).
+The `:require` is what triggers the artefact's load-time hook registrations. Without it the public surface throws `:rf.error/<artefact>-artefact-missing` at the first call (the `re-frame.http.test-support` require is the test-side counterpart — its omission raises `:rf.error/http-artefact-missing` from the `rf/<stub>` re-exports).
 
 ---
 

@@ -17,7 +17,7 @@ When the runtime destroys a spawned actor by **any** trigger, every in-flight `:
 5. **Imperative `[:rf.machine/destroy <actor-id>]`** from a user-authored action.
 6. **Frame destroy** — `frame.cljc`'s frame-exit walk destroys each surviving machine, firing the same hook per actor.
 
-The hook is at `:http/abort-on-actor-destroy` (`re-frame.machines.lifecycle-fx.finalize` / `frame-destroy`); the http artefact registers the abort fn at ns-load time. When `re-frame.http-managed` is not on the classpath the hook resolves to nil and the destroy proceeds without HTTP-abort — apps that don't issue managed-HTTP requests pay nothing.
+The hook is at `:http/abort-on-actor-destroy` (`re-frame.machines.lifecycle-fx.finalize` / `frame-destroy`); the http artefact registers the abort fn at ns-load time. When `re-frame.http.managed` is not on the classpath the hook resolves to nil and the destroy proceeds without HTTP-abort — apps that don't issue managed-HTTP requests pay nothing.
 
 ## The abort surfaces
 

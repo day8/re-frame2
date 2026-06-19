@@ -204,7 +204,7 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  4. HTTP-SPECIFIC REDACTION (re-frame.http-privacy/prepare-emit-tags)       │
+│  4. HTTP-SPECIFIC REDACTION (re-frame.http.privacy/prepare-emit-tags)       │
 │     - For :rf.http/* trace events only.                                     │
 │     - `redact-headers` walks the :headers map, replaces values whose name   │
 │       is in the header denylist with :rf/redacted (unconditional — denyy-  │

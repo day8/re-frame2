@@ -139,7 +139,7 @@ The entry ns is named `core`. It:
 1. Requires every feature ns so each feature's `reg-*` macros fire at
    load time.
 2. Requires the day8 artefacts the app needs (`re-frame.machines`,
-   `re-frame.routing`, `re-frame.schemas`, `re-frame.http-managed`,
+   `re-frame.routing`, `re-frame.schemas`, `re-frame.http.managed`,
    `re-frame.ssr`) — the requires publish the late-bind hooks
    (`realworld/core.cljs:31-63`).
 3. Defines `:app/initialise` (the `:on-create` event) and fans out to

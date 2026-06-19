@@ -1430,14 +1430,14 @@ Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.f
 
 **Type A** (mechanical, dep-only).
 
-As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-managed-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `re-frame.http-managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
+As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-managed-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `re-frame.http.managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
 - Any `:rf.http/managed` / `:rf.http/managed-abort` / `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` entry inside an `:fx` vector or effect map.
 - Any `:fx-overrides` map whose source is `:rf.http/managed`.
 - Any call to `re-frame.core/with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`.
-- A direct `(:require [re-frame.http-managed])` clause.
+- A direct `(:require [re-frame.http.managed])` clause.
 - Any `:rf.http/decode-schemas` registration metadata key.
 
 **What to do.** Add the http artefact alongside the core dep:
@@ -1449,19 +1449,19 @@ As the fifth per-feature artefact split (Strategy B), Spec 014's managed-HTTP su
         day8/re-frame2-http    {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs / `with-managed-request-stubs` helper / `:rf.http/decode-schemas` registration metadata) MUST `(:require [re-frame.http-managed])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four `:rf.http/*` fxs are not registered at the moment a `[:rf.http/managed ...]` entry hits the drain and the `:fx` runner raises `:rf.error/no-such-fx`; the test-helper wrappers in `re-frame.core` raise `:rf.error/http-artefact-missing` with a clear "add the http artefact" message.
+Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs / `with-managed-request-stubs` helper / `:rf.http/decode-schemas` registration metadata) MUST `(:require [re-frame.http.managed])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four `:rf.http/*` fxs are not registered at the moment a `[:rf.http/managed ...]` entry hits the drain and the `:fx` runner raises `:rf.error/no-such-fx`; the test-helper wrappers in `re-frame.core` raise `:rf.error/http-artefact-missing` with a clear "add the http artefact" message.
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/with-managed-request-stubs ...)`, `(rf/install-managed-request-stubs! ...)`, `(rf/uninstall-managed-request-stubs!)` and `(rf/with-managed-request-stubs* ...)` still work, the wrappers in core late-bind through the hook table to the http artefact's implementations.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
-#### M-31a. Managed-HTTP canned-stub fxs require `re-frame.http-test-support`
+#### M-31a. Managed-HTTP canned-stub fxs require `re-frame.http.test-support`
 
 **Type B** (touch test-namespace requires).
 
-Following a security audit, the two canonical canned-stub fxs `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` no longer register at `re-frame.http-managed` namespace load. They register from a sibling test-support namespace, `re-frame.http-test-support`, that ships in the same `day8/re-frame2-http` Maven artefact. Production / SSR application code MUST NOT `:require` that namespace; tests opt in.
+Following a security audit, the two canonical canned-stub fxs `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` no longer register at `re-frame.http.managed` namespace load. They register from a sibling test-support namespace, `re-frame.http.test-support`, that ships in the same `day8/re-frame2-http` Maven artefact. Production / SSR application code MUST NOT `:require` that namespace; tests opt in.
 
-The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-managed` itself. On CLJS `:advanced + goog.DEBUG=false` that gate folded to `false` and the registrations elided as intended; on the JVM `debug-enabled?` is unconditionally true, so the canned-stub fx ids stayed registered as production-default API on JVM/SSR builds — discoverable via `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` from any handler. The require-boundary gate makes the absence load-bearing on every host.
+The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http.managed` itself. On CLJS `:advanced + goog.DEBUG=false` that gate folded to `false` and the registrations elided as intended; on the JVM `debug-enabled?` is unconditionally true, so the canned-stub fx ids stayed registered as production-default API on JVM/SSR builds — discoverable via `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` from any handler. The require-boundary gate makes the absence load-bearing on every host.
 
 **What to look for** in your codebase:
 
@@ -1471,15 +1471,15 @@ The earlier gate was `(when interop/debug-enabled? ...)` inside `re-frame.http-m
 - Any conformance-fixture runner that drives Spec 014 fixtures (the corpus references the canned-stub fx ids by id).
 - Any dev-only example / testbed / story that wires its own per-URL stub fx that delegates to the canned-stub fxs (e.g. realworld, boot, login, ssr, nine-states, managed-http-counter, the http-toggle testbed).
 
-**What to do.** Add `re-frame.http-test-support` alongside `re-frame.http-managed` in the require closure of every test / dev-only namespace from the list above:
+**What to do.** Add `re-frame.http.test-support` alongside `re-frame.http.managed` in the require closure of every test / dev-only namespace from the list above:
 
 ```clojure
 (ns my-app.tests
-  (:require [re-frame.http-managed]        ;; production fx surface
-            [re-frame.http-test-support])) ;; canned-stub fx registrations
+  (:require [re-frame.http.managed]        ;; production fx surface
+            [re-frame.http.test-support])) ;; canned-stub fx registrations
 ```
 
-Test fixtures that `(registrar/clear-all!)` between tests and `(require 're-frame.http-managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http-test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
+Test fixtures that `(registrar/clear-all!)` between tests and `(require 're-frame.http.managed :reload)` to re-seat the production-eligible fxs SHOULD also `(require 're-frame.http.test-support :reload)` to re-seat the canned-stub registrations — without the reload, only one test sees the stubs registered and subsequent tests fail with `:rf.error/no-such-fx` for `:rf.http/managed-canned-*`.
 
 Code that uses `with-managed-request-stubs` / `install-managed-request-stubs!` does NOT need the test-support require — those helpers register their own `:rf.http/managed-test-stub` fx at user invocation time, independent of the canned-stub fx ids.
 
@@ -2652,41 +2652,41 @@ The two arities of v2's `assert-state` (path form + full-db form) become two nam
 
 ---
 
-### M-65. HTTP stubbing macros consolidated into `re-frame.http-test-support`
+### M-65. HTTP stubbing macros consolidated into `re-frame.http.test-support`
 
-**Type A** (mechanical). Single-file rename per call site: change the `:require` of `re-frame.http-managed` to also pull in `re-frame.http-test-support` for any test that touches the stub-macros family. Existing v1 codebases never had this surface (Spec 014 is re-frame2 only); v2-pre-rename codebases only.
+**Type A** (mechanical). Single-file rename per call site: change the `:require` of `re-frame.http.managed` to also pull in `re-frame.http.test-support` for any test that touches the stub-macros family. Existing v1 codebases never had this surface (Spec 014 is re-frame2 only); v2-pre-rename codebases only.
 
-Per audit-of-audits #15: the previous arrangement split the HTTP test surface across two namespaces — `with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` lived in `re-frame.http-managed` (alongside the production fxs), and `re-frame.http-test-support` was a bare "registration gate" namespace whose only job was to register the two canned-stub fxs. A test author reaching for "the HTTP stub helper" had to know which surface lived where. The consolidation drops that split: every HTTP test surface (canned-stub fxs + stub macros + matching late-bind hook publications) now lives in `re-frame.http-test-support`. One namespace, one require, name matches content.
+Per audit-of-audits #15: the previous arrangement split the HTTP test surface across two namespaces — `with-managed-request-stubs` / `with-managed-request-stubs*` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` lived in `re-frame.http.managed` (alongside the production fxs), and `re-frame.http.test-support` was a bare "registration gate" namespace whose only job was to register the two canned-stub fxs. A test author reaching for "the HTTP stub helper" had to know which surface lived where. The consolidation drops that split: every HTTP test surface (canned-stub fxs + stub macros + matching late-bind hook publications) now lives in `re-frame.http.test-support`. One namespace, one require, name matches content.
 
 ```clojure
 ;; before (v2-pre-rename) — stub macros + canned-stub fxs each had a separate require
 (ns my-app.tests
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]          ;; provided the stub macros AND the production fxs
-            [re-frame.http-test-support]))   ;; provided ONLY the canned-stub fx registrations
+            [re-frame.http.managed]          ;; provided the stub macros AND the production fxs
+            [re-frame.http.test-support]))   ;; provided ONLY the canned-stub fx registrations
 
 ;; after — single test-support require for every HTTP test surface
 (ns my-app.tests
   (:require [re-frame.core :as rf]
-            [re-frame.http-managed]          ;; production fx surface (unchanged)
-            [re-frame.http-test-support]))   ;; canned-stub fxs + stub macros + late-bind hooks
+            [re-frame.http.managed]          ;; production fx surface (unchanged)
+            [re-frame.http.test-support]))   ;; canned-stub fxs + stub macros + late-bind hooks
 ```
 
-The require pair looks identical to the pre-rename shape, but the role of `re-frame.http-test-support` widened — it now also publishes the `:http/install-managed-request-stubs!` / `:http/uninstall-managed-request-stubs!` / `:http/with-managed-request-stubs*` late-bind hooks that the `re-frame.core` re-exports resolve through. A test that previously required only `re-frame.http-managed` and called `rf/install-managed-request-stubs!` / `rf/with-managed-request-stubs` directly now surfaces `:rf.error/http-artefact-missing` until the test-support require is added.
+The require pair looks identical to the pre-rename shape, but the role of `re-frame.http.test-support` widened — it now also publishes the `:http/install-managed-request-stubs!` / `:http/uninstall-managed-request-stubs!` / `:http/with-managed-request-stubs*` late-bind hooks that the `re-frame.core` re-exports resolve through. A test that previously required only `re-frame.http.managed` and called `rf/install-managed-request-stubs!` / `rf/with-managed-request-stubs` directly now surfaces `:rf.error/http-artefact-missing` until the test-support require is added.
 
 **Detect.** Test files that:
 - call `rf/install-managed-request-stubs!`, `rf/uninstall-managed-request-stubs!`, `rf/with-managed-request-stubs`, or `rf/with-managed-request-stubs*` (the user-facing surface through `re-frame.core`); OR
-- call `re-frame.http-managed/install-managed-request-stubs!` / `re-frame.http-managed/with-managed-request-stubs*` / `re-frame.http-managed/with-managed-request-stubs` directly,
+- call `re-frame.http.managed/install-managed-request-stubs!` / `re-frame.http.managed/with-managed-request-stubs*` / `re-frame.http.managed/with-managed-request-stubs` directly,
 
-without `re-frame.http-test-support` in their require closure.
+without `re-frame.http.test-support` in their require closure.
 
 **Mechanical sweep.**
-1. Add `[re-frame.http-test-support]` to the require list of any test ns that uses the stub-macros family.
-2. Rewrite any direct `re-frame.http-managed/{install-managed-request-stubs!,uninstall-managed-request-stubs!,with-managed-request-stubs*}` calls to use `re-frame.http-test-support/<fn>` (or the `re-frame.core` re-exports). The `with-managed-request-stubs` macro is unaffected at call sites that already use `rf/with-managed-request-stubs` (the `re-frame.core` re-export route stays valid; only the test-support require has to be added).
+1. Add `[re-frame.http.test-support]` to the require list of any test ns that uses the stub-macros family.
+2. Rewrite any direct `re-frame.http.managed/{install-managed-request-stubs!,uninstall-managed-request-stubs!,with-managed-request-stubs*}` calls to use `re-frame.http.test-support/<fn>` (or the `re-frame.core` re-exports). The `with-managed-request-stubs` macro is unaffected at call sites that already use `rf/with-managed-request-stubs` (the `re-frame.core` re-export route stays valid; only the test-support require has to be added).
 
-**No alias.** Per pre-alpha posture (no back-compat shims), the stub-macros family no longer publishes from `re-frame.http-managed` — stale `rf/install-managed-request-stubs!` call sites without the test-support require raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the late-bind hook is nil). Stale `re-frame.http-managed/install-managed-request-stubs!` direct calls raise `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ).
+**No alias.** Per pre-alpha posture (no back-compat shims), the stub-macros family no longer publishes from `re-frame.http.managed` — stale `rf/install-managed-request-stubs!` call sites without the test-support require raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the late-bind hook is nil). Stale `re-frame.http.managed/install-managed-request-stubs!` direct calls raise `Unable to resolve symbol` (CLJS) / `Unable to resolve var` (CLJ).
 
-**Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http-test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per M-31a) and now also the stub-macros family (this rule). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence; the assertion set widened to cover the stub-family late-bind hooks too.
+**Production posture unchanged.** Production / SSR application code must NOT `:require` `re-frame.http.test-support`. The require boundary continues to gate every test surface — both the canned-stub fxs (per M-31a) and now also the stub-macros family (this rule). The CLJS production-bundle elision sentinels and the JVM-side `re-frame.http-test-support-absent-test` continue to pin the absence; the assertion set widened to cover the stub-family late-bind hooks too.
 
 **Cross-references.** [014-HTTPRequests §Test-support require](../../spec/014-HTTPRequests.md#test-support-require--the-http-test-surface-gate); [Spec 008 §HTTP test surfaces](../../spec/008-Testing.md#http-test-surfaces--single-namespace); [API.md row](../../spec/API.md#http-requests-spec-014).
 

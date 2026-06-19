@@ -9,7 +9,7 @@
 ;; the framework defaults, it never replaces them.
 ;;
 ;; Mode-B pure-call (`:redact-headers`): the HTTP header carrier denylist is a
-;; leaf fn (`re-frame.http-privacy-headers/redact-headers`) — a pure
+;; leaf fn (`re-frame.http.privacy-headers/redact-headers`) — a pure
 ;; `(headers-map, frame-extras) → redacted-map` projection. `:frame-extras`
 ;; is the lower-cased carrier extension set the frame slice lowers a
 ;; `:sensitive {:http {:headers […]}}` declaration to. The fixture pins the

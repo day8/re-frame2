@@ -56,7 +56,7 @@ Almost everything here is optional, which means the common case stays short. The
 
 !!! note "One-time setup"
 
-    Managed HTTP ships in its own artefact, `day8/re-frame2-http`, so apps that never issue a request build a bundle clean of it. Add the dep and require `re-frame.http-managed` once at app boot — that registers `:rf.http/managed` and family.
+    Managed HTTP ships in its own artefact, `day8/re-frame2-http`, so apps that never issue a request build a bundle clean of it. Add the dep and require `re-frame.http.managed` once at app boot — that registers `:rf.http/managed` and family.
 
 ## The reply is an event
 
@@ -193,7 +193,7 @@ Managed HTTP is the right tool for a single request that gets a single reply. He
 - **The same server data read on several screens, with caching and invalidation** — that's a [resource](server-state.md), a declared, cached read of server state that rides this transport underneath. Declare it once. Hand-rolling `:loaded-at` freshness checks across features means you've outgrown raw requests.
 - **Streaming, WebSockets, SSE** — out of scope for the single-request/single-reply shape. There is no managed streaming surface yet; that's an honest gap, not a hidden feature.
 - **Wire-level weirdness** (custom transports, exotic binary protocols) — register your own fx; the escape hatch is always there.
-- **Testing** needs no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `-failure`, registered by requiring the sibling `re-frame.http-test-support` namespace) synthesize a reply with the exact envelope a live request produces — see [testing a full cascade](../how-to/test-a-cascade.md).
+- **Testing** needs no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `-failure`, registered by requiring the sibling `re-frame.http.test-support` namespace) synthesize a reply with the exact envelope a live request produces — see [testing a full cascade](../how-to/test-a-cascade.md).
 
 ---
 
