@@ -687,6 +687,58 @@
              {vocab/diff-from-key :db-before
               :sections           sections}))))
 
+(defn- validate-diff-marker-body!
+  "Enforce the CLOSED marker-body contract on a `:db-after` map that
+  carries `vocab/diff-from-key` (rf2-71kxvb). A structural check — pure
+  Clojure, no Malli — so it fires on BOTH hosts regardless of Malli
+  presence or the `validate-patches?` `goog-define` (mirroring
+  `assoc-in-safe`'s replay guard, not the Malli `validate-sections!`
+  grammar gate).
+
+  The wire contract (mcp-conformance `DiffFromBody`, a CLOSED map) is:
+  a diff marker is EXACTLY `{:rf.mcp/diff-from :db-before, :sections [...]}` —
+  two top-level keys, the marker value restricted to `:db-before`.
+  `decode-db-after` previously recognized a marker ONLY when the value
+  was exactly `:db-before` and then validated ONLY the raw `:sections`
+  slot. Two boundary gaps followed (both forbidden by the conformance
+  contract, both silent):
+
+    - an EXTRA sibling key — `{:rf.mcp/diff-from :db-before :sections []
+      :sneaky :key}` — slipped past, the `:sections` gate ignoring the
+      stray key entirely (a mixed-envelope `:db-after` the encoder never
+      emits);
+    - an UNSUPPORTED marker value — `{:rf.mcp/diff-from :db-later ...}` —
+      was treated as 'not a diff' and passed THROUGH unchanged, so a
+      corrupt / third-party marker survived the decoder unflagged rather
+      than surfacing a decoder-boundary contract error.
+
+  This guard closes both: presence of the marker key signals INTENT to be
+  a diff marker, so the body must satisfy the closed two-key contract or
+  the decode boundary surfaces a structured `:rf.error/bad-diff-marker`
+  ex-info naming the actual decode-side `where` (rf2-4ypau),
+  `:recovery :no-recovery`, and value-free diagnostics only (the offending
+  key set / marker-value type — never the app-db payload, EP-0015)."
+  [db-after where]
+  (let [ks       (set (keys db-after))
+        expected #{vocab/diff-from-key :sections}
+        marker   (get db-after vocab/diff-from-key)]
+    (when (or (not= ks expected)
+              (not= :db-before marker))
+      (throw (ex-info ":rf.error/bad-diff-marker"
+                      {:rf.error/id   :rf.error/bad-diff-marker
+                       :where         where
+                       :recovery      :no-recovery
+                       :reason        (str "diff marker body violated the closed "
+                                           "{:rf.mcp/diff-from :db-before :sections [...]} "
+                                           "contract — extra/missing top-level key or "
+                                           "unsupported :rf.mcp/diff-from value")
+                       :expected-keys expected
+                       :actual-keys   ks
+                       ;; value-free: the marker VALUE may be wire drift, so
+                       ;; report whether it is the supported keyword, never
+                       ;; an arbitrary smuggled value.
+                       :marker-ok?    (= :db-before marker)})))))
+
 (defn decode-db-after
   "Reverse `diff-encode-db-after`. Given an epoch whose `:db-after` is
   a `{:rf.mcp/diff-from :db-before :sections [...]}` marker,
@@ -738,27 +790,39 @@
   `apply-patches*` rather than the public `apply-patches`."
   [epoch]
   (let [db-after (when (map? epoch) (:db-after epoch))]
+    ;; rf2-71kxvb — a map is a diff marker iff it carries `diff-from-key`.
+    ;; Detect on the KEY's PRESENCE (intent), not on the value being exactly
+    ;; `:db-before`: a marker whose value is unsupported (or which carries an
+    ;; extra sibling key) is corrupt wire drift the decoder MUST flag, not a
+    ;; full epoch it should pass through. A `:db-after` with NO marker key is
+    ;; an already-full epoch and decodes to itself.
     (if-not (and (map? db-after)
-                 (= :db-before (get db-after vocab/diff-from-key)))
+                 (contains? db-after vocab/diff-from-key))
       epoch
-      ;; Validate the RAW `:sections` value — do NOT default a
-      ;; missing / nil / false slot to `[]` before the gate (rf2-y3qpv).
-      ;; A diff marker carries an EXPLICIT `:sections` vector; coercing
-      ;; an absent or falsey slot to an empty vector slipped a malformed
-      ;; `{:rf.mcp/diff-from :db-before}` marker past `validate-sections!`
-      ;; (an empty seq satisfies `[:sequential section-schema]`) and
-      ;; replayed it as a no-op, silently ERASING the epoch's real
-      ;; `:db-after` change in diagnostics. `sections-schema` rejects
-      ;; `nil` / `false` (neither is sequential) so the decoder-boundary
-      ;; gate now trips `:rf.error/bad-diff-sections` on wire drift, while
-      ;; an explicit `:sections []` (a genuine no-change diff) still
-      ;; validates and replays to `:db-before` unchanged.
-      (let [sections  (:sections db-after)
-            _         (validate-sections! sections 'mcp-base/decode-db-after)
-            patches   (sg/sections->patches sections)
-            db-before (:db-before epoch)
-            rebuilt   (apply-patches* db-before patches 'mcp-base/decode-db-after)]
-        (assoc epoch :db-after rebuilt)))))
+      ;; The map intends to be a diff marker: enforce the CLOSED two-key body
+      ;; contract + the supported `:db-before` marker value FIRST (rf2-71kxvb),
+      ;; so an extra sibling key or an unsupported marker value surfaces a
+      ;; structured `:rf.error/bad-diff-marker` rather than slipping through.
+      (do
+        (validate-diff-marker-body! db-after 'mcp-base/decode-db-after)
+        ;; Validate the RAW `:sections` value — do NOT default a
+        ;; missing / nil / false slot to `[]` before the gate (rf2-y3qpv).
+        ;; A diff marker carries an EXPLICIT `:sections` vector; coercing
+        ;; an absent or falsey slot to an empty vector slipped a malformed
+        ;; `{:rf.mcp/diff-from :db-before}` marker past `validate-sections!`
+        ;; (an empty seq satisfies `[:sequential section-schema]`) and
+        ;; replayed it as a no-op, silently ERASING the epoch's real
+        ;; `:db-after` change in diagnostics. `sections-schema` rejects
+        ;; `nil` / `false` (neither is sequential) so the decoder-boundary
+        ;; gate now trips `:rf.error/bad-diff-sections` on wire drift, while
+        ;; an explicit `:sections []` (a genuine no-change diff) still
+        ;; validates and replays to `:db-before` unchanged.
+        (let [sections  (:sections db-after)
+              _         (validate-sections! sections 'mcp-base/decode-db-after)
+              patches   (sg/sections->patches sections)
+              db-before (:db-before epoch)
+              rebuilt   (apply-patches* db-before patches 'mcp-base/decode-db-after)]
+          (assoc epoch :db-after rebuilt))))))
 
 (defn diff-encode-epochs
   "Apply `diff-encode-db-after` to every epoch in `epochs` unless `mode`
