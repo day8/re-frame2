@@ -376,7 +376,7 @@
                       ;; children (no `:children` key), flowing through UIx's
                       ;; `$` → `glue-args` → the native `defui` shell.
                       (.render root
-                        ($ uix-adapter/frame-provider
+                        ($ uix-adapter/frame-provider-existing
                            {:frame frame-kw}
                            ($ ProbeFrameProvider)
                            ($ ProbeFrameProvider)))))
