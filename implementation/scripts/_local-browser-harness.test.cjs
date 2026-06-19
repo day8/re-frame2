@@ -444,12 +444,19 @@ test('probeTargetFromBaseUrl rejects a non-http(s) scheme (rf2-rcepku)', () => {
   );
 });
 
-test('waitForHttpReady probes the supplied host + path (rf2-rcepku)', async () => {
-  // Only answer 200 on the exact base path the caller advertised; every
-  // other path 404s. Proves the probe targets opts.path (not the old
-  // hard-coded `/`), so a base-path server is correctly seen as ready.
+test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)', async () => {
+  // rf2-p8xl35 — bind the PATH probe directly. probeHttp resolves ready on
+  // ANY HTTP status (liveness, not 2xx), so a regression that hard-coded
+  // `/` instead of forwarding opts.path would still receive a response
+  // (a 404) and still report ready — leaving the old assertion (`ready ===
+  // true` against a server that 404s every other path) green under the
+  // bug. Observe the requested URL path directly instead: record every
+  // req.url and assert the advertised basePath was the path probed (and a
+  // bare `/` was NOT). This makes the path-forwarding contract load-bearing.
   const basePath = '/app/base/';
+  const requestedPaths = [];
   const server = http.createServer((req, res) => {
+    requestedPaths.push(req.url);
     if (req.url === basePath) {
       res.writeHead(200);
       res.end('ok');
@@ -460,16 +467,24 @@ test('waitForHttpReady probes the supplied host + path (rf2-rcepku)', async () =
   });
   const port = await listenOnLoopback(server);
   try {
-    // probeHttp resolves true on ANY status code (liveness, not 2xx), so a
-    // bare `/` would also report ready here — assert instead that the
-    // host/path opts flow through without breaking readiness for the
-    // advertised endpoint. The shape coverage is the deepEqual tests above.
     const ready = await waitForHttpReady(port, Date.now() + 1000, {
       host: '127.0.0.1',
       path: basePath,
       pollMs: 10,
     });
-    assert.equal(ready, true);
+    assert.equal(ready, true, 'the advertised base-path server must be seen as ready');
+    // The probe must have requested the caller-supplied path verbatim — a
+    // regression that hard-codes `/` would record `/` here and trip this.
+    assert.ok(
+      requestedPaths.includes(basePath),
+      `waitForHttpReady must probe the supplied path ${JSON.stringify(basePath)}; ` +
+        `observed requests: ${JSON.stringify(requestedPaths)}`,
+    );
+    assert.ok(
+      !requestedPaths.includes('/'),
+      `waitForHttpReady must NOT fall back to the hard-coded root path "/"; ` +
+        `observed requests: ${JSON.stringify(requestedPaths)}`,
+    );
   } finally {
     server.close();
   }
