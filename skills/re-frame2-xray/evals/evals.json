@@ -148,10 +148,11 @@
  "id": 28,
  "name": "panel-route-modules",
  "should_trigger": true,
- "prompt": "Which Xray tab shows me what realms and frames are installed and which modules / app values each realm composed in?",
- "expected_output": "The agent routes to the Dynamic Modules tab (internal id :module-view, mnemonic u, :order 9) — the EP-0013 module / realm / app-value lens (retained-internal under EP-0023) that projects the (realm, frame) topology (re-frame.realm/realm-ids · rf/frame-ids · re-frame.frame/frame-realm) plus the per-module provenance read off each realm's installed app value (re-frame.realm/installed-app). It names Modules as one of the 9 Dynamic tabs, NOT a Static tab, and NOT an omitted/absent tab. It may note Modules is an L4-only registry tab (focusable, no standalone mount facade).",
+ "prompt": "Which Xray tab shows me what images loaded which frames, how a frame resolves its registrations, and which modules / app values are installed?",
+ "expected_output": "The agent routes to the Dynamic Modules tab (internal id :module-view, mnemonic u, :order 9) — Xray's UI over the EP-0023 image -> frame -> event stream public model, leading with the FRAMES section (each live frame as an execution context carrying its resolved image), with the retained-internal EP-0013 realm / module substrate (the (realm, frame) address space + per-module provenance off each realm's installed app value) shown below. It names Modules as one of the 9 Dynamic tabs, NOT a Static tab, and NOT an omitted/absent tab. It may note the realm dimension is implicit in a single-realm app, and that Modules is an L4-only registry tab (focusable, no standalone mount facade).",
  "expectations": [
- "The output routes the 'what realms / frames / modules / app values are installed' question to the Dynamic Modules tab (the :module-view / EP-0013 module-realm-app-value lens).",
+ "The output routes the 'which image loaded which frame / what modules / app values are installed' question to the Dynamic Modules tab (the :module-view tab).",
+ "The output frames Modules around the EP-0023 image -> frame public model (leading with frames + their resolved images), and treats realm as the retained-internal substrate (implicit in a single-realm app), NOT as the primary public browse dimension.",
  "The output treats Modules as a SHIPPED Dynamic tab — it does NOT say Xray has no such tab, and does NOT misroute it to Static mode or to the Graph tab as the same thing.",
  "The output does NOT invent a public mount-module-view! / standalone mount call (Modules is an L4-only registry tab — focusable, no standalone mount facade)."
  ]

@@ -571,31 +571,40 @@ implementation at
 
 ### Modules — cross-feature · mnem `u` · `:order 9`
 
-Question: **What's installed, and how is the process partitioned into
-realms / frames / modules?** (Display label **Modules**; internal tab id
-`:module-view`.) Xray's UI over the **EP-0013 module / realm / app-value**
-address space — the structural counterpart to the Graph tab (Graph is the
-per-fact derivation/process view; Modules is the per-(realm, frame)
-topology + per-module provenance view). Registered at `:order 9`, after
+Question: **What's installed — which images load which frames, and how
+do those frames resolve their registrations?** (Display label **Modules**;
+internal tab id `:module-view`.) Xray's UI over the EP-0023 **`image ->
+frame -> event stream`** public model — the structural counterpart to the
+Graph tab (Graph is the per-fact derivation/process view; Modules is the
+per-frame installation + provenance view). Registered at `:order 9`, after
 the Graph tab (`:order 8`), keeping the cross-feature runtime-structure
 tabs adjacent.
 
-The panel projects the `(realm, frame)` address space plus the
-per-module provenance read off each realm's installed app value:
+The panel leads with the EP-0023 public model and retains the EP-0013
+realm/module substrate below it (the same FRAMES-first / REALMS-and-MODULES-
+below order the shipped panel uses, §026 §2):
 
-- **The realm / frame topology** — every installed **realm**
- (`re-frame.realm/realm-ids`), the **frames** each realm owns
- (`rf/frame-ids` + `re-frame.frame/frame-realm` mapping each frame to its owning
- realm). In a single-realm app this is one realm holding every frame; a
- multi-realm process shows the partition.
-- **Per-module provenance** — read off each realm's **installed app
- value** (`re-frame.realm/installed-app`, EP-0013 disposition 6) — the modules /
- app-value composed into the realm at install time.
+- **FRAMES** (the EP-0023 public model, §026 §8, rendered first) — each
+ live frame as an **execution context** carrying its **resolved image**
+ (the generation's `[kind id]` descriptor set), its capabilities, and how
+ it resolves `(kind id)` lookups through that image. This is the model a
+ consumer app developer reasons in.
+- **REALMS · MODULES** (the retained-internal installation substrate,
+ below) — the `(realm, frame)` address space (every installed realm + the
+ frames it owns) and per-module provenance read off each realm's installed
+ app value. A frame belongs to exactly one realm; the realm owns the
+ registrar/adapter/frame-registry. In a single-realm app the realm
+ dimension is **implicit** (one realm holding every frame) — it is spelled
+ only in a multi-realm process, where it reads as the *internal
+ installation realm*, not a peer public browse dimension.
 
 The projection runs through the pure
-`module_view_helpers/project-module-view` over those internal-substrate seams
-(EP-0023 removed the `rf/*` realm facade arities, pl97nd.2 — a tool reads the
-owning `re-frame.realm` / `re-frame.frame` namespaces directly).
+`module_view_helpers/project-module-view`; the realm substrate seams are read
+directly off their owning namespaces (`re-frame.realm/realm-ids`,
+`re-frame.frame/frame-realm`, `re-frame.realm/installed-app`) — EP-0023 retained
+the realm machinery as internal substrate and removed the `rf/*` realm facade
+arities (pl97nd.2), so a tool reads those namespaces directly (`rf/frame-ids`
+stays a retained-public read).
 
 > **`:module-view` is an L4-only registry tab — no standalone mount
 > facade.** Like the Graph tab, Modules registers through `reg-l4-tab!`
@@ -606,22 +615,24 @@ owning `re-frame.realm` / `re-frame.frame` namespaces directly).
 > Route users to **open the Modules tab**; do not tell them to call a
 > `mount-module-view!` — there isn't one.
 
-**Does not compose off an `:rf.xray/*` app-db slot.** The address space is
-a process-global fact (realms + frames live in the framework's registries,
+**Does not compose off an `:rf.xray/*` app-db slot.** Images, frames, and
+realms are process-global facts (they live in the framework's registries,
 not Xray's app-db); the sub reads them directly at recompute time, and a
 tab activation re-renders the panel which re-derefs (a browse-on-open
 shape matching the other Static-style surfaces).
 
-**Read-only** — enumerating realms / frames and reading installed app
-values pins nothing and dispatches nothing (`re-frame.realm/installed-app` is a STATIC
-read of the install-time value, not a routing path).
+**Read-only** — enumerating frames, images, and realms and reading
+installed app values pins nothing and dispatches nothing
+(`re-frame.realm/installed-app` is a STATIC read of the install-time value,
+not a routing path).
 
-**Open when:** "what realms exist?", "which frames belong to which
-realm?", "what modules / app values are installed?", "how is this process
-partitioned?"
+**Open when:** "what frames exist and which image loaded each?", "how does
+this frame resolve its registrations?", "what modules / app values are
+installed?", "how is this process partitioned across realms?" (the last
+only matters in a multi-realm process).
 
-Spec: [`007-UX-IA.md` §EP-0013 realm-awareness](../../../tools/xray/spec/007-UX-IA.md)
-+ [`026-Module-View-Panel.md`](../../../tools/xray/spec/026-Module-View-Panel.md);
+Spec: [`026-Module-View-Panel.md` §8](../../../tools/xray/spec/026-Module-View-Panel.md)
++ [`007-UX-IA.md` §EP-0013 realm-awareness](../../../tools/xray/spec/007-UX-IA.md);
 implementation at
 [`panels/module_view.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view.cljs)
 + [`panels/module_view_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view_helpers.cljc).
