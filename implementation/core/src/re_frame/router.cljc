@@ -2402,6 +2402,12 @@
         ;; :frame-state-before equals :frame-state-after on its record.
         ;; EP-0001 (rf2-3aizt1, decision #2): the whole frame-state (both
         ;; partitions), not app-db alone.
+        ;;
+        ;; rf2-bhu3a0: this live re-read is now the FALLBACK only — the epoch
+        ;; surface's `commit-halt-record!` prefers the canonical last-settled
+        ;; epoch record's `:frame-state-after` (the principled durable source,
+        ;; the value restore rewinds to) and uses this passed value only when
+        ;; no `:ok` epoch has landed yet (a depth-exceed on the first cascade).
         fs-now          (frame/frame-state-value frame-id)
         halt-reason     {:operation  :rf.error/drain-depth-exceeded
                          :depth      depth

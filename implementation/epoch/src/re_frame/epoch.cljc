@@ -425,6 +425,19 @@
   whole-drain rollback under per-event epochs — see the router's
   `handle-depth-exceeded!` and the report note on the rule-3 reconcile.
 
+  PRINCIPLED SOURCE (rf2-bhu3a0): the halted-depth record's frame-state
+  is the durable LAST-SETTLED value, so this seam sources both
+  `frame-state-before` and `frame-state-after` from the most-recently-
+  settled epoch record's canonical `:frame-state-after` — the same value
+  `restore-epoch!` rewinds to — NOT from the live re-read the router
+  passes. The two coincide today (the halting event makes no write, so the
+  live frame-state still equals the last-settled value), so this is a
+  correctness-hardening, not a behaviour change: it removes the latent
+  dependence on the live container still holding the last-settled value at
+  the halt seam. When there is no last-settled record yet (a depth-exceed
+  on the very first cascade, before any `:ok` epoch landed), the
+  router-passed `frame-state-after` is the fallback.
+
   Harvests-and-clears any residual buffer first so a stray pre-halt emit
   (there should be none under per-event settling) can't leak into the
   next cascade for this frame.
@@ -444,8 +457,20 @@
   clean path) and skips on an empty buffer."
   [frame-id frame-state-before frame-state-after committed-at outcome halt-reason trigger-event]
   (when interop/debug-enabled?
-    (let [events (state/harvest-buffer! frame-id)]
-      (commit-record! frame-id frame-state-before frame-state-after events
+    (let [events (state/harvest-buffer! frame-id)
+          ;; rf2-bhu3a0 — source the durable last-settled value from the
+          ;; canonical epoch record (the `:frame-state-after` restore uses)
+          ;; rather than trusting the router's live re-read. Fall back to
+          ;; the router-passed value when no `:ok` epoch has landed yet
+          ;; (depth-exceed on the first cascade).
+          last-id     (state/last-settled-epoch-id frame-id)
+          last-record (when last-id
+                        (->> (state/history-for frame-id)
+                             (some (fn [r] (when (= last-id (:epoch-id r)) r)))))
+          fs          (if last-record
+                        (:frame-state-after last-record)
+                        frame-state-after)]
+      (commit-record! frame-id fs fs events
                       committed-at outcome halt-reason trigger-event))))
 
 ;; ---- restore --------------------------------------------------------------
