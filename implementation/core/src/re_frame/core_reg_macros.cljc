@@ -427,7 +427,9 @@
 
      Per rf2-wgmipl the 6-arg form threads an `opts-form` — the event-vector
      `:schema` (and any other) registration-metadata map — into the emitted
-     `(reg-machine machine-id spec opts)` 3-arg call. `opts-form` is a RUNTIME
+     3-arg `reg-machine` call. Per rf2-wvh95f F2 the `opts` metadata map is the
+     canonical Spec 001 MIDDLE slot, so the emitted call is `(reg-machine
+     machine-id opts spec)` (opts middle, spec last). `opts-form` is a RUNTIME
      expression evaluated at the call site (not walked at expansion time); it
      is forwarded verbatim. The 5-arg form (no opts) emits the bare 2-arg
      `reg-machine` call, unchanged."
@@ -442,7 +444,8 @@
             reg-call    (fn [spec-expr]
                           (if no-opts?
                             `(re-frame.core-machines/reg-machine ~machine-id ~spec-expr)
-                            `(re-frame.core-machines/reg-machine ~machine-id ~spec-expr ~opts-form)))]
+                            ;; rf2-wvh95f F2 — opts is the MIDDLE slot.
+                            `(re-frame.core-machines/reg-machine ~machine-id ~opts-form ~spec-expr)))]
         ;; Per rf2-3un2g §Production elision: the binding-value rides an
         ;; outer `interop/debug-enabled?` gate so Closure DCEs the dev
         ;; coords (with `:column`) under `:advanced + goog.DEBUG=false`.
