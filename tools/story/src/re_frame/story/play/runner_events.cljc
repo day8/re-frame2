@@ -553,17 +553,6 @@
     (rf/app-db-value frame-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-(defn- pred-label
-  "Human-readable label for a `:pred` ref — the symbol literal when
-  the author handed a symbol, the marker `<fn>` when they handed a
-  fn directly. Used in failure messages so authors can spot which
-  predicate failed without leaking compiler-munged identifiers."
-  [ref]
-  (cond
-    (symbol? ref) (str ref)
-    (fn? ref)     "<fn>"
-    :else         (pr-str ref)))
-
 ;; ---- DOM-family assertion atom executor (rf2-5x1wt.19) -------------------
 ;;
 ;; The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /

@@ -43,6 +43,8 @@
   competes with Stately Studio."
   (:require ["@xyflow/react" :as xyflow]
             [reagent.core :as r]
+            [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
+             :refer [chart-constants palette-of]]
             [day8.re-frame2-machines-viz.theme.tokens
              :as tokens
              :refer [chart-label-stack]]
@@ -221,30 +223,11 @@
 ;;
 ;; rf2-k647w — edge typography (label font-size + backplate opacity)
 ;; reads off the resolved density's `visual-constants` map, threaded
-;; onto the edge `:data` by the projector. xyflow `clj->js`-es the edge
-;; array, so `chart-constants` recovers the kebab-keyword CLJS map and
-;; falls back to `vc/chart-regular` when absent.
-
-(defn- chart-constants
-  "Recover the resolved visual-constants map off an edge's `:data`
-  (`(.-chart d)`); `vc/chart-regular` when absent so the regular
-  density stays pixel-identical to the pre-rf2-k647w hardcoded values."
-  [^js d]
-  (let [c (.-chart d)]
-    (if (some? c)
-      (js->clj c :keywordize-keys true)
-      vc/chart-regular)))
-
-(defn- palette-of
-  "rf2-az6e2 — recover the resolved chart-semantic token map off an
-  edge's `:data` (`(.-palette d)`); `(tokens/chart-tokens)` (the dark
-  surface) when absent so a theme-less edge still paints the dark
-  grammar. Mirrors `chart.nodes.xyflow-node/palette-of`."
-  [^js d]
-  (let [p (.-palette d)]
-    (if (some? p)
-      (js->clj p :keywordize-keys true)
-      (tokens/chart-tokens))))
+;; onto the edge `:data` by the projector. `chart-constants` (the
+;; kebab-keyword recovery off `(.-chart d)`, `vc/chart-regular` fallback)
+;; and `palette-of` (the chart-semantic token recovery off `(.-palette d)`)
+;; are shared with the node renderers — both are `:refer`-ed from
+;; `chart.nodes.xyflow-node` rather than re-implemented here (rf2-91oga2).
 
 (defn- edge-stroke
   "rf2-fzrzlw — `blocked?` (the edge's guard rejected the event this

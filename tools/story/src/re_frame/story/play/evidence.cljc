@@ -81,8 +81,7 @@
   slots (data) out. It requires nothing from `re-frame.core` / the DOM, so
   the full projection runs under `clojure -M:test`. The runner reads the
   retained tape via `re-frame.core/epoch-history` and hands the vector
-  here; the projection itself never touches the runtime."
-  (:require [clojure.string :as str]))
+  here; the projection itself never touches the runtime.")
 
 ;; ===========================================================================
 ;; SCHEMA-VIOLATION PROJECTION  (spec/017 §Schema rule)
@@ -915,21 +914,3 @@
               :renders           render-rows
               :narrative         (narrative script narr-tape)}
        (some? rc) (assoc :reactive-counts rc)))))
-
-;; ===========================================================================
-;; DIAGNOSTICS
-;; ===========================================================================
-
-(defn explain-evidence
-  "Render a short multi-line summary of the projected evidence for
-  diagnostics / log output. Pure data → data; deterministic."
-  [{:keys [schema-violations warnings effects narrative] :as _evidence}]
-  (str/join
-    "\n"
-    (cond-> [(str "schema-violations: " (count schema-violations))
-             (str "warnings: "          (count warnings))
-             (str "effects: "           (count effects))
-             (str "narrative-spans: "   (count narrative))]
-      (seq schema-violations)
-      (conj (str "  schema selectors: "
-                 (str/join ", " (map (comp pr-str :selector) schema-violations)))))))
