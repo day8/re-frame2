@@ -326,10 +326,13 @@
   `->interceptor` result, a `(path …)` value, a `(redact-interceptor …)`
   value, a locally-bound interceptor symbol) is no longer accepted; it must be
   registered with `reg-interceptor` and referenced by id. Loud-fail at chain
-  assembly rather than a silent no-op (Conventions §No silent swallow)."
+  assembly rather than a silent no-op (Conventions §No silent swallow).
+  Delegates to the ONE shared `error/throw-inline-interceptor-removed!`
+  (rf2-8au0w6) passing this site's `:where 'rf/resolve-chain`, reason, and
+  ex-data — the registration-time twin (`re-frame.events`) shares the same
+  thrower."
   [entry]
-  (error/throw-error!
-    :rf.error/inline-interceptor-removed
+  (error/throw-inline-interceptor-removed!
     'rf/resolve-chain
     (str "an event/frame `:interceptors` chain carried an INLINE "
          "interceptor value `" (pr-str entry) "`. Interceptor "
@@ -337,9 +340,8 @@
          "interceptor with `reg-interceptor` and reference it by id "
          "— a bare keyword `:my/ic` or an `[id arg]` 2-vector "
          "(e.g. `[:rf.interceptor/path [:cart]]`).")
-    {:recovery :fix-registration
-     :extra    {:entry    entry
-                :expected "a keyword id or an [id arg] vector reference"}}))
+    {:entry    entry
+     :expected "a keyword id or an [id arg] vector reference"}))
 
 (defn- resolve-factory
   "Resolve a parameterized `[id arg]` ref against its registered `:factory`

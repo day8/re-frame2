@@ -102,10 +102,11 @@
   point for a stale inline value (an `->interceptor` result, a `(path …)` /
   `(redact-interceptor …)` value, a value-Var) — a typo dies at `reg-event`,
   not at first dispatch. Mirrors the dispatch-time
-  `interceptor-registry/resolve-chain` rejection with the same error id."
+  `interceptor-registry/resolve-chain` rejection with the same error id —
+  both delegate to the ONE shared `error/throw-inline-interceptor-removed!`
+  (rf2-8au0w6) passing this site's `:where 'rf/reg-event`, reason, and ex-data."
   [reg-fn-name id value offending]
-  (error/throw-error!
-    :rf.error/inline-interceptor-removed
+  (error/throw-inline-interceptor-removed!
     'rf/reg-event
     (str reg-fn-name " for `" id "` carried an INLINE interceptor value `"
          (pr-str offending) "` in its metadata `:interceptors` chain. "
@@ -113,12 +114,11 @@
          "interceptor with `rf/reg-interceptor` and reference it by id — "
          "a bare keyword `:my/ic` or an `[id arg]` 2-vector "
          "(e.g. `[:rf.interceptor/path [:cart]]`).")
-    {:recovery :fix-registration
-     :extra    {:reg-fn    reg-fn-name
-                :id        id
-                :got       value
-                :offending offending
-                :expected  "a vector of interceptor references (keyword ids / [id arg] vectors)"}}))
+    {:reg-fn    reg-fn-name
+     :id        id
+     :got       value
+     :offending offending
+     :expected  "a vector of interceptor references (keyword ids / [id arg] vectors)"}))
 
 (defn- validate-meta-interceptors!
   "Validate the metadata-map `:interceptors` value at registration. The value
@@ -1075,23 +1075,15 @@
   "Fan out + throw the EP-0018 retired-name hard error `error-kw` for a stale
   call to a removed public event registrar `reg-fn-name` (a string like
   \"reg-event-db\"), naming `replacement` and showing `fix` (the actionable
-  conversion). Mirrors the `inject-cofx` removed-stub shape: surface on the
-  always-on error-emit listener (production-survivable) AND the dev trace bus,
-  then throw the ex-info carrying the same `:rf.error/id`."
+  conversion). The `inject-cofx` removed-stub twin: composes the EP-0018
+  reason then delegates to the ONE shared `cofx/raise-removed!` (rf2-8au0w6),
+  which surfaces on the always-on error-emit listener (production-survivable)
+  AND the dev trace bus, then throws the ex-info carrying the same
+  `:rf.error/id` — the offending `id` rides the trace + ex-data under `:id`."
   [error-kw reg-fn-name where id replacement fix]
   (let [reason (str "`" reg-fn-name "` is REMOVED in EP-0018 (no alias). "
                     "Use `" replacement "` instead — " fix)]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! error-kw nil id nil nil 0 (interop/now-ms)))
-    (trace/emit-error! error-kw
-                       (cond-> {:recovery :no-recovery :reason reason}
-                         (some? id) (assoc :id id)))
-    (error/throw-error!
-      error-kw
-      where
-      reason
-      {:recovery :no-recovery
-       :extra    (cond-> {} (some? id) (assoc :id id))})))
+    (cofx/raise-removed! error-kw where reason id :id)))
 
 ;; ---- data-driven removed event-registration names (rf2-ne2uk8) ------------
 ;;

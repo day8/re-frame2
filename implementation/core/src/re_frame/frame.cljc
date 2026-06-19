@@ -1836,16 +1836,41 @@
   table) and an opaque `:teardown` fn token the spec says 'runs on frame destroy'
   (Runtime-Subsystems §Host-transient subsystem state).
 
-  Before this step, `destroy-frame!` released host-transient state only through
-  the FIXED list of hard-coded `safe-call-hook!` hooks (`:routing/...`,
-  `:resources/...`, `:ssr/...`, `:machines/...`). A subsystem could correctly
-  register a frame-scoped host-transient descriptor with the realm AND still leak
-  on `destroy-frame!` unless it ALSO had a bespoke hook in that list — the
-  realm-owned inventory was the single source of truth for realm DISPOSAL
-  (`dispose-realm-host-transient!`) but had no frame-destroy counterpart. This
-  step is that counterpart: it walks the realm's inventory and tears down the
-  `:frame`-scoped descriptors for the frame being destroyed, so a subsystem that
-  declares its host-transient descriptor needs no second hard-coded hook.
+  This step COMPLEMENTS — it does not replace — the named ordered cleanup hooks
+  above (rf2-4n0hp9 ruling). The two mechanisms are deliberately distinct per
+  the spec (Runtime-Subsystems §The host-transient grading column + §Host-
+  transient subsystem state):
+
+    - The named hooks (`:ssr/on-frame-destroyed`, `:machines/on-frame-
+      destroyed!`, `:routing/on-frame-destroyed!`, `:schemas/on-frame-
+      destroyed!`, `:flows/teardown-on-frame-destroy!`, `:resources/on-frame-
+      destroyed!`, `:elision/clear-warning-cache!`) tear down the SHIPPED
+      subsystems' host-transient BYTES, in the DECLARATION ORDER 002 §Destroy
+      step 5 normatively pins. Their side-table atoms live in the producing
+      artefacts and are realm-AGNOSTIC (keyed by bare frame-id), so they fire
+      correctly for a frame in ANY realm, ordered. The spec is explicit that
+      \"the side-table atoms continue to live in their producing artefacts and
+      are reset/torn down through the existing late-bind reset + frame-destroy
+      hooks — moving the bytes is not what [the inventory] does\"
+      (Runtime-Subsystems §host-transient subsystem registry).
+
+    - The realm-owned inventory is the single QUERYABLE RECORD of which host-
+      transient subsystems exist and how each is scoped/torn-down. This walk
+      is its frame-destroy arm (the counterpart of `dispose-realm-host-
+      transient!`): it releases any ADDITIONAL `:frame`-scoped descriptor an
+      app, test, or future subsystem registers with the realm — without that
+      descriptor needing a second hard-coded hook here. In the shipped tree no
+      production subsystem registers one (they use the named hooks above), so
+      this walk is a no-op in production; it is exercised by the realm
+      conformance suite and is the seam apps/tools extend.
+
+  Folding the shipped named hooks INTO this walk was considered and REJECTED
+  (rf2-4n0hp9): the inventory is an UNORDERED map (`assoc`, no insertion
+  order in CLJS), which cannot honour the spec's declaration-order teardown
+  contract, and descriptors are realm-OWNED with no per-realm seeding seam on
+  `construct-realm`, so a descriptor registered once at ns-load would not
+  cover a frame in a constructed realm the way the realm-agnostic named hooks
+  do. The two-mechanism shape is the spec's, not incomplete-migration debt.
 
   Only `:scope :frame` descriptors are torn down here — `:realm`-scoped tables
   outlive an individual frame (they release on `dispose-realm!`). The teardown is
@@ -2250,11 +2275,19 @@
                                       host-transient descriptor inventory and
                                       run each :frame-scoped descriptor's
                                       :teardown for THIS frame (rf2-c6armm.7
-                                      #2). The realm-owned counterpart of the
-                                      fixed hooks above: a subsystem that
-                                      registers a frame-scoped host-transient
-                                      descriptor with the realm is torn down
-                                      here without a second hard-coded hook.
+                                      #2). COMPLEMENTS the named hooks above —
+                                      it does not replace them (rf2-4n0hp9):
+                                      the named hooks tear down the SHIPPED
+                                      subsystems' bytes in the declaration
+                                      order this step list pins; this walk
+                                      releases any ADDITIONAL :frame-scoped
+                                      descriptor an app/test/future subsystem
+                                      registers with the realm, without a
+                                      second hard-coded hook here. No-op in the
+                                      shipped tree (no production subsystem
+                                      registers one). See the fn docstring for
+                                      why the named hooks are NOT folded into
+                                      this unordered, realm-owned walk.
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
@@ -2419,14 +2452,19 @@
         (safe-call-hook! :resources/on-frame-destroyed! id)
         ;; rf2-c6armm.7 #2: walk the frame's realm's host-transient descriptor
         ;; inventory and tear down its :frame-scoped descriptors for THIS frame.
-        ;; The hard-coded hooks above release the SHIPPED subsystems' host-transient
-        ;; state; this realm-inventory walk releases any descriptor a subsystem
-        ;; registered with the realm without a second bespoke hook (the realm is
-        ;; the single inventory of what must be torn down on frame/realm destroy —
-        ;; Runtime-Subsystems §Host-transient subsystem state). The realm id was
-        ;; captured at the top (frame-rid), before mark-frame-destroyed! flipped
-        ;; :destroyed? (after which frame-realm returns nil). Best-effort (failures
-        ;; accumulate + trace exactly like safe-call-hook!).
+        ;; The named hooks above release the SHIPPED subsystems' host-transient
+        ;; state IN DECLARATION ORDER (002 §Destroy step 5); this realm-inventory
+        ;; walk COMPLEMENTS them — it releases any ADDITIONAL descriptor an
+        ;; app/test/future subsystem registered with the realm, without a second
+        ;; bespoke hook (the realm is the single inventory RECORD of what host-
+        ;; transient state exists — Runtime-Subsystems §Host-transient subsystem
+        ;; state). The two coexist BY DESIGN, not as incomplete-migration debt:
+        ;; folding the ordered named hooks into this unordered, realm-owned walk
+        ;; was considered + rejected (rf2-4n0hp9 — see the fn docstring). No-op in
+        ;; the shipped tree (no production subsystem registers a descriptor). The
+        ;; realm id was captured at the top (frame-rid), before mark-frame-
+        ;; destroyed! flipped :destroyed? (after which frame-realm returns nil).
+        ;; Best-effort (failures accumulate + trace exactly like safe-call-hook!).
         (tear-down-frame-host-transient! id frame-rid)
         (emit-frame-destroyed-trace! id)
         ;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce):
