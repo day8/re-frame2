@@ -103,17 +103,34 @@
   "The runtime's default projector. Implements Spec 011 §Default
   projector verbatim:
 
-    :rf.error/no-such-handler            → 404 :not-found
-    :rf.error/no-such-route              → 404 :not-found
-    :rf.error/schema-validation-failure  → 400 :bad-request
-    anything else                        → 500 :internal-error
-                                           (fallback-public-error)
+    :rf.error/no-such-handler                  → 404 :not-found
+    :rf.error/no-such-route                    → 404 :not-found
+    :rf.error/schema-validation-failure
+      AND (get-in trace-event [:tags :where])
+          ∈ #{:event :cofx}                    → 400 :bad-request
+    anything else                              → 500 :internal-error
+                                                 (fallback-public-error)
+
+  The 400 arm is GATED on the failure's `:where` tag (rf2-37o5by). A
+  `:rf.error/schema-validation-failure` is client-facing — a 400
+  `:bad-request` — only when the rejected value entered through a
+  client-supplied surface: an inbound EVENT payload (`:where :event`)
+  or a request COFX (`:where :cofx`), per Spec 011 §Default projector.
+  Server-side schema surfaces — notably server-fx arg schemas
+  (`:where :fx-args`, per Spec 010 §Validation order step 5) — fail
+  validation because of a SERVER-side defect (a handler built a
+  malformed fx args map), not because the client sent bad input. A
+  client-facing 400 would mislabel a server bug as a user error, so a
+  non-:event/:cofx schema-validation-failure falls through to the
+  locked generic-500.
 
   The non-enumerated default covers the 500-class trace events
   (:rf.error/handler-exception, :rf.error/sub-exception,
-  :rf.error/fx-handler-exception, :rf.error/drain-depth-exceeded) and
-  any future :rf.error/* category that should fall through to the
-  locked generic-500 shape — no new case arm required.
+  :rf.error/fx-handler-exception, :rf.error/drain-depth-exceeded), the
+  server-side `:where :fx-args` (and any other non-client) schema-
+  validation-failure, and any future :rf.error/* category that should
+  fall through to the locked generic-500 shape — no new case arm
+  required.
 
   Pure: takes a trace event, returns a public-error map. No I/O, no
   config. Custom projectors may inject auth-specific 401/403 codes
@@ -129,10 +146,15 @@
      :retryable? false}
 
     :rf.error/schema-validation-failure
-    {:status     400
-     :code       :bad-request
-     :message    "Invalid input"
-     :retryable? false}
+    ;; GATED (rf2-37o5by): only a client-surface failure
+    ;; (`:where :event` / `:cofx`) is a client-facing 400. A server-side
+    ;; failure (`:where :fx-args`, etc.) falls through to the 500 default.
+    (if (#{:event :cofx} (get-in trace-event [:tags :where]))
+      {:status     400
+       :code       :bad-request
+       :message    "Invalid input"
+       :retryable? false}
+      fallback-public-error)
 
     ;; default — generic 500. Reuses the locked fallback shape so the
     ;; "anything not enumerated → 500" mapping is the literal default
