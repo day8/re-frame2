@@ -253,11 +253,12 @@
     (when-not (contains? snapshot rid)
       (error/throw-error!
         :rf.error/unknown-realm
-        'rf/install!
-        (str "rf/realm " rid " is not registered — a realm-owned"
+        're-frame.realm/construct-realm
+        (str "realm " rid " is not registered — a realm-owned"
              " mutation cannot target a realm that was never"
-             " constructed. Absence defaults to the default realm;"
-             " an unknown explicit id does not.")
+             " constructed (re-frame.realm/construct-realm). Absence"
+             " defaults to the default realm; an unknown explicit id"
+             " does not.")
         {:recovery :construct-the-realm-first
          :extra    {:realm        rid
                     :known-realms (set (keys snapshot))}})))
@@ -424,10 +425,10 @@
   registrar does not hold, and the FIRST `reinstall!` would diff against that
   phantom app and only apply the delta — never populating the registrar with the
   base program. So `construct-realm` does NOT accept `:app`; seat a program with
-  `(-> (rf/realm {:id …}) (rf/install! app))`.
+  `(-> (re-frame.realm/construct-realm {:id …}) (re-frame.app-value/install! app))`.
 
   Returns the constructed realm map (now in the `realms` registry), so the call
-  composes: `(-> (rf/realm {:id …}) (rf/install! app))`.
+  composes: `(-> (re-frame.realm/construct-realm {:id …}) (re-frame.app-value/install! app))`.
 
   Throws `:rf.error/invalid-realm` when `:id` is missing or when an `:app` key is
   supplied (install-owned state is not a constructor input), and
@@ -437,8 +438,8 @@
     (when (nil? id)
       (error/throw-error!
         :rf.error/invalid-realm
-        'rf/realm
-        "rf/realm requires an :id — supply a realm id (the process-unique key the realm is registered under)."
+        're-frame.realm/construct-realm
+        "re-frame.realm/construct-realm requires an :id — supply a realm id (the process-unique key the realm is registered under)."
         {:recovery :supply-a-realm-id
          :extra    {:opts opts}}))
     ;; An `:app` here would create a FALSE installed-app state — the value is
@@ -447,18 +448,21 @@
     (when (contains? opts :app)
       (error/throw-error!
         :rf.error/invalid-realm
-        'rf/realm
-        (str "rf/realm: :app is install-owned state, not a constructor"
-             " input — an app value is inert until rf/install! seats it."
-             " Use (-> (rf/realm {:id " id "}) (rf/install! app)).")
+        're-frame.realm/construct-realm
+        (str "re-frame.realm/construct-realm: :app is install-owned state,"
+             " not a constructor input — an app value is inert until"
+             " re-frame.app-value/install! seats it. Use"
+             " (-> (re-frame.realm/construct-realm {:id " id "})"
+             " (re-frame.app-value/install! app)).")
         {:recovery :install-the-app-with-rf-install
          :extra    {:realm id}}))
     (when (contains? @realms id)
       (error/throw-error!
         :rf.error/realm-id-conflict
-        'rf/realm
-        (str "rf/realm: a realm with id " id " is already registered"
-             " — use a unique realm id or dispose the existing realm first.")
+        're-frame.realm/construct-realm
+        (str "re-frame.realm/construct-realm: a realm with id " id
+             " is already registered — use a unique realm id or dispose"
+             " the existing realm first (re-frame.realm/dispose-realm!).")
         {:recovery :use-a-unique-realm-id-or-dispose-the-existing-realm
          :extra    {:realm id}}))
     (let [;; Hermetic by default: a fresh OWN registrar atom unless the caller
