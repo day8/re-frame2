@@ -66,7 +66,6 @@ const path = require('node:path');
 // ---------------------------------------------------------------------------
 const ISOLATION_NAMESPACES = [
   're-frame.app-value-cljs-test',
-  're-frame.app-value-install-cljs-test',
   're-frame.conformance-corpus-cljs-test',
   're-frame.ep0023-conformance-cljs-test',
   're-frame.example-frame-scoping-cljs-test',
@@ -80,7 +79,6 @@ const ISOLATION_NAMESPACES = [
   're-frame.multi-frame-isolation-cljs-test',
   're-frame.projection-cljs-test',
   're-frame.realm-cljs-test',
-  're-frame.realm-conformance-cljs-test',
   're-frame.router-carried-frame-cljs-test',
 ];
 
