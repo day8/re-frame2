@@ -2160,11 +2160,20 @@
   Either way `:current-work` is cleared (the attempt settled) and no error
   facts are written. Per Spec 016 §Cancellation is opportunistic / §Status
   semantics. (Distinct from `state/entry-failed`, which records the failure
-  envelope; an abort is the no-error settlement.)"
+  envelope; an abort is the no-error settlement.)
+
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk / rf2-mx0w2o):
+  an accepted cancellation SETTLE clears `:current-work` and stabilises the
+  status — an authoritative durable write a later optimistic rollback could
+  clobber. A snapshot taken while the attempt was in-flight is now a STALE
+  `:before`; without the bump the settle-time conflict check would miss this
+  move and a rollback could RESURRECT the cancelled in-flight `:current-work`
+  pointer. Symmetric with `state/entry-failed` / `entry-succeeded`."
   [entry]
-  (if (state/has-data? entry)
-    (assoc entry :status :loaded :current-work nil)
-    (assoc entry :status :idle  :current-work nil)))
+  (state/bump-revision
+    (if (state/has-data? entry)
+      (assoc entry :status :loaded :current-work nil)
+      (assoc entry :status :idle  :current-work nil))))
 
 (defn failed-handler
   "`:rf.resource.internal/failed` — a transport read failed. Verifies frame
@@ -2616,9 +2625,14 @@
       ;; is not a load-more failure). The work row settles terminal :cancelled.
       aborted?
       ;; an abort during a multi-page refetch sweep STOPS the sweep (clear the
-      ;; cursor — a cancelled leg does not chain the next; rf2-byl7bk.3.3).
+      ;; cursor — a cancelled leg does not chain the next; rf2-byl7bk.3.3). The
+      ;; settle bumps :revision (rf2-mx0w2o): clearing `:current-work` + settling
+      ;; the feed is an authoritative durable write a later optimistic rollback
+      ;; could clobber — symmetric with the scalar abort (`entry-abort-settled`)
+      ;; and the page failure (`entry-page-failed`).
       (let [entry' (-> (assoc entry :status :loaded :current-work nil)
-                       state/clear-refetch-sweep)
+                       state/clear-refetch-sweep
+                       state/bump-revision)
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path resource-key) entry')
                        (work-ledger/update-record

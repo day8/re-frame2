@@ -929,22 +929,32 @@
   the failure envelope and no data. A BACKGROUND-refresh failure (entry was
   `:fetching`, prior data present) returns to `:loaded`, PRESERVES the
   prior `:data`, and records `:refresh-error`. `next-status` decides which.
-  Clears `:current-work`."
+  Clears `:current-work`.
+
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk / rf2-mx0w2o):
+  a failure SETTLE is an authoritative durable write that clears `:current-work`
+  and records the terminal error/refresh-error facts — exactly the kind of write
+  a later optimistic rollback could clobber. A snapshot taken while the attempt
+  was in-flight (`:fetching` + `:current-work` set) is now a STALE `:before`; a
+  value/freshness-gated bump (or no bump at all) would let the settle-time
+  conflict check miss this move and let a rollback RESURRECT the stale in-flight
+  state. Symmetric with `entry-succeeded`."
   [entry {:keys [error]}]
   (let [had-data?   (has-data? entry)
         next        (next-status (:status entry) :failure had-data?)]
-    (if (= :loaded next)
-      ;; background-refresh failure — keep data, record refresh-error
-      (assoc entry
-             :status        :loaded
-             :refresh-error error
-             :current-work  nil)
-      ;; first-load failure — no usable data
-      (assoc entry
-             :status        :error
-             :error         error
-             :data          nil
-             :current-work  nil))))
+    (bump-revision
+      (if (= :loaded next)
+        ;; background-refresh failure — keep data, record refresh-error
+        (assoc entry
+               :status        :loaded
+               :refresh-error error
+               :current-work  nil)
+        ;; first-load failure — no usable data
+        (assoc entry
+               :status        :error
+               :error         error
+               :data          nil
+               :current-work  nil)))))
 
 ;; ---- infinite-feed entry refinement + transitions -------------------------
 ;; ---- (Spec 016 §Infinite resources and load-more feeds, EP-0021 R1/R2/R8) -
@@ -1112,13 +1122,20 @@
   more — retry\" without losing the feed. `:page-error` is cleared by the next
   successful load-more or whole-feed load. Clears `:current-work`. A nil entry
   is returned unchanged. Per Spec 016 §Causal event — load-more (the third
-  error channel)."
+  error channel).
+
+  Bumps the per-entry `:revision` UNCONDITIONALLY (EP-0019 / byl7bk / rf2-mx0w2o):
+  a load-more failure SETTLE clears `:current-work` and records the `:page-error`
+  terminal fact — an authoritative durable write a later optimistic rollback
+  could clobber, so it moves the write identity for the same reason a load
+  success / first-load failure does. Symmetric with `entry-append-page`."
   [entry {:keys [error]}]
   (if entry
-    (assoc entry
-           :status       :loaded
-           :page-error   error
-           :current-work nil)
+    (bump-revision
+      (assoc entry
+             :status       :loaded
+             :page-error   error
+             :current-work nil))
     entry))
 
 (defn entry-replace-page
