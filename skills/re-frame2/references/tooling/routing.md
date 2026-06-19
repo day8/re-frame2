@@ -83,17 +83,9 @@ Distilled from `examples/reagent/routing/core.cljs`.
   {:doc "404." :path "/_404"})
 
 ;; Anchor that routes through the framework (not a full page reload).
-(reg-view route-link [{:keys [to params]} & children]
-  (let [url (routing/route-url to (or params {}))]
-    [:a {:href url
-         :on-click (fn [e]
-                     (when (and (zero? (.-button e))
-                                (not (.-metaKey e))
-                                (not (.-ctrlKey e))
-                                (not (.-shiftKey e)))
-                       (.preventDefault e)
-                       (rf/dispatch [:rf/url-requested {:url url}])))}
-     (into [:span] children)]))
+;; `rf/route-link` is the framework-shipped link view — it builds the href via
+;; the route prism and dispatches `:rf/url-requested` on a plain left-click.
+;; Shape: [rf/route-link {:to :route-id :params {} :query {} :fragment "..."} & children]
 
 ;; Root view dispatches on the route id.
 (reg-view root-view []
@@ -104,11 +96,23 @@ Distilled from `examples/reagent/routing/core.cljs`.
     :rf.route/not-found   [not-found-page]
     [not-found-page]))
 
-;; Wire popstate + initial load.
-(defn install-router! []
-  (.addEventListener js/window "popstate"
-    (fn [_] (rf/dispatch [:rf.route/handle-url-change (current-url)])))
-  (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
+;; Boot: register a URL-owning frame, then install the framework popstate
+;; listener. `:url-bound? true` declares this frame owns the URL.
+(def app-frame :rf/default)
+
+(defn run []
+  (rf/init! adapter)
+  (rf/reg-frame app-frame {:doc "Routing demo frame." :url-bound? true})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:app/initialise]))
+  ;; Framework popstate listener + initial URL→slice sync, targeted at the URL
+  ;; owner. It resolves the URL-owner frame AT POP TIME and dispatches the
+  ;; URL-change to THAT frame, so Back/Forward restores the owner's :rf/route
+  ;; slice. Idempotent (hot-reload safe). A hand-rolled frameless
+  ;; (rf/dispatch [:rf.route/handle-url-change ...]) would raise
+  ;; :rf.error/no-frame-context — the no-ambient-frame contract (EP-0002).
+  (rf/install-history-listener!)
+  (render [rf/frame-provider-existing {:frame app-frame} [root-view]]))
 ```
 
 ## `:can-leave` — the pending-nav protocol
