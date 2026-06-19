@@ -1863,6 +1863,8 @@ Default microstep depth limit: **16** (matching `:raise`-depth's default). User-
 - Halts the cascade with the snapshot **uncommitted** — external observers do not see the partial path.
 - Recovery: `:no-recovery` (the runtime cannot guess the author's intent for a non-converging cycle).
 
+**A tripped depth limit is a FAILED macrostep, not a benign no-op (XState v5 parity).** XState v5 **throws** on a non-converging eventless / `raise` cycle; re-frame2 surfaces it as a **failed** macrostep — the abort routes through the **same** failure path a thrown action takes (the handler short-circuits to `{}`; no snapshot write reaches runtime-db, which **is** the atomic rollback). It does **not** emit the benign `:rf.machine.event/unhandled-no-op` an unhandled / guard-blocked event emits, so a runaway cycle is **distinguishable** from a guard-blocked decline rather than silently swallowing the triggering event. The `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) error trace is the single signal for the trip. (A prior engine returned an `:ok` rollback snapshot from the abort, which the lifecycle boundary classified as a no-op — no error to the handler return, indistinguishable from a guard-blocked no-op; that was an unblessed implementation shortcut, now aligned to the XState v5 gold standard.)
+
 The depth counter is **separate** from the `:raise` depth counter — a microstep that itself raises events does not double-count. The two limits compose: each microstep can raise up to 16 events, and the macrostep can include up to 16 microsteps.
 
 ### Hierarchy interaction

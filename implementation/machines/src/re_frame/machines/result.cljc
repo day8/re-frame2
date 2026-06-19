@@ -96,6 +96,45 @@
     (assoc r ::info (merge (::info r) extra))
     r))
 
+(defn depth-abort
+  "Build a `:fail` Result for a bounded-depth abort (`:always-depth-limit`
+  / `:raise-depth-limit` tripped mid-macrostep) — per rf2-y3jv8q.
+
+  A runaway eventless / raise cycle (e.g. `a →:always b →:always a`) is NOT
+  a benign no-op: XState v5 THROWS on such a cycle. The pre-fix engine
+  returned `(ok rollback-snapshot [])` from the abort, which the lifecycle
+  boundary (`commit-or-finalize`) saw as `next == snapshot` ⇒ a no-op,
+  emitting NO `:rf.machine/transition` trace and routing NO error to the
+  handler return — the runaway was indistinguishable from a guard-blocked
+  no-op and the triggering user event was silently swallowed (only an
+  out-of-band `emit-error!` recorded it).
+
+  Returning a `:fail` instead routes the abort through the SAME failure
+  path an action exception takes (`trace-action-failure!` short-circuits the
+  handler to `{}`), so the macrostep surfaces as a FAILED macrostep — no
+  snapshot write reaches runtime-db, preserving the atomic rollback Spec
+  005 §Bounded depth requires (the pre-event snapshot stays committed),
+  while the event is no longer silently consumed.
+
+  The `::info` map carries `::depth-abort? true` so the handler routing
+  recognises this is a depth-abort — NOT a thrown action — and SKIPS the
+  generic `:rf.error/machine-action-exception` re-emit (the engine already
+  emitted the precise `:rf.error/machine-{always,raise}-depth-exceeded`
+  category at the abort site, the single trace for the trip). `info` carries
+  the diagnostic context (`:error-id`, `:actor-id`, `:depth`, `:path`,
+  `:frame`) for callers / tests that inspect the `::info`."
+  [info]
+  {::tag :fail ::info (assoc info ::depth-abort? true)})
+
+(defn depth-abort?
+  "True iff `r` is a `:fail` Result produced by a bounded-depth abort
+  (`depth-abort`) — distinguishes a `:always` / `:raise` depth-limit trip
+  from a thrown-action `:fail`, so the handler routing skips the generic
+  action-exception trace for the depth case (rf2-y3jv8q). A non-`:fail`
+  Result (or a thrown-action `:fail`) returns false."
+  [r]
+  (and (fail? r) (true? (get-in r [::info ::depth-abort?]))))
+
 (defn snap
   "Read the post-transition snapshot off an `:ok` Result. One-char-shorter
   spelling of `(::result/snap r)` — same semantics. For pair destructures

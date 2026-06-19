@@ -942,17 +942,25 @@
               ;; survives (Spec 005 §Drain semantics: bounded depth halts
               ;; with the snapshot uncommitted, `:no-recovery`).
               (>= depth raise-limit)
-              (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
-                                     ;; rf2-yyvtk5 — the aborting actor is a
-                                     ;; LIVE INSTANCE; address it by `:actor-id`
-                                     ;; (mirrors the flat drain), not
-                                     ;; `:machine-id` (the registered TYPE).
-                                     {:actor-id   (or (:rf/parent-id machine)
-                                                      (:id machine))
-                                      :depth      depth
-                                      :frame      (:rf/frame machine)
-                                      :recovery   :no-recovery})
-                  (result/ok snapshot []))
+              ;; rf2-y3jv8q — a tripped re-broadcast `:raise` depth limit is a
+              ;; FAILED macrostep, not a benign no-op (parity with the flat
+              ;; drain in `transition/drain-to-fixed-point`). Emit the precise
+              ;; category, then return a `result/fail` carrying the
+              ;; `::depth-abort?` sentinel so the runaway region raise cycle
+              ;; routes through the handler's failure path (atomic rollback
+              ;; preserved — no snapshot write reaches runtime-db) instead of
+              ;; surfacing as a silent no-op that swallows the triggering event.
+              (let [info {;; rf2-yyvtk5 — the aborting actor is a LIVE INSTANCE;
+                          ;; address it by `:actor-id` (mirrors the flat drain),
+                          ;; not `:machine-id` (the registered TYPE).
+                          :error-id   :rf.error/machine-raise-depth-exceeded
+                          :actor-id   (or (:rf/parent-id machine)
+                                          (:id machine))
+                          :depth      depth
+                          :frame      (:rf/frame machine)
+                          :recovery   :no-recovery}]
+                (trace/emit-error! :rf.error/machine-raise-depth-exceeded info)
+                (result/depth-abort info))
 
               :else
               (let [ev   (first pending)
