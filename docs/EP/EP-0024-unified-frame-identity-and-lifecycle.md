@@ -1,6 +1,6 @@
 # EP-0024: Unified Frame Identity And Lifecycle
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > Accepted 2026-06-18: this EP records the operator's rulings on `rf2-kz2vfp`,
