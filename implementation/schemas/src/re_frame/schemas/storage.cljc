@@ -153,6 +153,42 @@
     (resolve-frame (coerce-opts opts-or-frame-id))
     (catch #?(:clj Exception :cljs :default) _ nil)))
 
+(defn- extract-app-schema-from-metadata
+  "Pull the `:schema` out of a `reg-app-schema` metadata map (rf2-wvh95f F2 —
+  :schema-in-metadata). The second arg of `reg-app-schema` is now the standard
+  Spec 001 registration-metadata map `{:schema … :frame … :doc …}`; the schema
+  is its `:schema` value. Fails LOUDLY at the authoring boundary (dev AND prod
+  — a caller bug, not user input):
+
+   - a non-map second arg throws `:rf.error/bad-app-schema-metadata` naming the
+     path and the value (the common slip after the F2 grammar change is passing
+     the bare schema where the metadata map now goes);
+   - a map with no `:schema` key throws the same error (the schema is the point
+     of the registration — an absent one is never an implicit pass).
+
+  Returns the schema value."
+  [path metadata]
+  (when-not (map? metadata)
+    (error/throw-error!
+      :rf.error/bad-app-schema-metadata
+      'rf/reg-app-schema
+      (str "reg-app-schema's second arg must be a registration-metadata map "
+           "carrying the schema under :schema — e.g. (reg-app-schema " (pr-str path)
+           " {:schema MySchema}). Got " (pr-str metadata) ". Per rf2-wvh95f F2 "
+           "the schema is :schema-in-metadata, no longer a positional arg.")
+      {:recovery :wrap-schema-in-metadata-map
+       :extra    {:path path :received metadata}}))
+  (when-not (contains? metadata :schema)
+    (error/throw-error!
+      :rf.error/bad-app-schema-metadata
+      'rf/reg-app-schema
+      (str "reg-app-schema for path " (pr-str path) " declares no :schema in "
+           "its metadata map. :schema is REQUIRED — it IS the registration. "
+           "Per rf2-wvh95f F2 / Spec 010.")
+      {:recovery :supply-schema-in-metadata-map
+       :extra    {:path path :metadata metadata}}))
+  (:schema metadata))
+
 ;; ---- registration-time path-shape validation (rf2-sk0ql) ------------------
 ;;
 ;; A `reg-app-schema` `path` is a `get-in`/`assoc-in`-shaped path: a
@@ -647,10 +683,25 @@
   dev whenever an event handler returns a new app-db; failures emit
   :rf.error/schema-validation-failure.
 
+  ## Grammar — `:schema` lives in the metadata map (rf2-wvh95f F2)
+
+      (rf/reg-app-schema [:user] {:schema UserSchema})
+      (rf/reg-app-schema [:user] {:schema UserSchema :frame :session})
+
+  The second arg is the standard Spec 001 registration-metadata map: the
+  schema rides under the `:schema` key (the canonical home for `:schema`
+  across the whole `reg-*` family — Spec 001 §The metadata map), alongside
+  the optional `:frame` target and `:doc`. The schema is no longer a
+  positional second arg (the rf2-wvh95f F2 normalisation — :schema-in-
+  metadata, uniform with every other reg-* surface). The path is the
+  registration id (Conventions §reg-* return-value convention). A missing
+  `:schema` key, or a non-map second arg, throws
+  `:rf.error/bad-app-schema-metadata` at the authoring boundary.
+
   Per Spec 010 §Per-frame schemas this registration is frame-scoped.
   EP-0002 — context-required frame-local: the frame comes from the
-  explicit :frame opt (the *override*), else the carried-invariant scope
-  chain (a (with-frame ...) wrapper, a frame-provider, or a frame
+  explicit :frame metadata key (the *override*), else the carried-invariant
+  scope chain (a (with-frame ...) wrapper, a frame-provider, or a frame
   :on-create hook). Registering under no established scope and no
   explicit :frame raises :rf.error/no-frame-context — namespace-load time
   is not a reason to register against a synthesised :rf/default.
@@ -662,14 +713,11 @@
   independent entries. Pair-tools and source-coord tests read via
   `app-schema-meta-at`.
 
-  Per rf2-52dfy the `opts` argument is coerced through `coerce-opts`,
+  Per rf2-52dfy the `:frame` value is coerced through `coerce-opts`,
   the SAME contract the read surface (`app-schema-at` /
-  `app-schema-meta-at` / `app-schemas`) uses: a bare keyword is the
-  `{:frame kw}` sugar, an opts map passes through, and any other shape
-  (a string, number, vector, …) throws `:rf.error/bad-app-schemas-arg`.
-  Write and read now AGREE on the opts contract — previously a bare
-  keyword was silently swallowed and the schema registered against the
-  DEFAULT frame, a footgun that disagreed with every read entry point.
+  `app-schema-meta-at` / `app-schemas`) uses for a frame TARGET: a frame-id
+  keyword or a frame value names the registration frame, and a malformed
+  target throws `:rf.error/bad-app-schemas-arg`.
 
   Per rf2-sk0ql the `path` must be a `get-in`/`assoc-in`-shaped path: a
   SEQUENTIAL collection of keys, or the empty vector `[]` for the whole-
@@ -681,8 +729,12 @@
   path)` throw, which the router silently swallowed as a validation pass,
   installing an invalid commit with no failure trace and no rollback and
   poisoning every subsequent commit's validation for the frame."
-  ([path schema] (reg-app-schema path schema {}))
-  ([path schema opts-or-frame-id]
+  [path metadata]
+  (let [schema (extract-app-schema-from-metadata path metadata)
+        ;; The frame TARGET (if any) rides under `:frame` in the metadata
+        ;; map; `coerce-opts` normalises a keyword / frame-value target the
+        ;; SAME way the read surface does. The doc / source-coords ride along.
+        opts-or-frame-id (:frame metadata)]
    ;; Per rf2-sk0ql — reject a malformed `path` shape BEFORE the store
    ;; mutation. A non-sequential scalar (bare keyword / string / number /
    ;; nil) would register fine but make `validate-app-schema!`'s
@@ -718,8 +770,14 @@
          ;; (`frame-schema-entries`, `app-schema-meta-at`, the
          ;; `validate-app-schema!` destructure) and to avoid shadowing
          ;; `clojure.core/meta`.
+         ;; rf2-wvh95f F2 — `:doc` rides from the metadata map onto the stored
+         ;; schema-meta (the registration is now metadata-shaped); other
+         ;; standard reflection keys (`:tags`, …) ride along too. `:schema`
+         ;; here is the extracted schema; `:frame` is the resolved frame-id.
          schema-meta  (source-coords/merge-coords
-                        {:schema schema :path path :frame frame-id})
+                        (cond-> {:schema schema :path path :frame frame-id}
+                          (some? (:doc metadata))  (assoc :doc  (:doc metadata))
+                          (some? (:tags metadata)) (assoc :tags (:tags metadata))))
          ;; Capture the path's prior schema BEFORE the swap so the
          ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
          ;; compare pre- vs post-reload shapes. nil on first registration.
@@ -831,8 +889,15 @@
    ;; `reg-app-schema` is just its own atomic side-table `swap!` plus its
    ;; O(1) dev-side checks (validator nudge, walker-opaque nudge, hot-reload
    ;; `:rf.schema/violation`). The opts pass through unchanged.
-   (let [opts (coerce-opts opts-or-frame-id)]
-     (mapv (fn [[path schema]] (reg-app-schema path schema opts))
+   ;; rf2-wvh95f F2 — the singular `reg-app-schema` now takes the schema in a
+   ;; metadata map (:schema-in-metadata). The bulk plural keeps its natural
+   ;; `{path -> schema}` shape (the map value IS the schema — there is no
+   ;; positional-vs-metadata ambiguity in a bulk map); each entry is delegated
+   ;; by wrapping its schema into the metadata map alongside the shared :frame.
+   (let [frame-target opts-or-frame-id]
+     (mapv (fn [[path schema]]
+             (reg-app-schema path (cond-> {:schema schema}
+                                    (some? frame-target) (assoc :frame frame-target))))
            path->schema))))
 
 (defn app-schema-at

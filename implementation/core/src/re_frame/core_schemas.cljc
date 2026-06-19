@@ -134,11 +134,13 @@
   "Fn-form delegate that performs the late-bind lookup for
   `reg-app-schema`. The `re-frame.core/reg-app-schema` macro (JVM) and
   the CLJS `def`-alias both route here, so the late-bind logic and the
-  missing-artefact error message live in one place."
+  missing-artefact error message live in one place.
+
+  Per rf2-wvh95f F2 the grammar is `(reg-app-schema path metadata)` where the
+  schema rides under `:schema` in the metadata map (:schema-in-metadata)."
   {:hook :schemas/reg-app-schema :artefact schemas-artefact :on-absent :throw
    :ex-data {:path path}}
-  ([path schema]      [path schema {}])
-  ([path schema opts] :delegate))
+  ([path metadata] :delegate))
 
 (defwrapper reg-app-schemas
   "Bulk-register `{path -> schema}` against the active frame (or the

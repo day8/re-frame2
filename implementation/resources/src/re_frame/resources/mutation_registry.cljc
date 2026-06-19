@@ -172,11 +172,24 @@
 ;; ---- reg-mutation / clear-mutation ---------------------------------------
 
 (defn reg-mutation
-  "Register a mutation under `mutation-id` with `mutation-spec`. Per Spec
-  016 §Deferred slices / EP-0003 §Mutations.
+  "Register a mutation under `mutation-id`. Per the canonical Spec 001 3-slot
+  grammar (rf2-wvh95f F1):
 
-  The spec carries the REQUIRED `:request` (a Spec 014 managed-HTTP args
-  map — the causal write) and `:params-schema`, plus optional:
+      (rf/reg-mutation :article/save
+        {:doc \"Persist an article.\"
+         :params-schema [:map [:slug :string] [:body :string]]
+         :invalidates   (fn [params _result] #{:articles})}
+        (fn [{:keys [slug body]} _ctx]
+          {:request {:method :put :url (str \"/api/articles/\" slug)
+                     :body {:body body}}}))
+
+  The `:request` fn — the mutation's HANDLER (the Spec 014 managed-HTTP causal
+  write) — is the THIRD slot; the middle slot is the reflection + config
+  metadata map. Splitting the handler out of the fused spec restores clean
+  doc-DCE (the middle slot is now a pure metadata map). A `:request` left
+  INSIDE the metadata map is rejected loudly as a mislocated key.
+
+  The metadata map carries the REQUIRED `:params-schema`, plus optional:
 
   - **`:invalidates`** — `(fn [params result] -> #{tag …})` — the resource
     tags this mutation's success (and optionally failure) invalidates;
@@ -224,20 +237,33 @@
   - **`:transport`** — initial scope: `:rf.http/managed` (the only built-in);
   - **`:doc`**.
 
-  Validates the spec (the REQUIRED `:request` + `:params-schema`) and
-  writes a `:mutation`-kind registrar entry carrying the spec plus captured
+  Validates the reconstructed spec (the REQUIRED `:request` + `:params-schema`)
+  and writes a `:mutation`-kind registrar entry carrying the spec plus captured
   source coords. Returns `mutation-id` per the `reg-*` return-value
   convention."
-  [mutation-id mutation-spec]
-  (validate-mutation-spec! mutation-id mutation-spec)
-  (registrar/register!
-    mutation-kind
-    mutation-id
-    (source-coords/merge-coords
-      (merge {:doc (:doc mutation-spec)}
-             {:rf/mutation mutation-spec
-              :handler-fn  (:request mutation-spec)})))
-  mutation-id)
+  [mutation-id metadata request-fn]
+  ;; rf2-wvh95f F1 — `:request` is the 3-slot VALUE (the handler). A `:request`
+  ;; left INSIDE the metadata map is a mislocated key; reject it loudly.
+  (when (and (map? metadata) (contains? metadata :request))
+    (throw (registration-error
+             :rf.error/invalid-mutation-spec
+             'rf/reg-mutation
+             (str "mutation " mutation-id " declares :request inside its "
+                  "metadata map — per rf2-wvh95f F1 the request handler is the "
+                  "THIRD slot: (reg-mutation " mutation-id " {…} request-fn). "
+                  "Move the write fn out of the metadata map into the value "
+                  "slot.")
+             {:mutation-id mutation-id :value (:request metadata)})))
+  (let [mutation-spec (assoc metadata :request request-fn)]
+    (validate-mutation-spec! mutation-id mutation-spec)
+    (registrar/register!
+      mutation-kind
+      mutation-id
+      (source-coords/merge-coords
+        (merge {:doc (:doc mutation-spec)}
+               {:rf/mutation mutation-spec
+                :handler-fn  (:request mutation-spec)})))
+    mutation-id))
 
 (defn clear-mutation
   "Remove a registered mutation (registration-lifecycle, NOT a form-error

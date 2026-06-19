@@ -335,12 +335,29 @@
 ;; ---- reg-resource / clear-resource ---------------------------------------
 
 (defn reg-resource
-  "Register a resource under `resource-id` with `resource-spec`. Per
-  Spec 016 §Public API §Registration.
+  "Register a resource under `resource-id`. Per the canonical Spec 001 3-slot
+  grammar (rf2-wvh95f F1):
 
-  Validates the spec (the REQUIRED, fail-closed `:scope` policy first;
-  then `:params-schema` and `:request`) and writes a `:resource`-kind
-  registrar entry carrying the spec plus any captured source coords.
+      (rf/reg-resource :article/by-slug
+        {:doc \"One article by slug.\"
+         :scope :rf.scope/global
+         :params-schema [:map [:slug :string]]
+         :data-schema   ArticleSchema}
+        (fn [{:keys [slug]} _ctx]
+          {:request {:method :get :url (str \"/api/articles/\" slug)}}))
+
+  The `:request` fn — the resource's HANDLER (the managed-HTTP fetch the read
+  lowers into) — is the THIRD slot; the middle slot is the reflection +
+  config metadata map (`:scope`, `:params-schema`, `:data-schema`, `:transport`,
+  `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, the
+  `:infinite` slice, …). Splitting the handler out of the fused spec restores
+  clean doc-DCE (the middle slot is now a pure metadata map).
+
+  Validates the reconstructed spec (the REQUIRED, fail-closed `:scope` policy
+  first; then `:params-schema` and `:request`) and writes a `:resource`-kind
+  registrar entry carrying the spec plus any captured source coords. A
+  `:request` accidentally left INSIDE the metadata map is rejected loudly as a
+  mislocated key (the third slot is its one home).
 
   An `:infinite true` resource additionally REQUIRES `:next-page-param` (and
   may declare `:prev-page-param` / `:page->items` / `:refetch` /
@@ -348,7 +365,22 @@
 
   Returns `resource-id` per the `reg-*` return-value convention
   ([Conventions §reg-* return-value convention])."
-  [resource-id resource-spec]
+  [resource-id metadata request-fn]
+  ;; rf2-wvh95f F1 — `:request` is the 3-slot VALUE (the handler). A `:request`
+  ;; left INSIDE the metadata map is a mislocated key; reject it loudly so the
+  ;; grammar change cannot be half-applied (a stray fused `:request` would
+  ;; otherwise silently win or lose against the value-slot one).
+  (when (and (map? metadata) (contains? metadata :request))
+    (throw (registration-error
+             :rf.error/invalid-resource-spec
+             'rf/reg-resource
+             (str "resource " resource-id " declares :request inside its "
+                  "metadata map — per rf2-wvh95f F1 the request handler is the "
+                  "THIRD slot: (reg-resource " resource-id " {…} request-fn). "
+                  "Move the fetch fn out of the metadata map into the value "
+                  "slot.")
+             {:resource-id resource-id :value (:request metadata)})))
+  (let [resource-spec (assoc metadata :request request-fn)]
   (validate-resource-spec! resource-id resource-spec)
   (let [previous (registrar/lookup resource-kind resource-id)]
     (registrar/register!
@@ -375,7 +407,7 @@
                     :stale-after-ms   (:stale-after-ms resource-spec)
                     :gc-after-ms      (:gc-after-ms resource-spec)
                     :poll-interval-ms (:poll-interval-ms resource-spec)})))
-  resource-id)
+  resource-id))
 
 (defn- entry-keys-for-resource
   "The scoped-key VECTORS in `runtime-db`'s `:entries` whose resource id (the
