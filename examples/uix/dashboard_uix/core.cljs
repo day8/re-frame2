@@ -345,6 +345,6 @@
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:frame app-frame}
+      ($ uix-adapter/frame-provider-existing {:frame app-frame}
          ($ dashboard))
       @react-root)))

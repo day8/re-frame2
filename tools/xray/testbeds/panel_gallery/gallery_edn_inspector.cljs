@@ -16,7 +16,7 @@
 
   ## Frame isolation
 
-  Story wraps every variant in `[frame-provider {:frame variant-id}]`.
+  Story wraps every variant in `[frame-provider-existing {:frame variant-id}]`.
   Each variant fires a testbed-only `:panel-gallery.edn-inspector/seed!`
   event that stores its fixture under `:panel-gallery.edn-inspector
   /fixture` in the variant frame's app-db. The registered view

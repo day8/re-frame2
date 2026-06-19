@@ -5,7 +5,7 @@
   ## What this pins
 
   Before the de-singleton refactor the shell was locked to a singleton
-  `:rf/xray` frame: `shell-view` hardcoded `[frame-provider {:frame
+  `:rf/xray` frame: `shell-view` hardcoded `[frame-provider-existing {:frame
   :rf/xray}]` and every out-of-render affordance dispatched a bare
   `{:frame :rf/xray}` literal. Two shells on one page (two panel-gallery
   chrome-shell cells, a Story workspace) therefore COLLIDED — both read
@@ -24,7 +24,7 @@
   posture): frame isolation is an app-db property, so we register two
   shell frames, drive each via `(rf/with-frame <frame-id> …)` — exactly
   the binding the parameterized `shell-view` establishes through its
-  `[frame-provider {:frame frame-id}]` and the captured dispatchers
+  `[frame-provider-existing {:frame frame-id}]` and the captured dispatchers
   thread — and assert the per-frame subs read INDEPENDENT values. The
   two `with-frame` bindings stand in for two shell instances' React-
   context providers; the assertions prove that the SAME globally-

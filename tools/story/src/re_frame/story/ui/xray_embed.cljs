@@ -42,7 +42,7 @@
   ## Frame isolation
 
   Every mount path goes through `panels/mount-<panel>!` which wraps
-  the panel view in `[rf/frame-provider {:frame :rf/xray} …]` per
+  the panel view in `[rf/frame-provider-existing {:frame :rf/xray} …]` per
   the rf2-crhr8 embedding contract — the panel's Xray-state
   subscribes resolve to `:rf/xray` regardless of the host's
   React-context. Story authors who want a panel observing a

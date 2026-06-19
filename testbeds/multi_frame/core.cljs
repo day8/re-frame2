@@ -176,13 +176,13 @@
      frame-tagged traces."]
 
    [:div {:style {:display :flex :flex-wrap :wrap :align-items :flex-start}}
-    [rf/frame-provider {:frame frame-a}
+    [rf/frame-provider-existing {:frame frame-a}
      [counter-panel "A"]]
 
-    [rf/frame-provider {:frame frame-b}
+    [rf/frame-provider-existing {:frame frame-b}
      [counter-panel "B"]]
 
-    [rf/frame-provider {:frame frame-log}
+    [rf/frame-provider-existing {:frame frame-log}
      [log-panel]]]
 
    [:div {:style {:margin-top "0.5em"}}
@@ -220,4 +220,4 @@
   ;; explicit `{:frame frame-a}` (the override wins over this shell scope),
   ;; so the "dispatch from outside the app providers" intent is preserved.
   (rf/reg-frame :rf/default {})
-  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))
+  (rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [root]]))

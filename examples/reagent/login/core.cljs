@@ -531,5 +531,5 @@
     ;; reads the no-provider sentinel and those calls raise
     ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor).
     (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
+                [rf/frame-provider-existing {:frame :rf/default}
                  [root-view]])))

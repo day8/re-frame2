@@ -48,5 +48,5 @@
     (when-not @core/react-root
       (reset! core/react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @core/react-root
-                [rf/frame-provider {:frame core/app-frame}
+                [rf/frame-provider-existing {:frame core/app-frame}
                  [core/counter-app]])))

@@ -1453,17 +1453,41 @@
 
 ;; ---- view ergonomics (CLJS only) -----------------------------------------
 ;;
-;; frame-provider is a Reagent component re-exported here as the
-;; canonical user-facing surface (per Spec 002 §What `frame-provider`
-;; is); the impl lives in re-frame.views to keep React/Reagent off the
-;; JVM load path.
+;; The frame-provider name family — two per-adapter React-context
+;; components re-exported here as the canonical user-facing surface
+;; (per Spec 002 §The frame-provider name family); the impls live in
+;; re-frame.views to keep React/Reagent off the JVM load path.
+;;
+;;   * frame-provider          — OWNED lifecycle: creates the frame on
+;;                               mount (via make-frame), provides its id
+;;                               to descendants, destroys it on unmount.
+;;                               Takes {:id :images :initial-db …}.
+;;   * frame-provider-existing — SCOPE-only: provides an ALREADY-CREATED
+;;                               frame id through React context; creates /
+;;                               refreshes / destroys nothing. Takes
+;;                               :frame only.
 
-#?(:cljs (def ^{:doc "Reagent component that puts a frame on React context
-  for descendant views. Usage: `[rf/frame-provider {:frame :todo} &
-  children]`. Children resolve `(current-frame-id)` to the provided frame
-  unless a lexical `with-frame` or dynamic binding overrides. Per
-  Spec 002 §Reading the frame from React context."}
+#?(:cljs (def ^{:doc "OWNED-lifecycle Reagent component (EP-0024): CREATES a
+  frame on mount (via `rf/make-frame`), provides its id to descendant views
+  through React context, and DESTROYS it on unmount. Usage:
+  `[rf/frame-provider {:id :todo :images [todo-image]} & children]`.
+  Idempotent re-mount under the same `:id` preserves durable state
+  (hot-reload / StrictMode tolerant). To merely SCOPE descendants to a frame
+  that already exists, use `rf/frame-provider-existing` (scope-into-React) or
+  `rf/with-frame` (lexical scope). Per Spec 002 §`frame-provider`."}
          frame-provider views/frame-provider))
+
+#?(:cljs (def ^{:doc "SCOPE-only Reagent component (EP-0024): provides an
+  ALREADY-CREATED frame's id to descendant views through React context and
+  creates / refreshes / destroys nothing. Usage:
+  `[rf/frame-provider-existing {:frame :todo} & children]`. Children resolve
+  `(current-frame-id)` to the provided frame unless a lexical `with-frame`
+  or dynamic binding overrides. `:frame` only — a lifecycle opt (`:id` /
+  `:images` / …) fails loud (use the owned `rf/frame-provider` to create a
+  frame). The scope-into-React counterpart to `rf/with-frame` (a dynamic var
+  cannot cross React's render boundary). Per Spec 002
+  §`frame-provider-existing`."}
+         frame-provider-existing views/frame-provider-existing))
 
 ;; ---- routing helpers ------------------------------------------------------
 ;;

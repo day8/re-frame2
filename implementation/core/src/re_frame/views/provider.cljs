@@ -1,25 +1,42 @@
 (ns re-frame.views.provider
-  "Frame-provider component + per-render identity machinery for the
-  Reagent-side views ns. Re-frame.views re-exports the publicly-
-  referenced surface (`frame-provider`, `build-frame-provider`,
-  `current-frame`, `mint-instance-token!`, `current-render-key`,
-  `*render-key*`) so existing call sites work unchanged.
+  "Frame-provider name family (Reagent shells) + per-render identity
+  machinery for the Reagent-side views ns. Re-frame.views re-exports the
+  publicly-referenced surface (`frame-provider`, `frame-provider-existing`,
+  `build-frame-provider`, `current-frame`, `mint-instance-token!`,
+  `current-render-key`, `*render-key*`).
 
-  Three cohesive concerns live here:
+  Four cohesive concerns live here:
 
-  1. `frame-provider` / `build-frame-provider` — the user-facing
-     Reagent component that scopes a frame keyword to its subtree via
-     React context. The React Context object is owned by
+  1. `frame-provider` — the user-facing Reagent component for the
+     UI-OWNED frame lifecycle boundary (EP-0024 §Scope, carry, and
+     ownership): it CREATES a frame on mount, PROVIDES its id to
+     descendants, and DESTROYS it on unmount. The create/destroy +
+     StrictMode/idempotency handling lives once in
+     `re-frame.views.owned-frame`; this Reagent shell embeds that ns's
+     shared React lifecycle component via Reagent's `:r>` interop head.
+
+  2. `frame-provider-existing` — the user-facing Reagent component for
+     the SCOPE-ONLY provider (EP-0024): it provides an ALREADY-CREATED
+     frame id through the SAME React context and creates / refreshes /
+     destroys NOTHING. It takes `:frame` ONLY; any lifecycle opt
+     (`:id` / `:images` / …) fails loud. It reuses the scope-only inner
+     provide tier (`build-frame-provider` / `frame-provider-component`),
+     which is also the substrate hook the Reagent adapter installs at
+     `:register-context-provider` and the element the OWNED lifecycle
+     component reaches once it has created the frame. (`rf/with-frame`
+     remains for lexical/non-React ambient scoping; scope-INTO-React is
+     this component, because a dynamic var cannot cross React's render
+     boundary.) The React Context object is owned by
      `re-frame.adapter.context` so adapters across substrates
      (Reagent / UIx / Helix) read the same context.
 
-  2. Per-render instance-token machinery — `mint-instance-token!`,
+  3. Per-render instance-token machinery — `mint-instance-token!`,
      `reagent-component-token`. Tokens disambiguate concurrently-
      mounted instances of the same view-kind. The `*render-key*`
      dynamic var lives in `re-frame.views` so the wrapper's binding
      and consumer reads share the same canonical Var.
 
-  3. `current-frame` — the resolution chain subscribe / dispatch
+  4. `current-frame` — the resolution chain subscribe / dispatch
      consult at render time (Spec 002 §Reading the frame from React
      context). Pairs with the `:contextType` static `reg-view*`
      attaches to its wrapper output.
@@ -32,7 +49,8 @@
   headless tests rely on this)."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as late-bind]
+            [re-frame.views.owned-frame :as owned-frame]))
 
 ;; ---- the React context for frame propagation -----------------------------
 ;;
@@ -44,11 +62,16 @@
 (def frame-context adapter-context/frame-context)
 
 (defn- frame-provider-component
-  "The single Reagent component that backs every frame-provider. It takes
-  the frame keyword as its first render-time arg and scopes that keyword
-  to its subtree via React context. One built component services every
-  frame — the keyword lives in the Provider's `:value`, not in a
-  closure.
+  "The single Reagent component that backs the SCOPE-ONLY provide tier. It
+  takes the frame keyword as its first render-time arg and scopes that
+  keyword to its subtree via React context. One built component services
+  every frame — the keyword lives in the Provider's `:value`, not in a
+  closure. This is the substrate hook the Reagent adapter installs at
+  `:register-context-provider`, the provide tier the user-facing
+  `frame-provider-existing` is built on, and the tier the OWNED
+  `frame-provider` reaches (through `re-frame.adapter.context/
+  provider-element`) once it has created the frame. It does NOT create or
+  destroy a frame — pure scoping.
 
   Uses Reagent's `:r>` interop head so the props map flows to React as a
   raw JS object without passing through `reagent.impl.template/convert-
@@ -69,8 +92,11 @@
   (into [:r> (.-Provider frame-context) #js {:value frame-kw}] children))
 
 (defn build-frame-provider
-  "Used by re-frame.adapter.reagent/register-context-provider. Returns
-  a Reagent component that scopes a frame keyword to its subtree.
+  "Used by re-frame.adapter.reagent/register-context-provider, by the
+  user-facing SCOPE-only `frame-provider-existing`, and by the OWNED
+  `frame-provider` lifecycle component as its scope-only provide tier.
+  Returns a Reagent component that SCOPES a frame keyword to its subtree
+  (no create/destroy).
 
   Zero-arity (rf2-4y60): the returned component takes the frame keyword
   at render time, and a single built component services every frame, so
@@ -82,50 +108,114 @@
   frame-provider-component)
 
 (defn frame-provider
-  "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider — inside the subtree,
-  `(rf/frame-handle)` / `reg-view`-registered
-  descendants resolve to the named frame. Per Spec 002 §What
-  `frame-provider` is (CLJS reference).
+  "User-facing component — the UI-OWNED frame LIFECYCLE boundary (EP-0024
+  §Scope, carry, and ownership). It CREATES a frame on mount, PROVIDES its
+  id to descendants, and DESTROYS it on unmount. Per Spec 002
+  §`frame-provider` (the owned UI boundary).
 
-  `:frame` is REQUIRED (EP-0002 carried invariant) and must be a KEYWORD
-  frame id. There is NO `(or (:frame props) :rf/default)` floor: an explicit
-  `(rf/frame-provider {} …)` with no frame establishes no usable scope.
-  Per Spec 002 §Frame target resolution the runtime never synthesises a
-  frame from absence — a missing `:frame` is a CONFIGURATION ERROR. It
-  emits `:rf.error/no-frame-context` through the always-on error axis and
-  throws, so a tooling-generated or hand-authored tree that elides the
-  frame fails loudly at the provider rather than silently scoping every
-  descendant call to a conventional default. A non-nil but non-keyword
-  `:frame` (a string / number / …) is the distinct bad-public-argument
-  error: it emits `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo),
-  so a typo like `{:frame \"app\"}` fails loudly rather than being silently
-  coerced to `:app` by the lower-level context reader.
+  This is NOT a scope-only component — scoping descendants to a frame that
+  ALREADY EXISTS is `rf/frame-provider-existing` (scope-into-React) or
+  `rf/with-frame` (lexical / non-React ambient scope). `frame-provider`
+  OWNS a frame lifetime, so it takes the same `:id` / `:images` /
+  `:initial-db` (plus record-config) opts as `rf/make-frame`, runs that one
+  constructor on mount, and tears the frame down on unmount.
+
+  `:id` is REQUIRED and must be a KEYWORD — it is the lifecycle token
+  descendants route to and `destroy-frame!` tears down. A missing / nil /
+  non-keyword `:id` is a CONFIGURATION ERROR: emits + throws
+  `:rf.error/owned-frame-provider-missing-id`. (A `:frame` key with no
+  `:id` is the common mistake and trips this guard — switch to `:id`, or
+  use `rf/frame-provider-existing {:frame …}` to merely scope.)
 
   Reagent call shape:
 
-      [rf/frame-provider {:frame :session}
+      [rf/frame-provider {:id :session :images [session-image] :initial-db {}}
        [header]
        [main-area]
        [footer]]
 
-  Children are variadic (zero, one, or many). Same surface as the UIx
-  and Helix variants, different rendering substrate. The three
-  adapters share one React Context so a subtree under any frame-
-  provider sees the right frame regardless of which substrate
-  rendered the provider.
+  Children are variadic (zero, one, or many). Same surface as the UIx and
+  Helix variants, different rendering substrate. The three adapters share
+  one React Context so a subtree under any frame-provider sees the right
+  frame regardless of which substrate rendered the provider.
 
-  `build-frame-provider` is the lower-level substrate hook; this fn is
-  the canonical user-facing surface."
+  Idempotent re-mount (hot reload / React StrictMode dev double-invoke /
+  Story re-evaluation): re-mounting under the same `:id` MUST NOT destroy
+  durable state — `make-frame` is idempotent replacement and the
+  destroy-on-unmount is DEFERRED + cancelled by a re-acquire. Per
+  `re-frame.views.owned-frame` for the shared lifecycle core.
+
+  The lifecycle is realised through the shared React function component
+  `owned-frame/owned-frame-fc`, embedded here via Reagent's `:r>` interop
+  head: the `#js {:rfOpts …}` prop reaches React untouched (bypassing
+  `convert-prop-value`, so the CLJS opts map survives intact), and the
+  TRAILING HICCUP children are translated by Reagent's renderer into React
+  children — exactly as `frame-provider-component` does for the scope-only
+  Provider."
   [props & children]
-  ;; rf2-9kpigo: reject a non-keyword, non-nil `:frame` BEFORE it reaches
-  ;; React Context. A nil routes to `:rf.error/no-frame-context` (absence);
-  ;; a non-keyword (string / number / …) routes to the distinct
-  ;; `:rf.error/bad-frame-provider-arg`, so a typo like `{:frame "app"}` is
-  ;; not silently coerced to `:app` by the lower-level context reader.
+  ;; Validate `:id` here (so the diagnostic names this fn), then embed the
+  ;; shared owned-frame FC via `:r>`. `:r>` passes the `#js {:rfOpts …}` prop
+  ;; through as a raw JS object (no `convert-prop-value`), and the trailing
+  ;; hiccup children become React children — `owned-frame-fc` reads its scoped
+  ;; subtree from React's standard `props.children` and the opts from `:rfOpts`.
+  (owned-frame/require-owned-frame-id!
+    (:id props)
+    're-frame.views.provider/frame-provider)
+  (into [:r> owned-frame/owned-frame-fc
+         #js {:rfOpts (owned-frame/owned-frame-opts props)}]
+        children))
+
+(defn frame-provider-existing
+  "User-facing SCOPE-ONLY component (EP-0024 §Scope, carry, and ownership).
+  It provides an ALREADY-CREATED frame's id to descendants via the shared
+  React context and creates / refreshes / destroys NOTHING — the frame is
+  owned elsewhere (a direct `rf/make-frame`, a tool runtime, a parent
+  `rf/frame-provider`). Inside the subtree, `(rf/frame-handle)` /
+  `reg-view`-registered descendants resolve to the named frame. Per
+  Spec 002 §`frame-provider-existing`.
+
+  This is the scope-INTO-React counterpart to `rf/with-frame`: `with-frame`
+  binds a dynamic var and so cannot cross React's render boundary, which is
+  exactly why this React-context scope component exists. Use this when a
+  frame already exists and you only need to scope a React subtree to it; use
+  the OWNED `rf/frame-provider` when a component should own a frame's
+  lifetime.
+
+  `:frame` is REQUIRED and must be a KEYWORD frame id (EP-0002 carried
+  invariant). There is NO `(or (:frame props) :rf/default)` floor: an
+  explicit `(rf/frame-provider-existing {} …)` with no frame establishes no
+  usable scope. A missing `:frame` is a CONFIGURATION ERROR — it emits
+  `:rf.error/no-frame-context` and throws. A non-nil but non-keyword
+  `:frame` (a string / number / …) emits the distinct
+  `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo), so a typo like
+  `{:frame \"app\"}` fails loudly rather than being silently coerced to
+  `:app` by the lower-level context reader. A frame-CONSTRUCTION / lifecycle
+  opt (`:id` / `:images` / `:initial-db` / `:on-create` / …) is a MISUSE: it
+  emits + throws `:rf.error/frame-provider-existing-lifecycle-opt` pointing
+  the caller at the OWNED `rf/frame-provider`, because a scope-only provider
+  neither creates nor owns a frame.
+
+  Reagent call shape:
+
+      [rf/frame-provider-existing {:frame :session}
+       [header]
+       [main-area]
+       [footer]]
+
+  Children are variadic. Same surface as the UIx and Helix variants. The
+  three adapters share one React Context. `build-frame-provider` is the
+  lower-level substrate hook; this fn is the canonical user-facing
+  scope-only surface."
+  [props & children]
+  ;; Reject lifecycle opts FIRST (a scope-only provider neither creates nor
+  ;; owns), then validate / coerce the `:frame` arg, then scope via the
+  ;; shared scope-only provide tier.
+  (owned-frame/reject-lifecycle-opts!
+    (dissoc props :children)
+    're-frame.views.provider/frame-provider-existing)
   (let [frame-kw (frame/require-keyword-frame-provider-arg!
                    (:frame props)
-                   're-frame.views.provider/frame-provider)]
+                   're-frame.views.provider/frame-provider-existing)]
     (into [(build-frame-provider) frame-kw] children)))
 
 ;; ---- in-flight Reagent component -----------------------------------------

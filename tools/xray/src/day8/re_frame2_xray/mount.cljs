@@ -31,7 +31,7 @@
 
   ## Lazy `:rf/xray` frame registration (rf2-in6l2)
 
-  The Xray shell wraps every panel in `[rf/frame-provider {:frame
+  The Xray shell wraps every panel in `[rf/frame-provider-existing {:frame
   :rf/xray} …]` and every panel is `reg-view`-wrapped so subscribes
   resolve through the React-context tier to the named frame. For that
   routing to land in the *registered* `:rf/xray` frame (not chain-
@@ -284,7 +284,7 @@
   ;; it. Threads the shell's actual frame-id (NOT a `:rf/xray` literal),
   ;; matching the frame `ensure-xray-frame!` registered.
   (let [unmount (substrate-adapter/render
-                  [rf/frame-provider {:frame shell/default-frame-id}
+                  [rf/frame-provider-existing {:frame shell/default-frame-id}
                    [shell/shell-view {:mode mode}]]
                   node nil)]
     (set-mode-attrs! node mode)
@@ -1087,7 +1087,7 @@
                                     ;; frame instead of falling through to
                                     ;; `:rf/default` and leaking into the
                                     ;; inspected app frame's epoch `:renders`.
-                                    [rf/frame-provider {:frame shell/default-frame-id}
+                                    [rf/frame-provider-existing {:frame shell/default-frame-id}
                                      [shell/shell-view {:mode :popout}]]
                                     node nil)
                     overlay-node (install-opener-gone-overlay! doc)

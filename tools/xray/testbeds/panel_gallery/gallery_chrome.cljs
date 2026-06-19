@@ -26,7 +26,7 @@
   `:variants-grid` and stay fully isolated: driving one does not move
   the others.
 
-  Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
+  Pre rf2-1w07r the shell hardcoded `[frame-provider-existing {:frame :rf/xray}]`,
   so every cell's subscribes collided on the single global `:rf/xray`
   app-db; the gallery had to serialise rendering and re-dispatch its
   seeds into `:rf/xray` through a testbed-local `:panel-gallery.chrome/

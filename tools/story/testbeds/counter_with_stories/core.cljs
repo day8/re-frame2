@@ -57,7 +57,7 @@
 ;; `:rf/default` frame so `counter-app`'s reg-view-injected dispatch/subscribe
 ;; resolve. Passed to the shared story-host as the live-app root view.
 (defn live-app-root []
-  [rf/frame-provider {:frame :rf/default} [counter-app]])
+  [rf/frame-provider-existing {:frame :rf/default} [counter-app]])
 
 ;; -- Routing between app and story shell ----------------------------------
 ;;

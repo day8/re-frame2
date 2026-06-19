@@ -41,7 +41,7 @@
 
   Same contract as every other Xray panel — the view is pure hiccup,
   no Reagent / UIx / Helix references. Frame isolation comes from the
-  enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
+  enclosing `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The

@@ -203,14 +203,15 @@ This question is **"do you have a `:system-id` instead of a target machine-id?"*
 The multi-frame surface is organised by **intent**, not mechanism (a front-porch / back-room split — per [002 §The multi-frame surface](002-Frames.md#the-multi-frame-surface--choose-by-intent)):
 
 - **Single-frame** (no frames in play): `dispatch`, `dispatch-sync`, `subscribe`.
-- **Scope:** `with-frame`, `with-new-frame`, `frame-provider`.
+- **Scope:** `with-frame`, `with-new-frame`, `frame-provider-existing` (scope an existing frame into a React subtree). (`frame-provider` is **ownership**, not scope — see below.)
 - **Hold** (carry a frame's ops as a value, across async): `frame-handle` — the one public carry primitive. (`frame-bound-fn` / `frame-bound-fn*` were retiered to internal under EP-0024 Open Issue #8 — `frame-handle` or an explicit `{:frame …}` opt expresses the real use cases.)
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
 - **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `frame-value->id`, `reg-frame`, `frame-ids`, `frame-meta` (see [§Public registrar query API](#public-registrar-query-api)).
 
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
-| `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | front-porch | 002 |
+| `frame-provider` | Component (Reagent) | `[rf/frame-provider {:id :todo :images […] :initial-db {}} & children]` — UI-OWNED lifecycle: creates the frame on mount (via `make-frame`), provides its id to descendants, destroys it on unmount; idempotent re-mount under the same `:id` preserves durable state. `:id` required (a missing `:id` → `:rf.error/owned-frame-provider-missing-id`). | v1 | front-porch | 002 |
+| `frame-provider-existing` | Component (Reagent) | `[rf/frame-provider-existing {:frame :todo} & children]` — SCOPE-only: provides an ALREADY-CREATED frame id through React context; creates / refreshes / destroys nothing. `:frame` only (a lifecycle opt → `:rf.error/frame-provider-existing-lifecycle-opt`). The scope-into-React counterpart to `with-frame` (a dynamic var cannot cross React's render boundary). | v1 | front-porch | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` — pin to an existing frame-id. Vector arg is a compile-time error (use `with-new-frame`) | v1 | front-porch | 002 |
 | `with-new-frame` | M | `(with-new-frame [sym expr] body)` — eval `expr`, bind `sym`, run body, destroy frame on exit. Keyword arg is a compile-time error (use `with-frame`) | v1 | front-porch | 002 |
 | `frame-handle` | Fn | `(frame-handle)` *or* `(frame-handle frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the keystone OPERATION BUNDLE. Captures the frame at CREATION; its ops always target the captured frame and survive async. Read app-db via `(app-db-value (:frame h))`, not the handle | v1 | front-porch | 002, 004 |
@@ -231,7 +232,8 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
 | `uix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | adapter | 006 |
 | `uix-adapter/use-subscribe` | Fn (UIx hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | adapter | 006 |
 | `uix-adapter/use-current-frame` | Fn (UIx hook) | `(use-current-frame)` → frame-kw | v1 | adapter | 006 |
-| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children | v1 | adapter | 002, 006 |
+| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:id :session :images […]} child-1 child-2)` — UI-OWNED lifecycle (create-on-mount / provide / destroy-on-unmount); idiomatic `$` trailing children | v1 | adapter | 002, 006 |
+| `uix-adapter/frame-provider-existing` | Fn (UIx component) | `($ uix-adapter/frame-provider-existing {:frame :session} child-1 child-2)` — SCOPE-only (provides an existing frame id; no lifecycle); idiomatic `$` trailing children | v1 | adapter | 002, 006 |
 | `uix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | adapter | 006 |
 | `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | adapter | 006, 008 |
 | `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | adapter | 006, 011 |
@@ -251,7 +253,8 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
 | `helix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | adapter | 006 |
 | `helix-adapter/use-subscribe` | Fn (Helix hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | adapter | 006 |
 | `helix-adapter/use-current-frame` | Fn (Helix hook) | `(use-current-frame)` → frame-kw | v1 | adapter | 006 |
-| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session} child-1 child-2)` — idiomatic `$` trailing children | v1 | adapter | 002, 006 |
+| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:id :session :images […]} child-1 child-2)` — UI-OWNED lifecycle (create-on-mount / provide / destroy-on-unmount); idiomatic `$` trailing children | v1 | adapter | 002, 006 |
+| `helix-adapter/frame-provider-existing` | Fn (Helix component) | `($ helix-adapter/frame-provider-existing {:frame :session} child-1 child-2)` — SCOPE-only (provides an existing frame id; no lifecycle); idiomatic `$` trailing children | v1 | adapter | 002, 006 |
 | `helix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | adapter | 006 |
 | `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | adapter | 006, 008 |
 | `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | adapter | 006, 011 |

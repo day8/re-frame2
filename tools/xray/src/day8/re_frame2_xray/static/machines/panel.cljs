@@ -54,7 +54,7 @@
   ## Frame isolation
 
   Same discipline as every other Static panel — the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs` scopes
+  `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs` scopes
   subscribes / dispatches to Xray's frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]

@@ -112,5 +112,5 @@
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
     (.render @react-root
-             ($ helix-adapter/frame-provider {:frame app-frame}
+             ($ helix-adapter/frame-provider-existing {:frame app-frame}
                 ($ counter-app)))))

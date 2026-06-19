@@ -177,5 +177,5 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:frame app-frame}
+                [rf/frame-provider-existing {:frame app-frame}
                  [root-view]])))

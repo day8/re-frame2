@@ -89,7 +89,7 @@
 ;; `core/root-view`'s subs) resolve. Passed to the shared story-host as the
 ;; live-app root view (mirrors counter-with-stories.core).
 (defn live-app-root []
-  [rf/frame-provider {:frame :rf/default} [login-app]])
+  [rf/frame-provider-existing {:frame :rf/default} [login-app]])
 
 ;; -- Routing between the live app and the Story shell ----------------------
 ;;

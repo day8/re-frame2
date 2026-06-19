@@ -39,7 +39,7 @@
 
   Same contract as every other Xray panel — no Reagent / UIx /
   Helix references. Frame isolation comes from the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
+  `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.cancellation-cascade-events :as events]
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as h]

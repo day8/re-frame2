@@ -60,8 +60,11 @@ Goals:
 - keep frame values as lifecycle tokens returned by creation APIs;
 - make view-owned frame lifetime explicit with one UI boundary, `rf/frame-provider`,
   that creates, provides, and destroys;
-- keep scoping to an existing frame served by `rf/with-frame` alone (the old
-  scope-only `frame-provider` is dropped);
+- serve scoping to an existing frame with `rf/with-frame` (lexical / non-React)
+  and `rf/frame-provider-existing` (scope an existing frame into a React subtree
+  — a dynamic var cannot cross React's render boundary). The old scope-only
+  `frame-provider` becomes the new `rf/frame-provider-existing`; the
+  `frame-provider` name is repurposed for the owned lifecycle boundary;
 - keep `frame-handle` as the callback carry primitive;
 - remove or retier public spellings that duplicate the target/carry/lifecycle
   roles;
@@ -248,15 +251,20 @@ The public API has three different jobs, and each job gets one spelling.
 
 | Job | Public spelling | Contract |
 |---|---|---|
-| **Scope** descendants to an existing frame | `with-frame` | Does not create or destroy the frame. Establishes context only. |
+| **Scope** descendants to an existing frame (lexical / non-React) | `with-frame` | Does not create or destroy the frame. Establishes context only. |
+| **Scope** an existing frame into a React subtree | `frame-provider-existing` | Provides an already-created frame id through React context. `:frame` only — a lifecycle opt fails loud. Creates / refreshes / destroys nothing. |
 | **Carry** a frame across async callback boundaries | `frame-handle` | Captures operations targeted at the current or explicit frame. |
 | **Own** a frame lifetime | `make-frame` + `destroy-frame!`, `with-new-frame`, and the UI-owned boundary `frame-provider` | Creation and teardown are explicit ownership operations. |
 
-Note the naming. The old scope-only `frame-provider` is **dropped**: scoping to an
-already-existing frame is served by `rf/with-frame` alone. The name
-`rf/frame-provider` is reused for the UI-owned *lifecycle* boundary — the
+Note the naming — a **`frame-provider` name family** of two per-adapter
+React-context components. The old scope-only `frame-provider` is **renamed**
+`rf/frame-provider-existing` (same `:frame`-only scope behaviour); the
+`rf/frame-provider` name is reused for the UI-owned *lifecycle* boundary — the
 component that creates a frame on mount, provides its id to descendants, and
-destroys it on unmount.
+destroys it on unmount. Scoping into a React subtree needs a React-context
+component (`frame-provider-existing`) because `rf/with-frame` binds a dynamic
+var, which cannot cross React's render boundary; `with-frame` remains for
+lexical / non-React ambient scope.
 
 Illustrative shape:
 
@@ -275,7 +283,7 @@ lifetimes.
 **`frame-provider` is realized per-adapter, against a shared contract.** It is
 not a single component: each substrate (Reagent / UIx / Helix) ships its own
 `frame-provider` that hooks the substrate's native lifecycle, exactly as the
-scope-only provider was handled before this EP. The EP-0024 spec-graduation wave
+scope-only provider (now `frame-provider-existing`) is per-adapter. The EP-0024 spec-graduation wave
 specifies the shared contract — **create-on-mount**, **provide the frame id to
 descendants**, **destroy-on-unmount**, and **idempotent re-mount** (per the
 duplicate-id policy above) — and each adapter implements its native hook. The
@@ -295,7 +303,7 @@ Open Issue #6.)
 
 This split keeps the user's question small:
 
-- "I already have a frame; how do I scope children?" Use `with-frame`.
+- "I already have a frame; how do I scope children?" Use `with-frame` (lexical / non-React) or `frame-provider-existing` (into a React subtree).
 - "This component owns a frame lifetime." Use `frame-provider`.
 - "This callback will fire later." Use `frame-handle`.
 

@@ -15,7 +15,8 @@
   frame-provider chain composes across substrates."
   (:require [helix.core          :refer-macros [defnc]]
             [helix.hooks         :as helix-hooks]
-            [re-frame.substrate.spine   :as spine]))
+            [re-frame.substrate.spine   :as spine]
+            [re-frame.views.owned-frame :as owned-frame]))
 
 ;; ---- shared spine wiring --------------------------------------------------
 
@@ -58,56 +59,96 @@
   (:use-current-frame spine-fns))
 
 (defnc frame-provider
-  "User-facing component scoping `frame-kw` to its subtree. Wraps
-  children in the shared frame Context Provider. Helix call shape — the
-  idiomatic `$` TRAILING-CHILDREN form, identical to every other Helix
-  component and mirroring Reagent's trailing-hiccup mental model
-  (rf2-7kii2):
+  "User-facing component — the UI-OWNED frame LIFECYCLE boundary (EP-0024
+  §Scope, carry, and ownership). It CREATES a frame on mount, PROVIDES its
+  id to descendants, and DESTROYS it on unmount. NOT a scope-only component
+  — scoping descendants to a frame that ALREADY EXISTS is
+  `frame-provider-existing` (scope-into-React) or `rf/with-frame` (lexical).
+  Helix call shape — the idiomatic `$` TRAILING-CHILDREN form, identical to
+  every other Helix component and mirroring Reagent's trailing-hiccup mental
+  model (rf2-7kii2):
 
-      ($ frame-provider {:frame :session}
+      ($ frame-provider {:id :session :images [session-image] :initial-db {}}
          ($ header)
          ($ main))
 
   Children ride the native `$` trailing-args channel; there is no
   `:children` prop-map key to remember (forgetting it used to drop the
   subtree silently — that footgun is gone by construction). A single
-  child works too: `($ frame-provider {:frame :session} ($ app))`.
+  child works too: `($ frame-provider {:id :session} ($ app))`.
 
-  `:frame` is REQUIRED (EP-0002 carried invariant) and must be a KEYWORD
-  frame id. A missing or `nil` `:frame` is a CONFIGURATION ERROR: the spine
-  core `build-frame-provider-element` emits `:rf.error/no-frame-context` and
-  throws rather than synthesising `:rf/default` — the runtime never repairs
-  absence (Spec 002 §Frame target resolution). A non-nil but non-keyword
-  `:frame` (a string / number / …) is a distinct bad-public-argument error:
-  the core emits `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo),
-  so a typo like `{:frame \"session\"}` fails loudly rather than being
-  silently coerced to `:session` by the lower-level context reader. The three
+  `frame-provider` OWNS a frame lifetime, so it takes the same `:id` /
+  `:images` / `:initial-db` (plus record-config) opts as `rf/make-frame`,
+  runs that one constructor on mount, and tears the frame down on unmount.
+  `:id` is REQUIRED and must be a KEYWORD: a missing / nil / non-keyword
+  `:id` is a CONFIGURATION ERROR — the owned-frame core emits + throws
+  `:rf.error/owned-frame-provider-missing-id` (a `:frame` key with no `:id`
+  is the common mistake and trips this guard — switch to `:id`, or use
+  `frame-provider-existing {:frame …}` to merely scope). The three
   React-shaped adapters share one React Context (per rf2-2qit Decision 2)
   so a subtree under any frame-provider sees the right frame regardless of
   which substrate rendered the provider.
 
+  Idempotent re-mount (hot reload / React StrictMode dev double-invoke /
+  Story re-evaluation): re-mounting under the same `:id` MUST NOT destroy
+  durable state — `make-frame` is idempotent replacement and the
+  destroy-on-unmount is DEFERRED + cancelled by a re-acquire (see
+  `re-frame.views.owned-frame`).
+
   Native shell above the prop-marshalling seam (rf2-z7hfp — Mike-ruled
   C, MOVE THE SEAM UP). This is a NATIVE Helix `defnc` component, NOT a
-  re-export of a shared-spine fn handed to `$`. Because it is a real
-  `defnc`, Helix's `$` routes its props through `extract-cljs-props`,
-  which beans the JS object back into a CLJS map with KEYWORD keys (and
-  Helix's `-props` preserves keyword VALUES — only keys are stringified)
-  AND lifts the native trailing children onto the `:children` key
-  (Helix's `$`/`extract-cljs-props` contract: `($ Comp props c1 c2)`
-  arrives as `{... :children #js [c1 c2]}`). So `:frame` / `:children`
-  destructure cleanly with the namespace intact. The body delegates to
-  the substrate-agnostic spine core `build-frame-provider-element`
-  (frame-resolution + element-build).
+  re-export of a shared fn handed to `$`. Because it is a real `defnc`,
+  Helix's `$` routes its props through `extract-cljs-props`, which beans the
+  JS object back into a CLJS map with KEYWORD keys (and Helix's `-props`
+  preserves keyword VALUES — only keys are stringified) AND lifts the native
+  trailing children onto the `:children` key (Helix's `$`/`extract-cljs-
+  props` contract: `($ Comp props c1 c2)` arrives as `{... :children #js [c1
+  c2]}`). So the props destructure cleanly with namespaces intact. The body
+  delegates to the substrate-agnostic owned-frame core
+  `owned-frame-react-element` (`:id` validation + lifecycle element-build).
+  The prop-mangling class — Helix's `$` handing a plain fn a raw JS object
+  with string keys — is impossible by construction: there is no plain fn
+  under `$` for the element macro to mangle."
+  [props]
+  (owned-frame/owned-frame-react-element
+    (dissoc props :children)
+    (:children props)
+    're-frame.adapter.helix/frame-provider))
 
-  This replaces the former bespoke un-mangling wrapper (rf2-9ok1s: a
-  plain re-export plus a `gobj/get` string-key read + children-array
-  normalise, branching on `(map? props)`). With the seam moved ABOVE
-  `$`, the prop-mangling class — Helix's `$` handing a plain fn a raw JS
-  object with string keys — is impossible by construction: there is no
-  plain fn under `$` for the element macro to mangle. No per-substrate
-  un-mangling patch remains to drift."
-  [{:keys [frame children]}]
-  (spine/build-frame-provider-element frame children))
+(defnc frame-provider-existing
+  "User-facing SCOPE-ONLY component (EP-0024 §Scope, carry, and ownership).
+  It provides an ALREADY-CREATED frame's id to descendants via the shared
+  React context and creates / refreshes / destroys NOTHING — the frame is
+  owned elsewhere. The scope-INTO-React counterpart to `rf/with-frame` (a
+  dynamic var cannot cross React's render boundary). Helix call shape — the
+  idiomatic `$` TRAILING-CHILDREN form:
+
+      ($ frame-provider-existing {:frame :session}
+         ($ header)
+         ($ main))
+
+  `:frame` is REQUIRED (EP-0002 carried invariant) and must be a KEYWORD
+  frame id. A missing or `nil` `:frame` is a CONFIGURATION ERROR: the spine
+  core `build-frame-provider-element` emits `:rf.error/no-frame-context` and
+  throws rather than synthesising `:rf/default` (Spec 002 §Frame target
+  resolution). A non-nil but non-keyword `:frame` emits the distinct
+  `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo). A
+  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-db` /
+  `:on-create` / …) is a MISUSE: the owned-frame core emits + throws
+  `:rf.error/frame-provider-existing-lifecycle-opt` pointing the caller at
+  the OWNED `frame-provider`, because a scope-only provider neither creates
+  nor owns a frame.
+
+  Native shell above the prop-marshalling seam (rf2-z7hfp): a real `defnc`,
+  so Helix's `$` reconstructs the lossless CLJS props map; the body rejects
+  lifecycle opts then delegates the clean `:frame` + children to the
+  substrate-agnostic spine core `build-frame-provider-element` (the
+  scope-only provide tier)."
+  [props]
+  (owned-frame/reject-lifecycle-opts!
+    (dissoc props :children)
+    're-frame.adapter.helix/frame-provider-existing)
+  (spine/build-frame-provider-element (:frame props) (:children props)))
 
 (def use-subscribe
   "Helix hook that reads a re-frame subscription. Returns the current

@@ -50,7 +50,7 @@
   ## Pure hiccup
 
   Same contract as every Xray view — pure hiccup. Frame isolation
-  comes from the enclosing `[rf/frame-provider {:frame :rf/xray}]`
+  comes from the enclosing `[rf/frame-provider-existing {:frame :rf/xray}]`
   in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]

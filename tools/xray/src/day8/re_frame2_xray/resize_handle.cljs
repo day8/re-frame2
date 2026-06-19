@@ -415,7 +415,7 @@
 
   `reg-view`-wrapped per rf2-in6l2 so the inner subscribe routes
   through React-context to `:rf/xray` (the shell wraps the whole
-  chrome in `frame-provider {:frame :rf/xray}`)."
+  chrome in `frame-provider-existing {:frame :rf/xray}`)."
   [mode]
   (when (and (= mode :inline)
              (not (host-asserts-own-handle?)))

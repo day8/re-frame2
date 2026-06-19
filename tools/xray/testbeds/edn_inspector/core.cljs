@@ -571,7 +571,7 @@
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:edn-inspector/reset]))
-  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]])
+  (rdc/render react-root [rf/frame-provider-existing {:frame host-frame} [root]])
   ;; Mount the inline Xray sidecar (Epoch + App-db panels) into
   ;; `[data-rf-xray-host]`, standard_epochs-style. `init!` is the public
   ;; manual alternative to the `:preloads` wiring (so no shadow-cljs.edn

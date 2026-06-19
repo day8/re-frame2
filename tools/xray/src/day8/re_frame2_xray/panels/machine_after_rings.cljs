@@ -78,7 +78,7 @@
 
   Same contract as every other Xray panel — the view is pure hiccup,
   no Reagent / UIx / Helix references. Frame isolation comes from the
-  enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
+  enclosing `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`."
   (:require [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [day8.re-frame2-xray.defaults :as defaults]
@@ -335,7 +335,7 @@
   rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
   React-context frame tier carries the enclosing `:rf/xray` frame
   through to the four subscribes inside. As a plain fn rendered under
-  `[rf/frame-provider {:frame :rf/xray}]`, the subscribes routed to
+  `[rf/frame-provider-existing {:frame :rf/xray}]`, the subscribes routed to
   `:rf/default` (the host app's frame), which is a real frame-leak —
   xray-internal slots must be read via xray's own frame. Same surgery
   PR #2110 (rf2-uu3lp) applied to the rest of xray chrome.

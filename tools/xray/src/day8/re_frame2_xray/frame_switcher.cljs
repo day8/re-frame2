@@ -383,7 +383,7 @@
 
   `reg-view`-registered (rf2-in6l2) so its rendered React component
   carries `:contextType frame-context` and the closest enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` flows through React-context
+  `[rf/frame-provider-existing {:frame :rf/xray}]` flows through React-context
   — subscribes resolve to `:rf/xray`."
   [_props]
   (let [selected-frame  @(rf/subscribe [:rf.xray/current-frame])

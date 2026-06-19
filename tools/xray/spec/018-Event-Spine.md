@@ -147,7 +147,7 @@ The mode-scoping rule is what lets the mnemonic vocabulary stay small (single le
 
 ### Frame isolation
 
-Same discipline as the Dynamic chrome (per §8 Frame-observation isolation invariants). The Static surface composer inside `shell.cljs` is wrapped in `[rf/frame-provider {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. Each subscribing region is `reg-view`-registered so its rendered component carries `:contextType frame-context` (rf2-in6l2 + Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
+Same discipline as the Dynamic chrome (per §8 Frame-observation isolation invariants). The Static surface composer inside `shell.cljs` is wrapped in `[rf/frame-provider-existing {:frame :rf/xray}]`; every subscribe + dispatch inside the surface resolves to `:rf/xray`. Each subscribing region is `reg-view`-registered so its rendered component carries `:contextType frame-context` (rf2-in6l2 + Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
 
 ### See also
 
