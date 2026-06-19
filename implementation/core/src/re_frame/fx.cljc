@@ -20,6 +20,7 @@
   reserved in core's case-block — apps that don't pull in the machines
   artefact don't carry the trace strings or the handler for them."
   (:require [re-frame.registrar :as registrar]
+            [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance
@@ -844,8 +845,8 @@
           (let [ex-data-map (ex-data e)
                 category    (:rf.error/id ex-data-map)]
             (if (keyword? category)
-              (let [msg #?(:clj (.getMessage ^Throwable e)
-                           :cljs (.-message e))]
+              ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
+              (let [msg (error/ex-message-safe e)]
                 ;; Both channels via the shared `emit-fx-error!` helper
                 ;; (rf2-xxlzfl): axis 1 the always-on per-error observability
                 ;; fan-out (rf2-bacs4 / sticky hook rf2-f72pd; survives
@@ -964,7 +965,8 @@
                                             args)
                         true
                         (catch #?(:clj Throwable :cljs :default) e
-                          (let [msg (#?(:clj .getMessage :cljs .-message) e)]
+                          ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
+                          (let [msg (error/ex-message-safe e)]
                             ;; rf2-goum9x: a thrown registered fx is
                             ;; production-survivable (Spec 009/011) — fan it
                             ;; out through the always-on error-emit listener

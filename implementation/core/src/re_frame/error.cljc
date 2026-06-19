@@ -132,6 +132,52 @@
   ([error-id where-sym reason opts]
    (throw (thrown-ex-info error-id where-sym reason opts))))
 
+;; ---- nil-safe thrown-value message extractor (rf2-vzrxp3) -----------------
+;;
+;; The runtime catches thrown values at ~7 sites (the router pipeline
+;; exception, the cofx supplier throw, the fx-handler throw, the reactive /
+;; compute sub throws, the interceptor-registry arg-resolve throw) and stamps
+;; the host message into the `:exception-message` trace / error-record slot via
+;; a RAW `#?(:clj (.getMessage e) :cljs (.-message e))`. That is unsafe in CLJS:
+;; ANY value is legally throwable, and a thrown NON-Error value (a keyword, a
+;; map, a string — `(throw :boom)` / `(throw {:k 1})`) has no `.-message`
+;; property, so `(.-message e)` is `nil` and `:exception-message` silently
+;; becomes nil. The off-box shipper then sees an error with no message at all.
+;;
+;; `error.cljc` already centralises message BUILDING (the thrown-error
+;; builders above) but had no shared message EXTRACTOR. This is it: the ONE
+;; nil-safe `ex-message`-equivalent the catch sites route through, so a
+;; non-Error throwable degrades to a useful rendering instead of nil. Pure;
+;; runs only on the failure path.
+
+(defn ex-message-safe
+  "Nil-safe extractor for the human message of a CAUGHT thrown value `e`
+  (rf2-vzrxp3). Returns a string (or nil only when `e` itself is nil).
+
+  - For a host exception (JVM `Throwable`, CLJS `js/Error` / `ExceptionInfo`)
+    returns its message — `(.getMessage e)` on the JVM, `(ex-message e)` /
+    `(.-message e)` on CLJS.
+  - For a thrown NON-Error value (legal in CLJS: `(throw :boom)`,
+    `(throw {:k 1})`, `(throw \"oops\")`) the host message is nil, so this
+    falls back to `(str e)` — the value's printed form — rather than letting
+    `:exception-message` silently become nil. KEYWORDS / strings / numbers
+    render to a recognisable token; a map / collection renders structurally.
+  - Returns nil ONLY for a nil `e` (there is genuinely no message).
+
+  The reason the raw `(.-message e)` was unsafe on CLJS: the property is
+  absent on a plain value, so it reads `nil` with no error — the worst
+  failure mode for a diagnostic. This degrades loudly-but-safely instead.
+  Pure; hot-path safe (runs only on the catch path)."
+  [e]
+  (cond
+    (nil? e) nil
+    #?@(:clj  [(instance? Throwable e) (or (.getMessage ^Throwable e) (str e))]
+        :cljs [(instance? js/Error e)  (or (.-message e) (str e))])
+    :else
+    ;; A thrown non-Error value (CLJS-legal). The host message is nil; render
+    ;; the value so the diagnostic carries SOMETHING rather than nil.
+    (str e)))
+
 ;; ---- shared removed-API thrower: inline interceptor (rf2-8au0w6) -----------
 ;;
 ;; The retired-name "throwing stub" pattern (a removed public API survives as

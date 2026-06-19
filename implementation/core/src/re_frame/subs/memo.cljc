@@ -34,7 +34,8 @@
   Per-recompute hot path is the closure body (in-process) — unaffected
   by the ns boundary. Per-miss constructor call (from
   `re-frame.subs/compute-and-cache!`) crosses the ns boundary once."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.error :as error]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
@@ -347,7 +348,7 @@
                         :frame          frame-id}))
         validated)
       (catch #?(:clj Throwable :cljs :default) e
-        (let [msg    #?(:clj (.getMessage e) :cljs (.-message e))
+        (let [msg    (error/ex-message-safe e) ; rf2-vzrxp3: nil-safe
               reason (str "Subscription `" query-id
                           "` threw while computing: "
                           msg ". Returning nil.")

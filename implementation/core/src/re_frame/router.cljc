@@ -905,7 +905,9 @@
   listeners."
   [error event-id event frame ctx start-ms]
   (let [exception  (:exception error)
-        msg        #?(:clj (.getMessage ^Throwable exception) :cljs (.-message exception))
+        ;; rf2-vzrxp3: nil-safe extractor — a thrown non-Error value (legal in
+        ;; CLJS) has no `.-message`, so a raw read would silently nil the slot.
+        msg        (error/ex-message-safe exception)
         emit-event (privacy/redacted-event-from-ctx ctx)
         end-ms     (interop/now-ms)
         elapsed-ms (elapsed-ms-from start-ms end-ms)

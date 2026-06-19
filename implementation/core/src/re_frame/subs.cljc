@@ -512,7 +512,8 @@
   [error-kw query-id query-v frame-id e where]
   (let [data        (ex-data e)
         bad-return? (= :rf.error/sub-input-fn-bad-return error-kw)
-        msg         #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
+        ;; rf2-vzrxp3: nil-safe extractor (a thrown non-Error value has no message).
+        msg         (error/ex-message-safe e)]
     ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
     ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
     ;; `:advanced` + `goog.DEBUG=false`). For the bad-return case there is no
@@ -1349,7 +1350,7 @@
                             ;; 4-arity contract).
                             (subs-memo/maybe-validate-sub! raw query-v query-id meta nil))
                           (catch #?(:clj Throwable :cljs :default) e
-                            (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
+                            (let [msg (error/ex-message-safe e) ; rf2-vzrxp3: nil-safe
                                   reason (str "Subscription `" query-id
                                               "` threw while computing: "
                                               msg ". Returning nil.")
