@@ -78,7 +78,8 @@
             [clojure.string                  :as str]
             [re-frame.story.config           :as config]
             [re-frame.story.recorder         :as recorder]
-            [re-frame.story.recorder.selector :as selector]))
+            [re-frame.story.recorder.selector :as selector]
+            [re-frame.story.ui.canvas-listeners :as canvas-listeners]))
 
 ;; ---- runtime knobs -----------------------------------------------------
 
@@ -386,18 +387,14 @@
         (record-dom-submit! sel)))))
 
 ;; ---- install / remove --------------------------------------------------
+;;
+;; The idempotent canvas-root install/remove scaffold is shared with the
+;; element inspector via `re-frame.story.ui.canvas-listeners`. This rail
+;; keeps only its own listener bodies + the recorder-specific pre/post
+;; hooks: the `config/enabled?` opt-in gate on install and the
+;; type-buffer drain on remove.
 
 (defonce ^:private installed-root (atom nil))
-
-(defn- canvas-root
-  "The current shell canvas root, looked up by the framework-stable
-  `[data-test=\"story-canvas-frame\"]` hook. Returns nil when the
-  shell isn't mounted (e.g. before `mount-shell!`)."
-  []
-  (when (and (exists? js/document) (.-querySelector js/document))
-    (try
-      (.querySelector js/document "[data-test=\"story-canvas-frame\"]")
-      (catch :default _ nil))))
 
 (defn- attach-listeners! [root]
   ;; Capture phase = false (bubble); we want the recorder to see what
@@ -418,6 +415,9 @@
   (.removeEventListener root "change" handle-change! false)
   (.removeEventListener root "submit" handle-submit! false))
 
+(def ^:private lifecycle
+  (canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!))
+
 (defn install!
   "Install the DOM-capture listeners on `root` (or the canvas root
   when called with no arg). Idempotent — re-installing removes the
@@ -426,14 +426,10 @@
   No-op when production elision is active (`config/enabled?` false).
   Returns the root node on success, nil otherwise."
   ([]
-   (install! (canvas-root)))
+   (install! (canvas-listeners/canvas-root)))
   ([root]
-   (when (and config/enabled? root)
-     (when-let [prev @installed-root]
-       (detach-listeners! prev))
-     (attach-listeners! root)
-     (reset! installed-root root)
-     root)))
+   (when config/enabled?
+     ((:install! lifecycle) root))))
 
 (defn remove!
   "Tear down any previously installed listeners. Idempotent. Drains
@@ -441,13 +437,10 @@
   in-flight typed value (if any)."
   []
   (flush-type-buffer!)
-  (when-let [root @installed-root]
-    (detach-listeners! root)
-    (reset! installed-root nil))
-  nil)
+  ((:remove! lifecycle)))
 
 (defn installed?
   "True iff `install!` is currently attached to a root node. Public
   for tests and the toolbar's status display."
   []
-  (some? @installed-root))
+  ((:installed? lifecycle)))
