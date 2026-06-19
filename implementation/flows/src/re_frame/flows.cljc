@@ -197,11 +197,12 @@
     - the schemas artefact is not loaded (hook absent);
     - no validator is registered (the registered validator soft-passes).
 
-  Observational, NOT a rollback. A flow's output is materialised state
-  that downstream handlers / flows / subs already read by the time a
-  failure could be observed, and the prior-writes-preserved failure
-  contract (§Failure semantics rule 1) forbids retroactively unwinding a
-  flow write mid-cascade. So — like `validate-app-schema!`, which is also
+  Observational, NOT a rollback (Spec 013 §\"Observational, not a
+  rollback\"). A flow's output is materialised state that downstream
+  flows in the same drain may already have read as their input by the
+  time a violation could be observed, so retroactively unwinding one
+  flow's write mid-walk would leave an inconsistent pending `:db`
+  effect. So — like `validate-app-schema!`, which is also
   dev-only — the value IS still written; the failure surfaces as a
   diagnostic `:rf.error/schema-validation-failure :where :flow-output`
   trace (`:recovery :no-recovery`, matching the category's documented
