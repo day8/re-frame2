@@ -17,10 +17,18 @@
 ;; live in `re-frame.substrate.spine/make-ratom-spine` (rf2-rzex9) — one
 ;; implementation, two adapters, zero drift, mirroring the React-hook
 ;; `make-react-spine` that backs UIx/Helix. The reactive-atom ops are
-;; INJECTED here so the spine never `:require`s a reactive-atom ns: this
-;; adapter passes its stock `reagent.*` impls; the slim adapter passes
-;; `reagent2.*`. (Load-bearing for reagent-slim bundle isolation — the
-;; slim adapter's deps.edn carries zero direct `reagent.*` requires.)
+;; INJECTED here as a flat set of bare fns so the spine never `:require`s a
+;; reactive-atom ns: this adapter passes its stock `reagent.*` impls; the
+;; slim adapter passes `reagent2.*`. (Load-bearing for reagent-slim bundle
+;; isolation — the slim adapter's deps.edn carries zero direct `reagent.*`
+;; requires.)
+;;
+;; rf2-0u5em6: the spine assembles its internal ratom-ops map from these
+;; bare fns. Each adapter passes ~7 bare fns (flat config keys, mirroring
+;; `make-react-spine`'s bare hook fns) instead of a hand-shaped keyword
+;; map — earlier this adapter and the slim one each built a structurally-
+;; identical 7-key `:ratom-ops` map differing only by ns-alias, a "keep two
+;; maps in lockstep" hazard the flat-bare-fn shape removes.
 
 (def ^:private spine-fns
   (spine/make-ratom-spine
@@ -34,21 +42,21 @@
      ;; adapter-render / dispose-drain pins rely on (capturing the bare
      ;; Var value at load time would freeze the original impls past any
      ;; `with-redefs` rebind). Runtime behaviour is identical.
-     :ratom-ops         {:r/atom              (fn [v] (r/atom v))
-                         :ratom/make-reaction (fn [thunk] (ratom/make-reaction thunk))
-                         :rdc/create-root     (fn [mount-point] (rdc/create-root mount-point))
-                         :rdc/render          (fn [root tree] (rdc/render root tree))
-                         :rdc/hydrate-root    (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
-                         :rdc/unmount         (fn [root] (rdc/unmount root))
-                         ;; rf2-40a84 — synchronous render-flush op. Run `f`
-                         ;; (which may mutate a ratom / dispatch), then
-                         ;; `reagent.core/flush` drains Reagent's render queue
-                         ;; SYNCHRONOUSLY — bypassing the rAF-scheduled
-                         ;; `next-tick` drain — and (on React 19) commits the
-                         ;; forced component re-renders to the DOM via
-                         ;; react-dom/flushSync. NOT rAF-scheduled ⇒ fires even
-                         ;; in a backgrounded / headless tab.
-                         :rdc/flush-render!   (fn [f] (f) (r/flush))}}))
+     :r-atom        (fn [v] (r/atom v))
+     :make-reaction (fn [thunk] (ratom/make-reaction thunk))
+     :create-root   (fn [mount-point] (rdc/create-root mount-point))
+     :render-root   (fn [root tree] (rdc/render root tree))
+     :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
+     :unmount-root  (fn [root] (rdc/unmount root))
+     ;; rf2-40a84 — synchronous render-flush op. Run `f`
+     ;; (which may mutate a ratom / dispatch), then
+     ;; `reagent.core/flush` drains Reagent's render queue
+     ;; SYNCHRONOUSLY — bypassing the rAF-scheduled
+     ;; `next-tick` drain — and (on React 19) commits the
+     ;; forced component re-renders to the DOM via
+     ;; react-dom/flushSync. NOT rAF-scheduled ⇒ fires even
+     ;; in a backgrounded / headless tab.
+     :flush-render! (fn [f] (f) (r/flush))}))
 
 (def set-hiccup-emitter!
   "Install the hiccup → HTML fn used by render-to-string. Last call wins.
@@ -96,10 +104,10 @@
   which moved only those React-hook adapters; the Reagent shape is
   unchanged).
 
-  The `:hook-ops` are injected stock-`reagent.*` impls so the spine
-  never names a reactive-atom ns (bundle isolation, identical to
-  `make-ratom-spine`'s `:ratom-ops` contract). Per-hook rationale lives
-  at `spine/make-ratom-adapter`."
+  The hook ops are injected stock-`reagent.*` impls (flat bare-fn config
+  keys, rf2-0u5em6) so the spine never names a reactive-atom ns (bundle
+  isolation, identical to `make-ratom-spine`'s bare-fn contract). Per-hook
+  rationale lives at `spine/make-ratom-adapter`."
   (spine/make-ratom-adapter
     spine-fns
     {:kind :rf.adapter/reagent
@@ -108,18 +116,20 @@
      ;; at render time. The arg stays in the substrate signature per
      ;; Spec 006 §Frame-provider via React context.
      :register-context-provider (fn [_frame-keyword] (views/build-frame-provider))
-     ;; Injected stock-Reagent ops for the ratom-family late-bind hooks.
-     ;; rf2-jicu2: the dual-IDisposable dispatch (re-frame-owned first,
-     ;; then the substrate's) is handled inside make-ratom-adapter — this
-     ;; adapter supplies only the substrate-side `disposable?` predicate +
-     ;; `add-on-dispose!` / `dispose!` impls.
-     :hook-ops {:current-frame     views/current-frame
-                :current-component r/current-component
-                :atom              r/atom
-                :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
-                :make-reaction     ratom/make-reaction
-                :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
-                :add-on-dispose!   ratom/add-on-dispose!
-                :dispose!          ratom/dispose!
-                :reactive?         ratom/reactive?
-                :after-render      r/after-render}}))
+     ;; Injected stock-Reagent ops for the ratom-family late-bind hooks
+     ;; (flat bare-fn config keys, rf2-0u5em6 — the spine assembles the
+     ;; route-hook table from them). rf2-jicu2: the dual-IDisposable
+     ;; dispatch (re-frame-owned first, then the substrate's) is handled
+     ;; inside make-ratom-adapter — this adapter supplies only the
+     ;; substrate-side `disposable?` predicate + `add-on-dispose!` /
+     ;; `dispose!` impls.
+     :current-frame     views/current-frame
+     :current-component r/current-component
+     :atom              r/atom
+     :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
+     :make-reaction     ratom/make-reaction
+     :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
+     :add-on-dispose!   ratom/add-on-dispose!
+     :dispose!          ratom/dispose!
+     :reactive?         ratom/reactive?
+     :after-render      r/after-render}))
