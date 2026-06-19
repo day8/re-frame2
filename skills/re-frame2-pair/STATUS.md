@@ -15,7 +15,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | Tool catalogue | **30 MCP tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`). All 30 reachable from `allowed-tools:`; the two write tools `restore-epoch` + `replace-app-db` are the canonical named-write path and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag (the server's gate, not the allow-list, is the write boundary). |
 | `SKILL.md` + `references/*.md` | Written — the full vocabulary Claude learns; the routed leaves carry the live surface. |
 | `preload/re_frame2_pair/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces. Loaded into the app via shadow-cljs `:devtools :preloads`. |
-| Bash shims (`scripts/*.sh` + `ops.clj`) | **Retired from the skill surface** — kept on disk only for the project's own e2e harness and ad-hoc shell use. See [`ops.md` §Bash-shim appendix](references/ops.md#bash-shim-appendix-not-reachable-from-this-skill). |
+| Bash shims (`scripts/*.sh` + `ops.clj`) | **Retired from the skill surface** — kept on disk only for the project's own e2e harness and ad-hoc shell use. |
 | Push-mode streaming | **Landed** — `subscribe` / `unsubscribe` MCP tools push live trace/epoch events as `notifications/progress`. See [`streaming-subscriptions.md`](references/streaming-subscriptions.md). |
 | Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
 | `.claude-plugin/plugin.json`, `package.json`, GH Actions (CI + release) | Written |
