@@ -1060,8 +1060,9 @@
    :rf.size/include-large?     (boolean include-large?)})
 
 (defn- project-payload-slot
-  "Project one payload slot through `project-egress` under the
-  `:rf.egress/off-box-observability` profile, rooted at the named frame.
+  "Project one payload slot through `project-egress` under the egress
+  profile selected by `opts` (default `:rf.egress/off-box-observability`),
+  rooted at the named frame.
   Off-box defaults (`:include-sensitive? false`, `:include-large? false`)
   hold unless `opts` opts back in (rf2-5w06uu). The epoch record is not a
   `:rf.observe/*` record kind, so the slot VALUE is projected as a kindless
@@ -1630,9 +1631,9 @@
   "Project an `:rf/epoch-record` for off-box egress. Routes the
   app-db-rooted full-value payload slots (`:frame-state-before`,
   `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through
-  `re-frame.projection/project-egress` under the
-  `:rf.egress/off-box-observability` profile (EP-0015 §15 / §10) against
-  the record's frame, with the off-box defaults `:include-sensitive? false`
+  `re-frame.projection/project-egress` under the egress profile selected by
+  `opts` (default `:rf.egress/off-box-observability`) (EP-0015 §15 / §10)
+  against the record's frame, with the off-box defaults `:include-sensitive? false`
   / `:include-large? false`. Sensitive paths land as `:rf/redacted`; large
   paths land as `:rf.size/large-elided` markers per the §Composition rule.
 
