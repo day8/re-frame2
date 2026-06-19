@@ -151,7 +151,7 @@ Per Spec 009 §Privacy, framework-published listener integrations MUST default-s
 
 Opt back in per-call with the `subscribe` wire arg `include-sensitive: true` (no `?` — the wire arg drops the `?` the runtime `configure-privacy!` opt and walker option keep), honoured only when the server was launched with `--allow-sensitive-reads`. Dropped count surfaces as `:dropped-sensitive` on each progress payload (when non-zero) and on the final summary.
 
-See [vocabulary.md §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface) for the full posture and how to opt in app-wide.
+See [vocabulary.md §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out) for the full posture and how to opt in app-wide.
 
 ## Worked invocation
 
