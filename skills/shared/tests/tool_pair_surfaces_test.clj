@@ -262,89 +262,140 @@
                "rf2-985x1t).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock — the operating-frame / registrar guidance is REALM-AWARE per the
-;; current EP-0013 (realm, frame)-address contract (rf2-wpwckr)
+;; Lock — the operating-frame / registrar guidance teaches the post-EP-0023
+;; PUBLIC model: the frame is the whole public address, and the realm /
+;; (realm, frame) two-part address is LABELED-INTERNAL installation substrate
+;; (read from internal namespaces, NOT the public facade).
 ;;
-;; The skills/shared review (rf2-wpwckr finding 1) found the leaf's operating-
-;; frame trio and registrar query API stale against spec/Tool-Pair.md's
-;; EP-0013 disposition-3 realm-aware semantics: the registrar pair
-;; `realm-ids` / `frame-realm` was absent, and the operating-frame trio +
-;; tier-3 resolver were described as frame-only — omitting the (realm, frame)
-;; full address, the optional `:realm` pin, realm-scoped tier-3 resolution,
-;; reset clearing the realm pin, and the inspect-result realm keys
-;; (`:realms` / `:operating-realm` / `:selected-realm` / `:frame-realms`).
-;; A consuming skill routing an upstream operating-frame / multi-realm finding
-;; from this stale leaf could under-spec or misroute it (the pair SKILL.md +
-;; the re-frame2-pair-mcp descriptor data already teach the realm-aware model).
-;; These pins fail loudly if the leaf re-narrows to the frame-only model.
+;; EP-0023 (graduated 2026-06-16/17) + EP-0024 SUPERSEDED the EP-0013
+;; disposition-3 realm-aware public model the earlier review (rf2-wpwckr)
+;; pinned: the `rf/realm-ids` / `rf/frame-realm` facade exports were REMOVED
+;; (pl97nd.2; spec/API.md, spec/Tool-Pair.md §Operating frame / §Surface
+;; dispositions). The public model is now `image -> frame -> event stream`
+;; with the frame id as the whole public address and NO public realm
+;; coordinate / pin; the realm survives only as the internal installation
+;; container, read from `re-frame.realm` / `re-frame.frame`. The earlier lock
+;; block actively ASSERTED the now-removed facade pair + the public `:realm`
+;; pin / realm-aware reset / `:selected-realm` as the live model — a green
+;; gate guarding stale content. These pins now (a) FAIL LOUDLY if the leaf
+;; re-presents `realm-ids` / `frame-realm` (or the `:realm` map arity) as a
+;; PUBLIC facade surface, and (b) keep the correct labeled-internal framing
+;; pinned. Mirrors the already-corrected re-frame2-pair / re-frame2-xray
+;; skill wording.
 ;; ---------------------------------------------------------------------------
 
-(deftest registrar-realm-pair-enumerated
-  (testing "the leaf names the realm-enumeration registrar pair realm-ids / frame-realm"
-    (let [body @surfaces-md]
-      (is (and (str/includes? body "realm-ids")
-               (str/includes? body "frame-realm"))
-          (str "tool-pair-surfaces.md no longer names the realm-enumeration "
-               "registrar pair (`realm-ids` — installed realms; `frame-realm` "
-               "— a frame's realm). Per EP-0013 disposition 3 a frame-id is "
-               "unique only within a realm; a tool resolving a frame in a "
-               "multi-realm session reads these to scope it. Their absence is "
-               "the rf2-wpwckr finding-1 drift (spec/Tool-Pair.md §Operating "
-               "frame, the registrar query API row).")))))
+(deftest realm-facade-pair-not-taught-as-public
+  (testing "the leaf does NOT present realm-ids / frame-realm as a public registrar/facade surface (EP-0023 removed them)"
+    (let [body @surfaces-md
+          ;; If the leaf names the removed facade exports at all, they MUST
+          ;; appear inside an explicit removed/internal framing, never as a
+          ;; public registrar query pair. EP-0023 (pl97nd.2) removed the
+          ;; `rf/realm-ids` / `rf/frame-realm` facade exports; they survive
+          ;; only as internal readers on `re-frame.realm` / `re-frame.frame`.
+          names-removed-facade? (or (str/includes? body "realm-ids")
+                                    (str/includes? body "frame-realm"))]
+      (when names-removed-facade?
+        (is (and (contains-any? body ["facade exports were removed"
+                                      "facade exports were **removed**"
+                                      "facade exports are removed"
+                                      "exports were removed"
+                                      "facade exports"])
+                 (contains-any? body ["labeled-internal" "internal installation"
+                                      "internal substrate"
+                                      "re-frame.realm" "re-frame.frame"]))
+            (str "tool-pair-surfaces.md mentions `realm-ids` / `frame-realm` "
+                 "but no longer frames them as REMOVED facade exports read "
+                 "from the internal `re-frame.realm` / `re-frame.frame` "
+                 "namespaces. EP-0023 (pl97nd.2) removed the `rf/realm-ids` / "
+                 "`rf/frame-realm` facade exports; presenting them as a "
+                 "public registrar query pair (the EP-0013 disposition-3 "
+                 "model) is now stale (spec/Tool-Pair.md §Operating frame / "
+                 "§Surface dispositions, spec/API.md).")))
+      ;; The retired EP-0013 public `:realm` map arity / settable operating-
+      ;; realm pin must not be taught as a live public surface. EP-0023
+      ;; removed the public realm coordinate, so the leaf must NOT state that
+      ;; `set-operating-frame` accepts a `:realm` pin or that reset clears a
+      ;; realm pin. (The leaf may — and should — state there is NO public
+      ;; realm pin; only the SETTABLE-pin phrasings are stale.)
+      (is (not (contains-any? body ["accept an optional **`:realm`**"
+                                    "accept an optional `:realm`"
+                                    "MAY accept an optional `:realm`"
+                                    "optional `:realm` alongside the frame"
+                                    "clears **both** the frame pin and the realm pin"
+                                    "clears both the frame pin and the realm pin"]))
+          (str "tool-pair-surfaces.md still teaches a SETTABLE public realm "
+               "pin — `set-operating-frame` accepting an optional `:realm`, "
+               "or `reset-operating-frame` clearing a realm pin. EP-0023 "
+               "removed the public realm coordinate; there is no public realm "
+               "pin (the EP-0013 disposition-3 model is stale). The leaf may "
+               "state there IS NO public realm pin.")))))
 
-(deftest operating-frame-trio-is-realm-aware
-  (testing "the operating-frame trio carries the (realm, frame) full address + realm pinning"
+(deftest public-address-is-the-frame
+  (testing "the leaf teaches the EP-0023 public model: the frame id is the whole public address"
     (let [body @surfaces-md]
-      (is (contains-any? body ["(realm, frame)" "(realm, frame) pair"
-                               "(realm, frame)` pair"])
-          (str "tool-pair-surfaces.md no longer states that the address a "
-               "tool resolves is the (realm, frame) pair (EP-0013 disposition "
-               "3). A frame-id is unique only within a realm; the frame-only "
-               "model under-specs the operating-frame trio (rf2-wpwckr)."))
-      (is (contains-any? body ["operating realm" "operating-realm"])
-          (str "tool-pair-surfaces.md no longer scopes tier-3 sole-frame "
-               "resolution to the OPERATING REALM. Two app frames in "
-               "different realms are NOT ambiguous — the frame-only resolver "
-               "wording is stale (rf2-wpwckr)."))
-      (is (contains-any? body ["optional **`:realm`**" "optional `:realm`"
-                               "optional :realm" "an optional `:realm`"
-                               "accept an optional **`:realm`**"])
-          (str "tool-pair-surfaces.md no longer states that "
-               "`set-operating-frame` MAY accept an optional `:realm` to pin "
-               "the operating realm (EP-0013 disposition 3, rf2-wpwckr).")))))
+      (is (contains-any? body ["image → frame → event stream"
+                               "image -> frame -> event stream"
+                               "public address is the frame"
+                               "frame id is the whole public address"])
+          (str "tool-pair-surfaces.md no longer teaches the EP-0023 public "
+               "model — `image → frame → event stream`, where the frame id is "
+               "the whole public address. The earlier (realm, frame) two-part "
+               "public address was superseded (spec/Tool-Pair.md §Operating "
+               "frame / §Surface dispositions)."))
+      (is (contains-any? body ["no public realm pin"
+                               "there is no public realm pin"
+                               "no realm dimension and no public realm pin"])
+          (str "tool-pair-surfaces.md no longer states there is NO public "
+               "realm pin. EP-0023 removed the public realm coordinate; a "
+               "tool pins a FRAME, not a (realm, frame) pair.")))))
 
-(deftest operating-frame-reset-clears-realm-pin
-  (testing "the leaf states reset clears the realm pin, not just the frame pin"
+(deftest operating-frame-trio-labels-realm-as-internal
+  (testing "the operating-frame trio frames the realm dimension as labeled-internal installation substrate"
     (let [body @surfaces-md]
-      (is (contains-any? body ["clears **both**" "clears both"
-                               "frame pin and the realm pin"
-                               "frame pin **and** the realm pin"
-                               "AND the realm pin" "and the realm pin"])
-          (str "tool-pair-surfaces.md no longer states that "
-               "`reset-operating-frame` clears BOTH the frame pin and the "
-               "realm pin (the operating realm falls back to the default "
-               "realm). The frame-only reset wording is stale "
-               "(rf2-wpwckr).")))))
+      (is (contains-any? body ["labeled-internal installation"
+                               "labeled-internal"
+                               "internal installation substrate"])
+          (str "tool-pair-surfaces.md no longer frames the realm / "
+               "(realm, frame) dimension as LABELED-INTERNAL installation "
+               "substrate. Per EP-0023 §Surface dispositions the realm is "
+               "retained only as the internal installation container that "
+               "seats/routes frames, not the public model (rf2-wpwckr was "
+               "superseded by EP-0023)."))
+      (is (contains-any? body ["re-frame.realm" "re-frame.frame"])
+          (str "tool-pair-surfaces.md no longer names the internal "
+               "`re-frame.realm` / `re-frame.frame` namespaces a tool reads "
+               "the labeled-internal installation boundary from (the facade "
+               "exports were removed, pl97nd.2). A consuming skill must see "
+               "WHERE the boundary is read from, not the dead facade.")))))
 
-(deftest operating-frame-inspect-returns-realm-keys
-  (testing "the leaf names the inspect-result realm keys"
+(deftest operating-frame-inspect-realm-keys-labeled-internal
+  (testing "the leaf names the inspect-result installation-boundary keys with the selected-realm-is-nil framing"
     (let [body @surfaces-md]
       (is (and (str/includes? body ":realms")
                (str/includes? body ":operating-realm")
-               (str/includes? body ":selected-realm")
                (str/includes? body ":frame-realms"))
-          (str "tool-pair-surfaces.md no longer names the realm-dimension "
-               "keys the inspect op (`get-operating-frame`) returns — "
-               "`:realms` / `:operating-realm` / `:selected-realm` / "
-               "`:frame-realms`. Per spec/Tool-Pair.md §Tool-surface "
-               "obligations the inspect shape carries the realm view "
-               "alongside the frame view (EP-0013 disposition 3, rf2-wpwckr)."))
+          (str "tool-pair-surfaces.md no longer names the labeled-internal "
+               "installation-boundary keys the inspect op "
+               "(`get-operating-frame`) MAY carry — `:realms` / "
+               "`:operating-realm` / `:frame-realms` (read from the internal "
+               "namespaces). Per spec/Tool-Pair.md §Operating frame the "
+               "inspect shape MAY carry the labeled-internal boundary "
+               "alongside the frame view."))
+      (is (contains-any? body ["`:selected-realm` is always nil"
+                               ":selected-realm` is always nil"
+                               "selected-realm is always nil"
+                               "selected-realm` is always nil"])
+          (str "tool-pair-surfaces.md no longer states that `:selected-realm` "
+               "is ALWAYS nil. EP-0023 removed the public realm pin, so the "
+               "tier-2 realm-pin slot is permanently nil — teaching it as a "
+               "settable pin is the EP-0013-era stale model "
+               "(spec/Tool-Pair.md §Surface dispositions)."))
       (is (contains-any? body ["byte-identical" "rf.realm/default"])
-          (str "tool-pair-surfaces.md no longer states the single-realm "
-               "collapse — a single-realm app (the common case) is byte-"
+          (str "tool-pair-surfaces.md no longer states the single-container "
+               "collapse — a single-container app (the common case) is byte-"
                "identical to the pre-realm ladder (`:realms "
-               "[:rf.realm/default]`). Without it the realm dimension reads "
-               "as a cost every app pays (rf2-wpwckr).")))))
+               "[:rf.realm/default]`). Without it the installation boundary "
+               "reads as a cost every app pays.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — the four partition-aware state-injection mutators (rf2-7g9htq.2)
