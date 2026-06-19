@@ -763,6 +763,30 @@
     (pr-str s)
     (catch :default _ (str "\"" s "\""))))
 
+(defn- scalar->string
+  "The bare printed STRING for a single non-collection value — the text
+  each scalar leaf prints (`\"nil\"`, `\"#uuid \\\"…\\\"\"`, a
+  quote-padded string, etc.). Pure; JVM-portable.
+
+  ONE source of truth for the scalar literal forms so `render-scalar`
+  (which wraps the string in a colour-coded span) and `inline-scalar-str`
+  (which returns the bare string for collapsed previews) don't keep two
+  copies of the same literal table. Returns `nil` for shapes whose text
+  the caller renders specially — `:fn` (each caller prints a different
+  arity of detail) and the sentinels (chip chrome vs. a one-word label)
+  — so callers branch those cases themselves."
+  [v]
+  (case (collection-kind v)
+    :nil      "nil"
+    :boolean  (str v)
+    :keyword  (str v)
+    :symbol   (str v)
+    :string   (str-pad-quote v)
+    :number   (str v)
+    :uuid     (str "#uuid \"" v "\"")
+    :regex    (str v)
+    nil))
+
 (def ^:private token-style
   ;; Memoized — `tokens` is a static const map of CSS-variable strings
   ;; (e.g. `:syntax-keyword` resolves to `"var(--rf-xray-syntax-keyword)"`)
@@ -782,23 +806,27 @@
   "Render a single non-collection value as `[:span ...]` hiccup. Pure
   function — no expansion state, no rf reads."
   [v]
+  ;; The bare printed string for the simple scalar forms is shared with
+  ;; `inline-scalar-str` via `scalar->string`; here each case wraps it in
+  ;; its colour-coded `:data-rf-type` span. `:fn` + the sentinels render
+  ;; specially (chip chrome / arity-detail), so they branch below.
   (case (collection-kind v)
     :nil      [:span {:data-rf-type "nil"
-                      :style (token-style :syntax-nil)} "nil"]
+                      :style (token-style :syntax-nil)} (scalar->string v)]
     :boolean  [:span {:data-rf-type "boolean"
-                      :style (token-style :syntax-boolean)} (str v)]
+                      :style (token-style :syntax-boolean)} (scalar->string v)]
     :keyword  [:span {:data-rf-type "keyword"
-                      :style (token-style :syntax-keyword)} (str v)]
+                      :style (token-style :syntax-keyword)} (scalar->string v)]
     :symbol   [:span {:data-rf-type "symbol"
-                      :style (token-style :syntax-symbol)} (str v)]
+                      :style (token-style :syntax-symbol)} (scalar->string v)]
     :string   [:span {:data-rf-type "string"
-                      :style (token-style :syntax-string)} (str-pad-quote v)]
+                      :style (token-style :syntax-string)} (scalar->string v)]
     :number   [:span {:data-rf-type "number"
-                      :style (token-style :syntax-number)} (str v)]
+                      :style (token-style :syntax-number)} (scalar->string v)]
     :uuid     [:span {:data-rf-type "uuid"
-                      :style (token-style :info)} (str "#uuid \"" v "\"")]
+                      :style (token-style :info)} (scalar->string v)]
     :regex    [:span {:data-rf-type "regex"
-                      :style (token-style :info)} (str v)]
+                      :style (token-style :info)} (scalar->string v)]
     :fn       [:span {:data-rf-type "fn"
                       :style (merge (token-style :text-tertiary)
                                     {:font-style "italic"})}
@@ -915,6 +943,16 @@
   [kind]
   (if (#{:map :record} kind) ", " " "))
 
+(defn- inline-separator-span
+  "The inter-element separator rendered as a `:text-tertiary` hiccup span
+  for inline collection renders. Shared by the two inline-fit render
+  paths — `render-inline-recursive` (width-aware recursive) and
+  `render-container`'s legacy inline-fit branch — which previously built
+  this same span twice. The separator STRING comes from `inline-separator`
+  (canonical EDN spacing per kind)."
+  [kind]
+  [:span {:style (token-style :text-tertiary)} (inline-separator kind)])
+
 (defn- record-tag
   "Render `#user.MyRec` prefix for a defrecord instance. CLJS records
   expose the constructor's name via `(.-name (type v))`."
@@ -950,15 +988,13 @@
   (one-level only). That keeps a `:deeply {:nested {:secret 1}}`
   preview from leaking `:secret` into a collapsed-collection summary."
   [v]
-  (case (collection-kind v)
-    :nil        "nil"
-    :boolean    (str v)
-    :keyword    (str v)
-    :symbol     (str v)
-    :string     (str-pad-quote v)
-    :number     (str v)
-    :uuid       (str "#uuid \"" v "\"")
-    :regex      (str v)
+  ;; Simple scalar forms (nil / boolean / keyword / symbol / string /
+  ;; number / uuid / regex) share their bare printed string with
+  ;; `render-scalar` via `scalar->string`; the `:fn` + sentinel + container
+  ;; cases below are preview-specific (a one-word label, not chip chrome).
+  (or
+   (scalar->string v)
+   (case (collection-kind v)
     :fn         "#fn"
     :sentinel-redacted        "redacted"
     :sentinel-redacted-size   "redacted"
@@ -971,7 +1007,7 @@
                  :record " keys"
                  " items")]
       (str open "…" n noun close))
-    (try (pr-str v) (catch :default _ (str v)))))
+    (try (pr-str v) (catch :default _ (str v))))))
 
 (defn inline-preview-string
   "Build a one-line preview of a collection. Returns a string; not
@@ -1800,12 +1836,9 @@
                       :data-rf-bracket "1"}
                text])
             ;; rf2-7hqwe — inter-element separator follows canonical EDN
-            ;; spacing: `, ` between map/record entries, a single space
-            ;; between sequential (vector / list / set / seq / map-entry)
-            ;; elements. Pre-fix this was a hardcoded `, ` for ALL kinds,
-            ;; which printed sequentials as `[a, b, c]` rather than `[a b c]`.
-            sep
-            [:span {:style (token-style :text-tertiary)} (inline-separator kind)]
+            ;; spacing (`, ` between map/record entries, a single space
+            ;; between sequentials), via the shared `inline-separator-span`.
+            sep       (inline-separator-span kind)
             labelled? (#{:map :record :map-entry} kind)
             pairs     (children-of value)
             item-children
@@ -1966,13 +1999,11 @@
                       (apply concat
                              (map-indexed
                                (fn [i [k cv]]
-                                 (let [;; rf2-7hqwe — EDN-correct separator:
-                                       ;; `, ` between map/record entries,
-                                       ;; a single space between sequential
-                                       ;; elements (was hardcoded `, `).
+                                 (let [;; rf2-7hqwe — EDN-correct separator
+                                       ;; via the shared `inline-separator-span`
+                                       ;; (`, ` map/record · single space seq).
                                        sep (when (pos? i)
-                                             [:span {:style (token-style :text-tertiary)}
-                                              (inline-separator kind)])
+                                             (inline-separator-span kind))
                                        ks  (when labelled? (key-segment k))
                                        sp  (when labelled?
                                              [:span {:style (token-style :text-tertiary)} " "])]
