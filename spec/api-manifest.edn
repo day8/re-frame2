@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 481,
+ :var-count 486,
  :tier-vocab
  [:front-porch
   :advanced
@@ -358,8 +358,11 @@
   {:namespace "re-frame.ssr.ring", :var "ssr-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-middleware", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "stream-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.story", :var "aggregate-verdict", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "all-kinds-with-counts", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "assert-deterministic", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.story", :var "assertion-record", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.story", :var "assertion-records", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "assertions-passing?", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "beat-at", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "beat-count", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
@@ -394,6 +397,7 @@
   {:namespace "re-frame.story", :var "ids", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "install-canonical-vocabulary!", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "is", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.story", :var "known-assertion-ids", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "layout-debug-measure-id", :tier :implementation, :kind :var, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "layout-debug-outline-id", :tier :implementation, :kind :var, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "layout-debug-pseudo-id", :tier :implementation, :kind :var, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
@@ -460,6 +464,7 @@
   {:namespace "re-frame.story", :var "unreg-global-decorator!", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "unregister!", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "valid-run-result?", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.story", :var "valid-variant-id?", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "variant->edn", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "variant-frame?", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "variant-frames", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}

@@ -1241,6 +1241,20 @@
   ["re-frame.story" "result-passed?"]         {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "result-status"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "explain-run-result"]     {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Tooling-consumer leaf surfaces re-exported on the facade (rf2-jy92cr).
+  ;; Five pure data → data leaf operations the downstream MCP tool
+  ;; (story-mcp) needs, lifted onto the facade so it no longer reaches into
+  ;; Story internals (assertions / result / requirements / schemas). They
+  ;; are a supported tooling-consumer READ / validation surface — rowed in
+  ;; tools/story/spec/API.md alongside `canonical-assertion-ids` /
+  ;; `result-status` / `read-assertions` — so they keep the same supported
+  ;; `tooling` tier as their facade neighbours rather than dropping to
+  ;; `implementation`. Consumed by story-mcp, NOT by user story bodies.
+  ["re-frame.story" "known-assertion-ids"]    {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "assertion-record"]       {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "assertion-records"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "aggregate-verdict"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "valid-variant-id?"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
   ;; Implementation / migration vocabulary + internal projections
   ;; (rf2-oekz6s): public-for-technical-reasons ONLY — the story facade /
   ;; sub-namespaces export these so the chrome + tests can reach them across
