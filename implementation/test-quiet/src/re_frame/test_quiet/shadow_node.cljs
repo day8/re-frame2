@@ -20,6 +20,18 @@
   context that may explain the failure.  Green runs stay quiet (the
   buffer is simply dropped at the green exit).
 
+  BUFFER SCOPE — `console.warn` ONLY (and the asymmetry with the JVM).
+  This stub captures `console.warn` and nothing else: `console.error` and
+  direct `process.stderr.write` are NOT buffered and pass straight
+  through.  That is deliberate — `console.warn` is the channel re-frame2's
+  expected first-run warnings travel on, while a `console.error` is a real
+  error worth surfacing immediately even on the green path.  This makes the
+  CLJS scope NARROWER than the JVM runner
+  (`re-frame.test-quiet.runner`), which buffers the WHOLE stderr side
+  (`*err*` + a `System/err` bridge).  The buffer/drop-on-green/
+  replay-on-red POLICY is the same on both runtimes; only the captured
+  scope differs (rf2-22s58s / rf2-nrk066).
+
   Tests that assert warning content all use the local
   `with-captured-console-warn` pattern — they save `(.-warn js/console)`,
   install a recording shim, run the body, then restore.  When our stub
