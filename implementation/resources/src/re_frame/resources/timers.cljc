@@ -68,6 +68,7 @@
   (:require [re-frame.identity :as identity]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.managed-timer :as managed-timer]
             [re-frame.trace :as trace]))
 
 ;; Forward declaration: the poll thunk reads host document visibility (CLJS).
@@ -241,12 +242,15 @@
   [frame-id resource-key kind delay-ms]
   ;; cancel any prior timer for this [key kind] (reschedule, not accumulate)
   (cancel! frame-id resource-key kind)
-  (when (and (number? delay-ms) (pos? delay-ms))
-    (let [handle (interop/schedule-after!
-                   (fn [] (dispatch-recheck! frame-id resource-key kind))
-                   delay-ms)]
-      (swap! timer-table assoc (timer-key frame-id resource-key kind) handle)
-      handle)))
+  ;; Shared positive-delay-guarded arm (rf2-7x2lky) — the host-clock arm step
+  ;; both timer artefacts share. A non-positive / nil delay arms nothing (a
+  ;; resource declaring no policy for that kind). Returns the host handle or
+  ;; nil; the side-table bookkeeping below is resources-specific.
+  (when-let [handle (managed-timer/arm!
+                      (fn [] (dispatch-recheck! frame-id resource-key kind))
+                      delay-ms)]
+    (swap! timer-table assoc (timer-key frame-id resource-key kind) handle)
+    handle))
 
 (defn release-frame!
   "Cancel + drop EVERY stale / GC / poll timer for a destroyed `frame-id`

@@ -36,11 +36,11 @@
   already emitted `:rf.machine.timer/skipped-on-server` in place of
   /scheduled."
   (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.reply :as m-reply]
             [re-frame.machines.transition :as transition]
+            [re-frame.managed-timer :as managed-timer]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
 
@@ -171,9 +171,10 @@
   outer atom. Tolerates partial-state entries (the watcher / reaction
   slots are nil for literal- and fn-form delays)."
   [frame-id entry delay-key]
-  (when-let [h (:handle entry)]
-    (try (interop/cancel-scheduled! h)
-         (catch #?(:clj Throwable :cljs :default) _ nil)))
+  ;; Shared best-effort host-clock cancel (rf2-7x2lky) — swallows throws and
+  ;; no-ops a nil handle, tolerating the partial-state entries (literal- /
+  ;; fn-form delays whose watcher / reaction slots are nil).
+  (managed-timer/cancel! (:handle entry))
   (when (and (:reaction entry) (:sub-watcher-key entry))
     (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
          (catch #?(:clj Throwable :cljs :default) _ nil))
@@ -387,7 +388,14 @@
                                    (assoc :rf.sub/id      (first delay-key)
                                           :rf.sub/query-v (vec delay-key)))))
                 handle
-                (interop/schedule-after!
+                ;; Shared positive-delay-guarded arm (rf2-7x2lky) — the
+                ;; host-clock arm step both timer artefacts share. `resolved-ms`
+                ;; is already known-positive here (the non-positive case was
+                ;; handled by the prior `cond` branch with the
+                ;; `:no-clock-configured` advisory), so the guard is a no-op
+                ;; pass-through; the machines-specific entry bookkeeping +
+                ;; sub-change watcher install below stay here.
+                (managed-timer/arm!
                   (fn []
                     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
                       ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source
