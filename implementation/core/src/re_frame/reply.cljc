@@ -603,9 +603,15 @@
   shared `elide-wire-value` walker so `:sensitive?` / `:large?` compose
   exactly as elsewhere — no family-private elision.
 
-  `opts` is forwarded to `elide-wire-value` (e.g. `:frame`, size-threshold
-  overrides); the carried-frame default applies when omitted. Returns a map
-  safe to place under a trace event's `:tags`."
+  `opts` is forwarded UNCHANGED to `elide-wire-value` (e.g. `:frame`,
+  size-threshold overrides). The egress frame therefore resolves from the
+  explicit `(:frame opts)` or the in-effect carried-invariant scope
+  (`frame/resolve-current-frame`) — `trace-summary` does NOT seed `:frame`
+  from the reply map's own `:rf.frame/id` stamp, so a caller summarizing a
+  carried reply OUTSIDE frame scope must pass `{:frame (:rf.frame/id reply)}`
+  or the wire slots fail closed (the carried stamp rides as an identity fact,
+  not as egress policy). Returns a map safe to place under a trace event's
+  `:tags`."
   ([reply] (trace-summary reply nil))
   ([reply opts]
    (reduce (fn [m slot]
