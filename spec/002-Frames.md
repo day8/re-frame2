@@ -2127,7 +2127,7 @@ All three override types propagate transitively through any depth of `:fx [:disp
 
 ## Registered interceptors and the chain grammar
 
-[EP-0018](../docs/EP/EP-0018-one-event-registration.md) makes interceptors the public application full-context (`context -> context`) mechanism; [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) makes them first-class **registered** program members and changes the event/frame `:interceptors` surfaces to carry interceptor **references**, not inline interceptor values. The registrar half — the `:interceptor` registry kind, `reg-interceptor`, descriptors, metadata, and `handler-meta :interceptor` — is owned by [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar). This section owns the runtime half: the reference shape, the event/frame chain grammar, dispatch-option restrictions, `:interceptor-overrides`, effective ordering, validation/resolution timing, the standard `:rf.interceptor/path` interceptor, and the no-standard-`unwrap` decision. The interceptor **execution model** (`:before` in order, handler, `:after` in reverse; the short-circuit / always-runs rules) is unchanged — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs).
+[EP-0018](../docs/EP/EP-0018-one-event-registration.md) makes interceptors the public application full-context (`context -> context`) mechanism; [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) makes them first-class **registered** image members and changes the event/frame `:interceptors` surfaces to carry interceptor **references**, not inline interceptor values. The registrar half — the `:interceptor` registry kind, `reg-interceptor`, descriptors, metadata, and `handler-meta :interceptor` — is owned by [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar). This section owns the runtime half: the reference shape, the event/frame chain grammar, dispatch-option restrictions, `:interceptor-overrides`, effective ordering, validation/resolution timing, the standard `:rf.interceptor/path` interceptor, and the no-standard-`unwrap` decision. The interceptor **execution model** (`:before` in order, handler, `:after` in reverse; the short-circuit / always-runs rules) is unchanged — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs).
 
 ### Interceptor references
 
@@ -2210,7 +2210,7 @@ Groups 1 and 2 are **authored references** and resolve through the same registra
 
 After refs resolve, the runtime applies the merged override map (frame `:interceptor-overrides` < dispatch-opts `:interceptor-overrides`): a replacement ref is resolved through the same registrar before execution; a `nil` replacement removes the matching ref from the chain.
 
-Framework dispatch-time interceptors that are **not** authored program members remain governed by their owning specs — flow transformation, for instance, still wraps after the authored chain in the position [013](013-Flows.md) requires (the outermost `:after`, per [§Drain-loop pseudocode](#drain-loop-pseudocode)). EP-0022 changes authored interceptor naming, not subsystem-owned dispatch machinery.
+Framework dispatch-time interceptors that are **not** authored image members remain governed by their owning specs — flow transformation, for instance, still wraps after the authored chain in the position [013](013-Flows.md) requires (the outermost `:after`, per [§Drain-loop pseudocode](#drain-loop-pseudocode)). EP-0022 changes authored interceptor naming, not subsystem-owned dispatch machinery.
 
 ### Validation and resolution timing
 
@@ -2280,7 +2280,7 @@ An image's registration set may carry interceptor descriptors, so an image owns 
   cart-add)
 ```
 
-An image built over these namespaces (via `:include-ns`, or by listing them as inline `:registrations`) carries both members; the resolved image generation a frame runs validates the refs at assembly. This keeps the program-as-named-members rule intact: the registration set contains named members, not anonymous runtime objects embedded in other members.
+An image built over these namespaces (via `:include-ns`, or by listing them as inline `:registrations`) carries both members; the resolved image generation a frame runs validates the refs at assembly. This keeps the image-as-named-members rule intact: the registration set contains named members, not anonymous runtime objects embedded in other members.
 
 ### Tooling and metadata
 

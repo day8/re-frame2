@@ -3838,7 +3838,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
         [:undo [:vector :any]] [:redo [:vector :any]]])
 (rf/reg-app-schema [:drawer] DrawerState)
 
-;; EP-0022: interceptors are registered program members. Author with
+;; EP-0022: interceptors are registered image members. Author with
 ;; `reg-interceptor` (the one public form) and reference by id in chains —
 ;; never an inline interceptor map/Var.
 (rf/reg-interceptor :drawer/undoable
