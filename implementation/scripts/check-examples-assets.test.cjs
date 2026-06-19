@@ -586,6 +586,61 @@ it('a data: url() and a url(#fragment) paint ref are NOT rejected (no network fe
   );
 });
 
+// ---- TEETH: missing LOCAL CSS url() assets are REJECTED (rf2-35lfqo) -----
+//
+// rf2-35lfqo found the gate resolved local HTML asset refs and CSS @import
+// targets, but NEVER resolved local `url(...)` references in a CSS body — a
+// broken `background-image: url('missing-local.png')` / `cursor: url(...)` /
+// `@font-face { src: url(...) }` referencing an absent file passed silently
+// (the network-url policy skipped it because it fires no network request, and
+// nothing else checked it on disk). Local CSS url() targets are now resolved
+// against the declaring stylesheet's directory and a missing one fails the
+// gate, while data:/url(#fragment)/network refs stay handled by their own
+// policies.
+
+it('TEETH: a missing LOCAL background-image: url() is REJECTED', () => {
+  // url() resolves relative to the STYLESHEET (examples/_shared/css/), not the
+  // page — so a bare 'missing-local.png' is looked for next to style.css.
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('structure.css');",
+      ".hero { background-image: url('missing-local.png'); }",
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some(
+      (e) =>
+        e.includes("CSS url('missing-local.png')") &&
+        e.includes('does not resolve to a file'),
+    ),
+    `expected a missing local CSS url() to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a present LOCAL CSS url() (font/cursor) resolves and scans clean', () => {
+  // Two local url() targets that DO exist next to style.css must pass: a
+  // @font-face src and a cursor image. Query/hash suffixes are stripped before
+  // on-disk resolution (a cache-busting ?v=2 must not break the lookup).
+  const FONT = path.join(EXAMPLES_ROOT, '_shared', 'css', 'inter.woff2');
+  const CURSOR = path.join(EXAMPLES_ROOT, '_shared', 'css', 'img', 'cursor.png');
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('structure.css');",
+      "@font-face { font-family: 'Inter'; src: url('inter.woff2?v=2') format('woff2'); }",
+      '.x { cursor: url("img/cursor.png"), auto; }',
+    ].join('\n'),
+    [FONT]: 'WOFF2',
+    [CURSOR]: 'PNGDATA',
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `present local CSS url() assets must scan clean, got: ${errors.join(' | ')}`,
+  );
+});
+
 it('a remote CSS url() whose exact URL is allowlisted (with reason) scans clean', () => {
   // The scanner strips ?query/#hash before the allowlist lookup, so the key is
   // the query-stripped URL — sharing EXTERNAL_IMPORT_ALLOWLIST with @import.

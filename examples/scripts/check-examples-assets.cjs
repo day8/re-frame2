@@ -692,11 +692,44 @@ function checkCssNetworkUrls(css, displayRef, errors, externalAllowlist = EXTERN
   }
 }
 
+// Resolve every LOCAL `url(...)` reference inside a CSS source against the CSS
+// file's own directory and report any that does not resolve to a real file
+// (rf2-35lfqo). A broken local image / font / cursor / mask referenced from a
+// stylesheet (`background-image: url('missing-local.png')`,
+// `@font-face { src: url(fonts/gone.woff2) }`, `cursor: url(img/cursor.png)`)
+// would otherwise pass the asset gate silently: extractCssUrls already surfaces
+// these targets and the network-url policy SKIPS them (they fire no network
+// request), but nothing checked that the file is actually present. Network
+// refs (http(s)/protocol-relative) are the network-url policy's job and are
+// skipped here; `data:` URIs (inlined, no fetch) and `url(#fragment)`
+// same-document paint refs (SVG filter/gradient) are exempt. CSS urls resolve
+// relative to the stylesheet that declares them, NOT the page — so the base is
+// the CSS file's own directory.
+function checkCssLocalUrls(io, css, cssAbsPath, displayRef, errors) {
+  const cssDir = path.dirname(cssAbsPath);
+  for (const raw of extractCssUrls(css)) {
+    // isExternalRef is true for any scheme (data:, http:, …), protocol-relative
+    // `//`, and `#fragment` — every NON-local-file case. A local relative
+    // reference is the only thing left to resolve on disk.
+    if (isExternalRef(raw)) continue;
+    const cleaned = raw.split(/[?#]/)[0].trim(); // drop ?query / #frag suffixes
+    if (!cleaned) continue; // a bare `url(#frag)` normalised to empty — paint ref
+    const target = path.resolve(cssDir, cleaned);
+    if (!io.existsSync(target)) {
+      errors.push(
+        `${displayRef}: CSS url('${raw}') does not resolve to a file ` +
+          `(looked for ${path.relative(REPO_ROOT, target).split(path.sep).join('/')})`,
+      );
+    }
+  }
+}
+
 // Resolve + check a single local CSS file's @import targets, recursively.
 // Records an error for any local import that does not resolve to a real file,
 // for any EXTERNAL @import (http/https/protocol-relative) not present in the
-// external-import allowlist (rf2-vou5mm), and for any remote `url(...)` fetch
-// in the CSS body (rf2-o18ava).
+// external-import allowlist (rf2-vou5mm), for any remote `url(...)` fetch
+// in the CSS body (rf2-o18ava), and for any missing LOCAL `url(...)` asset
+// (rf2-35lfqo).
 function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllowlist = EXTERNAL_IMPORT_ALLOWLIST) {
   if (seen.has(cssAbsPath)) return;
   seen.add(cssAbsPath);
@@ -704,6 +737,8 @@ function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllow
   if (css == null) return; // a missing CSS file is reported by its referrer
   // Remote url() fetches (font-face/background/mask/cursor/…) — rf2-o18ava.
   checkCssNetworkUrls(css, displayRef, errors, externalAllowlist);
+  // Missing LOCAL url() assets (font-face/background/mask/cursor/…) — rf2-35lfqo.
+  checkCssLocalUrls(io, css, cssAbsPath, displayRef, errors);
   for (const imp of extractCssImports(css)) {
     if (isExternalRef(imp)) {
       // An external CSS @import pulls a third-party network dependency into
