@@ -175,15 +175,57 @@
          (some #(when (= dispatch-id (:dispatch-id %)) %)
                cascades)))))
 
-(defn step-dispatch-id
-  "Compute the new `:dispatch-id` when stepping by `delta` (-1 for
-  prev, +1 for next) from `current-id` through `cascades`.
+(defn cascade-by-focus
+  "Strict cascade lookup keyed by the composed spine `focus` map.
+
+  Unlike `cascade-by-id`'s fallback (which treats the cascade's own
+  `:frame` as authoritative and returns a dispatch-id-only match when
+  no frame-specific cascade exists), this resolves a cascade for a
+  panel read where `focus` may carry a `:frame`. When it does, the
+  match must agree on BOTH `:frame` and `:dispatch-id`; if no cascade
+  in that frame carries the focused dispatch-id, the result is nil
+  rather than a same-id cascade from a foreign frame.
+
+  Dispatch ids are unique only WITHIN a frame (Spec 002 §Frame
+  isolation + rf2-g6ih4); the framework's trace projection groups
+  cascades by `[frame dispatch-id]` and intentionally emits two
+  cascade records when the same id occurs in two frames (see
+  `re-frame.trace.projection/grouped-cascades`). Panel reads that key
+  by dispatch-id alone can surface records/overlays/status from the
+  first matching frame while focus is actually on another — this
+  helper is the frame-strict path those reads use (rf2-bz7flo).
+
+  When `focus` has no `:frame` (single-frame / pre-frame-set focus),
+  the lookup degrades to a plain dispatch-id match."
+  [cascades focus]
+  (let [dispatch-id (:dispatch-id focus)
+        frame       (:frame focus)]
+    (when dispatch-id
+      (if frame
+        (some #(when (and (= dispatch-id (:dispatch-id %))
+                          (= frame (:frame %)))
+                 %)
+              cascades)
+        (some #(when (= dispatch-id (:dispatch-id %)) %) cascades)))))
+
+(defn step-to-cascade
+  "Step by `delta` (-1 for prev, +1 for next) from `current-id`
+  through `cascades` and return the whole stepped cascade RECORD
+  (carrying `:frame`).
 
   - nil `current-id` (no focus yet) starts from the head.
   - When `current-id` is not in `cascades` (was evicted), step from
     head.
   - Bounds-clamped — stepping past either edge stays at the edge.
-  - Returns nil only when `cascades` is empty."
+  - Returns nil only when `cascades` is empty.
+
+  rf2-bz7flo — the spine step path needs the stepped row's FRAME, not
+  just its dispatch-id, because dispatch ids collide across frames.
+  Resolving the stepped cascade back out of `cascades` by id alone
+  (the previous `(cascade-by-id focusable (step-dispatch-id …))`
+  shape) could land on a foreign frame's same-id cascade at a
+  different index. Walking by index keeps frame + id in lockstep with
+  the row the user actually stepped to."
   [cascades current-id delta]
   (let [n (count cascades)]
     (when (pos? n)
@@ -194,7 +236,15 @@
             new-idx     (-> (+ base-idx delta)
                             (max 0)
                             (min (dec n)))]
-        (:dispatch-id (nth cascades new-idx))))))
+        (nth cascades new-idx)))))
+
+(defn step-dispatch-id
+  "Compute the new `:dispatch-id` when stepping by `delta` (-1 for
+  prev, +1 for next) from `current-id` through `cascades`. Thin
+  `:dispatch-id` projection of `step-to-cascade` (which see for the
+  step semantics). Returns nil only when `cascades` is empty."
+  [cascades current-id delta]
+  (some-> (step-to-cascade cascades current-id delta) :dispatch-id))
 
 (defn epoch-id-for-cascade
   "Return the `:epoch-id` of the epoch record in `epoch-history` whose
@@ -509,7 +559,14 @@
          ;; stored id. rf2-r9lyy — pass show-ungrouped? so the
          ;; composer's pinnability check honours the opt-in.
          current-id (:dispatch-id (compose-focus (get db :focus) cascades show-ungrouped?))
-         new-id     (step-dispatch-id focusable current-id delta)
+         ;; rf2-bz7flo — resolve the stepped row as a CASCADE record so its
+         ;; `:frame` comes from the exact row stepped to. Re-resolving by
+         ;; id alone (`cascade-by-id focusable new-id`) could pick a
+         ;; foreign frame's same-id cascade when the step walk spans
+         ;; frames (slot-frame unset, initial LIVE/head). frame + id stay
+         ;; in lockstep with the row the user actually landed on.
+         stepped    (step-to-cascade focusable current-id delta)
+         new-id     (:dispatch-id stepped)
          head-id    (head-dispatch-id focusable)]
      (if (or (nil? new-id)
              ;; rf2-fzbrw — boundary no-op. Stepping past either edge
@@ -520,8 +577,7 @@
              (and (some? current-id) (= new-id current-id)))
        db
        (let [new-mode (if (= new-id head-id) :live :retro)
-             cascade  (cascade-by-id focusable new-id)
-             frame-id (:frame cascade)
+             frame-id (:frame stepped)
              epoch-id (epoch-id-for-cascade epoch-history new-id)]
          (cond-> db
            true     (update :focus (fnil assoc {})
@@ -943,7 +999,7 @@
       {:db (set-frame-reducer db frame-id (rf/epoch-history frame-id))}))
 
   (rf/reg-event :rf.xray/preview-cascade
-    (fn [{:keys [db]} [_ dispatch-id]]
+    (fn [{:keys [db]} [_ dispatch-id frame-hint]]
       ;; rf2-yng0y — resolve the previewed cascade's settling epoch-id
       ;; from the per-frame ring and write it in lockstep with
       ;; `:dispatch-id` so the spine's two axes never desync mid-
@@ -967,7 +1023,16 @@
       ;; preview, which never commits a frame change. nil dispatch-id
       ;; (preview-clear) resolves frame to nil → epoch-id nil; the
       ;; reducer's restore-arm ignores it.
-      {:db (let [frame-id      (:frame (cascade-by-id (db->cascades db) dispatch-id))
+      ;;
+      ;; rf2-bz7flo — dispatch ids collide across frames, so a preview
+      ;; command for an id present in two frames cannot be disambiguated
+      ;; by id alone. The optional `frame-hint` (the L2 row's frame —
+      ;; the row knows which frame it renders) is threaded into the
+      ;; 3-arity `cascade-by-id` so the previewed cascade — and thus the
+      ;; ring its epoch resolves against — is the FOCUSED frame's. When
+      ;; the caller omits the hint (legacy / single-frame dispatch) the
+      ;; lookup degrades to the id-only match as before.
+      {:db (let [frame-id      (:frame (cascade-by-id (db->cascades db) dispatch-id frame-hint))
             frame-history (when frame-id (rf/epoch-history frame-id))
             epoch-id      (epoch-id-for-cascade frame-history dispatch-id)]
         (preview-cascade-reducer db dispatch-id epoch-id))}))

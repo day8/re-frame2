@@ -120,6 +120,58 @@
   (is (nil? (spine/step-dispatch-id [] :c1 +1)))
   (is (nil? (spine/step-dispatch-id [] nil -1))))
 
+;; ---- frame-strict cascade lookup (rf2-bz7flo) ---------------------------
+
+(def ^:private cross-frame-cascades
+  "Two cascades SHARE dispatch-id :cx in different frames with distinct
+  payloads (distinct head dispatch-ids around them). Mirrors the
+  framework projection's `[frame dispatch-id]` grouping, which emits a
+  separate cascade record per frame for a cross-frame id collision."
+  [(assoc (cascade :cx :frame/a) :event [:a-event])
+   (assoc (cascade :cx :frame/b) :event [:b-event])])
+
+(deftest cascade-by-focus-frame-strict-rf2-bz7flo
+  (testing "rf2-bz7flo — focus carrying a :frame selects the cascade in
+            THAT frame, not the first same-id match in the vector"
+    (is (= [:b-event]
+           (:event (spine/cascade-by-focus cross-frame-cascades
+                                           {:dispatch-id :cx :frame :frame/b})))
+        "focus on :frame/b picks the :frame/b cascade though :frame/a's
+         same-id cascade sits earlier")
+    (is (= [:a-event]
+           (:event (spine/cascade-by-focus cross-frame-cascades
+                                           {:dispatch-id :cx :frame :frame/a})))
+        "focus on :frame/a picks the :frame/a cascade"))
+  (testing "no cascade for the focused frame → nil (no foreign-frame fallback)"
+    (is (nil? (spine/cascade-by-focus cross-frame-cascades
+                                      {:dispatch-id :cx :frame :frame/c}))))
+  (testing "frameless focus degrades to id-only (first match)"
+    (is (= [:a-event]
+           (:event (spine/cascade-by-focus cross-frame-cascades
+                                           {:dispatch-id :cx})))))
+  (testing "nil dispatch-id → nil"
+    (is (nil? (spine/cascade-by-focus cross-frame-cascades {})))
+    (is (nil? (spine/cascade-by-focus cross-frame-cascades nil)))))
+
+(deftest step-to-cascade-keeps-frame-and-id-in-lockstep-rf2-bz7flo
+  (testing "rf2-bz7flo — step-to-cascade returns the WHOLE stepped row so
+            its :frame comes from the row stepped to, not an id-only
+            re-resolution that could land on a foreign frame's same-id
+            cascade. Walk a multi-frame vector where step lands on a
+            cascade whose id also exists earlier in a different frame."
+    (let [cascades [(cascade :c0 :frame/a)
+                    (assoc (cascade :cx :frame/a) :event [:a-event])
+                    (assoc (cascade :cx :frame/b) :event [:b-event])]]
+      ;; stepping next from :c0 lands on index 1 — the :frame/a :cx row.
+      (let [stepped (spine/step-to-cascade cascades :c0 +1)]
+        (is (= :cx (:dispatch-id stepped)))
+        (is (= :frame/a (:frame stepped))
+            "the stepped row's frame is :frame/a (the row at the stepped
+             index), NOT :frame/b which carries the same dispatch-id")
+        (is (= [:a-event] (:event stepped))))
+      ;; step-dispatch-id stays a thin projection of the same walk.
+      (is (= :cx (spine/step-dispatch-id cascades :c0 +1))))))
+
 ;; ---- focusable-head-frame-id (rf2-boyc2) --------------------------------
 
 (deftest focusable-head-frame-id-returns-head-cascade-frame

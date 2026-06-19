@@ -41,9 +41,13 @@
     :<- [:rf.xray/cascades]
     :<- [:rf.xray/focus]
     (fn [[cascades focus] _query]
+      ;; rf2-bz7flo — resolve the focused cascade frame-strictly. Dispatch
+      ;; ids are unique only within a frame, so keying by dispatch-id alone
+      ;; could surface managed-fx rows from a foreign frame's same-id cascade
+      ;; while the returned `:frame` is the focused frame. `cascade-by-focus`
+      ;; keys by both `:frame` + `:dispatch-id` when focus carries a frame.
       (let [dispatch-id (:dispatch-id focus)
-            cascade     (when dispatch-id
-                          (spine/cascade-by-id cascades dispatch-id))]
+            cascade     (spine/cascade-by-focus cascades focus)]
         {:dispatch-id dispatch-id
          :frame       (:frame focus)
          :records     (if cascade

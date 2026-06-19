@@ -92,6 +92,7 @@
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
+            [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
@@ -939,9 +940,11 @@
     :<- [:rf.xray/cascades]
     :<- [:rf.xray/focus]
     (fn [[cascades focus] _query]
-      (let [focused-id (:dispatch-id focus)]
-        (when focused-id
-          (some #(when (= focused-id (:dispatch-id %)) %) cascades)))))
+      ;; rf2-bz7flo — resolve frame-strictly. Dispatch ids are unique only
+      ;; within a frame, so a same-id cascade from a foreign frame could be
+      ;; returned here when focus is on another frame. `cascade-by-focus`
+      ;; keys by both `:frame` + `:dispatch-id` when focus carries a frame.
+      (spine/cascade-by-focus cascades focus)))
 
   ;; ---- per-row inline payload expansion (spec/023 §3) ----------------
   ;;
