@@ -12,10 +12,9 @@
 
   ## One engine, one facade (post-rf2-q3dzw)
 
-  After phase 5 (D5=a per rf2-sndui, rf2-q3dzw) the WHOLE contract —
-  browse + diff + mini — lives in `views.edn-inspector` as one
-  renderer. This facade is a thin delegate that the legacy `edn/*`
-  call sites still reach through; new call sites should use
+  The WHOLE value-rendering contract lives in `views.edn-inspector`
+  as one renderer. This facade is a thin delegate that the legacy
+  `edn/*` call sites still reach through; new call sites should use
   `[edn-inspector value opts]` directly.
 
   Previous shape (pre-rf2-oqa60) composed two engines:
@@ -28,20 +27,9 @@
 
   ## Public API
 
-      (browse {:value v
-               :panel-id  :app-db
-               :render-id \"epoch-42\"      ; accepted but ignored
-                                            ; (widget auto-generates
-                                            ; mount-id; D4=a)
-               :default-depth 3})
-
-      (diff   {:before before-v
-               :after  after-v
-               :panel-id  :event-db
-               :render-id \"epoch-42\"
-               :default-depth 3})
-
-      (mini   v)    ;; one-liner (no expansion, no diff)
+      (inspect v)               ;; canonical L4 detail-panel renderer
+      (inspect v node-key)      ;; with a stable per-mount qualifier
+      (inspect-inline v)        ;; compact one-liner (hover / list cells)
 
       (code-block {:source \"(reg-event :foo …)\"
                    :lang   :clojure})
@@ -68,11 +56,6 @@
 ;; `views.edn-inspector` owns its own `:rf.xray.edn-inspector/expansion`
 ;; slot + toggle/reset events; the facade delegates and the cljs-
 ;; devtools-render adapter is deleted.
-
-;; `inspect` / `inspect-inline` (the panel-facing current-state facade)
-;; delegate to `browse` / `mini`, which are defined further down — forward
-;; declare so the facade can sit at the top of the file where callers look.
-(declare browse mini)
 
 ;; ---- universal copy-to-clipboard affordance (rf2-f026h) ------------------
 ;;
@@ -167,8 +150,9 @@
   accepted but ignored — copy chrome is deferred to a follow-on bead
   (the popup phase, D6=a).
 
-  Diff rendering also routes through the new widget after phase 5
-  (rf2-q3dzw, D5=a per rf2-sndui) — see `diff` below."
+  Diff rendering also routes through the new widget (an opt-in
+  `:before` mode on `ei/edn-inspector`) after phase 5 (rf2-q3dzw,
+  D5=a per rf2-sndui)."
   ([v] (inspect v "root" nil))
   ([v node-key] (inspect v node-key nil))
   ([v node-key _opts]
@@ -183,77 +167,6 @@
   other values render as a colour-coded one-liner."
   [v]
   (ei/mini v))
-
-;; ---- variant: browse -----------------------------------------------------
-
-(defn browse
-  "Render `:value` as a current-state tree via the first-class
-  edn-inspector widget.
-
-  Each collection node renders a `▸` / `▾` triangle that dispatches
-  `:rf.xray.edn-inspector/toggle-node` against the per-mount path —
-  operator drill-downs persist across re-renders in the
-  `:rf.xray.edn-inspector/expansion` slot.
-
-  Diff semantics are an opt-in mode on the SAME widget — call `diff`
-  below (or pass `:before` to `ei/edn-inspector` directly).
-
-  Required: `:value`.
-  Optional: `:panel-id` (defaults `:rf.xray/browse`),
-            `:render-id` (passed through as a stable per-mount
-                          qualifier; ignored under the new widget
-                          which auto-generates mount-ids, but accepted
-                          for facade-call-site compatibility),
-            `:default-depth` (renamed to `:default-expanded-depth`
-                              under the new widget, defaults to 1),
-            `:max-depth` (hard recursion cap; defaults to 16),
-            `:copy?` (accepted but no-op under the new widget — copy
-                      chrome is deferred per the rf2-oqa60 phasing)."
-  [{:keys [value panel-id render-id default-depth max-depth]
-    :or   {default-depth 1
-           max-depth     16}}]
-  [ei/edn-inspector value
-   {:panel-id (or panel-id
-                  (keyword (str "rf.xray.browse/" (or render-id "anon"))))
-    :default-expanded-depth default-depth
-    :max-depth max-depth}])
-
-;; ---- variant: diff -------------------------------------------------------
-
-(defn diff
-  "Render a before -> after diff tree. Annotates changed branches with
-  the §10.3 gutter glyphs (+ added / - removed / ~ modified / ◴ has
-  changed descendant) and a `← was <prior>` chip on modified
-  leaves. Returns hiccup.
-
-  After phase 5 (rf2-q3dzw, D5=a per rf2-sndui) diff is an opt-in
-  MODE on the same `views.edn-inspector` widget — this facade just
-  threads the `:before` opt through to the widget.
-
-  Required: `:before :after :panel-id :render-id`.
-  Optional: `:default-depth` (defaults to 2 per §10.4)."
-  [{:keys [before after panel-id render-id default-depth]
-    :or   {default-depth 2}}]
-  [ei/edn-inspector after
-   {:panel-id (or (when (keyword? panel-id) panel-id)
-                  (keyword (str "rf.xray.diff/"
-                                (or (when panel-id (name panel-id))
-                                    render-id
-                                    "anon"))))
-    :default-expanded-depth default-depth
-    :before before}])
-
-;; ---- variant: mini -------------------------------------------------------
-
-(defn mini
-  "One-liner inline rendering of `value` via the first-class
-  edn-inspector widget (rf2-oqa60 phase 1). Returns hiccup
-  `[:span ...]` so callers embed inline. Sentinels (`:rf/redacted`,
-  `:rf.size/large-elided`) keep their chip chrome inline; other values
-  render as a colour-coded inline-preview."
-  ([value] (mini value 80))
-  ([value max-len]
-   (ei/mini value max-len)))
 
 ;; ---- code-block (handler / interceptor source rendering) ----------------
 ;;
@@ -538,15 +451,3 @@
                                                (:text-primary tokens))}}
                     literal])
                  {:key idx})))])))
-
-;; ---- dispatch by variant -------------------------------------------------
-
-(defn render
-  "Single-entry dispatch by `:variant`. Routes to `browse` / `diff` /
-  `mini`. Helpful for call sites that pick the variant at runtime."
-  [{:keys [variant] :or {variant :browse} :as opts}]
-  (case variant
-    :browse (browse opts)
-    :diff   (diff   opts)
-    :mini   (mini   (:value opts) (or (:max-len opts) 80))
-    (browse opts)))
