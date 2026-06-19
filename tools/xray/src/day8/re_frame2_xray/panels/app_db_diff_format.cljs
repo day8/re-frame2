@@ -1,16 +1,6 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-format
   "Display-only formatting helpers for the App-DB Diff panel.")
 
-(def op->border
-  {:added    :green
-   :modified :yellow
-   :removed  :red})
-
-(def op->label
-  {:added    "(added)"
-   :modified "(modified)"
-   :removed  "(removed)"})
-
 (def display-large-string-threshold
   "Display-only ceiling for string values. Clipboard values still use
   the original value; this only keeps visible hiccup bounded."
@@ -128,16 +118,3 @@
             (.set display-value-cache v rewritten)
             rewritten))
       (rewrite v))))
-
-(defn format-display-edn
-  "Best-effort EDN-like format for visible values."
-  [v]
-  (format-edn (display-value v)))
-
-(defn truncate
-  "Truncate `s` to `n` chars, adding an ellipsis when needed."
-  [s n]
-  (let [s (str s)]
-    (if (<= (count s) n)
-      s
-      (str (subs s 0 (max 0 (dec n))) "…"))))
