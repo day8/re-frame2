@@ -871,16 +871,3 @@
     (some (fn [r] (or (false? (:passed? r))
                       (some? (:exception r))))
           results)))
-
-;; ---- diagnostics --------------------------------------------------------
-
-(defn explain-state
-  "Render the run-state as a short multi-line string for diagnostics.
-  Pure data → data."
-  [{:keys [status step-idx total failures results name] :as state}]
-  (let [header (str (when name (str "[" name "] ")) (progress-str state))]
-    (str header
-         (when (pos? failures)
-           (str "\n  failures: " failures))
-         (when (seq results)
-           (str "\n  ran: " (count results) "/" total)))))
