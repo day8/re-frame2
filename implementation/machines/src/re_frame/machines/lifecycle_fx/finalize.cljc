@@ -37,6 +37,7 @@
   call-sites."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
+            [re-frame.machines.lifecycle-fx.resource-release :as resource-release]
             [re-frame.machines.lifecycle-fx.spawn-error :as spawn-error]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
@@ -541,4 +542,15 @@
      ;; rf2-nahfm — append the destroy-time `:exit` cascade's fx to
      ;; the transition's fx vector so any `:exit`-emitted dispatches /
      ;; HTTP / etc. fire as part of the same epoch.
-     :fx (vec (concat extra-fx exit-fx))})))
+     ;;
+     ;; rf2-xw5t0y — also append the resource-lease release for this actor's
+     ;; `[:machine machine-id]` owner so the `:final?`-state auto-destroy
+     ;; releases its leases too (the explicit-destroy / spawn-cascade /
+     ;; frame-destroy paths release via `teardown-live-actor!`; finalize is the
+     ;; one teardown that returns an `:fx` vector rather than firing fx
+     ;; imperatively, so it appends the entry here). nil + filtered out when
+     ;; resources is absent (the no-resources guard) — see
+     ;; `resource-release/release-fx-entry`.
+     :fx (vec (concat extra-fx exit-fx
+                      (when-let [e (resource-release/release-fx-entry machine-id)]
+                        [e])))})))

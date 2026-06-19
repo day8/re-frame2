@@ -271,7 +271,7 @@ Owners answer: should invalidation refetch now or only mark stale? Should pollin
 
 ```clojure
 [:route   :route/article  nav-token]
-[:machine :checkout/flow  machine-instance-id]
+[:machine actor-id]        ;; actor-id = the runtime instance id (singleton machine-id / spawned <type>#<n>)
 [:ssr     request-id      nav-token]
 [:lease   :dashboard/opened user-id]
 ```
@@ -287,7 +287,7 @@ Every owner kind names *who is authoritative for releasing it* so a lease cannot
 | Owner kind | Form | Release authority |
 |---|---|---|
 | **Route** | `[:route route-id nav-token]` | **Routing on nav-token supersession** — route leave or a superseded navigation releases the owner by its token, even when in-flight abort is unavailable (see [§Route integration](#route-integration)). |
-| **Machine** | `[:machine machine-id instance-id]` | **Actor destroy** — when the owning machine instance is stopped/destroyed ([005-StateMachines](005-StateMachines.md)), its resource leases are released. Machine liveness is a pure function of frame-state, so a destroyed instance can hold no live lease. |
+| **Machine** | `[:machine actor-id]` | **Actor destroy** — when the owning machine instance is stopped/destroyed ([005-StateMachines §What auto-cancels on destroy](005-StateMachines.md#what-auto-cancels-on-destroy--exactly-three-framework-managed-resource-kinds-divergence-from-xstate)), the machine teardown dispatches `:rf.resource/release-owner` for this owner — so a machine that `ensure`d a resource under its `[:machine actor-id]` owner does NOT leak the lease (a leaked lease pins the entry alive and keeps it refetching/polling on focus/reconnect — the slow leak this release closes). The `actor-id` is the runtime-derivable instance identity the machine runtime owns: the registered machine-id for a singleton, the `<type>#<n>` for a spawned actor — the same id the [Derivations §Lifecycle](Derivations.md) algebra names as the `:machine-instance` owner (`[:machine :upload/main]`). Apps mint machine-owned leases under exactly this key so the destroy releases them. (A finer-grained app-minted variant `[:machine machine-id instance-id]` that encodes a domain `instance-id` distinct from the runtime actor-id is app-authoritative — its release path is the app's, like any `[:lease …]`; the framework auto-releases the runtime-owned `[:machine actor-id]` key only.) Machine liveness is a pure function of frame-state, so a destroyed instance can hold no live lease. |
 | **SSR** | `[:ssr request-id nav-token]` | **Request teardown** — an SSR owner belongs to one server render and is released when that request's frame is torn down; it never survives as a live client-side lease (it is reconciled to an orphan on hydration/restore — see [§Restore and replay](#restore-and-replay)). |
 | **App / lease** | `[:lease …]`, `[:dashboard/opened …]`, and other app-minted kinds | **The app is authoritative** — an event that mints such a lease MUST have a matching `:rf.resource/release-owner` path. The framework does not auto-release app-minted leases. Xray surfaces an **orphaned-owner lint** for an app-kind owner whose minting event has no observed release path (or that pins an entry past its expected lifetime). |
 
@@ -1448,7 +1448,7 @@ Restored entries carry absolute timestamps from the restored epoch. Two failure 
 
 Restored `:active-owners` reference owner tokens from the pre-restore timeline. Whether a restored owner is *real* depends on whether the thing it names is itself revertible:
 
-- **Machine owners** (`[:machine machine-id instance-id]`) revive — machine liveness is a pure function of the restored snapshot ([005](005-StateMachines.md)), so a machine owner the snapshot revives is a genuine live lease again.
+- **Machine owners** (`[:machine actor-id]`) revive — machine liveness is a pure function of the restored snapshot ([005](005-StateMachines.md)), so a machine owner the snapshot revives is a genuine live lease again. (If the restored snapshot does NOT revive the actor, its lease is released on the actor's teardown like any other destroy — see [§Release authority is per owner kind](#release-authority-is-per-owner-kind).)
 - **Route owners** (`[:route route-id nav-token]`) revive **only if** the restored routing state names the same live nav-token (`:current` is durable). A restored route owner whose nav-token is not the one the restored routing slice currently considers live is released as an **orphan**.
 - **Lease/event owners** (`[:lease …]`, `[:dashboard/opened …]`) revive with the snapshot (recorded durably on the entry); their release path is the same explicit `:rf.resource/release-owner`.
 - **SSR owners** (`[:ssr request-id nav-token]`) do not survive a client-side restore as live leases; they belong to a settled server render and are released as orphans if present.
@@ -1578,14 +1578,20 @@ The `[:lease …]` owner is app-minted, so the app owns its release: a matching 
 {:actions
  {:ensure-quote
   (fn [{:keys [data]}]
-    {:fx [[:dispatch [:rf.resource/ensure
-                      {:resource :checkout/quote
-                       :params   {:cart-id (:cart-id data)}
-                       :owner    [:machine :checkout/flow (:instance-id data)]
-                       :cause    [:machine-action :checkout/quote.requested]}]]]})}}
+    ;; Mint the owner under the actor's RUNTIME id so the machine teardown
+    ;; auto-releases it. A spawned actor knows its own id via `:rf/self-id`
+    ;; (stamped on its `:data`); a singleton machine's actor-id IS its
+    ;; registered machine-id (`:checkout/flow` here), so either form yields the
+    ;; same `[:machine <actor-id>]` key the destroy releases.
+    (let [actor-id (:rf/self-id data :checkout/flow)]
+      {:fx [[:dispatch [:rf.resource/ensure
+                        {:resource :checkout/quote
+                         :params   {:cart-id (:cart-id data)}
+                         :owner    [:machine actor-id]
+                         :cause    [:machine-action :checkout/quote.requested]}]]]}))}}
 ```
 
-The machine remains the semantic workflow; the resource runtime handles cached read mechanics. The `[:machine …]` owner is released on actor destroy.
+The machine remains the semantic workflow; the resource runtime handles cached read mechanics. The `[:machine <actor-id>]` owner is released on actor destroy — the machine teardown dispatches `:rf.resource/release-owner` for it on **every** destroy trigger (explicit destroy, exit cascade, `:spawn-all` teardown, frame destroy, `:final?` auto-destroy), so the lease never outlives the actor (per [§Release authority is per owner kind](#release-authority-is-per-owner-kind) and [005-StateMachines §What auto-cancels on destroy](005-StateMachines.md#what-auto-cancels-on-destroy--exactly-three-framework-managed-resource-kinds-divergence-from-xstate)).
 
 ## Deferred slices
 
