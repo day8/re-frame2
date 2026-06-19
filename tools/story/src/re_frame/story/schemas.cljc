@@ -228,16 +228,30 @@
 
 ;; ---- shared shapes --------------------------------------------------------
 
+(defn- kw-headed?
+  "Predicate: `v` is a non-empty vector whose first element is a
+  keyword. The leading-keyword shape every tagged Story vector shares
+  (event / decorator-ref / play-step / assertion / sub-query)."
+  [v]
+  (and (vector? v)
+       (pos? (count v))
+       (keyword? (first v))))
+
+(defn- keyword-headed-vector
+  "Build the `[:vector :any]` + leading-keyword `:fn` guard schema,
+  carrying `error-msg` as the per-surface diagnostic. The five tagged
+  Story vectors differ only by that message, not by shape — see
+  `EventVector` / `DecoratorRef` / `PlayStep` / `AssertionVector` /
+  `SubQueryVector`."
+  [error-msg]
+  [:and
+   [:vector :any]
+   [:fn {:error/message error-msg} kw-headed?]])
+
 (def EventVector
   "An event vector: `[<event-id> & args]`. Used in `:events`,
   `:loaders`, decorator `:init`, etc. No fn-valued slots."
-  [:and
-   [:vector :any]
-   [:fn {:error/message "event vector must start with a keyword"}
-    (fn [v]
-      (and (vector? v)
-           (pos? (count v))
-           (keyword? (first v))))]])
+  (keyword-headed-vector "event vector must start with a keyword"))
 
 (def TagSet
   "A `:tags` set on a story / variant / workspace. The `!`-prefix
@@ -248,13 +262,7 @@
 (def DecoratorRef
   "A vector `[<decorator-id> & args]` referencing a registered decorator
   by id. Closures live at the decorator's registration site, not here."
-  [:and
-   [:vector :any]
-   [:fn {:error/message "decorator vector must start with a keyword id"}
-    (fn [v]
-      (and (vector? v)
-           (pos? (count v))
-           (keyword? (first v))))]])
+  (keyword-headed-vector "decorator vector must start with a keyword id"))
 
 (def DecoratorRefs
   [:vector DecoratorRef])
@@ -487,13 +495,7 @@
   so authors get clear runner error messages rather than schema
   rejections on a typo. The runner's `step-arity-ok?` performs deeper
   shape checks at run time and surfaces an `:unknown-step` result."
-  [:and
-   [:vector :any]
-   [:fn {:error/message "play step must be a vector starting with a keyword"}
-    (fn [v]
-      (and (vector? v)
-           (pos? (count v))
-           (keyword? (first v))))]])
+  (keyword-headed-vector "play step must be a vector starting with a keyword"))
 
 (def PlayScript
   "A `:script` vector — sequence of `PlayStep`s."
@@ -556,13 +558,7 @@
   positions). Shape is left loose (vector starting with a keyword) so the
   assertion-id registry surfaces a clear runner error rather than a schema
   rejection on an unknown id."
-  [:and
-   [:vector :any]
-   [:fn {:error/message "assertion must be a vector starting with a keyword id"}
-    (fn [v]
-      (and (vector? v)
-           (pos? (count v))
-           (keyword? (first v))))]])
+  (keyword-headed-vector "assertion must be a vector starting with a keyword id"))
 
 (def ComposeRefs
   "Schema for the `:compose` slot on a variant / inline plan (rf2-5x1wt.15
@@ -623,14 +619,8 @@
   subscription-output-schema validation (a plan-compiler concern) carries
   the precise diagnostic rather than a structural schema rejection on an
   arg shape."
-  [:and
-   [:vector :any]
-   [:fn {:error/message
-         ":sub-overrides key must be a query vector starting with a sub-id keyword"}
-    (fn [v]
-      (and (vector? v)
-           (pos? (count v))
-           (keyword? (first v))))]])
+  (keyword-headed-vector
+    ":sub-overrides key must be a query vector starting with a sub-id keyword"))
 
 (def SubOverridesMap
   "Schema for the `:sub-overrides` slot on a variant / fragment body —
