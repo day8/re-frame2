@@ -402,6 +402,32 @@ machines / timers:
   `:rf.reply/*` spelling, so a row carrying only the additive vocabulary is
   still joined into the uniform work/reply rows by `:work/id` rather than
   losing its status / work-id / grouping.
+- **Frame attribution — two family spellings on a reply trace row
+  (rf2-l9vb09).** Two LEGITIMATE frame spellings ride a managed-async
+  reply TRACE ROW, by family:
+    - **resources / machines / mutations** stamp the canonical EP-0002
+      **carried-frame stamp `:rf.frame/id`** in `:tags` (the
+      reply-envelope facts the family emits its row FROM — Managed-Effects
+      §The reply map / §Tracing; e.g. `re-frame.resources.events`);
+    - **HTTP** stamps the **bare `:frame`** in `:tags` — the generic
+      raw-event carve-out read by the contract-owned canonical reader
+      `re-frame.trace/trace-event-frame` (`[:tags :frame]`, rf2-7737vq;
+      `re-frame.http.transport`'s `:rf.http/stale-suppressed`).
+
+  `work-event-row` therefore reads **`(or (:rf.frame/id tags)
+  (trace/trace-event-frame ev))`** — `:rf.frame/id` preferred, falling
+  back to the canonical raw-event reader for the bare `[:tags :frame]`. It
+  uses the canonical reader where it applies (HTTP) rather than
+  hand-reaching into `[:tags :frame]`. The historical defensive over-reads
+  (bare `:frame-id` in `:tags` — rf2-shaa1 dropped it, no emit site
+  produces it; a top-level `:frame` on the raw event — raw events carry
+  frame ONLY under `:tags`) are dead and not consulted.
+
+  The **reply MAP** layer is different: the dispatched reply map is
+  UNIFORM on `:rf.frame/id` across every family ("there is no second
+  frame spelling" — HTTP's reply BUILDER maps its internal `:frame` ctx
+  onto `:rf.frame/id` on the map), so `reply-row` reads `:rf.frame/id`
+  alone.
 - **`status->class`** gives the one cross-surface colour class so a
   `:stale` HTTP reply and a `:stale` resource reply render the **same
   badge** (Cross-Cutting [F.11](019-Cross-Cutting-Insight.md) — the
