@@ -435,6 +435,8 @@ The sibling slot lives under the shared `[:rf.runtime/elision]` runtime-db child
 
 `reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id`; without one they resolve the carried active frame and raise `:rf.error/no-frame-context` outside any established scope (EP-0002).
 
+**Frame TARGETS, not just keyword ids (EP-0024, rf2-7pllal).** Wherever a schema surface names a frame — the `frame-id` / `{:frame …}` arg of `app-schemas` / `app-schema-at` / `app-schema-meta-at` / `app-schemas-digest` and the `opts` `:frame` of `reg-app-schema` / `reg-app-schemas` — the target is a **frame-id keyword OR a frame value** (`rf/make-frame`'s return token), the same target shapes the registrar query API accepts. A frame value is normalized to its frame id (its routing address) before it keys the per-frame schema store, so a schema registered against a frame value is found by a later read-by-id (and vice versa); a bare frame value passed as the opts argument routes to **its own** frame, never the ambient one. An explicit `:frame` resolving to a non-keyword target (a string, a non-frame map, a vector) **fails loud** with `:rf.error/bad-app-schemas-arg` rather than silently becoming an unreachable registry key (no silent swallow).
+
 ```clojure
 ;; Registers against the carried active frame; raises outside any frame scope.
 (rf/reg-app-schema [:user] UserSchema)

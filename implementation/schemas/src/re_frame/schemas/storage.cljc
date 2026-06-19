@@ -51,11 +51,43 @@
   (per Spec 002 §Frame target resolution) rather than resolving to a
   synthesised `:rf/default` floor — namespace-load time is not a reason to
   pick a default frame. `operation` (optional) names the surface for the
-  error payload's `:operation` slot."
+  error payload's `:operation` slot.
+
+  rf2-7pllal — the explicit `(:frame opts)` override is a frame TARGET, not
+  necessarily a frame-id keyword: EP-0024 made frame VALUES first-class, so
+  `{:frame frame-value}` is a legal shape. The override is normalized through
+  `frame/frame-target->id` (a keyword id passes byte-identically; a frame
+  value yields its runnable id) — the SAME pattern `re-frame.core/snapshot-of`
+  uses for its `:frame` opt — so a schema registered under a frame VALUE is
+  keyed by the SAME id a read-by-id later resolves. Before the fix a
+  `{:frame frame-value}` registration stored under the frame-value MAP itself
+  and a read-by-id silently missed it.
+
+  The resolved target is then asserted to be a keyword frame-id: the
+  `schemas-by-frame` registry is keyed by it, so an arbitrary non-keyword
+  `:frame` (a string, a non-frame map, a vector) must fail loud at the
+  resolution boundary rather than silently becoming a registry key that no
+  keyword-id read can ever reach (the no-silent-swallow principle)."
   ([opts] (resolve-frame opts :reg-app-schema))
   ([opts operation]
-   (or (:frame opts)
-       (frame/require-current-frame! operation {:where 'rf/reg-app-schema}))))
+   (let [override (:frame opts)
+         frame-id (if (some? override)
+                    (frame/frame-target->id override)
+                    (frame/require-current-frame!
+                      operation {:where 'rf/reg-app-schema}))]
+     (when-not (keyword? frame-id)
+       (error/throw-error!
+         :rf.error/bad-app-schemas-arg
+         'rf/app-schemas
+         (str "the :frame opt must be a frame-id keyword or a frame value "
+              "(from rf/make-frame); got " (pr-str override)
+              ", which resolved to the non-keyword frame target "
+              (pr-str frame-id) ". Pass a frame-id keyword or a frame value.")
+         {:recovery :supply-a-frame-id-or-frame-value
+          :extra    {:received override
+                     :resolved frame-id
+                     :expected "keyword frame-id or frame value"}}))
+     frame-id)))
 
 (defn coerce-opts
   "Permit the keyword-only sugar `(app-schemas frame-id)` and the
@@ -71,22 +103,42 @@
   nil-PATH hazard (a non-sequential path poisons the `get-in` validation
   hot path), a nil OPTS has no downstream hazard — it just delegates frame
   resolution to scope, exactly as the no-arg arity does — so accepting it
-  removes a footgun rather than masking a defect."
+  removes a footgun rather than masking a defect.
+
+  rf2-7pllal — a bare frame VALUE (`rf/make-frame`'s return token) is itself
+  a map (it carries `:rf.frame/object` / `:rf.frame/runnable-id`), so the
+  `frame/frame-value?` discriminator MUST be checked BEFORE the generic
+  `map?` opts-map branch. Otherwise a bare frame value is misclassified as an
+  opts map with no `:frame` key and silently falls back to the ambient frame
+  (or throws `:rf.error/no-frame-context` outside a scope). A bare frame
+  value coerces to `{:frame <frame-value>}` so the frame the value names is
+  the registration / read target — the value's id is then resolved by
+  `resolve-frame` (via `frame/frame-target->id`), mirroring how the keyword-
+  sugar arity names a frame."
   [opts-or-frame-id]
   (cond
-    (nil?     opts-or-frame-id) {}
-    (keyword? opts-or-frame-id) {:frame opts-or-frame-id}
-    (map?     opts-or-frame-id) opts-or-frame-id
+    (nil? opts-or-frame-id) {}
+    ;; A keyword frame-id is the `{:frame kw}` sugar; a bare frame VALUE is the
+    ;; `{:frame value}` sugar — both are frame TARGETS naming a frame. The
+    ;; frame-value? check MUST come before the generic `map?` branch below: a
+    ;; frame value IS a map, so without this it would be misclassified as an
+    ;; opts map with no `:frame` key and silently fall back to the ambient
+    ;; frame (rf2-7pllal). resolve-frame later normalizes the target (keyword
+    ;; or value) to its frame id via frame/frame-target->id.
+    (or (keyword? opts-or-frame-id)
+        (frame/frame-value? opts-or-frame-id)) {:frame opts-or-frame-id}
+    (map? opts-or-frame-id) opts-or-frame-id
     :else
     (error/throw-error!
       :rf.error/bad-app-schemas-arg
       'rf/app-schemas
-      (str "app-schemas expects a keyword frame-id or an opts map; got "
-           (pr-str opts-or-frame-id) ". Pass a frame-id keyword or a "
-           "{:frame <frame-id>} opts map.")
+      (str "app-schemas expects a keyword frame-id, a frame value, or an "
+           "opts map; got " (pr-str opts-or-frame-id) ". Pass a frame-id "
+           "keyword, a frame value (from rf/make-frame), or a "
+           "{:frame <frame-id-or-value>} opts map.")
       {:recovery :supply-a-frame-id-or-opts-map
        :extra    {:received opts-or-frame-id
-                  :expected "keyword frame-id or opts map"}})))
+                  :expected "keyword frame-id, frame value, or opts map"}})))
 
 (defn- best-effort-frame
   "Resolve the registration frame for an error payload WITHOUT throwing —
