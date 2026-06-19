@@ -527,6 +527,78 @@
         (is (= expected-class (:status-class row)))))))
 
 ;; ---------------------------------------------------------------------------
+;; (6c) Frame attribution across families (rf2-l9vb09). Two LEGITIMATE frame
+;; spellings ride a managed-async reply TRACE ROW, by family:
+;;   - resources / machines / mutations stamp the EP-0002 carried-frame stamp
+;;     `:rf.frame/id` in `:tags` (the reply-envelope facts — Managed-Effects
+;;     §The reply map; e.g. `re-frame.resources.events`);
+;;   - HTTP stamps the bare `:frame` in `:tags` — the generic raw-event
+;;     carve-out read by the contract-owned canonical reader
+;;     `re-frame.trace/trace-event-frame` ([:tags :frame], rf2-7737vq; e.g.
+;;     `re-frame.http.transport`'s `:rf.http/stale-suppressed` emit).
+;; `work-event-row` prefers `:rf.frame/id`, falling back to the canonical
+;; reader for the bare `[:tags :frame]`. The historical dead over-reads — bare
+;; `:frame-id` in `:tags` (rf2-shaa1 dropped it; NO emit site produces it) and
+;; a top-level `:frame` on the raw event (raw events carry frame ONLY under
+;; `:tags`) — are gone, pinned-out here.
+;;
+;; The reply MAP layer (`reply-row`) is UNIFORM on `:rf.frame/id` across every
+;; family — even HTTP, whose reply BUILDER maps its internal `:frame` ctx onto
+;; `:rf.frame/id` on the dispatched map (`re-frame.http.reply`).
+;; ---------------------------------------------------------------------------
+
+(deftest reply-row-frame-attribution-across-families
+  (testing "work-event-row reads :frame off the canonical [:tags :rf.frame/id]
+            carried stamp — the resource / machine / mutation reply-row shape"
+    (let [row (re/work-event-row
+                {:id 60 :operation :rf.resource/work-started
+                 :time 400 :tags {:work/id [:rf.work/resource :k 1]
+                                  :rf.frame/id :app/main}})]
+      (is (= :app/main (:frame row))
+          "frame read off the EP-0002 carried-frame stamp :rf.frame/id")))
+  (testing "work-event-row resolves the HTTP family's bare [:tags :frame] slot
+            via the canonical raw-event reader trace-event-frame (rf2-7737vq) —
+            EXACTLY as re-frame.http.transport's :rf.http/stale-suppressed emits"
+    (let [row (re/work-event-row
+                {:id 61 :operation :rf.http/stale-suppressed
+                 :time 410 :tags {:work/id [:rf.work/http :search 1 1]
+                                  :work/kind :http
+                                  :rf.reply/status :stale
+                                  ;; HTTP's family frame spelling — the bare
+                                  ;; [:tags :frame] carve-out
+                                  :frame :app/main}})]
+      (is (= :app/main (:frame row))
+          "HTTP's bare [:tags :frame] resolved via the canonical reader")))
+  (testing ":rf.frame/id is preferred over the bare [:tags :frame] when a row
+            (defensively) carried both"
+    (let [row (re/work-event-row
+                {:id 62 :operation :rf.resource/work-started
+                 :time 420 :tags {:work/id [:rf.work/resource :k 1]
+                                  :rf.frame/id :canonical/win
+                                  :frame :raw/lose}})]
+      (is (= :canonical/win (:frame row)))))
+  (testing "the dead alias reads are gone — bare :frame-id in tags + a top-level
+            :frame on the event are NOT consulted (no production row emits them)"
+    (let [row (re/work-event-row
+                {:id 63 :operation :rf.resource/work-started
+                 :time 430
+                 :frame :top-level/dead              ;; dead top-level alias
+                 :tags {:work/id [:rf.work/resource :k 1]
+                        :frame-id :tags-bare/dead}})] ;; dead bare-:frame-id alias
+      (is (nil? (:frame row))
+          "neither the dead bare :frame-id nor the top-level :frame is read")))
+  (testing "reply-row (the reply-MAP projector) rides :rf.frame/id uniformly
+            (incl. HTTP) and ignores the dead :frame-id / :frame aliases"
+    (let [canonical (re/reply-row {:status :ok :work/id [:rf.work/http :req 1]
+                                   :rf.frame/id :app/main})
+          dead      (re/reply-row {:status :ok :work/id [:rf.work/http :req 1]
+                                   :frame-id :bare/dead :frame :top/dead})]
+      (is (= :app/main (:frame canonical))
+          "reply map frame read off the canonical :rf.frame/id")
+      (is (nil? (:frame dead))
+          "the dead :frame-id / :frame reply-map aliases are not read"))))
+
+;; ---------------------------------------------------------------------------
 ;; (7) stale-races — keyed on :work/id; cross-surface tally; attempt arcs.
 ;; ---------------------------------------------------------------------------
 

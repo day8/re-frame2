@@ -39,15 +39,20 @@
 
   ## Bundle isolation
 
-  Xray does NOT `:require` `re-frame.reply` (or any `implementation/`
-  namespace) — the closed vocabularies below are MIRRORED as literal
-  data, exactly as `resources-helpers` mirrors the reserved runtime-db
-  keys. The mirror is the bundle-isolation-safe price of not adding a
-  require edge from a tool into core; a drift would be caught by the
-  closed-vocabulary wiring test. (`re-frame.reply` is core, not an
-  optional artefact, but the no-tool-imports-core direction is the
-  bundle contract regardless — nothing in `implementation/` may require
-  `tools/`, and Xray consumes the WIRE FACTS, not the substrate fns.)
+  Xray does NOT `:require` `re-frame.reply` (the substrate ALGEBRA) — the
+  closed vocabularies below are MIRRORED as literal data, exactly as
+  `resources-helpers` mirrors the reserved runtime-db keys. The mirror is
+  the bundle-isolation-safe price of not adding a require edge into the
+  reply substrate; a drift would be caught by the closed-vocabulary
+  wiring test. It DOES `:require` `re-frame.trace` for the contract-owned
+  canonical RAW trace-event frame reader (`trace-event-frame`,
+  rf2-7737vq) — the same trace-CONTRACT reader the rest of Xray already
+  consumes (`self-noise`, `trace-collector`, `runtime`); that is a read of
+  the published trace contract, not the substrate fns. The bundle
+  contract is the no-tool-imports-CORE direction — nothing in
+  `implementation/` may require `tools/` — which neither edge violates;
+  Xray consumes the WIRE FACTS + the trace contract, never the substrate
+  algebra.
 
   ## PRIVACY
 
@@ -65,7 +70,15 @@
 
   Every fn here is pure data → data, JVM-runnable so the algebra runs
   under the unit-test target without a CLJS runtime."
-  (:require [day8.re-frame2-xray.panels.resources-helpers :as rh]))
+  (:require [day8.re-frame2-xray.panels.resources-helpers :as rh]
+            ;; the contract-owned canonical RAW trace-event frame reader
+            ;; (`[:tags :frame]` — Spec 009 §Frame identity on the raw event,
+            ;; rf2-7737vq). NOT the substrate algebra (`re-frame.reply`) the
+            ;; closed vocabularies below MIRROR: `re-frame.trace` is the trace
+            ;; CONTRACT reader xray already consumes (`self-noise`,
+            ;; `trace-collector`, `runtime`); the no-tool-imports-core bundle
+            ;; direction (core MUST NOT require tools) is unaffected.
+            [re-frame.trace :as trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; The closed vocabularies (MIRRORED from re-frame.reply — Managed-Effects
@@ -249,7 +262,16 @@
      :status        status
      :work-status   (or (:work/status reply) (:work-status reply))
      :attempt       (:attempt reply)
-     :frame         (or (:rf.frame/id reply) (:frame-id reply) (:frame reply))
+     ;; The reply MAP's frame is the canonical EP-0002 carried-frame stamp
+     ;; `:rf.frame/id` — UNIFORM across every family on the reply map
+     ;; (Managed-Effects §The reply map — "there is no second frame spelling";
+     ;; HTTP's reply builder maps its internal `:frame` ctx ONTO `:rf.frame/id`
+     ;; on the dispatched map). This reply-map layer is distinct from the raw
+     ;; trace-event layer (where HTTP rows ride the bare `[:tags :frame]`
+     ;; carve-out — see `work-event-row`), so the canonical raw-event reader
+     ;; `trace-event-frame` does not apply to a reply map. The historical dead
+     ;; `:frame-id` / bare `:frame` reply-map aliases are gone (rf2-l9vb09).
+     :frame         (:rf.frame/id reply)
      :started-at    (:started-at reply)
      :completed-at  (:completed-at reply)
      :deadline-at   (:deadline-at reply)
@@ -544,7 +566,24 @@
                  :phase        phase
                  :work-kind    (or (work-kind-of tags) (infer-work-kind work-id))
                  :work-id      work-id
-                 :frame        (or (:rf.frame/id tags) (:frame-id tags) (:frame ev))
+                 ;; Frame attribution across families (rf2-l9vb09). Two
+                 ;; legitimate frame spellings ride a managed-async reply trace
+                 ;; row, by family:
+                 ;;   - resources / machines / mutations stamp the EP-0002
+                 ;;     carried-frame stamp `:rf.frame/id` in `:tags`
+                 ;;     (Managed-Effects §The reply map — the reply-envelope
+                 ;;     facts the family emits its row FROM);
+                 ;;   - HTTP stamps the bare `:frame` in `:tags` — the generic
+                 ;;     raw-event carve-out read by the contract-owned canonical
+                 ;;     reader `re-frame.trace/trace-event-frame` ([:tags :frame],
+                 ;;     rf2-7737vq).
+                 ;; Prefer `:rf.frame/id`, falling back to the canonical reader
+                 ;; for the bare `[:tags :frame]` slot. The historical dead
+                 ;; aliases — bare `:frame-id` in `:tags` (rf2-shaa1 dropped it;
+                 ;; no emit site produces it) and a top-level `:frame` on the
+                 ;; raw event (raw events carry frame ONLY under `:tags`) — are
+                 ;; gone.
+                 :frame        (or (:rf.frame/id tags) (trace/trace-event-frame ev))
                  ;; rf2-waawic — tolerate the additive `:rf.reply/work-status`
                  ;; production key so machine / resource / mutation rows do not
                  ;; lose their work status.
