@@ -61,9 +61,9 @@
 
     3. `daemon-thread-count-bounded-during-burst` — fires the burst
        and observes that the in-flight `rf2-ssr-streaming-*` thread
-       count peaks at most around `n-threads × n-iters` and decays to
-       zero. A leak in the destroy path would show as a monotonically-
-       growing thread count that never decays.
+       count peaks at most around `n-threads` (the blocking-send cap)
+       and decays to zero. A leak in the destroy path would show as a
+       monotonically-growing thread count that never decays.
 
   ## Knobs (env-overridable)
 
@@ -408,12 +408,15 @@
 ;;   - peak ≤ a generous upper bound (no unbounded spawn behaviour);
 ;;   - post-settle count is exactly zero (clean decay).
 ;;
-;; The peak bound is `n-threads × n-reqs-per-thread + slack`. In
-;; principle every request CAN be in-flight simultaneously if the
-;; client side is fast enough; in practice client serialisation per
-;; thread caps it at `n-threads` peak, but we use the loose upper
-;; bound to avoid false-positive flakes when the JVM scheduler
-;; happens to interleave favorably.
+;; The peak bound tracks the documented real cap: each worker thread
+;; drives its requests with a *blocking* `.send` (not `.sendAsync`),
+;; so at most one request per worker is in-flight at a time, capping
+;; concurrent writer threads at `n-threads`. We double that and add a
+;; small constant for the window where a just-completed request's
+;; writer hasn't been reaped while the next one's writer spawns —
+;; tight enough that a per-request thread leak (which would scale with
+;; `n-threads × n-reqs`) blows past it, not the old `n*reqs+8` bound
+;; that was so loose it could never fail.
 
 (deftest ^:stress daemon-thread-count-bounded-during-burst
   (testing "writer-thread count bounded during burst, decays to zero after"
@@ -467,24 +470,25 @@
           (.countDown sampler-stop)
           (.join sampler-thread 5000)
 
-          ;; Loose upper bound: every request COULD be concurrently
-          ;; in-flight in the worst case. Pick `(n-threads × n-reqs)
-          ;; + 8` slack for the sampler observation window.
+          ;; Upper bound tracks the real cap: blocking `.send` per
+          ;; worker ⇒ at most `n-threads` writer threads in-flight at
+          ;; once. `2 × n-threads + 4` absorbs the reap/spawn overlap
+          ;; window without admitting a per-request leak (which scales
+          ;; with `n-threads × n-reqs` and so blows well past this).
           ;;
           ;; The sampler may legitimately observe peak == 0 on very
           ;; fast JDKs (every request completes inside a single
-          ;; sampler tick). That's OK — the load-bearing assertion is
-          ;; the upper bound (no leak) AND the decay-to-zero check
-          ;; below (post-settle terminates cleanly). The peak
-          ;; observation is a diagnostic signal, not a contract.
-          (let [upper-bound (+ (* n-threads n-reqs-per-thread) 8)
+          ;; sampler tick). That's fine — `0 <= upper-bound` holds.
+          ;; The load-bearing pair is this bound (no leak) AND the
+          ;; decay-to-zero check below (post-settle terminates clean).
+          (let [upper-bound (+ (* 2 n-threads) 4)
                 observed    (.get peak-count)]
             (is (<= observed upper-bound)
-                (str "Writer-thread peak count must be bounded. Upper
-                     bound (loose): " upper-bound "; observed peak: "
-                     observed ". A peak above the bound suggests the
-                     spawn site is leaking threads on a per-request
-                     fast path.")))
+                (str "Writer-thread peak count must be bounded by the
+                     blocking-send cap (~n-threads). Upper bound: "
+                     upper-bound "; observed peak: " observed
+                     ". A peak above the bound suggests the spawn site
+                     is leaking threads on a per-request fast path.")))
 
           ;; Decay: every writer terminated.
           (let [leaked (await-no-streaming-threads! leak-timeout-ms)]
