@@ -77,9 +77,12 @@ const ISOLATION_NAMESPACES = [
   're-frame.live-frame-reload-cljs-test',
   're-frame.migration-cljs-test',
   're-frame.multi-frame-isolation-cljs-test',
+  're-frame.owned-frame-lifecycle-cljs-test',
   're-frame.projection-cljs-test',
   're-frame.realm-cljs-test',
   're-frame.router-carried-frame-cljs-test',
+  're-frame.subs-override-seam-cljs-test',
+  're-frame.views-current-component-cljs-test',
 ];
 
 const NODE_TEST_BUNDLE = 'out/node-test.js';
