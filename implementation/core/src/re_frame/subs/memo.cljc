@@ -422,6 +422,36 @@
               tags)))
         nil))))
 
+;; ---- the shared memo-hit `:rf.sub/skip` emit (rf2-6zfzxy) -----------------
+;;
+;; All three memo wrappers below emit a byte-identical `:rf.sub/skip` trace on a
+;; memo hit (input value-equal to last-seen, the user body does NOT re-run,
+;; rf2-719e) so tools can show the "considered, no recompute" branch of the
+;; reactive cascade DAG (rf2-931pm). The ONLY thing that varied was
+;; `:rf.sub/input-paths-unchanged` (`[]` for layer-1 which has no upstream sub
+;; inputs; `(vec input-signals)` for the layer-n forms). The skip-emit BODY is
+;; deduped here; the three wrappers stay separate (their per-recompute hot
+;; closures are perf-justified — fixed-arity-1 vs single-input vs varargs — and
+;; only the cold skip-emit body was the clone).
+
+(defn- emit-sub-skip!
+  "Emit the memo-hit `:rf.sub/skip` trace for a sub that was reactively
+  considered but did NOT recompute (input value-equal, rf2-719e / rf2-931pm).
+  `input-paths-unchanged` is the inputs-stable set (`[]` for layer-1, the
+  realized `:<-` query-vectors for layer-n). Outer `interop/debug-enabled?`
+  gate elides the tag-map construction + emit in CLJS production (Closure DCE
+  under `:advanced` + `goog.DEBUG=false`)."
+  [query-id query-v frame-id sub-meta input-paths-unchanged]
+  (when interop/debug-enabled?
+    (trace/with-handler-scope
+      (trace/handler-scope-from-meta :sub query-id sub-meta)
+      (trace/emit! :rf.sub :rf.sub/skip
+                   {:frame                        frame-id
+                    :rf.sub/id                    query-id
+                    :rf.sub/query-v               query-v
+                    :rf.sub/reason                :input-value-equal
+                    :rf.sub/input-paths-unchanged input-paths-unchanged}))))
+
 ;; ---- memoisation wrappers ------------------------------------------------
 
 (defn make-layer-1-memoised-body
@@ -445,20 +475,10 @@
           ;; Memo hit — input value-equal to last-seen, the user body
           ;; does NOT re-run (rf2-719e). Emit `:rf.sub/skip` so tools
           ;; can show the "considered, no recompute" branch of the
-          ;; reactive cascade DAG (rf2-931pm). Outer
-          ;; `interop/debug-enabled?` gate elides the tag-map
-          ;; construction + emit in CLJS production (Closure DCE under
-          ;; `:advanced` + `goog.DEBUG=false`).
+          ;; reactive cascade DAG (rf2-931pm). Layer-1 has no upstream
+          ;; sub inputs, so `:input-paths-unchanged` is `[]`.
           (do
-            (when interop/debug-enabled?
-              (trace/with-handler-scope
-                (trace/handler-scope-from-meta :sub query-id sub-meta)
-                (trace/emit! :rf.sub :rf.sub/skip
-                             {:frame                        frame-id
-                              :rf.sub/id                    query-id
-                              :rf.sub/query-v               query-v
-                              :rf.sub/reason                :input-value-equal
-                              :rf.sub/input-paths-unchanged []})))
+            (emit-sub-skip! query-id query-v frame-id sub-meta [])
             @last-result)
           ;; Capture the prior cells BEFORE the recompute so the
           ;; `:sub/run` attribution (rf2-l1jz8) can report value-change
@@ -515,15 +535,7 @@
           ;; stable; layer-2+ subs name their inputs by `[query-id args]`
           ;; rather than db-paths.
           (do
-            (when interop/debug-enabled?
-              (trace/with-handler-scope
-                (trace/handler-scope-from-meta :sub query-id sub-meta)
-                (trace/emit! :rf.sub :rf.sub/skip
-                             {:frame                        frame-id
-                              :rf.sub/id                    query-id
-                              :rf.sub/query-v               query-v
-                              :rf.sub/reason                :input-value-equal
-                              :rf.sub/input-paths-unchanged (vec input-signals)})))
+            (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:sub/run`
           ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
@@ -585,15 +597,7 @@
           ;; stable (the varargs path has ≥2 inputs and the memo
           ;; compare is whole-seq `=`, so every input was stable).
           (do
-            (when interop/debug-enabled?
-              (trace/with-handler-scope
-                (trace/handler-scope-from-meta :sub query-id sub-meta)
-                (trace/emit! :rf.sub :rf.sub/skip
-                             {:frame                        frame-id
-                              :rf.sub/id                    query-id
-                              :rf.sub/query-v               query-v
-                              :rf.sub/reason                :input-value-equal
-                              :rf.sub/input-paths-unchanged (vec input-signals)})))
+            (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:sub/run`
           ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
