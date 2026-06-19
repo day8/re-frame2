@@ -1,13 +1,13 @@
 (ns re-frame.realm-cljs-test
-  "EP-0013 D1 internal staging 1-4 — the runtime realm record, the default
-  realm, the realm-owned registrar, the frame's realm reference (stages 1-3,
-  rf2-gkddyq), and the realm-owned adapter SELECTION + host-transient
-  subsystem inventory (stage 4, rf2-0lq5cd).
+  "EP-0013 D1 internal staging — the runtime realm record, the default realm,
+  the realm-owned registrar, the frame's realm reference (rf2-gkddyq), and the
+  realm-owned adapter SELECTION (rf2-0lq5cd), under the EP-0023 default-only
+  collapse (rf2-afdlyr: non-default realm construction + the host-transient
+  inventory hatch were retired).
 
-  D1 is INTERNAL: no public `realm/construct-realm` constructor and no realm-targeted
-  public query ship. The headline acceptance is **zero ergonomic regression**
-  — everything routes through one default realm so a single-realm app's
-  surface is byte-identical. These tests pin:
+  The realm substrate is INTERNAL and collapsed to a single default realm —
+  everything routes through it, so a single-realm app's surface is
+  byte-identical to a realm-free design. These tests pin:
 
     (1) the default realm exists with id `:rf.realm/default` and the shipped
         D1 record shape (Spec-Schemas §`:rf/realm`);
@@ -22,11 +22,7 @@
     (4) the realm OWNS the adapter SELECTION — `re-frame.substrate.adapter` is
         the access seam over the default realm's `:adapter` +
         `:adapter-disposed?` slots; install / current / dispose route through
-        the realm with byte-identical behaviour (stage 4);
-    (5) the realm OWNS the host-transient subsystem DESCRIPTOR inventory —
-        `subsystem-id → :rf/host-transient-descriptor` lives in the default
-        realm's `:host-transient` slot; register / read / clear are
-        realm-owned (stage 4).
+        the realm with byte-identical behaviour (stage 4).
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
@@ -267,146 +263,17 @@
         "cold reset clears the breadcrumb — distinct from a disposed state")))
 
 ;; ---------------------------------------------------------------------------
-;; (5) the realm OWNS the host-transient subsystem inventory — stage 4
-;;
-;; The framework's host-transient side-tables (HTTP in-flight, routing nav
-;; counters, machine timers, …) are realm-owned. Stage 4 makes the realm the
-;; OWNER of the DESCRIPTOR inventory (subsystem-id → descriptor), recording
-;; each subsystem's scope / teardown / test-reset. The side-table bytes stay
-;; in their producing artefacts (reset through the existing late-bind hooks);
-;; this is the queryable record of what exists + how each is torn down.
-;; ---------------------------------------------------------------------------
-
-(deftest host-transient-inventory-is-realm-owned
-  (testing "a host-transient descriptor registers under the default realm and
-            reads back; the inventory lives in the realm's :host-transient slot"
-    ;; A fresh realm carries no host-transient inventory.
-    (realm/clear-host-transient!)
-    (is (nil? (realm/host-transient))
-        "a realm with no registered subsystem has no host-transient inventory")
-    (let [descriptor {:id            :rf.test/in-flight
-                      :storage-class :host-transient
-                      :scope         :frame
-                      :durability    :none}]
-      (realm/register-host-transient! descriptor)
-      (is (= descriptor (realm/host-transient :rf.realm/default :rf.test/in-flight))
-          "the descriptor reads back by subsystem-id")
-      (is (= {:rf.test/in-flight descriptor}
-             (realm/host-transient))
-          "the inventory is the realm's :host-transient slot")
-      (is (= {:rf.test/in-flight descriptor}
-             (:host-transient (realm/default-realm)))
-          "the slot lives on the default realm record")
-      ;; Registering a second subsystem adds to (does not clobber) the table.
-      (let [d2 {:id :rf.test/timers :storage-class :host-transient
-                :scope :realm :durability :none}]
-        (realm/register-host-transient! d2)
-        (is (= #{:rf.test/in-flight :rf.test/timers}
-               (set (keys (realm/host-transient))))
-            "a second register adds to the inventory")))
-    ;; Clearing drops the inventory (the test-reset / cold-start counterpart).
-    (realm/clear-host-transient!)
-    (is (nil? (realm/host-transient))
-        "clear-host-transient! drops the realm's inventory")))
-
-(deftest host-transient-durability-is-none
-  (testing "every host-transient descriptor declares :durability :none — the
-            non-durable contract (MUST NOT ride the wire)"
-    (realm/clear-host-transient!)
-    (realm/register-host-transient!
-      {:id :rf.test/nav-counters :storage-class :host-transient
-       :scope :frame :durability :none})
-    (is (= :none (:durability (realm/host-transient :rf.realm/default
-                                                    :rf.test/nav-counters)))
-        "the registered descriptor is non-durable")
-    (realm/clear-host-transient!)))
-
-;; ---------------------------------------------------------------------------
-;; (6) host-transient :teardown is wired into destroy-frame! (rf2-c6armm.7 #2)
-;;
-;; The spec says a :frame-scoped host-transient descriptor's :teardown "runs on
-;; frame destroy" (Spec-Schemas §:rf/host-transient-descriptor; Runtime-Subsystems
-;; §Host-transient subsystem state). Before the fix, destroy-frame! released
-;; host-transient state only through a FIXED list of hard-coded per-subsystem
-;; hooks — a subsystem that registered a frame-scoped descriptor with the realm
-;; (the single owning inventory) would still leak unless it ALSO had a bespoke
-;; hook. The fix walks the frame's realm's inventory on destroy.
-;; ---------------------------------------------------------------------------
-
-(deftest host-transient-frame-scoped-teardown-fires-on-destroy-frame
-  (testing "rf2-c6armm.7 #2: a :frame-scoped host-transient descriptor's :teardown
-            FIRES on destroy-frame!, addressed to the (frame, realm) being torn
-            down. A :realm-scoped descriptor does NOT fire on frame destroy (it
-            outlives an individual frame — it releases on dispose-realm!)."
-    (realm/clear-host-transient!)
-    (let [torn (atom [])]
-      ;; A frame-scoped descriptor: its :teardown must run on destroy-frame!.
-      (realm/register-host-transient!
-        {:id            :rf.test/frame-scoped
-         :storage-class :host-transient :scope :frame :durability :none
-         :teardown      (fn [frame-id realm-id]
-                          (swap! torn conj [:frame-scoped frame-id realm-id]))})
-      ;; A realm-scoped descriptor: it must NOT run on destroy-frame! (only on
-      ;; dispose-realm!), so it is the negative control.
-      (realm/register-host-transient!
-        {:id            :rf.test/realm-scoped
-         :storage-class :host-transient :scope :realm :durability :none
-         :teardown      (fn [& _] (swap! torn conj :realm-scoped-fired))})
-      ;; A real frame in the default realm.
-      (rf/reg-frame :ht/frame {:doc "host-transient teardown frame"})
-      (is (some? (frame/frame :ht/frame)) "the frame is live before destroy")
-      ;; Destroy it — the frame-scoped teardown must fire, addressed to (frame, realm).
-      (frame/destroy-frame! :ht/frame)
-      (is (= [[:frame-scoped :ht/frame :rf.realm/default]] @torn)
-          "the :frame-scoped descriptor's :teardown ran with the (frame, realm)
-           address; the :realm-scoped one did NOT fire on frame destroy")
-      ;; The descriptor INVENTORY itself is realm-owned and persists (other frames
-      ;; may share it) — only the per-frame side-table bytes are torn down. The
-      ;; inventory drops on realm dispose / clear, not on frame destroy.
-      (is (some? (realm/host-transient :rf.realm/default :rf.test/frame-scoped))
-          "the descriptor record persists in the realm inventory after frame destroy"))
-    (realm/clear-host-transient!)))
-
-(deftest host-transient-frame-teardown-is-best-effort
-  (testing "rf2-c6armm.7 #2: a throwing host-transient :teardown does not abort
-            destroy-frame! — it is best-effort (caught + accumulated), so the rest
-            of teardown and a SECOND descriptor's teardown still run, mirroring the
-            safe-call-hook! cleanup semantics."
-    (realm/clear-host-transient!)
-    (let [second-ran (atom false)]
-      (realm/register-host-transient!
-        {:id            :rf.test/throwing
-         :storage-class :host-transient :scope :frame :durability :none
-         :teardown      (fn [& _] (throw (ex-info "boom in teardown" {})))})
-      (realm/register-host-transient!
-        {:id            :rf.test/after-throw
-         :storage-class :host-transient :scope :frame :durability :none
-         :teardown      (fn [& _] (reset! second-ran true))})
-      (rf/reg-frame :ht/throw-frame {:doc "throwing teardown frame"})
-      ;; destroy-frame! must NOT propagate the teardown throw...
-      (frame/destroy-frame! :ht/throw-frame)
-      ;; ...the frame is torn down...
-      (is (nil? (frame/frame :ht/throw-frame))
-          "destroy-frame! completed despite a throwing host-transient teardown")
-      ;; ...and the OTHER descriptor's teardown still ran (one bad teardown does
-      ;; not block the rest).
-      (is (true? @second-ran)
-          "a sibling host-transient teardown still ran after the throwing one"))
-    (realm/clear-host-transient!)))
-
-;; ---------------------------------------------------------------------------
 ;; (6) FAIL-CLOSED realm-owned mutation — an unknown id cannot silently mutate
 ;;     (rf2-c6armm.6 #2)
 ;; ---------------------------------------------------------------------------
 ;;
-;; A realm is an isolation boundary, so a realm-owned mutation aimed at a realm
-;; that was never constructed must NOT silently no-op (the prior `update-realm!`
-;; posture) — a typo'd id would drop the write while the caller believes it
-;; seated state, and the symmetrical hazard the install! guard (rf2-c6armm.1/.2)
-;; closed for the install path was still open on the non-install mutation seams
-;; (`set-installed-app!` / `install-realm-adapter!` / `register-host-transient!`
-;; / …, all routed through the single `update-realm!` seam). These pin that the
-;; seam now THROWS `:rf.error/unknown-realm` for a non-nil unknown id, BEFORE any
+;; A realm-owned mutation aimed at a realm id that is not registered must NOT
+;; silently no-op (the prior `update-realm!` posture) — a typo'd id would drop
+;; the write while the caller believes it seated state. With the realm substrate
+;; collapsed to default-only the only registered id is the default realm, so any
+;; other explicit id is unknown; the mutation seams (`set-installed-app!` /
+;; `install-realm-adapter!` / …, all routed through the single `update-realm!`
+;; seam) THROW `:rf.error/unknown-realm` for a non-nil unknown id, BEFORE any
 ;; mutation, while the default realm (absence resolves to it) is untouched.
 
 (deftest mutating-an-unknown-realm-id-throws-before-any-mutation
@@ -435,17 +302,12 @@
 
 (deftest unknown-realm-throw-covers-every-realm-owned-mutation-seam
   (testing "rf2-c6armm.6 #2: the fail-closed guard sits at the single
-            update-realm! seam, so EVERY realm-owned mutator (adapter install,
-            host-transient register) throws on an unknown id — not just
+            update-realm! seam, so EVERY realm-owned mutator (the adapter
+            install seam too) throws on an unknown id — not just
             set-installed-app!"
     (doseq [[label thunk]
             [[:install-realm-adapter!
-              #(realm/install-realm-adapter! :ghost/realm {:id :x})]
-             [:register-host-transient!
-              #(realm/register-host-transient!
-                 :ghost/realm
-                 {:id :rf.test/x :storage-class :host-transient
-                  :scope :frame :durability :none})]]]
+              #(realm/install-realm-adapter! :ghost/realm {:id :x})]]]
       (let [ed (try (thunk)
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                       (ex-data e)))]
@@ -456,21 +318,19 @@
     (is (nil? (realm/realm :ghost/realm))
         "no failed mutation resurrected the ghost realm")))
 
-(deftest realm-owned-mutation-still-works-for-known-realms
+(deftest realm-owned-mutation-still-works-for-the-default-realm
   (testing "rf2-c6armm.6 #2: the guard is narrow — the DEFAULT realm (absence
-            resolves to it) and a CONSTRUCTED realm both still mutate normally,
-            so the fix is fail-closed-on-unknown, not fail-closed-on-everything"
-    ;; (a) the default realm — the byte-identical absence-is-default path.
-    (realm/register-host-transient!
-      {:id :rf.test/known :storage-class :host-transient
-       :scope :frame :durability :none})
-    (is (some? (realm/host-transient :rf.realm/default :rf.test/known))
-        "a default-realm mutation still seats (absence resolves to the default)")
-    (realm/clear-host-transient!)
-    ;; (b) an explicitly constructed realm.
-    (let [r (realm/construct-realm {:id :known/realm})]
-      (try
-        (realm/set-installed-app! :known/realm {:rf.app/id :seated})
-        (is (= {:rf.app/id :seated} (:app (realm/realm :known/realm)))
-            "a constructed realm's :app mutates normally — only UNKNOWN ids throw")
-        (finally (realm/dispose-realm! :known/realm))))))
+            resolves to it; the only registered realm under the default-only
+            collapse) still mutates normally, so the fix is
+            fail-closed-on-unknown, not fail-closed-on-everything"
+    (try
+      (realm/set-installed-app! :rf.realm/default {:rf.app/id :seated})
+      (is (= {:rf.app/id :seated} (:app (realm/default-realm)))
+          "a default-realm mutation still seats — only UNKNOWN ids throw")
+      ;; absence resolves to the default realm too.
+      (realm/set-installed-app! {:rf.app/id :via-absence})
+      (is (= {:rf.app/id :via-absence} (:app (realm/default-realm)))
+          "absence resolves to the default realm")
+      (finally
+        ;; restore the default realm's :app slot to absent for sibling tests.
+        (swap! realm/realms update :rf.realm/default dissoc :app)))))

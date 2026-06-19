@@ -65,11 +65,9 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.image          :as image]
             [re-frame.image-assembly :as asm]
-            [re-frame.app-value      :as av]
             [re-frame.source-store   :as ss]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
-            [re-frame.migration      :as migration]
             [re-frame.realm          :as realm]
             [re-frame.core           :as rf]
             [re-frame.std-interceptors    :as std]
@@ -793,35 +791,12 @@
 ;; removes); rf/make-frame is repointed onto the EP-0023 object constructor (the
 ;; dual-export window is closed — the facade exports exactly one make-frame).
 
-(defn- app-with-frame
-  "An EP-0013 app value carrying a single :frames section for `frame-id` — the
-  shape install! lowers into a realm-owned :frame descriptor."
-  [frame-id]
-  (av/app {:id :mig/app
-           :modules [(av/module {:id :mig/m
-                                 :frames {frame-id {:doc "migration shared id"}}})]}))
-
-(deftest s8-cross-realm-frame-id-fails-loud
-  (testing "EP-0023 §Id Spaces: a frame id already live in ANOTHER realm under
-            EP-0013 (realm, frame) addressing is rejected
-            :rf.error/cross-realm-frame-id by the EP-0023 process-local frame-id
-            contract; the same realm in-place case does NOT collide"
-    (let [ra (realm/construct-realm {:id :mig/a})
-          rb (realm/construct-realm {:id :mig/b})]
-      (try
-        (av/install! ra (app-with-frame :mig/shared))
-        (av/install! rb (app-with-frame :mig/shared))
-        (is (= #{:mig/a :mig/b} (migration/frame-id-realms :mig/shared))
-            "the shared id is live in both realms (the EP-0013 affordance)")
-        (is (= :rf.error/cross-realm-frame-id
-               (err-id #(migration/assert-process-local-frame-id! :mig/shared :mig/c)))
-            "reusing it for a NEW realm target fails the process-local assertion")
-        (testing "a fresh id passes; re-asserting in the realm it already lives in
-                  does not collide"
-          (is (= :mig/never-live (migration/assert-process-local-frame-id! :mig/never-live))))
-        (finally
-          (realm/dispose-realm! :mig/a)
-          (realm/dispose-realm! :mig/b))))))
+;; NOTE (rf2-afdlyr): the `s8-cross-realm-frame-id-fails-loud` case stood up two
+;; non-default realms (via `construct-realm` + `av/install!`) to drive the
+;; EP-0023 process-local frame-id assertion. Both were retired with the
+;; realm-substrate collapse — non-default realms can no longer be constructed,
+;; so the cross-realm collision is unreachable; the fresh-id case is covered in
+;; `migration-cljs-test/a-fresh-frame-id-passes-the-process-local-assertion`.
 
 (deftest s8-make-frame-is-the-one-constructor
   (testing "EP-0024 §One constructor (rf2-tu2vr7): rf/make-frame is the ONE

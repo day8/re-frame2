@@ -35,7 +35,6 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core       :as rf]
-            [re-frame.app-value  :as av]
             [re-frame.migration  :as migration]
             [re-frame.live-frame :as lf]
             [re-frame.image      :as image]
@@ -60,26 +59,6 @@
     (test-fn)
     (drop-non-default-realms!)))
 
-;; ---------------------------------------------------------------------------
-;; Helpers
-;; ---------------------------------------------------------------------------
-
-(defn- err-id
-  "Run `thunk` and return the `:rf.error/id` of the thrown ex-info, or nil if it
-  did not throw. Discriminator-only (never asserts message bytes)."
-  [thunk]
-  (try (thunk) nil
-       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (:rf.error/id (ex-data e)))))
-
-(defn- app-with-frame
-  "An EP-0013 app value carrying a single `:frames` section for `frame-id` — the
-  shape `install!` lowers into a realm-owned `:frame` descriptor (mirrors
-  realm-conformance-cljs-test's `app-for`)."
-  [frame-id]
-  (av/app {:id :mig/app
-           :modules [(av/module {:id     :mig/m
-                                 :frames {frame-id {:doc "migration shared id"}}})]}))
 
 ;; ---------------------------------------------------------------------------
 ;; migration-map / migration-explain — the surface dispositions as data
@@ -119,49 +98,11 @@
 ;; assert-process-local-frame-id! — the cross-realm duplicate-frame-id diagnostic
 ;; ---------------------------------------------------------------------------
 
-(deftest cross-realm-frame-id-is-a-fail-loud-migration-break
-  (testing "EP-0023 §Id Spaces: a frame id already live in ANOTHER realm under
-            EP-0013 (realm, frame) addressing is rejected by the EP-0023
-            process-local frame-id contract"
-    (let [ra (realm/construct-realm {:id :mig/a})
-          rb (realm/construct-realm {:id :mig/b})]
-      (try
-        (av/install! ra (app-with-frame :mig/shared))
-        (av/install! rb (app-with-frame :mig/shared))
-        ;; The same frame id is now live in BOTH :mig/a and :mig/b (the EP-0013
-        ;; affordance the EP-0023 model removes).
-        (is (= #{:mig/a :mig/b} (migration/frame-id-realms :mig/shared))
-            "the shared id is live in both realms (EP-0013 (realm, frame) state)")
-        ;; Asserting the EP-0023 process-local contract for a NEW realm target
-        ;; surfaces the collision the new model forbids.
-        (is (= :rf.error/cross-realm-frame-id
-               (err-id #(migration/assert-process-local-frame-id! :mig/shared :mig/c)))
-            "a frame id live in other realms fails the process-local assertion")
-        ;; The ex-data names the conflicting realms (actionable diagnostic).
-        (let [data (try (migration/assert-process-local-frame-id! :mig/shared :mig/c)
-                        nil
-                        (catch #?(:clj clojure.lang.ExceptionInfo
-                                  :cljs cljs.core/ExceptionInfo) e
-                          (ex-data e)))]
-          (is (= #{:mig/a :mig/b} (set (:other-realms data)))
-              "the ex-data names every realm the id is already live in"))
-        (finally
-          (realm/dispose-realm! :mig/a)
-          (realm/dispose-realm! :mig/b))))))
-
-(deftest same-realm-reassertion-is-not-a-collision
-  (testing "re-asserting a frame id in the realm it already lives in is the
-            in-place case, not a cross-realm collision"
-    (let [ra (realm/construct-realm {:id :mig/solo})]
-      (try
-        (av/install! ra (app-with-frame :mig/only))
-        (is (= #{:mig/solo} (migration/frame-id-realms :mig/only))
-            "the id is live only in :mig/solo")
-        ;; Targeting the SAME realm — the id is allowed to remain live there.
-        (is (= :mig/only (migration/assert-process-local-frame-id! :mig/only :mig/solo))
-            "re-asserting in the same realm returns the id (no collision)")
-        (finally
-          (realm/dispose-realm! :mig/solo))))))
+;; NOTE (rf2-afdlyr): the cross-realm + same-realm `frame-id-realms` /
+;; `assert-process-local-frame-id!` cases that stood up non-default realms via
+;; `construct-realm` + `av/install!` were removed with the realm-substrate
+;; collapse — non-default realms can no longer be constructed, so the only
+;; reachable case is the default realm (a fresh id is live in no realm).
 
 (deftest a-fresh-frame-id-passes-the-process-local-assertion
   (testing "a frame id live in no realm passes the process-local assertion"

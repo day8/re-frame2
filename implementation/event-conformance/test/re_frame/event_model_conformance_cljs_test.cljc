@@ -66,7 +66,6 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.app-value :as av]
             [re-frame.cofx :as cofx]
             [re-frame.error-emit :as error-emit]
             [re-frame.event-emit :as event-emit]
@@ -1356,58 +1355,6 @@
           "the interceptor short-circuited the handler via :rf/skip-handler?")
       (is (= :fired @(rf/subscribe [:evt-conf/guard-marker]))
           "the interceptor's directly-installed effect ran (no reg-event-ctx needed)"))))
-
-;; ===========================================================================
-;; (8) Realm-routing preserved for reg-event (a15n62) — the public registrar
-;;     resolves through the owning frame's realm registrar.
-;; ===========================================================================
-
-(defn- add-a    [{:keys [db]} _] {:db (assoc db :who :a)})
-(defn- add-b    [{:keys [db]} _] {:db (assoc db :who :b)})
-
-(deftest reg-event-routes-through-the-owning-frames-realm-registrar
-  (testing "EP-0013 step 4 (a15n62) preserved for the ONE form: the SAME
-            reg-event id installed into two realms carries genuinely different
-            handlers, each resolved through ITS realm's registrar — no
-            cross-realm bleed, and the default realm never sees them"
-    (let [_ra (realm/construct-realm {:id :evt-conf/ra})
-          _rb (realm/construct-realm {:id :evt-conf/rb})
-          app-of (fn [h] (av/app {:id :evt-conf/shared :modules
-                                  [(av/module {:id :m :events {:shared/e {:handler h}}})]}))]
-      (av/install! (realm/realm :evt-conf/ra) (app-of add-a))
-      (av/install! (realm/realm :evt-conf/rb) (app-of add-b))
-      ;; The facade no longer exposes a realm-targeted query (rf2-10nggz); realm
-      ;; isolation is read through the internal `re-frame.realm/realm-handler-meta`.
-      (is (= add-a (:handler-fn (realm/realm-handler-meta :evt-conf/ra :event :shared/e)))
-          "realm ra resolves ITS handler for the shared reg-event id")
-      (is (= add-b (:handler-fn (realm/realm-handler-meta :evt-conf/rb :event :shared/e)))
-          "realm rb resolves ITS handler for the shared reg-event id")
-      (is (not= (realm/realm-handler-meta :evt-conf/ra :event :shared/e)
-                (realm/realm-handler-meta :evt-conf/rb :event :shared/e))
-          "the two realms hold genuinely different handlers for the same id")
-      (is (nil? (rf/handler-meta :event :shared/e))
-          "the shared id is absent from the default realm (no global bleed)"))))
-
-(deftest public-reg-event-fn-honours-the-bound-realm-registrar
-  (testing "EP-0013 step 4 (a15n62): the PUBLIC `reg-event` registrar fn itself
-            routes to the active realm registrar — calling `rf/reg-event` inside
-            a non-default realm's registrar binding seats the handler into THAT
-            realm's own registrar, invisible to the default realm"
-    (let [r (realm/construct-realm {:id :evt-conf/bound})]
-      ;; Bind the active registrar to the constructed realm's OWN atom — the
-      ;; exact seam (`registrar/*registrar*`) the router's
-      ;; `call-with-frame-realm-registrar` binds around a realm-routed dispatch
-      ;; (frame.cljc) — then call the PUBLIC reg-event through it.
-      (binding [registrar/*registrar* (realm/registrar r)]
-        (rf/reg-event :evt-conf/realm-scoped (fn [{:keys [db]} _] {:db (assoc db :seated :here)})))
-      ;; It landed in the realm's OWN registrar …
-      (is (fn? (get-in @(realm/registrar r) [:event :evt-conf/realm-scoped :handler-fn]))
-          "the public reg-event seated the handler into the bound realm's own registrar")
-      (is (fn? (:handler-fn (realm/realm-handler-meta :evt-conf/bound :event :evt-conf/realm-scoped)))
-          "the realm-scoped handler-meta resolves the realm-seated reg-event")
-      ;; … and is INVISIBLE to the process-global / default-realm registrar.
-      (is (nil? (registrar/lookup :event :evt-conf/realm-scoped))
-          "the default-realm registrar did NOT receive the realm-scoped reg-event"))))
 
 ;; ===========================================================================
 ;; (9) EP-0015 event-registration intersection — the frame-owned OFF-BOX
