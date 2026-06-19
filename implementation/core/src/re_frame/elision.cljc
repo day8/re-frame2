@@ -909,6 +909,42 @@
                      (collect-wire-values! (transient #{}) wire candidates))]
         (into #{} (remove public) candidates)))))
 
+(def ^:private no-match
+  "Distinguished not-found sentinel for `redact-matching-tree`'s `replace-fn`,
+  so a match whose replacement is legitimately nil/false is still honoured."
+  ::no-match)
+
+(defn- redact-matching-tree
+  "The single derived-tree value-match walker, parameterized by the egress
+  AXIS via `replace-fn` (rf2-jevy26). Walks `tree`; at each node `replace-fn`
+  returns either the AXIS replacement (a matched node is substituted wholesale
+  and NOT descended) or the `no-match` sentinel (descend structurally).
+  Recurses maps/vectors/sets/seqs (map KEYS too — a secret/large value used as
+  a key is replaced on both sides) and treats every other value as a leaf.
+
+  The two arms differ only in `replace-fn`: the sensitive axis substitutes any
+  member of the `secrets` set with the `:rf/redacted` sentinel
+  (`redact-matching-values`); the large axis substitutes any key of the
+  `{large-value marker}` map with that key's `:rf.size/large-elided` marker
+  (`redact-matching-large-values`). Both replacements are terminal and
+  idempotent under a re-projection pass."
+  [tree replace-fn]
+  (letfn [(walk* [t]
+            (let [r (replace-fn t)]
+              (if-not (identical? r no-match)
+                r
+                (cond
+                  (map? t)    (persistent!
+                                (reduce-kv (fn [acc k v]
+                                             (assoc! acc (walk* k) (walk* v)))
+                                           (transient {})
+                                           t))
+                  (vector? t) (mapv walk* t)
+                  (set? t)    (into #{} (map walk*) t)
+                  (seq? t)    (map walk* t)
+                  :else       t))))]
+    (walk* tree)))
+
 (defn redact-matching-values
   "Walk `tree`, substituting any leaf `=` to a member of `secrets` with the
   `:rf/redacted` sentinel. Recurses through maps, vectors, sets, seqs; treats
@@ -919,19 +955,9 @@
   [tree secrets]
   (if (empty? secrets)
     tree
-    (letfn [(walk* [t]
-              (cond
-                (contains? secrets t) privacy/redacted-sentinel
-                (map? t)    (persistent!
-                              (reduce-kv (fn [acc k v]
-                                           (assoc! acc (walk* k) (walk* v)))
-                                         (transient {})
-                                         t))
-                (vector? t) (mapv walk* t)
-                (set? t)    (into #{} (map walk*) t)
-                (seq? t)    (map walk* t)
-                :else       t))]
-      (walk* tree))))
+    (redact-matching-tree
+      tree
+      (fn [t] (if (contains? secrets t) privacy/redacted-sentinel no-match)))))
 
 (defn redact-derived-values
   "Value-redact a DERIVED `tree` (rendered hiccup, a resolved `:effective-args`
@@ -1080,19 +1106,9 @@
   [tree marker-map]
   (if (empty? marker-map)
     tree
-    (letfn [(walk* [t]
-              (if-let [m (find marker-map t)]
-                (val m)
-                (cond
-                  (map? t)    (persistent!
-                                (reduce-kv (fn [acc k v]
-                                             (assoc! acc (walk* k) (walk* v)))
-                                           (transient {}) t))
-                  (vector? t) (mapv walk* t)
-                  (set? t)    (into #{} (map walk*) t)
-                  (seq? t)    (map walk* t)
-                  :else       t)))]
-      (walk* tree))))
+    (redact-matching-tree
+      tree
+      (fn [t] (if-let [m (find marker-map t)] (val m) no-match)))))
 
 (defn redact-derived-large-values
   "Value-elide a DERIVED `tree` against the live values at `frame-id`'s
