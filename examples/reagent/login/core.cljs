@@ -104,30 +104,27 @@
 ;; The submit-event payload — the credentials map the view collects from
 ;; the form. Open by default; the regex/min-length checks describe the
 ;; shape the inner handler relies on.
-;; EP-0015 (Frame-Owned Egress Policy): the `:password` slot is classified
-;; `:sensitive?` — the declarative "this is secret data" marking on the
-;; credentials shape (Spec 015 §Worked example, Option B). This is the
-;; canonical place a reader expects the marking idiom on a login form.
 ;;
-;; HONEST SCOPE — where this mark does and does NOT redact. `Credentials` is
-;; the machine's EVENT-arg schema (it rides `AuthLoginEvent` via the machine's
-;; event `:schema`), not an app-db `reg-app-schema` and not the machine's
-;; `:data-schema`. The password is never written to durable app-db or to the
-;; machine `:data` slot, so neither the app-db schema-marks bridge
-;; (`populate-sensitive-from-schemas!`) nor the machine `:data-schema` egress
-;; bridge (`register-data-schema-marks!`) applies, and a machine handler does
-;; not stash event-arg `:sensitive` paths (reg-event skips that for
-;; `:rf/machine?`). So this slot mark does NOT by itself redact the password
-;; from the dispatched event vector. The password's real off-box egress path
-;; is the HTTP request body — redacted by the per-request `:sensitive? true`
-;; flag on the managed-HTTP call in `:issue-request` below (Spec 014 §Privacy /
-;; EP-0015 issue 5), which is the WORKING, observable redaction. The two
-;; together are the complete EP-0015 picture: declarative slot classification +
-;; the carrier-level flag that actually scrubs the wire.
+;; EP-0025 (rf2-398kql) — schema-attached `:sensitive?` / `:large?` field
+;; classification is REMOVED. Frame-declared `:sensitive` / `:large {:app-db …}`
+;; paths (`reg-frame`, EP-0015) are now the SOLE app-db data-classification
+;; mechanism. `Credentials` is the machine's EVENT-arg schema (it rides
+;; `AuthLoginEvent` via the machine's event `:schema`); the password is never
+;; written to durable app-db or the machine `:data` slot, so there is NO app-db
+;; path to frame-declare for it — and the prior `{:sensitive? true}` slot prop
+;; was already a documentary no-op (it classified the event-arg shape but never
+;; redacted the dispatched vector; see the pre-EP-0025 HONEST-SCOPE note in the
+;; git history). It is dropped here.
+;;
+;; The password's real off-box egress path is the HTTP request body — redacted
+;; by the per-request `:sensitive? true` flag on the managed-HTTP call in
+;; `:issue-request` below (Spec 014 §Privacy, a DIFFERENT axis from app-db
+;; classification and explicitly KEPT). That carrier-level flag is the WORKING,
+;; observable redaction for this login flow.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
-   [:password {:sensitive? true} [:string {:min 8}]]])
+   [:password [:string {:min 8}]]])
 
 ;; Outer event-vector schema for the :auth.login/flow machine handler.
 ;; The login form is the canonical user-facing boundary, so we validate
@@ -397,11 +394,12 @@
 ;; `:where :event` boundary on the dispatched outer vector) alongside the
 ;; machine spec. `reg-machine` is the blessed registration home — it stamps
 ;; the `:rf/machine?` / `:rf/machine` metadata that `(machine-meta
-;; :auth.login/flow)` reads (so the `:where :machine-data` walker resolves the
-;; `:data-schema` and it VALIDATES) AND bridges the schema's `:sensitive?` /
-;; `:large?` slots into snapshot-egress redaction — both in one place. The
-;; former hand-stamped `reg-event` + `make-machine-handler` composition
-;; (which ran neither side-effect automatically) is gone.
+;; :auth.login/flow)` reads, so the `:where :machine-data` walker resolves the
+;; `:data-schema` and it VALIDATES. (EP-0025, rf2-398kql: the home no longer
+;; bridges the `:data-schema`'s `:sensitive?` / `:large?` slots into snapshot-
+;; egress redaction — schema-field classification is removed; durable machine
+;; `:data` egress classification is frame-owned, like every other app-db path.)
+;; The former hand-stamped `reg-event` + `make-machine-handler` composition is gone.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}

@@ -56,18 +56,19 @@
 ;; SCHEMAS
 ;; ============================================================================
 
-;; EP-0015 (Frame-Owned Egress Policy): the `:password` slot is classified
-;; `:sensitive?` (the declarative secret-data marking) and the managed-HTTP
-;; request below carries `:sensitive? true` to scrub the password off the wire.
-;; See examples/reagent/login for the full HONEST-SCOPE rationale: the slot
-;; mark on a machine EVENT-arg schema classifies the shape but does not itself
-;; redact the dispatched event vector; the per-request HTTP `:sensitive?` flag
-;; is the working, observable EP-0015 redaction (the password's real off-box
-;; egress path is the request body). Parity across reagent/login + uix.
+;; EP-0025 (rf2-398kql): schema-attached `:sensitive?` / `:large?` field
+;; classification is REMOVED — frame-declared `:sensitive` / `:large {:app-db …}`
+;; paths (`reg-frame`, EP-0015) are the SOLE app-db classification mechanism.
+;; The password never lands in app-db (it rides the machine EVENT-arg schema and
+;; the HTTP body), so there is no app-db path to frame-declare; the prior
+;; `{:sensitive? true}` slot prop was a documentary no-op and is dropped. The
+;; managed-HTTP request below still carries `:sensitive? true` to scrub the
+;; password off the wire — a DIFFERENT axis (Spec 014 §Privacy, KEPT) and the
+;; working, observable redaction. Parity across reagent/login + uix.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
-   [:password {:sensitive? true} [:string {:min 8}]]])
+   [:password [:string {:min 8}]]])
 
 ;; Outer event-vector schema for the :auth.login/flow machine handler —
 ;; see examples/reagent/login for the full rationale. The :submit
