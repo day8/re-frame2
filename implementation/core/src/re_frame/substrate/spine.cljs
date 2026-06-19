@@ -1599,6 +1599,27 @@
         use-subscribe-2
         (fn use-subscribe-2 [frame-kw query-v]
           (let [key-ref (React/useRef nil)
+                ;; Holds the DURABLE committed reaction (rf2-sqhjtu). The
+                ;; render-phase `reaction` handle below is a balanced,
+                ;; net-zero subscribe/unsubscribe round-trip whose value
+                ;; equals the committed one but whose IDENTITY can differ on
+                ;; first mount: with no prior cache entry the round-trip's
+                ;; 1 → 0 unsubscribe DISPOSES that handle (evicts it, removes
+                ;; its source watches), and `subscribe-fn` then rebuilds a
+                ;; fresh committed reaction post-commit. A disposed reaction
+                ;; still recomputes on `-deref` (pull-based), so reading it
+                ;; from `get-snap` LOOKS correct for ordinary app-db updates
+                ;; — but it no longer holds source watches and, crucially,
+                ;; still closes over the OLD sub body. On sub re-registration
+                ;; / hot-reload the cache rebuilds the committed reaction with
+                ;; the v2 body while a `get-snap` pinned to the disposed v1
+                ;; handle keeps rendering v1 output. React's
+                ;; `useSyncExternalStore` contract requires `getSnapshot` to
+                ;; read a stable, LIVE source — so `get-snap` reads the
+                ;; committed reaction stored here once `subscribe-fn` has run
+                ;; (post-commit), falling back to the render-phase handle only
+                ;; for the very first pre-commit snapshot.
+                committed-ref (React/useRef nil)
                 stable-key
                 (let [prev (.-current key-ref)
                       new-key #js [frame-kw query-v]]
@@ -1672,10 +1693,31 @@
                               r))
                           #js [stable-key])
                 ;; The store-snapshot fn React calls on every render to
-                ;; detect tearing. Pure deref of the reaction.
+                ;; detect tearing. Pure deref of the LIVE committed reaction.
+                ;;
+                ;; rf2-sqhjtu: prefer the durable committed reaction stored in
+                ;; `committed-ref` by `subscribe-fn` (set post-commit, cleared
+                ;; on teardown). The render-phase `reaction` handle is only the
+                ;; fallback for the FIRST pre-commit snapshot — before React has
+                ;; run `subscribe-fn`, `committed-ref` is still nil and the
+                ;; balanced render-phase handle is the only thing to read. Once
+                ;; committed, `get-snap` tracks the live cached reaction (the
+                ;; one carrying source watches and the current sub body), never
+                ;; a disposed first-render handle. The committed reaction's
+                ;; value `=` the render-phase one (rf2-cmfln), so the source
+                ;; swap is tear-free.
+                ;;
+                ;; Deps include `reaction` so the pre-commit fallback never
+                ;; closes over a stale (perf-discarded) render-phase handle;
+                ;; once `committed-ref` is populated post-commit, `get-snap`'s
+                ;; identity is irrelevant to correctness — React drives tear
+                ;; detection off the returned VALUE, and the committed source
+                ;; is read through the ref on every call.
                 get-snap
-                (use-callback (fn [] (when reaction @reaction))
-                              #js [reaction])
+                (use-callback (fn []
+                                (let [r (or (.-current committed-ref) reaction)]
+                                  (when r @r)))
+                              #js [stable-key reaction])
                 ;; The store-subscribe fn — React's COMMIT-OWNED acquire/release
                 ;; pair. React calls it (once) only AFTER a commit, passing a
                 ;; force-update callback; its returned cleanup runs on unmount,
@@ -1707,6 +1749,11 @@
                     ;; reaction is the live cached one and `=` (often identical)
                     ;; to the render-phase handle `reaction`.
                     (let [committed (subs/subscribe stable-frame-kw stable-query-v)]
+                      ;; rf2-sqhjtu: publish the durable committed reaction so
+                      ;; `get-snap` derefs THIS live handle (source watches +
+                      ;; current sub body) rather than the disposed render-phase
+                      ;; one. Set post-commit (here), cleared on teardown below.
+                      (set! (.-current committed-ref) committed)
                       ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
                       ;; closed over by the returned cleanup. The key MUST
                       ;; NOT derive from `(hash reaction)`: subscriptions are
@@ -1728,6 +1775,15 @@
                           (add-watch committed k (fn [_ _ _ _] (on-change))))
                         (fn unsubscribe []
                           (when committed (remove-watch committed k))
+                          ;; rf2-sqhjtu: clear the published committed reaction,
+                          ;; but ONLY if it still points at THIS invocation's
+                          ;; handle. A later `subscribe-fn` re-acquire (e.g. a
+                          ;; subscribe-identity change) may have already
+                          ;; overwritten `committed-ref` with the NEW committed
+                          ;; reaction before this older cleanup runs; clobbering
+                          ;; it to nil would strand `get-snap` on the fallback.
+                          (when (identical? (.-current committed-ref) committed)
+                            (set! (.-current committed-ref) nil))
                           ;; Release the durable committed ref — symmetric with
                           ;; the `subs/subscribe` above. Runs on unmount /
                           ;; key change / teardown.
