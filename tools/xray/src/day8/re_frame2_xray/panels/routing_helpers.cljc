@@ -385,12 +385,34 @@
   :rf.route/deactivated)
 
 (defn focused-cascade
-  "Find the cascade in `cascades` whose `:dispatch-id` matches
-  `focused-id`. Returns nil when the id has aged out of the buffer
-  or the spine has no focus yet."
-  [cascades focused-id]
-  (when focused-id
-    (some #(when (= focused-id (:dispatch-id %)) %) cascades)))
+  "Find the cascade in `cascades` matching the spine `focus` map.
+
+  Returns nil when the focus has no dispatch-id (spine has no focus
+  yet), when the id has aged out of the buffer, or — when `focus`
+  carries a `:frame` — when no cascade in that frame carries the
+  focused dispatch-id.
+
+  rf2-bz7flo — keyed FRAME-STRICTLY. Dispatch ids are unique only
+  within a frame (Spec 002 §Frame isolation + rf2-g6ih4); the trace
+  projection groups cascades by `[frame dispatch-id]` and emits two
+  records for a cross-frame id collision. Matching by dispatch-id
+  alone could surface route overlays from a foreign frame's same-id
+  cascade while focus is on another. When `focus` has no `:frame`
+  (single-frame / pre-frame-set focus) the lookup degrades to a plain
+  dispatch-id match.
+
+  This helper stays a pure CLJC data fn (no `spine` dep) so it runs
+  under the JVM test target; it mirrors `spine/cascade-by-focus`."
+  [cascades focus]
+  (let [focused-id (:dispatch-id focus)
+        frame      (:frame focus)]
+    (when focused-id
+      (if frame
+        (some #(when (and (= focused-id (:dispatch-id %))
+                          (= frame (:frame %)))
+                 %)
+              cascades)
+        (some #(when (= focused-id (:dispatch-id %)) %) cascades)))))
 
 (defn- cascade-trace-events
   "Flatten every trace-event bucket on a cascade into one seq. Per

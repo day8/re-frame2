@@ -541,8 +541,11 @@
     :<- [:rf.xray/cascades]
     :<- [:rf.xray/focus]
     (fn [[routes-map slice cascades focus] _query]
-      (let [focused-cascade (h/focused-cascade cascades
-                                               (:dispatch-id focus))]
+      ;; rf2-bz7flo — pass the whole focus map so the lookup is
+      ;; frame-strict (dispatch ids collide across frames). Passing only
+      ;; `(:dispatch-id focus)` could surface route overlays from a foreign
+      ;; frame's same-id cascade while focus is on another frame.
+      (let [focused-cascade (h/focused-cascade cascades focus)]
         (h/project-topology-data routes-map slice focused-cascade))))
 
   ;; rf2-2moh1 — register the Dynamic Routing tab with the internal L4

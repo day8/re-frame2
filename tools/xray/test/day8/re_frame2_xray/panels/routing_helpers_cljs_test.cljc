@@ -284,15 +284,35 @@
 ;; ---- focused-cascade ----------------------------------------------------
 
 (deftest focused-cascade-test
-  (testing "nil focused-id → nil"
-    (is (nil? (h/focused-cascade [(cascade 1 [:a])] nil))))
+  (testing "nil dispatch-id (no focus) → nil"
+    (is (nil? (h/focused-cascade [(cascade 1 [:a])] nil)))
+    (is (nil? (h/focused-cascade [(cascade 1 [:a])] {}))))
 
   (testing "no match → nil"
-    (is (nil? (h/focused-cascade [(cascade 1 [:a])] 99))))
+    (is (nil? (h/focused-cascade [(cascade 1 [:a])] {:dispatch-id 99}))))
 
-  (testing "match returns the cascade record"
+  (testing "match returns the cascade record (frameless focus)"
     (let [c (cascade 7 [:foo])]
-      (is (= c (h/focused-cascade [(cascade 1 [:a]) c (cascade 9 [:b])] 7))))))
+      (is (= c (h/focused-cascade [(cascade 1 [:a]) c (cascade 9 [:b])]
+                                  {:dispatch-id 7}))))))
+
+(deftest focused-cascade-frame-strict-rf2-bz7flo
+  (testing "rf2-bz7flo — dispatch ids collide across frames; the lookup must
+            select the FOCUSED frame's cascade, not the first same-id match.
+            Two cascades share dispatch-id 7 in :frame/a and :frame/b with
+            distinct events; the focus pins :frame/b."
+    (let [c-a (assoc (cascade 7 [:a-event]) :frame :frame/a)
+          c-b (assoc (cascade 7 [:b-event]) :frame :frame/b)
+          cascades [c-a c-b]]
+      (is (= c-b (h/focused-cascade cascades {:dispatch-id 7 :frame :frame/b}))
+          "focus on :frame/b selects the :frame/b cascade, not :frame/a's
+           same-id cascade that sits earlier in the vector")
+      (is (= c-a (h/focused-cascade cascades {:dispatch-id 7 :frame :frame/a}))
+          "focus on :frame/a selects the :frame/a cascade")
+      (is (nil? (h/focused-cascade cascades {:dispatch-id 7 :frame :frame/c}))
+          "no cascade for the focused frame → nil (no foreign-frame
+           fallback); the routing tab renders no overlay rather than a
+           wrong-frame one"))))
 
 ;; ---- nav-token-allocated-in-cascade -------------------------------------
 

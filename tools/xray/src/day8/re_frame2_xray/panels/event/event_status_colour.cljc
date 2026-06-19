@@ -294,9 +294,21 @@
    (cascade->state cascade focus cascade-outcome))
   ([cascade focus outcome-fn]
   (let [outcome   (some-> cascade outcome-fn :outcome)
+        ;; rf2-bz7flo — frame-strict focused? check. Dispatch ids are unique
+        ;; only WITHIN a frame, so when a multi-frame caller renders two
+        ;; same-id cascades from different frames, a dispatch-id-only match
+        ;; would mark BOTH focused/paused/stale. When both the cascade and
+        ;; focus carry a `:frame`, require them to agree; degrade to a plain
+        ;; dispatch-id match when either is frameless (single-frame focus,
+        ;; JVM unit tests building the cascade by hand).
+        cascade-frame (:frame cascade)
+        focus-frame   (:frame focus)
         focused?  (boolean
                     (and cascade focus
-                         (= (:dispatch-id cascade) (:dispatch-id focus))))
+                         (= (:dispatch-id cascade) (:dispatch-id focus))
+                         (or (nil? cascade-frame)
+                             (nil? focus-frame)
+                             (= cascade-frame focus-frame))))
         stale?    (boolean (and focused? (= :retro (:mode focus))))]
     {:outcome    outcome
      :focused?   focused?

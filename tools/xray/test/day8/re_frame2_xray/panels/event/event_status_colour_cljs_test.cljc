@@ -247,6 +247,37 @@
       (is (false? (:focused? state)))
       (is (= :settled-success (event-status/classify-status state))))))
 
+(deftest cascade->state-frame-strict-focused-rf2-bz7flo
+  (testing "rf2-bz7flo — when a multi-frame caller renders two cascades
+            sharing a dispatch-id in different frames, only the cascade
+            in the FOCUSED frame is :focused?. A dispatch-id-only check
+            would mark BOTH focused/paused/stale."
+    (let [focus    {:dispatch-id 7 :frame :frame/b :mode :retro :paused? true}
+          in-frame (event-status/cascade->state
+                     {:dispatch-id 7 :frame :frame/b} focus (mock-outcome :ok))
+          foreign  (event-status/cascade->state
+                     {:dispatch-id 7 :frame :frame/a} focus (mock-outcome :ok))]
+      (is (true? (:focused? in-frame))
+          "the focused-frame cascade is focused")
+      (is (true? (:paused? in-frame)))
+      (is (true? (:stale? in-frame)))
+      (is (false? (:focused? foreign))
+          "the same-id cascade in a DIFFERENT frame is NOT focused")
+      (is (false? (:paused? foreign)))
+      (is (false? (:stale? foreign)))))
+
+  (testing "rf2-bz7flo — degrades to a dispatch-id-only match when either
+            the cascade or the focus is frameless (single-frame focus /
+            JVM rigs building the cascade by hand)"
+    (let [focus {:dispatch-id 7 :mode :live}]
+      (is (true? (:focused? (event-status/cascade->state
+                              {:dispatch-id 7 :frame :frame/a} focus (mock-outcome :ok))))
+          "frameless focus + framed cascade → id-only match, focused")
+      (is (true? (:focused? (event-status/cascade->state
+                              {:dispatch-id 7} {:dispatch-id 7 :frame :frame/a :mode :live}
+                              (mock-outcome :ok))))
+          "framed focus + frameless cascade → id-only match, focused"))))
+
 ;; ---- visual smoke — per-state hex landing on the right palette anchor --
 
 (deftest visual-smoke-per-state-colour-mapping
