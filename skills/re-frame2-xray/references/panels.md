@@ -517,6 +517,8 @@ implementation at
 
 ### Graph — cross-feature · mnem `g` · `:order 8`
 
+<a id="graph"></a>
+
 Question: **Where does this value come from — when is it evaluated, where
 does it live, who owns it?** — across families, in one place. (Display
 label **Graph**; internal tab id `:derivation-graph`.) Xray's UI over the
