@@ -13,8 +13,10 @@ wrong skill — close this and answer from the spec corpus directly.
 ## re-frame2 runtime surfaces
 
 - **re-frame2** — the framework the running app is built on.
-- **frame** — a registered, named cascade root (`:rf/default`, plus any extras
-  the app registers). Most apps run a single frame.
+- **frame** — a registered, named cascade root, whatever id the app chose
+  (e.g. `:app/main`). Most apps run a single frame; `:rf/default` is an
+  ordinary app frame an app may register, with no framework privilege (EP-0002
+  — not auto-created, not a fallback).
 - **epoch** — one assembled run of the six dominoes for a given dispatch; the
   unit of `epoch-history` and `restore-epoch`.
 - **app-db** — a frame's reactive root atom; read via `app-db/snapshot`,
