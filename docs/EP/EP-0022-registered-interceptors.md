@@ -96,10 +96,10 @@ assembled chain. It works only when the inline value happens to carry a stable
 replacement does not serialize across stories, SSR artifacts, app values, or
 agent-visible tooling.
 
-The system is already behaving as if interceptors are named program members.
+The system is already behaving as if interceptors are named image members.
 This EP makes that true.
 
-### App-as-value needs named program members
+### App-as-value needs named image members
 
 EP-0013 turns applications into values that can be constructed, installed,
 queried, patched, tested, and explained. Events, subs, effects, coeffects,
@@ -473,7 +473,7 @@ frame :interceptor-overrides < dispatch opts :interceptor-overrides
 A replacement ref is resolved through the same registrar before execution. A
 `nil` replacement removes the matching ref from the chain.
 
-Framework dispatch-time interceptors that are not authored program members
+Framework dispatch-time interceptors that are not authored image members
 remain governed by their owning specs. For example, flow transformation can
 still wrap after the authored chain in the position required by Spec 013. This
 EP changes authored interceptor naming, not subsystem-owned dispatch
