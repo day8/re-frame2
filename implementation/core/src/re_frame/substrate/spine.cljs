@@ -1722,9 +1722,17 @@
                 :event-id (first query-v)})
              query-v))
           ([frame-kw query-v] (use-subscribe-2 frame-kw query-v)))]
-    {:emitter-cell                emitter-cell
-     :warn-cache                  warn-cache
-     :active-roots-cell           active-roots-cell
+    ;; rf2-6id3el: the return map exposes ONLY the surfaces the adapter
+    ;; assembler consumes. `:warn-cache` is read by `make-react-adapter`
+    ;; (the governance arm/armed? probes, :1868). The `:emitter-cell` /
+    ;; `:active-roots-cell` cells stay INTERNAL to this closure — they are
+    ;; wired into the spine fns (`render`, `set-hiccup-emitter!`,
+    ;; `dispose-fn`) here and read by NO assembler or production call site,
+    ;; so leaking them through the contract map would be dead surface. The
+    ;; dispose unit tests build their own cells via the `make-*-cell`
+    ;; factories and feed `make-dispose-adapter!` directly, so narrowing the
+    ;; map breaks no test.
+    {:warn-cache                  warn-cache
      :make-state-container        make-state-container
      :read-container              read-container
      :replace-container!          replace-cont!
@@ -1955,9 +1963,13 @@
        :render-to-string           …
        :dispose-adapter!           …
        :flush-render!              …
-       :set-hiccup-emitter!        …
-       :active-roots-cell          …
-       :emitter-cell               …}
+       :flush-views!               …
+       :set-hiccup-emitter!        …}
+
+  rf2-6id3el: the internal `active-roots-cell` / `emitter-cell` are NOT
+  exposed — they stay confined to this closure (wired into `render`,
+  `dispose-adapter!`, `set-hiccup-emitter!`); no assembler or production
+  call site read them.
 
   `:register-context-provider` is NOT produced here: for the ratom
   family it is the Reagent-component-shaped frame-provider from
@@ -2092,9 +2104,15 @@
      ;; surface the SAME `flush-views!` Var with the SAME nil-return shape.
      :flush-views!               flush-views!
      :set-hiccup-emitter!        (fn set-it! [f]
-                                   (set-hiccup-emitter! emitter-cell f))
-     :active-roots-cell          active-roots-cell
-     :emitter-cell               emitter-cell}))
+                                   (set-hiccup-emitter! emitter-cell f))}))
+;; rf2-6id3el: the ratom return map exposes ONLY the surfaces the adapter
+;; assembler consumes. `make-ratom-adapter` reads none of the internal
+;; cells; the `:active-roots-cell` / `:emitter-cell` cells stay INTERNAL to
+;; this closure (wired into `render`, `dispose-adapter!`,
+;; `set-hiccup-emitter!`) and were read by NO assembler or production call
+;; site, so they were dead contract surface. (The ratom family has no
+;; `:warn-cache` — its source-coord walk lives in `re-frame.views`, not the
+;; spine — so unlike `make-react-spine` it exposes no internal cell at all.)
 
 ;; ---- ratom-family adapter assembly (Reagent + reagent-slim) ---------------
 ;;
