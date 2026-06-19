@@ -354,6 +354,21 @@
         ;; URL has NOT updated. The handler is responsible for pushing
         ;; the new URL (history pushState) and then synthesising the
         ;; :rf.route/transitioned event the slice + on-match write keys off.
+        ;;
+        ;; rf2-6si0sr: this re-dispatch INTENTIONALLY does NOT carry
+        ;; `:source :router` — unlike the link-click (`link.cljc`) and
+        ;; on-match-error (`on_match_error.cljc`) sites. Those two are
+        ;; IMPERATIVE `router/dispatch!` calls at a non-event boundary (a DOM
+        ;; click / an error-listener), where the source would otherwise
+        ;; default to `:ui` / `:unknown`, so they must stamp `:source :router`
+        ;; explicitly. This site is a `:dispatch` FX returned from inside an
+        ;; event handler: core's `:dispatch` fx-handler (`fx.cljc`)
+        ;; UNCONDITIONALLY stamps the child envelope `:source :fx-dispatch`
+        ;; (per rf2-ejtpd) — already a substrate-internal origin Xray's L2
+        ;; renders as "from fx :dispatch · parent epoch #N", never `:ui`. The
+        ;; `[:dispatch event]` effect form carries no `:source` opt slot, and
+        ;; the fx-handler hardcodes it regardless, so `:fx-dispatch` is both
+        ;; the correct tag and the only achievable one here.
         {:fx [[:rf.nav/push-url app-url]
               [:dispatch [:rf.route/transitioned app-url {:bypass-leave-guard? true}]]]})))
 
