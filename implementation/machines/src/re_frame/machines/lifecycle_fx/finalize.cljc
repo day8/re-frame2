@@ -73,34 +73,15 @@
            (catch #?(:clj Throwable :cljs :default) _ nil))))
   nil)
 
-;; ---- per-instance :data-schema marks cleanup (rf2-egvm4t) -----------------
+;; ---- per-instance :data-schema marks cleanup: REMOVED (EP-0025, rf2-398kql)
 ;;
-;; Per rf2-fm1cpl `spawn-fx` records the spawned actor's `:data-schema`-
-;; derived marks under the INSTANCE id (in the marks artefact's
-;; schema-sourced table) so the instance-id trace's `(marks-for :event
-;; <instance-id>)` lookup redacts a `:sensitive?` `:data` slot. Per
-;; rf2-egvm4t every destroy trigger must CLEAR that per-instance entry so a
-;; destroyed actor leaves no marks-table residue (an unbounded leak under
-;; per-request spawn/destroy churn) — symmetric with the snapshot dissoc, the
-;; registrar unregister, and the spawn-order forget. `restore-epoch!` (since
-;; EP-0001) reverts the WHOLE frame-state — both partitions — but these
-;; per-instance marks live in the marks artefact's OWN schema-sourced table,
-;; OUTSIDE frame-state, so they do NOT reappear on restore. Instead the
-;; lazy actor-handler resolver re-runs the spawn bridge from the restored
-;; snapshot's spec to rehydrate them (see
-;; `registration/resolve-actor-handler-meta`). The marks-table thus tracks
-;; live spawned-actor liveness in lock-step with the revertible snapshot.
-
-(defn clear-actor-schema-marks!
-  "Fire the late-bind hook that drops the destroyed actor's per-instance
-  `:data-schema` marks (rf2-egvm4t). Idempotent, and safe to call when the
-  marks artefact is absent or the id has no entry (returns nil)."
-  [actor-id]
-  (when actor-id
-    (when-let [clear! (late-bind/get-fn :marks/clear-machine-schema-marks!)]
-      (try (clear! actor-id)
-           (catch #?(:clj Throwable :cljs :default) _ nil))))
-  nil)
+;; `clear-actor-schema-marks!` (rf2-egvm4t) is GONE. It fired
+;; `:marks/clear-machine-schema-marks!` to drop a destroyed spawned actor's
+;; per-instance `:data-schema`→marks entry (recorded at spawn time by the
+;; rf2-fm1cpl bridge). With schema-field classification killed in favour of
+;; frame-declared paths as the sole app-db mechanism, the spawn-time bridge and
+;; its schema-sourced marks table are both removed, so there is nothing to
+;; clear here — a destroyed actor leaves no schema-marks residue by construction.
 
 ;; ---- final-state resolution -----------------------------------------------
 
@@ -539,10 +520,9 @@
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
     (timer/cancel-actor-timers! frame-id machine-id)
-    ;; rf2-egvm4t — drop the actor's per-instance :data-schema marks so the
-    ;; auto-destroyed actor leaves no marks-table residue (symmetric with the
-    ;; snapshot dissoc + registrar unregister above).
-    (clear-actor-schema-marks! machine-id)
+    ;; EP-0025 (rf2-398kql): the per-instance `:data-schema`-marks clear
+    ;; (rf2-egvm4t) is REMOVED — the spawn-time schema→marks bridge it matched
+    ;; is gone (schema-field classification killed). No marks residue to drop.
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     ;; (7) Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): when the child

@@ -152,13 +152,11 @@
   best-effort, idempotent helper the spawn-destroy + final-state
   teardowns use, so the rf2-wvkn contract has one home.
 
-  Per rf2-egvm4t this path deliberately does NOT clear `:data-schema` marks:
-  a singleton's marks are keyed under the TYPE id and its handler outlives
-  any particular frame (it lives in the global registrar), so the marks must
-  survive frame destroy to keep redacting the type's traces in other frames.
-  SPAWNED instances — whose per-instance marks DO get cleared — are recorded
-  in spawn-order and flow through `destroy/destroy-single-actor!` (which
-  clears them), never this straggler path."
+  EP-0025 (rf2-398kql): this path formerly noted it deliberately did NOT clear
+  `:data-schema` marks (rf2-egvm4t). The whole machine `:data-schema`→marks
+  bridge is now removed (schema-field classification killed in favour of
+  frame-declared paths), so there are no schema marks for any teardown path —
+  singleton or spawned — to clear or preserve."
   [frame-id actor-id]
   (exit-cascade/run-child-exit! frame-id actor-id)
   (finalize/abort-actor-in-flight-http! actor-id)

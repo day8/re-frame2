@@ -97,9 +97,10 @@
        any teardown work — fires `:exit`-emitted fx via do-fx and writes
        any `:data` updates back to the (about-to-be-dissoc'd) snapshot;
     2. (rf2-wvkn) abort in-flight `:rf.http/managed` requests;
-    3. (rf2-egvm4t) drop the actor's per-instance `:data-schema` marks so
-       no marks-table residue survives (symmetric with the snapshot dissoc
-       + registrar unregister below);
+    3. (EP-0025, rf2-398kql) — the prior per-instance `:data-schema`-marks
+       clear (rf2-egvm4t) is REMOVED; the schema→marks bridge it matched is
+       gone (schema-field classification killed), so there is no marks-table
+       residue to drop;
     4. (rf2-82a0u) cancel armed `:after` timers, one
        `:rf.machine.timer/cancelled :reason :on-destroy` trace per timer;
     5. apply the unified teardown projection (`teardown/teardown-actor`),
@@ -133,7 +134,10 @@
   [frame-id actor-id teardown-args emit-destroyed!-fn]
   (exit-cascade/run-child-exit! frame-id actor-id)
   (finalize/abort-actor-in-flight-http! actor-id)
-  (finalize/clear-actor-schema-marks! actor-id)
+  ;; EP-0025 (rf2-398kql): the per-instance `:data-schema`-marks clear (step 3,
+  ;; rf2-egvm4t) is GONE — the spawn-time schema→marks bridge it cleaned up after
+  ;; is removed (schema-field classification killed). No marks-table residue to
+  ;; drop here.
   (timer/cancel-actor-timers! frame-id actor-id)
   ;; `teardown-actor` returns [new-runtime-db released-sid]; `swap-runtime-db!`
   ;; expects a fn returning the new runtime-db only, so capture the sid via a
