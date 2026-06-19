@@ -282,12 +282,27 @@
           {}))
       (rf/dispatch-sync [:nested-direct])
       (rf/unregister-listener! :trace ::dsih-direct)
-      (is (some (fn [ev]
-                  (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                       (= :error (:op-type ev))
-                       (= :no-recovery (:recovery ev))))
-                @traces)
-          "expected :rf.error/dispatch-sync-in-handler with :no-recovery")))
+      (let [err (some (fn [ev]
+                        (when (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
+                                   (= :error (:op-type ev))
+                                   (= :no-recovery (:recovery ev)))
+                          ev))
+                      @traces)]
+        (is (some? err)
+            "expected :rf.error/dispatch-sync-in-handler with :no-recovery")
+        ;; rf2-kg0et6 — the rejected inner event vector MUST ride the
+        ;; schema-required `:rf.event/v` tag (Spec-Schemas
+        ;; §DispatchSyncInHandlerTags; Spec 009 §Error event catalogue),
+        ;; NOT the undocumented bare `:event`. Pin both directions so the
+        ;; documented key can't silently drift back.
+        (when err
+          (let [tags (:tags err)]
+            (is (= [:leaf] (:rf.event/v tags))
+                "the rejected inner event vector rides the schema-required :rf.event/v tag")
+            (is (not (contains? tags :event))
+                "the undocumented bare :event tag is not emitted")
+            (is (= :rf/default (:frame tags))
+                "the :frame tag carries the enclosing frame (the default frame here)"))))))
 
   (testing "calling dispatch-sync TRANSITIVELY through a user fx is also caught"
     ;; Some fx handlers naively call dispatch-sync to chain another event.
