@@ -153,8 +153,8 @@
     (is (nil? (spine/cascade-by-focus cross-frame-cascades {})))
     (is (nil? (spine/cascade-by-focus cross-frame-cascades nil)))))
 
-(deftest step-to-cascade-keeps-frame-and-id-in-lockstep-rf2-bz7flo
-  (testing "rf2-bz7flo — step-to-cascade returns the WHOLE stepped row so
+(deftest step-cascade-keeps-frame-and-id-in-lockstep-rf2-bz7flo
+  (testing "rf2-bz7flo — step-cascade returns the WHOLE stepped row so
             its :frame comes from the row stepped to, not an id-only
             re-resolution that could land on a foreign frame's same-id
             cascade. Walk a multi-frame vector where step lands on a
@@ -163,7 +163,7 @@
                     (assoc (cascade :cx :frame/a) :event [:a-event])
                     (assoc (cascade :cx :frame/b) :event [:b-event])]]
       ;; stepping next from :c0 lands on index 1 — the :frame/a :cx row.
-      (let [stepped (spine/step-to-cascade cascades :c0 +1)]
+      (let [stepped (spine/step-cascade cascades :c0 +1)]
         (is (= :cx (:dispatch-id stepped)))
         (is (= :frame/a (:frame stepped))
             "the stepped row's frame is :frame/a (the row at the stepped

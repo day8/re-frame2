@@ -1525,7 +1525,7 @@ tab's `:rf.xray.trace/focused-cascade`, the Routes tab's
 event-status-colour `cascade->state` projects (its `focused?` flag now
 requires frame agreement when both the cascade and focus carry a
 frame). The spine's own step path resolves the stepped row as a whole
-cascade record (`spine/step-to-cascade`) so its `:frame` comes from the
+cascade record (`spine/step-cascade`) so its `:frame` comes from the
 exact row stepped to rather than an id-only re-resolution that could
 land on a foreign frame's same-id cascade. Test gate:
 `routing_helpers_cljs_test.cljc` pins two same-id cross-frame cascades
