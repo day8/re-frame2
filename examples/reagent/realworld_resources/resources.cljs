@@ -32,7 +32,7 @@
             ;; resource/mutation transport (Spec 016 §Transport). Loading the
             ;; ns registers the `:rf.http/managed` fx the runtime lowers each
             ;; ensure/refetch onto.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; Resources ship in day8/re-frame2-resources. Requiring the ns at
             ;; app boot wires the late-bind hooks + registrations; without it,
             ;; `rf/reg-resource` throws :rf.error/resources-artefact-missing.

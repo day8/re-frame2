@@ -52,7 +52,7 @@
             ;; testbed then OVERRIDES the `:rf.http/managed` fx with a
             ;; deterministic in-memory stub (below) so no request crosses the
             ;; wire — a testbed IS a test affordance, so this is correct.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))

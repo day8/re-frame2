@@ -38,7 +38,7 @@ origin. No CI environment refuses it.
 
 Every failure click emits one category-attributed error-trace event
 whose `:operation` is the failure `:kind`, matching the live failure
-path's emit from `re-frame.http-transport/finalise-failure!`:
+path's emit from `re-frame.http.transport/finalise-failure!`:
 
 ```
 :operation :rf.http/<:kind>    ;; :op-type :error, e.g. :rf.http/http-4xx

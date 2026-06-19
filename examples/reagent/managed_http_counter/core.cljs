@@ -45,27 +45,27 @@
             [re-frame.core :as rf]
             [re-frame.views]
             ;; Managed-HTTP ships in day8/re-frame2-http.
-            ;; Requiring re-frame.http-managed at app boot is what
+            ;; Requiring re-frame.http.managed at app boot is what
             ;; triggers its load-time fx registrations (`:rf.http/managed`
             ;; and family) and publishes the late-bind hooks; without
             ;; it, dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; The Retry-recover button drives :rf.http/managed-canned-success
             ;; (the canned-success stub). The canned-stub fx ids register from
-            ;; re-frame.http-test-support, not re-frame.http-managed.
-            [re-frame.http-test-support]
+            ;; re-frame.http.test-support, not re-frame.http.managed.
+            [re-frame.http.test-support]
             ;; The "Start long" demo seeds a genuine in-flight request
             ;; handle directly into the framework registry so the slot
             ;; persists deterministically (a real Fetch against a static
             ;; dev-http server resolves instantly, leaving nothing
             ;; observably in-flight to cancel). The index-write seam
             ;; (`record-in-flight!`) is not re-exported from
-            ;; re-frame.http-managed (only the read-side snapshots +
+            ;; re-frame.http.managed (only the read-side snapshots +
             ;; clear/abort are), so we reach the registry ns directly —
             ;; the same atom the live transport's `run-attempt!` records
             ;; into, which the live `:rf.http/managed-abort` fx resolves.
-            [re-frame.http-registry :as http-registry]
+            [re-frame.http.registry :as http-registry]
             ;; Call-site helpers (rf.http/get / post / put / delete /
             ;; patch / head / options) that synthesise the canonical
             ;; [:rf.http/managed args-map] envelope.

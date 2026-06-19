@@ -76,19 +76,19 @@
             ;; sub resolve.
             [re-frame.machines]
             ;; Managed-HTTP ships in day8/re-frame2-http.
-            ;; Requiring re-frame.http-managed at app boot triggers its
+            ;; Requiring re-frame.http.managed at app boot triggers its
             ;; load-time fx registrations (`:rf.http/managed` and
             ;; family); without it, dispatching `:rf.http/managed`
             ;; (used below) would fail with :rf.error/no-such-fx.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; This demo redirects :rf.http/managed to the canned
             ;; stubs via :fx-overrides (no real backend ships with the
             ;; example). The canned-stub fx ids
             ;; (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) register from
-            ;; re-frame.http-test-support, not re-frame.http-managed —
+            ;; re-frame.http.test-support, not re-frame.http.managed —
             ;; the test-support require is the explicit opt-in.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 

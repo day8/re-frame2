@@ -36,10 +36,10 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Managed HTTP — the single built-in resource/mutation transport.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; The canned-stub fxs the demo backend delegates to (Spec 014
             ;; §Testing). A real Conduit deployment would drop this require.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             ;; Resources + mutations runtime (day8/re-frame2-resources).
             [re-frame.resources]
             ;; Routing + machines artefacts (late-bind the `:resources` route

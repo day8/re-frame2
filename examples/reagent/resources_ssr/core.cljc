@@ -44,8 +44,8 @@
    cache lives in the runtime partition rather than app-db."
   (:require [re-frame.core :as rf]
             ;; Managed HTTP — the single built-in resource transport.
-            [re-frame.http-managed]
-            [re-frame.http-test-support]
+            [re-frame.http.managed]
+            [re-frame.http.test-support]
             ;; Resources artefact (boots the registrations + the LATE-BOUND
             ;; SSR projection hook the ssr artefact consults).
             [re-frame.resources]

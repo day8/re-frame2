@@ -52,12 +52,12 @@
             ;; The canned-stub helpers below resolve
             ;; :rf.http/managed-canned-success / failure via registrar
             ;; lookup. Those fx ids register from
-            ;; re-frame.http-test-support, NOT re-frame.http-managed.
-            ;; boot.core already requires re-frame.http-test-support via
+            ;; re-frame.http.test-support, NOT re-frame.http.managed.
+            ;; boot.core already requires re-frame.http.test-support via
             ;; the boot.schema / boot.boot graph; require explicitly here
             ;; too so this test ns is self-sufficient if a future refactor
             ;; unhooks the transitive load.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [boot.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 

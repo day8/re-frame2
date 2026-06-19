@@ -29,7 +29,7 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [realworld.core]
             ;; Loaded for its ns-load side effects: registers the routes +
             ;; the `:realworld.routing/auth-guard` interceptor (EP-0022) the
@@ -48,7 +48,7 @@
 ;; per-test wrappers that delegate to these stubs while supplying the
 ;; test-specific `:value` (success) or `:kind` + `:tags` (failure). The
 ;; `:rf.http/managed-canned-*` fx ids register from
-;; re-frame.http-test-support (required above), NOT re-frame.http-managed.
+;; re-frame.http.test-support (required above), NOT re-frame.http.managed.
 
 (defn- reg-canned-success!
   "Register an fx-id that delegates to :rf.http/managed-canned-success

@@ -77,7 +77,7 @@
             ;; `:rf.http/managed` ships in day8/re-frame2-http. Loading
             ;; the ns registers the fx; without it, the child loaders
             ;; can't issue requests.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             [boot.schema :as schema]))
 
 ;; ============================================================================
