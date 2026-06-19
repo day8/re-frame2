@@ -1,84 +1,42 @@
 (ns re-frame.realm
-  "The runtime realm — the container that owns the non-durable operational
-  layer an app runs in (EP-0013 D1, accepted 2026-06-11).
+  "The runtime realm — the process-default container that owns the non-durable
+  operational layer an app runs in (EP-0013 D1, accepted 2026-06-11;
+  COLLAPSED to default-only under EP-0023, rf2-afdlyr, 2026-06-19).
 
-  ## EP-0023: this is INTERNAL substrate, NOT current public composition vocabulary
+  ## EP-0023: collapsed to a single default realm; INTERNAL substrate
 
   EP-0023 (graduated 2026-06-16) moves the PUBLIC model to
-  `image -> frame -> event stream` and **RETAINS this realm machinery as the
-  internal installation substrate** — it is NOT deleted, but it is also no
-  longer the taught public architecture (EP-0023 §Backwards Compatibility:
-  \"This EP retains EP-0013's D1 runtime-realm machinery as the internal
-  installation boundary\"; §Surface dispositions: the D1 realm container is
-  \"Retained internally … It stops being the beginner-facing public
-  architecture\"). The realm remains a valid implementation substrate for
-  registrar seating, adapter/capability storage, host-transient ownership,
-  disposal, and compatibility during migration. Where this ns re-exports names
-  through the `re-frame.core` facade (`rf/realm`, `rf/dispose-realm!`,
-  `rf/realm-ids`, `rf/installed-app`), those are retained-internal / migration
-  / tooling surfaces, NOT current public composition vocabulary — the public
-  path is `rf/image` + `rf/make-frame` (EP-0023 §Surface dispositions; the
-  EP-0013 names below describe the retained substrate, not the model a new
-  reader should compose against). The EP-0013 staging narrative below is
-  preserved as the design record of this retained substrate.
+  `image -> frame -> event stream` — a frame's resolved image generation, not a
+  realm, is the isolation boundary. The EP-0013 multi-realm substrate (the
+  public `construct-realm` / `dispose-realm!` lifecycle, the host-transient
+  inventory hatch, and the `app-value` install!/reinstall! seating path) was
+  RETIRED under the realm-substrate collapse (Mike 2026-06-19, rf2-afdlyr): it
+  had no consumer — non-default realms existed only in the realm-conformance
+  tests. What remains is the SINGLE process-default realm and its
+  retained-internal seams:
 
-  Per [Runtime-Subsystems §Runtime realms](spec/Runtime-Subsystems.md) and
-  Spec-Schemas §`:rf/realm`, a runtime realm owns the registrar it
-  dispatches/subscribes/resolves against, the installed adapter SELECTION,
-  the capability map, the frame registry (frame ids are unique *within* a
-  realm), and the host-transient subsystem state — distinct from the
-  *durable* `:rf.runtime/*` subsystems, which live inside the frames the
-  realm owns.
+    - the default realm's registrar (the process-global `(kind, id) →
+      metadata` atom, the single source of truth `reg-*` writes through);
+    - the adapter SELECTION (the `re-frame.substrate.adapter` access seam);
+    - the installed-app PROJECTION seam (`installed-app`, feeding the Xray
+      Module-view via the `:app-value/project` hook);
+    - the realm-targeted registrar-query readers (`realm-registrations` /
+      `realm-handler-meta` / `realm-handler-ids`) + `realm-ids` / `realm-frames`
+      — now always resolving the one default realm, kept as the INTERNAL/TOOLING
+      generation-bypass seam Xray + the pair-MCP read directly off this ns.
 
-  ## D1 is INTERNAL — no public source break, no public constructor
-
-  This is EP-0013 staging 1-4: an internal realm record + a default realm +
-  realm-owned registrar + a frame realm-reference (stages 1-3), plus the
-  realm-owned adapter SELECTION + host-transient subsystem descriptor table
-  (stage 4 — `re-frame.substrate.adapter` is now the access seam over the
-  realm's `:adapter` slot, and the framework's host-transient side-tables are
-  inventoried in the realm's `:host-transient` slot).
-
-  Stage 8 (rf2-blibek) adds the realm-targeted QUERY readers
-  (`realm-registrations` / `realm-handler-meta` / `realm-handler-ids`) — read
-  the registrations of a SPECIFIED realm rather than the implicit default.
-  These are INTERNAL substrate (rf2-10nggz): the public `:realm` registrar-query
-  map arity was REMOVED from the facade (a registrar-query map is now ALWAYS a
-  frame-targeted read — there is no realm coordinate in the public read grammar).
-  The readers survive for INTERNAL/TOOLING callers that require this ns directly
-  (e.g. Xray's host-registry default-realm generation-bypass).
-
-  Stage 9 (rf2-swrf4k — the LAST EP-0013 impl slice) graduates the PUBLIC
-  realm CONSTRUCTOR `construct-realm` (re-exported as `rf/realm`; ruled
-  `rf/realm`, NEVER `rf/runtime`, EP-0013 issue 1). A constructed realm is
-  HERMETIC by default (its OWN registrar atom) and REGISTERED in the `realms`
-  registry by id, so `install!` seats a program into its own table and the
-  realm-targeted query surface above reads only that realm's registrations —
-  N realms isolate (EP-0013 §Realm Conformance). The seating is realm-scoped
-  via `re-frame.registrar/*registrar*`, which `app-value/install!` binds to the
-  target realm's own atom for the duration of seating; live DISPATCH through a
-  non-default realm's own registrar (frame→realm lookup routing) is the future
-  slice the EP flags. Everything in a single-realm app still
-  routes through ONE
-  process-created **default realm** (`:rf.realm/id` = `:rf.realm/default`),
-  so today's single-app ergonomics are byte-identical: a single-realm app
-  never spells a realm, exactly as a single-frame app never spells a frame
-  outside its root (the EP-0002 refinement pattern). Absence of an explicit
-  realm means the default realm — an explicit documented rule, never
-  synthesis.
+  None of this is current public composition vocabulary — the public path is
+  `rf/image` + `rf/make-frame`. The realm is implementation structure tooling
+  may read but should label as such.
 
   ## The registrar is owned, not copied
 
-  D1 changes registrar *ownership*, not the registrar *shape*. The default
-  realm OWNS the existing process-global `re-frame.registrar` atom
-  (`kind->id->metadata`) by holding a reference to it in its `:registrar`
-  slot. The registry shape, the `register!` / `lookup` / `registrations`
-  read+write API, and every public `reg-*` / frame signature are unchanged.
-  Existing specs call the default realm's registrar \"global\"; under D1 it
-  is the default realm's, and the surface is identical. D2 (the app value —
-  registrations as immutable descriptors) is sequenced behind D1; this ns
-  holds today's mutable registrar behind the realm unchanged and leaves the
-  `:app` slot absent.
+  The default realm OWNS the existing process-global `re-frame.registrar` atom
+  (`kind->id->metadata`) by holding a reference to it in its `:registrar` slot.
+  The registry shape, the `register!` / `lookup` / `registrations` read+write
+  API, and every public `reg-*` / frame signature are unchanged. With a single
+  realm the default realm's registrar IS the process-global atom, so every
+  `reg-*` / dispatch / subscribe path is byte-identical to a realm-free design.
 
   ## Production elision
 
@@ -125,12 +83,7 @@
 ;;                    `reg-*` ALSO writes through (alongside the resolver-map
 ;;                    write). The default realm holds a REFERENCE to the
 ;;                    process-global `source-store/kind->id->ns->descriptor`
-;;                    atom (the byte-identical single-realm path); a hermetic
-;;                    constructed realm gets its OWN fresh atom so its
-;;                    provenance descriptors never pollute the default store
-;;                    (rf2-9fn4is). `seat-into-realm!` binds
-;;                    `source-store/*source-store*` to this atom for the
-;;                    duration of seating, mirroring the `:registrar` binding.
+;;                    atom (the byte-identical single-realm path).
 ;;   :adapter         the realm's adapter SELECTION (the installed adapter
 ;;                    spec map / capability); render roots own concrete
 ;;                    instances. Absent until `install-adapter!` seats one;
@@ -155,17 +108,6 @@
 ;;                    WITHIN the realm). Frame records still live in the
 ;;                    process `frame/frames` atom in D1; this set is the
 ;;                    realm-owned membership view.
-;;   :host-transient  subsystem-id → HostTransientDescriptor — the realm-owned
-;;                    registry of the framework's non-durable process-mutable
-;;                    side-tables (HTTP in-flight handles, routing nav
-;;                    counters, machine timers, flow last-input caches, …).
-;;                    Stage 4 (EP-0013 issue 5) makes the realm the OWNER of
-;;                    this descriptor table; the side-table atoms still live in
-;;                    their producing artefacts (reached through the late-bind
-;;                    reset hooks), and a descriptor registered here records
-;;                    the subsystem's scope / teardown / test-reset so the
-;;                    realm is the single inventory of what must be torn down on
-;;                    realm/frame destroy. Absent until a subsystem registers.
 ;;
 ;; D2/D3-RESERVED, never required in D1: :app (the installed app VALUE),
 ;; :lifecycle ({:disposed? …}). Left absent here.
@@ -213,28 +155,27 @@
 ;; process-global registrar atom. It is the compatibility surface for every
 ;; one-argument / ambient-looking call. A single-realm app never mentions a
 ;; realm — it carries the default realm implicitly (the EP-0002 refinement
-;; pattern). The realm is held in an atom so the (future, D2) install! /
-;; reinstall! path can replace the realm's installed app at the realm
-;; boundary; the live mutations in D1 are the realm-owned adapter SELECTION
-;; (the install/dispose lifecycle, stage 4) and the host-transient descriptor
-;; table; the frame-membership set is DERIVED (never stored), so it is not a
-;; mutation of this atom.
+;; pattern). The realm is held in an atom so the install path can record the
+;; realm's installed app value at the realm boundary; the live mutation in the
+;; collapsed single-realm substrate is the realm-owned adapter SELECTION (the
+;; install/dispose lifecycle, stage 4); the frame-membership set is DERIVED
+;; (never stored), so it is not a mutation of this atom.
 
 (defonce
-  ^{:doc "The process realm registry: realm-id → realm map. D1 holds exactly
-  one entry — the default realm. Held as an atom so a later stage can add
-  realms and so the default realm's realm-owned mutable slots — the adapter
-  SELECTION (install/dispose lifecycle, stage 4) and the host-transient
-  descriptor table — can be updated in place. The registry is process-wide;
-  realm ids are unique within a process (Spec-Schemas §`:rf/realm`)."}
+  ^{:doc "The process realm registry: realm-id → realm map. Holds exactly one
+  entry — the default realm (the realm substrate is collapsed to default-only
+  under EP-0023; non-default realm construction was retired). Held as an atom
+  so the default realm's realm-owned mutable slots — the adapter SELECTION
+  (install/dispose lifecycle, stage 4) and the installed-app `:app` value — can
+  be updated in place. The registry is process-wide (Spec-Schemas §`:rf/realm`)."}
   realms
   (atom {default-realm-id (make-realm default-realm-id)}))
 
 (defn- update-realm!
   "Apply `f` (+ `args`) to the realm map registered under `rid`, in place in
   the `realms` registry. INTERNAL — the single mutation seam for the
-  realm-owned mutable slots (the installed-app `:app`, the adapter SELECTION,
-  the host-transient inventory). Returns the updated realm map.
+  realm-owned mutable slots (the installed-app `:app`, the adapter SELECTION).
+  Returns the updated realm map.
 
   FAILS CLOSED on an UNKNOWN id (rf2-c6armm.6 #2): a realm is an isolation
   boundary, so a mutation aimed at a realm that was never constructed must NOT
@@ -244,21 +185,19 @@
   has become `default-realm-id`, which is seeded at boot and always present);
   any OTHER id that is not in the registry is an explicit unknown target and
   THROWS `:rf.error/unknown-realm` BEFORE mutating, naming the id + the live
-  realm ids. This guards the non-`install!` mutation seams (`set-installed-app!`
-  / `install-realm-adapter!` / `register-host-transient!` / …) the same way
-  `app-value/resolve-target-realm!` already guards `install!` — the silent
-  default/global fallback is the wrong failure mode for an isolation boundary."
+  realm ids. This guards the realm-owned mutation seams (`set-installed-app!`
+  / `install-realm-adapter!` / …) — the silent default/global fallback is the
+  wrong failure mode for an isolation boundary."
   [rid f & args]
   (let [snapshot @realms]
     (when-not (contains? snapshot rid)
       (error/throw-error!
         :rf.error/unknown-realm
-        're-frame.realm/construct-realm
+        're-frame.realm/update-realm!
         (str "realm " rid " is not registered — a realm-owned"
-             " mutation cannot target a realm that was never"
-             " constructed (re-frame.realm/construct-realm). Absence"
-             " defaults to the default realm; an unknown explicit id"
-             " does not.")
+             " mutation cannot target a realm that does not exist."
+             " Absence defaults to the default realm; an unknown"
+             " explicit id does not.")
         {:recovery :construct-the-realm-first
          :extra    {:realm        rid
                     :known-realms (set (keys snapshot))}})))
@@ -282,31 +221,24 @@
   (get @realms default-realm-id))
 
 (defn realm
-  "Return the realm map for `id`, or nil. INTERNAL. D1 only ever has the
-  default realm at runtime; this reader exists for the (realm, frame)
-  addressing model the later stages build on."
+  "Return the realm map for `id`, or nil. INTERNAL. With the realm substrate
+  collapsed to default-only there is one entry at runtime — the default realm;
+  this reader resolves a realm map by id for the internal registrar-seating and
+  tooling-query seams."
   [id]
   (get @realms id))
 
 (defn realm-ids
   "Return the set of installed realm ids — the keys of the process `realms`
-  registry. Always includes `default-realm-id` (the process default realm,
-  seeded at ns-load and never disposed); a single-realm app returns exactly
-  `#{:rf.realm/default}`. Constructed realms (`construct-realm`) join the set
-  and disposed realms (`dispose-realm!`) drop out of it, so this is the live
-  enumeration of which realms exist right now.
+  registry. With the realm substrate collapsed to default-only (EP-0023) this
+  is always exactly `#{:rf.realm/default}`: non-default realm construction was
+  retired, so no realm joins or leaves the registry at runtime.
 
-  The realm-side half of the (realm, frame) addressing model: a tool reads the
-  installed realms here and a frame's realm via `re-frame.frame/frame-realm`,
-  the two together being the full address (EP-0013 disposition 3).
-  EP-0013-PUBLIC (`rf/realm-ids`) — the realm-targeted query surface needs a
-  public way to enumerate realms (the stage-8 `{:realm …}` query forms take a
-  realm id but nothing public told a tool WHICH ids exist). Under EP-0023 this
-  is a retained-internal / tooling surface over the internal installation
-  boundary, NOT current public composition vocabulary (the `(realm, frame)`
-  address it serves is publicly replaced by a single process-local frame
-  target — EP-0023 §Surface dispositions / §Id Spaces); tooling may still
-  enumerate realms but should label them as internal substrate."
+  Retained as the internal / tooling enumeration seam — Xray's module-view +
+  host-registry read it (always resolving the single default realm) directly off
+  this ns, and the pair-MCP emits it as a runtime-call form. It is NOT public
+  composition vocabulary (the public model targets a single process-local frame
+  — EP-0023 §Surface dispositions); tooling reads it as internal substrate."
   []
   (set (keys @realms)))
 
@@ -338,171 +270,45 @@
   path is byte-identical; a hermetic constructed realm holds its OWN atom so its
   provenance descriptors stay isolated from the default store (rf2-9fn4is).
   Accepts a realm map; nil resolves to the default realm's source store
-  (absence = default realm). A realm map constructed BEFORE this slot existed
-  (a never-disposed pre-fix default-realm record, or a hand-built test realm
-  map) falls back to the process-global store. INTERNAL — `seat-into-realm!`
-  binds `source-store/*source-store*` to this atom for the seating duration."
+  (absence = default realm). A realm map missing this slot (a hand-built test
+  realm map) falls back to the process-global store. INTERNAL — the default
+  realm's source store IS the process-global atom, so the single-realm path is
+  byte-identical."
   ([] (source-store (default-realm)))
   ([realm-map]
    (or (:source-store (or realm-map (default-realm)))
        source-store/kind->id->ns->descriptor)))
 
-;; ---- the public realm constructor (EP-0013 stage 9, rf2-swrf4k) ------------
+;; ---- realm substrate collapsed to default-only (EP-0023, rf2-afdlyr) -------
 ;;
-;; The PUBLIC realm CONSTRUCTOR — the LAST EP-0013 impl slice graduates the
-;; reserved `rf/realm` vocabulary (EP-0013 issue 1; ruled `rf/realm`, NEVER
-;; `rf/runtime` — "runtime" already names runtime-db / `:rf.runtime/*` /
-;; Runtime-Architecture, so a realm constructor called `runtime` is a permanent
-;; EP-0007 hazard). `make-realm` above is the pure record FACTORY the default
-;; realm + tests use; this is the public BUILD-AND-REGISTER constructor a caller
-;; uses to stand up an explicit realm to `install!` an app value into and target
-;; queries against (parallel apps / hermetic test isolation / multi-tenant).
+;; The EP-0013 PUBLIC realm CONSTRUCTOR (`construct-realm` / `register-realm!`)
+;; and its disposal counterpart (`dispose-realm!`) were RETIRED under EP-0023's
+;; realm-substrate collapse (Mike 2026-06-19, rf2-b0iye5): non-default realm
+;; construction had no consumer — it stood up the only non-default realms that
+;; ever existed, and they existed only in the realm-conformance tests. The
+;; public model is `image -> frame -> event stream` (EP-0023); a frame's
+;; resolved image generation, not a realm, is the isolation boundary. What
+;; remains here is the single process-default realm: the registrar-seating
+;; container the projection seam + the adapter selection ride on, plus the
+;; tooling-query readers below (which now always resolve the one default realm).
+
+;; ---- realm-targeted registrar queries (retained-internal/tooling) ----------
 ;;
-;; Two things distinguish a constructed realm from the implicit default:
-;;
-;;   1. it is HERMETIC by default — it gets its OWN fresh `(kind, id) →
-;;      metadata` registrar atom (not the process-global one the default realm
-;;      holds), so an app installed into it lives in its own table. Two realms
-;;      can hold different handlers for the same event id without collision
-;;      (EP-0013 §Realm Conformance), and a hermetic test installs exactly the
-;;      program it needs without clearing a process-global registrar. A caller
-;;      MAY pass an explicit `:registrar` atom to share one (the default realm's
-;;      own pattern), but the public default is isolation.
-;;
-;;   2. it is REGISTERED in the process `realms` registry under its `:id`, so it
-;;      resolves by id keyword through `realm` / `realm-registrations` / the
-;;      stage-8 `{:realm …}` query forms, and `install!` can seat into it by id
-;;      or by the realm map. The default realm is the one already-registered
-;;      entry; a constructed realm joins it. Realm ids are unique within a
-;;      process — constructing a realm whose id already exists THROWS rather
-;;      than silently clobbering a live realm.
-;;
-;; A constructed realm carries its own `:adapter` SELECTION + `:capabilities`
-;; map when supplied, so it can run a different substrate root than another
-;; realm (the multi-adapter-root direction the conformance matrix proves).
-
-(defn register-realm!
-  "Insert `realm-map` into the process `realms` registry under its
-  `:rf.realm/id`. INTERNAL — the single mutation seam that adds a realm to the
-  registry (the default realm is seeded at ns-load; constructed realms join via
-  `construct-realm`). Returns the realm map. Does NOT guard id uniqueness — the
-  public `construct-realm` owns that check so this stays a plain setter."
-  [realm-map]
-  (swap! realms assoc (:rf.realm/id realm-map) realm-map)
-  realm-map)
-
-(defn construct-realm
-  "Construct + register a realm — an explicit container a caller installs
-  an app value into and targets queries against (EP-0013 stage 9).
-  EP-0013-PUBLIC (`rf/realm`); EP-0023 RETAINS `rf/realm` as the INTERNAL
-  installation substrate — it stops being the beginner-facing public
-  architecture (the public model targets a FRAME via `rf/make-frame`, the
-  frame determines the image generation used for registration resolution —
-  EP-0023 §Surface dispositions). Retained-internal / migration / tooling
-  surface, not current public composition vocabulary.
-
-  `opts` (a map) carries:
-
-    :id           the realm id (required) — a stable, process-unique keyword.
-                  Constructing a realm whose id is already registered THROWS
-                  `:rf.error/realm-id-conflict` (realm ids are unique within a
-                  process; a silent clobber would orphan a live realm's program).
-    :registrar    (optional) an explicit `(kind, id) → metadata` atom to share.
-                  OMITTED ⇒ the realm gets its OWN fresh empty atom (HERMETIC —
-                  the public default), so an app installed into it lives in its
-                  own table, isolated from every other realm.
-    :adapter      (optional) the realm's adapter SELECTION (the substrate spec
-                  map) — a realm may carry its own adapter/root, so N realms can
-                  run N different substrate roots.
-    :capabilities (optional) the `:rf.capability/* → service` map a stage-7
-                  `install!` capability-checks the installed app against.
-
-  The realm's `:app` slot is INSTALL-OWNED state, NOT a public constructor input
-  (rf2-c6armm.2 #1): an app value is INERT until `install!` seats its descriptors
-  into the realm's registrar AND records the value. Accepting a public `:app` here
-  would record an installed-app value WITHOUT seating any descriptor, so
-  `installed-app` (which prefers the stored `:app`) would report a program the
-  registrar does not hold, and the FIRST `reinstall!` would diff against that
-  phantom app and only apply the delta — never populating the registrar with the
-  base program. So `construct-realm` does NOT accept `:app`; seat a program with
-  `(-> (re-frame.realm/construct-realm {:id …}) (re-frame.app-value/install! app))`.
-
-  Returns the constructed realm map (now in the `realms` registry), so the call
-  composes: `(-> (re-frame.realm/construct-realm {:id …}) (re-frame.app-value/install! app))`.
-
-  Throws `:rf.error/invalid-realm` when `:id` is missing or when an `:app` key is
-  supplied (install-owned state is not a constructor input), and
-  `:rf.error/realm-id-conflict` when `:id` is already registered."
-  [opts]
-  (let [id (:id opts)]
-    (when (nil? id)
-      (error/throw-error!
-        :rf.error/invalid-realm
-        're-frame.realm/construct-realm
-        "re-frame.realm/construct-realm requires an :id — supply a realm id (the process-unique key the realm is registered under)."
-        {:recovery :supply-a-realm-id
-         :extra    {:opts opts}}))
-    ;; An `:app` here would create a FALSE installed-app state — the value is
-    ;; recorded without its descriptors being seated (rf2-c6armm.2 #1). The
-    ;; realm's `:app` slot is install-owned; reject it loudly at the constructor.
-    (when (contains? opts :app)
-      (error/throw-error!
-        :rf.error/invalid-realm
-        're-frame.realm/construct-realm
-        (str "re-frame.realm/construct-realm: :app is install-owned state,"
-             " not a constructor input — an app value is inert until"
-             " re-frame.app-value/install! seats it. Use"
-             " (-> (re-frame.realm/construct-realm {:id " id "})"
-             " (re-frame.app-value/install! app)).")
-        {:recovery :install-the-app-with-rf-install
-         :extra    {:realm id}}))
-    (when (contains? @realms id)
-      (error/throw-error!
-        :rf.error/realm-id-conflict
-        're-frame.realm/construct-realm
-        (str "re-frame.realm/construct-realm: a realm with id " id
-             " is already registered — use a unique realm id or dispose"
-             " the existing realm first (re-frame.realm/dispose-realm!).")
-        {:recovery :use-a-unique-realm-id-or-dispose-the-existing-realm
-         :extra    {:realm id}}))
-    (let [;; Hermetic by default: a fresh OWN registrar atom unless the caller
-          ;; shares one explicitly. This is the isolation the public realm
-          ;; constructor exists to provide. A fresh OWN source store rides
-          ;; alongside (rf2-9fn4is) so the realm's EP-0023 provenance descriptors
-          ;; never pollute the process-default source store — the isolation the
-          ;; own-registrar gives the resolver map, extended to the source store.
-          realm-map (cond-> (make-realm id {:registrar    (get opts :registrar    (atom {}))
-                                            :source-store (get opts :source-store (atom {}))})
-                      (contains? opts :adapter)      (assoc :adapter      (:adapter opts))
-                      (contains? opts :capabilities) (assoc :capabilities (:capabilities opts)))]
-      (register-realm! realm-map))))
-
-;; `dispose-realm!` (the teardown counterpart of `construct-realm`) lives at the
-;; END of this ns: it walks the realm-owned adapter + host-transient teardown
-;; seams (`dispose-realm-adapter!` / `host-transient` / `clear-host-transient!`),
-;; which are defined further down, so it is placed after them (rf2-kq0yfb).
-
-;; ---- realm-targeted registrar queries (EP-0013 D1 stage 8, rf2-blibek) ----
-;;
-;; The realm-targeted QUERY surface: read the registrations of a SPECIFIED
-;; realm rather than the implicit default. A realm owns its `(kind, id) →
-;; metadata` registrar atom (the default realm holds a reference to the
-;; process-global atom; a hermetic realm created with an explicit `:registrar`
-;; holds its own), so these readers resolve the realm's OWN atom and snapshot
-;; it — "realm-targeted registrar queries return ONLY that realm's
-;; registrations" (EP-0013 §Realm Conformance; open-issue 11). They are the
-;; realm-scoped counterparts of the process-global `registrar/registrations` /
-;; `registrar/handler-meta` / `registrar/ids`. INTERNAL substrate (rf2-10nggz):
-;; the public `:realm` registrar-query map arity that once built on them was
-;; REMOVED from the facade; the readers survive for INTERNAL/TOOLING callers
-;; (e.g. Xray's host-registry generation-bypass) that require this ns directly.
+;; The realm-targeted QUERY surface: read the registrations of a realm's OWN
+;; registrar. With the realm substrate collapsed to default-only they always
+;; resolve the single default realm (whose registrar IS the process-global
+;; atom) — the per-realm targeting is vestigial, but the readers survive as the
+;; INTERNAL/TOOLING generation-bypass seam: Xray's host-registry + static realm
+;; helper read them directly off this ns, and the pair-MCP emits them as
+;; runtime-call forms (rf2-10nggz — the public `:realm` registrar-query map
+;; arity was already REMOVED; a registrar query is now always a frame-targeted
+;; read). They are the realm-scoped counterparts of the process-global
+;; `registrar/registrations` / `registrar/handler-meta` / `registrar/ids`.
 ;;
 ;; Each accepts a realm-or-id (a realm map, a realm-id keyword, or nil for the
 ;; default realm — the absence-is-default rule), resolves it to the realm's
 ;; registrar atom, and reads ONCE. Pure with respect to that read; an unknown
-;; realm (no registry entry, so no registrar atom) reads as empty rather than
-;; throwing — querying a realm that was never created is the empty program,
-;; not an error.
+;; realm reads as empty rather than throwing.
 
 (defn- realm-registrar
   "Resolve `realm-or-id` (a realm map, realm-id keyword, or nil) to the
@@ -517,37 +323,30 @@
 
 (defn realm-registrations
   "Return the `{id metadata}` map registered under `kind` in `realm-or-id`'s
-  OWN registrar (defaults to the default realm), or `{}` when the realm
-  registers none of that kind (or the realm is unknown). The realm-scoped
-  counterpart of `registrar/registrations` — it reads only THIS realm's
-  registrar, so a hermetic realm with its own registrar returns only its
-  registrations (EP-0013 §Realm Conformance). INTERNAL substrate (rf2-10nggz):
-  the public `:realm` registrar-query map arity has been REMOVED from the facade;
-  this reader survives for INTERNAL/TOOLING callers that require this ns directly
-  (e.g. Xray's host-registry default-realm generation-bypass read)."
+  registrar (defaults to — and, under the default-only collapse, always — the
+  default realm), or `{}` when none of that kind is registered (or the realm is
+  unknown). The realm-scoped counterpart of `registrar/registrations`. INTERNAL
+  substrate — survives for the INTERNAL/TOOLING generation-bypass seam (Xray's
+  host-registry, the pair-MCP runtime-call form)."
   [realm-or-id kind]
   (if-let [reg (realm-registrar realm-or-id)]
     (get @reg kind {})
     {}))
 
 (defn realm-handler-meta
-  "Return the registration metadata map for `[kind id]` in `realm-or-id`'s OWN
-  registrar (defaults to the default realm), or `nil` when that realm has no
+  "Return the registration metadata map for `[kind id]` in `realm-or-id`'s
+  registrar (defaults to / always the default realm), or `nil` when there is no
   such registration (or the realm is unknown). The realm-scoped counterpart of
-  `registrar/handler-meta` — it reads only THIS realm's registrar. INTERNAL
-  substrate (rf2-10nggz): the public `:realm` registrar-query map arity has been
-  REMOVED from the facade; this reader survives for INTERNAL/TOOLING callers that
-  require this ns directly (e.g. Xray's host-registry generation-bypass read)."
+  `registrar/handler-meta`. INTERNAL substrate — the INTERNAL/TOOLING
+  generation-bypass seam (Xray's host-registry, the pair-MCP runtime-call form)."
   [realm-or-id kind id]
   (when-let [reg (realm-registrar realm-or-id)]
     (-> @reg (get kind) (get id))))
 
 (defn realm-handler-ids
-  "Return the set of ids registered under `kind` in `realm-or-id`'s OWN
-  registrar (defaults to the default realm), or `#{}` when none. The
-  realm-scoped counterpart of `registrar/ids`. INTERNAL substrate (rf2-10nggz):
-  the public `:realm` registrar-query map arity has been REMOVED from the facade;
-  this reader survives for INTERNAL/TOOLING callers that require this ns directly."
+  "Return the set of ids registered under `kind` in `realm-or-id`'s registrar
+  (defaults to / always the default realm), or `#{}` when none. The realm-scoped
+  counterpart of `registrar/ids`. INTERNAL substrate."
   [realm-or-id kind]
   (-> (realm-registrations realm-or-id kind) keys set))
 
@@ -589,14 +388,13 @@
 ;; projected over its registrar, rather than load-order mutation seen only
 ;; through the live registrar.
 ;;
-;; Stage 5 is INTERNAL + read-only: there is NO construction (stage 6) and no
-;; `install!` (stage 7) yet, so the realm STORES no constructed app value and
-;; the `:app` slot stays absent. The installed app is therefore the
-;; RECOMPUTABLE PROJECTION over the realm's own registrar — `re-frame.app-value`
-;; owns the descriptor format and the projection fn. Because the registrar is
-;; the single source of truth, the ordinary `reg-*` sugar path keeps this app
-;; value current for free: a registration updates the registrar, and the next
-;; `installed-app` reflects it with no invalidation step and no desync.
+;; With install!/reinstall! retired (rf2-csgz8l) the realm STORES no app value
+;; and the `:app` slot stays absent, so the installed app is the RECOMPUTABLE
+;; PROJECTION over the realm's own registrar — `re-frame.app-value` owns the
+;; descriptor format and the projection fn. Because the registrar is the single
+;; source of truth, the ordinary `reg-*` sugar path keeps this app value current
+;; for free: a registration updates the registrar, and the next `installed-app`
+;; reflects it with no invalidation step and no desync.
 ;;
 ;; `re-frame.app-value` requires THIS ns (it projects over the realm's
 ;; registrar), so a static back-require would cycle; the projection is reached
@@ -616,35 +414,22 @@
   AND installed registrations alike — never a frozen snapshot that could desync
   from `app-value` / dispatch (rf2-77ewnm). Two cases:
 
-    - NO stored `:app` (pure `reg-*` sugar / load-order, or a fresh realm) —
-      the recomputable projection over the realm's registrar
-      (`re-frame.app-value/app-value`, via the `:app-value/project` hook),
-      module-less (load-order registrations declare no module).
-    - A stored `:app` (an `install!`-seated value, stage 7) — that SAME live
-      projection ENRICHED with the seated app's `:rf.app/id`, `:modules`, and
-      `:rf.app/requires` provenance (via the `:app-value/reconcile-installed` hook).
-      The registrations stay the live registrar's, so coexisting sugar that
-      `install!` deliberately preserves (rf2-c6armm.7 #1) is visible here too;
-      the rich per-module provenance the Xray Module-view feeds to
-      `app-registrations` / `app-owns` / `app-requires` is preserved.
+    - NO stored `:app` (pure `reg-*` sugar / load-order) — the recomputable
+      projection over the realm's registrar (`re-frame.app-value/app-value`, via
+      the `:app-value/project` hook), module-less (load-order registrations
+      declare no module). This is the live read in the collapsed substrate (the
+      install!/reinstall! write path that seated a `:app` value was retired —
+      rf2-csgz8l — so the realm never stores a `:app`; the stored branch below
+      survives as defensive code over the still-present `:app` slot).
+    - A stored `:app` — that SAME live projection ENRICHED with the seated app's
+      `:rf.app/id`, `:modules`, and `:rf.app/requires` provenance (via the
+      `:app-value/reconcile-installed` hook).
 
-  The reader's contract — \"give me the realm's live installed app value\" — is
-  stable across the stage-6/7 graduation; only its internals change (project,
-  then overlay the seated provenance when a stored app exists).
-
-  RE-EXPORTED as `rf/installed-app` (EP-0013 disposition 6, rf2-imquoq):
-  the realm→installed-app read seam graduated from internal WHEN the Xray
-  Module-view demanded the per-module provenance an `install!`-seated `:app`
-  carries (`:modules` + `:rf.module/owns` / `:rf.module/requires` /
-  `:owner`-stamped descriptors). EP-0023 RETAINS `rf/installed-app` as a
-  tooling / migration surface, NOT current public composition vocabulary — the
-  public model inspects a frame's resolved image generation; tools may still
-  read this internal installation boundary but should label it as
-  implementation structure (EP-0023 §Surface dispositions).
-  A read of the LIVE registration value (provenance from the install-time
-  snapshot) — it does NOT route live dispatch through a non-default realm (the
-  deferred runtime-routing slice). This var stays the canonical implementation;
-  the facade `def` re-exports it unchanged."
+  EP-0023 INTERNAL/TOOLING substrate, NOT current public composition vocabulary
+  — the public model inspects a frame's resolved image generation. The Xray
+  Module-view reads this seam (directly off this ns) for the per-module
+  provenance an installed `:app` would carry; it is a read of the LIVE
+  registration value, never a live-dispatch route."
   ([] (installed-app default-realm-id))
   ([realm-or-id]
    (let [rid    (realm-id realm-or-id)
@@ -661,27 +446,19 @@
        (when-let [project (late-bind/get-fn :app-value/project)]
          (project rid))))))
 
-;; ---- seating the app VALUE into the realm's :app slot (stage 7) ------------
+;; ---- the realm's :app slot — the installed-app write seam ------------------
 ;;
-;; Stage 7 adds the WRITE half of the `:app` slot: `install!` / `reinstall!`
-;; (owned by `re-frame.app-value`) lower an immutable app value into the
-;; realm's registrar AND record the seated value here, so the realm STORES the
-;; rich constructed app value (carrying `:modules` + `:owner`-stamped
-;; descriptors) and `installed-app` returns it in preference to the
-;; recomputable projection. This is the single realm-owned mutation seam over
-;; the slot — the value is replaced at the realm boundary (EP-0013 §Installation:
-;; "the public contract is value replacement at the realm boundary"), the
-;; registrar-lowering + diff logic stays in `app-value` (which owns the
-;; descriptor format). nil resolves to the default realm (absence = default
-;; realm). Returns the realm map.
+;; The realm-owned write counterpart of `installed-app`'s read seam: record an
+;; app VALUE in the realm's `:app` slot. nil resolves to the default realm.
+;; Returns the realm map. INTERNAL — no public realm-mutation surface ships.
+;; (The EP-0013 install!/reinstall! path that drove this was retired under the
+;; realm-substrate collapse, rf2-csgz8l; the setter survives as the slot's
+;; write seam alongside the still-present `:app` slot.)
 
 (defn set-installed-app!
-  "Seat `app` as the realm's `:app` slot — the installed app VALUE the realm is
-  running. The realm-owned write counterpart of `installed-app`'s read seam
-  (stage 7). The registrar-lowering that makes the program actually resolvable
-  is `re-frame.app-value/install!`'s job; this seam only records the seated
-  value at the realm boundary. nil resolves to the default realm. Returns the
-  updated realm map. INTERNAL — no public realm-mutation surface ships."
+  "Seat `app` as the realm's `:app` slot — the installed app VALUE. The
+  realm-owned write counterpart of `installed-app`'s read seam. nil resolves to
+  the default realm. Returns the updated realm map. INTERNAL."
   ([app] (set-installed-app! default-realm-id app))
   ([realm-or-id app]
    (update-realm! (realm-id realm-or-id) assoc :app app)))
@@ -699,15 +476,13 @@
 ;; `dispose-adapter!` / `adapter-disposed?` / the delegation fns) is
 ;; byte-identical, and in a single-realm app every call routes through the one
 ;; default realm — so the install/dispose lifecycle and every "single adapter
-;; per process" diagnostic behave exactly as before. A future multi-realm
-;; runtime gets a per-realm adapter for free: the seam already keys on a realm.
+;; per process" diagnostic behave exactly as before.
 ;;
 ;; Why the realm OWNS it rather than substrate.adapter holding it: the realm
 ;; is the value that owns the non-durable operational layer (the registrar,
-;; the adapter, the capability map, the host-transient state). Concentrating
-;; the adapter selection there — instead of in a leaf substrate ns — is what
-;; lets D2/later replace the whole operational environment at the realm
-;; boundary in one place. There is no cycle: this ns requires only
+;; the adapter, the capability map). Concentrating the adapter selection there
+;; — instead of in a leaf substrate ns — keeps the operational environment in
+;; one place. There is no cycle: this ns requires only
 ;; `registrar` + `late-bind`, neither of which pulls `substrate.adapter`, so
 ;; `substrate.adapter` statically requires THIS ns (no late-bind indirection).
 ;;
@@ -778,164 +553,3 @@
    (update-realm! (realm-id realm-or-id)
                   #(-> % (dissoc :adapter) (dissoc :adapter-disposed?)))
    nil))
-
-;; ---- realm-owned host-transient subsystem registry (stage 4) --------------
-;;
-;; The framework's host-transient subsystem state — the non-durable
-;; process-mutable side-tables (HTTP in-flight handles + abort controllers,
-;; routing nav counters + scroll caches, machine timers + spawn-order helpers,
-;; flow last-input caches, resource work-ledgers, SSR side channels, adapter
-;; render roots/disposers) — is OWNED BY the realm (Runtime-Subsystems
-;; §Host-Transient Subsystem State: "the owner of the table is the realm, not
-;; an arbitrary namespace-level singleton").
-;;
-;; Stage 4 makes the realm the OWNER of the host-transient DESCRIPTOR
-;; inventory: `subsystem-id → :rf/host-transient-descriptor`. The side-table
-;; atoms continue to live in their producing artefacts and are reset/torn down
-;; through the existing late-bind reset + frame-destroy hooks (the
-;; `re-frame.test-support` reset-hook-table and the per-artefact
-;; `*/on-frame-destroyed!` hooks) — moving the bytes is not what this stage
-;; does. What it does is give the realm the single, queryable record of WHICH
-;; host-transient subsystems exist and HOW each is scoped / torn down /
-;; test-reset, so realm/frame teardown has one inventory to walk rather than a
-;; scattering of namespace-level singletons. Each descriptor's `:durability`
-;; is `:none` — host-transient state MUST NOT ride the wire (no snapshot, no
-;; SSR, no restore), per the descriptor contract (Spec-Schemas
-;; §`:rf/host-transient-descriptor`).
-
-(defn register-host-transient!
-  "Register a host-transient subsystem `descriptor` (a
-  `:rf/host-transient-descriptor` map carrying at least `:id`) under its
-  `:id` in the realm's `:host-transient` inventory. The realm becomes the
-  owner of the record of this non-durable side-table. nil resolves to the
-  default realm. Returns the descriptor. INTERNAL."
-  ([descriptor] (register-host-transient! default-realm-id descriptor))
-  ([realm-or-id descriptor]
-   (update-realm! (realm-id realm-or-id)
-                  update :host-transient
-                  (fnil assoc {}) (:id descriptor) descriptor)
-   descriptor))
-
-(defn host-transient
-  "Return the realm's host-transient subsystem inventory
-  (`subsystem-id → descriptor`), or the descriptor for a single `subsystem-id`
-  when supplied. nil realm resolves to the default realm. Returns nil when the
-  realm holds no host-transient registry (none registered yet). INTERNAL — the
-  realm-owned read seam for the framework's non-durable side-table inventory."
-  ([] (host-transient default-realm-id))
-  ([realm-or-id]
-   (:host-transient (realm (realm-id realm-or-id))))
-  ([realm-or-id subsystem-id]
-   (get (:host-transient (realm (realm-id realm-or-id))) subsystem-id)))
-
-(defn clear-host-transient!
-  "Drop the realm's host-transient subsystem inventory (the descriptor
-  records, not the side-table contents — those are reset through each
-  subsystem's own reset hook). nil resolves to the default realm. Returns nil.
-  INTERNAL — the inventory counterpart of the per-subsystem reset hooks; used
-  by cold-start test fixtures so a realm starts with an empty inventory."
-  ([] (clear-host-transient! default-realm-id))
-  ([realm-or-id]
-   (update-realm! (realm-id realm-or-id) dissoc :host-transient)
-   nil))
-
-;; ---- realm disposal — the teardown counterpart of construct-realm ----------
-;;
-;; Placed at the END of the ns because it walks the realm-owned adapter +
-;; host-transient teardown seams defined above (`realm-adapter` /
-;; `dispose-realm-adapter!` / `host-transient` / `clear-host-transient!`).
-;; Disposing a realm MUST release the operational resources the realm owns —
-;; a bare `(swap! realms dissoc rid)` would ORPHAN the seated adapter + every
-;; host-transient subsystem the realm inventoried (rf2-kq0yfb).
-
-(defn- dispose-realm-host-transient!
-  "Walk realm `rid`'s host-transient subsystem inventory and run each
-  descriptor's `:teardown` token, then drop the inventory. The `:teardown` is
-  the realm-dispose cleanup hook the descriptor declares (Spec-Schemas
-  §`:rf/host-transient-descriptor`); it is invoked with `rid` so a
-  realm-scoped subsystem tears down THIS realm's entries. A descriptor that
-  declares no `:teardown` (the inventory is a queryable record only — its
-  side-table bytes are reset through the late-bind reset hooks) is skipped,
-  and a non-callable `:teardown` token is ignored. INTERNAL — the
-  host-transient arm of `dispose-realm!`."
-  [rid]
-  (doseq [[_ descriptor] (host-transient rid)]
-    (when-let [td (:teardown descriptor)]
-      (when (fn? td)
-        (td rid))))
-  (clear-host-transient! rid))
-
-(defn dispose-realm!
-  "Dispose a constructed realm: tear down its adapter + host-transient
-  subsystem state, then drop it from the process `realms` registry (releasing
-  its own registrar for GC). nil / the default realm id is a NO-OP — the
-  default realm is never disposed (it backs the byte-identical single-realm
-  path). Returns nil. The teardown counterpart of `construct-realm` for
-  hermetic-test cleanup and multi-tenant realm lifecycle. EP-0013-PUBLIC
-  (`rf/dispose-realm!`); EP-0023 RETAINS `rf/dispose-realm!` as the
-  retained-internal / migration / tooling surface (the realm is the internal
-  installation boundary, not the public model — EP-0023 §Surface
-  dispositions). The public disposal boundary is a frame (`destroy-frame!`).
-
-  Per EP-0013 §Realm Conformance disposing a realm MUST release the operational
-  resources the realm owns, not merely drop the registry entry (a bare `dissoc`
-  would ORPHAN the seated adapter + the host-transient subsystems AND leave every
-  frame the realm OWNS still addressable — rf2-kq0yfb / rf2-yueuvi). The teardown
-  walks the realm-owned seams, in order:
-
-    1. FRAMES — destroy every frame the realm OWNS (rf2-yueuvi). The realm owns
-       the frame registry + their lifecycle/disposal state (Runtime-Subsystems
-       §What a realm owns), so disposing the realm MUST end those frames'
-       lifecycle, not leave stale records addressable. Routed through the
-       `:frame/destroy-realm-frames!` late-bind hook (a static `realm` → `frame`
-       require would cycle), which runs the full per-frame `destroy-frame!`
-       recipe for each owned frame. Runs FIRST — before the realm's adapter +
-       host-transient state is torn down — so each frame's own teardown can still
-       walk the realm's LIVE host-transient inventory and reach the seated
-       adapter. No-op when the frame ns is not loaded or the realm owns no frames.
-    2. ADAPTER — run the seated adapter's own `:dispose-adapter!` fn (read
-       directly off the realm's `:adapter` slot, so this leaf ns needs no
-       `substrate.adapter` require), then clear the slot + set the disposed
-       breadcrumb via `dispose-realm-adapter!`. Mirrors
-       `substrate.adapter/dispose-adapter!` for the default realm.
-    3. HOST-TRANSIENT — walk the realm's host-transient inventory, running each
-       descriptor's `:teardown` token (the realm-dispose cleanup hook), then
-       drop the inventory via `clear-host-transient!`.
-    4. REGISTRY — `dissoc` the realm so its program + own registrar are no
-       longer reachable.
-
-  The teardown runs only for a CONSTRUCTED realm that is STILL registered; for
-  the default realm (and nil) the whole call is a no-op — the default realm's
-  adapter/host-transient lifecycle is owned by `substrate.adapter` + the
-  per-subsystem reset hooks, and the realm itself is never disposed.
-
-  IDEMPOTENT (rf2-yueuvi): disposing an ALREADY-disposed (or never-constructed)
-  realm is a clean no-op rather than a throw — once the registry entry is gone
-  the realm owns no live frames / adapter / host-transient inventory to release,
-  and the realm-owned mutation seams (`clear-host-transient!` →
-  `update-realm!`) FAIL CLOSED on an unknown id. A defensive double-dispose
-  (e.g. a `finally` after a body that already disposed) must not raise."
-  [realm-or-id]
-  (let [rid (realm-id realm-or-id)]
-    (when (and (not (= rid default-realm-id))
-               ;; Idempotency guard: only tear down a realm that is STILL
-               ;; registered. A second dispose (or a never-constructed id) finds
-               ;; nothing to release and no-ops cleanly, rather than driving the
-               ;; fail-closed realm-owned mutation seams (rf2-yueuvi).
-               (contains? @realms rid))
-      ;; (1) frames: end the lifecycle of every frame the realm OWNS so no stale
-      ;; frame record stays addressable after disposal (rf2-yueuvi). FIRST, so
-      ;; each frame's destroy can still reach the realm's live adapter +
-      ;; host-transient inventory (torn down in steps 2-3 below).
-      (when-let [destroy-realm-frames! (late-bind/get-fn :frame/destroy-realm-frames!)]
-        (destroy-realm-frames! rid))
-      ;; (2) adapter: run the seated adapter's own teardown, then clear the slot.
-      (when-let [adapter (realm-adapter rid)]
-        (when-let [f (:dispose-adapter! adapter)]
-          (f))
-        (dispose-realm-adapter! rid))
-      ;; (3) host-transient: walk the inventory's teardown tokens, then drop it.
-      (dispose-realm-host-transient! rid)
-      ;; (4) registry: drop the realm so its registrar + program are unreachable.
-      (swap! realms dissoc rid)))
-  nil)
