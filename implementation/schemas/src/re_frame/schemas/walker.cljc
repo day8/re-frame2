@@ -35,15 +35,28 @@
   which read the `{path declaration}` map directly (NOT via the elision
   runtime-db registry):
 
-    - the machine `:data-schema` redaction bridge
-      (`re-frame.machines`, EP-0005);
     - the resource `:data-schema` classification
       (`re-frame.resources.classification`, EP-0015 §6);
     - the HTTP body-privacy projector
       (`re-frame.http.privacy-body`);
-    - story-mcp's tool-egress projector.
+    - story-mcp's tool-egress projector;
+    - the schema-validation-FAILURE-trace redactor
+      (`re-frame.schemas.validate`, via `schema-sensitive-at?` /
+      `schema-has-sensitive?` / `schema-opaque?` / `sanitize-sensitive-path`)
+      — `:sensitive?` redacts the failing value before the
+      `:rf.error/schema-validation-failure` trace ships.
 
-  These call the per-flag late-bind hooks
+  EP-0025 (rf2-398kql) — the machine `:data-schema`→marks redaction bridge
+  (EP-0005) is GONE. A machine's `:sensitive?` / `:large?` `:data`-slot props
+  no longer classify the machine's durable `:data` for trace / SSR egress;
+  durable machine `:data` classification is FRAME-OWNED like every other
+  app-db path (`reg-frame` `:sensitive` / `:large {:app-db …}`, EP-0015, the
+  sole app-db mechanism). The `:data-schema` still VALIDATES, and its props
+  still drive the machine-data validation-FAILURE-trace redactor via the
+  `:where :machine-data` validation path — only the schema→MARKS classification
+  bridge is reversed.
+
+  The surviving consumers call the per-flag late-bind hooks
   (`:schemas/extract-large-paths-from-schema` /
   `:schemas/extract-sensitive-paths-from-schema`) registered by the outer
   façade and apply the result within their own owner-local scope.
