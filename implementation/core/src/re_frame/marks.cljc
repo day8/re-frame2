@@ -880,6 +880,26 @@
   [v sensitive-paths large-paths]
   (walk-with-marks v sensitive-paths large-paths))
 
+(defn- mark-paths
+  "Destructure a canonical marks map into its `[sensitive-paths large-paths]`
+  pair, each defaulting to `[]` when the slot is absent — the shared shape
+  every per-registration projector hand-inlined as `(or (:sensitive marks) [])`
+  / `(or (:large marks) [])` before passing the pair to `redact-with-paths` /
+  `redact-event-vec` (rf2-tqxqm7)."
+  [marks]
+  [(or (:sensitive marks) []) (or (:large marks) [])])
+
+(defn- redact-by-marks
+  "Redact `v` against the canonical `marks` map — `(redact-with-paths v sens
+  large)` with the `[]`-defaulted `[sens large]` pair from `mark-paths`. The
+  shared one-shot redact the single-value projectors reach through (fx args,
+  cofx map values, the standalone cofx produced value); callers that redact
+  more than one slot from the same marks (sub value + prev-value, the machine
+  multi-slot walk) destructure `mark-paths` directly."
+  [v marks]
+  (let [[sens large] (mark-paths marks)]
+    (redact-with-paths v sens large)))
+
 ;; ---- per-trace-event projection ------------------------------------------
 ;;
 ;; The chokepoint `re-frame.trace/build-event` consults on every emit
@@ -939,7 +959,8 @@
   `:event` slot."
   [event]
   (if-let [marks (marks-when :event (when (vector? event) (first event)))]
-    (redact-event-vec event (or (:sensitive marks) []) (or (:large marks) []))
+    (let [[sens large] (mark-paths marks)]
+      (redact-event-vec event sens large))
     event))
 
 ;; Flow output marks are NOT resolved through this per-(kind, id) table
@@ -1090,8 +1111,7 @@
         marks    (marks-when :event event-id)]
     (if-not marks
       tags
-      (let [sens   (or (:sensitive marks) [])
-            large  (or (:large marks) [])
+      (let [[sens large] (mark-paths marks)
             redacted (redact-event-vec event sens large)]
         (assoc tags slot redacted)))))
 
@@ -1104,10 +1124,7 @@
         marks (marks-when :fx fx-id)]
     (if-not marks
       tags
-      (let [sens     (or (:sensitive marks) [])
-            large    (or (:large marks) [])
-            redacted (redact-with-paths (:rf.fx/args tags) sens large)]
-        (assoc tags :rf.fx/args redacted)))))
+      (assoc tags :rf.fx/args (redact-by-marks (:rf.fx/args tags) marks)))))
 
 (defn- project-cofx-map-slot
   "Walk a `{cofx-id value}` map carried under `slot` in `tags`, redacting each
@@ -1136,10 +1153,7 @@
                        (let [marks (marks-when :cofx cofx-id)]
                          (if-not marks
                            (assoc acc cofx-id v)
-                           (let [sens     (or (:sensitive marks) [])
-                                 large    (or (:large marks) [])
-                                 redacted (redact-with-paths v sens large)]
-                             (assoc acc cofx-id redacted)))))
+                           (assoc acc cofx-id (redact-by-marks v marks)))))
                      (empty cofx-map)
                      cofx-map)]
         (assoc tags slot walked)))))
@@ -1159,10 +1173,7 @@
         marks   (marks-when :cofx cofx-id)]
     (if (or (not marks) (not (contains? tags :rf.cofx/value)))
       tags
-      (let [sens     (or (:sensitive marks) [])
-            large    (or (:large marks) [])
-            redacted (redact-with-paths (:rf.cofx/value tags) sens large)]
-        (assoc tags :rf.cofx/value redacted)))))
+      (assoc tags :rf.cofx/value (redact-by-marks (:rf.cofx/value tags) marks)))))
 
 (defn- project-sub-tags*
   "Inner projection for `project-sub-tags` against a KNOWN carried frame.
@@ -1192,8 +1203,7 @@
         has-prev? (assoc :rf.sub/prev-value privacy/redacted-sentinel))
 
       :else
-      (let [sens     (or (:sensitive marks) [])
-            large    (or (:large marks) [])
+      (let [[sens large] (mark-paths marks)
             redacted (redact-with-paths (:rf.sub/value tags) sens large)]
         (cond-> (assoc tags :rf.sub/value redacted)
           has-prev? (assoc :rf.sub/prev-value (redact-with-paths (:rf.sub/prev-value tags) sens large))
@@ -1460,8 +1470,7 @@
         marks      (marks-when :event machine-id)]
     (if-not marks
       tags
-      (let [sens       (or (:sensitive marks) [])
-            large      (or (:large marks) [])
+      (let [[sens large] (mark-paths marks)
             ;; `:data`-map-relative paths for the slots that carry the bare
             ;; `:data` map (not a full snapshot).
             data-sens  (strip-data-prefix sens)
