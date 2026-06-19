@@ -1329,7 +1329,6 @@
   (transition/drain-to-fixed-point
     region-spec
     (result/ok region-snap [])
-    region-snap                         ; atomic-rollback target = post-cascade
     0                                   ; raise-depth seed
     true))                              ; defer raises to the parent queue
 
@@ -1411,7 +1410,6 @@
         ;; drains FIFO inside the birth macrostep instead of escaping to the
         ;; outbound fx layer (bz0ox.1).
         (result/ok boot-snapshot (vec entry-fx))
-        boot-snapshot
         0
         false))))
 

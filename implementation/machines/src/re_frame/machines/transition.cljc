@@ -3774,12 +3774,15 @@
   becomes the base cascade and the `:always` loop appends one `:microstep`
   step per eventless iteration.
 
-  `rollback-snapshot` is the snapshot the macrostep atomically reverts to
-  if the loop trips `:always-depth-limit` or `:raise-depth-limit` — the
-  macrostep is atomic per Spec 005 §Bounded depth. The event-driven caller
-  passes the PRE-event snapshot (the whole macrostep unwinds); the birth
-  caller passes the POST-cascade snapshot (the initial state is already the
-  committed configuration — only the runaway settling is abandoned).
+  Atomic rollback on a tripped `:always-depth-limit` / `:raise-depth-limit`
+  (Spec 005 §Bounded depth) is enforced by the FAILURE SURFACE (rf2-y3jv8q):
+  the abort returns a `result/depth-abort` `:fail`, which threads NO snapshot
+  / fx, and the lifecycle handler short-circuits to `{}` — so neither a
+  partially-advanced snapshot nor accumulated fx reaches runtime-db, and the
+  last committed snapshot (the pre-event snapshot for the event-driven caller,
+  the post-cascade initial configuration for the birth caller) stays put. No
+  explicit rollback-target argument is threaded — the `:fail` carrying no
+  payload IS the rollback.
 
   `raise-depth` seeds the transitive `:raise` depth counter (rf2-b88nm);
   `defer?` is the effective region-defer flag. When `defer?` is true (a
@@ -3792,7 +3795,7 @@
 
   Returns a `result/ok` (snapshot + fx, with `::microsteps` / `::cascade`)
   or a `result/fail` if an `:always` action or a handled raise threw."
-  [machine start-result rollback-snapshot raise-depth defer?]
+  [machine start-result raise-depth defer?]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)]
     (if (result/fail? start-result)
@@ -4214,10 +4217,11 @@
     ;; Steps 3-5: hand the post-event seed Result to the shared
     ;; `drain-to-fixed-point` — raise-drain FIFO, `:always` fixed-point
     ;; loop, tag commit (rf2-505ic factored this out so machine birth
-    ;; reuses the identical settling tail). The atomic-rollback target is
-    ;; the PRE-event `snapshot` (the whole macrostep unwinds on
-    ;; `:always`-depth abort). `handled?` rides the Result for the
+    ;; reuses the identical settling tail). On a depth-abort the drain returns
+    ;; a `result/depth-abort` `:fail` (rf2-y3jv8q) — the whole macrostep
+    ;; unwinds via the failure surface (no snapshot threaded), leaving the
+    ;; PRE-event `snapshot` committed. `handled?` rides the Result for the
     ;; parallel parent's all-regions-declined no-op aggregation.
     (result/with-handled
-     (drain-to-fixed-point machine result-after-event snapshot raise-depth defer?)
+     (drain-to-fixed-point machine result-after-event raise-depth defer?)
      handled?))))
