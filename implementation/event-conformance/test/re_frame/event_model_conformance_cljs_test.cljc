@@ -9,7 +9,32 @@
   the three retired names survive ONLY as facade-exported `^:no-doc`
   throwing stubs raising their exact hard errors; ONE `:rf/event-handler`
   wrapper (`:rf/default? true`); `:event/kind` gone; `reg-event-ctx` is
-  not a public facade var; realm-routing preserved (a15n62).
+  not a public facade var.
+
+  ## The frame/query contract is NOT locked here — it lives in core
+
+  This tier carries NO realm-routing / frame-query section. The EP-0013
+  multi-realm substrate was RETIRED under EP-0023/EP-0024 (the realm
+  collapse, rf2-afdlyr / rf2-tu2vr7): there is no public realm query
+  coordinate, and the public read grammar is FRAME-TARGETED over a live
+  frame's sealed image generation (spec/API.md §The public registrar
+  query API). The two halves of that post-collapse contract are locked
+  elsewhere, NOT duplicated as an adversarial umbrella here:
+
+    - the QUERY-shaped read contract (`rf/handler-meta` /
+      `rf/registrations` / `rf/handler-ids` `{:frame …}` resolving each
+      frame's own sealed image descriptors with provenance, `frame-
+      generation`, both fail-loud cases, and the byte-identical default
+      keyword path) is comprehensively locked in core's
+      `re-frame.facade-frame-read-cljs-test` (EP-0023, rf2-wkw8na);
+    - the LIVE-DISPATCH isolation leg (a real `rf/dispatch-sync` through
+      two image-loaded frames runs + commits ONLY that frame's handler /
+      app-db) is locked in the SIBLING ns
+      `re-frame.event-frame-isolation-conformance-cljs-test` (EP-0023,
+      rf2-slvzn3).
+
+  So a regression in the frame/query contract goes RED in those suites;
+  this tier deliberately does not restate it.
 
   ## Why a cross-artefact tier and not just the in-core unit suite
 
@@ -29,7 +54,8 @@
       `^:no-doc`, and `reg-event` FAILS if it ever GAINS one);
     - a removed-name error that THROWS but no longer fans out on the
       always-on error channel (the advanced/corpus integration listener —
-      NOT the normal off-box sink path; see the EP-0015 lock §9 below).
+      NOT the normal off-box sink path; see the EP-0015 lock in section
+      (8) below).
 
   The always-on `register-error-listener!` / `register-event-listener!`
   registries this tier asserts against are the LOW-LEVEL advanced /
@@ -38,17 +64,17 @@
   they are NOT the normal production off-box (Datadog / Sentry) story —
   the normal story is a frame `:observability` sink fed an already-
   PROJECTED record by the runtime (centralized `project-egress` runs
-  before any sink sees a record). Section (9) below locks the EP-0015
+  before any sink sees a record). Section (8) below locks the EP-0015
   event-registration intersection: registration-owned `:sensitive` /
   `:large` event-arg classification, and a frame-owned off-box sink that
   receives a projected handled-event (raw `:event` args omitted) / error
   record (a classified secret in the event payload redacted).
 
   The contract spans the events runtime, the public facade, the
-  always-on error-emit channel, the frame-owned observability sink
-  routing, and the realm registrar — wider than any single artefact's
-  test tree — so it lives in its own cross-artefact `event-conformance/`
-  surface (the precedent is `reply-conformance/` + `derivation-conformance/`).
+  always-on error-emit channel, and the frame-owned observability sink
+  routing — wider than any single artefact's test tree — so it lives in
+  its own cross-artefact `event-conformance/` surface (the precedent is
+  `reply-conformance/` + `derivation-conformance/`).
 
   `.cljc`, dual-runtime: the shadow-cljs `:node-test` build
   (`npm run test:cljs`, ns matches `cljs-test$`) AND the JVM
@@ -57,7 +83,7 @@
   `test-support/make-reset-runtime-fixture` wraps every body in
   `(with-frame :rf/default …)` so ambient `dispatch-sync` resolves; an
   outer fixture clears the always-on error-listener registry (a `defonce`
-  that survives re-runs) + drops constructed realms.
+  that survives re-runs) + the frame-owned observability sink registry.
 
   Canonical contract: EP-0018 §1/§2/§3/§4/§5/§6/§7 + spec/002-Frames.md
   §Event handlers + spec/001-Registration.md §The retired
@@ -72,7 +98,6 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.observability :as observability]
             [re-frame.privacy :as privacy]
-            [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -81,14 +106,9 @@
 ;; Harness. The runtime-reset fixture snapshot/restores the registrar and
 ;; wraps each body in `(with-frame :rf/default …)`. The second fixture clears
 ;; the always-on error-listener registry (a `defonce` atom that survives test
-;; re-runs — rf2-bacs4) before AND after each test so a listener never leaks
-;; between cases, and drops any constructed realm so the realm-routing case
-;; leaves no residue.
+;; re-runs — rf2-bacs4) AND the frame-owned observability sink registry before
+;; AND after each test so neither a listener nor a sink leaks between cases.
 ;; ---------------------------------------------------------------------------
-
-(defn- drop-non-default-realms! []
-  (swap! realm/realms select-keys [realm/default-realm-id])
-  (swap! realm/realms update realm/default-realm-id dissoc :app :capabilities))
 
 (defn- clear-observation-state! []
   ;; Clear the always-on listener registries (advanced/corpus APIs) AND the
@@ -102,10 +122,8 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [test-fn]
     (clear-observation-state!)
-    (drop-non-default-realms!)
     (test-fn)
-    (clear-observation-state!)
-    (drop-non-default-realms!)))
+    (clear-observation-state!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared helpers.
@@ -1357,9 +1375,14 @@
           "the interceptor's directly-installed effect ran (no reg-event-ctx needed)"))))
 
 ;; ===========================================================================
-;; (9) EP-0015 event-registration intersection — the frame-owned OFF-BOX
+;; (8) EP-0015 event-registration intersection — the frame-owned OFF-BOX
 ;;     observability path is the normal production story (NOT the always-on
 ;;     low-level listener), and event-arg classification is REGISTRATION-owned.
+;;     (NB §8 follows §7 directly: the realm-routing section the EP-0013
+;;     multi-realm substrate once justified was removed in the EP-0023/EP-0024
+;;     realm collapse — the frame/query read contract is now locked in core's
+;;     `re-frame.facade-frame-read-cljs-test` and the sibling live-dispatch
+;;     `re-frame.event-frame-isolation-conformance-cljs-test`, not restated here.)
 ;;
 ;;     This tier's other sections assert the always-on `register-error-
 ;;     listener!` / `register-event-listener!` fan-out (the advanced/corpus

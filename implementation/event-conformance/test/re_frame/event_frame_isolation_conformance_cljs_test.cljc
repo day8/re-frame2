@@ -9,19 +9,21 @@
 
   > image -> frame -> event stream
 
-  ## Why this tier, and why it is DISTINCT from the realm-routing case already
-  ## here
+  ## Why this tier, and why it is DISTINCT from the frame/query READ lock
 
-  `re-frame.event-model-conformance-cljs-test` §8 (the sibling ns) locks the
-  EP-0013 realm-routing contract for the ONE `reg-event` form — but it asserts
-  resolution ONLY through `handler-meta` / `registrar/lookup` QUERIES, never a
-  live dispatch. That leaves a gap the review wave (rf2-ks67un) named: a
-  regression where LIVE event dispatch falls back to the DEFAULT/GLOBAL
-  registrar — while `handler-meta` and the realm registrar QUERIES still resolve
-  the per-frame handler correctly — would pass that surface GREEN. The
-  generation-routing seam (`router/process-event!` wrapping the cascade in
-  `live-frame/call-with-frame-resolution`, rf2-uejnt3) is exactly what such a
-  query-only suite cannot see.
+  Core's `re-frame.facade-frame-read-cljs-test` (EP-0023, rf2-wkw8na) locks the
+  frame-targeted READ contract for the ONE `reg-event` form — `rf/handler-meta`
+  / `rf/registrations` / `rf/handler-ids` `{:frame …}` resolving each frame's
+  OWN sealed image generation — but it asserts resolution ONLY through those
+  QUERIES, never a live dispatch. (Post-EP-0023/EP-0024 there is no realm
+  routing: the multi-realm substrate collapsed, rf2-afdlyr / rf2-tu2vr7, and the
+  read grammar is frame-targeted over a live frame's image generation.) That
+  leaves a gap the review wave (rf2-ks67un) named: a regression where LIVE event
+  dispatch falls back to the DEFAULT/GLOBAL registrar — while the frame-targeted
+  QUERIES still resolve the per-frame handler correctly — would pass that surface
+  GREEN. The generation-routing seam (`router/process-event!` wrapping the
+  cascade in `live-frame/call-with-frame-resolution`, rf2-uejnt3) is exactly what
+  such a query-only suite cannot see.
 
   This suite closes that gap at the conformance tier: it drives a REAL
   `rf/dispatch-sync` through two EP-0023 image-loaded frames whose resolved image
@@ -296,9 +298,8 @@
 
 ;; ===========================================================================
 ;; (4) ABSENCE-IS-DEFAULT — a dispatch into a frame with NO image-loaded object
-;;     (every EP-0013 realm-only / single-realm frame) resolves through the
-;;     DEFAULT/GLOBAL registrar, byte-identical for every existing caller, and no
-;;     generation is ever bound.
+;;     resolves through the DEFAULT/GLOBAL registrar, byte-identical for every
+;;     existing caller, and no generation is ever bound.
 ;; ===========================================================================
 
 (deftest absence-is-default-no-image-frame-uses-the-global-registrar
