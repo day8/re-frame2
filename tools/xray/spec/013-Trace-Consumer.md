@@ -598,6 +598,11 @@ Trace → "Show wall-clock axis."
   the `:sensitive?` semantics the collector gates on.
 - [Spec-Schemas §`:rf/trace-event`](../../../spec/Spec-Schemas.md#rftrace-event)
   — the event shape consumers project from.
+- [Spec 009 §Frame identity on the raw event](../../../spec/009-Instrumentation.md)
+  — a raw trace event carries frame identity ONLY at `[:tags :frame]`;
+  Xray's collector + trace-panel helpers read it via the contract-owned
+  canonical reader `re-frame.trace/trace-event-frame` rather than
+  hand-reaching into `[:tags :frame]` (rf2-7737vq).
 - [`Principles.md`](./Principles.md) §Observation only — no new
   runtime surfaces — the discipline that keeps Xray downstream.
 - [`007-UX-IA.md`](./007-UX-IA.md) §Bottom rail — the
