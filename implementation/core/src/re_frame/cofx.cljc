@@ -1049,6 +1049,45 @@
 ;; not a dev diagnostic). The stub remains so a stale call site fails LOUDLY
 ;; with an actionable message rather than an opaque "no such var".
 
+;; ---- shared always-on removed-API thrower (rf2-8au0w6) --------------------
+;;
+;; The removed-public-API "throwing stub" pattern that ALSO fans out on the
+;; always-on observability channel (a catalogued Spec 009 §Error-event
+;; category — `:rf.error/inject-cofx-removed`, `:rf.error/reg-event-*-removed`)
+;; was hand-rolled per surface: the same three-step body (surface on the
+;; always-on `:error-emit/dispatch-on-error` listener → emit the dev
+;; `:rf.error/*` trace → throw the canonical `error/throw-error!` hard error).
+;; `raise-removed!` is the ONE shared fan-out thrower both surfaces delegate
+;; to (the EP-0017 `inject-cofx` stub here, and the EP-0018 reg-event removed
+;; names via `re-frame.events/raise-removed-reg-event!`, which requires this
+;; ns). Lives here rather than in `re-frame.error` because the fan-out needs
+;; `late-bind` + `trace`, both of which require `error` — pushing it into
+;; `error` would close a load cycle. Behaviour is byte-identical to the prior
+;; bespoke bodies: the caller passes its exact `error-kw` / `where` / `reason`
+;; / offending `id` and the `id-key` under which the id rides the trace tag +
+;; thrown ex-data (`:id` for reg-event, `:rf.cofx/id` for inject-cofx). The
+;; std-interceptor removed values (EP-0022) ride no catalogued 009 category, so
+;; they throw `error/throw-error!` directly (no fan-out) and do NOT use this.
+(defn raise-removed!
+  "Fan out + throw a removed-public-API hard error that rides the always-on
+  Spec 009 observability channel (rf2-8au0w6). Surfaces `error-kw` on the
+  always-on `:error-emit/dispatch-on-error` listener (production-survivable),
+  emits the dev `:rf.error/*` trace, then throws the canonical
+  `error/throw-error!` hard error attributed to `where` with `reason`. The
+  offending `id` (the removed registrar/cofx call's first arg, or nil) rides
+  the trace tag + thrown ex-data under `id-key` when present. Never returns
+  normally. The ONE place the fan-out throw mechanics live; every fan-out
+  removed stub delegates here so the next such removal is a data edit."
+  [error-kw where reason id id-key]
+  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+    (dispatch-on-error! error-kw nil id nil nil 0 (interop/now-ms)))
+  (trace/emit-error! error-kw
+                     (cond-> {:reason reason :recovery :no-recovery}
+                       (some? id) (assoc id-key id)))
+  (error/throw-error! error-kw where reason
+                      {:recovery :no-recovery
+                       :extra    (when (some? id) {id-key id})}))
+
 (defn inject-cofx
   "REMOVED in EP-0017 (no alias). Calling `inject-cofx` is the hard error
   `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires` as the
@@ -1064,13 +1103,8 @@
                      "under its id; the registration's grade decides replay "
                      "semantics. See spec/001-Registration.md §`inject-cofx` "
                      "is removed.")]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/inject-cofx-removed nil cofx-id nil nil 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/inject-cofx-removed
-                       (cond-> {:reason reason :recovery :no-recovery}
-                         cofx-id (assoc :rf.cofx/id cofx-id)))
-    (error/throw-error! :rf.error/inject-cofx-removed 'rf/inject-cofx reason
-                        {:extra (when cofx-id {:rf.cofx/id cofx-id})})))
+    (raise-removed! :rf.error/inject-cofx-removed 'rf/inject-cofx reason
+                    cofx-id :rf.cofx/id)))
 
 ;; ---- standard registrations -----------------------------------------------
 ;;

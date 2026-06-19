@@ -132,6 +132,45 @@
   ([error-id where-sym reason opts]
    (throw (thrown-ex-info error-id where-sym reason opts))))
 
+;; ---- shared removed-API thrower: inline interceptor (rf2-8au0w6) -----------
+;;
+;; The retired-name "throwing stub" pattern (a removed public API survives as
+;; a `^:no-doc` var that throws a LOUD, actionable `:rf.error/<x>-removed`
+;; naming the replacement) was hand-rolled per surface. The per-surface DATA
+;; TABLES (`events/removed-reg-event-names`, `std-interceptors/removed-std-
+;; interceptor-values`, rf2-ne2uk8) already collapse each surface's rows to one
+;; literal vector — but the THROW MECHANICS were still re-rolled per file, and
+;; the `inline-interceptor-removed` thrower was LITERAL copy-paste across two
+;; namespaces (`events` + `interceptor-registry`). The helper below is the ONE
+;; shared definition both inline-interceptor rejection sites delegate to, so the
+;; throw mechanics live once. Behaviour is byte-identical: each caller passes
+;; its exact `where` / `reason` / `extra`, so the thrown ex-info shape is
+;; unchanged. (The always-on FAN-OUT removed-stub variant — the EP-0017
+;; `inject-cofx` + EP-0018 reg-event removals — shares `cofx/raise-removed!`
+;; instead, because that fan-out needs `late-bind` + `trace`, both of which
+;; require `error`; housing it here would close a load cycle.)
+
+(defn throw-inline-interceptor-removed!
+  "Throw the EP-0022 reference-only-flip hard error
+  `:rf.error/inline-interceptor-removed` (rf2-0adhqs.9) for an INLINE
+  interceptor value found where a chain expects a REFERENCE. The ONE
+  definition both rejection sites delegate to — the registration-time site
+  (`re-frame.events/validate-meta-interceptors!`, `:where 'rf/reg-event`) and
+  the chain-assembly site (`re-frame.interceptor-registry/resolve-chain`,
+  `:where 'rf/resolve-chain`). Each passes its own `where` symbol, fully
+  composed `reason` sentence, and `extra` ex-data map, so the thrown shape is
+  exactly what each site threw before the dedup; only the throw mechanics are
+  shared. The migration path the message names: register the interceptor with
+  `reg-interceptor` and reference it by id (a bare keyword or an `[id arg]`
+  2-vector). Never returns normally."
+  [where reason extra]
+  (throw-error!
+    :rf.error/inline-interceptor-removed
+    where
+    reason
+    {:recovery :fix-registration
+     :extra    extra}))
+
 (defn ex-info-from-data
   "Build a canonical thrown-error `ex-info` whose ex-data is the ALREADY-BUILT
   `data` map verbatim, deriving the human message from the map's own
