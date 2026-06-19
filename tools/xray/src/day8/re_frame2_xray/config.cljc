@@ -1129,6 +1129,36 @@
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:cascades-retained 50}})
 
+(defn- merge-known-sections
+  "Deep-merge `src` (a persisted / bulk-config settings map) over
+  `default-settings`, section by section, returning the reconstructed
+  settings map. Pure; CLJC; JVM-testable.
+
+  ONE source of truth for the known-section list. Both persistence
+  paths — `load-settings-from-storage!` (src = the localStorage
+  payload) and `configure!` (src = the bulk-config `:rf.xray/settings`
+  map) — reconstruct the SAME shape, so the merge lived here twice
+  verbatim. Folding it into one helper means a NEW section added to
+  `default-settings` (the docstring anticipates future theme / buffer /
+  placement keys) is honoured by both paths from a single edit — the
+  forgot-the-other-half bug family is structurally removed.
+
+  Per-section semantics preserved exactly:
+  - `:general` / `:diff` / `:buffer` — `merge` the src's nested map
+    over the default's, so unknown nested keys in `src` survive but
+    a section absent from `src` keeps its full default.
+  - `:theme` — a flat keyword, not a nested map; take the src's value
+    or fall back to the default (rf2-jh9ws).
+  Any unknown TOP-LEVEL section in `src` (e.g. a legacy `:telemetry`
+  key) falls on the floor — the reconstruction only knows the sections
+  enumerated here."
+  [src]
+  (-> default-settings
+      (update :general merge (:general src))
+      (assoc  :theme  (or (:theme src) (:theme default-settings)))
+      (update :diff    merge (:diff src))
+      (update :buffer  merge (:buffer src))))
+
 (defn clamp-panel-width-px
   "Pure helper: clamp `px` to the resize handle's [min, viewport×0.9]
   range (rf2-x8h9y). Pass `viewport-width-px` explicitly so the helper
@@ -1353,13 +1383,7 @@
        (when-let [raw (storage-get settings-storage-key)]
          (let [parsed (cljs.reader/read-string raw)]
            (when (map? parsed)
-             (reset! settings
-                     (-> default-settings
-                         (update :general merge (:general parsed))
-                         (assoc  :theme  (or (:theme parsed)
-                                             (:theme default-settings)))
-                         (update :diff      merge (:diff parsed))
-                         (update :buffer    merge (:buffer parsed)))))))
+             (reset! settings (merge-known-sections parsed)))))
        (catch :default _ nil))
      nil))
 
@@ -1625,12 +1649,7 @@
   (when (contains? opts :rf.xray/settings)
     (when (map? settings-opt)
       (reset! day8.re-frame2-xray.config/settings
-              (-> default-settings
-                  (update :general merge (:general settings-opt))
-                  (assoc  :theme  (or (:theme settings-opt)
-                                      (:theme default-settings)))
-                  (update :diff      merge (:diff settings-opt))
-                  (update :buffer    merge (:buffer settings-opt))))
+              (merge-known-sections settings-opt))
       #?(:cljs (write-storage!))))
   ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
   ;; seed so a host that overrides both in one call gets the seed
