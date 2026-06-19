@@ -23,7 +23,7 @@
   payload — plus the runtime-owned verification payload (`:work/id` /
   `:resource/key` / `:scope` / `:generation` / `:rf.frame/id`) the resource
   lowering stamped — into the canonical reply map, exactly as
-  `re-frame.http-reply` builds HTTP's canonical reply from the transport's
+  `re-frame.http.reply` builds HTTP's canonical reply from the transport's
   raw success / failure facts. The two families share the SAME core
   substrate (`re-frame.reply`): one closed `:status` taxonomy, one work-id
   correlation rule, one stale-suppression boundary, one functor law.
@@ -73,7 +73,7 @@
   ## Why there is no `target-obsolete?` gate here (rf2-wwfn7q)
 
   HTTP carries an `actor-destroy-target-obsolete?` predicate
-  (`re-frame.http-reply`) that lowers a destroyed-actor reply to `:stale`/
+  (`re-frame.http.reply`) that lowers a destroyed-actor reply to `:stale`/
   `:suppressed` (rather than `:cancelled`) when the reply TARGET names the
   destroyed actor. Resources and mutations have NO counterpart, **by
   design** — obsolete-target suppression is HTTP-specific. HTTP is the only
@@ -118,7 +118,7 @@
 ;; The aborted-failure detector (Managed-Effects §Status taxonomy / §
 ;; Cancellation). An `:rf.http/aborted` failure envelope is a CANCELLATION,
 ;; not an `:error` — it lowers to `:status :cancelled`, never `:status
-;; :error`. Mirrors `re-frame.http-reply`'s abort handling.
+;; :error`. Mirrors `re-frame.http.reply`'s abort handling.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private http-aborted-kind

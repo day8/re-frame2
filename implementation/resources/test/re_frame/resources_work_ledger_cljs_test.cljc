@@ -38,7 +38,7 @@
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch + abort are overridden by capturing no-ops below.
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]

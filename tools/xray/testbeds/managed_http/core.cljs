@@ -64,7 +64,7 @@
   ## Bundle isolation
 
   Lives under `tools/xray/testbeds/`; requires the managed-HTTP artefact
-  (`re-frame.http-managed`) + its test-support (`re-frame.http-test-
+  (`re-frame.http.managed`) + its test-support (`re-frame.http-test-
   support` — a testbed IS a test affordance) + the shared `runner.core`.
   Nothing under `implementation/` requires this."
   (:require [reagent.dom.client :as rdc]
@@ -74,18 +74,18 @@
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring at app
             ;; boot triggers its load-time fx registrations
             ;; (`:rf.http/managed` / `:rf.http/managed-abort`).
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             ;; The actor-in-flight INDEX-WRITE seam (`record-in-flight!`)
-            ;; is not re-exported from re-frame.http-managed (only the
+            ;; is not re-exported from re-frame.http.managed (only the
             ;; read-side snapshots + clear/abort are). The testbed reaches
             ;; the registry ns directly to seed the actor-in-flight index
             ;; for the concurrent-by-actor + outlives-teardown steps — the
             ;; same atom the real transport's run-attempt! records into.
-            [re-frame.http-registry :as http-registry]
+            [re-frame.http.registry :as http-registry]
             ;; The canned-stub fx ids (`:rf.http/managed-canned-failure`)
-            ;; register from re-frame.http-test-support. A testbed IS a
+            ;; register from re-frame.http.test-support. A testbed IS a
             ;; test affordance, so requiring it is correct.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]

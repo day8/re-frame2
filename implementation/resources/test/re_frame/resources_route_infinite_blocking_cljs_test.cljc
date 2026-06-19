@@ -61,7 +61,7 @@
    [re-frame.resources.test-support]
    [re-frame.routing :as routing]
    [re-frame.schemas]
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.test-support :as core-test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))

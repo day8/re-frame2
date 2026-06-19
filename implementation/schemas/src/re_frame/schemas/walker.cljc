@@ -40,7 +40,7 @@
     - the resource `:data-schema` classification
       (`re-frame.resources.classification`, EP-0015 §6);
     - the HTTP body-privacy projector
-      (`re-frame.http-privacy-body`);
+      (`re-frame.http.privacy-body`);
     - story-mcp's tool-egress projector.
 
   These call the per-flag late-bind hooks

@@ -94,7 +94,7 @@
               :spec      "Spec 013 (Flows)"
               :probe-key :flows/reg-flow}
    :http     {:maven     "day8/re-frame2-http"
-              :require   "re-frame.http-managed"
+              :require   "re-frame.http.managed"
               :spec      "Spec 014 (Managed HTTP)"
               :probe-key :http/abort-on-actor-destroy}
    :ssr      {:maven     "day8/re-frame2-ssr"

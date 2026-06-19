@@ -28,7 +28,7 @@
    [re-frame.resources.state :as state]
    [re-frame.resources.subs]
    [re-frame.resources.test-support]
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]

@@ -1116,8 +1116,8 @@
   ;;
   ;; The events / fxs / subs / step-vector are OWNED in
   ;; managed_http/core.cljs; it requires the managed-HTTP artefact
-  ;; (`[re-frame.http-managed]`) + its test-support
-  ;; (`[re-frame.http-test-support]` — a testbed IS a test affordance,
+  ;; (`[re-frame.http.managed]`) + its test-support
+  ;; (`[re-frame.http.test-support]` — a testbed IS a test affordance,
   ;; per rf2-cdmle) + the shared `[runner.core]`. The HOT success path
   ;; rides a live Fetch against the static api/ok.json shipped beside the
   ;; testbed (source-dir-first cascade resolves it); the failure / abort

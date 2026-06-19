@@ -37,7 +37,7 @@
    [re-frame.resources.state :as state]
    [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.resources.test-support]
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    [re-frame.trace.tooling :as trace-tooling]

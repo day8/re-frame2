@@ -78,7 +78,7 @@
             ;; projector (`project-egress`), the HTTP header carrier denylist,
             ;; and the SSR hydration-payload allowlist. All pure fns.
             [re-frame.projection :as projection]
-            [re-frame.http-privacy-headers :as http-privacy-headers]
+            [re-frame.http.privacy-headers :as http-privacy-headers]
             [re-frame.ssr.payload-policy :as ssr-payload-policy]
             [re-frame.routing :as routing]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
@@ -95,13 +95,13 @@
             ;; redirecting to its canned stubs); requiring here gives the
             ;; runner access to the fx without each fixture re-registering
             ;; it itself.
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) gate on explicit
             ;; test-support require. Fixtures use them by id via
             ;; :fx-overrides; opt in here so they register before any
             ;; fixture runs.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             ;; EP-0014 (rf2-k0meap.3) — the `:derivation-graph` call op pins
             ;; the cross-family derivation/process graph (lowering /
             ;; classification / edge roles / parametric markers / refinement)
@@ -343,7 +343,7 @@
   (http-managed/clear-all-in-flight!)
   ;; 4a. Spec 014 §Middleware (rf2-yhfgf) — drop the per-frame request-
   ;;     side interceptor chain. The atom holding the chain is `defonce`
-  ;;     in `re-frame.http-middleware`; without an explicit clear, a
+  ;;     in `re-frame.http.middleware`; without an explicit clear, a
   ;;     fixture that registers an interceptor leaks it into the next
   ;;     fixture's chain walk.
   (http-managed/clear-all-http-interceptors!)

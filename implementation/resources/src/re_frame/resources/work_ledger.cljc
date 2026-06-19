@@ -512,7 +512,7 @@
   abort by emitting `:rf.http/managed-abort` via `abort-fx`; the
   OUT-of-cascade lifecycle paths (`clear-resource`, frame destroy) run no
   cascade, so they reach the SAME abort-by-request-id operation
-  (`re-frame.http-registry/abort-in-flight!`) through the published hook —
+  (`re-frame.http.registry/abort-in-flight!`) through the published hook —
   the same token the lower registered, so it resolves the right frame's
   in-flight request rather than just clearing the side-table slot.
 

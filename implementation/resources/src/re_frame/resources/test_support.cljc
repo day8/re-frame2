@@ -6,7 +6,7 @@
   façade so a test-runner-internal surface never reaches a production
   registry (the rf2-dbiv8 / rf2-cdmle posture: test fixtures live behind
   an explicit test-support require, mirroring
-  `re-frame.routing.test-support` and `re-frame.http-test-support`).
+  `re-frame.routing.test-support` and `re-frame.http.test-support`).
 
   Production posture: this namespace is unreferenced from any production
   module, so CLJS `:advanced` trims it wholesale and JVM/SSR sees
@@ -96,5 +96,5 @@
 ;; make-reset-runtime-fixture reset-hooks table consults
 ;; `:resources/reset-resources!` by key and no-ops when this namespace is
 ;; absent (production builds never load it). Mirrors the
-;; re-frame.routing.test-support / re-frame.http-test-support posture.
+;; re-frame.routing.test-support / re-frame.http.test-support posture.
 (late-bind/set-fn! :resources/reset-resources! reset-resources!)

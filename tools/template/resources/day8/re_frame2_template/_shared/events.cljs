@@ -128,7 +128,7 @@
 ;; directly, with mandatory stale suppression. See
 ;; [Spec 014 §Lowering onto the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#lowering-onto-the-uniform-reply-envelope).
 ;;
-;;   1. Require `[re-frame.http-managed]` at app boot — that's the load-
+;;   1. Require `[re-frame.http.managed]` at app boot — that's the load-
 ;;      time side-effect that registers the `:rf.http/managed` fx and
 ;;      publishes the call-site helpers. Without it, dispatching the fx
 ;;      below would raise `:rf.error/no-such-fx`.

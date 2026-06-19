@@ -505,7 +505,7 @@
   `re-frame.marks/redact-with-paths` walker (sensitive → `:rf/redacted`,
   large → `:rf.size/large-elided`, sensitive wins over large at the same
   slot) — the SAME walker the HTTP response-body surface
-  (`re-frame.http-privacy-body/classify-decoded`) uses, never a
+  (`re-frame.http.privacy-body/classify-decoded`) uses, never a
   resource-private walker. Frame-INDEPENDENT — the OWNER's declaration fires
   irrespective of any frame app-db classification (resource params do not
   live at a frame app-db path). `spec` nil / no `:params-schema` / no marks →

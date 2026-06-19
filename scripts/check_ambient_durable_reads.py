@@ -169,7 +169,7 @@ DURABLE_WRITE_SUFFIXES: tuple[str, ...] = (
     "implementation/core/src/re_frame/core_resources.cljc",
     "implementation/core/src/re_frame/reply.cljc",
     # http reply handler
-    "implementation/http/src/re_frame/http_reply.cljc",
+    "implementation/http/src/re_frame/http/reply.cljc",
     # machine reply + snapshot writer
     "implementation/machines/src/re_frame/machines/reply.cljc",
     "implementation/machines/src/re_frame/machines/lifecycle_fx/update_snapshot.cljc",

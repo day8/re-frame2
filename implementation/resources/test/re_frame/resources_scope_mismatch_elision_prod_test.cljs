@@ -34,7 +34,7 @@
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as subs]
             [re-frame.resources.test-support]
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             [re-frame.schemas :as schemas]
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as trace-tooling]))

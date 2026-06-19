@@ -43,7 +43,7 @@
    [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.registrar :as registrar]
    [re-frame.resources.test-support]
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    [re-frame.error-emit :as error-emit]

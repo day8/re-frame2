@@ -155,20 +155,20 @@ const ARTEFACTS = [
   {
     name: 'http',
     internalSentinels: [
-      // http_managed.cljc — managed-abort fx (registered only when the
+      // http/managed.cljc — managed-abort fx (registered only when the
       // ns is loaded; the keyword string survives :advanced).
-      { source: 're-frame.http-managed reg-fx (rf.http/managed-abort)',
+      { source: 're-frame.http.managed reg-fx (rf.http/managed-abort)',
         sentinel: 'rf.http/managed-abort' },
-      // http_test_support.cljc — canned-failure stub fx (rf2-cdmle: the
-      // canned-stub fx registrations moved out of http_managed.cljc to a
+      // http/test_support.cljc — canned-failure stub fx (rf2-cdmle: the
+      // canned-stub fx registrations moved out of http/managed.cljc to a
       // sibling test-support namespace; the keyword string still lives
       // in the http artefact's source tree, just under a different .cljc
       // file. examples/counter never requires either ns, so the sentinel
       // continues to assert the http artefact's bodies aren't pulled in).
-      { source: 're-frame.http-test-support reg-fx (rf.http/managed-canned-failure)',
+      { source: 're-frame.http.test-support reg-fx (rf.http/managed-canned-failure)',
         sentinel: 'rf.http/managed-canned-failure' },
-      // http_managed.cljc — failure taxonomy: decode failure.
-      { source: 're-frame.http-managed classify-failure (decode-failure)',
+      // http/managed.cljc — failure taxonomy: decode failure.
+      { source: 're-frame.http.managed classify-failure (decode-failure)',
         sentinel: 'rf.http/decode-failure' },
     ],
     // Two consumer-side strings (Spec 014, rf2-5kpd split):

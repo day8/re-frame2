@@ -15,7 +15,7 @@
             ;; :http/reg-http-interceptor) are published — the
             ;; registry-introspection-round-trip test below exercises
             ;; reg-http-interceptor. Side-effect require; alias unused.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -42,7 +42,7 @@
   ;; reg-http-interceptor which is late-bound through the http-managed
   ;; artefact. Reload so the :http/reg-http-interceptor hook is
   ;; published across runs.
-  (require 're-frame.http-managed :reload)
+  (require 're-frame.http.managed :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-

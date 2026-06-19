@@ -30,7 +30,7 @@
 ;;
 ;; This artefact ships nothing, so the top-level `:deps` is empty. The
 ;; cross-artefact source the test namespaces `:require` (`re-frame.reply`
-;; from core; `re-frame.http-reply`; `re-frame.resources.reply`;
+;; from core; `re-frame.http.reply`; `re-frame.resources.reply`;
 ;; `re-frame.machines.reply`; `re-frame.routing.reply`) is pulled in under
 ;; the `:test` alias only. `:extra-paths` is JUST `["test"]` so the
 ;; cognitect test-runner scans ONLY this tier's test dir — the artefact

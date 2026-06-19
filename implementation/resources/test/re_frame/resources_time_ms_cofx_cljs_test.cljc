@@ -37,7 +37,7 @@
    [re-frame.resources.work-ledger :as work-ledger]
    ;; production HTTP fx surface (the transport feature probe); the actual
    ;; fetch is overridden by the capturing no-op below.
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]

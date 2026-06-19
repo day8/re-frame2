@@ -41,7 +41,7 @@
    [re-frame.resources.test-support]
    [re-frame.routing :as routing]
    [re-frame.schemas]
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.test-support :as core-test-support]
    [re-frame.trace.tooling :as trace-tooling]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]

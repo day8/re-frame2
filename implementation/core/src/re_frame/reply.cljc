@@ -38,7 +38,7 @@
   convention). It carries no Malli dependency: schema validation routes
   through `re-frame.spec`'s best-effort `(resolve 'malli.core/validate)`
   seam, which no-ops when the schemas artefact is absent (same posture as
-  `re-frame.epoch` / `re-frame.http-managed`)."
+  `re-frame.epoch` / `re-frame.http.managed`)."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]))
 

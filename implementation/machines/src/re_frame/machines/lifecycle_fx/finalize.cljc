@@ -58,7 +58,7 @@
 ;; in-flight `:rf.http/managed` request the actor had issued is
 ;; aborted. The abort is fired through the late-bind hook
 ;; `:http/abort-on-actor-destroy` — re-frame.machines does NOT
-;; statically `:require` re-frame.http-managed; the destroy path
+;; statically `:require` re-frame.http.managed; the destroy path
 ;; looks up this fn at call time.
 
 (defn abort-actor-in-flight-http!

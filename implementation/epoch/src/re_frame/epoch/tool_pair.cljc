@@ -604,7 +604,7 @@
 ;; durable frame-state WHOLESALE, but the ASYNC HOST WORK the unwound epochs
 ;; spawned — machine `:after` host-clock timers (re-frame.machines.timer's
 ;; frame-scoped handle table) and non-resource managed-HTTP AbortControllers /
-;; in-flight handles (re-frame.http-registry) — is NOT frame-state, so the
+;; in-flight handles (re-frame.http.registry) — is NOT frame-state, so the
 ;; wholesale install does not touch it. It stays attached to the pre-restore
 ;; timeline. Restore must QUIESCE it for the restored frame: cancel/clear the
 ;; orphaned host handles so a late pre-restore completion is stale-suppressed and
@@ -1141,7 +1141,7 @@
 ;;
 ;; The body's shape cannot be proven from the trace event alone — the
 ;; request's `:decode` is request-private and never on the trace event — so
-;; the HTTP emit site (`re-frame.http-transport`) STAMPS its off-box
+;; the HTTP emit site (`re-frame.http.transport`) STAMPS its off-box
 ;; disposition forward under `:tags :rf.http/off-box-body` (`:omit` for an
 ;; unschematized body, `:classify` for a schema body whose per-slot marks
 ;; were already applied on-box). This projector reads the stamp and OMITS

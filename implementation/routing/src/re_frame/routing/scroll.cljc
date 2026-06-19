@@ -18,7 +18,7 @@
 
   The cache lives in `scroll-positions-cache` below: a
   `{frame-id {:positions {url [x y]} :order [url ...]}}` atom, mirroring
-  the HTTP in-flight registry pattern (`re-frame.http-registry`, EP-0001
+  the HTTP in-flight registry pattern (`re-frame.http.registry`, EP-0001
   ~line 901). It is LRU-capped per-frame by `scroll-positions-cap` with
   recency tracked by the per-frame `:order` vector. A frame's entry is
   released by `release-frame!` on frame destroy (analogous to the other
@@ -54,7 +54,7 @@
   ;; serialized into epochs / SSR payloads (per EP-0001 decision #13 +
   ;; the rf2-1hncp2 ruling). Keyed by frame-id so multi-frame apps keep
   ;; isolated per-frame caches; the entry is dropped on frame destroy via
-  ;; `release-frame!`. Mirrors `re-frame.http-registry`'s `in-flight`
+  ;; `release-frame!`. Mirrors `re-frame.http.registry`'s `in-flight`
   ;; defonce atom — host-owned ephemeral state, not in the reactive db.
   (atom {}))
 

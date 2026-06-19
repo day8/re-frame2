@@ -572,7 +572,7 @@ Two distinctive postures land in the example:
    semantic retry.
 
 To enable HTTP, add `day8/re-frame2-http` to `deps.edn` and require
-`[re-frame.http-managed]` at app boot (the side-effecting load that
+`[re-frame.http.managed]` at app boot (the side-effecting load that
 registers `:rf.http/managed`).
 
 ### Naming conventions

@@ -538,7 +538,7 @@
 (late-bind/set-fn! :machines/update-snapshot-fx     update-snapshot/update-snapshot-fx)
 
 ;; rf2-ijm7 — load-order resilience for the `:rf.http/managed` machine-shape
-;; wrapper. The wrapper is registered by re-frame.http-managed via the
+;; wrapper. The wrapper is registered by re-frame.http.managed via the
 ;; `:machines/reg-machine` hook published above; but if http-managed loaded
 ;; BEFORE this namespace (the load-order is determined by the consuming app's
 ;; require graph, not by either artefact), the wrapper's bottom-of-ns call

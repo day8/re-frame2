@@ -49,13 +49,13 @@
             ;; corpus drives the centralised egress projector via three pure
             ;; `:call` ops. `re-frame.projection/project-egress` is the
             ;; canonical off-box projector (issue 4 / fail-closed); the HTTP
-            ;; header carrier denylist (`re-frame.http-privacy-headers`,
+            ;; header carrier denylist (`re-frame.http.privacy-headers`,
             ;; Spec 014 §Privacy / EP-0015 §3) and the SSR hydration-payload
             ;; allowlist (`re-frame.ssr.payload-policy`, Spec 011 §14) are the
             ;; two boundary-specific pure projectors the §Tests table names.
             ;; All three are pure functions — Mode-B call ops, no frame loop.
             [re-frame.projection :as projection]
-            [re-frame.http-privacy-headers :as http-privacy-headers]
+            [re-frame.http.privacy-headers :as http-privacy-headers]
             [re-frame.ssr.payload-policy :as ssr-payload-policy]
             [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -67,14 +67,14 @@
             ;; redirecting to its canned stubs); requiring here gives the
             ;; runner access to the fx without each fixture re-registering
             ;; it itself.
-            [re-frame.http-managed]
+            [re-frame.http.managed]
             ;; rf2-cdmle — the canned-stub fxs (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) moved out of
-            ;; `re-frame.http-managed`'s load-time side effects to the
-            ;; sibling `re-frame.http-test-support` namespace. The
+            ;; `re-frame.http.managed`'s load-time side effects to the
+            ;; sibling `re-frame.http.test-support` namespace. The
             ;; conformance fixtures reference them by id; opt in here
             ;; so the fxs register before any fixture runs.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
             ;; fixture event moved out of the `re-frame.routing` production
             ;; façade to the sibling `re-frame.routing.test-support`
@@ -356,12 +356,12 @@
   (require 're-frame.routing.test-support :reload)
   (require 're-frame.ssr :reload)
   ;; Spec 014 — re-register :rf.http/managed and friends after clear-all!.
-  (require 're-frame.http-managed :reload)
-  ;; rf2-cdmle — also re-fire re-frame.http-test-support's load body so
+  (require 're-frame.http.managed :reload)
+  ;; rf2-cdmle — also re-fire re-frame.http.test-support's load body so
   ;; its canned-stub fx registrations re-seat (clear-all! above wiped
   ;; them; http-managed reload doesn't reintroduce them under the new
   ;; gate).
-  (require 're-frame.http-test-support :reload)
+  (require 're-frame.http.test-support :reload)
   ;; Spec 005 — re-register :rf.machine/spawn / :rf.machine/destroy fx and the :rf/machine
   ;; sub after clear-all!. Per rf2-suue the spawn/destroy fx now wire the
   ;; live actor handler + snapshot, so the runtime side of the spawn must
@@ -378,14 +378,14 @@
   ((requiring-resolve 're-frame.routing/reset-nav-counters!))
   ((requiring-resolve 're-frame.machines/reset-timers!))
   ;; Spec 014 — drop the in-flight request registry between fixtures.
-  ((requiring-resolve 're-frame.http-managed/clear-all-in-flight!))
+  ((requiring-resolve 're-frame.http.managed/clear-all-in-flight!))
   ;; Spec 014 §Middleware (rf2-yhfgf) — the per-frame interceptor chain
-  ;; is held in a `defonce` atom inside `re-frame.http-middleware` and
+  ;; is held in a `defonce` atom inside `re-frame.http.middleware` and
   ;; persists across `:reload` (defonce semantics). The interceptor
   ;; corpus fixtures register chains scoped to their fixture; clear
   ;; between runs so a previous fixture's interceptors don't leak into
   ;; the next fixture's chain walk.
-  ((requiring-resolve 're-frame.http-managed/clear-all-http-interceptors!)))
+  ((requiring-resolve 're-frame.http.managed/clear-all-http-interceptors!)))
 
 ;; ---- fixture execution ----------------------------------------------------
 

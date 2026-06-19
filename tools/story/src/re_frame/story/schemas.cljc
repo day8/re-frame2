@@ -578,7 +578,7 @@
   (`:get` / `:post` / `:put` / `:patch` / `:delete` / `:head` /
   `:options`); `url` is the request URL string. Per
   `tools/story/spec/017-Testing-Story.md` §Network world the key shape
-  mirrors `re-frame.http-test-support/install-managed-request-stubs!`."
+  mirrors `re-frame.http.test-support/install-managed-request-stubs!`."
   [:tuple
    [:enum :get :post :put :patch :delete :head :options]
    :string])
@@ -674,7 +674,7 @@
   Per `tools/story/spec/017-Testing-Story.md` §Network world the plan
   compiler lowers `:network` to `[:world :network]` and then to the
   existing managed-request stub machinery
-  (`re-frame.http-test-support/install-managed-request-stubs!`). It is the
+  (`re-frame.http.test-support/install-managed-request-stubs!`). It is the
   higher-level affordance for `:rf.http/managed` — route-level replies,
   mixed success/failure, and per-route intent — distinct from the coarse
   generic `:fx-overrides` surface, which still serves non-HTTP effects.
@@ -822,7 +822,7 @@
     ;; rf2-5x1wt.14 — first-class managed-HTTP request stubs. A map of
     ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
     ;; lowers `:network` to `[:world :network]` and on to the managed-
-    ;; request stub fx (`re-frame.http-test-support`). The higher-level
+    ;; request stub fx (`re-frame.http.test-support`). The higher-level
     ;; affordance for `:rf.http/managed`; generic `:fx-overrides` still
     ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
     ;; world.

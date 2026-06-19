@@ -524,7 +524,7 @@
 ;;
 ;; The `:sensitive :http {:headers [..] :query-params [..]}` carriers ride
 ;; the frame's `:config` verbatim (validated above, shape only). The HTTP
-;; privacy redactor (`re-frame.http-privacy*`) consults them at trace-emit
+;; privacy redactor (`re-frame.http.privacy*`) consults them at trace-emit
 ;; time as frame-local EXTENSIONS to the immutable built-in carrier denylist
 ;; (Spec 014 §Privacy). HTTP sits BELOW core in artefact load order, so it
 ;; reaches this resolver via the `:frame-classification/http-carriers`

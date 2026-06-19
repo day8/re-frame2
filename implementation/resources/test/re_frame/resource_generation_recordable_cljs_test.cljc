@@ -54,7 +54,7 @@
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.trace.tooling :as trace-tooling]
    [re-frame.test-support :as core-test-support]

@@ -67,7 +67,7 @@
             #?(:cljs [cljs.reader])
             [re-frame.reply :as reply]
             [re-frame.reply-conformance-fixtures :as fixtures]
-            [re-frame.http-reply :as http-reply]
+            [re-frame.http.reply :as http-reply]
             [re-frame.resources.reply :as rreply]
             [re-frame.machines.reply :as m-reply]
             [re-frame.routing.reply :as route-reply]))
@@ -205,7 +205,7 @@
     :cancel    #(http-reply/aborted-reply http-ctx an-abort)
     ;; HTTP supersession is the stale path (a same-:request-id supersede).
     ;; Pin the canonical stale shape via the REAL production helper
-    ;; `re-frame.http-reply/suppress` (NOT the substrate directly with a
+    ;; `re-frame.http.reply/suppress` (NOT the substrate directly with a
     ;; synthetic extra) so this row would go red if the HTTP helper drifts in
     ;; its :stale/reason, carried/current facts, frame threading, or work-id
     ;; shape (rf2-fkdyhl). `current-work-id` is the superseding attempt's
@@ -550,7 +550,7 @@
 
 (defn- http-stale-out []
   ;; HTTP supersession lowered through the REAL production helper
-  ;; `re-frame.http-reply/suppress` (rf2-fkdyhl — NOT the substrate directly
+  ;; `re-frame.http.reply/suppress` (rf2-fkdyhl — NOT the substrate directly
   ;; with a synthetic extra), with a carried-vs-current HTTP work-id gate
   ;; (the same call the :http row's :stale builder uses — Managed-Effects
   ;; §Stale suppression). This makes the cross-family correlation gate fail

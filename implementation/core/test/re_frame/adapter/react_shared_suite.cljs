@@ -93,11 +93,11 @@
             [re-frame.routing :as routing]
             [re-frame.ssr :as ssr]
             [re-frame.schemas.malli]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
             ;; require; the http-managed suite uses :fx-overrides into
             ;; both fx ids.
-            [re-frame.http-test-support]
+            [re-frame.http.test-support]
             [re-frame.views :as views]
             [re-frame.epoch]
             [re-frame.adapter.context :as adapter-context]

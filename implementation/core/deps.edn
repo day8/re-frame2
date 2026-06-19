@@ -31,7 +31,7 @@
 ;; metosin/malli is intentionally NOT a dep of this artefact: per
 ;; rf2-p7va the schemas artefact owns the Malli relationship. The
 ;; runtime resolves of `malli.core/validate` in `re-frame.epoch` and
-;; `re-frame.http-managed` are intentional best-effort `(resolve ...)`
+;; `re-frame.http.managed` are intentional best-effort `(resolve ...)`
 ;; calls that no-op when Malli is absent — apps that opt into managed
 ;; HTTP decode-schemas or epoch-restore schema validation pull in the
 ;; schemas artefact (which carries Malli) alongside core.
@@ -60,7 +60,7 @@
   ;; sub_cache_test.clj / test_support_test.clj / trace_buffer_test.clj
   ;; / trace_listener_test.clj / trace_test.clj / reg_view_test.clj
   ;; exercise re-frame.flows; conformance_test.clj / examples_test.clj /
-  ;; elision_probe.cljs require re-frame.http-managed; conformance_test.clj
+  ;; elision_probe.cljs require re-frame.http.managed; conformance_test.clj
   ;; / examples_test.clj / smoke_test.clj exercise re-frame.ssr surfaces;
   ;; elision_probe.cljs requires re-frame.epoch and exercises the public
   ;; epoch-history / restore-epoch! / register-epoch-listener! / unregister-epoch-listener!

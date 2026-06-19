@@ -2654,12 +2654,12 @@
 ;; The raw `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
 ;; pair is NO LONGER a `re-frame.core` façade export (rf2-ntwwyt — test-support
 ;; infrastructure, not app-facing core surface). Reach the pair through its
-;; home namespace `re-frame.http-test-support` (require it from your test ns).
+;; home namespace `re-frame.http.test-support` (require it from your test ns).
 ;; The ergonomic `with-managed-request-stubs` macro stays on the façade.
 
 (def ^{:doc "Fn-form: install stubs, run `thunk`, uninstall. The plumbing
   the `with-managed-request-stubs` macro routes through. Implementation
-  ships in `day8/re-frame2-http` under `re-frame.http-test-support`
+  ships in `day8/re-frame2-http` under `re-frame.http.test-support`
   (rf2-lwmgw). Per Spec 014 §Testing. Late-bound via
   `:http/with-managed-request-stubs*`."}
   with-managed-request-stubs*      rf-http/with-managed-request-stubs*)

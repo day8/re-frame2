@@ -46,8 +46,8 @@
    ;; rf2-rak684 — the teardown-abort regression tests seed + assert the REAL
    ;; managed-HTTP in-flight registry (NOT a captured no-op abort), so the
    ;; abort-by-request-id seam (`:http/abort-in-flight!`) runs end-to-end.
-   [re-frame.http-managed]
-   [re-frame.http-registry :as http-registry]
+   [re-frame.http.managed]
+   [re-frame.http.registry :as http-registry]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
@@ -521,7 +521,7 @@
 ;;    Resources-side work handle while leaving the underlying managed request
 ;;    ALIVE. The fix routes them through `work-ledger/abort-handle!`, which —
 ;;    for a managed-HTTP slot — fires the abort-by-request-id seam
-;;    (`re-frame.http-registry/abort-in-flight!`) through the published
+;;    (`re-frame.http.registry/abort-in-flight!`) through the published
 ;;    `:http/abort-in-flight!` late-bind hook, by the SAME frame-qualified
 ;;    request-id (`[:rf.req <frame-id> <work-id>]`) the lower registered.
 ;;

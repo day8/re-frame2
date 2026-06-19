@@ -12,7 +12,7 @@
   `:pending-nav-counter` (mints `:pending-navigation` `:id`s) — are
   **host-side transient state**, NOT runtime-db state. They live in a
   module-level `defonce` cache keyed by frame-id, mirroring the
-  rf2-1hncp2 scroll-position cache and the `re-frame.http-registry`
+  rf2-1hncp2 scroll-position cache and the `re-frame.http.registry`
   in-flight pattern.
 
   ### Why host-side is a CORRECTNESS fix, not a churn judgment
@@ -117,7 +117,7 @@
   ;; would recycle an authority token (rf2-oosjmh). Keyed by frame-id so
   ;; multi-frame apps keep isolated per-frame counters; the entry is dropped
   ;; on frame destroy via `release-frame!`. Mirrors the rf2-1hncp2
-  ;; scroll-position cache + `re-frame.http-registry`'s `in-flight` defonce
+  ;; scroll-position cache + `re-frame.http.registry`'s `in-flight` defonce
   ;; atom — host-owned ephemeral state, not in the reactive db.
   (atom {}))
 

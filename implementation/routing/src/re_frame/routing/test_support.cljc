@@ -27,7 +27,7 @@
   app that did `(:require [re-frame.routing])`, and the keyword string
   survived into production bundles. The managed-HTTP artefact already
   solved the identical posture mismatch for its canned-stub fxs by
-  gating registration on an explicit `re-frame.http-test-support` require
+  gating registration on an explicit `re-frame.http.test-support` require
   (rf2-cdmle, follow-up to rf2-zk08x); this namespace applies the same
   pattern to routing.
 

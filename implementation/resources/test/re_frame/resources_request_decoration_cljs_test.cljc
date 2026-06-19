@@ -40,7 +40,7 @@
   ## Test seam
 
   The decoration seam IS the production `:rf.http/managed` per-frame
-  interceptor chain (`re-frame.http-middleware`). To exercise it without a
+  interceptor chain (`re-frame.http.middleware`). To exercise it without a
   live fetch we override `:rf.http/managed` with a stub that runs the REAL
   request-side chain (`http-test-support/run-request-chain`) — so the
   registered interceptors genuinely fire on the request the resource /
@@ -62,11 +62,11 @@
    ;; production HTTP fx + interceptor surface — loading it publishes the
    ;; transport feature probe (`:http/abort-on-actor-destroy`) the resource
    ;; lowering consults AND registers the per-frame interceptor chain.
-   [re-frame.http-managed :as http-managed]
+   [re-frame.http.managed :as http-managed]
    ;; the request-side chain walker `run-request-chain` is HTTP test
    ;; scaffolding (rf2-w59es5) — it lives in http-test-support alongside the
    ;; canned-stub fxs, not the production machine-wrapper.
-   [re-frame.http-test-support :as http-test-support]
+   [re-frame.http.test-support :as http-test-support]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    [re-frame.trace.tooling :as trace-tooling]
