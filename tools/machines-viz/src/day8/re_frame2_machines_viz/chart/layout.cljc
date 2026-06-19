@@ -1104,6 +1104,21 @@
                   ;; Source it from the REGION CONTAINER (`rid`) instead, so the
                   ;; fallback chip hangs off the region the way the machine-
                   ;; level fallback hangs off the top-level machine root.
+                  ;; rf2-pdvtxt — a region-level machine fallback (`:machine-level?
+                  ;; true`) sources from the REGION CONTAINER (`rid`), not the
+                  ;; dropped phantom root. For a TARGETED fallback the target is
+                  ;; the region-scoped destination state. But for a TARGETLESS /
+                  ;; action-only fallback (`:internal? true`, `:to-path []`) the
+                  ;; target must ALSO be the region container: `(region-scoped-id
+                  ;; region-id [])` is the degenerate `region__<id>__` — the node
+                  ;; `project-flat` deliberately removed (the synthetic machine
+                  ;; root), so the pre-fix rewrite minted a phantom edge endpoint.
+                  ;; This mirrors `project-flat`'s internal machine-level edge,
+                  ;; which self-anchors target = source = `machine-root-id`; here
+                  ;; the region container `rid` is the analogue. `:internal? true`
+                  ;; is preserved (it rides through `assoc`), so the fallback chip
+                  ;; hangs off the region the way a flat internal machine-level
+                  ;; fallback hangs off the machine root.
                   scoped-edges
                   (mapv (fn [e]
                           (assoc e
@@ -1111,7 +1126,9 @@
                             :source (if (:machine-level? e)
                                       rid
                                       (region-scoped-id region-id (:from-path e)))
-                            :target (region-scoped-id region-id (:to-path e))))
+                            :target (if (and (:machine-level? e) (:internal? e))
+                                      rid
+                                      (region-scoped-id region-id (:to-path e)))))
                         (:edges parsed))
                   ;; The synthetic region container node.
                   region-node

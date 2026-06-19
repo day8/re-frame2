@@ -741,6 +741,40 @@
               lines
               ["  end note"]))))
 
+(defn- region-fallback-internal-notes
+  "rf2-pdvtxt — an ACTION-ONLY (target-less) REGION-level top-level `:on`
+  fallback (`:on {:abort {:action :log}}` on a region map) runs its action and
+  moves no state. Like the flat machine's `flat-root-fallback-internal-notes`
+  and the parallel-root's `root-fallback-internal-notes`, it has no arrow to
+  draw, so it must surface as a `note right of <region root fallback>` — the
+  region's own `root fallback` alias node (`render-region-block` already
+  declares it whenever the region carries a top-level `:on`).
+
+  Pre-fix this candidate was silently dropped from EVERY collector in
+  `render-parallel-body`: `collect-root-fallback-edges` emits only when a
+  target resolves (so a targetless region `:on` produced no edge); the
+  per-region `region-internal-notes` walk only descends the region's STATES,
+  not the region's OWN top-level `:on`; and `root-internal-notes` handles the
+  parallel-ROOT's `:on`/`:after`, not each region's. The chart self-anchors
+  this fallback `:internal?` on the region container and SCXML emits a
+  target-less `<transition>`, so dropping it broke three-emitter agreement.
+  Returns a flat seq of note lines (empty when no region has a targetless
+  top-level fallback)."
+  [regions]
+  (mapcat
+    (fn [[region-id {:keys [on]}]]
+      (let [lines (mapcat (fn [[event-id spec]]
+                            (->> (transition-candidates spec)
+                                 (filter internal-candidate?)
+                                 (map #(internal-note-line (label-value event-id) %))))
+                          on)]
+        (when (seq lines)
+          (concat [(str "  note right of "
+                        (sanitise-id [region-id root-fallback-segment]))]
+                  lines
+                  ["  end note"]))))
+    regions))
+
 (defn- render-flat-or-compound-body
   [{:keys [initial states on]} header-comment?]
   (let [root-path      []
@@ -875,7 +909,14 @@
         ;; silently dropped (pre-fix the action-only root `:on` was dropped by
         ;; `collect-root-fallback-edges`' target `when-let`; the root `:after`
         ;; was never collected at all).
-        root-internal-notes (root-fallback-internal-notes on after)]
+        root-internal-notes (root-fallback-internal-notes on after)
+        ;; rf2-pdvtxt — an ACTION-ONLY REGION-level top-level `:on` fallback
+        ;; (`:on {:abort {:action :log}}` on a region) is likewise target-less;
+        ;; surface it as a note on that region's `root fallback` alias. Pre-fix
+        ;; it fell through every collector above (the targetless region `:on`
+        ;; produced no edge, and neither the per-region state walk nor the
+        ;; parallel-root note helper covered the region's OWN top-level `:on`).
+        region-fallback-notes (region-fallback-internal-notes regions)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
@@ -890,6 +931,7 @@
                error-final-notes
                region-on-done-notes
                region-internal-notes
+               region-fallback-notes
                root-internal-notes
                ;; rf2-41goo — the parallel-root completion note (action/fx-
                ;; only; no sibling target).

@@ -323,6 +323,51 @@
         (is (= (layout/region-scoped-id :fetch [:loading]) (:target fallback))
             "the fallback resolves to the in-region target (:loading)")))))
 
+(deftest project-definition-region-top-level-targetless-on-anchors-to-container
+  (testing "rf2-pdvtxt — a parallel region whose def carries a TARGETLESS /
+            action-only TOP-LEVEL :on fallback (`:on {:abort {:action :log}}`)
+            must anchor that internal fallback edge to the REGION CONTAINER on
+            BOTH ends. Pre-fix, `project-parallel` re-pointed the SOURCE to the
+            region container but always region-scoped the TARGET via
+            `(region-scoped-id region-id (:to-path e))`; a targetless edge has
+            `:to-path []`, so the target became the degenerate `region__fetch__`
+            — the synthetic machine-root node `project-flat` deliberately
+            removed. This minted a phantom edge endpoint. The flat machine's
+            internal machine-level fallback self-anchors target = source =
+            machine-root; the region analogue is the region container."
+    (let [ingest {:type :parallel
+                  :regions {:fetch    {:initial :loading
+                                       :on      {:abort {:action :log}} ;; targetless
+                                       :states {:loading {:on {:loaded :done}}
+                                                :done    {:final? true}}}
+                            :validate {:initial :checking
+                                       :states {:checking {:on {:ok :done}}
+                                                :done     {:final? true}}}}}
+          {:keys [nodes edges]} (layout/project-definition ingest)
+          node-ids (set (map :id nodes))]
+      ;; NO synthetic machine-root node + NO degenerate region-scoped empty-path id
+      (is (empty? (filter :machine-root? nodes))
+          "no synthetic machine-root node is minted for a targetless region :on")
+      (is (not (contains? node-ids (str (layout/region-node-id :fetch) "__")))
+          "no degenerate `region__fetch__` (empty path segment) node is minted")
+      ;; EVERY edge endpoint resolves to a real, canonical projected node
+      (doseq [e edges]
+        (is (contains? node-ids (:source e))
+            (str "edge source " (:source e) " is a real node"))
+        (is (contains? node-ids (:target e))
+            (str "edge target " (:target e) " is a real node")))
+      ;; the internal fallback edge is region-container-anchored on both ends
+      (let [fallback (first (filter :machine-level? edges))]
+        (is (some? fallback)
+            "the region's targetless top-level :on fallback edge is still projected")
+        (is (true? (:internal? fallback))
+            "the targetless fallback stays flagged :internal? (a hanging action chip)")
+        (is (= (layout/region-node-id :fetch) (:source fallback))
+            "the internal fallback sources from the region container")
+        (is (= (layout/region-node-id :fetch) (:target fallback))
+            "the internal fallback TARGETS the region container too — never the
+             phantom `region__fetch__` node (the bug)")))))
+
 (deftest highlight-ids-same-name-region-states-attribute-per-region
   (testing "rf2-wnzha (THE HIGHLIGHT FIX) — when two regions are both in a
             same-named `:done` state, the multi-active highlight lights
