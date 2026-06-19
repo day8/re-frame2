@@ -689,10 +689,9 @@
 (defn- assoc-flow-paths
   "Add `paths` to `existing` declaration map, each stamped
   `{:source :flow :flow-id <flow-id>}` so lifecycle cleanup can find
-  them. The value-shape is what `elision/elide-wire-value` reads: the
-  sensitive table is membership-only, and the large table's entry rides
-  as the `->marker` hint declaration (we carry no `:hint`, which the
-  walker tolerates — `(:hint nil)` ⇒ no hint)."
+  them. The stamped value carries no `:hint`; the large-elision walker
+  (`elision/elide-wire-value`) treats a hint-less declaration as a plain
+  large mark — `(:hint nil)` ⇒ no hint on the emitted marker."
   [existing paths flow-id]
   (reduce (fn [acc path]
             (assoc acc (vec path) {:source :flow :flow-id flow-id}))
@@ -785,9 +784,14 @@
   write surface ONLY when the resolved declarations actually differ — so a
   frame whose flows declare and inherit nothing (or whose declarations are
   already settled, the steady state after the first event) pays a pure-data
-  fold and NO runtime-db write / reactive churn on the per-event hot path."
+  fold and NO runtime-db write / reactive churn on the per-event hot path.
+
+  Reads the flow registry through `flows-snapshot` — the SAME accessor the
+  caller `re-frame.flows/run-flows-on-db` reads (its `flow-map` binding and
+  this refresh resolve identical values; the shared drain-lock makes any
+  divergence unreachable). Consistent-accessor use, not a correctness fix."
   [frame-id]
-  (when-let [flow-map (get @flows frame-id)]
+  (when-let [flow-map (get (flows-snapshot) frame-id)]
     (when (seq flow-map)
       (let [ordered (topo/topo-sort flow-map)
             ;; Current declaration sub-maps (the only two slots flows touch).
@@ -1302,7 +1306,11 @@
   ancestor maps would risk deleting unrelated sibling slots that happen
   to be empty and own ancestors this flow never created, so leaf-only
   vacation is the correct contract. Downstream consumers read the leaf,
-  not the parent's emptiness."
+  not the parent's emptiness. When the output path never materialised
+  (parent absent / nil / non-map), `dissoc-in-safe` returns `db`
+  unchanged and `vacate-output-path!` skips the swap entirely — a
+  deliberate no-op with no app-db write and no sub-cache invalidation
+  (cross-ref `dissoc-in-safe`)."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
    (let [frame-id (or frame
