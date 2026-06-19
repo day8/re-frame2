@@ -17,9 +17,8 @@
      malformed input and round-trips well-formed Clojure.
   4. **highlight-clojure-token mapping** — every token-type resolves
      to its Figma-aligned syntax token; keyword + builtin distinct.
-  5. **Variant dispatcher** — `render` routes by `:variant`.
-  6. **Facade delegation** — `browse` / `inspect` / `mini` return
-     hiccup whose root data-attribute identifies the new widget."
+  5. **Facade delegation** — `inspect` returns a Reagent component
+     invocation of the new widget."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [day8.re-frame2-xray.views.edn-widget :as w]
@@ -51,30 +50,15 @@
 
 ;; ---- facade delegation --------------------------------------------------
 ;;
-;; Post-rf2-oqa60 the facade returns a Reagent component form 2:
-;; `[ei/edn-inspector value opts]` for browse / inspect, and a hiccup
-;; vector for mini. The dispatcher returns hiccup. The test surface
-;; that mattered (sentinel chrome, type colours, click-to-toggle)
-;; lives in `views/edn_inspector_cljs_test.cljs`.
-
-(deftest browse-returns-edn-inspector-mount-form
-  (let [out (w/browse {:value     {:a 1 :b 2}
-                       :panel-id  :test
-                       :render-id "b1"})]
-    (testing "browse returns a Reagent component invocation"
-      (is (vector? out))
-      ;; First element is the edn-inspector fn (a Var).
-      (is (fn? (first out)) "first element is a function ref"))))
+;; Post-rf2-oqa60 `inspect` returns a Reagent component form 2:
+;; `[ei/edn-inspector value opts]`. The test surface that mattered
+;; (sentinel chrome, type colours, click-to-toggle) lives in
+;; `views/edn_inspector_cljs_test.cljs`.
 
 (deftest inspect-returns-edn-inspector-mount-form
   (let [out (w/inspect :hello "node-key")]
     (is (vector? out))
     (is (fn? (first out)))))
-
-(deftest mini-returns-span-shape
-  (let [out (w/mini :hello)]
-    (is (= :span (first out)))
-    (is (= "rf-xray-edn-inspector-mini" (get (second out) :data-testid)))))
 
 ;; ---- code-block tokenizer ------------------------------------------------
 
@@ -333,34 +317,3 @@
       (is (string? resolved))
       (is (and (string? resolved)
                (str/starts-with? resolved "var(--rf-xray-"))))))
-
-;; ---- render dispatcher ---------------------------------------------------
-
-(deftest render-defaults-to-browse
-  (let [out (w/render {:value     {:a 1}
-                       :panel-id  :test
-                       :render-id "dispatch-1"})]
-    ;; browse delegates to ei/edn-inspector; the dispatcher returns
-    ;; the same shape as `browse` — a [function opts] reagent form.
-    (is (vector? out))))
-
-(deftest render-routes-to-diff-when-variant-diff
-  (let [out (w/render {:variant   :diff
-                       :before    {:a 1}
-                       :after     {:a 2}
-                       :panel-id  :test
-                       :render-id "dispatch-2"})]
-    ;; Post-rf2-q3dzw: diff delegates to ei/edn-inspector with a
-    ;; `:before` opt. The dispatcher returns the same shape as
-    ;; `diff` — a [function value opts] Reagent form. Assert the
-    ;; threaded `:before` lands on the opts so we don't regress the
-    ;; diff-routing contract.
-    (is (vector? out))
-    (is (fn? (first out)))
-    (is (contains? (last out) :before))
-    (is (= {:a 1} (:before (last out))))))
-
-(deftest render-routes-to-mini-when-variant-mini
-  (let [out (w/render {:variant :mini
-                       :value   {:a 1}})]
-    (is (= :span (first out)))))
