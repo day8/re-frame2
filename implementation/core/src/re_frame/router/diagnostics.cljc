@@ -19,11 +19,11 @@
   The cross-ns indirection from the router facade is amortised: callers
   (`process-event*`, `dispatch!`, `dispatch-sync!`) all sit on the
   facade and reach into this ns only on the rare warning / error paths."
-  (:require [re-frame.error :as error]
+  (:require [re-frame.cofx.value-check :as value-check]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.recordable :as recordable]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
@@ -216,56 +216,6 @@
                :retired-key :dispatched-at
                :replacement '(:rf/time-ms (:rf.cofx envelope))}})))
 
-(defn- emit-cofx-value-invalid!
-  "Emit `:rf.error/cofx-value-invalid` for a SUPPLIED `:rf.cofx` value that is
-  not recordable EDN data (a host handle — DOM node, Promise, function, atom,
-  Date, JS / Java object — reached the durable causal token). Reuses the
-  EP-0017 cofx error id (built in slice B.7 for the `:schema`-when-declared
-  half) with `reason :non-edn-recordable-value` — the structural-EDN-always
-  half (rf2-rmroo4 slice A, EP-0017:386: recordable values must be EDN).
-
-  The payload carries the failing fact id, the path WITHIN that value to the
-  bad leaf, the host `:bad-type`, and a `:preview` ONLY when the supplied
-  value is itself recordable (so the preview round-trips) — NEVER the raw host
-  object. Fans out through the always-on `dispatch-on-error!` listener (the
-  same axis `re-frame.cofx`'s satisfaction-step emit uses), then throws."
-  [event cofx-id supplied bad failing-id]
-  (let [{:keys [path bad-type]} bad
-        preview (recordable/safe-preview supplied)]
-    (when-let [emit-error-both!
-               (late-bind/get-fn-cached :error-emit/emit-error-both)]
-      (emit-error-both! :rf.error/cofx-value-invalid
-                        event failing-id nil nil 0 (interop/now-ms)
-                        (cond-> {:rf.cofx/id        cofx-id
-                                 :failing-id        failing-id
-                                 :rf.trace/event-id failing-id
-                                 :reason            :non-edn-recordable-value
-                                 :path              path
-                                 :bad-type          bad-type
-                                 :recovery          :no-recovery}
-                          (some? preview) (assoc :preview preview))))
-    (error/throw-error!
-      :rf.error/cofx-value-invalid 're-frame.router/build-envelope
-      (str "Supplied `:rf.cofx` fact `" cofx-id
-           "` is not recordable EDN data: the value "
-           "at path " (pr-str path) " is a `"
-           bad-type "` (a host object — DOM node, "
-           "Promise, function, atom, Date, or other "
-           "JS / Java handle). Recordable coeffect "
-           "values ride the durable causal record "
-           "(epoch ledger, replay, SSR payload, Xray) "
-           "and MUST be ordinary EDN data that reads "
-           "back unchanged (EP-0017:386). Replace the "
-           "host handle with its recordable "
-           "projection — the identifier / snapshot / "
-           "plain data you actually need on replay.")
-      ;; Sub-kind on its own slot; `:reason` is the human sentence (rf2-vvixub).
-      {:extra {:rf.cofx/value-error :non-edn-recordable-value
-               :rf.cofx/id          cofx-id
-               :failing-id          failing-id
-               :path                path
-               :bad-type            bad-type}})))
-
 (defn- validate-supplied-cofx-values!
   "ALWAYS-ON structural-EDN check of a SUPPLIED `:rf.cofx` map's values
   (rf2-rmroo4 slice A; production-hardened rf2-q34j26). Every value other than
@@ -283,18 +233,19 @@
   on the override-free hot path), and the recordable predicate short-circuits
   at the first non-EDN leaf. The declared-`:schema` check (cofx.cljc) is the
   complementary always-on per-supplier contract; this is the structural
-  always-EDN floor that fires even when no `:schema` was declared."
+  always-EDN floor that fires even when no `:schema` was declared.
+
+  The `:supplied` arm of the shared `value-check/check-edn-value!` (rf2-6zfzxy)
+  — its generated-value twin (slice B) lives at the generator write-back site
+  (`re-frame.cofx`). The always-on listener carries the triggering `event` (the
+  supplied path runs at the dispatch boundary, before any frame is owned)."
   [supplied event]
   (let [event-id (first event)]
     (reduce-kv
       (fn [_ cofx-id value]
         ;; `:rf/time-ms` is already shape-checked above (integer); skip it.
         (when-not (= cofx-id :rf/time-ms)
-          (when-let [bad (recordable/explain-non-recordable value)]
-            ;; Prepend the fact-id so the reported path is rooted at the
-            ;; coeffect key, not at the (per-value) walk root.
-            (let [rooted (update bad :path #(into [cofx-id] %))]
-              (emit-cofx-value-invalid! event cofx-id value rooted event-id))))
+          (value-check/check-edn-value! :supplied cofx-id value event-id event nil))
         nil)
       nil
       supplied)))

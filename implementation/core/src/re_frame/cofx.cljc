@@ -30,9 +30,9 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.error :as error]
+            [re-frame.cofx.value-check :as value-check]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
-            [re-frame.recordable :as recordable]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
@@ -629,61 +629,6 @@
 ;; this structural always-EDN gate is the floor that fires even when no
 ;; `:schema` was declared.
 
-(defn- emit-cofx-generated-value-non-edn!
-  "Emit `:rf.error/cofx-value-invalid` for a GENERATED recordable value that is
-  not recordable EDN data (a host handle a generator minted) and throw. Reuses
-  the EP-0017 cofx error id with `reason :non-edn-recordable-value` — the
-  structural-EDN-always half (rf2-rmroo4 slice B, EP-0017:386: recordable
-  values must be EDN). The mirror of slice A's supplied-value emit
-  (router/diagnostics.cljc), at the GENERATOR write-back site.
-
-  The payload carries the failing fact id, the path WITHIN the generated value
-  to the bad leaf, the host `:bad-type`, and a `:preview` ONLY when the value
-  is itself recordable (so the preview round-trips) — NEVER the raw host
-  object. Fans out through the always-on `dispatch-on-error!` listener, then
-  throws (the throw propagates from inside the generator's HandlerScope, so the
-  failure carries the cofx's source-coord like every other cofx emit)."
-  [cofx-id bad value failing-id frame-id]
-  (let [{:keys [path bad-type]} bad
-        preview (recordable/safe-preview value)]
-    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-      (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)
-                        (cond-> {:rf.cofx/id        cofx-id
-                                 :failing-id        failing-id
-                                 :rf.trace/event-id failing-id
-                                 :reason            :non-edn-recordable-value
-                                 :path              path
-                                 :bad-type          bad-type
-                                 :recovery          :no-recovery}
-                          (some? preview) (assoc :preview preview)
-                          frame-id        (assoc :frame frame-id))))
-    (error/throw-error!
-      :rf.error/cofx-value-invalid 're-frame.cofx/run-generator
-      (str "Generated `:rf.cofx` fact `" cofx-id
-           "` is not recordable EDN data: the value "
-           "at path " (pr-str path) " is a `"
-           bad-type "` (a host object — DOM node, "
-           "Promise, function, atom, Date, or other "
-           "JS / Java handle). A generator-backed "
-           "recordable coeffect rides the durable "
-           "causal record (it is written back into "
-           "`:rf.cofx`, folded into the epoch ledger, "
-           "replayed, shipped in the SSR payload, read "
-           "by Xray) and MUST mint ordinary EDN data "
-           "that reads back unchanged (EP-0017:386). "
-           "Have the generator return the recordable "
-           "projection — the identifier / snapshot / "
-           "plain data you actually need on replay.")
-      ;; The structured sub-kind that distinguishes a structural-EDN failure
-      ;; from a declared-`:schema` miss now rides its own `:rf.cofx/value-error`
-      ;; slot — `:reason` is reserved for the human sentence per the central
-      ;; thrown-error builder (Spec 009 §The thrown-error shape, rf2-vvixub).
-      {:extra {:rf.cofx/value-error :non-edn-recordable-value
-               :rf.cofx/id          cofx-id
-               :failing-id          failing-id
-               :path                path
-               :bad-type            bad-type}})))
-
 (defn- validate-generated-recordable-value!
   "ALWAYS-ON structural-EDN check of a GENERATED recordable `value` for
   `cofx-id`, run at the generator write-back site BEFORE the value is folded
@@ -704,14 +649,15 @@
   check stays the complementary always-on production contract; this is the
   structural always-EDN floor that fires even with no `:schema` (closing the
   EP-0017 errata tail — a generator without a `:schema` minting a host handle
-  no longer escapes to a far-away replay / Xray / SSR failure). Reuses the
-  slice-A walker (`re-frame.recordable`); the reported path is rooted at the
-  fact id so it reads from the coeffect key, not the per-value walk root."
+  no longer escapes to a far-away replay / Xray / SSR failure).
+
+  The `:generated` arm of the shared `value-check/check-edn-value!` (rf2-6zfzxy)
+  — its supplied-value twin (slice A) lives at the dispatch boundary
+  (`router.diagnostics`). The throw propagates from inside the generator's
+  HandlerScope, so the failure carries the cofx's source-coord like every other
+  cofx emit."
   [cofx-id value failing-id frame-id]
-  (when-let [bad (recordable/explain-non-recordable value)]
-    (let [rooted (update bad :path #(into [cofx-id] %))]
-      (emit-cofx-generated-value-non-edn! cofx-id rooted value failing-id frame-id)))
-  value)
+  (value-check/check-edn-value! :generated cofx-id value failing-id nil frame-id))
 
 ;; ---- generation at processing-start (EP-0017 §5 step 3 / slice B.7) --------
 ;;
