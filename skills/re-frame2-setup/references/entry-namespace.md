@@ -32,15 +32,23 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
 
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame :app/main {:on-create [:your-app/initialise]})
+  (rf/reg-frame :rf/default {})
+  ;; Seed under a live frame scope, synchronously, so the first render
+  ;; sees the seeded app-db. This explicit dispatch-sync is the reset
+  ;; boundary the generator ships: the reg-frame above is a surgical
+  ;; (app-db-preserving) update on a hot reload, and this re-seeds the
+  ;; demo state each time. (Seeding via :on-create would only run on the
+  ;; first registration.)
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:your-app/initialise]))
   (rdc/render react-root
-    [rf/frame-provider-existing {:frame :app/main}
+    [rf/frame-provider-existing {:frame :rf/default}
      [counter-app]]))
 ```
 
 That's the whole entry namespace. Events / subs / views go above the mount point, in this same file for a tiny app or in their own namespaces (`your-app.events`, `your-app.subs`, `your-app.views`) and `:require`d here for any non-trivial app.
 
-`counter-app` is the top-level registered view (the name the generator template and `first-counter.md` use). See `first-counter.md` for what it looks like. **Note the `frame-provider-existing` wrap:** under EP-0002 (the carried-frame invariant), the runtime never infers a frame — you register one explicitly with `reg-frame` and scope it at the root with `frame-provider-existing` (the scope-only React-context member of the `frame-provider` name family: it provides an already-created frame's id to descendants and creates / destroys nothing — the frame was already created by `reg-frame`). Inside that subtree every bare `dispatch` / `subscribe` resolves against `:app/main`; a render *without* a provider would make every subscription raise `:rf.error/no-frame-context`. (A migration may pick `:rf/default` as the id for familiarity, but it is still registered and provided — never inferred.)
+`counter-app` is the top-level registered view (the name the generator template and `first-counter.md` use). See `first-counter.md` for what it looks like. **Note the `frame-provider-existing` wrap:** under EP-0002 (the carried-frame invariant), the runtime never infers a frame — you register one explicitly with `reg-frame` and scope it at the root with `frame-provider-existing` (the scope-only React-context member of the `frame-provider` name family: it provides an already-created frame's id to descendants and creates / destroys nothing — the frame was already created by `reg-frame`). Inside that subtree every bare `dispatch` / `subscribe` resolves against `:rf/default`; a render *without* a provider would make every subscription raise `:rf.error/no-frame-context`. (`:rf/default` is the generator template's frame id — it is **not** auto-registered; you register and provide it explicitly, never inferred. Any other id works too; keep it consistent across `reg-frame`, `with-frame`, and the provider.)
 
 The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/reagent/counter/core.cljs` happens to call its entry fn `run` — same shape, different name. Pick one and keep `shadow-cljs.edn`'s `:init-fn` pointing at whatever you choose; this skill uses `init` so the manual route matches the template.)
 
@@ -49,8 +57,9 @@ The entry symbol is `init`, matching the generator template's `:init-fn {{namesp
 `init` must do these things, **in this order**, every time:
 
 1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter. (`init!` installs the adapter and runtime capabilities only; it creates **no** frame.)
-2. **`(rf/reg-frame :app/main {:on-create [:your-app/initialise]})`** — register the app frame and seed its app-db via `:on-create` (which runs synchronously, inside the frame's own scope). Some apps instead seed lazily on first interaction; either way the frame must be registered before render.
-3. **`(rdc/render react-root [rf/frame-provider-existing {:frame :app/main} [counter-app]])`** — mount the React tree **wrapped in `frame-provider-existing`** so every bare `dispatch` / `subscribe` under it resolves against `:app/main`. (Scope-only: the frame already exists from step 2's `reg-frame`, so you scope it rather than own it. The owned `rf/frame-provider` — which creates the frame on mount and destroys it on unmount — is for view-owned frame lifetimes, e.g. comparison pages or Story canvases, not the app root.)
+2. **`(rf/reg-frame :rf/default {})`** — register the app frame. On a hot reload this is a **surgical update** that preserves the existing app-db / sub-cache / queue and only replaces metadata/config.
+3. **`(rf/with-frame :rf/default (rf/dispatch-sync [:your-app/initialise]))`** — seed the app-db under a live frame scope, synchronously, before render. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo/initial state on **every** hot reload (the surgical update in step 2 does not rerun any `:on-create`). Some apps instead seed lazily on first interaction; either way the frame must be registered before render.
+4. **`(rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [counter-app]])`** — mount the React tree **wrapped in `frame-provider-existing`** so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`. (Scope-only: the frame already exists from step 2's `reg-frame`, so you scope it rather than own it. The owned `rf/frame-provider` — which creates the frame on mount and destroys it on unmount — is for view-owned frame lifetimes, e.g. comparison pages or Story canvases, not the app root.)
 
 If you render *without* the provider (or before `reg-frame`), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, the views call `subscribe` against an uninstalled adapter and you get `:rf.error/no-adapter-installed`.
 
@@ -137,13 +146,15 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   (defn ^:export init []
     (rf/init! uix-adapter/adapter)
-    (rf/reg-frame :app/main {:on-create [:counter/initialise]})
+    (rf/reg-frame :rf/default {})
+    (rf/with-frame :rf/default
+      (rf/dispatch-sync [:counter/initialise]))   ;; reset boundary — re-seeds each hot reload
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider-existing {:frame :app/main}
+      ($ uix-adapter/frame-provider-existing {:frame :rf/default}
         ($ views/counter-app))
       react-root))
   ```
-  (Helix uses `(.render react-root ($ helix-adapter/frame-provider-existing {:frame :app/main} ($ views/counter-app)))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`. Every adapter's `frame-provider-existing` scopes the already-registered carried frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe.)
+  (Helix uses `(.render react-root ($ helix-adapter/frame-provider-existing {:frame :rf/default} ($ views/counter-app)))` against a `react-dom/client` root, with `$` from `helix.core`, and the same `reg-frame :rf/default {}` + `with-frame` / `dispatch-sync` boot — see the template's `_helix/core.cljs`. Every adapter's `frame-provider-existing` scopes the already-registered carried frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe.)
 - **views** — this is the substitution `first-counter.md` does **not** cover. The Reagent first-counter uses `reg-view` with auto-injected `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, captured once per render (the handle closes over the render-time frame, so a closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. The events and subs are the same `reg-event` / `reg-sub` forms as the Reagent counter — only the view layer differs. Copy the matching `views.cljs` verbatim (verified against the template's `_uix/views.cljs` / `_helix/views.cljs`):
 
   ```clojure
