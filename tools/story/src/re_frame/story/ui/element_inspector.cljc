@@ -46,9 +46,10 @@
   ## Why not a re-frame fx
 
   The inspector's state is per-process transient UI hover state — not
-  app-db material. Keeping it in a defonce'd atom (mirrors
-  `recorder/dom-capture/installed-root`) avoids the latency + overhead
-  of routing every mousemove through dispatch. Click DOES route through
+  app-db material. Keeping it in a defonce'd atom (same shape the
+  shared `ui/canvas-listeners` lifecycle uses for its installed-root
+  ref) avoids the latency + overhead of routing every mousemove through
+  dispatch. Click DOES route through
   `open-in-editor/open-source-coord!` so the launcher + allowlist gate
   stay the single source of truth.
 
@@ -64,6 +65,7 @@
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
                        [re-frame.source-coords :as source-coords]
+                       [re-frame.story.ui.canvas-listeners :as canvas-listeners]
                        [re-frame.story.ui.open-in-editor :as open-in-editor]])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
@@ -294,23 +296,14 @@
 
 ;; ---- install / remove ----------------------------------------------------
 ;;
-;; Mirrors `recorder/dom-capture/install!`'s shape: defonce'd ref to
-;; the currently-installed root, attach/detach via the same key. Caller
-;; (shell) drives install at mount-time, remove at unmount.
+;; The idempotent canvas-root install/remove scaffold is shared with the
+;; recorder's DOM-capture rail via `re-frame.story.ui.canvas-listeners`.
+;; This ns keeps only its own attach/detach bodies + the inspector's
+;; remove-time inspect-mode reset. Caller (shell) drives install at
+;; mount-time, remove at unmount.
 
 #?(:cljs (defonce ^:private installed-root (atom nil)))
 #?(:cljs (defonce ^:private bound-handlers (atom nil)))
-
-#?(:cljs
-   (defn- canvas-root
-     "The shell canvas root, looked up via the framework-stable
-     `[data-test=\"story-canvas-frame\"]` hook (same selector
-     `recorder/dom-capture` uses)."
-     []
-     (when (and (exists? js/document) (.-querySelector js/document))
-       (try
-         (.querySelector js/document "[data-test=\"story-canvas-frame\"]")
-         (catch :default _ nil)))))
 
 #?(:cljs
    (defn- attach-listeners! [root]
@@ -335,18 +328,16 @@
        (reset! bound-handlers nil))))
 
 #?(:cljs
+   (def ^:private lifecycle
+     (canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!)))
+
+#?(:cljs
    (defn install!
      "Install the inspector listeners on `root` (or the canvas root when
      called with no arg). Idempotent. Returns the root on success, nil
      otherwise."
-     ([] (install! (canvas-root)))
-     ([root]
-      (when root
-        (when-let [prev @installed-root]
-          (detach-listeners! prev))
-        (attach-listeners! root)
-        (reset! installed-root root)
-        root))))
+     ([] ((:install! lifecycle)))
+     ([root] ((:install! lifecycle) root))))
 
 #?(:cljs
    (defn remove!
@@ -354,16 +345,14 @@
      mode off — a re-mount mid-pick would otherwise leave the cursor
      stuck on `crosshair`."
      []
-     (when-let [root @installed-root]
-       (detach-listeners! root)
-       (reset! installed-root nil))
+     ((:remove! lifecycle))
      (set-active! false)
      nil))
 
 (defn installed?
   "True iff `install!` has attached listeners. Public for tests."
   []
-  #?(:cljs (some? @installed-root)
+  #?(:cljs ((:installed? lifecycle))
      :clj  false))
 
 ;; ---- overlay component + chip --------------------------------------------
