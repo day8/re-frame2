@@ -402,20 +402,24 @@
           ;; (rf2-hiqtk8). The SSR fail-closed posture (rf2-vvwmi) rides the
           ;; always-on listener record the `error-emit-projection-listener`
           ;; buffers — which preserves the SSR 500 projection.
-          (when-let [dispatch-on-error!
-                     (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-            (dispatch-on-error!
+          ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the
+          ;; always-on listener (survives prod elision), axis 2 the dev trace —
+          ;; preserved for the trace surface + retain-N buffer + dev-side
+          ;; projection (carries the same rich internal detail; DCEs under
+          ;; `:advanced` + `goog.DEBUG=false`). Reached via the
+          ;; `:error-emit/emit-error-both` hook (this subs layer cannot
+          ;; static-require error-emit — load cycle). `elapsed-ms 0`.
+          (when-let [emit-error-both!
+                     (late-bind/get-fn-cached :error-emit/emit-error-both)]
+            (emit-error-both!
               :rf.error/sub-exception
               query-v                             ;; failing query-vector (as :event)
               query-id                            ;; sub-id (as :event-id) — drives [:sub …] coord lookup
               frame-id
               e
               0                                   ;; elapsed-ms
-              (interop/now-ms)))                  ;; time
-          ;; Dev-only trace path — preserved for the trace surface +
-          ;; retain-N buffer + dev-side projection (carries the same rich
-          ;; internal detail). DCEs under `:advanced` + `goog.DEBUG=false`.
-          (trace/emit-error! :rf.error/sub-exception tags))
+              (interop/now-ms)                    ;; time
+              tags)))
         nil))))
 
 ;; ---- memoisation wrappers ------------------------------------------------

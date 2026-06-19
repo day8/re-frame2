@@ -53,24 +53,26 @@
   The dev `trace/emit-error!` below stays dev-only (it DCEs under
   `goog.DEBUG=false`); the always-on listener fan-out is what survives."
   [event-id event frame]
-  ;; Always-on listener (survives prod elision).
-  (when-let [dispatch-on-error!
-             (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-    (dispatch-on-error!
+  ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
+  ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
+  ;; `:advanced` + `goog.DEBUG=false`). No exception — invalid op; `elapsed-ms 0`.
+  ;; Reached via the `:error-emit/emit-error-both` hook (this diagnostics ns
+  ;; cannot static-require error-emit — load cycle).
+  (when-let [emit-error-both!
+             (late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (emit-error-both!
       :rf.error/no-such-handler
       event
       event-id
       frame
       nil                                 ;; no exception — invalid op
       0                                   ;; elapsed-ms
-      (interop/now-ms)))                  ;; time
-  ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-  (trace/emit-error! :rf.error/no-such-handler
-                     {:rf.trace/event-id event-id
-                      :rf.event/v        event
-                      :frame             frame
-                      :kind              :event
-                      :recovery          :replaced-with-default}))
+      (interop/now-ms)                    ;; time
+      {:rf.trace/event-id event-id
+       :rf.event/v        event
+       :frame             frame
+       :kind              :event
+       :recovery          :replaced-with-default})))
 
 (defn other-frame-mid-drain
   "Per rf2-fp97 — Spec 002 §dispatch-sync cross-frame note. Return the
@@ -230,19 +232,18 @@
   [event cofx-id supplied bad failing-id]
   (let [{:keys [path bad-type]} bad
         preview (recordable/safe-preview supplied)]
-    (when-let [dispatch-on-error!
-               (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/cofx-value-invalid
-                          event failing-id nil nil 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/cofx-value-invalid
-                       (cond-> {:rf.cofx/id        cofx-id
-                                :failing-id        failing-id
-                                :rf.trace/event-id failing-id
-                                :reason            :non-edn-recordable-value
-                                :path              path
-                                :bad-type          bad-type
-                                :recovery          :no-recovery}
-                         (some? preview) (assoc :preview preview)))
+    (when-let [emit-error-both!
+               (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/cofx-value-invalid
+                        event failing-id nil nil 0 (interop/now-ms)
+                        (cond-> {:rf.cofx/id        cofx-id
+                                 :failing-id        failing-id
+                                 :rf.trace/event-id failing-id
+                                 :reason            :non-edn-recordable-value
+                                 :path              path
+                                 :bad-type          bad-type
+                                 :recovery          :no-recovery}
+                          (some? preview) (assoc :preview preview))))
     (error/throw-error!
       :rf.error/cofx-value-invalid 're-frame.router/build-envelope
       (str "Supplied `:rf.cofx` fact `" cofx-id

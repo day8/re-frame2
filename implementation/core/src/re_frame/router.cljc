@@ -947,22 +947,14 @@
                      ;; (the pre-rf2-mszrz behaviour) mis-fed consumers.
                      handler-throw? (assoc :handler-id event-id)
                      icpt-coord     (assoc :source-coord icpt-coord))]
-    ;; Always-on per rf2-bacs4: every fn registered through
+    ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+    ;; always-on corpus-wide listener (rf2-bacs4): every fn registered through
     ;; `rf/register-error-listener!` receives the tight error-record so
-    ;; production builds with the trace surface elided still observe the
-    ;; error. Trigger-handler / dispatch-id enrichment is dev-only and
-    ;; not present here — those ride the trace path below.
-    (error-emit/dispatch-on-error!
-      operation
-      emit-event
-      event-id
-      frame
-      exception
-      elapsed-ms
-      end-ms)
-    ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
-    ;; `trace/emit-error!`; DCEs to a no-op in CLJS prod builds.
-    (trace/emit-error! operation tags)))
+    ;; production builds with the trace surface elided still observe the error.
+    ;; Trigger-handler / dispatch-id enrichment is dev-only and rides the trace
+    ;; path (`tags`). Axis 2 — the dev-only `trace/emit-error!` (DCE'd in prod).
+    (error-emit/emit-error-both!
+      operation emit-event event-id frame exception elapsed-ms end-ms tags)))
 
 (defn- run-post-commit-validation!
   "Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): validate
@@ -1539,22 +1531,14 @@
         ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
         ;; Round once at the substrate boundary (JVM long / CLJS float).
         elapsed-ms (long (max 0 (- end-ms start-ms)))]
-    ;; Always-on per rf2-bacs4 — the corpus-wide listener registry fires
-    ;; in CLJS production where `trace/emit-error!` below is compile-time
-    ;; elided.
-    (error-emit/dispatch-on-error!
-      :rf.error/flow-eval-exception
-      event
-      event-id
-      frame
-      e
-      elapsed-ms
-      end-ms)
-    ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
-    ;; `trace/emit-error!`; DCEs in CLJS prod. Same payload shape as
+    ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+    ;; always-on corpus-wide listener (rf2-bacs4) fires in CLJS production where
+    ;; the trace surface (axis 2) is compile-time elided. Same payload shape as
     ;; before — existing trace consumers are unaffected.
-    (trace/emit-error! :rf.error/flow-eval-exception
-                       {:frame frame :event event :exception e})))
+    (error-emit/emit-error-both!
+      :rf.error/flow-eval-exception
+      event event-id frame e elapsed-ms end-ms
+      {:frame frame :event event :exception e})))
 
 (defn- emit-legacy-runtime-root!
   "Surface `:rf.error/legacy-runtime-root` through BOTH the always-on
@@ -1581,19 +1565,14 @@
   (let [end-ms     (interop/now-ms)
         elapsed-ms (long (max 0 (- end-ms start-ms)))
         tags       (events/legacy-runtime-root-ex-data event)]
-    ;; Always-on listener (survives prod elision). No exception object:
-    ;; this is an invalid-write rejection, not a host throw.
-    (error-emit/dispatch-on-error!
+    ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+    ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
+    ;; under `:advanced` + `goog.DEBUG=false`). No exception object: this is an
+    ;; invalid-write rejection, not a host throw.
+    (error-emit/emit-error-both!
       :rf.error/legacy-runtime-root
-      event
-      event-id
-      frame
-      nil
-      elapsed-ms
-      end-ms)
-    ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-    (trace/emit-error! :rf.error/legacy-runtime-root
-                       (assoc tags :frame frame))))
+      event event-id frame nil elapsed-ms end-ms
+      (assoc tags :frame frame))))
 
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
@@ -1705,18 +1684,14 @@
   router already static-requires `error-emit`, but routing all the
   non-recovery sites through one helper keeps the gating uniform."
   [event-id event frame-id]
-  ;; Always-on listener (survives prod elision).
-  (error-emit/dispatch-on-error!
+  ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+  ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
+  ;; under `:advanced` + `goog.DEBUG=false`). No exception — invalid op, not a
+  ;; throw; `elapsed-ms 0` (not a timed path).
+  (error-emit/emit-error-both!
     :rf.error/frame-destroyed
-    event
-    event-id
-    frame-id
-    nil                                   ;; no exception — invalid op, not a throw
-    0                                     ;; elapsed-ms
-    (interop/now-ms))                     ;; time
-  ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-  (trace/emit-error! :rf.error/frame-destroyed
-                     {:frame frame-id :event event :reason :frame-destroyed}))
+    event event-id frame-id nil 0 (interop/now-ms)
+    {:frame frame-id :event event :reason :frame-destroyed}))
 
 (defn- handle-frame-destroyed!
   "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and

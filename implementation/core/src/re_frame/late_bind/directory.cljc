@@ -798,6 +798,10 @@
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-bacs4"
     :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans it out to the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers), ALWAYS fired. Per-listener invocations try/catch wrapped (a buggy listener cannot block siblings). Recovery is framework-owned (the per-category typed defaults); the per-frame `:on-error` recovery policy was REMOVED (rf2-hiqtk8, superseding the rf2-2hvga axis-2 / recovery-policy-eligible column). Survives `:advanced` + `goog.DEBUG=false`. Invoked from EVERY production-reachable `:rf.error/*` site: router (handler-exception, flow-eval, frame-destroyed), fx (reserved-fx typed throws), subs/memo + subs (reactive + compute-sub exceptions), subs (frame-destroyed, no-such-sub on subscribe), router/diagnostics (no-such-handler)."}
+   {:key         :error-emit/emit-error-both
+    :producer-ns 're-frame.error-emit
+    :design-bead "rf2-c4oycd"
+    :description "The shared two-channel `:rf.error/*` fan-out (rf2-c4oycd) — fires the always-on `dispatch-on-error!` listener record (axis 1, production-survivable) AND the dev-only `trace/emit-error!` surface (axis 2, DCE'd under `:advanced` + `goog.DEBUG=false`) in one call. Collapses the open-coded two-step that was duplicated at ~12 emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics` (+ `fx`'s `emit-fx-error!` + the 4 bespoke `router` wrappers). Takes `[category event event-id frame exception elapsed-ms time trace-tags]` — `trace-tags` is the category-specific dev-trace map threaded unchanged. Reached via this hook by `fx` / `subs` / `subs.memo` / `cofx` / `router.diagnostics` (which cannot static-require `error-emit` — the `error-emit` → `elision` → `frame` load cycle); `router` static-requires `error-emit` and calls it directly. Survives `:advanced` + `goog.DEBUG=false`."}
    {:key         :error-emit/dispatch-frame-teardown-report
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-ini4wr"
