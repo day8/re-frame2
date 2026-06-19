@@ -400,15 +400,15 @@
   (testing "the leaf names the inspect-result installation-boundary keys with the selected-realm-is-nil framing"
     (let [body @surfaces-md]
       (is (and (str/includes? body ":realms")
-               (str/includes? body ":operating-realm")
-               (str/includes? body ":frame-realms"))
+               (str/includes? body ":operating-realm"))
           (str "tool-pair-surfaces.md no longer names the labeled-internal "
                "installation-boundary keys the inspect op "
                "(`get-operating-frame`) MAY carry — `:realms` / "
-               "`:operating-realm` / `:frame-realms` (read from the internal "
+               "`:operating-realm` (read from the internal "
                "namespaces). Per spec/Tool-Pair.md §Operating frame the "
                "inspect shape MAY carry the labeled-internal boundary "
-               "alongside the frame view."))
+               "alongside the frame view. (The per-frame `:frame-realms` map "
+               "was removed under rf2-70owfr — single default realm.)"))
       (is (contains-any? body ["`:selected-realm` is always nil"
                                ":selected-realm` is always nil"
                                "selected-realm is always nil"

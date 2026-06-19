@@ -12,6 +12,6 @@ the bare name, and must stay GREEN:
 
 ```clojure
 (re-frame.realm/realm-ids)
-(re-frame.frame/frame-realm frame-id)
+(re-frame.realm/installed-app realm-id)
 (th/with-app-fixture {:install counter/install! :root-view counter/main} :test-app)
 ```

@@ -233,10 +233,9 @@
    ;; surfaces. See `frame_switcher.cljs` for the full contract.
    :rf.xray/current-frame
    :rf.xray/available-frames
-   ;; rf2-3caq85 — the realm grouping of the pickable frames (EP-0013
-   ;; disposition 3): a `<optgroup>` per realm in a multi-realm process;
-   ;; collapses to one default-realm group (flat render) single-realm.
-   :rf.xray/available-frame-realm-groups
+   ;; rf2-70owfr — the `:rf.xray/available-frame-realm-groups` sub (the realm
+   ;; `<optgroup>` grouping) was removed with the afdlyr realm-substrate
+   ;; collapse; the picker renders the flat option list directly.
    ;; rf2-4vp5j — the dedicated VIEW-SCOPE frame slot (frame is a view
    ;; scope, not a filter): the resolved scope + its raw stored slot +
    ;; the raw target-frame slot it falls back to on a host seed.
@@ -319,12 +318,11 @@
    :rf.xray/derivation-graph
    :rf.xray/derivation-graph-mode
    :rf.xray/derivation-graph-tab-data
-   ;; rf2-wtg9z4 — Module-view tab (EP-0013 disposition 6): the projected
-   ;; (realm, frame) address space (`re-frame.realm/realm-ids` ×
-   ;; `re-frame.frame/frame-realm`, the internal substrate — EP-0023
-   ;; retained-internal, pl97nd.2). The disposition-6 demand-trigger surface;
-   ;; the per-module provenance section is scaffolded behind the awaiting-seam
-   ;; caption.
+   ;; rf2-wtg9z4 — Module-view tab (EP-0013 disposition 6): the per-module
+   ;; provenance read off the default realm's installed app value
+   ;; (`re-frame.realm/installed-app`, the internal substrate — EP-0023
+   ;; retained-internal, pl97nd.2). The realm-grouping address-space view was
+   ;; removed under rf2-70owfr (afdlyr single-default-realm collapse).
    :rf.xray/module-view
    ;; rf2-32siq3.12 — EP-0023 image/frame model on the Module-view tab: the
    ;; live image-loaded frames as execution contexts, each carrying its

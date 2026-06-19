@@ -1031,10 +1031,6 @@
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"
     :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace.tooling/push-to-ring!` as the routing fallback when the trace event itself does not carry a `:frame` tag (e.g. sub recompute / view render emits inside an in-flight cascade)."}
-   {:key         :realm/frames-by-realm
-    :producer-ns 're-frame.frame
-    :design-bead "rf2-gkddyq"
-    :description "EP-0013 D1 realm-owned frame-registry view (the realm is EP-0023 retained-INTERNAL installation substrate, not current public vocabulary). Returns `realm-id → #{frame-id …}` over the live (non-destroyed) frames, grouped by each frame record's `:realm` slot. `re-frame.realm/realm-frames` consults it to answer the realm-owned membership query — `re-frame.frame` requires `re-frame.realm` for the frame record's default realm-id, so the back-read is late-bound to avoid a require cycle. Membership is DERIVED from `re-frame.frame/frames` (single source of truth; no separately-stored set), so the `(reset! frame/frames {})` test fixtures reset it for free."}
    {:key         :app-value/project
     :producer-ns 're-frame.app-value
     :design-bead "rf2-yozjzo"

@@ -274,9 +274,12 @@ _STRONG_RE = re.compile(
 # therefore exactly the `rf/`-qualified or BARE-unqualified spelling. Any OTHER
 # namespace qualifier names a DIFFERENT symbol that merely shares the bare name:
 #
-#   * `re-frame.realm/realm-ids`, `re-frame.frame/frame-realm` — the RETAINED
-#     internal substrate read (inventory §Proposed cleanup: "the realm
-#     machinery stays as internal substrate"), legitimately used by tooling.
+#   * `re-frame.realm/realm-ids` — the RETAINED internal substrate read
+#     (inventory §Proposed cleanup: "the realm machinery stays as internal
+#     substrate"), legitimately used by tooling. (`re-frame.frame/frame-realm`
+#     and the per-frame realm-membership view were removed entirely under
+#     rf2-70owfr — the afdlyr collapse leaves a single default realm; the bare /
+#     `rf/` facade spelling stays a guarded drift symbol regardless.)
 #   * `counter/install!`, `my.app/install!` — an APP's own setup hook (a normal
 #     name for an example app's registration entry point; see
 #     spec/008-Testing.md §Pattern 5 `with-app-fixture {:install counter/install!}`).
@@ -640,7 +643,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/app_db_sanctioned.md",              0),
         ("negative/rewritten_image_frame_teaching.md", 0),
         # Non-facade namespace-qualified symbols: the internal substrate read
-        # (`re-frame.realm/realm-ids`, `re-frame.frame/frame-realm`) AND an
+        # (`re-frame.realm/realm-ids`, `re-frame.realm/installed-app`) AND an
         # app's own `counter/install!` setup hook — all share a bare name with
         # a retired facade symbol but are different symbols. Must stay GREEN.
         ("negative/internal_substrate_ns_reads.md",    0),

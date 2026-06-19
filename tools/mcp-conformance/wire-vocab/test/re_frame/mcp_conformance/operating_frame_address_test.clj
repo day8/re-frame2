@@ -19,8 +19,11 @@
     AMBIGUOUS: two-plus app frames and no pin).
   - the realm slots SURVIVE on the envelope as the LABELED-INTERNAL
     installation boundary — `:realms` / `:operating-realm` / `:selected-realm`
-    / `:frame-realms` — explicitly NOT the central addressing model. A
-    single-realm app collapses them to the `:rf.realm/default` no-op.
+    — explicitly NOT the central addressing model. A single-realm app collapses
+    them to the `:rf.realm/default` no-op. (The per-frame `:frame-realms`
+    `{frame-id container-id}` map was REMOVED under rf2-70owfr — the afdlyr
+    realm-substrate collapse leaves a single default realm, so a per-frame
+    container map carried no information.)
 
   This gate pins THAT wire shape so a regression that re-promotes the
   public realm pin, drops a frame-enumeration slot, or breaks the
@@ -87,7 +90,10 @@
     :realms         — vector of internal installation-container ids.
     :operating-realm — the container tier-3 resolution scopes to.
     :selected-realm  — the tier-2 container pin; `nil` when unset.
-    :frame-realms    — {frame-id container-id} for every frame.
+
+  (The per-frame `:frame-realms` `{frame-id container-id}` map was REMOVED
+  under rf2-70owfr — the afdlyr realm-substrate collapse leaves a single
+  default realm, so a per-frame container map carried no information.)
 
   Open map `{:closed false}` — additive envelope slots (the
   source-uri/freshness decorations the wire-pipeline layers on) compose
@@ -105,8 +111,7 @@
    ;; never the public address.
    [:realms          {:optional true} [:sequential :keyword]]
    [:operating-realm {:optional true} [:maybe :keyword]]
-   [:selected-realm  {:optional true} [:maybe :keyword]]
-   [:frame-realms    {:optional true} [:map-of :keyword :keyword]]])
+   [:selected-realm  {:optional true} [:maybe :keyword]]])
 
 (def OperatingFrameFailure
   "The `{:ok? false :reason <kw> ...}` operating-frame failure envelope.
@@ -147,8 +152,7 @@
     :operating       :rf/default
     :realms          [:rf.realm/default]
     :operating-realm :rf.realm/default
-    :selected-realm  nil
-    :frame-realms    {:rf/default :rf.realm/default}}
+    :selected-realm  nil}
 
    ;; --- multi-frame, nothing pinned: AMBIGUOUS (bead finding 2) ----------
    ;; get-operating-frame example 2 / reset-operating-frame example 1:
@@ -163,9 +167,7 @@
     :operating       nil
     :realms          [:rf.realm/default]
     :operating-realm :rf.realm/default
-    :selected-realm  nil
-    :frame-realms    {:rf/default :rf.realm/default
-                      :stories    :rf.realm/default}}
+    :selected-realm  nil}
 
    ;; --- multi-frame WITH a pin (set/get-operating-frame example) ---------
    ;; set-operating-frame example 1 / get-operating-frame example 3: the
@@ -180,9 +182,7 @@
     :operating       :stories
     :realms          [:rf.realm/default]
     :operating-realm :rf.realm/default
-    :selected-realm  nil
-    :frame-realms    {:rf/default :rf.realm/default
-                      :stories    :rf.realm/default}}
+    :selected-realm  nil}
 
    ;; --- reserved-frame-aware :app-frames view ----------------------------
    ;; discover-app / orient filter reserved `:rf/*` tool frames out of
@@ -196,9 +196,7 @@
     :operating       :rf/default
     :realms          [:rf.realm/default]
     :operating-realm :rf.realm/default
-    :selected-realm  nil
-    :frame-realms    {:rf/default :rf.realm/default
-                      :rf/xray    :rf.realm/default}}})
+    :selected-realm  nil}})
 
 (def ^:private failure-fixtures
   "Per-reason failure envelopes mirroring set-operating-frame examples 2
@@ -258,20 +256,25 @@
 (deftest realm-slots-survive-as-labeled-internal-substrate
   ;; EP-0023 demoted the realm to the INTERNAL installation substrate but
   ;; KEPT it on the envelope (labeled-internal, not removed). Pin that the
-  ;; realm slots still ride AND that a single-realm app collapses them to
-  ;; the `:rf.realm/default` no-op (the documented installation-boundary
-  ;; collapse). A regression that DROPPED the realm slots entirely (over-
-  ;; reading EP-0023's demotion as a removal) would trip these.
+  ;; installation-boundary realm slots (`:realms` / `:operating-realm`) still
+  ;; ride AND that a single-realm app collapses them to the `:rf.realm/default`
+  ;; no-op (the documented installation-boundary collapse). A regression that
+  ;; DROPPED these realm slots entirely (over-reading EP-0023's demotion as a
+  ;; removal) would trip these. (The per-frame `:frame-realms` map was removed
+  ;; under rf2-70owfr — the single default realm makes it informationless — so
+  ;; it is NO LONGER pinned here.)
   (let [collapsed (:single-frame-sole-resolution success-fixtures)]
     (testing "the labeled-internal realm slots are present on the envelope"
       (is (contains? collapsed :realms))
-      (is (contains? collapsed :operating-realm))
-      (is (contains? collapsed :frame-realms)))
+      (is (contains? collapsed :operating-realm)))
+    (testing "the per-frame :frame-realms map is GONE (rf2-70owfr)"
+      (is (not (contains? collapsed :frame-realms))
+          "the single default realm makes a per-frame container map informationless")
+      (is (m/validate OperatingFrameSuccess collapsed)
+          "the envelope still validates without :frame-realms — the schema dropped the key"))
     (testing "single-realm app collapses the installation boundary to the default no-op"
       (is (= [:rf.realm/default] (:realms collapsed)))
-      (is (= :rf.realm/default (:operating-realm collapsed)))
-      (is (every? #{:rf.realm/default} (vals (:frame-realms collapsed)))
-          "every frame's container is the default — the boundary is a no-op"))
+      (is (= :rf.realm/default (:operating-realm collapsed))))
     (testing "the realm slots are typed keywords (the internal substrate is reported faithfully)"
       (is (m/validate OperatingFrameSuccess collapsed)))))
 

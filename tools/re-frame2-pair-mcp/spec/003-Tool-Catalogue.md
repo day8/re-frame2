@@ -580,8 +580,7 @@ The summary shape:
             :realm-count         N            ; # internal installation containers
             :runtime-instance-id <uuid>}
  :frames   {:all [...] :app [...] :operating <id>      ; public frame address (EP-0023)
-            :realms [...] :operating-realm <id>        ; labeled-internal installation boundary
-            :frame-realms {<frame-id> <container-id>}}
+            :realms [...] :operating-realm <id>}       ; labeled-internal installation boundary
  :app-db-top-keys {<app-frame-id> [<top-level key> ...]}
  :registry {:basis :frame|:realm :frame <id>?   ; rf2-srobm0 — see below
             :counts {<kind> N ...}    ; every v1 registrar kind
@@ -621,13 +620,13 @@ addressing surface is the **frame** (`:all` / `:app` / `:operating` —
 EP-0023's `image -> frame -> event stream`). `:frames` additionally
 carries the **labeled-internal installation boundary** (the EP-0013 realm
 substrate, surfaced as implementation structure, not the central model):
-`:realms` (the internal installation-container ids — `(re-frame.realm/realm-ids)`),
-`:operating-realm` (the container tier-3 sole-frame resolution scopes to),
-and `:frame-realms` (`{frame-id container-id}` for every registered frame
-— `(re-frame.frame/frame-realm id)`). `:app` is scoped to the operating container. A
-single-realm app (the common case) reports `:realms [:rf.realm/default]`
-and every frame's container as the default — the boundary collapses to a
-no-op.
+`:realms` (the internal installation-container ids — `(re-frame.realm/realm-ids)`)
+and `:operating-realm` (the container tier-3 sole-frame resolution scopes to).
+`:app` is scoped to the operating container. A single-realm app (the common
+case) reports `:realms [:rf.realm/default]` — the boundary collapses to a
+no-op. (The per-frame `:frame-realms` `{frame-id container-id}` map and the
+`re-frame.frame/frame-realm` reader were removed under rf2-70owfr — the single
+default realm makes a per-frame container map informationless.)
 
 Read-only + idempotent across same-state calls — cacheable like the
 other read tools. `:reason :orient-failed` (with `:message`) on a
@@ -3510,8 +3509,7 @@ the labeled-internal installation-boundary slots):
  :operating       <frame-id>         ;; full resolution — now the pinned frame
  :realms          [<container-id> ...]   ;; internal installation containers (labeled-internal)
  :operating-realm <container-id>         ;; the operating container (default, absent a pin)
- :selected-realm  <container-id|nil>     ;; tier-2 container pin (no public pin exists; nil)
- :frame-realms    {<frame-id> <container-id> ...}}
+ :selected-realm  <container-id|nil>}    ;; tier-2 container pin (no public pin exists; nil)
 ```
 
 **Error envelopes** (all `isError: true`):
@@ -3568,18 +3566,18 @@ the central model):
  :operating       <frame-id|nil>     ;; full resolution (nil = AMBIGUOUS)
  :realms          [<container-id> ...]   ;; (re-frame.realm/realm-ids) — internal installation containers
  :operating-realm <container-id>         ;; the container tier-3 scopes to (default, absent a pin)
- :selected-realm  <container-id|nil>     ;; tier-2 container pin (no public pin; nil)
- :frame-realms    {<frame-id> <container-id> ...}}  ;; (re-frame.frame/frame-realm id) per frame
+ :selected-realm  <container-id|nil>}    ;; tier-2 container pin (no public pin; nil)
 ```
 
 `:operating nil` means ambiguous: two-plus app frames in the operating
 container and no pin, so a frame-targeted op without a per-call `frame` WILL
 refuse. The shape lets a caller render "you have pinned X" (`:selected`),
 "writes will go to X" (`:operating`), and — as labeled-internal info — the
-installation container each frame is seated in (the `:realms` /
-`:operating-realm` / `:frame-realms` slots). A single-realm app reports
-`:realms [:rf.realm/default]` and every frame's container as the default —
-the boundary collapses to a no-op.
+installation containers present (the `:realms` / `:operating-realm` slots). A
+single-realm app reports `:realms [:rf.realm/default]` — the boundary collapses
+to a no-op. (The per-frame `:frame-realms` `{frame-id container-id}` map and the
+`re-frame.frame/frame-realm` reader were removed under rf2-70owfr — the single
+default realm makes a per-frame container map informationless.)
 
 ### How they escape `:ambiguous-frame`
 

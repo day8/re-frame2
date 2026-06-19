@@ -429,20 +429,14 @@ single-realm process renders byte-identically to the pre-EP picker / trace
 rows; the realm dimension is spelled only when more than one realm is
 present, and where it does it reads as the internal installation realm.**
 
-- **Frames panel — groups by the internal installation realm in
-  multi-realm processes only** (disposition 3, rf2-3caq85). The frame is
-  the EP-0023 public addressing unit; the realm is the retained-internal
-  installation boundary. `frame_switcher.cljs` adds
-  `:rf.xray/available-frame-realm-groups` (the pickable frames grouped by
-  `re-frame.frame/frame-realm`) and the pure `group-frames-by-realm` /
-  `multi-realm?` helpers. When the result spans >1 realm the picker
-  renders an `<optgroup>` per realm, **labelled `installation realm
-  <realm>`** so the grouping reads as implementation structure
-  (`data-testid rf-xray-ribbon-frame-realm-group-<realm>`); when it
-  collapses to one realm the picker renders the FLAT option list,
-  byte-identical to the pre-bead render. A frame whose realm is unknown
-  buckets to `:rf.realm/default` (absence = default realm, the EP-0013 D1
-  rule).
+- **Frames panel — realm `<optgroup>` grouping REMOVED** (rf2-70owfr). The
+  picker once grouped frame options by the internal installation realm
+  (`group-frames-by-realm` / `multi-realm?` / the
+  `:rf.xray/available-frame-realm-groups` sub, over
+  `re-frame.frame/frame-realm`). The afdlyr realm-substrate collapse leaves a
+  single default realm, so the grouping never branched away from the flat option
+  list — it was dead ceremony. The picker now renders the flat option list
+  directly; the public partition is image -> frame (EP-0023), not realm.
 - **Trace rows — surface the internal installation realm where present**
   (disposition 2, rf2-7vqpwa). The public execution context an event runs
   in is the FRAME; the realm `:rf.realm/id` stamp is the internal

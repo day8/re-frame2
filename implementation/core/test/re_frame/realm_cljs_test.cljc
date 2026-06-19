@@ -16,10 +16,7 @@
         so the registry shape + read/write API are unchanged
         (default-realm transparency: `reg-*` / dispatch / subscribe behave
         exactly as before);
-    (3) a frame carries its realm REFERENCE internally (`:realm` slot →
-        `:rf.realm/default`); the realm-owned frame-membership VIEW is
-        derived live from the frame registry, with no separately-stored set;
-    (4) the realm OWNS the adapter SELECTION — `re-frame.substrate.adapter` is
+    (3) the realm OWNS the adapter SELECTION — `re-frame.substrate.adapter` is
         the access seam over the default realm's `:adapter` +
         `:adapter-disposed?` slots; install / current / dispose route through
         the realm with byte-identical behaviour (stage 4).
@@ -31,7 +28,6 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
@@ -136,69 +132,16 @@
           "subscribe reads the value — single-app subscribe unchanged"))))
 
 ;; ---------------------------------------------------------------------------
-;; (3) a frame carries its realm reference internally
+;; The per-frame realm-membership view (the `:realm` record slot,
+;; `frame/frames-by-realm`, `realm/realm-frames`, `frame/frame-realm`) was
+;; removed under rf2-70owfr — the afdlyr collapse leaves a single default realm,
+;; so grouping frames by realm is meaningless. The single-app dispatch/subscribe
+;; path through a default-realm frame is covered by
+;; `default-realm-transparency-dispatch-subscribe` above.
 ;; ---------------------------------------------------------------------------
 
-(deftest frame-carries-default-realm-reference
-  (testing "a frame stores a realm REFERENCE (the :rf.realm/default id) and
-            frame-realm reads it back"
-    (rf/reg-frame :realm-test/f {:doc "a frame"})
-    (let [record (frame/frame :realm-test/f)]
-      (is (= :rf.realm/default (:realm record))
-          "the frame record carries the default realm id in its :realm slot")
-      (is (= :rf.realm/default (frame/frame-realm :realm-test/f))
-          "frame-realm reads the frame's realm reference"))
-    (is (nil? (frame/frame-realm :realm-test/never-registered))
-        "frame-realm is nil for an unknown frame")))
-
-(deftest realm-owned-frame-membership-view-is-derived
-  (testing "the realm-owned frame-membership view is derived live from the
-            frame registry — a reg-frame joins it, a destroy-frame! leaves it.
-            (The reset fixture installs the ordinary :rf/default frame into the
-            default realm, so membership is asserted by joins/leaves of the
-            test frames, not by exact-set equality with the fixture frame.)"
-    (let [base (realm/realm-frames :rf.realm/default)]
-      (is (not (contains? base :realm-test/m1))
-          "the test frames are not members before registration")
-      (rf/reg-frame :realm-test/m1 {:doc "member 1"})
-      (rf/reg-frame :realm-test/m2 {:doc "member 2"})
-      (let [members (realm/realm-frames :rf.realm/default)]
-        (is (contains? members :realm-test/m1)
-            "a reg-frame joins the default realm's membership view")
-        (is (contains? members :realm-test/m2)
-            "the second frame joins too")
-        (is (= members (realm/realm-frames))
-            "the zero-arg arity defaults to the default realm"))
-      ;; Destroying a frame retracts it from the view (membership is derived,
-      ;; so the dissoc from the frame registry is the only step needed).
-      (rf/destroy-frame! :realm-test/m1)
-      (let [members (realm/realm-frames :rf.realm/default)]
-        (is (not (contains? members :realm-test/m1))
-            "a destroy-frame! leaves the membership view")
-        (is (contains? members :realm-test/m2)
-            "the surviving frame is still a member")))
-    ;; A realm with no frames is empty, never an error.
-    (is (= #{} (realm/realm-frames :tenant/nonexistent))
-        "an unknown realm has an empty membership view")))
-
-(deftest frames-by-realm-groups-live-frames-only
-  (testing "frames-by-realm groups non-destroyed frames by their :realm slot"
-    (rf/reg-frame :realm-test/a {:doc "a"})
-    (rf/reg-frame :realm-test/b {:doc "b"})
-    (let [by-realm (frame/frames-by-realm)]
-      (is (contains? (get by-realm :rf.realm/default) :realm-test/a)
-          "default-realm frame a is grouped under :rf.realm/default")
-      (is (contains? (get by-realm :rf.realm/default) :realm-test/b)
-          "default-realm frame b is grouped under :rf.realm/default"))
-    (rf/destroy-frame! :realm-test/a)
-    (let [by-realm (frame/frames-by-realm)]
-      (is (not (contains? (get by-realm :rf.realm/default) :realm-test/a))
-          "a destroyed frame drops out of the grouping")
-      (is (contains? (get by-realm :rf.realm/default) :realm-test/b)
-          "the surviving frame stays in the grouping"))))
-
 ;; ---------------------------------------------------------------------------
-;; (4) the realm OWNS the adapter SELECTION — stage 4 (rf2-0lq5cd)
+;; (3) the realm OWNS the adapter SELECTION — stage 4 (rf2-0lq5cd)
 ;;
 ;; The adapter selection moved off the two process-global `defonce` cells that
 ;; used to live in `re-frame.substrate.adapter` and onto the default realm's

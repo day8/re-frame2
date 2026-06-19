@@ -377,60 +377,12 @@
         "nil resets to the canonical default")))
 
 ;; -------------------------------------------------------------------------
-;; (7) Realm grouping (EP-0013 disposition 3 · rf2-3caq85)
+;; (7) Realm grouping REMOVED (rf2-70owfr)
 ;; -------------------------------------------------------------------------
-
-(deftest group-frames-by-realm-single-realm-zero-ceremony
-  (testing "every frame in the default realm collapses to ONE group; the
-            view renders the FLAT option list (byte-identical) — multi-realm?
-            is false (zero-ceremony extends to tooling)"
-    (let [frames [:app/main :app/cart]
-          groups (frame-switcher/group-frames-by-realm
-                   frames (constantly :rf.realm/default))]
-      (is (= [{:realm :rf.realm/default :frames [:app/main :app/cart]}]
-             groups)
-          "one group, frame order preserved")
-      (is (false? (frame-switcher/multi-realm? groups))
-          "single realm → flat render"))))
-
-(deftest group-frames-by-realm-multi-realm
-  (testing "frames group by realm in first-realm-seen order, each group's
-            frames preserving input order; multi-realm? true → <optgroup>s"
-    (let [realm-of {:app/main :rf.realm/default
-                    :app/cart :rf.realm/default
-                    :other/x  :app/realm-b}
-          groups   (frame-switcher/group-frames-by-realm
-                     [:app/main :other/x :app/cart] realm-of)]
-      (is (= [{:realm :rf.realm/default :frames [:app/main :app/cart]}
-              {:realm :app/realm-b     :frames [:other/x]}]
-             groups)
-          "first-realm-seen order; per-group input order preserved")
-      (is (true? (frame-switcher/multi-realm? groups))))))
-
-(deftest group-frames-by-realm-nil-resolution-falls-to-default
-  (testing "a frame whose realm resolves to nil buckets to the default
-            realm — an unknown/destroyed frame never strands the picker"
-    (let [groups (frame-switcher/group-frames-by-realm
-                   [:app/main :ghost] (constantly nil))]
-      (is (= [{:realm :rf.realm/default :frames [:app/main :ghost]}]
-             groups)))))
-
-(deftest available-frame-realm-groups-sub
-  (testing "the sub composes off :rf.xray/available-frames + frame-realm;
-            in a single-realm test runtime it returns ONE default-realm
-            group carrying the pickable frames (zero-ceremony — the
-            picker renders the flat option list, multi-realm? false)"
-    ;; Seed cascades BEFORE setup! (mirrors the available-frames tests).
-    (dispatch-trace 1 :rf/default)
-    (dispatch-trace 2 :app/main)
-    (setup!)
-    (rf/with-frame :rf/xray
-      (let [groups @(rf/subscribe [:rf.xray/available-frame-realm-groups])]
-        (is (vector? groups))
-        (is (= 1 (count groups)) "single realm in the test runtime")
-        (is (= :rf.realm/default (:realm (first groups)))
-            "frames resolve to the default realm via frame-realm")
-        (is (= [:rf/default :app/main] (:frames (first groups)))
-            "the pickable frames, first-seen order, in the default group")
-        (is (false? (frame-switcher/multi-realm? groups))
-            "single realm → flat render (zero-ceremony)")))))
+;;
+;; The picker's realm `<optgroup>` grouping (`group-frames-by-realm` /
+;; `multi-realm?` / the `:rf.xray/available-frame-realm-groups` sub) was removed
+;; with the afdlyr realm-substrate collapse — a single default realm never
+;; produced more than one group, so the grouping never branched away from the
+;; flat option list. The picker renders the flat list directly; the public
+;; partition is image -> frame (EP-0023).

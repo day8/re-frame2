@@ -49,40 +49,23 @@
   realm-row already carried the `:modules` / `:owns` / `:requires` slots,
   now FILLED from the seam.
 
-  ## Zero-ceremony (single-realm unchanged)
+  ## Single default realm (realm-grouping removed — rf2-70owfr)
 
-  In a single-realm process `re-frame.realm/realm-ids` returns exactly
-  `#{:rf.realm/default}`. The view still renders (a Module-view is a
-  browse surface, not an event-coupled lens), but it surfaces ONE realm
-  with no realm-grouping ceremony — the (realm) dimension is implicit,
-  exactly as the single-frame app never spells a frame. `multi-realm?`
-  drives whether the realm dimension is foregrounded.
+  The afdlyr realm-substrate collapse leaves a single default realm
+  (`re-frame.realm/realm-ids` is always `#{:rf.realm/default}`), so the
+  per-realm address-space grouping that this view used to render (one
+  realm-row per realm, frames grouped by realm) was dead ceremony — there
+  was never more than one realm. The MODULES section now reads the per-module
+  provenance off the ONE default realm's installed app value directly. The
+  frame/image dimension is the FRAMES section's concern (the EP-0023 public
+  model), not a realm address-space here.
 
   ## Why a separate `.cljc` ns
 
   Mirrors every other Xray panel: the panel view paints + dispatches; the
-  pure data → data projection (realm address-space assembly, the
-  module-row shape, the single/multi-realm classification) lives here so
-  it runs under the JVM unit-test target (`clojure -M:test`)."
-  (:require [clojure.string :as str]
-            [day8.re-frame2-xray.panels.common-helpers :as common]))
-
-;; ---- realm / frame address space (EP-0013 disposition 3) ----------------
-
-(defn realm-frames
-  "Group `frame-ids` by the realm each belongs to, using `realm-of` (a
-  `frame-id → realm-id` resolver, normally `re-frame.frame/frame-realm`).
-  Returns
-  `{realm-id #{frame-id …}}`. A frame whose `realm-of` resolves to nil
-  falls into the `:rf.realm/default` bucket (absence = default realm, the
-  EP-0013 D1 rule). Pure data → data; JVM-testable."
-  [frame-ids realm-of]
-  (reduce
-    (fn [acc fid]
-      (let [rid (or (realm-of fid) :rf.realm/default)]
-        (update acc rid (fnil conj #{}) fid)))
-    {}
-    frame-ids))
+  pure data → data projection (the module-row shape, the app-modules
+  projection, the three-way empty-state classification) lives here so it
+  runs under the JVM unit-test target (`clojure -M:test`).")
 
 (defn project-module-row
   "Project one MODULE value (from `(realm/installed-app realm) :modules`) into
@@ -159,97 +142,39 @@
                       (mapv project-module-row)))
      :requires (set (get app :rf.app/requires #{}))}))
 
-(defn project-realm-row
-  "Project one realm into the Module-view's realm-row shape:
-
-      {:realm          <realm-id>
-       :frames         [<frame-id> …]   ;; sorted for stable render
-       :frame-count    <int>
-       ;; per-module provenance — filled from `(realm/installed-app realm)`
-       ;; (EP-0013 disposition 6, rf2-at0oen). `:modules` is nil for a
-       ;; load-order (sugar-only / module-less) app — the honest
-       ;; no-provenance case; the realm renders its address row but no module
-       ;; rows. `:modules` is an empty VECTOR `[]` for a CONSTRUCTED app with
-       ;; zero modules (rf2-e0mq7a) — present-but-empty provenance, NOT the
-       ;; no-provenance case; the realm carries an installed constructed app.
-       :modules        [<module-row> …] | [] | nil
-       :requires       #{:rf.capability/* …}  ;; the app's union requires
-       :owns           nil                    ;; reserved — ownership lives per
-                                              ;; module (`:modules … :owns`)
-       :classification nil}                   ;; reserved — EP-0015
-                                              ;; classification is frame-owned,
-                                              ;; not a module fact (see §6)
-
-  `realm-id` is the realm; `frames` is the set of frame-ids in that realm
-  (from `realm-frames`); `app` is the realm's installed app value
-  (`re-frame.realm/installed-app realm`), or nil. Pure data → data;
-  JVM-testable."
-  ([realm-id frames] (project-realm-row realm-id frames nil))
-  ([realm-id frames app]
-   (let [{:keys [modules requires]} (project-app-modules app)]
-     {:realm          realm-id
-      :frames         (vec (sort-by str frames))
-      :frame-count    (count frames)
-      :modules        modules
-      :requires       requires
-      :owns           nil
-      :classification nil})))
-
 (defn project-module-view
-  "Top-level projection — produce every slot the Module-view needs from
-  the (realm, frame) address space (EP-0013 disposition 3) PLUS the
-  per-module provenance read off each realm's installed app value (EP-0013
-  disposition 6, rf2-at0oen). Pure data → data; JVM-testable.
+  "Top-level projection — produce the per-module provenance the Module-view's
+  MODULES section needs, read off the default realm's installed app value
+  (EP-0013 disposition 6, rf2-at0oen). Pure data → data; JVM-testable.
 
-  `realm-ids` is the set of installed realm ids (`re-frame.realm/realm-ids`);
-  `frame-ids` is the set/seq of live frame ids (retained-public `rf/frame-ids`);
-  `realm-of` resolves a frame's realm (`re-frame.frame/frame-realm`);
-  `installed-app-of` resolves a realm's installed app value
-  (`re-frame.realm/installed-app`) — a `realm-id → app-value` fn. Optional: the
-  3-arity (no resolver) renders the address space with no module provenance,
-  which keeps the legacy address-only call site working.
+  The afdlyr realm-substrate collapse leaves a single default realm, so the
+  former (realm, frame) address-space grouping was removed (rf2-70owfr) — there
+  is exactly one realm and the MODULES section reads its installed app directly.
+
+  `app` is the default realm's installed app value
+  (`(re-frame.realm/installed-app)`), or nil. Optional: the 0-arity (no app)
+  renders module-less (no provenance), which keeps a no-runtime call site working.
 
   Returns:
 
-      {:realms        [{:realm … :frames … :modules … :requires … …} …]
-                                     ;; per realm, sorted by realm-id, each
-                                     ;; carrying its installed app's modules
-       :realm-count   <int>
-       :multi-realm?  <bool>        ;; >1 realm → the realm dimension is
-                                    ;; foregrounded; single-realm renders
-                                    ;; with the (realm) dimension implicit
+      {:modules               [<module-row> …] | [] | nil
+                                     ;; the installed app's modules, sorted by
+                                     ;; module-id; nil when the app carries no
+                                     ;; `:modules` (load-order / sugar-only — the
+                                     ;; honest no-provenance case), `[]` for a
+                                     ;; CONSTRUCTED zero-module app (rf2-e0mq7a)
+       :requires              #{:rf.capability/* …}  ;; the app's union requires
        :provenance-available? true} ;; rf2-at0oen — the
-                                    ;; realm→installed-app read seam
-                                    ;; (`re-frame.realm/installed-app`) has
-                                    ;; graduated, so
-                                    ;; the MODULES section reads real module
-                                    ;; provenance. A realm whose installed app
-                                    ;; carries no `:modules` (a load-order /
-                                    ;; sugar-only app) renders no module rows —
-                                    ;; the honest no-provenance case, NOT the
-                                    ;; absent-seam caption.
+                                    ;; `re-frame.realm/installed-app` read seam
+                                    ;; has graduated, so the MODULES section
+                                    ;; reads real per-module provenance.
 
-  Every installed realm appears even when it holds no frames (a realm can
-  exist with zero frames). Pure data → data."
-  ([realm-ids frame-ids realm-of]
-   (project-module-view realm-ids frame-ids realm-of (constantly nil)))
-  ([realm-ids frame-ids realm-of installed-app-of]
-   (let [by-realm (realm-frames frame-ids realm-of)
-         ;; Every installed realm, plus any realm a frame resolves into
-         ;; that somehow isn't in realm-ids (defensive — the two should
-         ;; agree, but a stale frame must never strand the view).
-         all-rids (into (set realm-ids) (keys by-realm))
-         realms   (->> all-rids
-                       (sort-by str)
-                       (mapv (fn [rid]
-                               (project-realm-row rid
-                                                  (get by-realm rid #{})
-                                                  (installed-app-of rid)))))]
-     {:realms                realms
-      :realm-count           (count realms)
-      :multi-realm?          (> (count realms) 1)
-      ;; rf2-at0oen — the `re-frame.realm/installed-app` read seam shipped;
-      ;; the MODULES section reads real per-module provenance.
+  Pure data → data."
+  ([] (project-module-view nil))
+  ([app]
+   (let [{:keys [modules requires]} (project-app-modules app)]
+     {:modules               modules
+      :requires              requires
       :provenance-available? true})))
 
 ;; ---- no-provenance empty-state caption (rf2-at0oen) ---------------------
@@ -301,29 +226,23 @@
        "this section reflects the EP-0013 installation substrate."))
 
 (defn any-provenance?
-  "True when at least one realm-row carries module PROVENANCE — i.e. some
-  realm's installed app was CONSTRUCTED and seated, so its `:modules` slot is a
-  VECTOR (`[]` for a zero-module app, or a non-empty row vector). A
-  no-provenance (load-order / sugar-only) realm carries `:modules` nil and does
-  NOT count. Used by the panel to decide whether ANY realm has a constructed app
-  at all — separating the no-provenance caption (no constructed app anywhere)
-  from the zero-module-app caption (a constructed app with no modules)
-  (rf2-e0mq7a). Pure data → bool; JVM-testable."
-  [realm-rows]
-  (boolean (some (comp vector? :modules) realm-rows)))
+  "True when the installed app carries module PROVENANCE — i.e. it was
+  CONSTRUCTED and seated, so its projected `:modules` slot is a VECTOR (`[]` for a
+  zero-module app, or a non-empty row vector). A no-provenance (load-order /
+  sugar-only) app carries `:modules` nil and does NOT count. Used by the panel to
+  decide whether the app is constructed at all — separating the no-provenance
+  caption (no constructed app) from the zero-module-app caption (a constructed app
+  with no modules) (rf2-e0mq7a). Takes the projected `:modules` value (nil / `[]`
+  / a row vector). Pure data → bool; JVM-testable."
+  [modules]
+  (vector? modules))
 
 (defn any-modules?
-  "True when at least one realm-row carries at least one MODULE ROW — i.e. some
-  realm's installed app was constructed and seated with a NON-EMPTY `:modules`
-  vector. A constructed-but-zero-module app (`:modules []`) carries provenance
+  "True when the installed app carries at least one MODULE ROW — i.e. it was
+  constructed and seated with a NON-EMPTY `:modules` vector. A
+  constructed-but-zero-module app (`:modules []`) carries provenance
   (`any-provenance?` is true) but NO module rows, so `any-modules?` is false for
-  it. Used by the panel to decide whether to render the module list at all.
-  Pure data → bool; JVM-testable."
-  [realm-rows]
-  (boolean (some (comp seq :modules) realm-rows)))
-
-(defn realm-summary-line
-  "A one-line plain-language summary for a realm row — `<realm-id> · N
-  frame(s)`. Pure data → string; JVM-testable."
-  [{:keys [realm frame-count] :as _realm-row}]
-  (str realm " · " frame-count " " (common/pluralize frame-count "frame")))
+  it. Used by the panel to decide whether to render the module list at all. Takes
+  the projected `:modules` value. Pure data → bool; JVM-testable."
+  [modules]
+  (boolean (seq modules)))

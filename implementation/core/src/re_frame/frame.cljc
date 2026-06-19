@@ -20,7 +20,6 @@
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
-            [re-frame.realm :as realm]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -33,16 +32,6 @@
 ;;
 ;; Per Spec 002 §What lives in a frame, a frame is a map with:
 ;;   :id          the keyword identity
-;;   :realm       the id of the runtime realm the frame belongs to for its
-;;                lifetime (EP-0013 D1, Spec 002 §Frames reference realms).
-;;                A frame REFERENCES its realm internally; the registrar,
-;;                adapter, and capabilities are the realm's, not the frame's.
-;;                The realm substrate is single-default-only and the realm-
-;;                ADDRESSING dimension was collapsed (rf2-upgtq4), so this is
-;;                always `realm/default-realm-id`. Retained as the internal/
-;;                tooling membership-view source (`frames-by-realm`). The
-;;                reference is the realm-id keyword (not the realm map) so the
-;;                frame record stays a plain value.
 ;;   :frame-state the ONE physical durable container (opaque; through adapter)
 ;;                — holds BOTH partitions as a frame-state value
 ;;                `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`.
@@ -179,9 +168,10 @@
   helper, and the carried `*current-realm*` half) was collapsed under EP-0023
   (rf2-upgtq4, the afdlyr completion): the realm SUBSTRATE is single-default-only
   (`re-frame.realm`), so a frame is addressed by its process-local id with no
-  realm coordinate. A frame still REFERENCES its realm via its `:realm` slot
-  (always `:rf.realm/default`), the internal/tooling membership view derives off
-  it (`frames-by-realm`), but the registry key is the bare id."}
+  realm coordinate. The residual per-frame realm-membership view (the `:realm`
+  record slot + `frames-by-realm`) was removed under rf2-70owfr — with one
+  default realm, grouping frames by realm is meaningless; the registry key is the
+  bare id and the frame record carries no realm reference."}
   frames
   (atom {}))
 
@@ -194,40 +184,10 @@
 ;; former realm-ADDRESSING dimension (`*current-realm*`, `frame-key`,
 ;; `[realm-id frame-id]` keys, `call-with-realm`) was removed under rf2-upgtq4 as
 ;; dead weight: nothing ever bound a non-default carried realm, so every key was
-;; already the bare id at runtime.
-
-;; ---- realm-owned frame-registry view (EP-0013 D1, rf2-gkddyq) -------------
-;;
-;; The frame registry is realm-owned (Spec 002 §Frames reference realms). In
-;; D1 the frame RECORDS live here in `frames`; the realm owns the MEMBERSHIP
-;; VIEW, derived live from this atom by grouping on each frame's `:realm`
-;; slot. Deriving (rather than maintaining a separate per-realm set) keeps
-;; ONE source of truth and means the many `(reset! frame/frames {})` test
-;; fixtures reset membership for free. `re-frame.realm` reads this through
-;; the `:realm/frames-by-realm` late-bind hook (a static back-require would
-;; cycle — frame requires realm for the record's default realm-id).
-
-(defn frames-by-realm
-  "Return `realm-id → #{frame-id …}` over the live, non-destroyed frames —
-  the realm-owned membership view (EP-0013 D1). A frame contributes to its
-  `:realm` slot's set (default realm when the slot is absent). INTERNAL —
-  the realm-membership reader; published as `:realm/frames-by-realm`."
-  []
-  (persistent!
-    (reduce-kv
-      ;; The registry KEY is the bare frame-id (rf2-upgtq4). Read the frame-id
-      ;; from the record's own `:id` slot and group by the record's `:realm`
-      ;; slot (always the default realm under the collapsed substrate).
-      (fn [acc _id f]
-        (if (-> f :lifecycle :destroyed?)
-          acc
-          (let [rid (or (:realm f) realm/default-realm-id)
-                fid (:id f)]
-            (assoc! acc rid (conj (get acc rid #{}) fid)))))
-      (transient {})
-      @frames)))
-
-(late-bind/set-fn! :realm/frames-by-realm frames-by-realm)
+;; already the bare id at runtime. The residual per-frame realm-membership view
+;; (the `:realm` record slot + `frames-by-realm` + `re-frame.realm/realm-frames`)
+;; was removed under rf2-70owfr — with a single default realm, grouping frames by
+;; realm is meaningless, so the frame record carries no realm reference.
 
 ;; ---- destroy-in-flight guard (rf2-r1ciy) ---------------------------------
 ;;
@@ -632,27 +592,6 @@
     ;; arise from that seam.
     true))
 
-(defn frame-realm
-  "Return the id of the runtime realm `id` belongs to (EP-0013,
-  Spec 002 §Frames reference realms), or nil for an unknown / destroyed
-  frame. A frame references its realm internally; the registrar, adapter,
-  and capabilities are the realm's. In a single-realm app this is
-  `realm/default-realm-id` for every frame.
-
-  The frame-side half of the (realm, frame) addressing model — the (realm,
-  frame) pair is the full address (EP-0013 disposition 3). Re-exported as
-  `rf/frame-realm`: the realm-targeted query surface needs a way to learn a
-  frame's realm so a tool can route a `{:realm …}` query to the realm a given
-  frame lives in; the realm enumeration half is `re-frame.realm/realm-ids`.
-  EP-0023 RETAINS this as an internal / tooling surface over the internal
-  installation boundary, NOT current public composition vocabulary — the
-  (realm, frame) address is publicly replaced by a single process-local frame
-  target (EP-0023 §Surface dispositions / §Id Spaces); a tool may still read a
-  frame's realm but should label it as internal substrate."
-  [id]
-  (when-let [f (frame id)]
-    (or (:realm f) realm/default-realm-id)))
-
 (defn frame-address
   "Resolve the ADDRESS key for `frame-id` — the key a per-frame SIDE-CHANNEL
   (SSR request / response / error-trace / head snapshot, …) keys its entries by.
@@ -710,9 +649,7 @@
 
   The `frames` registry is keyed by the bare frame-id (rf2-upgtq4 — the realm-
   addressing dimension was collapsed); the frame-id is read from each record's
-  own `:id` slot. A tool that wants the realm-owned membership view uses
-  `re-frame.realm/realm-frames` (which, under the single-default-realm collapse,
-  reports every frame under the default realm)."
+  own `:id` slot."
   ([]
    (into #{} live-frame-id-xf @frames))
   ([ns-prefix]
@@ -1283,14 +1220,6 @@
     ;; swap it in place via `set-generation!`, preserving every other
     ;; (state-bearing) slot by identity.
     :generation  (get config :rf.frame/generation)
-    ;; EP-0013 (rf2-gkddyq D1): the frame REFERENCES the runtime realm it
-    ;; belongs to (Spec 002 §Frames reference realms). The realm SUBSTRATE is
-    ;; single-default-only (`re-frame.realm`), and the realm-ADDRESSING dimension
-    ;; was collapsed (rf2-upgtq4), so every frame's `:realm` is the default realm
-    ;; id. Retained as the internal/tooling membership-view source (`frames-by-
-    ;; realm` → `realm/realm-frames`, read by Xray's module-view + frame-switcher
-    ;; + the pair preload); a plain keyword, not the realm map.
-    :realm       realm/default-realm-id
     :frame-state frame-state
     ;; app-db / runtime-db are READ-ONLY projection reactions over the one
     ;; physical container — `make-derived-value` memoises on `=`, so a
@@ -1337,8 +1266,7 @@
   [id metadata]
   (let [;; The registry is keyed by the bare frame-id (rf2-upgtq4 — the
         ;; realm-addressing dimension was collapsed; the realm substrate is
-        ;; single-default-only, so the frame record's `:realm` is always the
-        ;; default realm).
+        ;; single-default-only).
         config (source-coords/merge-coords (expand-preset metadata))
         ;; EP-0015 §3 (rf2-ueg1tn): validate the frame-owned classification
         ;; keys (`:sensitive` / `:large` / `:observability`) EARLY — pure,
@@ -1900,10 +1828,8 @@
                {:frame id}))
 
 (defn- dissoc-frame!
-  ;; EP-0013 (D1 rf2-gkddyq): realm membership is a VIEW derived from this atom
-  ;; (filtered on each frame's `:realm` slot — see `frames-by-realm`), so
-  ;; removing the frame record (keyed by the bare frame-id, rf2-upgtq4) drops it
-  ;; from its realm's membership with no separate retraction step and no desync.
+  ;; The frame record is keyed by the bare frame-id (rf2-upgtq4 — the realm-
+  ;; addressing dimension was collapsed); removing it is a plain dissoc.
   [id]
   (swap! frames dissoc id))
 

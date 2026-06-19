@@ -1313,8 +1313,10 @@
    ;; the EP-0013 (realm, frame) address collapses to one public frame-id
    ;; space and there is no public realm pin. The pin form pins the frame
    ;; ONLY (no select-realm!); the labeled-internal installation-boundary
-   ;; slots (:realms / :operating-realm / :frame-realms) still ride back as
-   ;; implementation structure off the frames-list re-read.
+   ;; slots (:realms / :operating-realm) still ride back as implementation
+   ;; structure off the frames-list re-read. (The per-frame :frame-realms map
+   ;; was removed under rf2-70owfr — the single default realm makes it
+   ;; informationless.)
    {:fixture/id    :set-operating-frame/frame-pin-no-realm-arg
     :fixture/doc   "set-operating-frame pins a FRAME (the public address, EP-0023); the emitted form pins via select-frame!, never select-realm! — there is no public realm pin."
     :fixture/tool  "set-operating-frame"
@@ -1330,11 +1332,9 @@
                                    :app-frames [:shop/cart]
                                    :selected :shop/cart
                                    :operating :shop/cart
-                                   :realms [:rf.realm/default :shop/realm]
+                                   :realms [:rf.realm/default]
                                    :operating-realm :rf.realm/default
-                                   :selected-realm nil
-                                   :frame-realms {:rf/default :rf.realm/default
-                                                  :shop/cart :shop/realm}}]
+                                   :selected-realm nil}]
      [:default                    nil]]
     ;; The emitted form MUST pin the FRAME via select-frame! and MUST NOT
     ;; pin a realm — select-realm! is not the public pin mechanism.
@@ -1345,7 +1345,7 @@
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :selected :shop/cart :operating :shop/cart}
-     :edn-contains-keys #{:realms :operating-realm :selected-realm :frame-realms}}}
+     :edn-contains-keys #{:realms :operating-realm :selected-realm}}}
 
    {:fixture/id    :reset-operating-frame/clears-pin
     :fixture/doc   "reset-operating-frame clears the session frame pin (select-frame! nil) AND the runtime's internal installation-container pin (select-realm! nil — the realm is the internal installation substrate, not a public address; EP-0023 §Surface dispositions), returning the post-reset map with :selected nil, :selected-realm nil, and :operating-realm back at the default container (rf2-c6armm.9 #2)."
@@ -1362,11 +1362,9 @@
                                    :frames [:rf/default :stories]
                                    :selected nil
                                    :operating nil
-                                   :realms [:rf.realm/default :shop/realm]
+                                   :realms [:rf.realm/default]
                                    :selected-realm nil
-                                   :operating-realm :rf.realm/default
-                                   :frame-realms {:rf/default :rf.realm/default
-                                                  :stories :shop/realm}}]
+                                   :operating-realm :rf.realm/default}]
      [:default                    nil]]
     ;; The emitted reset form MUST clear BOTH pins, not just the frame pin: a
     ;; regression that dropped `select-realm! nil` would leave a stale operating
@@ -1379,7 +1377,7 @@
      :edn-submap {:ok? true :selected nil :operating nil
                   :selected-realm nil :operating-realm :rf.realm/default}
      :edn-contains-keys #{:frames :selected :operating
-                          :realms :selected-realm :operating-realm :frame-realms}}}
+                          :realms :selected-realm :operating-realm}}}
 
    {:fixture/id    :get-operating-frame/reports-triple
     :fixture/doc   "get-operating-frame returns the normative {:frames :selected :operating} triple; :selected reflects a prior set."

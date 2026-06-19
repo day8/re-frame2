@@ -21,8 +21,8 @@
     - the installed-app PROJECTION seam (`installed-app`, feeding the Xray
       Module-view via the `:app-value/project` hook);
     - the realm-targeted registrar-query readers (`realm-registrations` /
-      `realm-handler-meta` / `realm-handler-ids`) + `realm-ids` / `realm-frames`
-      — now always resolving the one default realm, kept as the INTERNAL/TOOLING
+      `realm-handler-meta` / `realm-handler-ids`) + `realm-ids` — now always
+      resolving the one default realm, kept as the INTERNAL/TOOLING
       generation-bypass seam Xray + the pair-MCP read directly off this ns.
 
   None of this is current public composition vocabulary — the public path is
@@ -350,35 +350,14 @@
   [realm-or-id kind]
   (-> (realm-registrations realm-or-id kind) keys set))
 
-;; ---- realm-owned frame registry (membership view) -------------------------
+;; ---- the realm-owned frame-membership view was removed (rf2-70owfr) --------
 ;;
-;; The frame registry is realm-owned (Spec 002 §Frames reference realms,
-;; Runtime-Subsystems §What a realm owns). In D1 the frame RECORDS still live
-;; in the process `re-frame.frame/frames` atom — moving them into per-realm
-;; tables is a later stage. The realm owns the MEMBERSHIP VIEW, derived from
-;; that atom by filtering on each frame's `:realm` slot, so there is ONE
-;; source of truth and no desync with the many `(reset! frame/frames {})`
-;; test fixtures. Frame ids are unique within a realm, not globally (EP-0013
-;; issue 3) — the same id in two realms is a tested legal case, so membership
-;; is computed per-realm.
-;;
-;; `re-frame.frame` requires THIS ns (for `default-realm-id` on the frame
-;; record), so a static back-require would cycle; the membership reader is
-;; reached through the `:realm/frames-by-realm` late-bind hook, which frame
-;; publishes at ns-load. Returns `nil` when the hook is unbound (frame ns not
-;; yet loaded), which the public reader treats as the empty set.
-
-(defn realm-frames
-  "Return the set of frame ids whose `:realm` reference is `rid` (defaults
-  to the default realm). The realm-owned membership view, derived live from
-  `re-frame.frame/frames` via the `:realm/frames-by-realm` hook — single
-  source of truth, no separately-stored set. Returns `#{}` when the frame ns
-  is not yet loaded. INTERNAL."
-  ([] (realm-frames default-realm-id))
-  ([rid]
-   (if-let [by-realm (late-bind/get-fn :realm/frames-by-realm)]
-     (get (by-realm) rid #{})
-     #{})))
+;; The per-frame realm-membership view (`realm-frames`, the `:realm` record slot,
+;; and `re-frame.frame/frames-by-realm`) was removed under rf2-70owfr — the
+;; afdlyr realm-substrate collapse leaves a single default realm, so grouping
+;; frames by realm is meaningless (every live frame is in the default realm).
+;; Tooling that wants the live frame ids reads the public `re-frame.frame/frame-
+;; ids` directly.
 
 ;; ---- the installed app VALUE — the projection seam (EP-0013 D2 stage 5) ----
 ;;

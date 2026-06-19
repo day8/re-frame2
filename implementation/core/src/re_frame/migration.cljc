@@ -31,12 +31,14 @@
   Pure data + fail-loud diagnostics on the migration / frame-creation path (not
   a per-event hot path, not a DEBUG-gated branch). An app that never reaches a
   superseded EP-0013 surface never calls these (Closure DCE removes them). The
-  requires are `re-frame.error` (the canonical thrown-error builder) and
-  `re-frame.realm` (the realm-frame membership read for the cross-realm check) —
-  both already in the core spine; this ns is a leaf (nothing in core requires it
-  back, so no cycle)."
+  requires are `re-frame.error` (the canonical thrown-error builder),
+  `re-frame.realm` (the default realm id the duplicate-frame-id check resolves
+  the target against), and `re-frame.frame` (the live frame registry the check
+  reads to learn whether an id is currently live) — all already in the core
+  spine; this ns is a leaf (nothing in core requires it back, so no cycle)."
   (:require [re-frame.error :as error]
-            [re-frame.realm :as realm]))
+            [re-frame.realm :as realm]
+            [re-frame.frame :as frame]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -178,21 +180,18 @@
 ;; a public frame id to surface the collision the new model forbids.
 
 (defn frame-id-realms
-  "Return the set of realm ids in which `frame-id` is currently live in the
-  EP-0013 `(realm, frame)`-addressed frame registry — `#{}` when the id is live
-  in no realm. Reads the realm-owned membership view (`realm/realm-frames` per
-  realm). The cross-realm duplicate detector below uses it; tools can read it to
-  inspect which realms a given frame id spans before migrating to the EP-0023
-  process-local frame-id space. Pure read."
+  "Return the set of realm ids in which `frame-id` is currently live — `#{}`
+  when the id is live in no realm, `#{:rf.realm/default}` when it names a live
+  frame. The afdlyr realm-substrate collapse leaves a single default realm, so a
+  live frame is always in the default realm (the per-frame realm-membership view
+  was removed under rf2-70owfr); this reads the live frame registry directly
+  (`re-frame.frame/frame-ids`). The cross-realm duplicate detector below uses it;
+  tools can read it to inspect whether a given frame id is already live before
+  migrating to the EP-0023 process-local frame-id space. Pure read."
   [frame-id]
-  (persistent!
-    (reduce
-      (fn [acc rid]
-        (if (contains? (realm/realm-frames rid) frame-id)
-          (conj! acc rid)
-          acc))
-      (transient #{})
-      (realm/realm-ids))))
+  (if (contains? (frame/frame-ids) frame-id)
+    #{realm/default-realm-id}
+    #{}))
 
 (defn assert-process-local-frame-id!
   "Fail loud with `:rf.error/cross-realm-frame-id` when `frame-id` is already

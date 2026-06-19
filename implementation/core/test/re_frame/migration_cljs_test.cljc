@@ -98,11 +98,14 @@
 ;; assert-process-local-frame-id! — the cross-realm duplicate-frame-id diagnostic
 ;; ---------------------------------------------------------------------------
 
-;; NOTE (rf2-afdlyr): the cross-realm + same-realm `frame-id-realms` /
-;; `assert-process-local-frame-id!` cases that stood up non-default realms via
+;; NOTE (rf2-afdlyr / rf2-70owfr): the cross-realm + same-realm `frame-id-realms`
+;; / `assert-process-local-frame-id!` cases that stood up non-default realms via
 ;; `construct-realm` + `av/install!` were removed with the realm-substrate
 ;; collapse — non-default realms can no longer be constructed, so the only
 ;; reachable case is the default realm (a fresh id is live in no realm).
+;; rf2-70owfr removed the per-frame realm-membership view; `frame-id-realms` now
+;; reads the live frame registry directly (a live frame is in the default realm,
+;; an unregistered id is in no realm).
 
 (deftest a-fresh-frame-id-passes-the-process-local-assertion
   (testing "a frame id live in no realm passes the process-local assertion"

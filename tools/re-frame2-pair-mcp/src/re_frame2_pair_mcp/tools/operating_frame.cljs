@@ -26,11 +26,13 @@
   dispositions: \"realm — internal installation/container\"). The
   installation-boundary info is still reported by `get-operating-frame` /
   `discover-app` / `orient` as LABELED implementation structure (the
-  `:realms` / `:operating-realm` / `:frame-realms` slots; EP-0023 §Surface
-  dispositions: \"Tooling may still expose the internal installation
-  boundary, but should label it as such\"), never as the central addressing
-  model. `reset-operating-frame` also clears the internal realm pin the
-  tier-3 sole-frame resolver uses, so a session resets to a clean posture.
+  `:realms` / `:operating-realm` slots; EP-0023 §Surface dispositions:
+  \"Tooling may still expose the internal installation boundary, but should
+  label it as such\"), never as the central addressing model. (The per-frame
+  `:frame-realms` map was removed under rf2-70owfr — the single default realm
+  makes it informationless.) `reset-operating-frame` also clears the internal
+  realm pin the tier-3 sole-frame resolver uses, so a session resets to a clean
+  posture.
 
   ## The gap these close
 
@@ -278,9 +280,10 @@
 ;;
 ;; Pure read — the normative triple (Tool-Pair §Tool-surface obligations:
 ;; `:frames` / `:selected` / `:operating`) plus the LABELED-internal
-;; installation-boundary slots (`:realms` / `:operating-realm` /
-;; `:frame-realms` — EP-0023 §Surface dispositions: tooling may expose the
-;; internal installation boundary, labeled as implementation structure).
+;; installation-boundary slots (`:realms` / `:operating-realm` — EP-0023
+;; §Surface dispositions: tooling may expose the internal installation
+;; boundary, labeled as implementation structure; the per-frame `:frame-realms`
+;; map was removed under rf2-70owfr — single default realm).
 ;; Routes through the runtime's `frames-list`, the SAME accessor
 ;; `discover-app` consults, so the two never disagree about what's registered
 ;; or pinned.

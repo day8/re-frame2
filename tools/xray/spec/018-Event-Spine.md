@@ -238,19 +238,7 @@ When the Settings "Show tool frames in picker" power-user toggle is on, tool fra
 
 Single-frame apps still get the full `Frame ▾` dropdown — it is interactive and opens a 1-entry list naming that lone frame (rf2-ad7zx.14). The earlier "collapse to a flat label" behaviour is gone (rf2-ad7zx.12 always renders the dropdown). Only a zero-frame state disables the overlaid `<select>` (no inert popup).
 
-**Realm grouping in multi-realm processes (EP-0013 disposition 3 · rf2-3caq85).** When the host runs **more than one runtime realm**, the option list groups frames into an `<optgroup>` per realm (`data-testid rf-xray-ribbon-frame-realm-group-<realm>`), so the `(realm, frame)` address reads at a glance:
-
-```
-┌────────────────────────┐
-│ :rf.realm/default      │   ← <optgroup> label
-│ ✓ :app/main            │
-│   :app/cart            │
-│ :app/realm-b           │   ← <optgroup> label
-│   :other/x             │
-└────────────────────────┘
-```
-
-In a **single-realm process** the grouping collapses to one realm and the picker renders the **flat option list** above — byte-identical to the pre-EP render (zero-ceremony extends to the tooling; the realm dimension is spelled only when more than one realm exists). The grouping reads `:rf.xray/available-frame-realm-groups` (the pickable frames grouped by the internal substrate seam `re-frame.frame/frame-realm`, read directly off its owning namespace — EP-0023 removed the `rf/*` facade arities, pl97nd.2); the pure helpers `frame_switcher/group-frames-by-realm` + `multi-realm?` decide the branch. A frame whose realm is unknown buckets to `:rf.realm/default` (absence = default realm, the EP-0013 D1 rule).
+**Realm `<optgroup>` grouping — REMOVED (rf2-70owfr).** The picker once grouped frames into an `<optgroup>` per runtime realm (`group-frames-by-realm` / `multi-realm?` / the `:rf.xray/available-frame-realm-groups` sub). The afdlyr realm-substrate collapse leaves a single default realm, so the grouping never branched away from the flat option list — it was dead ceremony. The picker now renders the flat option list directly; the public partition is image -> frame (EP-0023), not realm.
 
 ### Filter pills
 
