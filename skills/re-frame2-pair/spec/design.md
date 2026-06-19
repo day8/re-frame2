@@ -28,7 +28,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime.
-2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer opts)` for the retain-N ring. (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form.)
+2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form — frame-id first, `(trace-buffer frame-id opts)` for filters.)
 3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-listener! id cb)`, and `(rf/restore-epoch! ...)`.
 
 Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).
@@ -53,7 +53,7 @@ This dichotomy is a cardinal rule in SKILL.md. The strict source-edit protocol l
 
 ### L5 — Connect first, every session
 
-Before any op, `discover-app` runs. This locates the nREPL port, connects, verifies `interop/debug-enabled?` is true, and probes the load-time marker installed by the preloaded `re-frame2-pair.runtime` namespace. Failures return structured edn (`{:ok? false :reason ...}`); the most common precondition failure is `:reason :runtime-not-preloaded`, fixed by adding the two-line preload entry in `SKILL.md` §Setup. The skill reports failures verbatim, doesn't guess at workarounds. `references/errors.md` carries the full failure-mode catalogue.
+Before any op, `discover-app` runs. This locates the nREPL port, connects, verifies `interop/debug-enabled?` is true, and probes the load-time marker installed by the preloaded `re-frame2-pair.runtime` namespace. Failures return structured edn (`{:ok? false :reason ...}`); the most common precondition failure is `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict — `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis), fixed by adding the two-line preload entry in `SKILL.md` §Setup. The skill reports failures verbatim, doesn't guess at workarounds. `references/errors.md` carries the full failure-mode catalogue.
 
 ### L6 — Multi-frame model, operating-frame selection
 

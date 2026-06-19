@@ -422,9 +422,12 @@
                               :warning :no-source-coord-annotation
                               :note (str "Neither data-rf2-source-coord nor "
                                          "data-rc-src is on any element. The "
-                                         "DOM->source ops will degrade. Enable "
-                                         "(rf/configure! {:source-coords {:annotate-dom? true}}) "
-                                         "or use re-com with :src (at).")))
+                                         "DOM->source ops will degrade. re-frame2 "
+                                         "stamps data-rf2-source-coord on registered-view "
+                                         "roots automatically in debug builds (no "
+                                         "configure! opt-in) — check registered-view "
+                                         "coverage, a DOM-capable adapter, and the debug "
+                                         "build (goog.DEBUG), or use re-com with :src (at).")))
 
           :else
           (emit (assoc health :ok? true :build-id build-id)))))
