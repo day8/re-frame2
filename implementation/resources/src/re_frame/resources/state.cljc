@@ -1369,6 +1369,81 @@
       (assoc resources-subtree :tag-index {} :owner-index {})
       entries)))
 
+;; ---- incremental reverse-index delta (rf2-2c2mkh) -------------------------
+;;
+;; The hot mutation paths (a load/mutation settle, a release, a remove, a GC,
+;; a clear-scope, an optimistic apply/rollback) each touch a SMALL, KNOWN set
+;; of key-ids — never the whole cache. Rebuilding both indexes from scratch via
+;; `recompute-indexes` on every such settle is O(E·(T+O)) per op even though a
+;; settle changes ONE entry's `:tags` / `:active-owners`. `reindex-keys`
+;; instead reconciles ONLY the touched key-ids: for each, it removes that key's
+;; members under its OLD `:tags` / `:active-owners` (read from the pre-mutation
+;; entries) and re-adds them under its NEW values (read from the post-mutation
+;; subtree). The result is EXACTLY what a full `recompute-indexes` would yield
+;; (the indexes are a pure projection of `:entries`, and a key's members depend
+;; only on that key's own entry), but at O(touched·(T+O)). `recompute-indexes`
+;; is retained for the restore / SSR-hydration / registrar-teardown trust-
+;; rebuild paths, where the whole `:entries` map is installed at once and there
+;; is no incremental old→new delta to apply.
+
+(defn- index-without-key
+  "Remove every membership of `k-id` from a reverse `index`
+  (`{<member-key> #{<key-id> …}}`) under the given `member-keys` (the entry's
+  OLD `:tags` or `:active-owners`). A member-key whose set empties is dropped
+  entirely, matching the shape `recompute-indexes` produces (it never leaves an
+  empty membership set behind). Pure."
+  [index member-keys k-id]
+  (reduce (fn [idx mk]
+            (let [s (disj (get idx mk #{}) k-id)]
+              (if (seq s)
+                (assoc idx mk s)
+                (dissoc idx mk))))
+          index
+          member-keys))
+
+(defn- index-with-key
+  "Add a membership of `k-id` to a reverse `index` under each of `member-keys`
+  (the entry's NEW `:tags` or `:active-owners`). Pure."
+  [index member-keys k-id]
+  (reduce (fn [idx mk] (update idx mk (fnil conj #{}) k-id))
+          index
+          member-keys))
+
+(defn reindex-keys
+  "INCREMENTALLY reconcile `:tag-index` + `:owner-index` for just the
+  `changed-key-ids` (a coll of byte `key-id`s) on the post-mutation
+  `resources-subtree`, given `old-entries` — the `:entries` map as it was
+  BEFORE the mutation. For each changed key-id, removes its OLD index members
+  (from `old-entries`) and adds its NEW members (from the subtree's current
+  `:entries`); a key absent on one side simply has no members to remove / add
+  (a create has no old members, a removal has no new ones). Returns the subtree
+  with both indexes updated.
+
+  EQUIVALENCE INVARIANT (rf2-2c2mkh — pinned by a round-trip test): provided
+  EVERY key whose `:tags` / `:active-owners` differ between `old-entries` and
+  the subtree's `:entries` is in `changed-key-ids`, the result is `=` to
+  `(recompute-indexes resources-subtree)`. Use `recompute-indexes` (not this)
+  for the restore / SSR-hydration / teardown trust-rebuild paths."
+  [resources-subtree old-entries changed-key-ids]
+  (let [new-entries (:entries resources-subtree)]
+    (reduce
+      (fn [subtree k-id]
+        (let [old-entry (get old-entries k-id)
+              new-entry (get new-entries k-id)]
+          (-> subtree
+              (update :tag-index
+                      (fn [ti]
+                        (-> ti
+                            (index-without-key (:tags old-entry) k-id)
+                            (index-with-key (:tags new-entry) k-id))))
+              (update :owner-index
+                      (fn [oi]
+                        (-> oi
+                            (index-without-key (:active-owners old-entry) k-id)
+                            (index-with-key (:active-owners new-entry) k-id)))))))
+      resources-subtree
+      changed-key-ids)))
+
 ;; ---- host-side transient generation allocator -----------------------------
 ;;
 ;; Per Spec 016 §Restore and replay part 1: the generation allocator is a

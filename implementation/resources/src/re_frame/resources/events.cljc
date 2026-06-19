@@ -1663,7 +1663,9 @@
                                      [wid (:transport (work-ledger/get-record runtime-db wid))]))))
                          in-scope-ids)
         ;; remove the entries, settle their in-flight work rows :cancelled,
-        ;; then recompute the indexes from what remains
+        ;; then reconcile the indexes for the removed keys. rf2-2c2mkh — only
+        ;; the in-scope keys' index members change, so reconcile that bounded
+        ;; set incrementally rather than full-rebuilding from all entries.
         rdb'       (-> runtime-db
                        (update-in (state/entries-path)
                                   (fn [es] (reduce dissoc es in-scope-ids)))
@@ -1672,7 +1674,8 @@
                                             d wid work-ledger/mark-terminal
                                             :cancelled {:reason :clear-scope}))
                                         db in-flight))
-                       (update state/resources-key state/recompute-indexes))]
+                       (update state/resources-key state/reindex-keys
+                               entries in-scope-ids))]
     (trace/emit! :rf.event :rf.resource/removed
                  {:rf.frame/id frame-id :scope cscope :cause cause
                   :removed (vec in-scope) :reason :clear-scope
@@ -1783,6 +1786,9 @@
         entry      (get-in runtime-db (state/entry-path scoped-key))
         wid        (:current-work entry)
         transport  (when wid (:transport (work-ledger/get-record runtime-db wid)))
+        ;; rf2-2c2mkh — removing ONE entry touches ONE key's index members;
+        ;; reconcile incrementally rather than full-rebuilding both indexes.
+        old-entries (get-in runtime-db (state/entries-path))
         rdb'       (-> runtime-db
                        ;; rf2-9e0tyq — dissoc by the byte key-id (a dissoc by
                        ;; the scoped-key vector would no-op and leak the entry).
@@ -1790,7 +1796,8 @@
                        (cond-> wid (work-ledger/update-record
                                      wid work-ledger/mark-terminal
                                      :cancelled {:reason :remove}))
-                       (update state/resources-key state/recompute-indexes))]
+                       (update state/resources-key state/reindex-keys
+                               old-entries [(state/key-id scoped-key)]))]
     (trace/emit! :rf.event :rf.resource/removed
                  {:rf.frame/id frame-id :resource/key scoped-key :reason :remove
                   :aborted (when wid [wid])})
@@ -2090,18 +2097,21 @@
             poll-delay-ms (when (seq (:active-owners entry'))
                             (state/positive-or-nil (:poll-interval-ms spec)))
             ;; on a successful load the tag index for this key is REPLACED
-            ;; with the new tags (old tags removed); recompute is the simple,
-            ;; correct way to keep both indexes consistent. The work row
-            ;; settles :completed; terminal rows for this key are then PRUNED
-            ;; (bounded per-key tail kept for Xray) — Spec 016 §Ledger row
-            ;; retention. The host handle is cleared (the attempt settled).
+            ;; with the new tags (old tags removed). This settle touches ONE
+            ;; entry, so reconcile only that key's index members incrementally
+            ;; (rf2-2c2mkh) rather than full-rebuilding both indexes. The work
+            ;; row settles :completed; terminal rows for this key are then
+            ;; PRUNED (bounded per-key tail kept for Xray) — Spec 016 §Ledger
+            ;; row retention. The host handle is cleared (the attempt settled).
+            old-entries (get-in runtime-db (state/entries-path))
             rdb'      (-> runtime-db
                           (assoc-in (state/entry-path resource-key) entry')
                           (work-ledger/update-record
                             work-id work-ledger/mark-terminal
                             :completed {:loaded-at loaded-at})
                           (work-ledger/prune-terminal-for-key resource-key)
-                          (update state/resources-key state/recompute-indexes)
+                          (update state/resources-key state/reindex-keys
+                                  old-entries [(state/key-id resource-key)])
                           ;; route blocking: a route-owned blocking resource
                           ;; settling drops it from the nav-token blocking
                           ;; slot + lands the route transition when the slot
@@ -2766,10 +2776,13 @@
     (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry)))
       ;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; dissoc by it
       ;; (a dissoc by the scoped-key VECTOR would be a no-op and the GC removal
-      ;; would silently leak the entry).
-      (let [rdb' (-> runtime-db
+      ;; would silently leak the entry). rf2-2c2mkh — GC removes ONE entry, so
+      ;; reconcile only that key's index members incrementally.
+      (let [old-entries (get-in runtime-db (state/entries-path))
+            rdb' (-> runtime-db
                      (update-in (state/entries-path) dissoc (state/key-id resource-key))
-                     (update state/resources-key state/recompute-indexes))]
+                     (update state/resources-key state/reindex-keys
+                             old-entries [(state/key-id resource-key)]))]
         (trace/emit! :rf.event :rf.resource/gc-fired
                      {:rf.frame/id frame-id :resource/key resource-key})
         {:rf.db/runtime rdb'

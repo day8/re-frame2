@@ -609,12 +609,21 @@
         ;; apply every :restore disposition to the cache (an :invalidate
         ;; disposition leaves the moved entry in place — the read path recovers).
         restored?    #(= :restore (:disposition %))
+        ;; rf2-2c2mkh — capture the pre-rollback entries so the index delta is
+        ;; reconciled against them. Only the recorded inverse's keys can change
+        ;; (a :restore re-creates / drops an entry; an :invalidate leaves the
+        ;; moved entry untouched here), so reconcile that bounded key set
+        ;; incrementally rather than full-rebuilding from all entries.
+        old-entries  (get-in runtime-db (state/entries-path))
+        changed-ids  (mapv (fn [{scoped-key :resource/key}] (state/key-id scoped-key))
+                           inverse)
         rdb'         (reduce (fn [rdb disp]
                                (if (restored? disp)
                                  (mstate/restore-before rdb disp)
                                  rdb))
                              runtime-db dispositions)
-        rdb''        (update rdb' state/resources-key state/recompute-indexes)
+        rdb''        (update rdb' state/resources-key state/reindex-keys
+                             old-entries changed-ids)
         ;; one scoped invalidation per :invalidate (conflicted, non-:force) key,
         ;; computed against the ROLLED-BACK runtime-db (`rdb''` — the restores are
         ;; in, so the invalidate reads the moved entries that stayed). Drops a key
@@ -1342,8 +1351,12 @@
                                     ;; the SETTLE slice fills these:
                                     :reconciliation-refetches nil})
                          ;; a seed / remove may have created / dropped entries +
-                         ;; tags — recompute the reverse indexes.
-                         (update state/resources-key state/recompute-indexes))
+                         ;; tags. rf2-2c2mkh — only the applied keys' index
+                         ;; members change, so reconcile that bounded set
+                         ;; incrementally (against the pre-apply `opt-entries`)
+                         ;; rather than full-rebuilding from all entries.
+                         (update state/resources-key state/reindex-keys
+                                 opt-entries (mapv state/key-id opt-ks)))
                      rdb1)]
     (when opt-applied?
       (trace/emit! :rf.event :rf.mutation/optimistic-applied
@@ -1780,14 +1793,23 @@
             inst'       (mstate/instance-succeeded
                           inst {:result result :settled-at clock-ms
                                 :affected-keys affected :patch-summary patch-summary})
+            ;; rf2-2c2mkh — the cache consequences (apply-patches /
+            ;; apply-populates / apply-removes above) touch ONLY the
+            ;; `authoritative-keys`; reconcile that bounded set's index members
+            ;; incrementally against the pre-mutation entries rather than
+            ;; full-rebuilding from all entries. (The success-time invalidation
+            ;; rides a separate dispatched `:rf.resource/invalidate-tags`, which
+            ;; marks entries stale without touching `:tags` / `:active-owners`,
+            ;; so it never perturbs the indexes.)
+            old-entries (get-in runtime-db (state/entries-path))
             rdb'        (-> rdb3
                             (assoc-in (mstate/instance-path instance-id) inst')
                             (work-ledger/update-record
                               work-id work-ledger/mark-terminal
                               :completed {:settled-at clock-ms})
-                            ;; recompute indexes — patch/populate may have
-                            ;; changed entries' tags / created entries.
-                            (update state/resources-key state/recompute-indexes))
+                            (update state/resources-key state/reindex-keys
+                                    old-entries
+                                    (mapv state/key-id authoritative-keys)))
             ;; arm the advisory stale / GC timers (host-side side table) for
             ;; every patched / populated key carrying a policy — one
             ;; `:rf.resource/schedule-timers` fx per key, mirroring the
