@@ -27,9 +27,9 @@
   end-to-end projection assertion (same `\"jake\"` viewer + `{:articles …}`
   data the bead's review eval reproduced) but drives it through the actual
   non-streaming Ring render path (`build-full-response*`), where the payload
-  build had escaped the frame scope. The realm sibling that fixed the
-  STREAMING path is `re-frame.ssr.ring.realm-routing-test`
-  (rf2-tbr67x — daemon-writer realm rebinding)."
+  build had escaped the frame scope. The streaming-path frame-scope coverage
+  (the daemon-writer `rf/with-frame` rebinding, rf2-tbr67x) lives in
+  `re-frame.ssr.ring-streaming-test`."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]

@@ -36,7 +36,6 @@
   (rf2-kzvwq)."
   (:require [re-frame.core :as rf]
             [re-frame.error :as error]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.headers :as headers]
@@ -343,21 +342,13 @@
         ;; AND the hydration-payload build. One push/pop per request.
         explicit-head (:head opts)
         {:keys [head-html html-attrs body-attrs body-html rf-payload]}
-        ;; rf2-bzw8gd / rf2-tqjc7h / EP-0013 §Realm Conformance: route the render
-        ;; walk's registered-view + head/route registry lookups + operating frame
-        ;; through the request frame's OWN realm scope (`call-in-request-scope`),
-        ;; so a non-default-realm frame renders its realm's views/heads — not the
-        ;; process-global default's. The scope is established ONCE per request
-        ;; (covers resolve-root-view, render-to-string's `:view` lookups,
-        ;; resolve-head's `:head` / `:route` lookups, AND the payload's
-        ;; resource-runtime projection); a default-realm frame binds nothing (the
-        ;; byte-identical single-realm path). The non-streaming handler already
-        ;; bound the carried realm (ring.clj), so the helper's realm binding is
-        ;; an idempotent same-realm rebind; it additionally binds the realm
-        ;; registrar + `*current-frame*` (which the resource-runtime projection
-        ;; reads via `frame/resolve-current-frame`).
-        (frame/call-in-request-scope (frame/frame-realm frame-id) frame-id
-         (fn []
+        ;; rf2-bzw8gd / rf2-tqjc7h: pin `*current-frame*` to the request frame
+        ;; for the whole render walk (`rf/with-frame`), established ONCE per
+        ;; request. The scope covers resolve-root-view, render-to-string's
+        ;; `:view` lookups, resolve-head's `:head` / `:route` lookups, AND the
+        ;; payload's resource-runtime projection (which reads `*current-frame*`
+        ;; via `frame/resolve-current-frame`).
+        (rf/with-frame frame-id
           (let [hiccup    (lifecycle/resolve-root-view root-view)
                 ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's
                 ;; :head (or default-head fallback). The head fragment
@@ -396,10 +387,10 @@
                              :emit-hash?  emit-hash?
                              :render-hash (when emit-hash? hash-str)})
                 ;; rf2-p026f5 — build the hydration payload INSIDE the same
-                ;; `with-frame` + realm-registrar scope. app-db-value /
-                ;; runtime-db-value read the named frame explicitly, but the
-                ;; runtime-db PROJECTION is NOT frame-blind: the resources SSR
-                ;; hook (`:ssr/extend-runtime-db-projection` →
+                ;; `with-frame` scope. app-db-value / runtime-db-value read the
+                ;; named frame explicitly, but the runtime-db PROJECTION is NOT
+                ;; frame-blind: the resources SSR hook
+                ;; (`:ssr/extend-runtime-db-projection` →
                 ;; `re-frame.resources.ssr/project-resources-runtime-db`)
                 ;; resolves the CURRENT frame (`frame/resolve-current-frame`,
                 ;; the `*current-frame*` dynamic var) to apply frame-owned
@@ -413,7 +404,7 @@
                 ;; continuation drain may have mutated the frame-state) AND the
                 ;; frame scope the projection needs. This mirrors the streaming
                 ;; path, where `build-final-payload` runs inside the same
-                ;; `call-in-request-scope` rebinding (rf2-tbr67x / rf2-tqjc7h).
+                ;; `with-frame` rebinding (rf2-tbr67x / rf2-tqjc7h).
                 ;; EP-0001 (rf2-30kzz2): the runtime-db rides as the
                 ;; serializable `:rf/runtime-db` slice.
                 app-db     (rf/app-db-value frame-id)
@@ -424,7 +415,7 @@
                                                    :payload       payload})]
             (assoc head-bag
                    :body-html  body-html
-                   :rf-payload rf-payload))))
+                   :rf-payload rf-payload)))
         payload-edn (pr-str rf-payload)
         shell-opts  (assoc opts
                            :head        head-html
@@ -492,38 +483,24 @@
   generic-500 public-error is substituted so the wire still carries a
   well-formed fail-closed body.
 
-  rf2-nu5w48 / rf2-tqjc7h / EP-0013 §Realm Conformance: the WHOLE
-  error-projection + error-body render path runs inside the request frame's OWN
-  realm scope (`call-in-request-scope`), mirroring the happy-path
-  `build-full-response*` binding (rf2-bzw8gd):
-
-    - the realm binding makes the per-frame side channels this path touches
-      (`project-render-exception!` stamps the response accumulator,
-      `peek-response` reads it) address the `(realm, frame)` slot via
-      `frame/frame-address` — a non-default-realm frame's error status /
-      headers / cookies are read from ITS slot, not the default realm's
-      bare-id slot;
-    - the realm-registrar binding makes a caller `:error-view` REGISTERED IN
-      THE REALM resolve through the owning realm's registrar
-      (`resolve-error-body`'s `[error-view public-error]` view lookup), not the
-      process-global default's. (`resolve-error-body` re-pins `*current-frame*`
-      around its own render, so the helper's `*current-frame*` binding is inert
-      on this path — the realm + registrar dimensions are the load-bearing
-      ones.)
-
-  All no-op for a default-realm frame (byte-identical single-realm path)."
+  rf2-nu5w48 / rf2-tqjc7h: the WHOLE error-projection + error-body render path
+  runs inside the request frame's `with-frame` scope, mirroring the happy-path
+  `build-full-response*` binding (rf2-bzw8gd). `project-render-exception!`
+  stamps the per-frame response accumulator, `peek-response` reads it, and a
+  caller `:error-view` resolves through the registrar (`resolve-error-body`'s
+  `[error-view public-error]` view lookup); `resolve-error-body` re-pins
+  `*current-frame*` around its own render."
   [frame-id ^Throwable t opts]
-  (frame/call-in-request-scope (frame/frame-realm frame-id) frame-id
-    (fn []
-      (let [public-error  (ssr/project-render-exception! frame-id t)
-            resp*         (ssr/peek-response frame-id)
-            public-error* (or public-error
-                              {:status 500 :code :internal-error
-                               :message "Something went wrong"
-                               :retryable? false})
-            body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
-            content-type  (:content-type opts)]
-        (ssr-response->ring-response resp* body-html content-type)))))
+  (rf/with-frame frame-id
+    (let [public-error  (ssr/project-render-exception! frame-id t)
+          resp*         (ssr/peek-response frame-id)
+          public-error* (or public-error
+                            {:status 500 :code :internal-error
+                             :message "Something went wrong"
+                             :retryable? false})
+          body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
+          content-type  (:content-type opts)]
+      (ssr-response->ring-response resp* body-html content-type))))
 
 (defn build-full-response
   "Render the caller's `:root-view` against `frame-id`, build the
