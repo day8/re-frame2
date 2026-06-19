@@ -198,6 +198,59 @@
         (is (nil? (:poll-delay-ms args)) "no poll timer armed for an owner-free entry")
         (is (= 9000 (:gc-delay-ms args)) "GC timer armed as usual")))))
 
+(deftest fresh-skip-re-arms-polling-on-new-owner
+  ;; rf2-k9u4h3 — an entry that settled `:loaded` while OWNER-FREE armed no poll
+  ;; timer (a poll never pins an owner-free entry). A later `ensure` from a NEW
+  ;; live owner serves the cached value via the fresh-skip path (the entry is
+  ;; still fresh — no `:stale-after-ms`, never invalidated). BEFORE the fix that
+  ;; fresh-skip attached the owner but emitted NO schedule-timers, so the
+  ;; `refetchInterval` analogue never started. It MUST now (re)arm polling,
+  ;; mirroring the success-path arming.
+  (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}))
+  (let [scope {:user "u"}
+        k (state/scoped-resource-key scope :fs/poll {:slug "w"})]
+    (ensure! :fs/poll scope "w" [:lease :x 1])
+    ;; release the owner BEFORE the reply lands → settles owner-free (no poll)
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
+    (succeed! k {:title "W"})
+    (is (empty? (:active-owners (entry k))) "entry settled owner-free")
+    (is (nil? (:poll-delay-ms (last-schedule-for k)))
+        "no poll timer armed at the owner-free settle (precondition)")
+    (reset! scheduled-timers [])
+    ;; a fresh ensure from a NEW live owner — served from cache (fresh-skip)
+    (ensure! :fs/poll scope "w" [:route :r 2])
+    (testing "Spec 016 §Polling — a fresh-skip that attaches a new owner to a
+              previously owner-free entry serves the cache AND (re)arms the poll
+              timer (the entry now has an active owner)"
+      (let [e (entry k)]
+        (is (= :loaded (:status e)) "served from cache (no fetch — still :loaded)")
+        (is (nil? (:current-work e)) "no in-flight work (fresh-skip, not a load)")
+        (is (= #{[:route :r 2]} (:active-owners e)) "the new owner is leased"))
+      (let [args (last-schedule-for k)]
+        (is (some? args) "schedule-timers emitted for the revived entry")
+        (is (= 5000 (:poll-delay-ms args)) "poll re-armed at :poll-interval-ms")))))
+
+(deftest fresh-skip-onto-owned-entry-does-not-re-arm
+  ;; Guard against double-arm: a fresh-skip onto an entry that ALREADY has an
+  ;; active owner adds a second lease but its poll is already live, so the
+  ;; fresh-skip re-arms nothing (the success-path settle armed it).
+  (rf/reg-resource :fa/poll (article-spec {:poll-interval-ms 5000}))
+  (let [scope {:user "u"}
+        k (state/scoped-resource-key scope :fa/poll {:slug "w"})]
+    (ensure! :fa/poll scope "w" [:route :r 1])
+    (succeed! k {:title "W"})   ;; active-owner settle → poll already armed
+    (reset! scheduled-timers [])
+    ;; a SECOND owner ensures the SAME fresh entry — fresh-skip, but the entry
+    ;; was already owned, so no re-arm fires here.
+    (ensure! :fa/poll scope "w" [:lease :x 1])
+    (testing "rf2-k9u4h3 — a fresh-skip onto an already-OWNED entry adds the
+              lease but re-arms NO timer (avoids double-arm; the prior settle
+              already armed the poll)"
+      (is (= #{[:route :r 1] [:lease :x 1]} (:active-owners (entry k)))
+          "both leases attached")
+      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
+          "no schedule-timers re-armed on a fresh-skip onto an owned entry"))))
+
 ;; ===========================================================================
 ;; 2. Unconditional tick — refetch by interval (not :stale?-gated), re-arm
 ;; ===========================================================================
