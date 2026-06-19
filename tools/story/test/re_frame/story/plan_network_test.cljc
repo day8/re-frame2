@@ -11,7 +11,7 @@
   source of truth that feeds `:plan-hash` through `:world` + `explain`)
   and lowers it to the existing managed-request stub fx — the variant
   frame overrides `:rf.http/managed` with
-  `re-frame.http-test-support/install-managed-request-stubs!`'s stub fx
+  `re-frame.http.test-support/install-managed-request-stubs!`'s stub fx
   id. These tests pin: mixed success/failure per route, the fail-closed
   posture for unmatched routes (documented; enforced by the helper at run
   time), the predictable `:network` vs explicit `:fx-overrides` conflict,

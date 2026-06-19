@@ -57,7 +57,7 @@
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch        :as epoch]
             [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.http-managed :as http-managed]
+            [re-frame.http.managed :as http-managed]
             [re-frame.views        :as views]
             [re-frame.machines]
             ;; rf2-32siq3.40 — EP-0023 image-loaded frames. The probe roots the
@@ -127,11 +127,11 @@
   ;;
   ;; rf2-cdmle (supersedes rf2-omsae) — the canned-stub fxs
   ;; (`:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`)
-  ;; moved out of `re-frame.http-managed`'s load-time side effects to a
-  ;; sibling test-support namespace, `re-frame.http-test-support`. The
+  ;; moved out of `re-frame.http.managed`'s load-time side effects to a
+  ;; sibling test-support namespace, `re-frame.http.test-support`. The
   ;; gate is no longer `(when interop/debug-enabled? ...)` but instead
   ;; the require boundary: production code paths must not require
-  ;; `re-frame.http-test-support`. The elision-probe namespace MUST NOT
+  ;; `re-frame.http.test-support`. The elision-probe namespace MUST NOT
   ;; require it either — under :advanced + goog.DEBUG=false the
   ;; canned-stub fx-id string fragments must not appear in the
   ;; production bundle, and the gate that pins that absence is now
@@ -140,7 +140,7 @@
   ;; — what changed is the source-of-truth for absence.
   ;;
   ;; The probe roots the dependency graph by:
-  ;;   1. requiring re-frame.http-managed (forces its ns body to be
+  ;;   1. requiring re-frame.http.managed (forces its ns body to be
   ;;      compiled into the bundle, which is where the gated trace-emit
   ;;      branches live);
   ;;   2. touching `dispatch-reply!`, `build-reply-event`, and the

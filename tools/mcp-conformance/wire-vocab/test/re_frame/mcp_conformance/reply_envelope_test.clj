@@ -139,7 +139,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private http-stale-suppressed-fixture
-  "Mirrors `re-frame.http-transport`'s `:rf.http/stale-suppressed` emit — a
+  "Mirrors `re-frame.http.transport`'s `:rf.http/stale-suppressed` emit — a
   superseded HTTP request suppressed for a fresh one (carried = superseded
   work-id, current = superseding work-id)."
   {:rf.reply/status       :stale
@@ -209,7 +209,7 @@
   "Per-family source files emitting the additive `:rf.reply/*` reply-envelope
   trace vocabulary. The keyword is `pr-str`'d and grepped against the file
   text AFTER `strip-comments-and-strings` neuters docstring/comment mentions."
-  ["implementation/http/src/re_frame/http_transport.cljc"
+  ["implementation/http/src/re_frame/http/transport.cljc"
    "implementation/resources/src/re_frame/resources/events.cljc"
    "implementation/machines/src/re_frame/machines/transition.cljc"
    "implementation/routing/src/re_frame/routing/nav_token.cljc"])

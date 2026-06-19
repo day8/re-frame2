@@ -436,7 +436,7 @@
    {:key         :machines/owning-actor-id
     :producer-ns 're-frame.machines
     :design-bead "rf2-ma0wvq"
-    :description "Spawned-actor ownership resolver `(fn [frame-id event-id]) -> actor-id|nil` (Spec 014 §Abort on actor destroy). Returns the spawned actor's address that owns `event-id` — i.e. `event-id` itself when it is registered in the frame's runtime-db spawn registry (`re-frame.machines.paths/spawned-path`) — else nil. The INVERSION of the old http→machines coupling (rf2-ma0wvq): the machines artefact OWNS the `:spawned` registry shape, so the structural membership walk lives next to it; re-frame.http-registry consults this hook (instead of re-stating the path + walking it itself) to decide whether a managed request belongs to a spawned actor, and falls back to nil when the machines artefact is absent. Step-1 set semantics = registry membership (declarative `:spawn` / `:spawn-all` only), set-identical to the pre-inversion walk; a separate step-2 bead widens it to imperative spawns under its own destroy-cancellation test."}
+    :description "Spawned-actor ownership resolver `(fn [frame-id event-id]) -> actor-id|nil` (Spec 014 §Abort on actor destroy). Returns the spawned actor's address that owns `event-id` — i.e. `event-id` itself when it is registered in the frame's runtime-db spawn registry (`re-frame.machines.paths/spawned-path`) — else nil. The INVERSION of the old http→machines coupling (rf2-ma0wvq): the machines artefact OWNS the `:spawned` registry shape, so the structural membership walk lives next to it; re-frame.http.registry consults this hook (instead of re-stating the path + walking it itself) to decide whether a managed request belongs to a spawned actor, and falls back to nil when the machines artefact is absent. Step-1 set semantics = registry membership (declarative `:spawn` / `:spawn-all` only), set-identical to the pre-inversion walk; a separate step-2 bead widens it to imperative spawns under its own destroy-cancellation test."}
    {:key         :machines/project-ssr-runtime-db
     :producer-ns 're-frame.machines
     :design-bead "rf2-jm2u63"
@@ -605,43 +605,43 @@
     :design-bead "rf2-obi8rr"
     :description "Cross-feature LATE-BOUND epoch-restore trace COMMIT hook (Spec 016 §Restore and replay / §Xray and AI tooling) — the post-install half of :resources/reconcile-on-restore. The reconcile runs BEFORE the atomic replace-frame-state! install and defers its success rows (:rf.resource/restored + :rf.resource/owner-released), riding the trace intents back as metadata; epoch perform-restore! consults this hook with the reconciled runtime-db ONLY on the install-success branch so those success rows fire exactly once the restore truly installed — never for a destroyed-frame install (the rf2-s93722 post-liveness teardown race) that returns nil and writes nothing. Resources is the first consumer; consulted by re-frame.epoch.tool-pair/commit-resources-restore-traces! inside perform-restore!. No-op when no resources artefact is loaded, when the frame-state carries no runtime-db partition, or when the runtime-db carries no deferred intents (a resource-free restore)."}
 
-   ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
-   ;; The stub-family hook publishes from `re-frame.http-test-support`
+   ;; ---- re-frame.http.managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
+   ;; The stub-family hook publishes from `re-frame.http.test-support`
    ;; per rf2-lwmgw — single discoverable home for HTTP test surfaces.
    ;; The raw install/uninstall pair has no façade wrapper (rf2-ntwwyt), so it
    ;; carries no late-bind hook — tests call it directly via the home namespace.
    {:key         :http/with-managed-request-stubs*
-    :producer-ns 're-frame.http-test-support
+    :producer-ns 're-frame.http.test-support
     :description "Function form of the with-managed-request-stubs macro."}
    {:key         :http/clear-all-in-flight!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :description "Abort every in-flight managed request (test isolation)."}
    {:key         :http/abort-in-flight!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-rak684"
     :description "Best-effort abort the in-flight managed request registered under a frame-qualified request-id (fires its :abort-fn with a reason, default :user; no-op when nothing is registered). The shared abort-by-request-id seam the Resources out-of-cascade teardown paths (clear-resource / frame destroy) reach through so they can abort a managed request without the resources artefact statically :require-ing the http transport."}
    {:key         :http/reg-http-interceptor
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-6y3q"
     :description "Register a per-frame request-side HTTP interceptor."}
    {:key         :http/clear-http-interceptor
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-6y3q"
     :description "Clear a single registered HTTP interceptor."}
    {:key         :http/clear-all-http-interceptors!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-6y3q"
     :description "Clear every registered HTTP interceptor (test isolation)."}
    {:key         :http/abort-on-actor-destroy
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-wvkn"
     :description ":spawn cancellation cascade tied to actor destruction."}
    {:key         :http/abort-in-flight-for-frame!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-u5kmf8"
     :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:work/status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :http/register-managed-machine!
-    :producer-ns 're-frame.http-managed
+    :producer-ns 're-frame.http.managed
     :design-bead "rf2-ijm7"
     :description "Register the machine-shape wrapper for managed HTTP requests."}
 

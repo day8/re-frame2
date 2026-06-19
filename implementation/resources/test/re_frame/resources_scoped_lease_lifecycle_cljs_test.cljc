@@ -40,7 +40,7 @@
    [re-frame.resources.state :as state]
    [re-frame.resources.test-support]
    [re-frame.schemas]
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.registrar :as registrar]
    [re-frame.test-support :as core-test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]

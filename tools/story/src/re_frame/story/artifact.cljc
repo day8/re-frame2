@@ -49,7 +49,7 @@
   (`{:rf.http/managed :rf.http/managed-test-stub}`), so the redirect alone
   survives in `:fx-decisions` — but the redirect points at a stub fx that
   is only registered (with the routes) by
-  `re-frame.http-test-support/install-managed-request-stubs!`. Carrying the
+  `re-frame.http.test-support/install-managed-request-stubs!`. Carrying the
   route map in `:network` lets replay RE-INSTALL those route stubs before
   replaying, so a replayed `:network` request matches its route and
   synthesises the recorded reply rather than fail-closing on
@@ -82,14 +82,14 @@
             [re-frame.story.play.evidence         :as evidence]
             [re-frame.story.play.runner           :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
-            ;; The raw HTTP stub pair lives in `re-frame.http-test-support`
+            ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
             ;; (rf2-ntwwyt — no longer a `re-frame.core` façade re-export).
             ;; CLJS requires it directly; on the JVM it is resolved LAZILY at
             ;; call time (`with-network-stubs!`) so requiring this ns from the
             ;; `re-frame.story` MACRO-ns does NOT drag the http artefact's
             ;; JVM-only transitive deps (e.g. cheshire) onto the macro
             ;; classpath. CLJS pulls only the CLJS-clean `.cljc` surface.
-            #?(:cljs [re-frame.http-test-support :as http-test-support])))
+            #?(:cljs [re-frame.http.test-support :as http-test-support])))
 
 ;; ===========================================================================
 ;; THE :rf.test/run-artifact SCHEMA
@@ -242,7 +242,7 @@
   installed, then uninstall them (spec/017 §The network surface). When the
   artifact carries a non-empty `:network` route map, this installs the
   managed-request stub fx (`:rf.http/managed-test-stub`) with those routes
-  via `re-frame.http-test-support/install-managed-request-stubs!` — the SAME
+  via `re-frame.http.test-support/install-managed-request-stubs!` — the SAME
   seam a live run uses — so the `:fx-decisions` redirect (`{:rf.http/managed
   :rf.http/managed-test-stub}`) resolves to a stub that matches the routes
   rather than fail-closing on \"no stub matched\". The stubs are
@@ -252,7 +252,7 @@
   When the artifact carries no `:network` routes, `thunk` runs unchanged
   (no install, no uninstall) — so an artifact without HTTP stays clear of
   the test-support surface entirely. The install/uninstall pair lives in
-  `re-frame.http-test-support` (rf2-ntwwyt — no longer a `re-frame.core`
+  `re-frame.http.test-support` (rf2-ntwwyt — no longer a `re-frame.core`
   façade export; reached through its home namespace), which Story already
   carries on its require closure via the `day8/re-frame2-http` dep."
   [artifact thunk]
@@ -261,9 +261,9 @@
       ;; JVM resolves the home-ns fns lazily so requiring this ns from the
       ;; story MACRO-ns never hard-loads the http artefact's JVM deps; CLJS
       ;; calls the directly-required surface.
-      (let [install   #?(:clj  (requiring-resolve 're-frame.http-test-support/install-managed-request-stubs!)
+      (let [install   #?(:clj  (requiring-resolve 're-frame.http.test-support/install-managed-request-stubs!)
                          :cljs http-test-support/install-managed-request-stubs!)
-            uninstall #?(:clj  (requiring-resolve 're-frame.http-test-support/uninstall-managed-request-stubs!)
+            uninstall #?(:clj  (requiring-resolve 're-frame.http.test-support/uninstall-managed-request-stubs!)
                          :cljs http-test-support/uninstall-managed-request-stubs!)]
         (try
           (install network)

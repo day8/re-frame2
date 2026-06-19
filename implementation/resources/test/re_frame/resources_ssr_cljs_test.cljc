@@ -46,7 +46,7 @@
    ;; production HTTP fx surface (so the transport feature probe resolves on the
    ;; real-path integration drain test); the fetch + abort are overridden by
    ;; capturing no-ops in `capturing-transport-fixture` so no real request fires.
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    ;; SSR artefact — the :rf/hydrate handler that consults the reconcile hook.
    [re-frame.ssr]
    ;; the consumer of :ssr/extend-runtime-db-projection (project-runtime-db).

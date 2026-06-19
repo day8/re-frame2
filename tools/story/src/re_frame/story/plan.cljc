@@ -77,7 +77,7 @@
   (the source of truth that feeds `:plan-hash` through the `:world` slot
   and `explain`) and **lowers** it to the existing managed-request stub
   machinery — the variant frame overrides `:rf.http/managed` with the stub
-  fx `re-frame.http-test-support/install-managed-request-stubs!` registers
+  fx `re-frame.http.test-support/install-managed-request-stubs!` registers
   (folded into `[:world :frame :fx-overrides]`). It reuses that helper
   rather than inventing a new HTTP mock; the actual `install-…!` call is a
   RUNTIME concern (run when the variant frame is created). `:network` and
@@ -785,7 +785,7 @@
 ;; slot by `re-frame.story.determinism/->artifact`, rf2-tymyh — the run
 ;; artifact) AND **lowers** it to the existing managed-request stub
 ;; machinery: the variant frame overrides `:rf.http/managed` with the stub
-;; fx that `re-frame.http-test-support/install-managed-request-stubs!`
+;; fx that `re-frame.http.test-support/install-managed-request-stubs!`
 ;; registers. We do NOT invent a new HTTP mock — the lowering names the
 ;; existing seam; the runner (and `replay-run-artifact`, via the `:network`
 ;; slot) installs the route map and points `:fx-overrides` at the stub fx.
@@ -797,11 +797,11 @@
 
 (def managed-fx-id
   "The production managed-HTTP fx id `:network` lowers an override of —
-  `re-frame.http-managed`'s `:rf.http/managed` (Spec 014)."
+  `re-frame.http.managed`'s `:rf.http/managed` (Spec 014)."
   :rf.http/managed)
 
 (def managed-stub-fx-id
-  "The fx id `re-frame.http-test-support/install-managed-request-stubs!`
+  "The fx id `re-frame.http.test-support/install-managed-request-stubs!`
   registers and returns — the per-call stub target a `:network` variant's
   frame redirects `:rf.http/managed` to. Mirrors that helper's private
   `stub-fx-id` constant (Spec 014 §Testing); naming it here lets the plan

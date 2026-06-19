@@ -50,7 +50,7 @@
    [re-frame.resources.revalidate-listeners :as revalidate-listeners]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing no-op below.
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    [re-frame.trace.tooling :as trace-tooling]

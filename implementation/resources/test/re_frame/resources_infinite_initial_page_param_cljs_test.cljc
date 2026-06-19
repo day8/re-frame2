@@ -26,7 +26,7 @@
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the fetch itself is overridden by the capturing reply stub below.
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]

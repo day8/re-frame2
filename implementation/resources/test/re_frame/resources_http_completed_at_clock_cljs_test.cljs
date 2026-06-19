@@ -8,7 +8,7 @@
   `resources-managed-http-cljs-test`, `http-reply-lowering`) SCRIPTS the
   reply token's `:completed-at` / `:rf.cofx` `:rf/time-ms` with an
   explicit epoch value, bypassing the live `reply-ctx` clock read in
-  `re-frame.http-transport`. So the wall-clock-vs-perf-clock bug (the
+  `re-frame.http.transport`. So the wall-clock-vs-perf-clock bug (the
   transport boundary the router's fresh-token fix 427f260d3 / rf2-n1rh0f
   deliberately preserves as THE host-clock read) was untested on the live
   CLJS chain. JVM is benign (`now-ms` == `epoch-now-ms` there), so the JVM
@@ -32,7 +32,7 @@
    ;; production HTTP transport: registers the REAL `:rf.http/managed` fx
    ;; (we deliberately do NOT override it — the genuine `reply-ctx` clock
    ;; read is the unit under test).
-   [re-frame.http-managed]
+   [re-frame.http.managed]
    ;; load-bearing side-effecting require: registers the :rf.resource/*
    ;; events + subs the ensure below drives.
    [re-frame.resources]

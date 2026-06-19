@@ -4,7 +4,7 @@
   §Timer Reply; the canonical contract is `spec/Managed-Effects.md` §The
   uniform reply envelope). This is the machine family's slice of the
   shared `re-frame.reply` substrate, the same role
-  `re-frame.http-reply` plays for `:rf.http/managed`.
+  `re-frame.http.reply` plays for `:rf.http/managed`.
 
   ## What this namespace is
 
@@ -61,7 +61,7 @@
   ## Why there is no `target-obsolete?` gate here (rf2-wwfn7q)
 
   HTTP carries an `actor-destroy-target-obsolete?` predicate
-  (`re-frame.http-reply`) that lowers a destroyed-actor reply to `:stale`/
+  (`re-frame.http.reply`) that lowers a destroyed-actor reply to `:stale`/
   `:suppressed` (rather than `:cancelled`) when the reply TARGET names the
   destroyed actor. Machines have NO counterpart, **by design** — obsolete-
   target suppression is HTTP-specific. HTTP is the only EP-0011 surface that

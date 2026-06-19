@@ -22,8 +22,8 @@
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
-            [re-frame.http-managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
-            [re-frame.http-test-support]  ;; stub install seam + canned-stub handlers
+            [re-frame.http.managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
+            [re-frame.http.test-support]  ;; stub install seam + canned-stub handlers
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.artifact :as artifact]

@@ -242,7 +242,7 @@
 ;; via pure-data EDN, so an interceptor's `:before` slot is a DSL body
 ;; rather than a fn literal. The harness realises that DSL into a real
 ;; `(fn [ctx] ctx')` at fx-resolution time so the chain runner (which
-;; lives in `re-frame.http-middleware`, unaware of the DSL) can invoke
+;; lives in `re-frame.http.middleware`, unaware of the DSL) can invoke
 ;; it the same way it invokes a hand-written `:before`.
 ;;
 ;; Body operator set is minimal — the chain's contract is "transform the

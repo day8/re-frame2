@@ -22,7 +22,7 @@
   reply envelope all use (EP-0007 one-attempt-one-spelling: one attempt has
   one work id, one name). It is NOT `:work-id`.
 
-  The managed-HTTP artefact (`day8/re-frame2-http`, `re-frame.http-managed`)
+  The managed-HTTP artefact (`day8/re-frame2-http`, `re-frame.http.managed`)
   is reached LATE-BOUND — resources never statically `:require`s it, so an
   app that loads resources but issues no HTTP-backed reads (or supplies a
   later transport) does not drag the HTTP body. The runtime emits the
@@ -169,5 +169,5 @@
       (str "an HTTP-backed resource read requires "
            "day8/re-frame2-http on the classpath; "
            "add it to deps and require "
-           "re-frame.http-managed at app boot.")))
+           "re-frame.http.managed at app boot.")))
   [managed-http-fx (build-managed-args ensure-ctx)])

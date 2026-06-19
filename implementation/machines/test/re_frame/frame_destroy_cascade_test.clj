@@ -204,7 +204,7 @@
   (testing "destroy-frame! invokes the :http/abort-on-actor-destroy hook against every active actor"
     (rf/reg-frame :ha/auth {:doc "http-abort hook test frame"})
     (let [aborted (atom [])
-          ;; Install the hook explicitly. `re-frame.http-managed`
+          ;; Install the hook explicitly. `re-frame.http.managed`
           ;; isn't loaded in this leaf-artefact's classpath, so we
           ;; register the hook directly to stand in for it.
           _ (late-bind/set-fn!

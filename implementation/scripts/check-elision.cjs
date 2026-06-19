@@ -124,30 +124,30 @@ const DEV_ONLY_SENTINELS = [
   // longer superstring.
   { source: 're-frame.router/run-handler-cascade! (rf.event/run-start)',
     sentinel: 'rf.event/run-start"' },
-  // re-frame.http-managed — :rf.http/retry-attempt trace op (Spec 014
+  // re-frame.http.managed — :rf.http/retry-attempt trace op (Spec 014
   // §Retry and backoff). Emitted from `(when interop/debug-enabled? ...)`
   // branches in maybe-retry! / maybe-retry-jvm!. Both transports' emit
   // sites must elide; the keyword's string fragment should not survive.
-  { source: 're-frame.http-managed/maybe-retry! (rf.http/retry-attempt)',
+  { source: 're-frame.http.managed/maybe-retry! (rf.http/retry-attempt)',
     sentinel: 'rf.http/retry-attempt' },
-  // re-frame.http-managed — :rf.http/aborted-on-actor-destroy trace op
+  // re-frame.http.managed — :rf.http/aborted-on-actor-destroy trace op
   // (Spec 014 §Abort on actor destroy, rf2-wvkn). Emitted by
   // abort-on-actor-destroy when the cancellation-cascade hook fires.
   // The emit site is `(when interop/debug-enabled? ...)`; the string
   // fragment must elide in production.
-  { source: 're-frame.http-managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
+  { source: 're-frame.http.managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
     sentinel: 'rf.http/aborted-on-actor-destroy' },
   //
   // NOTE — rf2-cdmle removed the canned-stub fx-id sentinels
   // (`rf.http/managed-canned-success`, `rf.http/managed-canned-failure`)
   // that used to live here. Earlier the gate was
-  // `(when interop/debug-enabled? ...)` inside re-frame.http-managed,
-  // and the probe rooted both branches via `:require [re-frame.http-managed]`
+  // `(when interop/debug-enabled? ...)` inside re-frame.http.managed,
+  // and the probe rooted both branches via `:require [re-frame.http.managed]`
   // — the `goog.DEBUG=true` control build saw the literals, the
   // `goog.DEBUG=false` counter build saw them DCE'd.
   //
   // The new gate is the require boundary: the canned-stub fxs register
-  // from the sibling `re-frame.http-test-support` namespace. The
+  // from the sibling `re-frame.http.test-support` namespace. The
   // elision probe MUST NOT require that namespace (doing so would
   // smuggle the canned-stub fx-id keyword literals into BOTH
   // bundles unconditionally). With the require absent, the
@@ -159,10 +159,10 @@ const DEV_ONLY_SENTINELS = [
   //
   // The replacement contract:
   //   - JVM/SSR absence: pinned by re-frame.http-test-support-absent-test
-  //     (negative assertion: requiring re-frame.http-managed alone does
+  //     (negative assertion: requiring re-frame.http.managed alone does
   //     NOT register the canned-stub fxs).
   //   - JVM/SSR presence: pinned by re-frame.http-test-support-test
-  //     (smoke: requiring re-frame.http-test-support DOES register them).
+  //     (smoke: requiring re-frame.http.test-support DOES register them).
   //   - CLJS counter-bundle absence: pinned by check-bundle-isolation.cjs
   //     (the `rf.http/managed-canned-failure` sentinel must not appear
   //     in the no-feature counter bundle).
