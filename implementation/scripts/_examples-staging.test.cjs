@@ -286,6 +286,84 @@ it('serve-example.cjs calls cleanStageDirs on the selected outDir BEFORE stageEx
   assert.ok(cleanAt < stageAt, 'the clean must precede the stage so no stale file survives into the served dir');
 });
 
+// ---- serve-example dev-runner exit-code decision (rf2-35lfqo) ------------
+//
+// serve-example.cjs used to return 0 unconditionally once the http-server
+// exited — so a `shadow-cljs watch` that crashed (compile loop / JVM error)
+// or an http-server that fell over false-greened the dev runner. The pure
+// decideRunnerExit helper now maps the observed child outcomes to the runner's
+// exit code: clean/interrupted shutdown -> 0, any unexpected child crash -> 1.
+
+const { decideRunnerExit } = require('../../examples/scripts/serve-example.cjs');
+
+it('decideRunnerExit returns 0 on a clean interrupted shutdown (Ctrl+C)', () => {
+  // User hit Ctrl+C: both children killed by our teardown signal — expected.
+  assert.strictEqual(
+    decideRunnerExit({
+      server: { code: null, signal: 'SIGTERM' },
+      watch: { code: null, signal: 'SIGTERM' },
+      interrupted: true,
+    }),
+    0,
+  );
+  // A clean code-0 exit is also success, interrupted or not.
+  assert.strictEqual(decideRunnerExit({ server: { code: 0, signal: null } }), 0);
+  // No children recorded (e.g. nothing ran) is not a failure.
+  assert.strictEqual(decideRunnerExit({}), 0);
+});
+
+it('TEETH: decideRunnerExit returns 1 when shadow-cljs watch crashes unexpectedly', () => {
+  // The watch died with a non-zero code while the user did NOT interrupt —
+  // the exact false-green the prior unconditional `return 0` masked.
+  assert.strictEqual(
+    decideRunnerExit({
+      server: { code: 0, signal: null },
+      watch: { code: 1, signal: null },
+      interrupted: false,
+    }),
+    1,
+  );
+  // A signal kill that is NOT our teardown (not interrupted) is also a crash.
+  assert.strictEqual(
+    decideRunnerExit({
+      watch: { code: null, signal: 'SIGSEGV' },
+      interrupted: false,
+    }),
+    1,
+  );
+});
+
+it('TEETH: decideRunnerExit returns 1 when http-server exits non-zero unexpectedly', () => {
+  assert.strictEqual(
+    decideRunnerExit({
+      server: { code: 1, signal: null },
+      watch: { code: 0, signal: null },
+      interrupted: false,
+    }),
+    1,
+  );
+});
+
+it('decideRunnerExit treats a teardown-signal kill during interrupt as expected (not a crash)', () => {
+  // During an interrupt, a child killed by SIGINT/SIGTERM is part of teardown.
+  assert.strictEqual(
+    decideRunnerExit({
+      server: { code: null, signal: 'SIGINT' },
+      watch: { code: null, signal: 'SIGINT' },
+      interrupted: true,
+    }),
+    0,
+  );
+  // But a NON-teardown signal even during interrupt is still a crash.
+  assert.strictEqual(
+    decideRunnerExit({
+      watch: { code: null, signal: 'SIGSEGV' },
+      interrupted: true,
+    }),
+    1,
+  );
+});
+
 // ---- per-example static assets (rf2-cq6va5) ------------------------------
 //
 // The clean-stage boundary recreates the selected output dir EMPTY, so any

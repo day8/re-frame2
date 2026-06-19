@@ -80,6 +80,41 @@ const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const READY_TIMEOUT_MS = 30000;
 
+// Decide the dev-runner's process exit code from the observed child outcomes
+// (rf2-35lfqo). PURE — no I/O, no process state — so it is unit-testable in
+// isolation. The runner long-runs until the user interrupts it (Ctrl+C), so a
+// shutdown the USER asked for is success; an UNEXPECTED child crash is a
+// failure the runner must surface with a non-zero exit (the prior code always
+// returned 0, false-greening a `shadow-cljs watch` that died on a compile/JVM
+// error or an http-server that fell over). Each child outcome is a
+// `{ code, signal }` record (a process 'exit' event's args) or null if that
+// child was never started (e.g. no watch in --no-watch mode).
+//
+//   - `interrupted` true  => the user stopped the runner (SIGINT/SIGTERM). A
+//     child exiting via the SAME terminating signal is part of that teardown,
+//     not a crash — success.
+//   - a child that exited cleanly (code 0, or code null because it was killed
+//     by our own teardown signal) is not a failure.
+//   - any other child exit — a non-zero code, or a signal kill that was NOT our
+//     teardown — is an unexpected crash; the runner exits non-zero.
+//
+// Returns 0 on clean shutdown, 1 on any unexpected child failure.
+function decideRunnerExit({ server = null, watch = null, interrupted = false } = {}) {
+  const teardownSignals = new Set(['SIGINT', 'SIGTERM']);
+  const childFailed = (outcome) => {
+    if (!outcome) return false; // child never started — nothing to judge
+    const { code = null, signal = null } = outcome;
+    if (typeof code === 'number') return code !== 0; // explicit exit code wins
+    if (signal != null) {
+      // Killed by a signal. Our own teardown (or a user Ctrl+C that propagated)
+      // is expected; any other signal kill is a crash.
+      return !(interrupted && teardownSignals.has(signal));
+    }
+    return false; // code null + no signal => clean exit
+  };
+  return childFailed(server) || childFailed(watch) ? 1 : 0;
+}
+
 function parseArgs(argv) {
   let build = '';
   let watch = true;
@@ -189,13 +224,44 @@ async function main() {
   // so the page's assets are present from the start.
   stageExample(entry);
 
+  // Record the observed child outcomes so the runner's own exit code reflects
+  // an unexpected crash rather than always returning 0 (rf2-35lfqo). `interrupted`
+  // flips true once a teardown signal lands so a signal-killed child during
+  // Ctrl+C is read as an expected shutdown, not a crash.
+  let interrupted = false;
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.once(sig, () => { interrupted = true; });
+  }
+  let watchOutcome = null;
+  let serverOutcome = null;
+  // Tracks server reachability so a child crash aborts the readiness wait.
+  // Declared here (before the watch handler) so the watch-exit listener can
+  // flip it; the server-exit listener below also sets it.
+  let serverDown = false;
+
   if (watch) {
-    cleanup.trackProcess(
+    const watchProc = cleanup.trackProcess(
       spawnHarnessProcess(process.execPath, [shadowRunner, 'watch', entry.build], {
         cwd: IMPL_ROOT,
         stdio: 'inherit',
       }),
     );
+    // A `shadow-cljs watch` that dies unexpectedly (compile loop crash, JVM
+    // OOM, killed) must NOT leave the runner happily serving a now-frozen
+    // bundle and exiting 0. Record its outcome, abort the readiness wait, and
+    // tear the tree down (stopping http-server, which resolves the main wait)
+    // so the runner returns non-zero via decideRunnerExit.
+    watchProc.on('exit', (code, signal) => {
+      watchOutcome = { code, signal };
+      if (!interrupted && !(typeof code === 'number' && code === 0)) {
+        console.error(`shadow-cljs watch exited unexpectedly (code=${code}, signal=${signal}).`);
+        serverDown = true; // abort the readiness wait below if still pending
+        // Stop http-server too; the watch is the source of truth for a live
+        // build. cleanup() is idempotent and safe to call alongside the
+        // signal handlers.
+        cleanup.cleanup().catch(() => {});
+      }
+    });
   }
 
   // Serve the example's output dir on 127.0.0.1 (loopback-only — the dev
@@ -210,10 +276,10 @@ async function main() {
     ),
   );
 
-  let serverDown = false;
   server.on('exit', (code, signal) => {
     serverDown = true;
-    if (code !== 0 && code !== null) {
+    serverOutcome = { code, signal };
+    if (code !== 0 && code !== null && !interrupted) {
       console.error(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
     }
   });
@@ -232,31 +298,37 @@ async function main() {
       '\n  Press Ctrl+C to stop.\n',
   );
 
-  // The watch + server run until interrupted; resolve only when the server
-  // exits (Ctrl+C is handled by the installed signal handlers, which tear the
-  // whole process tree down).
-  if (watch) {
-    await new Promise((resolve) => server.on('exit', resolve));
-    return 0;
-  }
+  // The watch + server run until interrupted; resolve when the server exits
+  // (Ctrl+C is handled by the installed signal handlers, which tear the whole
+  // process tree down). In watch mode an unexpected watch crash also tears the
+  // server down (see the watch 'exit' handler), so this resolves either way.
+  await new Promise((resolve) => {
+    if (serverDown) return resolve(); // already exited before we awaited
+    server.on('exit', resolve);
+  });
 
-  // --no-watch: keep serving until the server is stopped (Ctrl+C).
-  await new Promise((resolve) => server.on('exit', resolve));
-  return 0;
+  // Surface an unexpected child crash as a non-zero runner exit rather than the
+  // unconditional 0 the runner used to return (rf2-35lfqo).
+  return decideRunnerExit({ server: serverOutcome, watch: watchOutcome, interrupted });
 }
 
-main()
-  .then(async (code) => {
-    await cleanupAndExit(code);
-  })
-  .catch(async (err) => {
-    if (err && err.actionable) {
-      console.error(err.message);
-    } else {
-      console.error(err && err.stack ? err.stack : err);
-    }
-    await cleanupAndExit(1);
-  });
+// Only launch the runner when executed directly (`node serve-example.cjs …`).
+// When required as a module (the decideRunnerExit unit test), DON'T run main()
+// — just expose the pure helpers.
+if (require.main === module) {
+  main()
+    .then(async (code) => {
+      await cleanupAndExit(code);
+    })
+    .catch(async (err) => {
+      if (err && err.actionable) {
+        console.error(err.message);
+      } else {
+        console.error(err && err.stack ? err.stack : err);
+      }
+      await cleanupAndExit(1);
+    });
+}
 
 // The cleanup handle is created inside main(); for the top-level catch we
 // fall back to a plain exit (the in-main signal handlers already cover the
@@ -265,3 +337,5 @@ main()
 async function cleanupAndExit(code) {
   process.exit(code == null ? 1 : code);
 }
+
+module.exports = { decideRunnerExit, parseArgs };
