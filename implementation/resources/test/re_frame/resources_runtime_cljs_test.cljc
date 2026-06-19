@@ -1005,10 +1005,13 @@
         ;; (the exact drift EP-0012 closes; the old `(when rec …)` made it pass
         ;; silently when the byte-keyed row was read through a dead address).
         (let [rec (work-ledger/get-record (runtime-db) inflight-wid)]
-          (when rec
-            (is (work-ledger/terminal? (:status rec))
-                "a present post-clear work record must be terminal, never in-flight")
-            (is (= :suppressed (:status rec))))))
+          (is (some? rec)
+              "the post-clear work record MUST be readable through the byte-keyed
+               address — a nil here means the contract is asserted against a dead
+               address, the exact vacuity EP-0012 closes")
+          (is (work-ledger/terminal? (:status rec))
+              "a present post-clear work record must be terminal, never in-flight")
+          (is (= :suppressed (:status rec)))))
       (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
                 recreate it (its existence check finds the entry gone)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
@@ -1240,7 +1243,7 @@
           "generation high-water cache cleared")
       (is (nil? (work-ledger/get-handle :rf/default work-id))
           "work-ledger host handle table cleared")
-      (is (not (contains? @timers/timer-table [:rf/default k timers/gc-kind]))
+      (is (not (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
           "stale/GC timer table cleared (timer cancelled)")
       (is (not (contains? @revalidate-listeners/listener-table :rf/default))
           "revalidation-listener side table cleared"))))
