@@ -176,6 +176,12 @@
     (testing "rf2-d95o1y — non-string / non-Named :name throws a STRUCTURED
               :rf.error/cookie-invalid-name (not a raw ClassCastException)"
       (doseq [bad [42 3.14 [] [1 2 3] {} {:k 1} #{1 2} true]]
+        ;; The broad `catch Throwable` is DELIBERATE: the regression is the
+        ;; raw `ClassCastException` (a `Throwable`, NOT an `ExceptionInfo`)
+        ;; the pre-fix `(clojure.core/name n)` threw. We must catch the broad
+        ;; type to OBSERVE which throwable surfaces, then assert it is the
+        ;; structured ex-info — a narrow `catch ExceptionInfo` would let the
+        ;; bug's raw exception escape the test and obscure the failure.
         (let [t (try
                   (ssr-ring/cookie->set-cookie-header {:name bad :value "v"})
                   ::no-throw
@@ -191,7 +197,7 @@
                 (str "non-Named name " (pr-str bad)
                      " must surface :rf.error/cookie-invalid-name"))
             (is (= bad (:name (ex-data t)))
-                (str "ex-data must carry the offending :name value"))))))))
+                "ex-data must carry the offending :name value")))))))
 
 ;; ===========================================================================
 ;; ssr-handler — happy path (Ring-level smoke)
