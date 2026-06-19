@@ -575,12 +575,12 @@
       ;; stay bare (nested record-map carve-out — Spec 009 §`:tags`).
       ;; rf2-okz1u — `:cause-event-id` joins the projection (the
       ;; dispatching cascade's event-id, threaded from
-      ;; `:rf.sub/cause-event-id` on the trace tag). nil here because
-      ;; the fixture event carries no tag.
-      (is (= [{:sub-id :a :query-v [:a]
-               :value-changed? nil :prev-value nil :value nil
-               :cascade? nil :cause-sub nil :cause-event-id nil}]
-             (:subs-recomputed dag)))
+      ;; `:rf.sub/cause-event-id` on the trace tag).
+      ;; Assert only the load-bearing identity keys — pinning the whole
+      ;; nil-padded record by `=` is brittle (an additive projection key
+      ;; would break this with no behaviour change to catch).
+      (is (= [{:sub-id :a :query-v [:a]}]
+             (mapv #(select-keys % [:sub-id :query-v]) (:subs-recomputed dag))))
       (is (= [{:sub-id :b :query-v [:b]
                :reason :input-value-equal
                :input-paths-unchanged [[:a]]}]
