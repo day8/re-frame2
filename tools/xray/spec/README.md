@@ -129,23 +129,18 @@ main read**.
   edge): on-box rendering is raw (Security.md permits on-box), off-box
   egress projects through the frame's elision policy. Read-only.
 - **[026-Module-View-Panel.md](026-Module-View-Panel.md)** — The
-  Module-view tab: the Xray-side consumer contract for EP-0013 app values +
-  runtime realms (framework
-  [`spec/Runtime-Subsystems.md`](../../../spec/Runtime-Subsystems.md) §Runtime
-  realms). Renders the **(realm, frame) address space** of the running
-  process — `re-frame.realm/realm-ids` × `re-frame.frame/frame-realm`
-  (disposition 3) — as a REALMS section (every installed realm + its frames),
-  zero-ceremony (single-realm implicit). These are internal substrate seams the
-  tool reads directly off their owning namespaces: EP-0023 retained the realm
-  machinery as internal installation substrate and removed the `rf/*` facade
-  arities (pl97nd.2). The **disposition-6 demand trigger** for per-module
-  ownership / capability / EP-0015 classification / descriptor provenance is
-  **shipped** (rf2-at0oen): the MODULES section reads real per-module provenance
-  off each realm's installed app value via the internal substrate seam
-  `re-frame.realm/installed-app` (EP-0013 disposition 6, PR #4061). A process running entirely on the
-  `reg-*` sugar / load-order path carries no constructed app value, so its
-  MODULES section shows the honest no-module caption. An L4-only Dynamic tab
-  (not in `panel-enum`). Read-only.
+  Module-view tab: the Xray-side consumer contract for the EP-0023
+  **`image -> frame -> event stream`** public model. Renders each live
+  image-loaded frame as an execution context carrying its resolved image's
+  `[kind id]` descriptors (with per-descriptor provenance); the same
+  `(kind id)` resolves differently in frames running different images. A
+  process not using image-loaded frames shows the honest no-image caption. (The
+  retired EP-0013 app-value / runtime-realm substrate this tab once also
+  surfaced — the (realm, frame) REALMS section and the per-module MODULES
+  section — was deleted in full; there is no `re-frame.realm` namespace, no
+  `realm-ids`, and no `re-frame.frame/frame-realm`. See framework
+  [`spec/Spec-Schemas.md` §`:rf/realm`](../../../spec/Spec-Schemas.md).) An
+  L4-only Dynamic tab (not in `panel-enum`). Read-only.
 
 ### Reference
 

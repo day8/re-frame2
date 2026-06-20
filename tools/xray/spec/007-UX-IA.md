@@ -409,100 +409,62 @@ dispatch `:rf.xray/select-frame`. Reaching the spine's `:rf.xray/
 set-frame` primitive directly bypasses the persistence + future
 instrumentation layers attached to the canonical event.
 
-### EP-0013 realm-awareness — the retained-internal installation substrate (shipped — rf2-3caq85 · rf2-7vqpwa · rf2-wtg9z4)
+### Runtime-structure awareness — `image -> frame -> event stream` (shipped — rf2-3caq85 · rf2-7vqpwa · rf2-wtg9z4)
 
-The EP-0023 PUBLIC model is **`image -> frame -> event stream`** (images
-as registration-set values, frames as execution contexts) — that is what
-the operator reasons in, and the Module-view tab renders it FIRST (the
-FRAMES/IMAGES section, [`026`](./026-Module-View-Panel.md) §8). EP-0013
-(app values and runtime realms) is **partially superseded**: the *realm*
-is RETAINED as the **internal installation substrate** the public model
-rides on — it owns the registrar/adapter/frame-registry, a frame belongs
-to exactly one realm, and the `(realm, frame)` pair is the internal
-address. It is NOT the central/beginner-facing public vocabulary (mirrors
-the `re-frame.migration` disposition map: `rf/realm` → retained-internal,
-`rf/app` → publicly-replaced by `rf/image`). Per EP-0023 Consequence
-#4/#9, tooling MAY show this internal installation boundary but must
-**LABEL it as implementation structure**, not present it as a peer public
-browse dimension. The realm address surface is the retained-INTERNAL substrate
-the tool reads directly off its owning namespaces (`re-frame.realm/realm-ids` —
-the installed realms; `re-frame.frame/frame-realm` — a frame's realm; PR #4038):
-EP-0023 retained the realm machinery as the internal installation substrate and
-removed the `rf/*` facade arities (pl97nd.2), so a tool reads the owning
-`re-frame.realm` / `re-frame.frame` namespaces directly, exactly as Xray already
-reads `re-frame.frame` / `re-frame.live-frame`. **Zero-ceremony extends to the tooling: a
-single-realm process renders byte-identically to the pre-EP picker / trace
-rows; the realm dimension is spelled only when more than one realm is
-present, and where it does it reads as the internal installation realm.**
+The PUBLIC runtime-structure model is EP-0023's **`image -> frame -> event
+stream`** (images as registration-set values, frames as execution contexts) —
+that is what the operator reasons in, and the Module-view tab renders it (the
+FRAMES/IMAGES section, [`026`](./026-Module-View-Panel.md) §8).
 
-- **Frames panel — realm `<optgroup>` grouping REMOVED** (rf2-70owfr). The
-  picker once grouped frame options by the internal installation realm
-  (`group-frames-by-realm` / `multi-realm?` / the
-  `:rf.xray/available-frame-realm-groups` sub, over
-  `re-frame.frame/frame-realm`). The afdlyr realm-substrate collapse leaves a
-  single default realm, so the grouping never branched away from the flat option
-  list — it was dead ceremony. The picker now renders the flat option list
-  directly; the public partition is image -> frame (EP-0023), not realm.
+The EP-0013 *realm / app-value / module* substrate this section once also
+described — the (realm, frame) address space, the installed app value, the
+per-module provenance — was **deleted in full** (no public facade under
+EP-0023, then removed outright by EP-0024; framework
+[`spec/Spec-Schemas.md` §`:rf/realm`](../../../spec/Spec-Schemas.md)). There is
+no `re-frame.realm` namespace, no `realm-ids`, no `re-frame.frame/frame-realm`,
+no installed-app value, and no realm coordinate on any wire record. A frame's
+handlers resolve directly against the process registrar. The tool reads the
+EP-0023 surfaces (`re-frame.live-frame` / `re-frame.image` /
+`re-frame.image-assembly`) and the process registrar directly off their owning
+namespaces, exactly as Xray already reads `re-frame.frame` / `re-frame.registrar`.
+
+- **Frames panel — realm `<optgroup>` grouping REMOVED** (rf2-70owfr, then the
+  realm substrate deleted outright). The picker once grouped frame options by
+  installation realm; with the realm substrate gone there is no realm dimension
+  to group by. The picker renders the flat option list directly; the public
+  partition is image -> frame (EP-0023), not realm.
 - **Trace rows — realm chip REMOVED** (rf2-tfiutq). The Trace rows once
-  surfaced an internal-installation-realm chip (`trace_helpers/realm-of`
-  projecting `[:tags :rf.realm/id]` onto a `:realm` row slot, the feed's
-  `:multi-realm?` / `multi-realm-feed?` gate, the
-  `rf-xray-trace-row-<id>-realm` chip in `panels/trace.cljs`). The realm
-  substrate is fully retired (image -> frame -> event stream is canonical;
-  the `re-frame.realm` namespace is gone and the framework's trace emit no
-  longer stamps `:rf.realm/id`), so the projection was dead — every row's
-  `:realm` was always nil. The realm row state, feed flag, and chip were
-  removed; the **frame** is the event's scoping context and is already
-  carried per row (`trace_helpers/frame-of` from `[:tags :frame]`) and
-  shown on the EPOCH row (§9). Any legacy tag still riding a raw event
-  remains visible only in the expanded raw-EDN payload (§3), not the
-  primary row model.
-- **Static-registry browse + handler-resolution — qualify by realm**
-  (disposition-1/2, rf2-dfaey7). The static browse panels read
-  registrations via `(rf/registrations :kind)` — the DEFAULT realm only —
-  so a multi-realm host could not see which realm owns a registration nor
-  flag a cross-realm id conflict (the same id registered in two realms).
-  The shared `static/shared/realm.cljs` helper composes the internal
-  realm-scoped reader `re-frame.realm/realm-registrations` (the public
-  `{:realm r :kind k}` facade arity was removed in rf2-10nggz — a registrar-query
-  map is now ALWAYS a frame-targeted read) + the
-  installed-realm enumeration `re-frame.realm/realm-ids` into the browse: it returns
-  realm-qualified `[realm-id reg-map]` pairs (`realm-qualified-registrations`),
-  attributes each row to its owning `:rf.realm/id` (`realm-of` blanks the
-  default realm — absence is the default), flags ids spanning >1 realm
-  (`cross-realm-ids`), and renders a per-row realm chip (`realm-badge`,
-  warning-toned on a cross-realm conflict, **titled as the owning internal
-  installation realm** so it reads as implementation structure per EP-0023
-  Consequence #4/#9) ONLY in a multi-realm browse.
-  **Handler-resolution is realm-scoped**: a chain entry resolves its
-  `:interceptor` descriptor against the SAME realm the event lives in
-  (`resolve-ref-fn-for` per realm). The named first consumer is the **Static
-  Interceptors** sub-tab (`static/interceptors/panel.cljs`,
-  `collect-interceptors-by-realm` + the `:rf.xray.static.interceptors/realm-pairs`
-  sub feeding `tab-data`); the same helper extends to the schemas / flows /
-  routes / machines browse panels when multi-realm demand lands. Single-realm
-  hosts (the common case: `(re-frame.realm/realm-ids)` ⇒ `#{:rf.realm/default}`) read the
-  default-realm path — `realm-badge` renders nothing, no realm column appears,
-  the browse is byte-identical to the pre-rf2-dfaey7 surface. Fail-soft: a
-  core too old for the map-shaped query form / `re-frame.realm/realm-ids` degrades to the
-  default-realm read.
-- **Module-view tab — EP-0023 public model first, retained substrate below**
-  (rf2-wtg9z4 · rf2-32siq3.12). A Dynamic L4 tab (`panels/module_view.cljs`,
-  label **Modules**, order 9, registered via `reg-l4-tab!` — an L4-only
-  tab, no `mount-*!` facade, so it is NOT in `panel-enum`). It renders the
-  EP-0023 **FRAMES/IMAGES** section FIRST — the `image -> frame` public
-  model (each live image-loaded frame as an execution context carrying its
-  resolved image's `[kind id]` descriptors) — then the retained EP-0013
-  internal substrate below: the **REALMS** section (`re-frame.realm/realm-ids` ×
-  `re-frame.frame/frame-realm` — the `(realm, frame)` address space) and the
-  **MODULES** section (per-module ownership / capability requirements /
-  descriptor provenance, read off each realm's installed app value via the
-  graduated internal substrate seam `re-frame.realm/installed-app` — rf2-at0oen).
-  A process running entirely on the load-order / sugar path shows the honest
-  no-module caption, which names the remedy — compose an app from modules and
-  install it via the **retained-internal app-composition substrate** — and
-  points at the image/frame public model above. See [`026`](./026-Module-View-Panel.md)
-  for the normative contract.
+  surfaced a realm chip projecting `[:tags :rf.realm/id]` onto a `:realm` row
+  slot. The realm substrate is fully retired (image -> frame -> event stream is
+  canonical; the `re-frame.realm` namespace is gone and the framework's trace
+  emit no longer stamps `:rf.realm/id`), so the projection was dead. The realm
+  row state, feed flag, and chip were removed; the **frame** is the event's
+  scoping context and is already carried per row
+  (`trace_helpers/frame-of` from `[:tags :frame]`) and shown on the EPOCH row
+  (§9). Any legacy tag still riding a raw event remains visible only in the
+  expanded raw-EDN payload (§3), not the primary row model.
+- **Static-registry browse — process registrar.** The static browse panels read
+  registrations off the process-global registrar via
+  `host-registry/registrations` (the generation-bypassing read — see
+  [`026`](./026-Module-View-Panel.md) §8.4). There is no realm dimension to
+  qualify by: a registration belongs to the process registrar, full stop. The
+  former realm-qualified browse (`static/shared/realm.cljs` —
+  `realm-qualified-registrations` / `realm-of` / `cross-realm-ids` /
+  `realm-badge`) and the realm-scoped interceptor resolution
+  (`collect-interceptors-by-realm` / `:rf.xray.static.interceptors/realm-pairs`)
+  were removed with the realm substrate. Interceptor-chain resolution resolves a
+  `:interceptor` descriptor against the process registrar.
+- **Module-view tab — the EP-0023 public model** (rf2-wtg9z4 · rf2-32siq3.12).
+  A Dynamic L4 tab (`panels/module_view.cljs`, label **Frames**, order 9,
+  registered via `reg-l4-tab!` — an L4-only tab, no `mount-*!` facade, so it is
+  NOT in `panel-enum`). It renders the EP-0023 **FRAMES/IMAGES** section — the
+  `image -> frame` public model (each live image-loaded frame as an execution
+  context carrying its resolved image's `[kind id]` descriptors). A process
+  running entirely on the load-order / sugar path with no image-loaded frames
+  shows the honest no-image caption, which names the `rf/image` / `rf/make-frame`
+  remedy. The retired EP-0013 REALMS + MODULES sections are gone with the realm
+  substrate they read. See [`026`](./026-Module-View-Panel.md) for the
+  normative contract.
 
 ## The default landing view
 
