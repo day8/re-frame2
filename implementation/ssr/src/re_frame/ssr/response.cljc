@@ -289,10 +289,8 @@
 (defn swap-response!
   "Mutate the response accumulator slot for `frame-id` with `f`. Returns
   the post-swap response map. The substrate is a side-channel atom keyed
-  on the (realm, frame) ADDRESS (rf2-jbcmt; addressed by realm per
-  rf2-bzw8gd) — O(small-map) swap, no app-db ping-pong. `frame-address`
-  collapses to the bare `frame-id` for the default realm, so two server
-  frames sharing an id in different realms accumulate independent responses."
+  on the frame ADDRESS (rf2-jbcmt; rf2-bzw8gd) — O(small-map) swap, no app-db
+  ping-pong. `frame-address` is the bare process-local frame id."
   [frame-id f]
   (let [addr      (frame/frame-address frame-id)
         next-resp (-> (swap! response-slots
@@ -309,9 +307,7 @@
   "Drop `frame-id`'s response slot. Called from
   `re-frame.ssr.request/on-frame-destroyed!` via the
   `:ssr/on-frame-destroyed` late-bind hook (rf2-fcj33). Idempotent —
-  tolerates a frame-id with no slot. Keyed by the (realm, frame) ADDRESS
-  (rf2-bzw8gd) so clearing one realm's frame leaves another realm's
-  same-id response slot intact."
+  tolerates a frame-id with no slot. Keyed by the frame ADDRESS (rf2-bzw8gd)."
   [frame-id]
   (swap! response-slots dissoc (frame/frame-address frame-id))
   frame-id)

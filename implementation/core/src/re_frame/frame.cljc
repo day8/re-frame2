@@ -163,31 +163,16 @@
 
 (defonce
   ^{:doc "Map of frame-id → frame-record. Per-process (one global frame
-  registry), keyed by the bare frame-id keyword. The realm-ADDRESSING dimension
-  (the former `[realm-id frame-id]` key for a non-default realm, the `frame-key`
-  helper, and the carried `*current-realm*` half) was collapsed under EP-0023
-  (rf2-upgtq4, the afdlyr completion): the realm SUBSTRATE is single-default-only
-  (`re-frame.realm`), so a frame is addressed by its process-local id with no
-  realm coordinate. The residual per-frame realm-membership view (the `:realm`
-  record slot + `frames-by-realm`) was removed under rf2-70owfr — with one
-  default realm, grouping frames by realm is meaningless; the registry key is the
-  bare id and the frame record carries no realm reference."}
+  registry), keyed by the bare frame-id keyword. A frame is addressed by its
+  process-local id; there is no realm coordinate (EP-0023, rf2-upgtq4)."}
   frames
   (atom {}))
 
 ;; ---- frame address — the bare frame-id (EP-0023, rf2-upgtq4) ----------------
 ;;
-;; A frame is addressed by its process-local frame-id keyword. The realm
-;; substrate is collapsed to a single default realm (`re-frame.realm`,
-;; rf2-afdlyr), so the registry key is the bare id — no realm coordinate threads
-;; the lookup, the `swap! frames assoc`, or any tool's `@frames` read. The
-;; former realm-ADDRESSING dimension (`*current-realm*`, `frame-key`,
-;; `[realm-id frame-id]` keys, `call-with-realm`) was removed under rf2-upgtq4 as
-;; dead weight: nothing ever bound a non-default carried realm, so every key was
-;; already the bare id at runtime. The residual per-frame realm-membership view
-;; (the `:realm` record slot + `frames-by-realm` + `re-frame.realm/realm-frames`)
-;; was removed under rf2-70owfr — with a single default realm, grouping frames by
-;; realm is meaningless, so the frame record carries no realm reference.
+;; A frame is addressed by its process-local frame-id keyword. The registry key
+;; is the bare id — no realm coordinate threads the lookup, the `swap! frames
+;; assoc`, or any tool's `@frames` read.
 
 ;; ---- destroy-in-flight guard (rf2-r1ciy) ---------------------------------
 ;;
@@ -595,11 +580,10 @@
 (defn frame-address
   "Resolve the ADDRESS key for `frame-id` — the key a per-frame SIDE-CHANNEL
   (SSR request / response / error-trace / head snapshot, …) keys its entries by.
-  The realm-addressing dimension was collapsed (rf2-upgtq4 — the realm substrate
-  is single-default-only), so this is now the bare `frame-id` keyword: a frame
-  is addressed by its process-local id with no realm coordinate. Retained as the
-  named seam the SSR side-channels share so their keying stays single-sourced
-  (a re-introduced address scheme would change this one fn). INTERNAL."
+  This is the bare `frame-id` keyword: a frame is addressed by its process-local
+  id, with no realm coordinate. Retained as the named seam the SSR side-channels
+  share so their keying stays single-sourced (a re-introduced address scheme
+  would change this one fn). INTERNAL."
   [frame-id]
   frame-id)
 

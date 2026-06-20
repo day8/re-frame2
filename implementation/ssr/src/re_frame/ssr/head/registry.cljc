@@ -43,14 +43,10 @@
   (atom {}))
 
 (defn- record-fragment!
-  "Stash the just-produced head-model under ((realm, frame) address, head-id)
-  so `head-snapshot` reflects the most recent render-head output. Keyed by the
-  frame ADDRESS (rf2-bzw8gd) so the same frame id in two realms records
-  independent head snapshots — `frame-address` collapses to the bare
-  `frame-id` for the default realm (byte-identical single-realm path). The
-  (realm, frame) address is the EP-0023 retained-INTERNAL routing seam
-  (`re-frame.frame/frame-address`), not current public vocabulary — see
-  `re-frame.realm`'s EP-0023 banner."
+  "Stash the just-produced head-model under (frame-address, head-id) so
+  `head-snapshot` reflects the most recent render-head output. Keyed by the
+  frame ADDRESS (rf2-bzw8gd) — the shared SSR side-channel keying seam
+  `re-frame.frame/frame-address` (the bare process-local frame id)."
   [frame-id head-id head-model]
   (when frame-id
     (swap! head-snapshots assoc-in [(frame/frame-address frame-id) head-id]
@@ -61,17 +57,16 @@
   "Read the per-frame `{head-id → last-produced head-model}` snapshot.
   Useful for tests and introspection. Returns `{}` for a frame that has
   never seen a `render-head` call (or whose snapshot has been cleared
-  via the per-request frame teardown hook). Keyed by the (realm, frame)
-  ADDRESS (rf2-bzw8gd)."
+  via the per-request frame teardown hook). Keyed by the frame ADDRESS
+  (rf2-bzw8gd)."
   [frame-id]
   (get @head-snapshots (frame/frame-address frame-id) {}))
 
 (defn on-frame-destroyed!
   "Clear the head-snapshot entry for `frame-id`. Wired into the
   `:ssr/on-frame-destroyed` late-bind hook chain so per-request frames
-  release their head bookkeeping on destroy. Idempotent. Keyed by the
-  (realm, frame) ADDRESS (rf2-bzw8gd) so clearing one realm's frame leaves
-  another realm's same-id head snapshot intact."
+  release their head bookkeeping on destroy. Idempotent. Keyed by the frame
+  ADDRESS (rf2-bzw8gd)."
   [frame-id]
   (swap! head-snapshots dissoc (frame/frame-address frame-id))
   nil)

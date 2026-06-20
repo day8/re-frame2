@@ -88,9 +88,8 @@
 
   Returns `frame-id`."
   [frame-id request]
-  ;; Key by the (realm, frame) ADDRESS (EP-0013, rf2-bzw8gd) so the same frame
-  ;; id in two realms does not collide — `frame-address` collapses to the bare
-  ;; `frame-id` for the default realm (byte-identical single-realm path).
+  ;; Key by the frame ADDRESS (rf2-bzw8gd) — the shared SSR side-channel keying
+  ;; seam `frame/frame-address` (the bare process-local frame id).
   (swap! request-slots assoc (frame/frame-address frame-id) request)
   frame-id)
 

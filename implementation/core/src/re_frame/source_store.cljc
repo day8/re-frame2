@@ -56,15 +56,14 @@
   descriptor surface — no numeric ns-ids, no second descriptor key (which would
   leak the pool table into the public model, contra the EP).
 
-  ## Realm-scoped seating
+  ## Rebindable seating seam
 
   The store mirrors `re-frame.registrar`'s active-registrar pattern. The
   process-default store is [[kind->id->ns->descriptor]]; the dynamic
-  [[*source-store*]] var lets an explicit-realm seating (EP-0013 stage 9, the
-  same `app-value/install!` path that binds `registrar/*registrar*`) route
-  `reg-*` writes into a realm's OWN source store. [[active-source-store]] is the
-  single resolution point — nil binding ⇒ the process-default store, the
-  byte-identical single-realm path."
+  [[*source-store*]] var is a rebindable seam (alongside `registrar/*registrar*`)
+  an alternate-store seating could bind to route `reg-*` writes into a different
+  source store. [[active-source-store]] is the single resolution point — no live
+  caller binds it, so nil ⇒ the process-default store."
   (:require [re-frame.error :as error]
             [re-frame.source-coords :as source-coords]))
 
@@ -90,18 +89,16 @@
 
 (defonce
   ^{:doc "kind → id → provenance-ns-string → descriptor. Atomic. The
-  PROCESS-DEFAULT source store — the default realm owns it, mirroring
-  `registrar/kind->id->metadata`. A single-realm app routes every `reg-*`
-  through this one atom."}
+  PROCESS-DEFAULT source store, mirroring `registrar/kind->id->metadata`. Every
+  `reg-*` routes through this one atom."}
   kind->id->ns->descriptor
   (atom {}))
 
 (def ^:dynamic *source-store*
   "The active source-store atom, or nil for the process-default
-  [[kind->id->ns->descriptor]]. Bound (alongside `registrar/*registrar*`) by
-  `app-value/install!` / `reinstall!` to seat a constructed realm's
-  registrations into the realm's OWN source store (EP-0013 stage 9). nil ⇒ the
-  default realm — the byte-identical single-realm path."
+  [[kind->id->ns->descriptor]]. A rebindable seam (alongside
+  `registrar/*registrar*`); no live caller binds it (nil ⇒ the process-default
+  store)."
   nil)
 
 (defn active-source-store

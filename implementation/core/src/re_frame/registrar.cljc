@@ -123,43 +123,36 @@
 
 (defonce
   ^{:doc "kind → id → metadata-map. Atomic. The PROCESS-DEFAULT registrar — the
-  default realm owns it (EP-0013 D1: a realm owns the `(kind, id) → metadata`
-  table it dispatches/subscribes/resolves against). A single-realm app routes
-  every `reg-*` / lookup through this one atom, exactly as before."}
+  `(kind, id) → metadata` table the process dispatches/subscribes/resolves
+  against. Every `reg-*` / lookup routes through this one atom."}
   kind->id->metadata
   (atom {}))
 
-;; ---- the active registrar (EP-0013 stage 9 — realm-scoped seating) ---------
+;; ---- the active registrar -------------------------------------------------
 ;;
 ;; The active `(kind, id) → metadata` atom the registrar reads + writes. nil
-;; means "the process-default registrar" (`kind->id->metadata`) — the
-;; byte-identical single-realm path: unbound, every `reg-*` / `register!` /
-;; `unregister!` / `lookup` / `registrations` hits the one global atom exactly
-;; as before, with ZERO added indirection on the dispatch hot path (the var is
-;; consulted once and resolves to the global atom).
+;; means "the process-default registrar" (`kind->id->metadata`): unbound, every
+;; `reg-*` / `register!` / `unregister!` / `lookup` / `registrations` hits the
+;; one global atom, with ZERO added indirection on the dispatch hot path (the
+;; var is consulted once and resolves to the global atom).
 ;;
-;; `re-frame.app-value/install!` (stage 9) BINDS this var to a constructed
-;; realm's OWN registrar for the duration of seating, so the same `reg-*`
-;; lowering path that writes the default realm's table writes the target
-;; realm's table instead — without re-plumbing a realm argument through
-;; `re-frame.events` / `.subs` / `.fx` / `.cofx`. Two realms can thus install
-;; different handlers for the same id without collision: each install! seats
-;; into its own atom (EP-0013 §Realm Conformance). The binding is dynamically
-;; scoped to the install! call; outside it the var is nil and the default-realm
-;; path is unchanged.
+;; `*registrar*` is a rebindable seam an alternate-registrar seating could bind
+;; to redirect the `reg-*` lowering path to a different `(kind, id) → metadata`
+;; table without re-plumbing an argument through `re-frame.events` / `.subs` /
+;; `.fx` / `.cofx`. No live caller binds it today (the EP-0013 install seating
+;; path was removed); outside any binding it is nil and the default path holds.
 (def ^:dynamic *registrar*
   "The active registrar atom, or nil for the process-default
-  `kind->id->metadata`. Bound by `re-frame.app-value/install!` /`reinstall!` to
-  seat a constructed realm's program into the realm's OWN registrar (EP-0013
-  stage 9). nil ⇒ the default realm — the byte-identical single-realm path."
+  `kind->id->metadata`. A rebindable seam; no live caller binds it (nil ⇒ the
+  process-default registrar)."
   nil)
 
 (defn active-registrar
   "Return the registrar atom registration + lookup currently target — the
-  bound `*registrar*` when an explicit-realm seating is in flight, else the
-  process-default `kind->id->metadata`. The single resolution point so every
-  read/write below targets ONE consistent atom under a binding (the default
-  path resolves to the global atom with no allocation)."
+  bound `*registrar*` when one is in scope, else the process-default
+  `kind->id->metadata`. The single resolution point so every read/write below
+  targets ONE consistent atom under a binding (the default path resolves to the
+  global atom with no allocation)."
   []
   (or *registrar* kind->id->metadata))
 

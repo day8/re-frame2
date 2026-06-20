@@ -158,9 +158,8 @@
 (defonce pending-error-traces (atom {}))
 
 (defn- buffer-error-trace!
-  ;; Keyed by the (realm, frame) ADDRESS (rf2-bzw8gd) so two server frames
-  ;; sharing an id in different realms buffer independent error traces —
-  ;; `frame-address` collapses to the bare `frame-id` for the default realm.
+  ;; Keyed by the frame ADDRESS (rf2-bzw8gd) — the shared SSR side-channel
+  ;; keying seam `frame/frame-address` (the bare process-local frame id).
   [frame-id trace-event]
   (swap! pending-error-traces update (frame/frame-address frame-id)
          (fnil conj []) trace-event))
@@ -478,8 +477,7 @@
 
 (defn clear-pending-error-traces!
   "Drop frame-id's entry from the pending-error-traces buffer.
-  Called from `re-frame.ssr.request/on-frame-destroyed!`. Keyed by the
-  (realm, frame) ADDRESS (rf2-bzw8gd) so clearing one realm's frame leaves
-  another realm's same-id buffered traces intact."
+  Called from `re-frame.ssr.request/on-frame-destroyed!`. Keyed by the frame
+  ADDRESS (rf2-bzw8gd)."
   [frame-id]
   (swap! pending-error-traces dissoc (frame/frame-address frame-id)))
