@@ -2147,7 +2147,7 @@
 (declare epoch-elapsed-ms)
 
 ;; ---------------------------------------------------------------------------
-;; Cascade summary (rf2-6yqdl)
+;; Cascade summary
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A compact projection of the framework's `:rf/epoch-record` that answers
@@ -2179,14 +2179,14 @@
 ;;   :frame               — the frame-id the cascade settled in
 ;;   :outcome             — the consumer-facing tier (`:ok` / `:blocked`
 ;;                          / `:error`, per `outcome->consumer-facing`).
-;;                          rf2-hhkbb — forced `:error` when the cascade
+;;                          Forced `:error` when the cascade
 ;;                          contained a thrown handler / machine action
 ;;                          (a `:rf.error/*` op in `:trace-events`), even
 ;;                          though the epoch itself settled `:outcome :ok`
 ;;                          (the interceptor seam contained the throw).
 ;;   :errors              — vector of compact `{:operation :message?
 ;;                          :machine-id? :action-id?}` descriptors, one per
-;;                          contained cascade exception (rf2-hhkbb). Absent
+;;                          contained cascade exception. Absent
 ;;                          when the cascade threw nothing. Present ⇒
 ;;                          `:outcome :error` and the downstream
 ;;                          `dispatch-consequence!` reports `:no-op? false`.
@@ -2264,8 +2264,7 @@
   "Project the epoch's detailed `:outcome` cause onto the consumer-
   facing three-tier summary (`:ok` / `:blocked` / `:error`). Mirrors
   `re-frame.epoch.assembly/outcome->consumer-facing` (the same projection
-  pinned in the framework). When `:outcome` is absent (older epoch
-  shapes), defaults to `:ok`."
+  pinned in the framework). When `:outcome` is absent, defaults to `:ok`."
   [outcome]
   (case outcome
     :ok                       :ok
@@ -2274,7 +2273,7 @@
     :halted-handler-exception :error
     :ok))
 
-;; ---- contained cascade errors (rf2-hhkbb) ---------------------------------
+;; ---- contained cascade errors --------------------------------------------
 ;;
 ;; A handler / machine-action throw does NOT halt the drain: the
 ;; interceptor error-capture seam contains it, the epoch settles
@@ -2282,10 +2281,10 @@
 ;; `:rf.error/*` op (Spec-Schemas §`:rf/epoch-record` §Outcomes; the
 ;; reference runtime never emits `:halted-handler-exception`). So
 ;; `outcome-tier` alone reads such an epoch as `:ok` — and because the
-;; aborted action committed no `:db` and fired no fx, the downstream
-;; `:no-op?` heuristic (no db-change AND no fx) also misfires. The result
-;; is a silent-green-on-error trap for any NON-visual consumer triaging
-;; on `:outcome` / `:no-op?` (the human pink-card path, rf2-4yrr6, is
+;; aborted action committed no `:db` and fired no fx, the `:no-op?`
+;; heuristic (no db-change AND no fx) would also misfire. Left unhandled
+;; that is a silent-green-on-error trap for any NON-visual consumer
+;; triaging on `:outcome` / `:no-op?` (the human pink-card path is
 ;; unaffected — it reads the trace directly).
 ;;
 ;; The structured summary closes the gap by scanning `:trace-events` for
@@ -2294,16 +2293,16 @@
 ;; (`:no-op?` exclusion lives downstream in `consequence-from-summary`).
 ;;
 ;; `cascade-error-ops` MIRRORS the Xray Epoch panel's `cascade-exception-
-;; ops` (`tools/xray/.../panels/epoch/projection.cljc`, rf2-ahhgn /
-;; rf2-mszrz / rf2-e7yhv) — the structured summary and the human panel
-;; agree on exactly which `:rf.error/*` ops count as a cascade-level
-;; throw. Schema-VALIDATION failures (`:rf.error/schema-validation-
-;; failure`) are deliberately NOT here: a rejected-but-rolled-back
-;; cascade is not a thrown action, and its outcome is governed elsewhere.
+;; ops` (`tools/xray/.../panels/epoch/projection.cljc`) — the structured
+;; summary and the human panel agree on exactly which `:rf.error/*` ops
+;; count as a cascade-level throw. Schema-VALIDATION failures
+;; (`:rf.error/schema-validation-failure`) are deliberately NOT here: a
+;; rejected-but-rolled-back cascade is not a thrown action, and its
+;; outcome is governed elsewhere.
 
 (def ^:private cascade-error-ops
   "Closed set of cascade-level `:rf.error/*` trace ops that mark an epoch
-  whose cascade contained a thrown handler / machine action (rf2-hhkbb).
+  whose cascade contained a thrown handler / machine action.
   Mirrors Xray's `cascade-exception-ops` so the structured summary and the
   human Epoch panel agree on what counts as a throw."
   #{:rf.error/coeffect-exception
@@ -2317,7 +2316,7 @@
 (defn- cascade-errors
   "Project the contained cascade-exception trace events out of an epoch's
   `:trace-events` into a vector of compact descriptors, or nil when the
-  cascade carried no contained throw (rf2-hhkbb).
+  cascade carried no contained throw.
 
   Each descriptor carries `:operation` (the `:rf.error/*` op) plus, when
   the trace event stamped them, `:message` (the exception's `.getMessage`
@@ -2339,8 +2338,7 @@
     (when (seq picks) picks)))
 
 (defn- redact-sensitive-event-vector
-  "Egress guard for the cascade-summary `:event-vector` slot (rf2-6nks4,
-  finding-2).
+  "Egress guard for the cascade-summary `:event-vector` slot.
 
   The `:event-vector` slot copies the epoch's RAW `:trigger-event` — the
   original dispatch vector, e.g. `[:auth/login {:password \"hunter2\"}]`.
@@ -2351,10 +2349,11 @@
   tools (`restore-epoch` passes the runtime map through verbatim;
   `dispatch-dry-run` deliberately does NOT walk `:cascade-summary`,
   treating it as a counts-only projection) trust this projection to be
-  already-safe. The merged rf2-z7roa elision walker scrubs dispatch-dry-
-  run's `:db-state-after-simulation` / `:would-fire-effects` but left
-  the cascade-summary `:event-vector` UNWALKED — a restore / dry-run of
-  a sensitive historical epoch shipped the raw event payload even under
+  already-safe. The wire-path elision walker scrubs dispatch-dry-run's
+  `:db-state-after-simulation` / `:would-fire-effects`, but the
+  cascade-summary `:event-vector` rides outside that walk — so this guard
+  redacts it here, otherwise a restore / dry-run of a sensitive historical
+  epoch would ship the raw event payload even under
   `--allow-sensitive-reads` OFF.
 
   Fail-closed: when the epoch is sensitive AND the raw-state gate is OFF
@@ -2379,7 +2378,7 @@
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape
   surfaced by dispatch / replace-app-db / restore-epoch / dispatch-dry-
-  run (rf2-6yqdl). See the §Cascade summary section header above for
+  run. See the §Cascade summary section header above for
   the slot inventory.
 
   Pure data — `(epoch-record) -> cascade-summary-map`. Returns nil for a
@@ -2394,10 +2393,10 @@
           transitions (machine-transitions-summary trace-events)
           elapsed    (epoch-elapsed-ms record)
           sensitive? (:rf.epoch/sensitive? record)
-          ;; rf2-hhkbb — a contained throw (handler / machine action) rode
-          ;; the trace stream while the epoch settled `:outcome :ok`. When
-          ;; present it OVERRIDES the outcome tier to `:error` and surfaces
-          ;; under `:errors` so a non-visual consumer detects the failure.
+          ;; A contained throw (handler / machine action) rides the trace
+          ;; stream while the epoch settles `:outcome :ok`. When present it
+          ;; OVERRIDES the outcome tier to `:error` and surfaces under
+          ;; `:errors` so a non-visual consumer detects the failure.
           errors     (cascade-errors trace-events)]
       (cond-> {:epoch-id        epoch-id
                :frame           frame
@@ -2407,10 +2406,10 @@
                :subs-recomputed (count (or sub-runs []))
                :renders         (count (or renders []))}
         event-id      (assoc :event-id event-id)
-        ;; rf2-6nks4 (finding-2): the raw trigger-event is redacted to
-        ;; `:rf/redacted` when the epoch is sensitive and the raw-state
-        ;; gate is OFF (fail-closed default) — see
-        ;; `redact-sensitive-event-vector`. Raw only on opt-in.
+        ;; The raw trigger-event is redacted to `:rf/redacted` when the
+        ;; epoch is sensitive and the raw-state gate is OFF (fail-closed
+        ;; default) — see `redact-sensitive-event-vector`. Raw only on
+        ;; opt-in.
         trigger-event (assoc :event-vector
                              (redact-sensitive-event-vector trigger-event sensitive?))
         transitions   (assoc :machine-transitions transitions)
@@ -2445,7 +2444,7 @@
    `{:ok? true :queued? true :event ...}`. The epoch-id appears once
    the cascade settles; callers can read it via `last-pair-epoch`.
 
-   Per rf2-6yqdl the response carries a `:cascade-summary` slot when
+   The response carries a `:cascade-summary` slot when
    the runtime drained the queue synchronously (the typical CLJS
    single-threaded case — `rf/dispatch` enqueues, the goog.async tick
    drains, and by the time our `(rf/epoch-history)` read fires the
@@ -2454,18 +2453,17 @@
    `:cascade-summary-pending? true :before-epoch-id <prior-head>` so
    the caller can poll `watch-epochs` for the eventual settlement.
 
-   No back-compat shim — `:queued? true` is preserved (the pre-rf2-6yqdl
-   contract) but the cascade slot is the canonical 'what happened?'
-   surface for new code."
+   `:queued? true` rides on the response, but the cascade slot is the
+   canonical 'what happened?' surface."
   ([event-v] (pair-dispatch! event-v {}))
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
-         ;; EP-0002 (rf2-9o48ih): the nREPL eval thread carries no ambient
-         ;; `with-frame` scope, so `rf/dispatch` would `require-current-frame!`
-         ;; and throw `:rf.error/no-frame-context`. Thread the resolved
-         ;; operating frame in as the explicit `:frame` override (the
-         ;; carried-invariant escape the router honours first) so the dispatch
-         ;; lands on the frame `current-frame` chose.
+         ;; The nREPL eval thread carries no ambient `with-frame` scope, so
+         ;; `rf/dispatch` would `require-current-frame!` and throw
+         ;; `:rf.error/no-frame-context`. Thread the resolved operating frame
+         ;; in as the explicit `:frame` override (the carried-invariant escape
+         ;; the router honours first) so the dispatch lands on the frame
+         ;; `current-frame` chose.
          opts      (cond-> opts frame-id (assoc :frame frame-id))
          before-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))]
      (rf/dispatch event-v (merge {:origin :pair} opts))
@@ -2492,7 +2490,7 @@
    as the pair-attributed epoch.
 
    On real success returns {:ok? true :epoch-id <id> :event ...
-   :cascade-summary {...}} — per rf2-6yqdl the cascade summary rides
+   :cascade-summary {...}} — the cascade summary rides
    under `:cascade-summary` (the compact projection defined above; see
    §Cascade summary). When epoch-history depth is 0 (recording
    disabled) or the frame isn't registered, reports the failure mode
@@ -2501,15 +2499,15 @@
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
          _         (when-not frame-id
-                     ;; rf2-n58jxo — carry the enriched ambiguous-frame
-                     ;; context (operation, event, available frames, current
-                     ;; pin, fix) as ex-data so the MCP `.catch` →
-                     ;; `err->result` surfaces it verbatim, not a bare reason.
+                     ;; Carry the enriched ambiguous-frame context
+                     ;; (operation, event, available frames, current pin, fix)
+                     ;; as ex-data so the MCP `.catch` → `err->result`
+                     ;; surfaces it verbatim, not a bare reason.
                      (throw (ex-info "ambiguous frame"
                                      (ambiguous-frame-error :dispatch {:event event-v}))))
-         ;; EP-0002 (rf2-9o48ih): thread the resolved operating frame in as
-         ;; the explicit `:frame` override — the nREPL eval thread carries no
-         ;; ambient `with-frame` scope, so `rf/dispatch-sync` would otherwise
+         ;; Thread the resolved operating frame in as the explicit `:frame`
+         ;; override — the nREPL eval thread carries no ambient `with-frame`
+         ;; scope, so `rf/dispatch-sync` would otherwise
          ;; `require-current-frame!` and throw `:rf.error/no-frame-context`.
          opts      (assoc opts :frame frame-id)
          before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
@@ -2538,14 +2536,13 @@
           :hint "dispatch-sync returned, but epoch-history head did not advance."})))))
 
 ;; ---------------------------------------------------------------------------
-;; Dispatch CONSEQUENCE — the default sync result (rf2-3bu3d.2)
+;; Dispatch CONSEQUENCE — the default sync result
 ;; ---------------------------------------------------------------------------
 ;;
-;; Default sync dispatch previously returned a transport ACK
-;; (`{:mode :sync}`), so a no-op was indistinguishable from success — a
-;; malformed-frame dispatch (the `::rf/xray` colon-coercion, rf2-ldfnx)
-;; reported success-shaped while doing NOTHING; only a separate state
-;; read revealed the no-op.
+;; A bare transport ACK (`{:mode :sync}`) makes a no-op indistinguishable
+;; from success — a malformed-frame dispatch (the `::rf/xray`
+;; colon-coercion) would report success-shaped while doing NOTHING, and
+;; only a separate state read would reveal the no-op.
 ;;
 ;; `dispatch-consequence!` returns the re-frame2 CONSEQUENCE by default:
 ;;
@@ -2562,7 +2559,7 @@
 
 (defn- consequence-from-summary
   "Project a `pair-dispatch-sync!` success envelope into the
-   dispatch-consequence shape (rf2-3bu3d.2). `result` carries
+   dispatch-consequence shape. `result` carries
    `:ok? true :epoch-id :cascade-summary`. The summary's `:db-diff`
    (`{:changed-paths :added-paths :removed-paths}`) and `:fx-fired`
    feed the consequence's `:changed-paths` / `:effects-fired`. A cascade
@@ -2575,7 +2572,7 @@
                              (:removed-paths db-diff)))
         effects (vec (or fx-fired []))
         db-changed? (boolean (seq changed))
-        ;; rf2-hhkbb — a contained throw (handler / machine action) is NOT
+        ;; A contained throw (handler / machine action) is NOT
         ;; a no-op even though it committed no db-change and fired no fx:
         ;; the cascade did nothing PRECISELY BECAUSE the action aborted.
         ;; The `:errors` slot (set by `cascade-summary` when the trace
@@ -2592,9 +2589,9 @@
         (cond-> (= :error outcome) (assoc :outcome :error)))))
 
 (defn dispatch-consequence!
-  "Synchronous dispatch returning the re-frame2 CONSEQUENCE by default
-   (rf2-3bu3d.2). Validates the event-id against the live `:event`
-   registrar FIRST (rf2-3bu3d.3): an unknown id returns the structured
+  "Synchronous dispatch returning the re-frame2 CONSEQUENCE by default.
+   Validates the event-id against the live `:event`
+   registrar FIRST: an unknown id returns the structured
    `validate-registered` error (`:reason :unknown-id` + `:nearest`)
    WITHOUT dispatching — never a silent no-op success. On a known id,
    dispatches synchronously and projects the consequence:
@@ -2602,14 +2599,14 @@
      {:ok? true :epoch-id :db-changed? :changed-paths :effects-fired
       :no-op? :event :frame :resolved :cascade-summary}
 
-   `:resolved` echoes the parsed event vector (rf2-3bu3d.3) so the wire
+   `:resolved` echoes the parsed event vector so the wire
    result carries the value the runtime actually saw. A genuine no-op
    (handler ran, changed nothing, fired nothing) returns `:db-changed?
    false :effects-fired [] :no-op? true` — VISIBLE, not a fake ack.
 
    On a frame-untargetable / no-epoch failure, the
-   `pair-dispatch-sync!` `:ok? false` envelope rides through verbatim
-   (the rf2-ldfnx invariant — the tool surfaces it as an error)."
+   `pair-dispatch-sync!` `:ok? false` envelope rides through verbatim —
+   the tool surfaces it as an error rather than a fake success."
   ([event-v] (dispatch-consequence! event-v {}))
   ([event-v opts]
    (let [v (validate-event-id event-v)]
