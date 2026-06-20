@@ -69,18 +69,12 @@ one-line note tying the exemption to the inventory finding
 (ai/findings/API-review/codex/retired-app-composition-vocabulary.md) or the
 EP/migration policy.
 
-NOTE — the broader facade-hygiene gate (rf2-gqa7yv,
-implementation/scripts/api-manifest/src/re_frame/api_manifest/facade_hygiene_check.clj)
-is the MANIFEST-DATA counterpart of this DOC-SURFACE gate, and the two are
-COMPLEMENTARY rather than one subsuming the other. This grep keeps the public
-TEACHING surface clean — a retired spelling reappearing as live, copy-pasteable
-API inside markdown fenced code. The manifest-hygiene gate keeps the
-FACADE-EXPORT set clean — it joins the same EP-0013 -> EP-0023 dispositions
-(re-frame.migration/migration-map) against spec/api-manifest.edn and fails if a
-superseded export stays `:facade? true` instead of being demoted to its home
-namespace or removed. Different surfaces (teaching prose vs. the manifest),
-both driven from the same retirement; neither duplicates the other. Keep this
-guard deliberately small and modular; do not grow it into the manifest gate.
+NOTE — this is a DOC-SURFACE gate: it keeps the public TEACHING surface clean —
+a retired spelling reappearing as live, copy-pasteable API inside markdown
+fenced code. (The earlier manifest-data facade-hygiene gate was retired with the
+atomic re-frame.realm/migration removal, rf2-udl74a — its disposition source
+(re-frame.migration/migration-map) and the superseded EP-0013 facade names it
+tracked no longer exist.) Keep this guard deliberately small and modular.
 
 SCAN SURFACE
 

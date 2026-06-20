@@ -32,21 +32,12 @@
       `[kind id]`, what descriptor (and its provenance) does that frame's
       generation resolve it to?
 
-  ## Why this lives beside the Module-view (EP-0013 substrate) tab
+  ## What this powers — the Module-view tab
 
-  EP-0023 partially supersedes EP-0013's public app/realm surface while
-  RETAINING the realm machinery as an internal installation substrate
-  (EP-0023 §Backwards Compatibility). The Module-view tab is already the
-  cohesive home for the EP-0013 `(realm, frame)` / module inspection; this
-  helper extends that same tab with the EP-0023 PUBLIC model. The two read
-  DIFFERENT surfaces: the realm/module projection reads
-  `re-frame.realm/realm-ids` / `re-frame.realm/installed-app` (the retained
-  internal substrate, read off the owning namespace directly — EP-0023 removed
-  the `rf/*` facade arities, pl97nd.2); this image/frame
-  projection reads the EP-0023 live-frame registry + sealed generations (the
-  public model). A process using one and not the other renders only the
-  section it has (each is fail-soft and demand-gated, like the realm
-  dimension).
+  This helper powers the Module-view tab's EP-0023 PUBLIC model: the
+  image/frame projection reads the EP-0023 live-frame registry + sealed
+  generations. It is fail-soft and demand-gated — a process not using
+  image-loaded frames renders the calm no-image caption.
 
   ## Inert-data, fail-soft, JVM-testable
 
@@ -227,14 +218,12 @@
                                         ;; generation — i.e. the EP-0023 public
                                         ;; image/frame model is in use. Drives
                                         ;; whether the image/frame sections
-                                        ;; materialise (demand-gated, like the
-                                        ;; realm dimension).
+                                        ;; materialise (demand-gated).
 
   A process that never calls `rf/make-frame` with `:images` has an empty
   registry → `:images?` false → the sections render the calm no-image
-  caption. EP-0023's public model is OPT-IN over the retained EP-0013
-  substrate, so this is the honest \"not using the image/frame model yet\"
-  state, not a broken surface."
+  caption. EP-0023's public model is OPT-IN, so this is the honest \"not using
+  the image/frame model yet\" state, not a broken surface."
   [live-frames]
   (let [frames (project-frames live-frames)]
     {:frames      frames
@@ -267,15 +256,13 @@
 (def no-images-caption
   "The calm empty-state caption the image/frame sections render when NO live
   frame runs a resolved image generation (rf2-32siq3.12). EP-0023's public
-  `image -> frame -> event stream` model is OPT-IN: a process using only the
-  retained EP-0013 realm substrate (or the bare `reg-*` default path) creates
-  no `rf/make-frame` image-loaded frames, so there is no image/frame model to
-  show here yet. Names why the section is empty so the operator understands
-  it is the honest not-using-images state, not a broken surface. Pure
-  `data -> string`."
+  `image -> frame -> event stream` model is OPT-IN: a process on the bare
+  `reg-*` default path creates no `rf/make-frame` image-loaded frames, so there
+  is no image/frame model to show here yet. Names why the section is empty so
+  the operator understands it is the honest not-using-images state, not a
+  broken surface. Pure `data -> string`."
   (str "No image-loaded frames — this process is not using the EP-0023 "
        "image/frame model yet. Construct an image (rf/image {:include-ns [...]}) "
        "and load it into a frame (rf/make-frame {:images [...]}) to surface the "
        "resolved registration set (the [kind id] descriptors a frame sees) and "
-       "each frame's execution context here. The image/frame model runs beside "
-       "the retained EP-0013 realm substrate shown above."))
+       "each frame's execution context here."))

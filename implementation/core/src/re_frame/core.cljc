@@ -90,21 +90,6 @@
             ;; bundle-isolation neutral and production-surviving (the
             ;; always-on observability stream is NOT DCE'd, by design).
             [re-frame.observability :as observability]
-            ;; EP-0013 D2: the app-value ns — EP-0023 RETAINED-INTERNAL substrate,
-            ;; collapsed to the PROJECTION seam only (rf2-csgz8l: the public
-            ;; facade re-exports `rf/module` / `rf/app` / `rf/app-*` / `rf/install!`
-            ;; / `rf/reinstall!` were removed by rf2-pl97nd.2, and the construction
-            ;; + install/reinstall machinery they backed was retired under the
-            ;; realm-substrate collapse). It is still REQUIRED HERE for its ns-load
-            ;; SIDE-EFFECT — it publishes the `:app-value/project` +
-            ;; `:app-value/reconcile-installed` late-bind hooks
-            ;; `re-frame.realm/installed-app` consults to project a realm's app
-            ;; VALUE over its registrar (bound at boot; a static require would
-            ;; close a load cycle). The ns pulls only `re-frame.realm` +
-            ;; `re-frame.late-bind` (core spine), so it is bundle-isolation
-            ;; neutral. The alias is not referenced directly (the facade
-            ;; re-exports are gone); the require is load-side-effect-only.
-            [re-frame.app-value :as app-value]
             ;; EP-0023 (rf2-32siq3.17): the public `rf/image` constructor —
             ;; an IMAGE value, the selected registration-set value a frame
             ;; resolves against (EP-0023 §Image, §Public API). PURE inert data
@@ -133,15 +118,6 @@
             ;; the facade `rf/make-frame` (repointed off the EP-0013 RECORD
             ;; constructor once every record caller was migrated).
             [re-frame.live-frame :as live-frame]
-            ;; EP-0023 (rf2-32siq3.11): the EP-0013 -> EP-0023 migration shims +
-            ;; diagnostics ns. Carries the surface dispositions as inspectable
-            ;; data plus the fail-loud migration diagnostics (the cross-realm
-            ;; duplicate-frame-id assertion). A leaf over `re-frame.error` /
-            ;; `re-frame.realm` (both already in the core spine); re-exported
-            ;; below as `rf/migration-map` / `rf/migration-explain` /
-            ;; `rf/assert-process-local-frame-id!`. An app that never reaches a
-            ;; superseded EP-0013 surface leaves them as Closure-DCE dead code.
-            [re-frame.migration :as migration]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
@@ -713,48 +689,6 @@
   is data, not registration). Supplied to `make-frame` / `reg-frame` via the
   `:images` vector. See `re-frame.image/image`."}
   image    image/image)
-
-;; ---- EP-0013 -> EP-0023 migration shims + diagnostics (rf2-32siq3.11) -----
-;;
-;; EP-0023 moves the PUBLIC model to `image -> frame -> event stream` while
-;; RETAINING EP-0013's realm machinery as an internal substrate (EP-0023
-;; §Backwards Compatibility). These surfaces help a codebase migrate off the
-;; superseded EP-0013 public names (`rf/app`, `rf/module`, the realm-targeted
-;; install/query surfaces, the `(realm, frame)` address) without a silent break:
-;; the migration map + `explain` are inspectable guidance, the two `assert-*`
-;; forms are fail-loud diagnostics. See `re-frame.migration`.
-
-(def ^{:doc "The EP-0013 -> EP-0023 surface dispositions as inspectable data —
-  `{surface-kw {:status … :replacement … :guidance …}}` (EP-0023 §Backwards
-  Compatibility). One entry per superseded / re-expressed / retained-internal
-  EP-0013 public name: `:rf/app`, `:rf/module`, `:rf/install!`, `:rf/reinstall!`,
-  `:rf/installed-app`, `:rf/realm`, the `(realm, frame)` address
-  (`:rf.realm/frame-address`), and the realm-scoped registrar queries
-  (`:rf.realm/scoped-query`). The public model is `image -> frame -> event
-  stream`; the realm substrate is retained internally where it still earns its
-  keep. See `re-frame.migration/migration-map`."}
-  migration-map     migration/migration-map)
-
-(def ^{:doc "Return the one-line EP-0013 -> EP-0023 migration guidance string
-  for an EP-0013 public-name keyword (`:rf/app`, `:rf/module`, `:rf/install!`,
-  `:rf/realm`, `:rf.realm/frame-address`, `:rf.realm/scoped-query`), or nil for
-  an unknown surface (EP-0023 §Backwards Compatibility). Reads `migration-map`.
-  See `re-frame.migration/explain`."}
-  migration-explain migration/explain)
-
-(def ^{:doc "Fail loud with `:rf.error/cross-realm-frame-id` when a frame id is
-  already live in a realm OTHER than the target — the EP-0013 -> EP-0023
-  duplicate-frame-id migration break (EP-0023 §Id Spaces). EP-0013's
-  `(realm, frame)` addressing let the same public frame id coexist in two
-  realms; the EP-0023 public model has ONE process-local frame-id space, so a
-  caller adopting the EP-0023 frame-id contract calls this to surface — with an
-  actionable error naming the conflicting realms + the fix (distinct ids, or a
-  direct frame object in local scope) — a reuse the new model forbids. Returns
-  the frame id when there is no cross-realm collision. A CALLER-INVOKED
-  diagnostic: it does NOT mutate the shipped `reg-frame` path (which legitimately
-  allows the same id across realms for the retained internal substrate). See
-  `re-frame.migration/assert-process-local-frame-id!`."}
-  assert-process-local-frame-id! migration/assert-process-local-frame-id!)
 
 ;; ---- frame management ----------------------------------------------------
 
@@ -1647,12 +1581,10 @@
 ;;
 ;; A MAP argument is ALWAYS a frame-targeted read: a registrar-query map WITHOUT
 ;; `:frame` is an error (`:rf.error/registrar-query-needs-frame`,
-;; `assert-registrar-query-has-frame!`). The retired pre-EP-0023 `:realm` map
-;; arity (and the absence-as-default `{:kind …}` / `{:realm nil …}` spelling it
-;; implied) is REMOVED — there is no realm coordinate in the public read
-;; grammar. The realm machinery survives as INTERNAL substrate
-;; (`re-frame.realm/realm-registrations` etc.) for tooling that requires the ns
-;; directly (e.g. Xray's host-registry generation-bypass), not as a facade arity.
+;; `assert-registrar-query-has-frame!`). There is no realm coordinate in the
+;; public read grammar; a generation-bypassing process-global registrar read
+;; (e.g. Xray's host-registry) reads `re-frame.registrar` directly, not a facade
+;; arity.
 ;;
 ;; EP-0023 (rf2-wkw8na) — the FRAME-TARGETED map form reads the registrations
 ;; resolved through a live frame's OWN sealed image generation (EP-0023
@@ -1931,16 +1863,9 @@
   §`:rf/frame-meta`."}
   frame-meta   frame/frame-meta)
 
-;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the realm-family facade read
-;; `rf/frame-realm` (the frame-side half of the retired `(realm, frame)`
-;; addressing model) was REMOVED from the public facade. The internal substrate
-;; reader `re-frame.frame/frame-realm` and the per-frame realm-membership view
-;; (`frames-by-realm` / `realm/realm-frames` / the frame record's `:realm` slot)
-;; were then removed entirely under rf2-70owfr — the afdlyr collapse leaves a
-;; single default realm, so a frame carries no realm reference. The public model
-;; is `image -> frame -> event stream`; a frame is addressed by its process-local
-;; frame id, with no realm coordinate. See
-;; `(rf/migration-explain :rf.realm/frame-address)`.
+;; The public model is `image -> frame -> event stream`: a frame is addressed by
+;; its process-local frame id. There is no realm coordinate and no frame-side
+;; realm read on the facade.
 
 (defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,
@@ -2011,37 +1936,14 @@
 ;; convenience aliases in `re-frame.subs` (`subs/sub-topology` /
 ;; `subs/sub-cache-snapshot`) remain for the legacy `subs/<name>` shape.
 
-;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the app-value construction +
-;; composition facade (`rf/module` / `rf/app` / `rf/app-registrations` /
-;; `rf/app-requires` / `rf/app-owns`) is REMOVED from the public facade. The
-;; public construction model is `rf/image` — the selected registration-set value
-;; a frame loads — supplied to `make-frame` via `:images`; a feature namespace
-;; registers ordinary `reg-*` forms and an image selects them by `:include-ns`
-;; provenance glob, so no separate module/app composition noun is needed. The
-;; constructors + inspectors REMAIN in `re-frame.app-value` as internal substrate
-;; (the registrar-backed installation path during migration). See
-;; `(rf/migration-explain :rf/app)` / `(rf/migration-explain :rf/module)` and
-;; EP-0023 §Backwards Compatibility.
-
-;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the realm install / hot-reload
-;; / constructor / query facade — `rf/install!`, `rf/reinstall!`, `rf/realm`,
-;; `rf/dispose-realm!`, `rf/realm-ids`, `rf/installed-app` — was REMOVED from the
-;; public facade. The public model targets a FRAME (a process-local frame id, or
-;; a direct frame object for tests) whose image generation determines
-;; registration resolution; the public hot-reload path is `reload-images!`
-;; against a frame target.
-;;
-;; EP-0023 realm-substrate collapse (rf2-afdlyr, rf2-csgz8l): the EP-0013 D2
-;; install!/reinstall! seating machinery in `re-frame.app-value` was RETIRED
-;; (test-only — no production consumer; the live registration path is `reg-*`
-;; sugar + image-assembly). The kind-aware descriptor-lowering + refuse-loudly
-;; preflight hooks core published to feed it (`:app-value/install-descriptor!`,
-;; `:app-value/refuse-unsupported-install!`, `:app-value/refuse-unsupported-
-;; removal!`) went with it. `re-frame.app-value` retains only the projection
-;; seam (`app-value` → `:app-value/project` / `:app-value/reconcile-installed`),
-;; which `re-frame.realm/installed-app` consults for the Xray Module-view. See
-;; `(rf/migration-explain :rf/install!)` / `:rf/realm` / `:rf/installed-app` and
-;; EP-0023 §Backwards Compatibility.
+;; The public construction model is `rf/image` — the selected registration-set
+;; value a frame loads — supplied to `make-frame` via `:images`. A feature
+;; namespace registers ordinary `reg-*` forms and an image selects them by
+;; `:include-ns` provenance glob, so there is no separate module/app composition
+;; noun. The public model targets a FRAME (a process-local frame id, or a direct
+;; frame object for tests) whose image generation determines registration
+;; resolution; the public hot-reload path is `reload-images!` against a frame
+;; target.
 
 ;; ---- interceptors --------------------------------------------------------
 

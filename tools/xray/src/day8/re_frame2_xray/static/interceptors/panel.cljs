@@ -57,7 +57,6 @@
             [re-frame.interceptor-registry :as icpt-reg]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
-            [day8.re-frame2-xray.static.shared.realm :as realm]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]))
@@ -73,7 +72,7 @@
   fail-soft: a browse catalogue must never throw on an unregistered or
   hot-reloaded ref.
 
-  Read via `host-registry/handler-meta` (the generation-bypassing default-realm
+  Read via `host-registry/handler-meta` (the generation-bypassing process-global
   form), NOT a bare `(rf/handler-meta :interceptor id)`: this runs inside the
   interceptors `registry` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
@@ -181,78 +180,31 @@
           (sort-by (fn [{:keys [id]}] (pr-str id)))
           vec))))
 
-(defn collect-interceptors-by-realm
-  "Realm-aware `collect-interceptors` (rf2-dfaey7 / a15n62). `realm-pairs`
-  is the `[realm-id registrations-map]` vector from
-  `realm/realm-qualified-registrations` (one pair per installed realm; the
-  default realm's own `resolve-ref-fn`). For each realm it collects the
-  interceptor rows, stamps each with the OWNING `:realm` (the realm whose
-  event chains carry it — `realm/realm-of` blanks the default realm), and
-  unions the realm set per interceptor id so a `:cross-realm?` row (the same
-  interceptor id appearing in MORE THAN ONE realm) is flagged.
-
-  `resolve-ref-fn-for` maps a realm-id → that realm's `resolve-ref-fn` (so
-  handler-resolution is REALM-SCOPED: a ref resolves against the same realm
-  the event lives in, EP-0013 D1). Defaults to `default-resolve-ref` for
-  every realm (the default-realm registrar) — fine for the single-realm
-  case.
-
-  Single-realm (the common case): `realm-pairs` is one pair, every row's
-  `:realm` is nil (default), no row is `:cross-realm?` — the output is the
-  same shape `collect-interceptors` produces, so the browse renders
-  unchanged."
-  ([realm-pairs] (collect-interceptors-by-realm realm-pairs (constantly default-resolve-ref)))
-  ([realm-pairs resolve-ref-fn-for]
-   (let [;; per realm: the collapsed rows, each tagged with its realm.
-         per-realm (for [[realm-id reg-map] realm-pairs
-                         row (collect-interceptors reg-map (resolve-ref-fn-for realm-id))]
-                     (assoc row :realm (realm/realm-of realm-id)
-                                :realm-id realm-id))
-         ;; which realms does each id span? (the cross-realm conflict set)
-         id->realms (reduce (fn [acc {:keys [id realm-id]}]
-                              (update acc id (fnil conj #{}) realm-id))
-                            {}
-                            per-realm)]
-     (->> per-realm
-          (map (fn [{:keys [id] :as row}]
-                 (cond-> (dissoc row :realm-id)
-                   (> (count (get id->realms id)) 1) (assoc :cross-realm? true))))
-          (sort-by (fn [{:keys [id realm]}] [(pr-str id) (pr-str realm)]))
-          vec))))
-
-(defn- row-haystack [{:keys [id doc authored realm]}]
+(defn- row-haystack [{:keys [id doc authored]}]
   (str/lower-case
     (str (pr-str id) " "
          (or doc "") " "
          ;; EP-0022 — a reference row is findable by its authored form too
          ;; (e.g. searching the factory arg `[:cart]`).
-         (if (some? authored) (pr-str authored) "") " "
-         ;; a15n62 — a multi-realm row is findable by its owning realm.
-         (if (some? realm) (pr-str realm) ""))))
+         (if (some? authored) (pr-str authored) ""))))
 
 (defn filter-rows
   [rows query]
   (search-box/filter-rows row-haystack rows query))
 
 (defn project-data
-  "Project the interceptor rows for the browse. `registrations-map` is
-  either the default-realm `(rf/registrations :event)` map (the 2-arity
-  legacy/test shape) OR — when called with realm pairs — the realm-qualified
-  pairs vector (rf2-dfaey7). The 1-arg legacy form is preserved for the test
-  seam + the single-realm fast path."
-  ([registrations-map query]
-   (project-data registrations-map query nil))
-  ([registrations-map query realm-pairs]
-   (let [rows     (if (seq realm-pairs)
-                    (collect-interceptors-by-realm realm-pairs)
-                    (collect-interceptors registrations-map))
-         silent?  (empty? rows)
-         filtered (filter-rows rows query)]
-     {:silent?      silent?
-      :interceptors filtered
-      :total        (count rows)
-      :filtered?    (not= (count rows) (count filtered))
-      :query        query})))
+  "Project the interceptor rows for the browse from the `(rf/registrations
+  :event)` map — collapses each event's `:interceptors` chain into a flat,
+  per-id catalogue and filters by `query`."
+  [registrations-map query]
+  (let [rows     (collect-interceptors registrations-map)
+        silent?  (empty? rows)
+        filtered (filter-rows rows query)]
+    {:silent?      silent?
+     :interceptors filtered
+     :total        (count rows)
+     :filtered?    (not= (count rows) (count filtered))
+     :query        query}))
 
 ;; ---- header --------------------------------------------------------------
 
@@ -285,7 +237,7 @@
 
 (defn- interceptor-row
   [{:keys [id ref? authored arg factory? before? after? default? chain-count
-           doc realm cross-realm?] :as _row}]
+           doc] :as _row}]
   (let [id-text (pr-str id)
         row-id  (if (and (> (count id-text) 0) (= \: (first id-text)))
                   (subs id-text 1)
@@ -311,12 +263,6 @@
                       :font-weight 500
                       :flex        1}}
        id-text]
-      ;; a15n62 (rf2-dfaey7) — the owning realm chip, shown ONLY in a
-      ;; multi-realm browse for a non-default realm; `:cross-realm?` paints
-      ;; it in the warning tone (this id also lives in another realm).
-      (realm/realm-badge realm
-                         (str "rf-xray-static-interceptors-realm-" row-id)
-                         {:conflict? cross-realm?})
       [:span {:title (str (cond
                             (and before? after?) "both before AND after"
                             before?              "before-only"
@@ -425,10 +371,7 @@
                                     :flex-direction "column"
                                     :gap            "2px"}}]
                 (for [row interceptors]
-                  ;; a15n62 — the key includes the owning realm: a multi-realm
-                  ;; browse can carry the same interceptor id in two realms as
-                  ;; two distinct rows.
-                  ^{:key (str (pr-str (:id row)) "@" (pr-str (:realm row)))}
+                  ^{:key (pr-str (:id row))}
                   [interceptor-row row])))])]))
 
 ;; ---- production value source ---------------------------------------------
@@ -441,7 +384,7 @@
   "The event-chain registry off the HOST app's `:event` registrar — each entry
   carries its interceptor chain. The test seam overrides this map directly.
 
-  Read via `host-registry/registrations` (the generation-bypassing default-realm
+  Read via `host-registry/registrations` (the generation-bypassing process-global
   form), NOT a bare `(rf/registrations :event)`: this runs inside the
   `:rf.xray.static.interceptors/registry` sub COMPUTATION, and Xray seats in its
   OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
@@ -451,16 +394,6 @@
   []
   (try (host-registry/registrations :event)
        (catch :default _ {})))
-
-(defn- realm-pairs-value
-  "The realm-qualified `[realm-id reg-map]` pairs for `:event` registrations
-  across every installed realm (a15n62, rf2-dfaey7). Single-realm apps get
-  one pair `[default <the same map registry-value returns>]`, so the browse
-  is unchanged; a multi-realm host gets one pair per realm so each
-  interceptor row is attributed to its owning realm. Fail-soft."
-  []
-  (try (realm/realm-qualified-registrations :event)
-       (catch :default _ nil)))
 
 ;; ---- registrations -------------------------------------------------------
 
@@ -502,29 +435,13 @@
     (fn [_buffer _query]
       (registry-value)))
 
-  ;; a15n62 (rf2-dfaey7) — the realm-qualified pairs sub. Recomputes off the
-  ;; same trace-buffer tick the registry sub does (registrations change on
-  ;; hot-reload, which emits a trace). Single-realm hosts read one pair.
-  (rf/reg-sub :rf.xray.static.interceptors/realm-pairs
-    :<- [:rf.xray/trace-buffer]
-    (fn [_buffer _query]
-      (realm-pairs-value)))
-
   ;; ---- view-facing composite -------------------------------------------
 
   (rf/reg-sub :rf.xray.static.interceptors/tab-data
     :<- [:rf.xray.static.interceptors/registry]
-    :<- [:rf.xray.static.interceptors/realm-pairs]
     :<- [:rf.xray.static.interceptors/query]
-    (fn [[registrations-map realm-pairs query] _query]
-      ;; a15n62 — when MORE THAN ONE realm is installed, project off the
-      ;; realm-qualified pairs (each row attributed to its owning realm + the
-      ;; cross-realm id-conflict flag). Single-realm hosts (and the test
-      ;; override seam, which feeds the flat registry map) take the legacy
-      ;; default-realm path so the browse is byte-identical.
-      (if (realm/multi-realm?)
-        (project-data registrations-map query realm-pairs)
-        (project-data registrations-map query))))
+    (fn [[registrations-map query] _query]
+      (project-data registrations-map query)))
 
   ;; rf2-2moh1 — register the Static Interceptors tab. Contiguous order:
   ;; machines 0 · routes 1 · schemas 2 · flows 3 · interceptors 4.

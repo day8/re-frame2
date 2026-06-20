@@ -35,59 +35,61 @@
   (:require [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.realm :as realm]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- adapter installation — realm-owned (EP-0013 D1 stage 4, rf2-0lq5cd) --
+;; ---- adapter installation — process-owned (single adapter per process) ----
 ;;
-;; The adapter SELECTION is OWNED BY the realm (Runtime-Subsystems §Adapter
-;; Ownership). Stage 4 moved the two process-global `defonce` cells that used
-;; to live HERE into the default realm's record — `:adapter` (the live spec
-;; map, or absent) and `:adapter-disposed?` (the dispose breadcrumb). This ns
-;; is now the ACCESS SEAM over those realm slots; the public surface below is
-;; byte-identical and every call in a single-realm app routes through the one
-;; default realm, so the install/dispose lifecycle and the "single adapter per
-;; process" diagnostics behave exactly as before. The two-cell shape is
-;; preserved across the move:
+;; The adapter SELECTION is a process-global fact: a re-frame2 process installs
+;; ONE adapter via `(rf/init! <adapter>)`. Two `defonce` cells carry the
+;; lifecycle state:
 ;;
-;;   `realm/realm-adapter`            ← the old `@installed-adapter` read
-;;   `realm/install-realm-adapter!`   ← the old `(reset! installed-adapter …)`
-;;   `realm/dispose-realm-adapter!`   ← clears the slot + sets the breadcrumb
-;;   `realm/realm-adapter-disposed?`  ← the old `@disposed?` read
+;;   `installed-adapter` — the live adapter spec map, or nil when none is seated.
+;;   `adapter-disposed?` — the dispose breadcrumb. `true` iff the most recent
+;;                         lifecycle event was a successful `dispose-adapter!`
+;;                         with no subsequent install.
 ;;
-;; The breadcrumb still distinguishes:
+;; The breadcrumb distinguishes:
 ;;   (a) `no adapter installed yet` — fresh process, init! never ran;
 ;;       the right diagnosis is `:rf.error/no-adapter-installed`;
 ;;   (b) `adapter was installed and then torn down` — usually a test
 ;;       fixture or a hot-reload swap that hasn't reinstalled yet;
 ;;       the right diagnosis is `:rf.error/adapter-disposed`.
 ;;
-;; Both states leave the install slot empty so a fresh adapter can
-;; install via `install-adapter!`; the breadcrumb clears on the next
-;; successful install. No cycle: `re-frame.realm` requires only `registrar` +
-;; `late-bind` (neither pulls this ns), so the static require above is sound.
+;; Both states leave the install slot empty so a fresh adapter can install via
+;; `install-adapter!`; the breadcrumb clears on the next successful install.
+
+(defonce
+  ^{:doc "The installed adapter spec map for this process, or nil when none is
+  seated. Owned by the `install-adapter!` / `dispose-adapter!` pair."}
+  installed-adapter
+  (atom nil))
+
+(defonce
+  ^{:doc "The adapter dispose breadcrumb. `true` iff the most recent lifecycle
+  event was a successful `dispose-adapter!` with no subsequent install — false
+  for a never-installed process and after a fresh install. Owned by the
+  `install-adapter!` / `dispose-adapter!` pair."}
+  adapter-disposed?-state
+  (atom false))
 
 (defn install-adapter!
   "Install the adapter for this process. Once. A second call without an
   intervening dispose-adapter! raises :rf.error/adapter-already-installed
   (per Spec 006 §Single adapter per process). Clears the disposed
   breadcrumb so subsequent delegation calls see a fresh adapter rather
-  than `:rf.error/adapter-disposed`.
-
-  The adapter SELECTION is owned by the default realm (EP-0013 D1 stage 4);
-  this fn guards the single-adapter invariant and then seats the adapter via
-  `realm/install-realm-adapter!`."
+  than `:rf.error/adapter-disposed`."
   [adapter]
-  (when-let [installed (realm/realm-adapter)]
+  (when-let [installed @installed-adapter]
     (error/throw-error!
       :rf.error/adapter-already-installed
       'rf/init!
       "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
       {:extra {:installed installed
                :attempted adapter}}))
-  (realm/install-realm-adapter! adapter)
+  (reset! installed-adapter adapter)
+  (reset! adapter-disposed?-state false)
   adapter)
 
 (defn current-adapter
@@ -101,7 +103,7 @@
   For \"give me the adapter spec map\" (fn handles, hot-swap, identity
   checks across install/dispose), use `current-adapter-spec`."
   []
-  (when-let [a (realm/realm-adapter)]
+  (when-let [a @installed-adapter]
     (:kind a :custom)))
 
 (defn current-adapter-spec
@@ -115,7 +117,7 @@
   human-readable discriminator (predicate / branch code), use
   `current-adapter`."
   []
-  (realm/realm-adapter))
+  @installed-adapter)
 
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
@@ -124,36 +126,32 @@
   `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`
   (rf2-6wxys). Calling dispose with no adapter installed leaves the
   breadcrumb untouched — it doesn't pretend a never-installed adapter
-  was disposed.
-
-  The adapter SELECTION is owned by the default realm (EP-0013 D1 stage 4);
-  this fn runs the seated adapter's own teardown and then clears the realm's
-  adapter slot via `realm/dispose-realm-adapter!`."
+  was disposed."
   []
-  (when-let [adapter (realm/realm-adapter)]
+  (when-let [adapter @installed-adapter]
     (when-let [f (:dispose-adapter! adapter)]
       (f))
-    (realm/dispose-realm-adapter!))
+    (reset! installed-adapter nil)
+    (reset! adapter-disposed?-state true))
   nil)
 
 (defn adapter-disposed?
   "Return true iff the most recent lifecycle event was a successful
   `dispose-adapter!` and no `install-adapter!` has fired since. False
   for `never installed` (fresh process) and after a fresh install.
-  Read-only — the breadcrumb is owned by the install / dispose pair (the
-  default realm's `:adapter-disposed?` slot, EP-0013 D1 stage 4)."
+  Read-only — the breadcrumb is owned by the install / dispose pair."
   []
-  (realm/realm-adapter-disposed?))
+  @adapter-disposed?-state)
 
 (defn ^:no-doc reset-lifecycle-state-for-tests!
-  "Test-only seam — resets the default realm's adapter slot and the disposed
-  breadcrumb to a never-installed cold state. NOT part of the runtime
-  contract; cold-start test fixtures (e.g. `boot_test/cold-start`) use
-  this to wipe the lifecycle state between cases so the no-adapter-
-  installed throw can be asserted independently of the adapter-
-  disposed throw."
+  "Test-only seam — resets the adapter slot and the disposed breadcrumb to a
+  never-installed cold state. NOT part of the runtime contract; cold-start
+  test fixtures (e.g. `boot_test/cold-start`) use this to wipe the lifecycle
+  state between cases so the no-adapter-installed throw can be asserted
+  independently of the adapter-disposed throw."
   []
-  (realm/reset-realm-adapter-lifecycle!)
+  (reset! installed-adapter nil)
+  (reset! adapter-disposed?-state false)
   nil)
 
 ;; ---- delegation helpers ---------------------------------------------------
@@ -203,10 +201,10 @@
   callers in this ns thread the symbol of the public surface they
   implement (e.g. `'rf/make-state-container`).
 
-  Reads the adapter SELECTION from the default realm (EP-0013 D1 stage 4)."
+  Reads the process-global adapter SELECTION."
   [where-sym]
-  (or (realm/realm-adapter)
-      (if (realm/realm-adapter-disposed?)
+  (or @installed-adapter
+      (if @adapter-disposed?-state
         (error/throw-error!
           :rf.error/adapter-disposed
           where-sym

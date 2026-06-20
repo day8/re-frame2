@@ -316,8 +316,7 @@ jobs:
       # internal read or an app's own `counter/install!` hook is not the retired
       # `rf/` facade and never fires. Self-test first (proves the gate fires on
       # each live shape + stays green on every sanctioned counterpart + the
-      # allowlist exemption), then the live scan. A later facade-hygiene gate
-      # (rf2-gqa7yv) will generalise this. See
+      # allowlist exemption), then the live scan. See
       # scripts/check_retired_composition_vocab.py.
       - name: Self-test the retired composition-vocabulary gate
         run: python scripts/check_retired_composition_vocab.py --self-test --verbose

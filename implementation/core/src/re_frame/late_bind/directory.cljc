@@ -1036,14 +1036,6 @@
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"
     :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace.tooling/push-to-ring!` as the routing fallback when the trace event itself does not carry a `:frame` tag (e.g. sub recompute / view render emits inside an in-flight cascade)."}
-   {:key         :app-value/project
-    :producer-ns 're-frame.app-value
-    :design-bead "rf2-yozjzo"
-    :description "EP-0013 D2 stage-5 app-value projection. Returns the immutable, recomputable app VALUE projected over a realm's registrar — `realm-id → {:rf.app/id … :registrations {kind {id descriptor}} :rf.app/requires #{}}`. `re-frame.realm/installed-app` consults it (the no-stored-`:app` branch) to answer the realm-side installed-app read seam — `re-frame.app-value` requires `re-frame.realm` (it projects over the realm's registrar), so the back-read is late-bound to avoid a require cycle. The projection is RECOMPUTABLE over the registrar (the single source of truth), so the ordinary `reg-*` sugar path keeps it current with no invalidation step. INTERNAL — no public app constructor / installed-app read surface ships in stage 5 (EP-0013 issue 1)."}
-   {:key         :app-value/reconcile-installed
-    :producer-ns 're-frame.app-value
-    :design-bead "rf2-77ewnm"
-    :description "EP-0013 D2 installed-app reconcile (rf2-77ewnm). Given `[realm-id stored-app]` (a realm's stored `:app` value), returns the LIVE registrar projection ENRICHED with the seated app's `:rf.app/id` / `:modules` / `:rf.app/requires` provenance — `re-frame.realm/installed-app`'s read for a realm that HAS a stored `:app`. The registrations stay the live registrar's (so coexisting `reg-*` sugar is visible to the read and it can never desync from `app-value`), while the per-module provenance the Xray Module-view feeds to its module rows is preserved from the seated value. `re-frame.app-value` requires `re-frame.realm`, so the back-read is late-bound to avoid a require cycle, mirroring `:app-value/project`. Under the EP-0023 realm-substrate collapse (rf2-csgz8l) the install!/reinstall! write path was retired, so the realm never stores an `:app` in production and `installed-app` takes the `:app-value/project` branch; this hook survives as the defensive stored-`:app` branch over the still-present slot. Unbound fallback (app-value ns not loaded): `installed-app` returns the raw stored value."}
 
    ;; ---- re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG aggregator) ----
    ;;

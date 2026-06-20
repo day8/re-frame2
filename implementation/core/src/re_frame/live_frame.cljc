@@ -400,10 +400,9 @@
 ;; durable state. That is exactly `frame/reg-frame`'s existing surgical-update
 ;; contract (app-db / sub-cache / queue preserved, config replaced), so the
 ;; unified constructor inherits it — no separate fail-loud registry. The
-;; irreconcilable-conflict fail-loud path is the registry's own
-;; cross-realm-duplicate-id assertion (`re-frame.migration`) plus the
-;; `reg-frame` install-time validators (classification / schema), which still
-;; throw; a benign same-shape re-mount just refreshes.
+;; irreconcilable-conflict fail-loud path is the `reg-frame` install-time
+;; validators (classification / schema), which still throw; a benign same-shape
+;; re-mount just refreshes.
 
 ;; ===========================================================================
 ;; Opt partition (EP-0024 §One constructor — image-selection vs record-config)

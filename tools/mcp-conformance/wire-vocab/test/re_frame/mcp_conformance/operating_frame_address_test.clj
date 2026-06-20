@@ -17,17 +17,13 @@
     `:app-frames` (reserved-frame-aware) / `:selected` (the tier-2 session
     pin) / `:operating` (the result of full resolution — `nil` means
     AMBIGUOUS: two-plus app frames and no pin).
-  - the realm slots SURVIVE on the envelope as the LABELED-INTERNAL
-    installation boundary — `:realms` / `:operating-realm` / `:selected-realm`
-    — explicitly NOT the central addressing model. A single-realm app collapses
-    them to the `:rf.realm/default` no-op. (The per-frame `:frame-realms`
-    `{frame-id container-id}` map was REMOVED under rf2-70owfr — the afdlyr
-    realm-substrate collapse leaves a single default realm, so a per-frame
-    container map carried no information.)
+  - the realm slots are GONE from the envelope (rf2-udl74a — the
+    re-frame.realm substrate was removed atomically; there is no realm
+    coordinate, public or internal, anywhere in the wire shape).
 
-  This gate pins THAT wire shape so a regression that re-promotes the
-  public realm pin, drops a frame-enumeration slot, or breaks the
-  multi-frame independent-resolution contract trips the conformance corpus.
+  This gate pins THAT wire shape so a regression that re-introduces a realm
+  pin/slot, drops a frame-enumeration slot, or breaks the multi-frame
+  independent-resolution contract trips the conformance corpus.
 
   ## What is DEFERRED (NOT in scope here — rf2-srobm0 territory)
 
@@ -84,34 +80,20 @@
                   the sole app frame (tier 3), else `nil` (tier 4 —
                   AMBIGUOUS: two-plus app frames, no pin). A frame-id or nil.
 
-  LABELED-INTERNAL installation-boundary slots (EP-0023 §Surface
-  dispositions — tooling MAY expose the internal installation/container
-  substrate, labeled as implementation structure, NOT the public model):
-    :realms         — vector of internal installation-container ids.
-    :operating-realm — the container tier-3 resolution scopes to.
-    :selected-realm  — the tier-2 container pin; `nil` when unset.
-
-  (The per-frame `:frame-realms` `{frame-id container-id}` map was REMOVED
-  under rf2-70owfr — the afdlyr realm-substrate collapse leaves a single
-  default realm, so a per-frame container map carried no information.)
+  There are NO realm slots — the re-frame.realm substrate was removed
+  (rf2-udl74a); the wire shape is frame-only.
 
   Open map `{:closed false}` — additive envelope slots (the
   source-uri/freshness decorations the wire-pipeline layers on) compose
   without a schema bump. The LOAD-BEARING claim is that the public
-  addressing slots are present and correctly typed, AND that the realm
-  slots remain (the internal substrate is still REPORTED, not removed)."
+  addressing slots are present and correctly typed."
   [:map
    {:closed false}
    [:ok?        [:= true]]
    [:frames     [:sequential :keyword]]
    [:app-frames [:sequential :keyword]]
    [:selected   [:maybe :keyword]]
-   [:operating  [:maybe :keyword]]
-   ;; Labeled-internal installation boundary — present on the envelope,
-   ;; never the public address.
-   [:realms          {:optional true} [:sequential :keyword]]
-   [:operating-realm {:optional true} [:maybe :keyword]]
-   [:selected-realm  {:optional true} [:maybe :keyword]]])
+   [:operating  [:maybe :keyword]]])
 
 (def OperatingFrameFailure
   "The `{:ok? false :reason <kw> ...}` operating-frame failure envelope.
@@ -143,16 +125,13 @@
   Every fixture MUST validate against `OperatingFrameSuccess`."
   {;; --- single-frame, sole-app-frame tier-3 resolution -------------------
    ;; get-operating-frame example 1: nothing pinned, one app frame ⇒
-   ;; :operating auto-resolves to the sole frame, realm collapse to default.
+   ;; :operating auto-resolves to the sole frame.
    :single-frame-sole-resolution
    {:ok?             true
     :frames          [:rf/default]
     :app-frames      [:rf/default]
     :selected        nil
-    :operating       :rf/default
-    :realms          [:rf.realm/default]
-    :operating-realm :rf.realm/default
-    :selected-realm  nil}
+    :operating       :rf/default}
 
    ;; --- multi-frame, nothing pinned: AMBIGUOUS (bead finding 2) ----------
    ;; get-operating-frame example 2 / reset-operating-frame example 1:
@@ -164,10 +143,7 @@
     :frames          [:rf/default :stories]
     :app-frames      [:rf/default :stories]
     :selected        nil
-    :operating       nil
-    :realms          [:rf.realm/default]
-    :operating-realm :rf.realm/default
-    :selected-realm  nil}
+    :operating       nil}
 
    ;; --- multi-frame WITH a pin (set/get-operating-frame example) ---------
    ;; set-operating-frame example 1 / get-operating-frame example 3: the
@@ -179,10 +155,7 @@
     :frames          [:rf/default :stories]
     :app-frames      [:rf/default :stories]
     :selected        :stories
-    :operating       :stories
-    :realms          [:rf.realm/default]
-    :operating-realm :rf.realm/default
-    :selected-realm  nil}
+    :operating       :stories}
 
    ;; --- reserved-frame-aware :app-frames view ----------------------------
    ;; discover-app / orient filter reserved `:rf/*` tool frames out of
@@ -193,10 +166,7 @@
     :frames          [:rf/default :rf/xray]
     :app-frames      [:rf/default]
     :selected        nil
-    :operating       :rf/default
-    :realms          [:rf.realm/default]
-    :operating-realm :rf.realm/default
-    :selected-realm  nil}})
+    :operating       :rf/default}})
 
 (def ^:private failure-fixtures
   "Per-reason failure envelopes mirroring set-operating-frame examples 2
@@ -253,30 +223,16 @@
     (testing ":frames MUST be keywords, never strings"
       (is (not (m/validate OperatingFrameSuccess (assoc base :frames ["rf/default" "stories"])))))))
 
-(deftest realm-slots-survive-as-labeled-internal-substrate
-  ;; EP-0023 demoted the realm to the INTERNAL installation substrate but
-  ;; KEPT it on the envelope (labeled-internal, not removed). Pin that the
-  ;; installation-boundary realm slots (`:realms` / `:operating-realm`) still
-  ;; ride AND that a single-realm app collapses them to the `:rf.realm/default`
-  ;; no-op (the documented installation-boundary collapse). A regression that
-  ;; DROPPED these realm slots entirely (over-reading EP-0023's demotion as a
-  ;; removal) would trip these. (The per-frame `:frame-realms` map was removed
-  ;; under rf2-70owfr — the single default realm makes it informationless — so
-  ;; it is NO LONGER pinned here.)
-  (let [collapsed (:single-frame-sole-resolution success-fixtures)]
-    (testing "the labeled-internal realm slots are present on the envelope"
-      (is (contains? collapsed :realms))
-      (is (contains? collapsed :operating-realm)))
-    (testing "the per-frame :frame-realms map is GONE (rf2-70owfr)"
-      (is (not (contains? collapsed :frame-realms))
-          "the single default realm makes a per-frame container map informationless")
-      (is (m/validate OperatingFrameSuccess collapsed)
-          "the envelope still validates without :frame-realms — the schema dropped the key"))
-    (testing "single-realm app collapses the installation boundary to the default no-op"
-      (is (= [:rf.realm/default] (:realms collapsed)))
-      (is (= :rf.realm/default (:operating-realm collapsed))))
-    (testing "the realm slots are typed keywords (the internal substrate is reported faithfully)"
-      (is (m/validate OperatingFrameSuccess collapsed)))))
+(deftest no-realm-slots-on-the-envelope
+  ;; rf2-udl74a: the re-frame.realm substrate was removed atomically. The
+  ;; operating-frame envelope is frame-only — no realm coordinate, public or
+  ;; internal. A regression that re-introduced a realm slot would surface here.
+  (doseq [[fixture-name fixture-value] success-fixtures]
+    (testing (str "fixture " fixture-name " carries no realm slots")
+      (is (not (contains? fixture-value :realms)))
+      (is (not (contains? fixture-value :operating-realm)))
+      (is (not (contains? fixture-value :selected-realm)))
+      (is (not (contains? fixture-value :frame-realms))))))
 
 (deftest multi-frame-independent-resolution
   ;; Bead rf2-f0isjs finding 2: two distinct frame ids resolve
@@ -307,7 +263,7 @@
     (testing "the pin is the ONLY difference between the two multi-frame envelopes"
       (is (= (dissoc ambiguous :selected :operating)
              (dissoc pinned :selected :operating))
-          "same frame enumeration + same realm collapse; only the pin/resolution differ"))))
+          "same frame enumeration; only the pin/resolution differ"))))
 
 (deftest reserved-frames-excluded-from-app-frames
   ;; The reserved-frame-aware view: `:frames` enumerates the FULL public

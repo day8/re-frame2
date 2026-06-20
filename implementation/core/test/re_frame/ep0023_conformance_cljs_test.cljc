@@ -68,7 +68,6 @@
             [re-frame.source-store   :as ss]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
-            [re-frame.realm          :as realm]
             [re-frame.core           :as rf]
             [re-frame.std-interceptors    :as std]
             [re-frame.interceptor-registry :as icpt-reg]
@@ -84,24 +83,18 @@
 ;; standard registry + its generation, the resolved-generation cache, the
 ;; live-frame registry) — these are this wave's own defonces, not framework
 ;; ns-load state a sibling depends on, so a direct reset is safe and gives every
-;; case a known baseline. The plain-atom adapter is installed so the migration
-;; section's `av/install!` realm path works (it mirrors `migration-cljs-test`);
-;; the assembly/selection sections never render.
-
-(defn- drop-non-default-realms! []
-  (swap! realm/realms select-keys [realm/default-realm-id])
-  (swap! realm/realms update realm/default-realm-id dissoc :app :capabilities))
+;; case a known baseline. The plain-atom adapter is installed so the make-frame
+;; cases that need a live substrate work; the assembly/selection sections never
+;; render.
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter})
   (fn [t]
     (asm/clear-standards!)
     (asm/clear-generation-cache!)
-    (drop-non-default-realms!)
     (t)
     (asm/clear-standards!)
-    (asm/clear-generation-cache!)
-    (drop-non-default-realms!)))
+    (asm/clear-generation-cache!)))
 
 (defn- reg-desc
   "A synthetic REGISTERED descriptor authored in `provenance-ns` — the shape the
@@ -782,21 +775,11 @@
                                        [(reg-desc "x.y" :event :a ::a)]))))))
 
 ;; ===========================================================================
-;; SECTION 8 — Migration diagnostics
-;; (EP-0023 §Backwards Compatibility And EP-0013 Partial Supersession)
+;; SECTION 8 — The one frame constructor (EP-0024 §One constructor)
 ;; ===========================================================================
 ;;
-;; assert-process-local-frame-id! fires on a cross-realm duplicate frame id (the
-;; EP-0013 (realm, frame) affordance the EP-0023 process-local frame-id space
-;; removes); rf/make-frame is repointed onto the EP-0023 object constructor (the
-;; dual-export window is closed — the facade exports exactly one make-frame).
-
-;; NOTE (rf2-afdlyr): the `s8-cross-realm-frame-id-fails-loud` case stood up two
-;; non-default realms (via `construct-realm` + `av/install!`) to drive the
-;; EP-0023 process-local frame-id assertion. Both were retired with the
-;; realm-substrate collapse — non-default realms can no longer be constructed,
-;; so the cross-realm collision is unreachable; the fresh-id case is covered in
-;; `migration-cljs-test/a-fresh-frame-id-passes-the-process-local-assertion`.
+;; rf/make-frame is the EP-0023 object constructor — the facade exports exactly
+;; one make-frame, which returns the frame VALUE.
 
 (deftest s8-make-frame-is-the-one-constructor
   (testing "EP-0024 §One constructor (rf2-tu2vr7): rf/make-frame is the ONE

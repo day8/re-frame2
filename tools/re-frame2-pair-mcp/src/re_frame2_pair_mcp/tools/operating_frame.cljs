@@ -12,27 +12,14 @@
   ## The public address is the frame (EP-0023)
 
   The EP-0023 public model is `image -> frame -> event stream` (EP-0023
-  §Specification, §Surface dispositions). The public target of every
-  frame-scoped op is a FRAME — a process-local frame id in the live-frame
-  registry (or a direct frame object in tests/harnesses). EP-0023 collapses
-  EP-0013's two-part `(realm, frame)` address into ONE public frame-id
-  space: the frame is the thing you pin, and its resolution universe is the
-  resolved image generation it runs.
+  §Specification). The public target of every frame-scoped op is a FRAME — a
+  process-local frame id in the live-frame registry (or a direct frame object
+  in tests/harnesses). A single process-local frame-id space: the frame is the
+  thing you pin, and its resolution universe is the resolved image generation
+  it runs.
 
-  So `set-operating-frame` pins a FRAME ID, full stop — there is no public
-  realm pin. The EP-0013 realm survives only as the INTERNAL installation /
-  container substrate (registrar seating, adapter/capability storage,
-  disposal, the single-realm-default compatibility home — EP-0023 §Surface
-  dispositions: \"realm — internal installation/container\"). The
-  installation-boundary info is still reported by `get-operating-frame` /
-  `discover-app` / `orient` as LABELED implementation structure (the
-  `:realms` / `:operating-realm` slots; EP-0023 §Surface dispositions:
-  \"Tooling may still expose the internal installation boundary, but should
-  label it as such\"), never as the central addressing model. (The per-frame
-  `:frame-realms` map was removed under rf2-70owfr — the single default realm
-  makes it informationless.) `reset-operating-frame` also clears the internal
-  realm pin the tier-3 sole-frame resolver uses, so a session resets to a clean
-  posture.
+  So `set-operating-frame` pins a FRAME ID, full stop. `reset-operating-frame`
+  clears the pin so a session resets to a clean posture.
 
   ## The gap these close
 
@@ -231,20 +218,14 @@
 ;;
 ;; Clear the session's frame pin (`select-frame! nil`) and read back the map
 ;; so the caller sees the post-reset state (`:selected nil`, `:operating`
-;; now the tier-3/4 resolution). It ALSO clears the runtime's internal realm
-;; pin (`select-realm! nil`) — the realm is the internal installation
-;; substrate the tier-3 sole-frame resolver scopes to (EP-0023 §Surface
-;; dispositions: realm is internal installation/container), not a public
-;; address, so clearing it returns the resolver to the default-installation
-;; posture. One eval form — clear then re-read — so the reported map reflects
-;; the cleared pins.
+;; now the tier-3/4 resolution). One eval form — clear then re-read — so the
+;; reported map reflects the cleared pin.
 ;; ---------------------------------------------------------------------------
 
 (defn- reset-form []
   (ef/emit
     (ef/rt-let
-      ['_  (ef/rt-call 'select-frame! nil)
-       '_r (ef/rt-call 'select-realm! nil)]
+      ['_  (ef/rt-call 'select-frame! nil)]
       (ef/rt-call 'frames-list))))
 
 (defn reset-operating-frame-tool [conn raw-args]
@@ -279,14 +260,9 @@
 ;; get-operating-frame
 ;;
 ;; Pure read — the normative triple (Tool-Pair §Tool-surface obligations:
-;; `:frames` / `:selected` / `:operating`) plus the LABELED-internal
-;; installation-boundary slots (`:realms` / `:operating-realm` — EP-0023
-;; §Surface dispositions: tooling may expose the internal installation
-;; boundary, labeled as implementation structure; the per-frame `:frame-realms`
-;; map was removed under rf2-70owfr — single default realm).
-;; Routes through the runtime's `frames-list`, the SAME accessor
-;; `discover-app` consults, so the two never disagree about what's registered
-;; or pinned.
+;; `:frames` / `:selected` / `:operating`). Routes through the runtime's
+;; `frames-list`, the SAME accessor `discover-app` consults, so the two never
+;; disagree about what's registered or pinned.
 ;; ---------------------------------------------------------------------------
 
 (defn- get-form []

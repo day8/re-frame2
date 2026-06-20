@@ -352,24 +352,14 @@
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Internal installation-boundary targeting (EP-0023 §Surface dispositions —
-;; realm is the internal installation/container substrate; realm-scoped
-;; registrar queries retained as tooling surface, labeled as such).
-;;
-;; The OPTIONAL `:realm` arg names an INTERNAL installation container (not a
-;; public address) and threads its id into the INTERNAL generation-bypass seam
-;; `(re-frame.realm/realm-handler-meta r kind id)` /
-;; `(re-frame.realm/realm-registrations r kind)` — rf2-10nggz removed the public
-;; `:realm` registrar-query map arity from the facade; the honestly-named
-;; `re-frame.realm/realm-*` readers are the surviving internal/tooling seam.
-;; ABSENT ⇒ the byte-identical default-container path (no `:realm` key on the
-;; response).
+;; Eval-form capture helper — used by the frame-targeting tests below to assert
+;; on the exact eval form the tool ships (the frame-targeted vs default shape).
 ;; ---------------------------------------------------------------------------
 
 (defn- with-form-capture!
   "Stub `nrepl/cljs-eval-value` to CAPTURE the non-probe eval form string
   into `form-atom` and resolve with `canned`. Lets a test assert on the
-  exact form the tool ships (the realm-targeted vs default-realm shape)."
+  exact form the tool ships (the frame-targeted vs default shape)."
   [form-atom canned body-fn]
   (let [stub (fn
                ([_conn _build-id form-str]
@@ -386,8 +376,8 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn))))))
 
-(deftest handler-meta-default-realm-form-is-byte-identical
-  (testing "no :realm ⇒ the eval form routes through the runtime registrar-describe (unchanged)"
+(deftest handler-meta-default-form-is-byte-identical
+  (testing "no :frame ⇒ the eval form routes through the runtime registrar-describe (unchanged)"
     (async done
       (let [form (atom nil)
             canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
@@ -398,83 +388,13 @@
                              (let [edn (extract-edn result)]
                                (is (str/includes? @form "registrar-describe")
                                    "default path still uses the runtime registrar-describe fn")
-                               (is (not (str/includes? @form ":realm"))
-                                   "no realm threaded into the default form")
-                               (is (not (contains? edn :realm))
-                                   "default-realm response carries NO :realm key (byte-identical)"))
+                               (is (not (contains? edn :frame))
+                                   "default response carries NO :frame key (byte-identical)"))
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
-(deftest handler-meta-explicit-realm-uses-internal-seam-form
-  (testing "an explicit :realm ⇒ the form uses the internal (re-frame.realm/realm-handler-meta r kind id) seam and stamps :realm"
-    (async done
-      (let [form (atom nil)
-            canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
-        (-> (with-form-capture! form canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
-                                                        :id    ":counter/inc"
-                                                        :realm ":shop/realm"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "re-frame.realm/realm-handler-meta")
-                                   "realm path routes through the internal generation-bypass seam")
-                               (is (not (str/includes? @form "re-frame.core/handler-meta"))
-                                   "the removed public {:realm …} facade arity is no longer emitted")
-                               (is (str/includes? @form ":shop/realm")
-                                   "the realm-id is threaded as a positional arg")
-                               (is (true? (:ok? edn)))
-                               (is (= :shop/realm (:realm edn))
-                                   "the resolved realm is stamped on the response"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
-
-(deftest handler-meta-rejects-realm-with-machine
-  (testing "kind=machine + :realm ⇒ structured :realm-unsupported-for-machine (no silent swallow)"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind  "machine"
-                                              :id    ":auth/session"
-                                              :realm ":shop/realm"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :realm-unsupported-for-machine (:reason edn)))
-                     (is (= :shop/realm (:realm edn))))
-                   (done)))))))
-
-(deftest handler-meta-rejects-invalid-realm-edn
-  (testing "an unreadable :realm surfaces :invalid-realm-edn"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
-                                              :id    ":counter/inc"
-                                              :realm "{:unclosed"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :invalid-realm-edn (:reason edn))))
-                   (done)))))))
-
-(deftest list-handlers-explicit-realm-uses-internal-seam-form
-  (testing "list-handlers with :realm ⇒ (re-frame.realm/realm-registrations r kind) internal seam and stamps :realm"
-    (async done
-      (let [form (atom nil)]
-        (-> (with-form-capture! form [:a :b]
-              (fn []
-                (-> (hm/list-handlers-tool nil (args-js {:kind "event" :realm ":shop/realm"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "re-frame.realm/realm-registrations")
-                                   "realm path routes through the internal generation-bypass seam")
-                               (is (not (str/includes? @form "re-frame.core/registrations"))
-                                   "the removed public {:realm …} facade arity is no longer emitted")
-                               (is (str/includes? @form ":shop/realm"))
-                               (is (true? (:ok? edn)))
-                               (is (= :shop/realm (:realm edn))))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
-
-(deftest list-handlers-default-realm-form-is-byte-identical
-  (testing "list-handlers with no :realm ⇒ runtime registrar-list (unchanged), no :realm key"
+(deftest list-handlers-default-form-is-byte-identical
+  (testing "list-handlers with no :frame ⇒ runtime registrar-list (unchanged), no :frame key"
     (async done
       (let [form (atom nil)]
         (-> (with-form-capture! form [:a :b]
@@ -483,28 +403,9 @@
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
                                (is (str/includes? @form "registrar-list"))
-                               (is (not (contains? edn :realm))))
+                               (is (not (contains? edn :frame))))
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
-
-(deftest list-handlers-rejects-realm-with-machine
-  (testing "list-handlers kind=machine + :realm ⇒ structured :realm-unsupported-for-machine"
-    (async done
-      (-> (hm/list-handlers-tool nil (args-js {:kind "machine" :realm ":shop/realm"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :realm-unsupported-for-machine (:reason edn))))
-                   (done)))))))
-
-(deftest realm-arg-is-optional-in-descriptors
-  (testing "the :realm property is present but NOT required on both tools"
-    (doseq [tool-name ["handler-meta" "list-handlers"]]
-      (let [{:keys [required properties]} (:inputSchema (find-descriptor tool-name))]
-        (is (contains? properties :realm)
-            (str tool-name " exposes the optional :realm property"))
-        (is (not (contains? (set required) "realm"))
-            (str tool-name " does not require :realm (default realm is the common case))"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0016 resource kinds — happy-path EXECUTION coverage (rf2-uydhif).
@@ -701,7 +602,6 @@
 ;; PUBLIC `(rf/handler-meta {:frame f …})` / `(rf/handler-ids {:frame f …})`
 ;; facade reads). ABSENT ⇒ the byte-identical default path. PRESENT ⇒ the
 ;; frame-id threaded into the per-frame form + stamped on the response.
-;; `:frame` + `:realm` are mutually exclusive (distinct address families);
 ;; `:frame` + machine is rejected (machines are not in the resolver).
 ;; ---------------------------------------------------------------------------
 
@@ -749,21 +649,6 @@
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
-(deftest handler-meta-rejects-frame-plus-realm
-  (testing ":frame + :realm ⇒ structured :frame-and-realm-mutually-exclusive (distinct address families)"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
-                                              :id    ":counter/inc"
-                                              :frame ":blue/main"
-                                              :realm ":shop/realm"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :frame-and-realm-mutually-exclusive (:reason edn)))
-                     (is (= :blue/main (:frame edn)))
-                     (is (= :shop/realm (:realm edn))))
-                   (done)))))))
-
 (deftest handler-meta-rejects-frame-with-machine
   (testing ":frame + kind=machine ⇒ structured :frame-unsupported-for-machine"
     (async done
@@ -794,18 +679,6 @@
                                    "the resolved frame is stamped on the response"))
                              (done))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
-
-(deftest list-handlers-rejects-frame-plus-realm
-  (testing "list-handlers :frame + :realm ⇒ :frame-and-realm-mutually-exclusive"
-    (async done
-      (-> (hm/list-handlers-tool nil (args-js {:kind  "event"
-                                               :frame ":blue/main"
-                                               :realm ":shop/realm"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :frame-and-realm-mutually-exclusive (:reason edn))))
-                   (done)))))))
 
 (deftest list-handlers-rejects-frame-with-machine
   (testing "list-handlers :frame + kind=machine ⇒ :frame-unsupported-for-machine"

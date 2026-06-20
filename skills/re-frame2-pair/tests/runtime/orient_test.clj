@@ -55,8 +55,8 @@
           (str "orient MUST carry the " slot " summary slot (rf2-3bu3d.8).")))))
 
 (deftest orient-reuses-existing-surfaces-no-reinvention
-  (let [form      (defn-named 'orient)
-        realm-vw  (defn-named 'realm-registry-view)]
+  (let [form        (defn-named 'orient)
+        process-vw  (defn-named 'process-registry-view)]
     ;; The composition reuses health + app-frame-ids + the registry-view
     ;; helpers + rf/app-db-value + rf/machines — NOT a parallel
     ;; reimplementation.
@@ -65,13 +65,13 @@
     (is (form-contains? #(= 'app-frame-ids %) form)
         "orient reuses `app-frame-ids` (tool frames split out).")
     ;; rf2-srobm0 — the registry slot is now produced by the registry-view
-    ;; helpers (frame-registry-view ⊳ realm-registry-view fallback); the
-    ;; realm view still reuses `registrar-list` for the navigable ids.
+    ;; helpers (frame-registry-view ⊳ process-registry-view fallback); the
+    ;; process view still reuses `registrar-list` for the navigable ids.
     (is (and (form-contains? #(= 'frame-registry-view %) form)
-             (form-contains? #(= 'realm-registry-view %) form))
-        "orient composes its :registry from the frame/realm registry-view helpers.")
-    (is (form-contains? #(= 'registrar-list %) realm-vw)
-        "realm-registry-view reuses `registrar-list` for the navigable registry ids.")))
+             (form-contains? #(= 'process-registry-view %) form))
+        "orient composes its :registry from the frame/process registry-view helpers.")
+    (is (form-contains? #(= 'registrar-list %) process-vw)
+        "process-registry-view reuses `registrar-list` for the navigable registry ids.")))
 
 (deftest orient-excludes-tool-frames-from-top-keys
   ;; :app-db-top-keys must key on app frames (via app-frame-ids), so a
@@ -90,13 +90,13 @@
   "Mirror of `orient`'s assembly from its reused inputs. KEEP IN SYNC with
    preload/re_frame2_pair/runtime.cljs §App-shape orientation summary.
 
-   The `:registry` slot here mirrors the REALM-VIEW fallback shape
-   (`realm-registry-view`) — the byte-stable counts + navigable id vectors.
+   The `:registry` slot here mirrors the PROCESS-VIEW fallback shape
+   (`process-registry-view`) — the byte-stable counts + navigable id vectors.
    Live, orient re-bases on the OPERATING FRAME's image generation when one
    resolves (rf2-srobm0), adding `:basis :frame` + `:frame <id>` and keying
-   the counts off the frame's resolver; the realm view carries `:basis
-   :realm`. This mirror pins the documented summary slot shape, not the
-   per-basis resolution (the frame/realm registry-view fns own that)."
+   the counts off the frame's resolver; the process view carries `:basis
+   :process`. This mirror pins the documented summary slot shape, not the
+   per-basis resolution (the frame/process registry-view fns own that)."
   [{:keys [health app-fids app-dbs registrations machines]}]
   {:ok?      true
    :liveness {:debug-enabled?      (:debug-enabled? health)
