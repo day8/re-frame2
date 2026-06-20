@@ -29,6 +29,7 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
+            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- fixture builders ---------------------------------------------------
@@ -631,15 +632,28 @@
     (let [rows (h/with-rel-times [{:time 100} {:time 103}])]
       (is (= ["+0.0" "+3.0"] (mapv :rel-time rows))))))
 
-(deftest duration-ms-reads-elapsed
-  (testing "duration-ms pulls :elapsed-ms from tags"
-    (is (= 0.4 (h/duration-ms (ev {:id 1 :op-type :rf.view
-                                   :operation :rf.view/render
-                                   :tags {:elapsed-ms 0.4}})))))
+(deftest duration-ms-reads-canonical-per-area-elapsed-tags
+  ;; rf2-k7vtri — the substrate stamps the CANONICAL per-area namespaced
+  ;; elapsed tag (`:rf.fx/elapsed-ms`, `:rf.sub/elapsed-ms`, …), NOT a bare
+  ;; `:elapsed-ms`, on each op family's run-end / handled / rendered emit.
+  ;; Drive the canonical builders (the same shape `trace/emit!` stamps) so a
+  ;; reader that only read the non-canonical `:elapsed-ms` is caught: before
+  ;; the fix every one of these resolved to nil (the panel rendered `—`).
+  (testing "FX duration — :rf.fx/elapsed-ms (spec/009 §241)"
+    (is (= 12.0 (h/duration-ms (teb/fx-handled-ev :http/post {:url "/x"} 12.0)))))
+  (testing "SUB duration — :rf.sub/elapsed-ms (spec/009 §251)"
+    (is (= 0.7 (h/duration-ms (teb/sub-run-ev [:items] true nil [1 2 3] 0.7)))))
+  (testing "VIEW duration — :rf.view/elapsed-ms (spec/009 §281)"
+    (is (= 3.4 (h/duration-ms (teb/view-rendered-ev :app/root [[:items]] 3.4)))))
+  (testing "COEFFECT duration — :rf.cofx/elapsed-ms (spec/009 §243)"
+    (is (= 0.6 (h/duration-ms (teb/cofx-run-ev :session {:user-id 42} 0.6)))))
+  (testing "HANDLER duration — :rf.event/elapsed-ms (re-frame.router emit-run-end)"
+    (is (= 4.2 (h/duration-ms (teb/run-end-ev 4.2)))))
+  (testing "FLOW duration — bare :elapsed-ms tag (re-frame.flows)"
+    (is (= 0.9 (h/duration-ms (teb/flow-recomputed-ev :total [:total] 1 2 0.9)))))
   (testing "point-in-time emits carry no elapsed → nil (renders —)"
-    (is (nil? (h/duration-ms (ev {:id 1 :op-type :rf.sub
-                                  :operation :rf.sub/run
-                                  :tags {:rf.sub/id :x}}))))))
+    (is (nil? (h/duration-ms (teb/sub-run-ev [:items] true nil [1 2 3]))))
+    (is (nil? (h/duration-ms (teb/cofx-run-ev :session {:user-id 42}))))))
 
 (deftest format-duration-figma-form
   (is (= "0.4 ms" (h/format-duration 0.4)))

@@ -3,28 +3,32 @@
 
   ## What this panel shows (spec/023-Trace-Panel.md)
 
-  The Trace panel renders the COMPLETE TRACE ARC of a single epoch —
-  every trace operation the substrate emits during the epoch, in fire
-  order, organised by the epoch's phase shape. Its contract is
-  COMPLETENESS: every op-family in the Spec-009 vocabulary surfaces
-  (spec/023 §1). The structural projection here turns the focused
-  epoch's `:trace-events` into:
+  The Trace panel renders the COMPLETE TRACE of a single epoch — every
+  trace operation the substrate emits during the epoch, in strict fire
+  order (oldest-first). Its contract is COMPLETENESS: every op-family in
+  the Spec-009 vocabulary surfaces (spec/023 §1). Since rf2-aqusw the
+  panel is a SINGLE FLAT LIST — no envelope, no phase-band nesting, no
+  empty-band scaffolding. The 4-band hierarchy (EPOCH OPEN / DISPATCH /
+  EVENT HANDLING / EFFECTS-FX / REACTIVE RENDERING) was replaced because
+  it was hard to scan. The epoch-lifecycle ops (`:rf.epoch/*`) render as
+  ORDINARY rows in the flat list; `:rf.epoch/outcome` carries the
+  consumer-facing `:ok` / `:blocked` / `:error` summary.
 
-      ○ EPOCH OPEN  envelope row (epoch-lifecycle ops · :rf.epoch/*)
-      ▾ ① DISPATCH          (the event dispatched)
-      ▾ ② EVENT HANDLING    (coeffects → handler → flows → db-changed)
-      ▾ ③ EFFECTS / FX      (fx handlers · routing nav · machine timers)
-      ▾ ④ REACTIVE RENDERING (subscriptions → views)
-      ● EPOCH CLOSE outcome :ok/:blocked/:error
+  Each op renders as a row of SIX columns (spec/023 §3):
 
-  Each op renders as a row of five columns (spec/023 §3):
+      Δt · stage · area badge · what-happened · target/detail · duration
 
-      Δt · area badge · what-happened · target/detail · duration
+  The phase information the bands conveyed is recovered per-row by the
+  STAGE column + a colour-coded left edge — each row names the Epoch-panel
+  pipeline step it belongs to (spec/023 §3a).
 
   Errors and warnings are cross-cutting — they render INLINE at their
-  chronological point in whatever band they occurred (spec/023 §7),
-  emphasised so failures stand out. Empty phase bands render dimmed
-  with `(none)` so the 4-phase shape is always legible (spec/023 §13).
+  chronological point in the flat list (spec/023 §7), with the row's left
+  edge riding the severity colour so failures stand out.
+
+  NOTE: the band-projection helpers (`build-bands` etc.) below are
+  retained for cross-panel / test consumers, but the Trace panel no
+  longer renders bands — see the per-helper comments.
 
   ## Why a separate `.cljc` ns
 
@@ -712,13 +716,30 @@
   (get-in ev [:tags :rf.event/origin]))
 
 (defn duration-ms
-  "Per-op elapsed time, in ms, when the trace event reports it. Reads
-  `[:tags :elapsed-ms]` then a top-level `:elapsed-ms` fallback. Returns
-  nil otherwise — point-in-time emits carry no elapsed, so the duration
-  column renders `—` (spec/023 §6). Pure data → number-or-nil;
-  JVM-testable."
+  "Per-op elapsed time, in ms, when the trace event reports it.
+
+  The substrate stamps the CANONICAL per-area namespaced elapsed tag on
+  each op family's run-end / handled / rendered emit — `:rf.fx/elapsed-ms`
+  (re-frame.fx · spec/009 §241), `:rf.cofx/elapsed-ms` (re-frame.cofx ·
+  §243), `:rf.sub/elapsed-ms` (§251), `:rf.event/elapsed-ms`
+  (re-frame.router emit-run-end), `:rf.view/elapsed-ms` (re-frame.views ·
+  §281). Flows carry a bare `:elapsed-ms` tag (re-frame.flows). We read the
+  per-area tag by op family first, then the bare `:elapsed-ms` (flows + any
+  legacy projected emit-record carrying it top-level). This mirrors the
+  Epoch projection reader's canonical-tag fix (rf2-ipaza); reading only the
+  non-canonical `:elapsed-ms` silently rendered `—` for every fx/sub/view/
+  cofx/handler row against real substrate traces (rf2-k7vtri).
+
+  Returns nil otherwise — genuine point-in-time emits carry no elapsed, and
+  production DCE strips the timing capture, so the duration column renders
+  `—` (spec/023 §6). Pure data → number-or-nil; JVM-testable."
   [ev]
-  (let [e (or (get-in ev [:tags :elapsed-ms])
+  (let [e (or (get-in ev [:tags :rf.fx/elapsed-ms])
+              (get-in ev [:tags :rf.sub/elapsed-ms])
+              (get-in ev [:tags :rf.view/elapsed-ms])
+              (get-in ev [:tags :rf.cofx/elapsed-ms])
+              (get-in ev [:tags :rf.event/elapsed-ms])
+              (get-in ev [:tags :elapsed-ms])
               (:elapsed-ms ev))]
     (when (number? e) e)))
 

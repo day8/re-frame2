@@ -98,8 +98,14 @@ Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flo
 ## §6 Duration / timing
 
 - Duration renders as a plain number in ms; `—` when no timing is available.
-- **Views** — sourced from `:rf.view/elapsed-ms` (available today).
-- **Subs · coeffects · fx · flows · handler** — require run-start/run-end timing on the trace events. This is a Spec-009 instrumentation dependency; until present, these ops render `—`. (Implementation should add the timing capture so the arc is fully profiled.)
+- Per-op timing is sourced from the **canonical per-area `:rf.<area>/elapsed-ms` tag** the substrate stamps on each op family's run-end / handled / rendered emit (dev builds):
+  - **Views** — `:rf.view/elapsed-ms` ([Spec 009](../../../spec/009-Instrumentation.md) §281, `re-frame.views`).
+  - **Fx** — `:rf.fx/elapsed-ms` (§241, `re-frame.fx`).
+  - **Coeffects** — `:rf.cofx/elapsed-ms` (§243, `re-frame.cofx`).
+  - **Subs** — `:rf.sub/elapsed-ms` (§251).
+  - **Handler** — `:rf.event/elapsed-ms` (`re-frame.router` emit-run-end).
+  - **Flows** — a bare `:elapsed-ms` tag (`re-frame.flows`).
+- `—` remains the correct render only in the genuine no-timing cases: point-in-time emits that carry no elapsed (e.g. `:rf.epoch/snapshotted`, `:rf.event/dispatched`), and **production builds** where the timing capture is DCE-stripped.
 
 ## §7 Errors & warnings
 
@@ -234,7 +240,7 @@ Type scale, spacing, density, iconography, base surfaces/borders MUST conform to
 
 ## Appendix A — Op-handling matrix (the "covers ALL trace" checklist)
 
-Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pipeline step each op maps to (§3a — the flat panel's stage column + colour-coded edge). `dur?` = number once timing instrumentation lands (§6), else `—`. Errors/warnings collapse to one generic rule each; registration/boot ops are out of scope.
+Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pipeline step each op maps to (§3a — the flat panel's stage column + colour-coded edge). `dur?` = a number sourced from the op family's per-area `:rf.<area>/elapsed-ms` tag in dev builds (§6), `—` for genuine point-in-time emits and production (DCE-stripped) builds. Errors/warnings collapse to one generic rule each; registration/boot ops are out of scope.
 
 | Operation | Stage (§3a) | Area | Row label | Target / detail | Dur |
 |---|---|---|---|---|---|
