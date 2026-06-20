@@ -20,16 +20,16 @@
       - `with-managed-request-stubs*`
       - `install-managed-request-stubs!`
       - `uninstall-managed-request-stubs!`
-   - the late-bind hook publications under
-     `:http/install-managed-request-stubs!`,
-     `:http/uninstall-managed-request-stubs!`,
-     `:http/with-managed-request-stubs*` (resolved by
-     `re-frame.core-http`'s defwrapper surface).
+   - the `:http/with-managed-request-stubs*` late-bind hook publication
+     (resolved by `re-frame.core-http`'s defwrapper surface). The raw
+     `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
+     pair is NOT a `re-frame.core` re-export (rf2-ntwwyt) and publishes no
+     late-bind hook — tests call it directly from this namespace.
 
   This smoke pins the load-time side effects: fx registrations land,
   the fx ids delegate (on the immediate path) to this namespace's
-  canned-* bodies, and the stub-family late-bind hooks are non-nil after
-  the require. The deeper end-to-end
+  canned-* bodies, and the `:http/with-managed-request-stubs*` late-bind
+  hook is non-nil after the require. The deeper end-to-end
   behaviour (canned reply → late-bind dispatch → reply lands in
   app-db) is exercised by `re-frame.http-managed-test` and the
   corresponding CLJS smoke under `implementation/adapters/*`."

@@ -32,17 +32,20 @@
 ;; hooks (`:http/clear-all-in-flight!`, `:http/reg-http-interceptor`,
 ;; etc.). Tests / dev demos additionally require
 ;; `re-frame.http.test-support`, which registers the canned-stub fxs
-;; and publishes the stub-family late-bind hooks
-;; (`:http/install-managed-request-stubs!`,
-;; `:http/uninstall-managed-request-stubs!`,
-;; `:http/with-managed-request-stubs*`).
+;; and publishes the `:http/with-managed-request-stubs*` late-bind hook.
+;; (The raw `install-managed-request-stubs!` /
+;; `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core`
+;; re-export — rf2-ntwwyt — and publishes no late-bind hook; tests call
+;; it directly through `re-frame.http.test-support`.)
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
-;; from core to http (`re-frame.core`'s `install-managed-request-stubs!` /
-;; `uninstall-managed-request-stubs!` / `with-managed-request-stubs*` /
-;; `with-managed-request-stubs` re-exports) flow through
+;; from core to http (`re-frame.core`'s `with-managed-request-stubs*` /
+;; `with-managed-request-stubs` re-exports; the raw
+;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
+;; pair is NOT re-exported — rf2-ntwwyt — and is reached directly through
+;; `re-frame.http.test-support`) flow through
 ;; `re-frame.late-bind` exactly as the schemas / machines / routing /
 ;; flows hooks already do.
 {:paths ["src"]
