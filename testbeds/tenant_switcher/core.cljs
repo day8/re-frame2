@@ -109,9 +109,9 @@
 (rf/reg-resource :tenant/dashboard
   {:scope         {:from-db :tenant/scope}
    :params-schema [:map [:page :int]]
-   :request       (fn [{:keys [page]} _ctx]
-                    {:request {:method :get :url "/dashboard" :params {:page page}}})
-   :tags          (fn [_p _v] #{[:dashboard]})})
+   :tags          (fn [_p _v] #{[:dashboard]})}
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get :url "/dashboard" :params {:page page}}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Deterministic in-memory transport stub
