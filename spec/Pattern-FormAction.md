@@ -37,8 +37,8 @@ A cart page lets the user add an item to their basket from a product-detail card
    [:quantity  [:and :int [:>= 1] [:<= 99]]]
    [:csrf-token [:string {:min 1}]]])
 
-(rf/reg-app-schema [:cart :add-form]        FormSlice)
-(rf/reg-app-schema [:cart :add-form :draft] AddToCartForm)
+(rf/reg-app-schema [:cart :add-form]        {:schema FormSlice})
+(rf/reg-app-schema [:cart :add-form :draft] {:schema AddToCartForm})
 ```
 
 (`FormSlice` is the standard slice from [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice).)

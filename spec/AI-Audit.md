@@ -163,7 +163,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | P2 Named things | ✓ | `:id`, `:operation`, `:op-type` all id'd. |
 | P3 Data before magic | ✓ | Trace events are open maps. |
 | P4 Public query surfaces | ✓ | The trace stream IS the query surface for runtime behaviour. |
-| P5 Schemas | ◐ | Trace event shape has stable required keys but no Malli schema is registered for it. Should be `(rf/reg-app-schema [:rf/trace] TraceEventSchema)` or similar. |
+| P5 Schemas | ◐ | Trace event shape has stable required keys but no Malli schema is registered for it. Should be `(rf/reg-app-schema [:rf/trace] {:schema TraceEventSchema})` or similar. |
 | P6 Deterministic execution | ✓ | Per-trace events for every drain step. |
 | P7 Machine-readable errors | ◐ | Errors emit trace events but the *error event shape* isn't formally defined alongside the others. |
 | P8 Low hidden context | ✓ | All emit sites are visible in source. |

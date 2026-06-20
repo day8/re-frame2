@@ -131,7 +131,7 @@ Worked example — articles list. (The `:http` fx in the example is the **illust
 
 ```clojure
 ;; Schema
-(rf/reg-app-schema [:articles] RequestSlice)
+(rf/reg-app-schema [:articles] {:schema RequestSlice})
 
 ;; :on-create init for the feature
 (rf/reg-event :articles/initialise

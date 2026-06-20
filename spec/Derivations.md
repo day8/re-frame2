@@ -556,16 +556,16 @@ The subscription's exact policy twin — same whole-value function, materialized
 ### Resource → process (static, then live)
 
 ```clojure
-;; SOURCE FORM
+;; SOURCE FORM — the :request handler is the THIRD slot (rf2-wvh95f F1)
 (rf/reg-resource :article/by-slug
   {:params-schema  [:map [:slug :string]]
    :data-schema    :app/article
    :scope          :rf.scope/from-caller
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (str "/api/articles/" slug)}
-                      :decode  :app/article})
    :stale-after-ms 60000
-   :gc-after-ms    300000})
+   :gc-after-ms    300000}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :app/article}))
 ```
 
 ```clojure

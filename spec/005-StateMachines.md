@@ -3840,7 +3840,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 (def DrawerState
   [:map [:circles [:vector Circle]]
         [:undo [:vector :any]] [:redo [:vector :any]]])
-(rf/reg-app-schema [:drawer] DrawerState)
+(rf/reg-app-schema [:drawer] {:schema DrawerState})
 
 ;; EP-0022: interceptors are registered image members. Author with
 ;; `reg-interceptor` (the one public form) and reference by id in chains —
