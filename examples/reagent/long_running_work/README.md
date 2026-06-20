@@ -101,7 +101,7 @@ examples/reagent/long_running_work/
   README.md       this file
 ```
 
-The example tree is test-free (rf2-8cevm). The headless fixtures that
+The example tree is test-free. The headless fixtures that
 exercise the parent + child flows were folded into the integration test
 in the framework test tree (see below).
 
@@ -114,7 +114,7 @@ The headless fixtures that exercise the parent + child flows live in the
 integration test at
 [`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs)
 — the helper fns and their `deftest` bodies are folded into that one ns
-(rf2-cd2zo), so the example source stays test-free. Same pattern as
+(folded inline), so the example source stays test-free. Same pattern as
 `nine-states-cljs-test` and `realworld-cljs-test`.
 
 ## How to run

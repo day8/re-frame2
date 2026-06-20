@@ -79,12 +79,12 @@
    Per spec/007 §Variants every variant body is plain data — no
    fn-slots. The view at the centre of each variant is the example's
    own `login.core/root-view`, referenced by id. The canonical Story
-   tags auto-install on the first `reg-*` call (rf2-p1ydc), so no
+   tags auto-install on the first `reg-*` call, so no
    explicit boot step is needed.
 
    This is a parallel SHOWCASE to the gate-side `login_form` testbed
    (`tools/story/testbeds/login_form`), which stays the fixture for
-   Story's own tests. Examples are test-free (rf2-8cevm): these
+   Story's own tests. Examples are test-free: these
    stories carry NO `:script` / `:rf.assert/*` — they are a showcase,
    not a test surface."
   (:require [re-frame.core :as rf]
@@ -136,7 +136,7 @@
 ;; re-fire the lot after a clear-all!. The fn fires once at namespace
 ;; load via the trailing call, so consumers who just `:require` this ns
 ;; get the side-table populated. (No test fixture — examples are
-;; test-free, rf2-8cevm.)
+;; test-free.)
 ;; ---------------------------------------------------------------------------
 
 (def ^:private good-creds
@@ -148,7 +148,7 @@
 (defn register-all!
   "Register the login example's Story artefacts. Idempotent.
    The canonical vocabulary auto-installs on the first `reg-*` call
-   (rf2-p1ydc) — no explicit boot step required."
+   — no explicit boot step required."
   []
 
   ;; -------------------------------------------------------------------------

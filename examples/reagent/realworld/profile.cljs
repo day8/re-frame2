@@ -40,7 +40,7 @@
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
-;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state —
+;; EP-0001: the route slice is durable routing runtime-db state —
 ;; `username-from-db` reads it off the runtime-db value (event handlers pass the
 ;; `:rf.db/runtime` coeffect).
 (defn username-from-db [runtime-db]

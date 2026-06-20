@@ -63,7 +63,7 @@
    `examples/reagent/infinite_feed/`) that synthesises the board reply and,
    when armed, the 503 — so the whole optimistic lifecycle runs standalone.
 
-   The example tree is test-free (rf2-8cevm); the example-specific composition
+   The example tree is test-free; the example-specific composition
    coverage (optimistic-apply, success-commit, failure-rollback) lives in
    `implementation/adapters/reagent/test/re_frame/linearlite_example_cljs_test.cljs`,
    and the optimistic-mutation runtime contract is pinned in

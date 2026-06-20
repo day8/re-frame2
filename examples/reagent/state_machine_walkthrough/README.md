@@ -22,7 +22,7 @@ chapter describes.
   chapter has a matching headless test that drives the machine through
   it and asserts against the resulting snapshot. The chapter promises
   "runs in microseconds on the JVM, no browser, no network"; this
-  example honours that. The example tree is test-free (rf2-8cevm) — the
+  example honours that. The example tree is test-free — the
   scenarios were folded into the framework JVM test (see
   [How to run](#how-to-run)).
 - **HTTP via canned stubs** — the `:issue-request` action dispatches
@@ -73,7 +73,7 @@ The four headless scenarios (pure happy-path, pure lockout,
 drain happy-path, drain retry-then-lockout) were folded into the
 framework JVM test at
 [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-(the `state-machine-walkthrough-runs-headless` deftest, rf2-cd2zo) so
+(the `state-machine-walkthrough-runs-headless` deftest) so
 the example source stays test-free. They run under the JVM test suite.
 
 ## Cross-references

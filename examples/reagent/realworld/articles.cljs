@@ -14,7 +14,7 @@
      the `:data` region note below.
    - route-driven loading — the `/tag/:tag` PATH route filters the list and
      `?feed=following` switches to the authenticated feed (official RealWorld
-     contract shapes, rf2-e90vfv); every navigation broadcasts the
+     contract shapes); every navigation broadcasts the
      corresponding feed-region transition.
    - home-page tabs expressed as feed-region state transitions.
    - The home view's root is a `case` over `:articles.home/render`, a
@@ -232,10 +232,10 @@
          `:data` region advances to `:loading` (or `:refreshing` from
          `:some`)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
-  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  ;; EP-0001: the route slice is durable routing runtime-db state.
   ;; `?page=` (1-indexed, durable on the route query) becomes the wire's
   ;; limit/offset window via `rh/paginate-path` (official RealWorld pagination).
-  ;; rf2-e90vfv: the active tag is now a `/tag/:tag` route PARAM (not `?tag=`).
+  ;; The active tag is now a `/tag/:tag` route PARAM (not `?tag=`).
   ;; Read it off the route params + the page off the query. The WIRE stays
   ;; `/articles?tag=…` — the frontend route shape changed, not the API.
   (fn [{:keys [db] rt :rf.db/runtime} _]
@@ -468,7 +468,7 @@
 
 (reg-view ^{:doc "Data region :empty / :nothing — no articles to show. Renders
                   the official RealWorld `.article-preview.empty-feed-message`
-                  marker (rf2-e90vfv) the E2E contract asserts on for empty
+                  marker the E2E contract asserts on for empty
                   list states."}
           articles-empty []
   [:div.article-preview.empty-feed-message "No articles are here… yet."])

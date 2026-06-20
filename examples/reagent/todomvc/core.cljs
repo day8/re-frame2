@@ -36,7 +36,7 @@
 (defn- current-path []
   (hash->path (.. js/window -location -hash)))
 
-;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): under the carried invariant the runtime
+;; EP-0002: under the carried invariant the runtime
 ;; never synthesises a frame from absence, and URL ownership is an EXPLICIT
 ;; declaration — the app frame is registered with `:url-bound? true` so it owns
 ;; the URL (Spec 012 §Multi-frame routing), seeds under `with-frame`, and the
@@ -65,7 +65,7 @@
   (rf/init! reagent-adapter/adapter)
   (rf/reg-frame app-frame {:doc "TodoMVC demo frame." :url-bound? true})
   (rf/with-frame app-frame
-    ;; EP-0017 (rf2-16ck78): `:todo/initialise` DECLARES the
+    ;; EP-0017: `:todo/initialise` DECLARES the
     ;; `:todo.storage/todos` RECORDABLE+PROVIDED cofx (db.cljs) via
     ;; `:rf.cofx/requires` and folds it into durable app-db. The host read
     ;; happens ONCE here at the boundary; its value rides the boot dispatch

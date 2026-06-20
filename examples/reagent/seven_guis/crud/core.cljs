@@ -55,7 +55,7 @@
                    [:name    :string]
                    [:surname :string]]]])
 
-;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
 ;; schema binds to the app frame whose commits it validates.
@@ -229,7 +229,7 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under

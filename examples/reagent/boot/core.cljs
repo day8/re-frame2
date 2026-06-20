@@ -136,7 +136,7 @@
 ;; `create-root` calls onto the same shared `#app` element.
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. This example uses `:rf/default` as its app frame id:
 ;; `init!` installs the adapter (it does NOT create the frame), `reg-frame`

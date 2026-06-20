@@ -29,7 +29,7 @@
 
 ;; localStorage is deliberate — see README. The Spec-014 :rf.http/managed demo lives with realworld.
 ;;
-;; EP-0017 (recordable coeffects, rf2-16ck78): the saved todos are a STORAGE
+;; EP-0017 (recordable coeffects): the saved todos are a STORAGE
 ;; world fact, and `:todo/initialise` folds them into durable app-db. A durable
 ;; write must be a function of prior frame-state plus the causal token — not of
 ;; an ambient `localStorage` read at the write site (which replay/restore could

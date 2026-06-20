@@ -221,7 +221,7 @@
 ;; HOME-PAGE QUERY HELPERS
 ;; ============================================================================
 ;;
-;; The route-driven part of the home page (rf2-e90vfv route-shape conformance):
+;; The route-driven part of the home page (route-shape conformance):
 ;; - the tag filter is the `/tag/:tag` PATH route (`:realworld/home-tag`); the
 ;;   active tag is a route PARAM, not a `?tag=` query.
 ;; - `?feed=following` switches the home page to the authenticated feed (the
@@ -236,7 +236,7 @@
 ;; The official-contract feed token for the authenticated "Your Feed".
 (def following-feed-token "following")
 
-;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state —
+;; EP-0001: the route slice is durable routing runtime-db state —
 ;; `home-context` reads it off a runtime-db value (event handlers pass the
 ;; `:rf.db/runtime` coeffect; the subs below compose off the public
 ;; `[:rf.route/params]` / `[:rf.route/query]` framework subs). It normalises
@@ -280,7 +280,7 @@
 ;; official Conduit behaviour (the page-number control resets when the feed or
 ;; tag changes). Only `:home/show-page` carries the active feed/tag forward.
 ;;
-;; ROUTE-SHAPE CONFORMANCE (rf2-e90vfv): the tag filter navigates to the
+;; ROUTE-SHAPE CONFORMANCE: the tag filter navigates to the
 ;; `/tag/:tag` PATH route (`:realworld/home-tag`), the following feed uses
 ;; `?feed=following`. `:home/show-page` re-targets whichever home route is
 ;; active (tag route keeps its `:tag` param) so paging stays within the tag.
@@ -320,7 +320,7 @@
 
 (rf/reg-sub :home/selected-tag
   {:doc "The active tag, read from the `/tag/:tag` route's PATH params
-         (rf2-e90vfv — no longer a `?tag=` query)."}
+         (no longer a `?tag=` query)."}
   :<- [:rf.route/params]
   (fn [params _] (:tag params)))
 

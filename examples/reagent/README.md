@@ -2,7 +2,7 @@
 
 The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, 016 Resources, every Pattern-* doc) was authored against the Reagent adapter, and the Reagent path is exercised end-to-end by every JVM `clojure -M:test` run and every shadow-cljs `node-test` build. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
 
-**What pins these examples (the coverage layers).** The `examples/` tree is itself test-free (rf2-8cevm — no `*.spec.cjs`, no `test/` dirs under `examples/`), but each example's behaviour is pinned by one or more of three distinct layers — do not conflate them:
+**What pins these examples (the coverage layers).** The `examples/` tree is itself test-free (no `*.spec.cjs`, no `test/` dirs under `examples/`), but each example's behaviour is pinned by one or more of three distinct layers — do not conflate them:
 
 | Layer | Command | What it covers |
 |---|---|---|
@@ -16,7 +16,7 @@ This directory holds the **full set of worked Reagent examples** (counting each 
 
 Story Stage 8 (`tools/story` end-to-end on the counter) lives as a tool-owned testbed at [`tools/story/testbeds/counter_with_stories/`](../../tools/story/testbeds/counter_with_stories/) — catalogued with the tool that owns it rather than alongside the tutorial examples.
 
-Two examples additionally ship an **intentionally auxiliary Story showcase** layered over the example itself — [`login/`](login/) (`stories.cljs` + `stories_host.cljs` + `stories.index.html`, build `:examples/login-with-stories`, rf2-p8v0q) and [`nine_states/`](nine_states/) (build `:examples/nine-states-with-stories`, rf2-rgyia). Unlike the tool-owned counter testbed above, these are not separate testbeds: each sources its own example's real machine/views and enumerates the example's view-states as Story variants (with the Xray preload wired). They live in the example folder because they showcase *that* worked example; the example tree stays test-free (rf2-8cevm) — a Story showcase is a runnable inspection surface, not a test. See each example's README for the showcase run command.
+Two examples additionally ship an **intentionally auxiliary Story showcase** layered over the example itself — [`login/`](login/) (`stories.cljs` + `stories_host.cljs` + `stories.index.html`, build `:examples/login-with-stories`) and [`nine_states/`](nine_states/) (build `:examples/nine-states-with-stories`). Unlike the tool-owned counter testbed above, these are not separate testbeds: each sources its own example's real machine/views and enumerates the example's view-states as Story variants (with the Xray preload wired). They live in the example folder because they showcase *that* worked example; the example tree stays test-free — a Story showcase is a runnable inspection surface, not a test. See each example's README for the showcase run command.
 
 ## Layout
 
@@ -90,7 +90,7 @@ The maintained map below records the highest coverage layer pinning each example
 | `infinite_feed/` | Direct semantic fixture | `re-frame.infinite-feed-example-cljs-test` (route page-0 ensure / causal load-more append+cursor / nil terminal / page-error third channel / page-0 first-load error) |
 | `linearlite/` | Direct semantic fixture | `re-frame.linearlite-example-cljs-test` (route board ensure / `:optimistic` apply before reply / `:populates` commit / failure rollback for create+edit-title+change-status) |
 
-The direct fixtures live under `implementation/adapters/reagent/test/re_frame/*_cljs_test.cljs` (CLJS) and `implementation/core/test/re_frame/examples_test.clj` (JVM) — never under `examples/` (rf2-8cevm). The `resources/` machine-owned-resource ENSURE step is intentionally left to the artefact runtime + compile coverage (driving the live machine spawn/destroy deterministically in a shared headless bundle is brittle); its start/stop EVENT glue is the pinned example-specific assertion.
+The direct fixtures live under `implementation/adapters/reagent/test/re_frame/*_cljs_test.cljs` (CLJS) and `implementation/core/test/re_frame/examples_test.clj` (JVM) — never under `examples/`. The `resources/` machine-owned-resource ENSURE step is intentionally left to the artefact runtime + compile coverage (driving the live machine spawn/destroy deterministically in a shared headless bundle is brittle); its start/stop EVENT glue is the pinned example-specific assertion.
 
 ## Cross-references
 

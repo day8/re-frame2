@@ -18,7 +18,7 @@
       available — keeps the example standalone for the headless tests
       (in the framework test tree at
       `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`;
-      the example tree is test-free, rf2-8cevm). The stub state lives in
+      the example tree is test-free). The stub state lives in
       the `mock-server-state` atom; plain exported fns are the delivery
       seams — `set-mock-sync!` flips the stub between async (microtask)
       and sync (immediate `dispatch-sync`) delivery, `send-server-push!`
@@ -112,7 +112,7 @@
    actor's machine handler translates the event into a parent-bound
    `[:ws/connection [:ws/<kind> ...]]` dispatch.
 
-   EP-0002 (rf2-9o48ih): inbound deliveries fire from the mock transport's
+   EP-0002: inbound deliveries fire from the mock transport's
    `later` callback — a detached `setTimeout` in async (browser) mode that
    carries NO ambient frame, so a bare `rf/dispatch` here would raise
    `:rf.error/no-frame-context`. The caller (`mock-socket-for-actor`) is
@@ -139,7 +139,7 @@
   [actor-id _url _auth-token]
   (let [id   (next-mock-socket-id)
         open? (atom true)
-        ;; EP-0002 (rf2-9o48ih): this fn runs inside the `:open-socket` action
+        ;; EP-0002: this fn runs inside the `:open-socket` action
         ;; — i.e. under the actor's drain frame — so capture that frame's
         ;; `dispatch` now and thread it into every (async, `later`-deferred)
         ;; inbound delivery below. The detached `setTimeout` callback carries
@@ -202,7 +202,7 @@
    before returning; in async mode it falls back to the queued
    `dispatch`.
 
-   EP-0002 (rf2-9o48ih): a view click handler fires outside React render
+   EP-0002: a view click handler fires outside React render
    scope and outside any drain, so the caller must supply a frame-bound
    `dispatch` / `dispatch-sync` pair (the operations a `reg-view`-injected
    `dispatch` / a captured `(rf/frame-handle)` provides). A bare ambient
@@ -274,7 +274,7 @@
           ;; Report `:opened` to the parent as a `:dispatch` fx (NOT
           ;; via `(rf/dispatch ...)` from inside the action body) so
           ;; the framework routes through the running drain's frame.
-          ;; Important under the EP-0002 carried invariant (rf2-9o48ih):
+          ;; Important under the EP-0002 carried invariant:
           ;; a `:dispatch` fx inherits the cascade's frame, whereas a bare
           ;; `(rf/dispatch ...)` from inside an action body runs outside
           ;; any frame scope and raises `:rf.error/no-frame-context` — it
@@ -411,8 +411,8 @@
          from the `:ws.app/request-id` recordable coeffect (EP-0017),
          never minted ambiently — replay re-presents the same id.
 
-         APP-LEVEL correlation, NOT the EP-0011 uniform reply envelope
-         (rf2-eygytk). re-frame2 deliberately does not ship a managed
+         APP-LEVEL correlation, NOT the EP-0011 uniform reply envelope.
+         re-frame2 deliberately does not ship a managed
          WebSocket (Pattern-WebSocket / Managed-Effects §WebSocket), so a
          per-message request/reply over the open socket is a
          Pattern-AsyncEffect interaction whose correlation the app owns:
@@ -436,7 +436,7 @@
          flow once the correlated reply lands. The arg is the app's own
          reply BODY (the server echo), not an EP-0011 reply map — this is
          the app-level Pattern-WebSocket correlation shape, outside the
-         uniform reply envelope (rf2-eygytk; see :ws.app/request)."}
+         uniform reply envelope (see :ws.app/request)."}
   (fn handler-app-request-reply [{:keys [db]} [_ body]]
     {:db (assoc-in db [:messages :last-reply] body)}))
 

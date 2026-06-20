@@ -56,8 +56,8 @@
      transitions use inline fns.
    - **Headless tests** — every state has a fixture that drives `app-db`
      into that state and asserts against tags + `:ui/render`. Browserless
-     via `compute-sub` / `dispatch-sync`. The example tree is test-free
-     (rf2-8cevm); the fixtures live in the framework test tree at
+     via `compute-sub` / `dispatch-sync`. The example tree is test-free;
+     the fixtures live in the framework test tree at
      `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`
      (ns `re-frame.nine-states-cljs-test`).
 
@@ -133,7 +133,7 @@
    [:errors  {:default {}} [:map-of :keyword [:vector :string]]]
    [:touched {:default #{}} [:set :keyword]]])
 
-;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; :rf/default (see `run`/`reg-frame :rf/default`), so name it explicitly.
 (with-frame :rf/default
@@ -447,7 +447,7 @@
    ;; coeffect, never read ambiently at the write site (see the
    ;; `:new-todo/todo-id` reg-cofx above) — replay re-presents it.
    :rf.cofx/requires [:new-todo/todo-id]}
-  ;; EP-0001 (rf2-vzld77): the machine snapshot is durable runtime-db state —
+  ;; EP-0001: the machine snapshot is durable runtime-db state —
   ;; read it from the `:rf.db/runtime` coeffect.
   (fn handler-new-todo-submit [{:keys [db] rt :rf.db/runtime new-id :new-todo/todo-id} _]
     (let [draft  (get-in db [:new-todo :draft])
@@ -718,7 +718,7 @@
 ;; browser test runner) without stepping on each other's mount points.
 ;; The headless fixtures live in the framework test tree at
 ;; `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`
-;; (the example tree is test-free, rf2-8cevm) and run in any CLJS host
+;; (the example tree is test-free) and run in any CLJS host
 ;; without touching React.
 
 (defonce react-root (atom nil))
@@ -729,7 +729,7 @@
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process canned-stub fxs above. The example runs standalone — no
   ;; backend required.
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence —
+  ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the app frame explicitly, seed under `with-frame`, and wrap the
   ;; render in a `frame-provider` so the `reg-view`-injected
   ;; `dispatch`/`subscribe` resolve to it (a no-provider render reads the

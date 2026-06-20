@@ -224,7 +224,7 @@
          `:use-edit` so the :mode region tracks the edit-load and
          `:fetch-started` so the :lifecycle region advances to :loading."
    :rf.http/decode-schemas [schema/ArticleResponse]}
-  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  ;; EP-0001: the route slice is durable routing runtime-db state.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
@@ -278,7 +278,7 @@
          flow is false and the submit is a no-op; an invalid draft re-runs
          validation to populate the per-field error map for display."
    :rf.http/decode-schemas [schema/ArticleResponse]}
-  ;; EP-0001 (rf2-vzld77): the machine snapshot is durable runtime-db state.
+  ;; EP-0001: the machine snapshot is durable runtime-db state.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug draft]} (:editor db)
           mode        (get-in rt [:rf.runtime/machines :snapshots :ui/article-editor :state :mode])

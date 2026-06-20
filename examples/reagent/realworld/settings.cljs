@@ -252,7 +252,7 @@
          :settings/submit-error broadcast :submit-succeeded /
          :submit-failed."
    :rf.http/decode-schemas [schema/UserResponse]}
-  ;; EP-0001 (rf2-vzld77): the machine snapshot is durable runtime-db state.
+  ;; EP-0001: the machine snapshot is durable runtime-db state.
   (fn handler-settings-submit [{rt :rf.db/runtime} _]
     (let [draft (get-in rt [:rf.runtime/machines :snapshots :settings/form :data :draft])]
       {:fx [[:dispatch [:settings/form

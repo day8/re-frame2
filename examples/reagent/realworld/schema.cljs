@@ -252,7 +252,7 @@
 ;; live in runtime-db and are validated through each machine's `:data-schema`
 ;; (the *Data schemas above), so they do not appear in this app-schema map.
 ;;
-;; EP-0002 (rf2-5q7um6): reg-app-schemas is context-required frame-local; a
+;; EP-0002: reg-app-schemas is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; :rf/default (see `core/run`'s `reg-frame :rf/default`), so name it here.
 (with-frame :rf/default

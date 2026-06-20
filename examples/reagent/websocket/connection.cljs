@@ -272,7 +272,7 @@
                             (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
                               (dispatch!
                                 [:ws/connection [:ws/-socket-spawned id]]
-                                ;; Per rf2-1ve9h: closed-enum
+                                ;; Closed-enum
                                 ;; functional-origin axis is `:source`
                                 ;; — `:websocket` is the reserved app-
                                 ;; level slot for websocket-arrived
@@ -322,8 +322,8 @@
                  ;; :failed is a TOP-LEVEL state, not a sibling of
                  ;; :authenticating under :active — a bare keyword would
                  ;; resolve to [:active :failed] (which does not exist), so
-                 ;; the absolute vector target [:failed] is required (rf2-w84jv
-                 ;; transition-target validation now rejects the bare keyword).
+                 ;; the absolute vector target [:failed] is required
+                 ;; (transition-target validation now rejects the bare keyword).
                  :ws/auth-failed {:target [:failed]
                                   :action :record-error}}}
 
@@ -381,7 +381,7 @@
 (rf/reg-machine :ws/connection connection-machine)
 
 ;; --- subs -------------------------------------------------------------
-;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
+;; EP-0001: machine snapshots are durable runtime-db state — read
 ;; them through the framework `:rf/machine` sub.
 (rf/reg-sub :ws/snapshot
   :<- [:rf/machine :ws/connection]

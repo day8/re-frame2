@@ -34,7 +34,7 @@
 
    Coverage lives in the CLJS substrate contract tests (`npm run
    test:cljs`, ns `re-frame.websocket-cljs-test`); the mock server keeps
-   the app self-contained. The example tree is test-free (rf2-8cevm), so
+   the app self-contained. The example tree is test-free, so
    `npm run test:examples` does not build this example."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -71,12 +71,12 @@
 ;; example-B's tests. Mounting in `run` keeps ns-load DOM-side-effect-free.
 ;; The headless fixtures live in the framework test tree at
 ;; `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`
-;; (the example tree is test-free, rf2-8cevm) and run in any CLJS host
+;; (the example tree is test-free) and run in any CLJS host
 ;; without React.
 
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under

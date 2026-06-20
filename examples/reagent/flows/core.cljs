@@ -68,7 +68,7 @@
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
 
-;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; a bare
+;; EP-0002: reg-flow is context-required frame-local; a bare
 ;; ns-load call raises :rf.error/no-frame-context. This example runs in the
 ;; :rf/default frame, so name it explicitly here. (The runtime-toggleable
 ;; `:cart/discount-rate` flow is registered later via :rf.fx/reg-flow, which
@@ -298,7 +298,7 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence —
+;; EP-0002: the runtime never synthesises a frame from absence —
 ;; register the app frame explicitly, seed under `with-frame`, and wrap the
 ;; render in a `frame-provider` so the `reg-view`-injected `dispatch`/`subscribe`
 ;; resolve to it (a no-provider render reads the no-provider sentinel and raises

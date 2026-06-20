@@ -24,7 +24,7 @@
                                               failed submit) is surfaced as a
                                               non-interactive locked-account
                                               panel rather than a dead-but-enabled
-                                              form (rf2-q6bm7d).
+                                              form.
    - Open-map idiom                        — every shape on the wire is an open map
 
    Test-free per the examples policy (no inline test fn, no sibling
@@ -105,7 +105,7 @@
 ;; the form. Open by default; the regex/min-length checks describe the
 ;; shape the inner handler relies on.
 ;;
-;; EP-0025 (rf2-398kql) — schema-attached `:sensitive?` / `:large?` field
+;; EP-0025 — schema-attached `:sensitive?` / `:large?` field
 ;; classification is REMOVED. Frame-declared `:sensitive` / `:large {:app-db …}`
 ;; paths (`reg-frame`, EP-0015) are now the SOLE app-db data-classification
 ;; mechanism. `Credentials` is the machine's EVENT-arg schema (it rides
@@ -153,7 +153,7 @@
 ;; elements. Without the optional trailing slot the `:cat` rejects every
 ;; reply with `:malli.core/input-remaining`, the boundary validation
 ;; fails BEFORE the machine handler runs, and the flow is stranded in
-;; `:submitting` (rf2-1gz14).
+;; `:submitting`.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
@@ -177,7 +177,7 @@
    [:attempts {:default 0} :int]
    [:error    [:maybe :string]]])
 
-;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
+;; EP-0001: machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
 ;; machine's own `:data-schema` (attached below) is the snapshot-validation
@@ -219,7 +219,7 @@
 
                Delegates straight to the framework-shipped canned-success
                / canned-failure fxs (Spec 014 §Testing) with `:after-ms`
-               (rf2-j1mo4): the framework defers the reply via
+               the framework defers the reply via
                `:dispatch-later` (50 ms) — observable in the tape,
                time-travel-safe, NOT raw `js/setTimeout`. The delay lets
                the `:submitting` UI state be observable; the reply shape
@@ -382,20 +382,20 @@
       ;; form for a locked-account panel and refuse further submits — same
       ;; tag + locked-panel pattern as the state-machines walkthrough. A
       ;; terminal lockout must be visible and non-interactive, not a live
-      ;; form (rf2-q6bm7d).
+      ;; form.
       {:tags #{:auth/locked}
        :meta {:terminal? true}}}})
 
 ;; Register the machine as the `:auth.login/flow` event handler.
 ;;
 ;; This machine ALSO validates its dispatched event VECTOR (against
-;; `AuthLoginEvent`), so it uses `reg-machine`'s event-`:schema` arity
-;; (rf2-wgmipl): the optional opts map carries the event `:schema` (the
+;; `AuthLoginEvent`), so it uses `reg-machine`'s event-`:schema` arity:
+;; the optional opts map carries the event `:schema` (the
 ;; `:where :event` boundary on the dispatched outer vector) alongside the
 ;; machine spec. `reg-machine` is the blessed registration home — it stamps
 ;; the `:rf/machine?` / `:rf/machine` metadata that `(machine-meta
 ;; :auth.login/flow)` reads, so the `:where :machine-data` walker resolves the
-;; `:data-schema` and it VALIDATES. (EP-0025, rf2-398kql: the home no longer
+;; `:data-schema` and it VALIDATES. (EP-0025: the home no longer
 ;; bridges the `:data-schema`'s `:sensitive?` / `:large?` slots into snapshot-
 ;; egress redaction — schema-field classification is removed; durable machine
 ;; `:data` egress classification is frame-owned, like every other app-db path.)
@@ -426,7 +426,7 @@
 ;; "in :submitting?" and "in :authed?" predicates moved to the
 ;; `rf/machine-has-tag?` queries in views below (per Spec 005 §State tags).
 
-;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
+;; EP-0001: machine snapshots are durable runtime-db state — read
 ;; them through the framework `:rf/machine` sub (the public surface).
 (rf/reg-sub :auth.login/state
   {:doc "Current state of the login flow."}
@@ -529,7 +529,7 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    ;; EP-0002 (rf2-9o48ih): wrap the render in a `frame-provider` so the
+    ;; EP-0002: wrap the render in a `frame-provider` so the
     ;; `reg-view`-injected `dispatch`/`subscribe` (and the login machine reads)
     ;; resolve to `:rf/default` via React context. With NO provider a `reg-view`
     ;; reads the no-provider sentinel and those calls raise

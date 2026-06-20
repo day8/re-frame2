@@ -221,6 +221,6 @@
 
 ;; The chapter's headless tests (pure machine-transition + full-drain
 ;; scenarios) live in re-frame.examples-test (implementation/core/test/),
-;; folded inline as the `state-machine-walkthrough-runs-headless` deftest
-;; (rf2-cd2zo), keeping this example source pure demonstrative code (the
-;; example tree is test-free, rf2-8cevm). They run on the JVM.
+;; folded inline as the `state-machine-walkthrough-runs-headless` deftest,
+;; keeping this example source pure demonstrative code (the
+;; example tree is test-free). They run on the JVM.

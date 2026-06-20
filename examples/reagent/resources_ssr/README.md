@@ -52,11 +52,11 @@ real Clojure server sits in front.
 ## Landed behaviour
 
 The SSR-resource runtime is **real** (EP-0003), so `handle-request` drives the
-actual server path rather than a skeleton stand-in: the blocking-drain
-(rf2-er7qx2), the per-entry projection with redaction / omission / scoped-key
-privacy / index omission (rf2-otms75 / rf2-fopuj9), and the client hydration
-reconcile + refetch plan (rf2-ctk2av) all run end-to-end. The example tree is
-test-free (rf2-8cevm), but THIS example's own SSR preload → projection → client
+actual server path rather than a skeleton stand-in: the blocking-drain,
+the per-entry projection with redaction / omission / scoped-key
+privacy / index omission, and the client hydration
+reconcile + refetch plan all run end-to-end. The example tree is
+test-free, but THIS example's own SSR preload → projection → client
 hydration path is pinned by a direct headless JVM fixture,
 **`resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch`** in
 `implementation/core/test/re_frame/examples_test.clj` (run by `clojure -M:test`):

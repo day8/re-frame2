@@ -22,7 +22,7 @@
    everyone, so logout leaves them alone.
 
    On COLD-BOOT SESSION RESTORE the machine ALSO re-ensures the feed under the
-   freshly-restored principal (`:auth/ensure-session-feed`, rf2-mdmjix). A
+   freshly-restored principal (`:auth/ensure-session-feed`). A
    `{:from-db :realworld/session}` subscription re-keys reactively when the
    principal changes but, being passive, does NOT fetch (Spec 016 §A `{:from-db
    …}` subscription re-keys); restore is the one principal switch with NO route
@@ -50,7 +50,7 @@
 ;; SESSION PERSISTENCE SEAM
 ;; ============================================================================
 
-;; CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv). The official RealWorld
+;; CONFORMANCE-CONTRACT SURFACE. The official RealWorld
 ;; browser/E2E suite reads the session from `localStorage["jwtToken"]` — that
 ;; exact key is the contract, so this seam uses it verbatim (NOT namespaced
 ;; under `conduit-resources/…`). SAME-ORIGIN CAVEAT: the contract assumes one
@@ -62,7 +62,7 @@
 ;; does. See the README §RealWorld contract conformance.
 (rf/reg-fx :realworld-resources.session/persist
   {:doc       "Persist (or clear) the JWT in localStorage under the official
-               contract key `jwtToken` (rf2-e90vfv). `{:token t}` writes when
+               contract key `jwtToken`. `{:token t}` writes when
                truthy; nil removes the key."
    :platforms #{:client}}
   (fn [_m {:keys [token]}]
@@ -71,7 +71,7 @@
         (.setItem ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; EP-0017 (recordable coeffects, rf2-16ck78): the saved JWT is a STORAGE world
+;; EP-0017 (recordable coeffects): the saved JWT is a STORAGE world
 ;; fact that `:auth/initialise` folds into durable app-db (and that drives
 ;; session restore). A durable write must be a function of prior frame-state
 ;; plus the causal token — not of an ambient `localStorage` read at the write
@@ -119,7 +119,7 @@
         (assoc-in [:auth :token] (:token user)))}))
 
 ;; ----------------------------------------------------------------------------
-;; PRINCIPAL-SWITCH RE-ENSURE  (the qiv160-review footgun, rf2-mdmjix)
+;; PRINCIPAL-SWITCH RE-ENSURE  (the principal-switch footgun)
 ;; ----------------------------------------------------------------------------
 ;;
 ;; A `{:from-db :realworld/session}` resource SUBSCRIPTION re-keys reactively
@@ -130,7 +130,7 @@
 ;; clear-scope). So a principal switch by an app-db WRITE ALONE — no route
 ;; change — re-keys the feed sub but never loads it: the feed sits at :idle
 ;; indefinitely (fail-closed and safe, but a surprising "feed stuck loading"
-;; DX trap, qiv160 review).
+;; DX trap).
 ;;
 ;; The one place this app switches principal WITHOUT a route change is
 ;; COLD-BOOT SESSION RESTORE: the home route is entered logged-out (the
@@ -163,7 +163,7 @@
          switch with no route change (cold-boot session restore) actually
          loads it — the `{:from-db :realworld/session}` re-key alone is passive
          and does not fetch (Spec 016 §A `{:from-db …}` subscription re-keys /
-         the rf2-mdmjix footgun). Resolves the scope from the post-restore
+         the principal-switch footgun). Resolves the scope from the post-restore
          app-db via the resource's own `{:from-db :realworld/session}` policy,
          reads `:page` from the live route slice so the ensure hits the SAME
          cache key the home route + feed subscription use, and attaches the
@@ -173,7 +173,7 @@
   (fn [{rt :rf.db/runtime} _]
     ;; Default to page 1 so the ensure hits the SAME `{:page 1}` key the home
     ;; route + feed subscription use on the canonical no-`?page=` URL — a raw
-    ;; nil would ensure an orphan `{:page nil}` entry (rf2-01jbr9).
+    ;; nil would ensure an orphan `{:page nil}` entry.
     (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)]
       {:fx [[:dispatch [:rf.resource/ensure
                         {:resource :realworld/feed
@@ -194,7 +194,7 @@
          untouched.
 
          ALSO releases the `session-feed-owner` lease the principal-switch
-         re-ensure (`:auth/ensure-session-feed`, rf2-mdmjix) may have attached
+         re-ensure (`:auth/ensure-session-feed`) may have attached
          — an event-created owner MUST have a matching release path (Spec 016
          §Active owners). The `clear-scope` removes the entry the lease was on,
          so the release is belt-and-braces, but it keeps the owner-lease
@@ -296,7 +296,7 @@
       ;; The token is already in app-db + localStorage from `:auth/initialise`;
       ;; we re-persist defensively in case the server rotated it on `GET /user`.
       ;;
-      ;; rf2-mdmjix: this is the one PRINCIPAL SWITCH with no route change — the
+      ;; This is the one PRINCIPAL SWITCH with no route change — the
       ;; home route was already entered logged-out (the `{:from-db
       ;; :realworld/session}` feed resolved nil and was not planned), so storing
       ;; the principal now RE-KEYS the feed sub but, being passive, does not

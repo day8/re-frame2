@@ -87,7 +87,7 @@
    Per spec/007 §Variants every variant body is plain data — no
    fn-slots. The view at the centre of each variant is the example's
    own `nine-states.core/root-view`, referenced by id. The canonical
-   Story tags auto-install on the first `reg-*` call (rf2-p1ydc), so
+   Story tags auto-install on the first `reg-*` call, so
    no explicit boot step is needed."
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
@@ -174,7 +174,7 @@
 ;; register-all!
 ;;
 ;; Wrap every registration in a top-level fn so a test fixture (none
-;; here — examples are test-free, rf2-8cevm) or a hot-reload could
+;; here — examples are test-free) or a hot-reload could
 ;; re-fire the lot after a clear-all!. The fn fires once at namespace
 ;; load via the trailing call, so consumers who just `:require` this ns
 ;; get the side-table populated.
@@ -183,7 +183,7 @@
 (defn register-all!
   "Register the nine-states example's Story artefacts. Idempotent.
    The canonical vocabulary auto-installs on the first `reg-*` call
-   (rf2-p1ydc) — no explicit boot step required."
+   — no explicit boot step required."
   []
 
   ;; -------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- RealWorld (Conduit) default avatar — the fallback served for a nil/empty
-     author or user image (RealWorld contract conformance, rf2-e90vfv). A
+     author or user image (RealWorld contract conformance). A
      self-contained, dependency-free SVG so the demo needs no external asset. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" role="img" aria-label="Default avatar">
   <rect width="100" height="100" fill="#e6e6e6"/>

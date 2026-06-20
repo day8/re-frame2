@@ -31,7 +31,7 @@
 ;; for the machine's `:store-session` and `:clear-session` actions to
 ;; call with different args.
 ;;
-;; CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv). The official RealWorld
+;; CONFORMANCE-CONTRACT SURFACE. The official RealWorld
 ;; browser/E2E suite reads the session from `localStorage["jwtToken"]` — that
 ;; exact key is the contract, so this seam uses it verbatim (it is NOT
 ;; namespaced under `conduit/…`). SAME-ORIGIN CAVEAT: the contract assumes one
@@ -45,7 +45,7 @@
 
 (rf/reg-fx :auth.session/persist
   {:doc       "Persist (or clear) the JWT in localStorage under the official
-               contract key `jwtToken` (rf2-e90vfv). Arg `{:token t}` writes
+               contract key `jwtToken`. Arg `{:token t}` writes
                the token when truthy; nil removes the key."
    :platforms #{:client}}
   (fn fx-auth-session-persist [_m {:keys [token]}]
@@ -54,7 +54,7 @@
         (.setItem    ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; EP-0017 (rf2-16ck78): the saved JWT is read from localStorage at boot and
+;; EP-0017: the saved JWT is read from localStorage at boot and
 ;; `:auth/initialise` folds it into durable app-db ([:auth :token]). A durable
 ;; write must be a function of prior frame-state plus the causal token — not of
 ;; an ambient `localStorage` read at the write site (which replay/epoch-restore
@@ -128,14 +128,14 @@
 ;; AUTH STATE MACHINE
 ;; ============================================================================
 
-;; rf2-genufr / rf2-wgmipl — `reg-machine` is the single registration home.
+;; `reg-machine` is the single registration home.
 ;; The auth machine carries a `:data-schema` (validating the snapshot's
 ;; `:data` slot); registering it here (rather than the former hand-composed
 ;; `reg-event` + `make-machine-handler`) stamps the `:rf/machine?` /
 ;; `:rf/machine` metadata that makes the `:data-schema` LIVE (`(machine-meta
 ;; :auth/flow)` reads it, the `:where :machine-data` walker resolves it) AND
 ;; bridges its redaction marks — both in one place. Under the old direct path
-;; the `:data-schema` was silently INERT (the exact rf2-genufr bug). This
+;; the `:data-schema` was silently INERT (the exact bug). This
 ;; machine validates only its `:data` (no outer event-vector `:schema`), so
 ;; the opts map carries just `:doc` + `:rf.http/decode-schemas`.
 (rf/reg-machine :auth/flow
@@ -251,7 +251,7 @@
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn handler-auth-initialise [{:keys [db auth.session/token]} _]
-    ;; ITEM 8 (rf2-ygh4m): we dispatch `:auth/flow [:auth/restore token]`
+    ;; ITEM 8: we dispatch `:auth/flow [:auth/restore token]`
     ;; UNCONDITIONALLY — even when `token` is nil — on purpose. This first
     ;; delivery is what spawns the auth machine's snapshot (the machine
     ;; materialises at `:idle` on its first event), so the navbar's
@@ -336,7 +336,7 @@
 
 (rf/reg-sub :auth/flow-state
   {:doc "Current state of the auth machine snapshot."}
-  ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state —
+  ;; EP-0001: machine snapshots are durable runtime-db state —
   ;; read them through the framework `:rf/machine` sub (the public surface)
   ;; rather than a raw db path.
   :<- [:rf/machine :auth/flow]

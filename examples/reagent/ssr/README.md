@@ -76,7 +76,7 @@ serves only the three adapter testbeds; see
 [`examples/README.md`](../../README.md); this example's JVM smoke
 (per-request frame → server flow → render-to-string + render-hash) was
 folded into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-(the `ssr-example-runs-end-to-end` deftest, rf2-cd2zo). Broader SSR
+(the `ssr-example-runs-end-to-end` deftest). Broader SSR
 contract testing lives in the `implementation/ssr/test/` suite plus
 `spec/conformance/fixtures/ssr-*.edn`.
 

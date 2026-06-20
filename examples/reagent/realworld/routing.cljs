@@ -32,7 +32,7 @@
 (rf/reg-route :realworld/home
   {:doc      "The landing page: global feed and (signed-in) your feed.
 
-              ROUTE-SHAPE CONFORMANCE (rf2-e90vfv). The official RealWorld
+              ROUTE-SHAPE CONFORMANCE. The official RealWorld
               browser/E2E contract uses `/?feed=following` for the
               authenticated feed (NOT `?feed=your`) and a PATH-param tag route
               `/tag/:tag` (NOT `?tag=`). The tag filter therefore lives on its
@@ -53,7 +53,7 @@
 
 (rf/reg-route :realworld/home-tag
   {:doc      "The tag-filtered article list at the official RealWorld
-              `/tag/:tag` PATH route (rf2-e90vfv — replacing the prior
+              `/tag/:tag` PATH route (replacing the prior
               `?tag=` query). `?page=N` paginates within the tag the same way
               the home feed does (`/tag/:tag?page=2`); `:query-defaults` fills
               page 1. Same `:home/load` on-match — it reads the active tag off
@@ -133,7 +133,7 @@
 ;; frame", Spec 002 §reg-frame). To keep it cheap and correct it short-
 ;; circuits to the unchanged ctx for everything except a navigation
 ;; event, and gates EVERY navigation ENTRY POINT so a `:requires-auth`
-;; route is unreachable logged-out by ANY access path (rf2-mzqd4.3):
+;; route is unreachable logged-out by ANY access path:
 ;;
 ;;   - `:rf.route/navigate`          — programmatic nav (the navbar);
 ;;     `(second event)` IS the target route id.
@@ -178,7 +178,7 @@
 (defn- resolve-nav-target
   "Normalise a navigation event into its target `{:id <route-id>
    :params <map>}`, or nil when `event` is not a navigation (so the guard
-   short-circuits). One resolver for all three entry points (rf2-mzqd4.3)
+   short-circuits). One resolver for all three entry points
    so the redirect path below is identical regardless of HOW the user
    reached the route:
 
@@ -271,7 +271,7 @@
 ;; the same Var so the registration is deduped even when the Var is
 ;; redefined on reload.
 ;;
-;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): the URL-change dispatch is targeted at
+;; EP-0002: the URL-change dispatch is targeted at
 ;; the explicitly-declared URL owner resolved AT CALL TIME via
 ;; `routing/url-owner-frame-id` (Spec 012 §popstate drives the URL-owner
 ;; frame) — NOT a frameless `(rf/dispatch …)`, which would raise

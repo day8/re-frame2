@@ -71,7 +71,7 @@ serves only the three adapter testbeds; see
 [`examples/README.md`](../../README.md); this example's JVM smoke
 (shell render → per-card resolved chunks → final payload) was folded
 into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
-(the `ssr-streaming-example-runs-end-to-end` deftest, rf2-cd2zo).
+(the `ssr-streaming-example-runs-end-to-end` deftest).
 Broader streaming-SSR contract testing lives in the
 `implementation/ssr/test/` suite.
 

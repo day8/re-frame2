@@ -2,7 +2,7 @@
   "Default-avatar helper for the RealWorld (Conduit) examples, shared by both
    realworld apps (`realworld.*` and `realworld-resources.*`).
 
-   RealWorld contract conformance (rf2-e90vfv). The official RealWorld
+   RealWorld contract conformance. The official RealWorld
    browser/E2E contract expects a non-empty avatar `src` for every author /
    user / comment-author image, falling back to a default when the backend
    returns a nil or blank `image`. The canonical Conduit clients ship a default
@@ -25,7 +25,7 @@
   "Resolve an avatar `src`: the given `image` URL when it is a non-blank string,
    otherwise the shared `default-avatar`. Used for every `.user-img` /
    `.user-pic` / `.comment-author-img` so an image always has a real `src`
-   (RealWorld contract conformance, rf2-e90vfv)."
+   (RealWorld contract conformance)."
   [image]
   (if (and (string? image) (not (str/blank? image)))
     image

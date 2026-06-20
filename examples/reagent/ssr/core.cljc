@@ -69,7 +69,7 @@
             ;; `handle-request` drops the `pr-str`'d payload inside a
             ;; `<script type="application/edn">` body and a server-provided
             ;; string containing `</script>` would otherwise close the
-            ;; envelope (security audit 2026-05-14 §P1, rf2-7ksyr). It lives
+            ;; envelope (security audit 2026-05-14 §P1). It lives
             ;; in the SSR artefact (`re-frame.ssr.html-helpers`), so it ships
             ;; with the same `day8/re-frame2-ssr` dep the example already
             ;; requires above.
@@ -81,9 +81,9 @@
 ;; SCHEMA
 ;; ============================================================================
 ;;
-;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local and
+;; EP-0002: `reg-app-schema` is context-required frame-local and
 ;; raises `:rf.error/no-frame-context` under no frame scope — so a bare ns-load
-;; registration is wrong, and (rf2-9wc2ed) a naive `with-frame :rf/default`
+;; registration is wrong, and a naive `with-frame :rf/default`
 ;; would bind the schema to the client frame ONLY, leaving the per-request
 ;; SERVER frames (where the SSR commits actually validate) unschema'd. SSR has
 ;; TWO frame families: the per-request server frame (gensym, in
@@ -97,7 +97,7 @@
 ;; commits — the per-request server frame's `:rf/server-init` commits an
 ;; articles-free db first (it only kicks off the managed-HTTP fetch), and the
 ;; client frame starts empty before hydration. A bare `[:vector …]` would reject
-;; that legitimate intermediate `nil` and roll the commit back (rf2-9wc2ed: the
+;; that legitimate intermediate `nil` and roll the commit back (the
 ;; bug was masked precisely because validation never ran on these frames).
 (def ArticlesSchema
   [:maybe [:vector [:map
@@ -137,7 +137,7 @@
     ;; the bundled adapter); read URL/headers/cookies from here rather
     ;; than from a positional event arg.
     ;;
-    ;; EP-0001 (rf2-tfepxu): the framework route slice lives in the
+    ;; EP-0001: the framework route slice lives in the
     ;; runtime-db partition at `[:rf.runtime/routing :current]`, NOT under a
     ;; legacy app-db `:rf/runtime` root (which is now a hard error). This
     ;; example's render never reads the route slice, so the vestigial
@@ -261,7 +261,7 @@
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (ssr/set-request! fid request)
            ;; Register the app schema AGAINST THIS per-request server frame
-           ;; (rf2-9wc2ed) BEFORE `:on-create` fires `:rf/server-init` — the
+           ;; BEFORE `:on-create` fires `:rf/server-init` — the
            ;; per-request frame is where the server-side `:articles` commit
            ;; actually validates, so the schema must bind here, not only on the
            ;; client frame. `reg-frame` runs the `:on-create` cascade
@@ -290,7 +290,7 @@
                  ;; environments (server logs, CDN cache keys) can read it
                  ;; without HTML parsing.
                  render-hash (rf/render-tree-hash hiccup)
-                 ;; EP-0002 (rf2-acjknb): the payload DELIBERATELY OMITS
+                 ;; EP-0002: the payload DELIBERATELY OMITS
                  ;; `:rf/frame-id`. The server renders under a per-request
                  ;; gensym frame (`f`), but the client hydrates a FIXED app-
                  ;; frame (`app-frame` → `:rf/default`, below). `ssr/hydrate!`
@@ -322,7 +322,7 @@
                    "<div id='app'>" html "</div>"
                    ;; Emit the payload `<script>` through the EDN-aware
                    ;; `</script>`-escaper the production Ring host uses
-                   ;; (security audit 2026-05-14 §P1, rf2-7ksyr): a server-
+                   ;; (security audit 2026-05-14 §P1): a server-
                    ;; provided string carrying `</script>` (round-tripped
                    ;; through app-db) can't close the envelope. The encoder
                    ;; rewrites a less-than char to its unicode reader escape
@@ -382,7 +382,7 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 #?(:cljs (defonce react-root (atom nil)))
 
-;; EP-0002 (rf2-9o48ih + rf2-acjknb): under the carried-frame invariant the
+;; EP-0002: under the carried-frame invariant the
 ;; runtime never synthesises a frame from absence — the SSR hydration target
 ;; is CARRIED, established explicitly by the app and threaded through both
 ;; `ssr/hydrate!` (the seed target) AND the root `frame-provider` (where every
@@ -421,7 +421,7 @@
      ;; fxs fire (Spec 011 §The :rf/hydrate event).
      (rf/reg-frame app-frame {:doc      "ssr-example client app-frame"
                               :platform :client})
-     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME (rf2-9wc2ed) so
+     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME so
      ;; the hydrated `:articles` commit + every post-hydration interactive
      ;; commit validate on the client too — the symmetric counterpart of the
      ;; per-request registration in `handle-request`. `{:frame app-frame}` is
@@ -464,14 +464,14 @@
 
 ;; The JVM-runnable headless tests for this example live in
 ;; re-frame.examples-test (implementation/core/test/), keeping this example
-;; source pure demonstrative code (the example tree is test-free, rf2-8cevm).
+;; source pure demonstrative code (the example tree is test-free).
 ;; They run on the JVM:
 ;;   - `ssr-example-runs-end-to-end` — the full server flow (per-request
 ;;     frame → :rf/server-init → managed-HTTP via a canned stub →
-;;     render-to-string → render-hash) (rf2-cd2zo).
+;;     render-to-string → render-hash).
 ;;   - `ssr-example-handle-request-tears-down-per-request-frame` +
 ;;     `…-tears-down-on-throw` — per-request frame teardown on both the
-;;     success and throw paths (rf2-kb7zis).
+;;     success and throw paths.
 ;;   - `ssr-example-client-hydration-*` — the client hydration path against
 ;;     the framework-owned :rf/hydrate: server-hash stash, matching/divergent
-;;     hash verify, and fail-closed on a malformed payload (rf2-kb7zis).
+;;     hash verify, and fail-closed on a malformed payload.

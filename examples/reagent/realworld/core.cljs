@@ -29,7 +29,7 @@
    the demo entry below installs a canned-stub override so the CLJS
    test fixtures (in the framework test tree at
    `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
-   the example tree is test-free, rf2-8cevm) run without a network."
+   the example tree is test-free) run without a network."
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -81,7 +81,7 @@
          NOT in this fan-out — it consumes the RECORDABLE+PROVIDED
          `:auth.session/token` coeffect, whose value the host boundary
          (`run`) reads ONCE and stamps onto a dedicated boot dispatch token
-         (EP-0017, rf2-16ck78). The `:dispatch` fx does not forward `:rf.cofx`
+         (EP-0017). The `:dispatch` fx does not forward `:rf.cofx`
          (it only inherits the cascade-propagated keys), so the session-restore
          boot dispatch is issued directly at the boundary in `run`, where the
          supplied token rides the token and is recorded."}
@@ -124,7 +124,7 @@
            [rf/route-link {:to :realworld.user/settings :class "nav-link"}
             [:i.ion-gear-a] " Settings"]]
           [:li.nav-item
-           ;; rf2-e90vfv: the official RealWorld navbar shows the authenticated
+           ;; The official RealWorld navbar shows the authenticated
            ;; user's avatar (`.user-pic`) next to their name; default-avatar
            ;; covers a nil/empty image.
            [rf/route-link {:to :realworld.profile/show
@@ -212,7 +212,7 @@
 ;; to render.
 ;;
 ;; The override delegates straight to :rf.http/managed-canned-success
-;; with a per-URL :value payload and an `:after-ms` delay (rf2-j1mo4) so
+;; with a per-URL :value payload and an `:after-ms` delay so
 ;; the framework defers the reply via `:dispatch-later` — observable in
 ;; the tape, time-travel-safe, NOT raw `js/setTimeout`. This is the same
 ;; shape Spec 014 §Testing documents — just routed by URL inspection in a
@@ -239,7 +239,7 @@
           :description "A short greeting from the realworld stub."
           ;; A markdown body so the article-detail page exercises the
           ;; sanitized CommonMark renderer (realworld-shared.markdown/render —
-          ;; rf2-e2t7v4): headings, bold/italic, inline + fenced code, a safe
+          ;; render): headings, bold/italic, inline + fenced code, a safe
           ;; link, lists, plus full-CommonMark shapes the old hand-rolled
           ;; subset could not do (a table, a nested list). The renderer emits
           ;; hiccup (never raw HTML), so this is real markup while any injected
@@ -409,7 +409,7 @@
                Delegates straight to the framework-shipped
                `:rf.http/managed-canned-success` (Spec 014 §Testing) with
                the per-URL canned payload and `:after-ms`
-               (`demo-reply-delay-ms`, rf2-j1mo4): the framework defers the
+               (`demo-reply-delay-ms`): the framework defers the
                reply via `:dispatch-later` —
                observable in the tape, time-travel-safe, NOT raw
                `js/setTimeout`. The delay lets the `:loading` UI state be
@@ -451,14 +451,14 @@
 ;; so login / register / public-read endpoints are unaffected (an
 ;; unauthenticated user has no token to send).
 ;;
-;; SINGLE SOURCE OF TRUTH (rf2-63c89b): this is the ONE place the Bearer
+;; SINGLE SOURCE OF TRUTH: this is the ONE place the Bearer
 ;; header is written. `realworld.http/request` no longer reads the token —
 ;; it just composes the request map. Centralising the read here keeps the
 ;; example carried-frame-correct: the interceptor reads from `(:frame ctx)`
-;; (the frame the cascade actually runs under, EP-0002 rf2-9o48ih), so the
+;; (the frame the cascade actually runs under, EP-0002), so the
 ;; header tracks a renamed / multi-frame mount rather than a hard-coded
 ;; `:rf/default`. (An earlier revision wired the token in BOTH `rh/request`
-;; and here as a side-by-side teaching duality, rf2-ygh4m; the `rh/request`
+;; and here as a side-by-side teaching duality; the `rh/request`
 ;; copy hard-coded `:rf/default` and bypassed the carried invariant, so it
 ;; was dropped — one read site, the recommended production shape.)
 
@@ -470,7 +470,7 @@
                       (str "Token " token)))))
 
 ;; ============================================================================
-;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv)
+;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE
 ;; ============================================================================
 ;;
 ;; The official RealWorld browser/E2E harness sometimes reads app session state
@@ -506,7 +506,7 @@
   ;; 012 §Redirects and guards). This is what makes the `:requires-auth`
   ;; tags on :realworld.user/settings / :realworld.editor/new / :realworld.editor/edit actually
   ;; protect those routes.
-  ;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): the runtime never synthesises a frame
+  ;; EP-0002: the runtime never synthesises a frame
   ;; from absence, and URL ownership is an EXPLICIT declaration — this frame
   ;; carries `:url-bound? true` so it owns the browser URL (Spec 012
   ;; §Multi-frame routing). The boot dispatch runs under `with-frame` and the
@@ -546,7 +546,7 @@
   ;; matches.
   (routing/set-base-path! "/realworld")
   (rf/with-frame :rf/default
-    ;; EP-0017 (rf2-16ck78): session restore consumes the RECORDABLE+PROVIDED
+    ;; EP-0017: session restore consumes the RECORDABLE+PROVIDED
     ;; `:auth.session/token` coeffect and folds it into durable [:auth :token].
     ;; The host read happens ONCE here at the boundary; its value rides this
     ;; boot dispatch token as the flat recordable coeffect, so it is recorded
@@ -564,7 +564,7 @@
     ;; wires the popstate listener; the sync runs under the frame scope, and
     ;; the listener captures the URL owner per dispatch (see routing.cljs).
     (routing/install-router!))
-  ;; Conformance-contract surface (rf2-e90vfv) — NOT a re-frame2 pattern; see
+  ;; Conformance-contract surface — NOT a re-frame2 pattern; see
   ;; install-conduit-debug! above. The external RealWorld suite may read it.
   (install-conduit-debug! :rf/default)
   (when (exists? js/document)

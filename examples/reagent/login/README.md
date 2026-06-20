@@ -5,7 +5,7 @@ state machine, schemas, managed HTTP, and registered views.
 Demonstrates [Construction Prompt
 CP-6](../../../spec/Construction-Prompts.md) (full feature scaffold)
 in one file, kept compact for AI-readability. The example tree is
-test-free (rf2-8cevm) — its flow coverage lives in the framework test
+test-free — its flow coverage lives in the framework test
 tree (see [How to run](#how-to-run)).
 
 ## What this demonstrates
@@ -58,7 +58,7 @@ real codebase this single file would split per CP-6 conventions —
 `login/schema.cljc | events.cljs | subs.cljs | views.cljs |
 machines.cljs | events_test.cljs` — and that `events_test.cljs` is
 where a real app's login tests would live. The example tree here is
-deliberately different: it is **test-free** (rf2-8cevm), so this folder
+deliberately different: it is **test-free**, so this folder
 ships no inline test fn and no sibling `test/` tree; the flow's coverage
 lives in the framework test tree (see [How to run](#how-to-run)). Kept
 as one file here for brevity.
@@ -76,8 +76,8 @@ login/
 ```
 
 The three `stories*` files are an **intentionally auxiliary Story
-showcase** layered over this example (build `:examples/login-with-stories`,
-rf2-p8v0q) — not a second example and not tool-owned. They source
+showcase** layered over this example (build `:examples/login-with-stories`)
+— not a second example and not tool-owned. They source
 `login.core`'s real machine/schemas/views and enumerate every reachable
 login state as a Story variant, with the Xray preload wired so the
 auth-submit cascade is inspectable. They live here (rather than under
