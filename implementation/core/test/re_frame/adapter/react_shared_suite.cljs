@@ -2354,8 +2354,10 @@
 ;; whichever Var happened to forward the asserted behaviour. These four
 ;; assertions pin the WIRING the behaviour tests cannot see: presence +
 ;; kind of every public Var, cross-wiring distinctness, the node-safe
-;; flush-views! contract, and the 9-fn substrate-contract shape + :kind of
-;; the adapter map.
+;; flush-views! contract, and the 9-key adapter-map shape + :kind of
+;; the adapter map (the six required + subscribe-container +
+;; register-context-provider + dispose-adapter! keys; flush-render!, the
+;; tenth contract entry, is the optional fn this map-shape check omits).
 ;;
 ;; CONFIG. Substrate-specific because each adapter's public Vars are
 ;; distinct objects the suite cannot name directly — the entry file passes
@@ -2428,13 +2430,16 @@
 (defn assert-adapter-map-satisfies-nine-fn-contract
   "The adapter map carries the substrate's :kind discriminator
   (`:rf.adapter/<substrate-kw>`, e.g. :rf.adapter/uix — mixed-substrate
-  routing keys off this) and all nine substrate-contract fns (Spec 006
-  §CLJS reference). make-react-adapter assembles this; dropping a contract
-  fn or mis-tagging :kind trips here. The expected kind is derived from
+  routing keys off this) and the nine map-shape fns enumerated below —
+  the six required plus subscribe-container / register-context-provider /
+  dispose-adapter! (Spec 006 §CLJS reference). flush-render!, the tenth
+  entry of the closed ten-fn contract, is the optional fn this map-shape
+  check omits. make-react-adapter assembles this; dropping one of these
+  fns or mis-tagging :kind trips here. The expected kind is derived from
   the cfg `:substrate-kw` so each adapter's exact discriminator is pinned,
   not merely its shape."
   [{:keys [adapter substrate-kw name]}]
-  (testing (str name " — public surface: adapter map carries :kind + the nine contract fns")
+  (testing (str name " — public surface: adapter map carries :kind + the nine map-shape fns (flush-render! is the tenth contract entry, checked separately)")
     (is (map? adapter) "adapter is a map")
     (is (= (keyword "rf.adapter" (clojure.core/name substrate-kw)) (:kind adapter))
         (str "kind discriminator is :rf.adapter/" (clojure.core/name substrate-kw)

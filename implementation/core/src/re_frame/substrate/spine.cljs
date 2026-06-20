@@ -32,7 +32,8 @@
   shapes diverge from the React-hook-shaped contract here.
 
   Per Spec 006 §CLJS reference — adapters using this spine remain
-  shape-compliant with the 9-fn substrate contract."
+  shape-compliant with the ten-fn substrate contract (six required +
+  three optional + one lifecycle)."
   (:require ["react"             :as React]
             ["react-dom"         :as react-dom]
             ["react-dom/client"  :as react-dom-client]
@@ -2406,7 +2407,7 @@
     ;; re-frame-owned IDisposable FIRST (a spine-produced derived value
     ;; inherited through a cross-substrate test bundle, rf2-jicu2) then the
     ;; substrate's own `:disposable?`. Routed (not an adapter-map key) so
-    ;; the 9-fn adapter contract shape is preserved; the choke point reads
+    ;; the ten-fn adapter contract shape is preserved; the choke point reads
     ;; it via `late-bind/get-fn :adapter/derived-container?`. The ratom
     ;; impl is exhaustive over ratom containers — truthy for a `Reaction`
     ;; (derived), `false` for a base `r/atom` (the choke point trusts that
