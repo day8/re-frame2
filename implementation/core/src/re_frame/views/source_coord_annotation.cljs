@@ -14,7 +14,9 @@
   site.
 
   Per Spec 006 §View tagging contract (rf2-01il5) the same wrapper also
-  stamps `data-rf-view=\"<ns>/<sym>\"` on the same root element — the
+  stamps `data-rf-view=\":rf.foo/bar\"` on the same root element — the
+  value is `(str id)` (a printed keyword, leading colon included; see the
+  shared `format-view-id`), NOT the colon-less `<ns>/<sym>` form. The
   fallback for the runtime view-hierarchy walker when the Fiber-reading
   primary path (Spec View-Hierarchy-Capture, rf2-mxkq7) is unavailable.
   Both attributes ride the same wrapper, the same hiccup walk, and the
@@ -148,11 +150,26 @@
                      :data-rf-view          view-attr}]
           (into [head attrs] (rest out)))))
 
-    ;; Non-DOM root (fn-component head, fragment, lazy-seq, nil). Skip
-    ;; with a one-shot warning. Pair tools fall back to :rf/id;
+    ;; Non-DOM root (fn-component head, fragment, lazy-seq, string, number,
+    ;; nil). Skip with a one-shot warning. Pair tools fall back to :rf/id;
     ;; view-walker falls back to the Fiber-walker primary path.
+    ;;
+    ;; Warn on ANY non-nil un-annotatable root (rf2-9ex1i9), not just
+    ;; vectors. A reg-view'd component returning a STRING (or number) is
+    ;; equally un-annotatable as a fn-headed vector — there is no root DOM
+    ;; element to stamp `data-rf2-source-coord` / `data-rf-view` onto. The
+    ;; React-hook walk (`re-frame.substrate.spine/inject-source-coord-attr`)
+    ;; already warns on any non-nil non-element output; this side formerly
+    ;; warned only on vectors, so a string-returning view was SILENT under
+    ;; Reagent but WARNED under UIx/Helix — an observable cross-adapter
+    ;; divergence on a pair-tool warning surface. Both walks now share the
+    ;; warn-on-any-non-nil-non-element predicate (the message TEXT was
+    ;; already shared via adapter/context to prevent drift; the TRIGGER
+    ;; condition is unified here). nil stays silent on both sides (a view
+    ;; legitimately renders nothing). The diagnostic head is the hiccup head
+    ;; for a vector, else the value itself.
     :else
     (do
-      (when (vector? out)
-        (warn-once/warn-non-dom-root! id (first out)))
+      (when (some? out)
+        (warn-once/warn-non-dom-root! id (if (vector? out) (first out) out)))
       out)))
