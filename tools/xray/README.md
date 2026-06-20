@@ -152,7 +152,10 @@ Two complementary resize mechanisms ship together:
 - **Xray drag handle** (user-controlled, persisted; auto-injected).
   Drag the panel's outer edge (left edge when docked `:right-rail`)
   to resize. Width clamps to `[320px, 90vw]` and persists across
-  reloads via `configure! :rf.xray/settings :general :panel-width-px`.
+  reloads in the Settings slot `[:general :panel-width-px]` (written at
+  runtime by the handle via the `:rf.xray/settings-update` event; a host
+  boot default can bulk-set it with the one-arg map `configure!`,
+  `{:rf.xray/settings {:general {:panel-width-px <px>}}}`).
   Double-click the handle (or press Enter / Space when focused) to
   reset to default. See
   [`spec/007-UX-IA.md` §Resize affordance](./spec/007-UX-IA.md#resize-affordance).

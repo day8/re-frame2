@@ -156,9 +156,11 @@ mechanisms, both writing the same `flex-basis` slot:
    via pointer events; `touch-action: none`), keyboard-navigable
    (arrow keys for fine resize, Shift for coarse, Home/End for
    clamps, Enter/Space to reset), width clamps to `[320px, 90vw]`,
-   persists across reloads via
-   `configure! :rf.xray/settings :general :panel-width-px`, double-click to
-   reset. This is the path for "I want a bit more room for the
+   persists across reloads in the Settings slot `[:general :panel-width-px]`
+   (written at runtime by the handle via the `:rf.xray/settings-update`
+   event; a host boot default can bulk-set it with the one-arg map
+   `configure!`, `{:rf.xray/settings {:general {:panel-width-px <px>}}}`),
+   double-click to reset. This is the path for "I want a bit more room for the
    Epoch panel right now."
 
 The two cooperate cleanly. The variable establishes the initial

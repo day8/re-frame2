@@ -119,9 +119,12 @@ The recommended CSS reads `--rf-xray-inline-width` for its
  ```
 2. **Xray drag handle** — auto-injected by Xray on the panel's
  outer edge. Pointer-driven (mouse, touch, pen via pointer events),
- keyboard-navigable, persisted across reloads via
- `configure! :rf.xray/settings :general :panel-width-px`, clamped to
- `[320px, 90vw]`, double-click to reset.
+ keyboard-navigable, persisted across reloads in the Settings slot
+ `[:general :panel-width-px]` (written at runtime by the resize handle
+ via the `:rf.xray/settings-update` event), clamped to `[320px, 90vw]`,
+ double-click to reset. Hosts that want a boot-time default can bulk-set
+ the slot through the one-arg map `configure!`:
+ `(xray-config/configure! {:rf.xray/settings {:general {:panel-width-px 720}}})`.
 
 Both mechanisms write the same `flex-basis` slot. Consumers that
 prefer the browser-native handle opt out by setting `resize:
