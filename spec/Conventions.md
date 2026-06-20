@@ -1193,15 +1193,15 @@ Tooling, generators, and CP scaffolds rely on the return value to chain registra
 
 ## `reg-*` frame-binding convention — opts kwarg, not main arg
 
-The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. The uniform shape across the family is therefore: **`:frame` rides on a trailing `opts` map (kwarg position), never mixed into the main registration arg**.
+The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. The uniform shape across the family is therefore: **`:frame` rides in the registration-metadata map, never mixed into the main registration arg or the handler/value slot**. For surfaces that carry an explicit metadata map (`reg-app-schema`, rf2-wvh95f F2), `:frame` is a key in that map alongside `:schema` / `:doc`; for surfaces whose primary arg is itself the registration value (`reg-flow`, `clear-flow`), `:frame` rides a trailing `opts` map.
 
 ```clojure
-;; correct — :frame in opts kwarg, separated from the registration's identity/behaviour
+;; correct — :frame separated from the registration's identity/behaviour
 (rf/reg-flow flow-map)
 (rf/reg-flow flow-map {:frame :session})
 
-(rf/reg-app-schema [:user] UserSchema)
-(rf/reg-app-schema [:user] UserSchema {:frame :session})
+(rf/reg-app-schema [:user] {:schema UserSchema})
+(rf/reg-app-schema [:user] {:schema UserSchema :frame :session})
 
 (rf/clear-flow :flow-id)
 (rf/clear-flow :flow-id {:frame :session})
