@@ -118,11 +118,11 @@ git clone https://github.com/day8/re-frame2.git
 cd re-frame2
 git checkout <release-tag-or-commit>     # pin to a version you've reviewed
 # Review skills/re-frame2-setup/SKILL.md and references/*.md before the next line
-scripts/install-skills.sh                                              # macOS / Linux (symlinks)
-powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
 ```
 
-To upgrade: `git checkout` a newer reviewed tag in the same clone — the link follows it (so review the diff before bumping). The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`). See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md` §skills — link, don't copy](../../CONTRIBUTING.md#skills--link-dont-copy) for the full rationale. For a team following along on one project, link from a shared reviewed checkout rather than committing a `cp -r` snapshot that will go stale.
+Then run the cross-platform installer. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour, and [`CONTRIBUTING.md` §skills — link, don't copy](../../CONTRIBUTING.md#skills--link-dont-copy) for the full rationale.
+
+To upgrade: `git checkout` a newer reviewed tag in the same clone — the link follows it (so review the diff before bumping). For a team following along on one project, link from a shared reviewed checkout rather than committing a `cp -r` snapshot that will go stale.
 
 ## Invoking it in Claude
 

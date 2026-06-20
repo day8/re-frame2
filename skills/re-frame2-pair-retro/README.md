@@ -67,14 +67,7 @@ Pre-alpha. Ports the v1 `re-frame-pair-improver` skill structure to target re-fr
 
 **Link, never copy.** Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. For this skill that drift is a security concern, not just polish: the shared redaction / issue-filing protocol it loads is an active AI/off-box boundary, so a stale copy can miss later redaction, prompt-injection, or shell-safety hardening while still filing GitHub issues from sensitive pair-session recaps. Always link the repo source so the active skill is the maintained source by construction.
 
-The cross-platform installer at the repo root links *every* re-frame2 skill (this one included) into `~/.claude/skills/`:
-
-```bash
-scripts/install-skills.sh                                              # macOS / Linux (symlinks)
-powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
-```
-
-It is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md#skills--link-dont-copy) for the full setup.
+The cross-platform installer at the repo root links *every* re-frame2 skill (this one included) into `~/.claude/skills/`. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour, and [`CONTRIBUTING.md`](../../CONTRIBUTING.md#skills--link-dont-copy) for the full setup.
 
 To link just this one skill:
 
