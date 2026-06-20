@@ -101,8 +101,8 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   9 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
   Machine / Routes / Resources / Graph / Modules — Graph being Xray's UI over the
   EP-0014 derivation/process graph, and Modules its EP-0023
-  `image → frame → event stream` lens (which image loaded which frame), with the
-  retained-internal EP-0013 realm/module substrate below (L4-only)) and the 5 Static registry-browse
+  `image → frame → event stream` lens (which image loaded which frame, L4-only))
+  and the 5 Static registry-browse
   tabs (Machines / Routes / Schemas / Flows / Interceptors). There is no
   Issues tab — issues surface inline. Xray owns
   the *seeing*; `re-frame2-pair` owns the *driving*.
