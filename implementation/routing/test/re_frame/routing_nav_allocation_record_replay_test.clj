@@ -49,8 +49,8 @@
   stub the history fxs (so the block's `:rf.nav/replace-url` runs on JVM).
   Land on the editor (the active route the block guards)."
   []
-  (rf/reg-route :route/editor {:path "/editor" :can-leave [:editor/can-leave?]})
-  (rf/reg-route :route/home   {:path "/home"})
+  (rf/reg-route :route/editor {:can-leave [:editor/can-leave?]} "/editor")
+  (rf/reg-route :route/home   {} "/home")
   (rf/reg-sub :editor/can-leave? (fn [_ _] false))           ;; dirty → block
   (rf/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
@@ -159,7 +159,7 @@
             carrying the RECORDED token mismatches the re-minted current — the
             stale-suppression gate flips (suppresses a result that should
             commit)"
-    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::flip (fn [ev] (swap! traces conj ev)))
@@ -191,7 +191,7 @@
             the host counter advanced — so a continuation carrying nav-1
             matches current and the result commits (the gate decision is
             preserved across record→replay)"
-    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     ;; Same advanced host counter as the failing case — a re-mint WOULD give nav-6.
     (nav-counters/commit-counter! :rf/default :nav-token-counter 5)
@@ -216,7 +216,7 @@
 (deftest strict-replay-fails-on-missing-nav-allocation
   (testing "rf2-vcop6y step 6: strict replay FAILS LOUDLY when the recorded
             nav-token allocation is missing (`:rf.error/missing-required-cofx`)"
-    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [ex (try (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
                                     {:rf.cofx/mint-policy :strict})
                   nil
@@ -237,7 +237,7 @@
             `max` from the recorded allocation's :counter, so a replayed
             allocation re-establishes the allocator and a later live navigation
             mints strictly past it (no recycle)"
-    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; Replay an allocation whose recorded :counter is 9 (the host starts at 0).
     ;; A `transitioned` record carries both allocations (both generate live).
     (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
@@ -261,9 +261,9 @@
   (testing "rf2-vcop6y acceptance: with NO recorded allocation supplied, live
             navigations mint monotone, non-recycled nav-tokens exactly as
             before — the recordable seam is transparent to the live path"
-    (rf/reg-route :route/a {:path "/a"})
-    (rf/reg-route :route/b {:path "/b"})
-    (rf/reg-route :route/c {:path "/c"})
+    (rf/reg-route :route/a {} "/a")
+    (rf/reg-route :route/b {} "/b")
+    (rf/reg-route :route/c {} "/c")
     (rf/dispatch-sync [:rf.route/transitioned "/a"])
     (rf/dispatch-sync [:rf.route/transitioned "/b"])
     (rf/dispatch-sync [:rf.route/transitioned "/c"])
@@ -326,7 +326,7 @@
   (testing "rf2-ps05ug: a PRESENT-but-malformed recorded nav-token allocation
             fails with :rf.error/cofx-value-invalid BEFORE the commit handler
             writes the :nav-token into the durable route slice"
-    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [ex (try (rf/dispatch-sync [:rf.route/transitioned "/articles/A"]
                                     {:rf.cofx {:rf.route/nav-allocation
                                                {:token nil :counter "bad"}}
@@ -348,7 +348,7 @@
   (testing "rf2-ps05ug acceptance: the live generator's produced allocation
             conforms to the new :schema, so the schema is transparent to the
             ordinary (non-replay) path"
-    (rf/reg-route :route/a {:path "/a"})
+    (rf/reg-route :route/a {} "/a")
     ;; A live navigation runs the generator (well-formed `{:token \"nav-1\"
     ;; :counter 1}`) and commits cleanly — no cofx-value-invalid throw.
     (rf/dispatch-sync [:rf.route/transitioned "/a"])

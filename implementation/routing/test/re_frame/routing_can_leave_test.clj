@@ -22,10 +22,9 @@
     ;; :rf.route/continue clears the slot AND completes the navigation.
     ;; :rf.route/cancel clears the slot WITHOUT navigating.
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
 
     (rf/reg-event :editor/dirty
                      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
@@ -93,7 +92,7 @@
 (deftest continue-and-cancel-no-op-when-no-pending-nav
   (testing ":rf.route/cancel and :rf.route/continue are safe no-ops when
             :rf/pending-navigation is empty (no slot to resolve)"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -126,10 +125,9 @@
 (deftest pending-navigation-slot-shape
   (testing ":rf/pending-navigation carries the full Spec-Schemas slot shape"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -156,10 +154,9 @@
   (testing ":rf.route/navigation-blocked trace carries :rejecting-guard
             so tooling can flag the rejecting sub-id"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -189,10 +186,9 @@
   (testing ":rf.route/continue re-emits :rf/url-requested with
             :bypass-leave-guard? true, running the policy chain"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -219,10 +215,9 @@
 (deftest can-leave-query-vector-blocks-url-requested
   (testing "Spec-shaped :can-leave query vectors are subscribed directly"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -243,10 +238,9 @@
 (deftest programmatic-navigate-runs-can-leave-guard
   (testing ":rf.route/navigate is guarded by the active route's :can-leave"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -268,10 +262,9 @@
 (deftest handle-url-change-runs-can-leave-guard
   (testing ":rf.route/handle-url-change is guarded by the active route's :can-leave"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -290,10 +283,9 @@
 (deftest pending-nav-continue-and-cancel-require-matching-id
   (testing ":rf.route/continue and :rf.route/cancel ignore stale pending-nav ids"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/can-leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/can-leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -333,10 +325,9 @@
             app-registered handler fires (Spec 012 §Default flow 4d)"
     (let [seen (atom nil)]
       (rf/reg-route :editor/article
-                    {:path      "/editor/articles/:id"
-                     :params    [:map [:id :string]]
-                     :can-leave :editor/can-leave?})
-      (rf/reg-route :route/cart {:path "/cart"})
+                    {:params    [:map [:id :string]]
+                     :can-leave :editor/can-leave?} "/editor/articles/:id")
+      (rf/reg-route :route/cart {} "/cart")
       (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
       (rf/reg-sub :editor/can-leave?
                   (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -364,10 +355,9 @@
   (testing "rf2-ee38b.8: :rf.error/can-leave-non-boolean tags :route-id
             with the route-id KEYWORD, not the :path pattern string"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/set-dirty
                      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: returns a truthy non-boolean (42).
@@ -398,10 +388,9 @@
             bug (returning the dirty-flag value rather than (not dirty?))
             cannot silently strand form state."
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/set-dirty
                      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: return the dirty-flag directly (truthy when dirty).
@@ -458,10 +447,9 @@
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -487,10 +475,9 @@
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave [:editor/leave?]})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave [:editor/leave?]} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/set-dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
     (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
@@ -516,10 +503,9 @@
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -549,7 +535,7 @@
             `:rf.route/navigate {:url ...}` external path, which already tags)"
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))

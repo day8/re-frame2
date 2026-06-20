@@ -153,11 +153,10 @@
 (defn- register-blocking-infinite-route! []
   (rf/reg-resource :feed/articles (feed-spec {}))
   (rf/reg-route :route/feed
-                {:path      "/feed/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :feed/articles
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]}))
+                              :blocking? true}]} "/feed/:slug"))
 
 ;; ===========================================================================
 ;; 1. blocking infinite route holds :loading on page 0, DRAINS on page-0 success
@@ -254,11 +253,10 @@
                                      {:request {:method :get :url (str "/api/articles/" slug)}})
                     :tags          (fn [{:keys [slug]} _data] #{[:article slug]})})
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
+                              :blocking? true}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
         e          (entry scoped-key)]

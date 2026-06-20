@@ -50,7 +50,7 @@
   (testing "rf/reg-route (macro) raises :rf.error/routing-artefact-missing when the :routing/reg-route hook is nil"
     (with-hook-as-nil :routing/reg-route
       (fn []
-        (let [thrown (try (rf/reg-route :route/probe {:path "/probe"})
+        (let [thrown (try (rf/reg-route :route/probe {} "/probe")
                           nil
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)

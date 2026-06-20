@@ -56,9 +56,8 @@
 
 (deftest navigate-event-mints-framework-authority
   (testing ":rf.route/navigate returns :rf.db/runtime without tripping the diagnostic"
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::navigate)]
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
@@ -71,7 +70,7 @@
 
 (deftest url-change-event-mints-framework-authority
   (testing ":rf.route/transitioned (URL-driven) does not trip the diagnostic"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::url-change)]
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
@@ -84,10 +83,9 @@
 (deftest can-leave-continue-and-cancel-mint-framework-authority
   (testing "the pending-nav protocol (url-requested / continue / cancel) stays silent"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty
                      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
@@ -122,8 +120,7 @@
     ;; :transition state into the runtime-db slice via :rf.db/runtime.
     (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/loaded
-                  {:path     "/loaded"
-                   :on-match [[:load/noop]]})
+                  {:on-match [[:load/noop]]} "/loaded")
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::settle)]
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])

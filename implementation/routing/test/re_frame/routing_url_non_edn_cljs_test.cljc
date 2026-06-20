@@ -72,7 +72,7 @@
 (deftest route-url-path-param-host-value-fails-closed
   (testing "a host value in a required path param fails closed with
             :rf.error/route-url-non-edn-value before any URL is built"
-    (rf/reg-route :route/item {:path "/items/:id"})
+    (rf/reg-route :route/item {} "/items/:id")
     (doseq [[label v] adversarial-path-values]
       (let [ex (thrown-route-url :route/item {:id v} {})]
         (is (some? ex)
@@ -93,7 +93,7 @@
 (deftest route-url-query-value-host-value-fails-closed
   (testing "a host value in a (non-nil) query value fails closed the same way
             the path side and the query-key side do"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (doseq [[label v] adversarial-path-values]
       (let [ex (thrown-route-url :route/search {} {:q v})]
         (is (some? ex)
@@ -113,7 +113,7 @@
   (testing "the guard is a host-value gate, NOT a string-only gate — strings,
             booleans, portable integers, and UUIDs remain admitted so the
             happy path is unaffected"
-    (rf/reg-route :route/scalar {:path "/s/:v"})
+    (rf/reg-route :route/scalar {} "/s/:v")
     (is (= "/s/hello" (routing/route-url :route/scalar {:v "hello"})))
     (is (= "/s/false" (routing/route-url :route/scalar {:v false}))
         "a present-but-falsy boolean round-trips (existing contract)")
@@ -131,7 +131,7 @@
   (testing "the failure raises a structured error, never a half-built or
             host-stringified URL string (the path guard fires during the
             pattern walk, before path-out is assembled)"
-    (rf/reg-route :route/order {:path "/orders/:id" :query [:map [:note :string]]})
+    (rf/reg-route :route/order {:query [:map [:note :string]]} "/orders/:id")
     (let [ex (thrown-route-url :route/order {:id (atom :x)} {:note "ok"})]
       (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
           "a structured :rf.error/id, never a string return value"))))
@@ -153,8 +153,7 @@
 (deftest route-url-namespaced-query-key-round-trips
   (testing "a single namespaced declared query key round-trips through the
             route-url/match-url prism with its namespace intact"
-    (rf/reg-route :route/np {:path  "/np"
-                             :query [:map [:user/id :string]]})
+    (rf/reg-route :route/np {:query [:map [:user/id :string]]} "/np")
     (let [url (routing/route-url :route/np {} {:user/id "u-7"})]
       ;; the namespace survives into the URL token (percent-encoded `/`).
       (is (= "/np?user%2Fid=u-7" url)
@@ -169,8 +168,7 @@
             different namespaces (:user/id + :account/id) emit DISTINCT URL
             keys and both round-trip — the prior (name k) collapsed both to a
             single `id=` pair, losing data and emitting a duplicate key"
-    (rf/reg-route :route/two {:path  "/two"
-                              :query [:map [:user/id :string] [:account/id :string]]})
+    (rf/reg-route :route/two {:query [:map [:user/id :string] [:account/id :string]]} "/two")
     (let [url (routing/route-url :route/two {} {:user/id "u" :account/id "a"})]
       ;; both namespaced keys are present and DISTINCT in the emitted URL —
       ;; no `id=` collapse, no duplicate bare key.
@@ -190,8 +188,7 @@
   (testing "a namespaced :query-defaults key is recovered with its namespace
             (the declared-vocabulary token map covers defaults + retain, not
             just the :query schema)"
-    (rf/reg-route :route/dflt {:path           "/dflt"
-                               :query-defaults {:user/page 1}})
+    (rf/reg-route :route/dflt {:query-defaults {:user/page 1}} "/dflt")
     ;; an inbound URL carrying the namespaced key recovers the declared keyword
     (let [m (routing/match-url "/dflt?user%2Fpage=3")]
       (is (= {:user/page "3"} (:query m))
@@ -221,7 +218,7 @@
   (testing "a non-string fragment (number, keyword, boolean, function, host
             object) fails closed with :rf.error/route-url-non-edn-value before
             any URL is built — it is NOT host-stringified or truthiness-elided"
-    (rf/reg-route :route/frag {:path "/frag"})
+    (rf/reg-route :route/frag {} "/frag")
     (doseq [[label v] [[:number 42]
                        [:keyword :section]
                        ;; the motivating trap: `false` is a non-string the
@@ -244,7 +241,7 @@
   (testing "the guard is string-only, not no-fragment — a string fragment
             (including one with %-significant characters) round-trips, and nil
             / empty-string fragments remain elided (existing contract)"
-    (rf/reg-route :route/fr {:path "/fr"})
+    (rf/reg-route :route/fr {} "/fr")
     ;; nil + empty-string elide (no #)
     (is (= "/fr" (routing/route-url :route/fr {} {} nil)))
     (is (= "/fr" (routing/route-url :route/fr {} {} "")))

@@ -27,22 +27,18 @@
 ;; ============================================================================
 
 (rf/reg-route :routing.app/home
-  {:doc  "Landing page."
-   :path "/"})
+  {:doc  "Landing page."} "/")
 
 (rf/reg-route :routing.app/articles
-  {:doc  "Articles list."
-   :path "/articles"})
+  {:doc  "Articles list."} "/articles")
 
 (rf/reg-route :routing.app/article-detail
   {:doc    "Detail page for one article."
-   :path   "/articles/:id"
-   :params [:map [:id :string]]})
+   :params [:map [:id :string]]} "/articles/:id")
 
 ;; The runtime emits :rf.route/not-found for unmatched URLs.
 (rf/reg-route :rf.route/not-found
-  {:doc  "Fallback page for unmatched URLs."
-   :path "/_404"})
+  {:doc  "Fallback page for unmatched URLs."} "/_404")
 
 ;; ============================================================================
 ;; APP DATA

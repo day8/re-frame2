@@ -85,14 +85,13 @@
 (def ^:private frame-b :ssr/req-b)
 
 (defn- register-routes-and-fx! []
-  (rf/reg-route :route/home {:path "/"})
+  (rf/reg-route :route/home {} "/")
   ;; A route whose `:params` predicate rejects any `:id` not starting "a".
   ;; A navigate with a bad `:id` makes `route-url` throw → navigate.cljc
   ;; catches it → emits `:rf.error/schema-validation-failure :where :event`.
   (rf/reg-route :route/article
-                {:path   "/articles/:id"
-                 :params (fn [{:keys [id]}]
-                           (str/starts-with? (or id "") "a"))})
+                {:params (fn [{:keys [id]}]
+                           (str/starts-with? (or id "") "a"))} "/articles/:id")
   ;; Server-platform push-url so the navigate fx assembly resolves on a
   ;; `:platform :server` frame (no-op sink — the reject path never pushes).
   (rf/reg-fx :rf.nav/push-url

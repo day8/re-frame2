@@ -108,9 +108,8 @@
 
 (deftest route-link-href-synthesis-cljs
   (testing "the rendered <a> :href matches route-url"
-    (rf/reg-route :route/cart    {:path "/cart"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/cart    {} "/cart")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
     (let [[_ attrs] (routing/route-link-render {:to :route/cart})]
       (is (= "/cart" (:href attrs))))
@@ -122,7 +121,7 @@
 
 (deftest plain-left-click-intercepts
   (testing "button 0 + no modifiers → preventDefault + :rf/url-requested"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched source prevented? href]}
           (click! {:to :route/cart} (mk-event {}))]
       (is (= "/cart" href))
@@ -141,9 +140,8 @@
 
 (deftest plain-left-click-passes-params-and-query
   (testing "the dispatched payload carries :params and :query when present"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]
-                                  :query  [:map [:tab :keyword]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]
+                                  :query  [:map [:tab :keyword]]} "/articles/:id")
     ;; :tab is declared :keyword in the route's :query schema; pass a
     ;; conformant value through the link click so rf2-ug2m1's route-url
     ;; validation doesn't reject the caller's payload.
@@ -162,7 +160,7 @@
 
 (deftest cmd-click-defers
   (testing "cmd-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart} (mk-event {:meta true}))]
       (is (not prevented?) "cmd-click leaves the click for the browser")
@@ -170,7 +168,7 @@
 
 (deftest ctrl-click-defers
   (testing "ctrl-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart} (mk-event {:ctrl true}))]
       (is (not prevented?))
@@ -178,7 +176,7 @@
 
 (deftest shift-click-defers
   (testing "shift-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart} (mk-event {:shift true}))]
       (is (not prevented?))
@@ -186,7 +184,7 @@
 
 (deftest alt-click-defers
   (testing "alt-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart} (mk-event {:alt true}))]
       (is (not prevented?))
@@ -194,7 +192,7 @@
 
 (deftest middle-click-defers
   (testing "middle-click (button 1) does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart} (mk-event {:button 1}))]
       (is (not prevented?))
@@ -214,7 +212,7 @@
 (deftest target-blank-defers-to-browser-rf2-fwz29i
   (testing "{:target \"_blank\"} → plain left-click defers to the browser
             (no preventDefault, no :rf/url-requested)"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented? href]}
           (click! {:to :route/cart :target "_blank"} (mk-event {}))]
       (is (= "/cart" href) "the href is still synthesised")
@@ -225,7 +223,7 @@
 
 (deftest target-parent-and-top-defer-rf2-fwz29i
   (testing "non-self frame targets (_parent / _top / named) also defer"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (doseq [t ["_parent" "_top" "named-frame"]]
       (let [{:keys [dispatched prevented?]}
             (click! {:to :route/cart :target t} (mk-event {}))]
@@ -235,7 +233,7 @@
 (deftest download-defers-to-browser-rf2-fwz29i
   (testing "{:download ...} → plain left-click defers to the browser
             (no preventDefault, no :rf/url-requested)"
-    (rf/reg-route :route/report {:path "/report"})
+    (rf/reg-route :route/report {} "/report")
     ;; A string download name (the common case).
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/report :download "report.pdf"} (mk-event {}))]
@@ -251,7 +249,7 @@
   (testing "{:target \"_self\"} is the default same-document target — it
             still gets SPA interception (the native distinction is only
             for off-document targets)"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart :target "_self"} (mk-event {}))]
       (is prevented? "target=_self is same-document — interception applies")
@@ -261,7 +259,7 @@
 (deftest download-false-still-intercepts-rf2-fwz29i
   (testing "{:download false} / {:download nil} do not request a native
             download, so SPA interception still applies"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart :download false} (mk-event {}))]
       (is prevented? "download=false does not defer")
@@ -275,7 +273,7 @@
 
 (deftest caller-on-click-pre-empts-when-preventing-default
   (testing "if the caller's :on-click calls preventDefault, the framework's interception is skipped"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [custom-fired?   (atom false)
           custom-on-click (fn [e]
                             (reset! custom-fired? true)
@@ -290,7 +288,7 @@
 
 (deftest caller-on-click-runs-but-does-not-block
   (testing "if the caller's :on-click does NOT preventDefault, the framework still intercepts"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [custom-fired?   (atom false)
           custom-on-click (fn [_e] (reset! custom-fired? true))
           {:keys [dispatched prevented?]}
@@ -370,7 +368,7 @@
             scope unwound and with NO ambient frame, dispatches
             :rf/url-requested into :route/owner — not :rf.error/no-frame-context"
     (rf/reg-frame :route/owner {})
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [target-frame source raised]}
           (click-after-scope-unwound! {:to :route/cart} :route/owner nil)]
       (is (nil? raised)
@@ -386,7 +384,7 @@
             authoritative, never the click-time ambient)"
     (rf/reg-frame :route/owner {})
     (rf/reg-frame :route/other {})
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [target-frame source raised]}
           (click-after-scope-unwound! {:to :route/cart} :route/owner :route/other)]
       (is (nil? raised) "no error raised")

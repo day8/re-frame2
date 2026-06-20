@@ -44,13 +44,12 @@
               query so back/forward and bookmarking restore the page; `:int`
               coercion turns the URL's `\"2\"` into `2`, and `:query-defaults`
               fills page 1 when the key is absent."
-   :path     "/"
    :query    [:map
               [:feed {:optional true} :string]
               [:page {:optional true} :int]]
    :query-defaults {:page 1}
    :on-match [[:home/load]]
-   :scroll   :top})
+   :scroll   :top} "/")
 
 (rf/reg-route :realworld/home-tag
   {:doc      "The tag-filtered article list at the official RealWorld
@@ -59,73 +58,63 @@
               the home feed does (`/tag/:tag?page=2`); `:query-defaults` fills
               page 1. Same `:home/load` on-match — it reads the active tag off
               the route params now rather than the query."
-   :path     "/tag/:tag"
    :params   [:map [:tag :string]]
    :query    [:map [:page {:optional true} :int]]
    :query-defaults {:page 1}
    :on-match [[:home/load]]
-   :scroll   :top})
+   :scroll   :top} "/tag/:tag")
 
 (rf/reg-route :realworld.auth/login
-  {:doc  "Login page."
-   :path "/login"})
+  {:doc  "Login page."} "/login")
 
 (rf/reg-route :realworld.auth/register
-  {:doc  "Register page."
-   :path "/register"})
+  {:doc  "Register page."} "/register")
 
 (rf/reg-route :realworld.user/settings
   {:doc  "User settings page (requires auth)."
-   :path "/settings"
    :on-match [[:settings/load]]
-   :tags #{:requires-auth}})
+   :tags #{:requires-auth}} "/settings")
 
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth)."
-   :path      "/editor"
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
-   :can-leave [:editor/can-leave?]})
+   :can-leave [:editor/can-leave?]} "/editor")
 
 (rf/reg-route :realworld.editor/edit
   {:doc       "Edit an existing article (requires auth)."
-   :path      "/editor/:slug"
    :params    [:map [:slug :string]]
    :tags      #{:requires-auth}
    :can-leave [:editor/can-leave?]
-   :on-match  [[:editor/load-article]]})
+   :on-match  [[:editor/load-article]]} "/editor/:slug")
 
 (rf/reg-route :realworld.article/show
   {:doc      "Article detail page. The #comments fragment scrolls to comments."
-   :path     "/article/:slug"
    :params   [:map [:slug :string]]
    :on-match [[:article/load]
               [:comments/load]]
-   :scroll   :top})
+   :scroll   :top} "/article/:slug")
 
 (rf/reg-route :realworld.profile/show
   {:doc      "A user's profile — articles they authored. `?page=N` paginates
               the authored list (official RealWorld limit/offset pagination)."
-   :path     "/profile/:username"
    :params   [:map [:username :string]]
    :query    [:map [:page {:optional true} :int]]
    :query-defaults {:page 1}
    :on-match [[:profile/load]
-              [:profile.articles/load]]})
+              [:profile.articles/load]]} "/profile/:username")
 
 (rf/reg-route :realworld.profile/favorites
   {:doc      "A user's profile — articles they have favorited. `?page=N`
               paginates the favorited list."
-   :path     "/profile/:username/favorites"
    :params   [:map [:username :string]]
    :query    [:map [:page {:optional true} :int]]
    :query-defaults {:page 1}
    :on-match [[:profile/load]
-              [:profile.favorites/load]]})
+              [:profile.favorites/load]]} "/profile/:username/favorites")
 
 (rf/reg-route :rf.route/not-found
-  {:doc  "Fallback when no other route matches."
-   :path "/_404"})
+  {:doc  "Fallback when no other route matches."} "/_404")
 
 ;; ============================================================================
 ;; AUTH GUARD

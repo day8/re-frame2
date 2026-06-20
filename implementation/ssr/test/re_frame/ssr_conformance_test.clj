@@ -357,7 +357,8 @@
     ;; ---- routes (also from :registry :route) ---------------------------
     (doseq [[id meta] (sort-by (comp str key)
                                (get-in fixture [:fixture/registry :route]))]
-      (rf/reg-route id meta))
+      ;; rf2-wvh95f F1: lift the path pattern into the 3-slot VALUE.
+      (rf/reg-route id (dissoc meta :path) (:path meta)))
     ;; ---- app-schemas (rare on ssr fixtures, but covered) ---------------
     ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
     ;; schemas are NOT a registrar kind.

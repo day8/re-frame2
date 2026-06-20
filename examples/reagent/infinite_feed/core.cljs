@@ -221,20 +221,17 @@
 ;; `:blocking?` blocks on page 0 only.
 
 (rf/reg-route :infinite-feed.app/home
-  {:doc  "Landing page."
-   :path "/"})
+  {:doc  "Landing page."} "/")
 
 (rf/reg-route :infinite-feed.app/timeline
   {:doc   "The feed — ensures PAGE 0 of the infinite :feed/timeline on entry."
-   :path  "/timeline"
    :resources
    [{:resource  :feed/timeline
      :params    (fn [_route] {})
-     :blocking? true}]})
+     :blocking? true}]} "/timeline")
 
 (rf/reg-route :rf.route/not-found
-  {:doc  "Fallback for unmatched URLs."
-   :path "/_404"})
+  {:doc  "Fallback for unmatched URLs."} "/_404")
 
 ;; ============================================================================
 ;; PAGES — passive reads; the runtime owns the accumulation

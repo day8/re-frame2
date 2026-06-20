@@ -220,7 +220,7 @@
     ;; Register a route and materialize the route slice in :app/main by
     ;; navigating (the live route slice view reads runtime-db, ungated).
     (rf/with-frame :app/main
-      (rf/reg-route :route/article {:path "/articles/:slug"}))
+      (rf/reg-route :route/article {} "/articles/:slug"))
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}]
                       {:frame :app/main})
     (rf/dispatch-sync [:rf.xray/set-derivation-graph-mode :live] {:frame :rf/xray})

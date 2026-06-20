@@ -19,9 +19,8 @@
     ;; Per Spec 012 §Navigation is an event: dispatching :rf.route/navigate
     ;; with a route-id + params updates :rf/route.{id,params,query,...} and
     ;; emits a :rf.nav/push-url effect.
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; Capture the URL that lands at :rf.nav/push-url.
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
@@ -49,11 +48,9 @@
     ;; :rf.route/query slice; caller-supplied values win on conflict
     ;; (rf2-u8t3s).
     (rf/reg-route :route/search
-                  {:path           "/search"
-                   :query-retain   #{:theme :locale}})
+                  {:query-retain   #{:theme :locale}} "/search")
     (rf/reg-route :route/cart
-                  {:path         "/cart"
-                   :query-retain #{:theme :locale}})
+                  {:query-retain #{:theme :locale}} "/cart")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -87,10 +84,9 @@
 (deftest routing-query-retain-no-op-without-declaration
   (testing "routes without :query-retain do not inherit query keys"
     (rf/reg-route :route/search
-                  {:path         "/search"
-                   :query-retain #{:theme}})
+                  {:query-retain #{:theme}} "/search")
     (rf/reg-route :route/cart
-                  {:path "/cart"}) ;; no :query-retain
+                  {} "/cart") ;; no :query-retain
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -106,7 +102,7 @@
     ;; `[:rf.route/navigate :route/docs {:page "routing"} {:fragment "x"}]`
     ;; pushes "/docs/routing#x" via :rf.nav/push-url. The 4-arity route-url
     ;; is the canonical builder; the navigate handler routes opts → 4-arity.
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -121,7 +117,7 @@
 (deftest navigate-url-form-preserves-fragment
   (testing ":rf.route/navigate with URL-string target preserves the URL's
             embedded #fragment in the pushed URL"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -154,8 +150,8 @@
             the REQUESTED url (NOT the not-found route's literal /404) so
             the address bar keeps the URL the caller aimed at — consistent
             with the URL-driven not-found path (rf2-0zr2o, Option A)"
-    (rf/reg-route :route/home {:path "/"})
-    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :rf.route/not-found {} "/404")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -184,7 +180,7 @@
     ;; NB: kept a SEPARATE deftest from the registered-not-found case above
     ;; — the per-deftest fixture gives this a clean registrar with NO
     ;; :rf.route/not-found, which is exactly the condition under test.
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])
           traces (atom [])]
       (rf/reg-fx :rf.nav/push-url
@@ -229,9 +225,9 @@
             url (not /404); the URL-driven not-found path stays unchanged
             (emits no push) — both keep the requested url in the address bar
             (rf2-0zr2o)"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     ;; The not-found route's literal :path is /404; the fix must NOT push it.
-    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-route :rf.route/not-found {} "/404")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -271,9 +267,8 @@
     (let [restore (rts/with-stub-validator)]
       (try
         (rf/reg-route :route/article
-                      {:path   "/articles/:id"
-                       :params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))})
-        (rf/reg-route :rf.route/not-found {:path "/404"})
+                      {:params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
+        (rf/reg-route :rf.route/not-found {} "/404")
         (rf/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _] nil))
@@ -289,7 +284,7 @@
 
 (deftest url-requested-classifies-external-before-push
   (testing ":rf/url-requested does not pushState or rewrite the route for external URLs"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])
           traces (atom [])]
       (rf/reg-fx :rf.nav/push-url
@@ -315,7 +310,7 @@
 (deftest navigate-writes-fragment-and-nav-token
   (testing ":rf.route/navigate writes :fragment + :nav-token into the slice
             and emits :rf.route.nav-token/allocated"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -339,7 +334,7 @@
 
 (deftest navigate-no-fragment-still-allocates-nav-token
   (testing ":rf.route/navigate without a :fragment opt still writes :nav-token"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -360,7 +355,7 @@
 (deftest handle-url-change-writes-full-slice-shape
   (testing ":rf.route/handle-url-change writes :fragment and :nav-token
             into the slice (the seven-key canonical shape)"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -383,7 +378,7 @@
 
 (deftest handle-url-change-allocates-nav-token-trace
   (testing ":rf.route/handle-url-change emits :rf.route.nav-token/allocated"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -410,8 +405,8 @@
 (deftest transitioned-unmatched-url-routes-to-not-found
   (testing ":rf.route/transitioned for an unmatched URL writes the
             :rf.route/not-found slice with {:url url} in :params"
-    (rf/reg-route :route/home {:path "/"})
-    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :rf.route/not-found {} "/404")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -434,7 +429,7 @@
 (deftest transitioned-not-found-without-route-registered-warns
   (testing "when :rf.route/not-found is NOT registered, an unmatched URL
             still rewrites the slice AND emits :rf.warning/no-not-found-route"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -465,9 +460,9 @@
 (deftest transitioned-malformed-url-routes-to-not-found-with-reason
   (testing ":rf.route/transitioned for a malformed-%-encoded URL writes the
             :rf.route/not-found slice with `:reason :malformed-url`"
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/search  {:path "/search"})
-    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/search  {} "/search")
+    (rf/reg-route :rf.route/not-found {} "/404")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -498,8 +493,8 @@
 (deftest transitioned-malformed-url-emits-structured-trace
   (testing ":rf.route/transitioned emits :rf.warning/malformed-url alongside the
             standard :rf.error/no-such-handler when the URL is malformed"
-    (rf/reg-route :route/home {:path "/"})
-    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :rf.route/not-found {} "/404")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -531,7 +526,7 @@
             `:rf.warning/no-not-found-route`."
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     ;; No :rf.route/not-found registered → the bare-miss path also emits
     ;; :rf.warning/no-not-found-route.
     (rf/reg-fx :rf.nav/push-url
@@ -590,8 +585,8 @@
 
 (deftest transitioned-well-formed-url-does-not-emit-malformed-trace
   (testing "the regular happy path emits NO :rf.warning/malformed-url"
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/search  {:path "/search"})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/search  {} "/search")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -616,9 +611,8 @@
             declares :on-match events"
     (rf/reg-event :prefs/loaded (fn [{:keys [db]} _] {:db (assoc db :prefs/loaded? true)}))
     (rf/reg-route :route/cart
-                  {:path     "/cart"
-                   :on-match [[:prefs/loaded]]})
-    (rf/reg-route :route/home {:path "/"})
+                  {:on-match [[:prefs/loaded]]} "/cart")
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -669,8 +663,7 @@
                          (swap! observed conj [:b (get-in rt [:rf.runtime/routing :current :transition])])
                          {:db (assoc db :load/b-done? true)}))
       (rf/reg-route :route/dashboard
-                    {:path     "/dashboard"
-                     :on-match [[:load/a] [:load/b]]})
+                    {:on-match [[:load/a] [:load/b]]} "/dashboard")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -691,7 +684,7 @@
   (testing "fragment-only URL change emits :rf.route/fragment-changed
             (rf2-cj9fn; pre-rename `:rf.route/fragment-changed`) with
             :prev-fragment / :next-fragment under :tags (Spec 012 §Fragments)"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -751,8 +744,7 @@
                        (fn [{:keys [db]} _]
                          (swap! on-match-calls inc)
                          {:db db}))
-      (rf/reg-route :route/docs {:path     "/docs/:page"
-                                 :on-match [[:docs/load]]})
+      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -814,7 +806,7 @@
             :on-match and does NOT allocate a new nav-token"
     (let [on-match-calls (atom 0)]
       (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/cart {:path "/cart" :on-match [[:cart/load]]})
+      (rf/reg-route :route/cart {:on-match [[:cart/load]]} "/cart")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -842,7 +834,7 @@
     (let [on-match-calls (atom 0)]
       (rf/reg-event :article/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/article
-                    {:path "/articles/:id" :on-match [[:article/load]]})
+                    {:on-match [[:article/load]]} "/articles/:id")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -860,7 +852,7 @@
     (let [on-match-calls (atom 0)
           pushed         (atom 0)]
       (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/cart {:path "/cart" :on-match [[:cart/load]]})
+      (rf/reg-route :route/cart {:on-match [[:cart/load]]} "/cart")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] (swap! pushed inc)))
@@ -893,11 +885,10 @@
     (let [restore (rts/with-stub-validator)
           pushed  (atom [])]
       (try
-        (rf/reg-route :route/home {:path "/"})
+        (rf/reg-route :route/home {} "/")
         (rf/reg-route :route/article
-                      {:path   "/articles/:id"
-                       :params (fn [{:keys [id]}]
-                                 (clojure.string/starts-with? (or id "") "a"))})
+                      {:params (fn [{:keys [id]}]
+                                 (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
         (rf/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
@@ -932,7 +923,7 @@
 (deftest fragment-in-slice-after-url-driven-nav
   (testing ":fragment in URL flows into the slice on every URL-driven nav
             (Spec 012 §The :rf/route slice — :fragment row)"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -954,7 +945,7 @@
             ambiguous / bypass-shaped URLs as EXTERNAL — no :rf.nav/push-url,
             no slice rewrite — and only PROVABLY same-origin rooted paths
             push through. rf2-3bv8o."
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -1000,8 +991,8 @@
             origin) classes ambiguous / bypass-shaped URLs as EXTERNAL —
             no :rf.nav/push-url, no slice rewrite — IDENTICALLY to the
             :rf/url-requested link-click path. rf2-cylse.4."
-    (rf/reg-route :route/home {:path "/"})
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-route :route/cart {} "/cart")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -1057,7 +1048,7 @@
             the fragment-less URL AND writes :fragment nil to the slice —
             agreeing with URL-driven nav (was: slice carried :fragment \"\"
             while the URL had no #, a slice/URL divergence)"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -1100,7 +1091,7 @@
   (testing "rf2-1os1c: [:rf.route/navigate :route/x {:replace? true}]
             (opts in the params slot) is rejected — slice unchanged, no
             push, :rf.error/navigate-arity-misuse emitted"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -1128,8 +1119,8 @@
 (deftest navigate-accepts-the-documented-arities
   (testing "rf2-1os1c: the three documented arities all navigate cleanly
             — [target], [target params], [target params opts]"
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [pushed   (atom [])
           replaced (atom [])]
       (rf/reg-fx :rf.nav/push-url
@@ -1161,7 +1152,7 @@
   (testing "rf2-1os1c: a route that legitimately captures a segment named
             :fragment is NOT false-flagged — the key is a declared
             path-param, not a misplaced opt"
-    (rf/reg-route :route/anchor {:path "/anchor/:fragment"})
+    (rf/reg-route :route/anchor {} "/anchor/:fragment")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -1194,8 +1185,8 @@
             :rf.route/deactivated for a non-default frame"
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
-    (rf/reg-route :route/from {:path "/from"})
-    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-route :route/from {} "/from")
+    (rf/reg-route :route/to   {} "/to")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -1240,8 +1231,8 @@
             nav-token traces for a non-default frame"
     (rf/reg-frame :rf/default {})
     (rf/reg-frame :route/owner {})
-    (rf/reg-route :route/from {:path "/from"})
-    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-route :route/from {} "/from")
+    (rf/reg-route :route/to   {} "/to")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -1298,8 +1289,8 @@
     (rf/reg-frame :rf/default {})
     ;; A tool / inspector frame whose own reactivity must not flood the ring.
     (rf/reg-frame :rf/tool {:rf.trace/frame-no-emit? true})
-    (rf/reg-route :route/from {:path "/from"})
-    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-route :route/from {} "/from")
+    (rf/reg-route :route/to   {} "/to")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))

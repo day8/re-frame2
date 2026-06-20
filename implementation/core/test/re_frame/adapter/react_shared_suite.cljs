@@ -1239,11 +1239,10 @@
           id-sub     (mint-kw substrate-kw "route-id")
           params-sub (mint-kw substrate-kw "route-params")
           art-path   (route-path substrate-kw "/articles/:id")]
-      (rf/reg-route home {:path (route-path substrate-kw "/home")})
+      (rf/reg-route home {} (route-path substrate-kw "/home"))
       (rf/reg-route article
-                    {:path     art-path
-                     :params   [:map [:id :string]]
-                     :on-match [[load-ev]]})
+                    {:params   [:map [:id :string]]
+                     :on-match [[load-ev]]} art-path)
       (rf/reg-event load-ev (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
       (subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
@@ -1273,10 +1272,9 @@
           articles (route-kw sk2 "articles")
           article  (route-kw sk2 "article")
           route-sub (mint-kw sk2 "route")]
-      (rf/reg-route home     {:path (route-path sk2 "/")})
-      (rf/reg-route articles {:path (route-path sk2 "/articles")})
-      (rf/reg-route article  {:path   (route-path sk2 "/articles/:id")
-                              :params [:map [:id :string]]})
+      (rf/reg-route home     {} (route-path sk2 "/"))
+      (rf/reg-route articles {} (route-path sk2 "/articles"))
+      (rf/reg-route article  {:params [:map [:id :string]]} (route-path sk2 "/articles/:id"))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
       (subs/reg-runtime-sub route-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
@@ -2165,7 +2163,7 @@
   "#7 Route-not-found under SSR."
   [{:keys [name]}]
   (testing (str name " — #7 route-not-found under SSR")
-    (rf/reg-route :user/show {:path "/users/:id"})
+    (rf/reg-route :user/show {} "/users/:id")
     (is (nil? (:route-id (routing/match-url "/no-such-thing")))
         "match-url surfaces no route-id for an unmatched URL")
     (let [traces (collect-traces ::xspec-7)]

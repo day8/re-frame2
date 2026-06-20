@@ -21,8 +21,7 @@
     ;; token captured at request time; when a result arrives whose token
     ;; mismatches the current slice's :nav-token, the runtime suppresses
     ;; it and emits :rf.route.nav-token/stale-suppressed.
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
@@ -106,10 +105,8 @@
     ;; id at stale-arrival would mint a corrupt
     ;; `[:rf.work/route :route/profile "nav-1" :article/loaded]` (route B's id
     ;; with route A's carried nav-token). The fix uses the CAPTURED route id.
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
-    (rf/reg-route :route/profile {:path   "/profile/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+    (rf/reg-route :route/profile {:params [:map [:id :string]]} "/profile/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
@@ -176,8 +173,7 @@
     ;; `:article/loaded` continuation is the user-facing handler the
     ;; completed reply commits through; we observe it via the
     ;; resulting app-db slice (it ignores the trailing reply map arg).
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
@@ -313,8 +309,7 @@
   (testing "rf2-ux8sgg — a stale `:rf.route/with-nav-token` completion that
             threads `:completed-at` (the reply token's :rf/time-ms fact)
             produces a stale-suppressed trace carrying that completion time"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
@@ -363,8 +358,7 @@
   (testing "rf2-ux8sgg — when no completion time is threaded, the stale trace
             omits `:completed-at` (a loader that sourced none) — the slot is
             optional, never a nil placeholder"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
@@ -398,8 +392,7 @@
   (testing "rf2-ux8sgg — the test fixture `:rf.test/simulate-http-resolution`
             mirrors the production lane: a stale completion carrying
             `:carried-completed-at` produces a stale trace with that time"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))
@@ -440,8 +433,7 @@
   (testing ":rf.cofx/requires [:rf.route/nav-token] delivers the current slice token — not nil"
     ;; The minimal contract: a handler declaring the cofx sees the live
     ;; navigation epoch. Pre-fix this was nil (no reg-cofx :rf.route/nav-token).
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -474,8 +466,7 @@
     ;; completion threads the captured token through :rf.route/with-nav-token,
     ;; which validates against the current slice: stale → suppressed,
     ;; fresh → applied.
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -556,8 +547,7 @@
             :rf.route/with-nav-token completion's stale trace carries the
             COMPLETE [:rf.work/route route-id nav-token loader-id] tuple
             (pre-fix: route-id was nil)"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -629,8 +619,7 @@
             canonical :rf/reply-to target is completed through the shared
             re-frame.reply/complete: the :status :ok reply map is APPENDED to
             the target event and dispatched (the production lowering)"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; The reply target — receives the reply map appended as the final argument.
     (rf/reg-event :article/load-replied
                      (fn [{:keys [db]} [_ {:keys [id]} reply]]
@@ -670,8 +659,7 @@
   (testing "rf2-2avo53 — a STALE :rf.route/with-nav-token completion named by an
             app :rf/reply-to target is SUPPRESSED: the target does NOT run (no
             app-db write) and the stale-suppressed trace fires joined to :work/id"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/load-replied
                      (fn [{:keys [db]} [_ {:keys [id]} reply]]
                        {:db (assoc db :replied {:id id :reply reply})}))
@@ -711,8 +699,7 @@
             production routing surface: a framework/tool target carrying the
             stale-delivery capability + :dispatch-stale? true RECEIVES the
             stale reply; an APP target asking for it without authority FAILS LOUD"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; A framework/tool reply target that records the (stale) reply it receives.
     (rf/reg-event :tool/observe-stale
                      (fn [{:keys [db]} [_ marker reply]]
@@ -801,8 +788,7 @@
                          (swap! order conj :next)
                          {:db (assoc db :load/next-ran? true)}))
       (rf/reg-route :route/two-loaders
-                    {:path     "/two-loaders"
-                     :on-match [[:load/fail] [:load/next]]})
+                    {:on-match [[:load/fail] [:load/next]]} "/two-loaders")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -835,9 +821,8 @@
                          (swap! on-error-count inc)
                          {:db db}))
       (rf/reg-route :route/double-fail
-                    {:path     "/double-fail"
-                     :on-match [[:load/fail-1] [:load/fail-2]]
-                     :on-error [:route/double-fail-on-error]})
+                    {:on-match [[:load/fail-1] [:load/fail-2]]
+                     :on-error [:route/double-fail-on-error]} "/double-fail")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -862,8 +847,8 @@
                      (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
     (rf/reg-event :load/late-fail
                      (fn [{:keys [db]} _] {:db (throw (ex-info "late-boom" {}))}))
-    (rf/reg-route :route/clean {:path "/clean" :on-match [[:load/ok]]})
-    (rf/reg-route :route/dirty {:path "/dirty" :on-match [[:load/late-fail]]})
+    (rf/reg-route :route/clean {:on-match [[:load/ok]]} "/clean")
+    (rf/reg-route :route/dirty {:on-match [[:load/late-fail]]} "/dirty")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))

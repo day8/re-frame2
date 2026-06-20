@@ -42,8 +42,7 @@
   (testing "a keyword-enum :query value emits its token name and round-trips
             back to the canonical keyword on BOTH hosts"
     (rf/reg-route :route/sorted
-                  {:path  "/items"
-                   :query [:map [:sort [:enum :asc :desc]]]})
+                  {:query [:map [:sort [:enum :asc :desc]]]} "/items")
     (doseq [kw [:asc :desc]]
       (let [u (routing/route-url :route/sorted {} {:sort kw})
             m (routing/match-url u)]
@@ -58,8 +57,7 @@
   (testing "a keyword-enum PATH param emits its token name and round-trips
             on BOTH hosts"
     (rf/reg-route :route/sort-path
-                  {:path   "/items/:dir"
-                   :params [:map [:dir [:enum :asc :desc]]]})
+                  {:params [:map [:dir [:enum :asc :desc]]]} "/items/:dir")
     (let [u (routing/route-url :route/sort-path {:dir :desc})
           m (routing/match-url u)]
       (is (= "/items/desc" u)
@@ -74,9 +72,8 @@
             route-url round-trips (match-url interned it; route-url re-emits
             its token name) on BOTH hosts"
     (rf/reg-route :route/list
-                  {:path         "/list"
-                   :query        [:map [:sort [:enum :asc :desc]]]
-                   :query-retain [:sort]})
+                  {:query        [:map [:sort [:enum :asc :desc]]]
+                   :query-retain [:sort]} "/list")
     (let [retained (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
       (is (= :asc retained)
           "the retained value is the coerced KEYWORD, not a string")
@@ -89,8 +86,7 @@
   (testing "an INVALID keyword-enum value is NOT stringified into a URL —
             route-url fails validation on BOTH hosts (the schema bites)"
     (rf/reg-route :route/sorted2
-                  {:path  "/items"
-                   :query [:map [:sort [:enum :asc :desc]]]})
+                  {:query [:map [:sort [:enum :asc :desc]]]} "/items")
     (let [ex (try (routing/route-url :route/sorted2 {} {:sort :sideways})
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]

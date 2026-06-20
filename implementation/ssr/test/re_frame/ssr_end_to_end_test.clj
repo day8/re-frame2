@@ -696,7 +696,7 @@
 
 (deftest ssr-default-error-projector-no-such-handler
   (testing "routing's :rf.error/no-such-handler → default projector → 404"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [project-error  ssr/project-error
           f              (frame/make-anon-frame-record!
                            {:platform :server
@@ -939,7 +939,7 @@
   (testing "rf2-ynjts.13 — a buffered error trace is left intact by
             peek-response (pure read) and only stamps :status when
             flush-response! / get-response drains it."
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [f (frame/make-anon-frame-record!
               {:platform :server
                :ssr {:public-error-id   :rf.ssr/default-error-projector
@@ -993,7 +993,7 @@
     ;; touch :rf/response — the client doesn't have an HTTP response to
     ;; project. (The trace still fires; the projector just isn't called
     ;; for a client frame's response slot.)
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [client-f (frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
                         {:frame client-f})

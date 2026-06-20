@@ -89,7 +89,7 @@
 
 (deftest single-arity-returns-one-node
   (testing "(route-algebra-view route-id) returns the single node, nil when unregistered"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (is (= ((routing-tooling/route-algebra-view) :route/home)
            (routing-tooling/route-algebra-view :route/home))
         "the one-arity form equals the entry in the all-routes map")
@@ -98,7 +98,7 @@
 
 (deftest jvm-alias-mirrors-the-tooling-fn
   (testing "the JVM `re-frame.routing/route-algebra-view` alias is the tooling fn"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (is (= (routing-tooling/route-algebra-view)
            (routing/route-algebra-view))
         "the JVM convenience alias projects identically to the tooling sibling")))
@@ -107,7 +107,7 @@
 
 (deftest route-exposes-its-full-fact-node-view
   (testing "a reg-route exposes the full route-fact / runtime-db / on-route / frame node"
-    (rf/reg-route :route/article {:path "/articles/:slug"})
+    (rf/reg-route :route/article {} "/articles/:slug")
     (let [node ((routing-tooling/route-algebra-view) :route/article)]
       (is (some? node) "the route is present under its registration id")
       (is (has-fixed-classifications? node)
@@ -128,9 +128,9 @@
 
 (deftest every-registered-route-shares-the-rf-route-fact-id
   (testing "every route projects to the same :rf/route fact id (every route materializes the one slice)"
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/about   {:path "/about"})
-    (rf/reg-route :route/article {:path "/articles/:slug"})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/about   {} "/about")
+    (rf/reg-route :route/article {} "/articles/:slug")
     (let [view (routing-tooling/route-algebra-view)]
       (is (= #{:route/home :route/about :route/article} (set (keys view)))
           "the view is keyed by per-route registration id")
@@ -154,14 +154,13 @@
     (with-resources-route-key
       (fn []
         (rf/reg-route :route/article
-                      {:path "/articles/:slug"
-                       :resources
+                      {:resources
                        [{:resource  :article/by-slug
                          :params    (fn [route] {:slug (get-in route [:params :slug])})
                          :scope     (fn [_route ctx] (:current-session-scope ctx))
                          :blocking? true}
                         {:resource :article/comments
-                         :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
+                         :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
         (let [node  ((routing-tooling/route-algebra-view) :route/article)
               edges (:resource-edges node)]
           (is (has-fixed-classifications? node))
@@ -187,12 +186,11 @@
       (fn []
         (let [boom (atom false)]
           (rf/reg-route :route/danger
-                        {:path "/danger/:id"
-                         :resources
+                        {:resources
                          [{:resource :thing/by-id
                            :params   (fn [_route] (reset! boom true) {:id 1})
                            :scope    (fn [_ _] (reset! boom true) :rf.scope/global)
-                           :when     (fn [_ _ _] (reset! boom true) true)}]})
+                           :when     (fn [_ _ _] (reset! boom true) true)}]} "/danger/:id")
           (let [node ((routing-tooling/route-algebra-view) :route/danger)]
             (is (= [:resource :thing/by-id] (:to (first (:resource-edges node)))))
             (is (false? @boom)
@@ -202,7 +200,7 @@
 
 (deftest live-route-slice-projects-the-materialized-fact
   (testing "route-slice-algebra-view projects a frame's live route slice"
-    (rf/reg-route :route/article {:path "/articles/:slug"})
+    (rf/reg-route :route/article {} "/articles/:slug")
     ;; Install a live route slice directly into the frame's runtime-db (the
     ;; shape a committed navigation materializes — Spec 012 §The route slice):
     ;; {:id :params :query :transition :nav-token …} at
@@ -256,7 +254,7 @@
 
 (deftest source-coords-surface-in-the-node
   (testing ":ns / :line / :file captured by reg-route surface under :source"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (let [node   ((routing-tooling/route-algebra-view) :route/home)
           source (:source node)]
       (is (some? source) ":source map is present when the registration carried coords")
@@ -266,20 +264,20 @@
 
 (deftest doc-passes-through
   (testing ":doc supplied on the route metadata surfaces in the node"
-    (rf/reg-route :route/home {:path "/" :doc "the home route"})
+    (rf/reg-route :route/home {:doc "the home route"} "/")
     (is (= "the home route" (:doc ((routing-tooling/route-algebra-view) :route/home))))))
 
 (deftest no-doc-when-absent
   (testing ":doc is absent when the registration didn't supply it"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (is (not (contains? ((routing-tooling/route-algebra-view) :route/home) :doc)))))
 
 ;; ---- registry semantics --------------------------------------------------
 
 (deftest unregistered-route-is-removed
   (testing "(clear-route id) removes the route from the algebra view"
-    (rf/reg-route :route/a {:path "/a"})
-    (rf/reg-route :route/b {:path "/b"})
+    (rf/reg-route :route/a {} "/a")
+    (rf/reg-route :route/b {} "/b")
     (is (contains? (routing-tooling/route-algebra-view) :route/a))
     (routing/clear-route :route/a)
     (let [view (routing-tooling/route-algebra-view)]

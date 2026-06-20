@@ -1327,7 +1327,7 @@
     (rf/reg-frame :test/main {})
     ;; Register a route so the recorded route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
-    (rf/reg-route :route/users {:path "/users"})
+    (rf/reg-route :route/users {} "/users")
     ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): the route slice is runtime-db state
     ;; at [:rf.runtime/routing :current]; bead 7's missing-references reads the
     ;; recorded frame-state's runtime-db partition.
@@ -2610,8 +2610,8 @@
   under a legacy app-db :rf/runtime root (now a hard error) — and a
   full-frame-state restore (decision #2) rewinds runtime-db with app-db."
     (rf/reg-frame :test/main {})
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path "/articles/:id"})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {} "/articles/:id")
     ;; Framework-authority handlers write the route slice into the runtime-db
     ;; partition via the reserved :rf.db/runtime effect (Mike ruling #4 — the
     ;; routing subsystem is a framework/runtime-extension writer).

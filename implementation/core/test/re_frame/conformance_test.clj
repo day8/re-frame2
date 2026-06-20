@@ -629,7 +629,9 @@
     ;; `realise-flows!` (called after `reg-frame`) handles them.
     ;; route registrations
     (doseq [[id meta] (get handlers-map :route)]
-      (rf/reg-route id meta))
+      ;; rf2-wvh95f F1: the path pattern is the 3-slot VALUE; lift it out of
+      ;; the fixture meta map so the middle slot is a pure metadata map.
+      (rf/reg-route id (dissoc meta :path) (:path meta)))
     ;; view registrations — DSL bodies map to fns that realise hiccup with
     ;; reflection forms resolved at call-time.
     (doseq [[id steps] (get handlers-map :view)]
@@ -958,7 +960,8 @@
   ;; in deterministic lex order on the route-id.
   (doseq [[id meta] (sort-by (comp str key)
                              (get-in fixture [:fixture/registry :route]))]
-    (rf/reg-route id meta)))
+    ;; rf2-wvh95f F1: lift the path pattern into the 3-slot VALUE.
+    (rf/reg-route id (dissoc meta :path) (:path meta))))
 
 (defn- register-resources!
   "rf2-djofbh — register a fixture's `:fixture/registry :resource` entries

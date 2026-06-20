@@ -22,12 +22,10 @@
     ;; strategy (:top / :restore / :preserve / map / false). Metadata is
     ;; round-tripped through registration so tooling can enumerate it.
     (rf/reg-route :route/home
-                  {:path   "/"
-                   :scroll :top})
+                  {:scroll :top} "/")
     (rf/reg-route :route/article
-                  {:path   "/articles/:id"
-                   :params [:map [:id :string]]
-                   :scroll :restore})
+                  {:params [:map [:id :string]]
+                   :scroll :restore} "/articles/:id")
     (let [home-meta    (rf/handler-meta :route :route/home)
           article-meta (rf/handler-meta :route :route/article)]
       (is (= :top (:scroll home-meta))
@@ -44,13 +42,11 @@
     ;;   2. route metadata's :scroll
     ;;   3. implicit default (:top for forward navigation)
     ;; A :scroll value of `false` (opts or meta) suppresses the fx.
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/articles {:path "/articles"})
-    (rf/reg-route :route/article  {:path   "/articles/:id"
-                                   :params [:map [:id :string]]
-                                   :scroll :restore})
-    (rf/reg-route :route/profile  {:path   "/profile"
-                                   :scroll false})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/articles {} "/articles")
+    (rf/reg-route :route/article  {:params [:map [:id :string]]
+                                   :scroll :restore} "/articles/:id")
+    (rf/reg-route :route/profile  {:scroll false} "/profile")
 
     (let [calls (atom [])]
       ;; Override the spec's :platforms #{:client} default for the JVM
@@ -261,7 +257,7 @@
     ;; The acceptance point: scroll positions no longer sit under
     ;; [:rf.runtime/routing ...], so they cannot egress to trace/epoch/SSR.
     (routing/reset-scroll-cache!)
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/scroll        {:platforms #{:server :client}} (fn [_ _] nil))
     (rf/reg-fx :rf.nav/push-url      {:platforms #{:server :client}} (fn [_ _] nil))
     ;; Capture a position for the :rf/default frame via the production fx.
@@ -298,10 +294,9 @@
             back to the same url — save/restore survives the storage move"
     ;; Acceptance point 1: no behavioral regression in scroll save/restore.
     (routing/reset-scroll-cache!)
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]
-                                  :scroll :restore})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {:params [:map [:id :string]]
+                                  :scroll :restore} "/articles/:id")
     (let [calls (atom [])]
       (rf/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
@@ -338,10 +333,8 @@
     ;; Two distinct :scroll false routes so each assertion navigates to a
     ;; FRESH target — a second navigate to the same id/params would be a
     ;; Spec 012 rule-3 no-op (no scroll fx) and mask the precedence result.
-    (rf/reg-route :route/silent  {:path   "/silent"
-                                  :scroll false})
-    (rf/reg-route :route/silent2 {:path   "/silent2"
-                                  :scroll false})
+    (rf/reg-route :route/silent  {:scroll false} "/silent")
+    (rf/reg-route :route/silent2 {:scroll false} "/silent2")
     (let [calls (atom [])]
       (rf/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
@@ -362,8 +355,7 @@
 
   (testing "opts :scroll false suppresses even when the route declares a
             concrete :scroll strategy"
-    (rf/reg-route :route/loud {:path   "/loud"
-                               :scroll :restore})
+    (rf/reg-route :route/loud {:scroll :restore} "/loud")
     (let [calls (atom [])]
       (rf/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
@@ -377,8 +369,7 @@
 
   (testing "map-form (host-extensible) scroll strategies pass through to the
             fx args verbatim — the resolver does not coerce or drop them"
-    (rf/reg-route :route/custom {:path   "/custom"
-                                 :scroll {:behavior :smooth :block :center}})
+    (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
     (let [calls (atom [])]
       (rf/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}

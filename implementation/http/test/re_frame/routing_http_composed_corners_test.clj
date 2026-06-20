@@ -94,8 +94,7 @@
 (deftest stale-route-load-managed-http-success-suppressed-by-nav-token
   (testing "managed HTTP reply for a superseded route is suppressed by
             nav-token; commit goes only to the current navigation"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; The user-facing handler that the wrapped reply commits to.
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
@@ -175,10 +174,9 @@
     ;; reply is silenced.
     (rf/reg-sub :editor/blocked? (fn [_ _] false)) ;; false = "cannot leave"
     (rf/reg-route :route/editor
-                  {:path      "/editor/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/blocked?})
-    (rf/reg-route :route/home {:path "/"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/blocked?} "/editor/:id")
+    (rf/reg-route :route/home {} "/")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -275,12 +273,11 @@
             in-flight registry stays canonical across the cycle"
     (rf/reg-sub :editor/blocked? (fn [_ _] false)) ;; false = "cannot leave"
     (rf/reg-route :route/editor
-                  {:path      "/editor/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/blocked?})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/blocked?} "/editor/:id")
     ;; Use a sibling route that's an actual valid URL (not /home which
     ;; would be :route/root). /sibling has its own route entry.
-    (rf/reg-route :route/sibling {:path "/sibling"})
+    (rf/reg-route :route/sibling {} "/sibling")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ url] nil))
@@ -349,9 +346,8 @@
     ;; then re-bind to FALSE so the pending-nav fires.
     (rf/reg-sub :editor/can-leave? (fn [_ _] true))
     (rf/reg-route :route/article
-                  {:path      "/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/articles/:id")
     (rf/reg-event :article/loaded
                      (fn [{:keys [db]} [_ id payload]]
                        {:db (assoc db :article {:id id :payload payload})}))

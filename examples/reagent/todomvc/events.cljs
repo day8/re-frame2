@@ -15,13 +15,13 @@
 ;; :rf.route/handle-url-change. The result is a Spec 012 path the registered
 ;; routes match exactly.
 
-(rf/reg-route :todo/all       {:doc "Show all todos."       :path "/"})
-(rf/reg-route :todo/active    {:doc "Show active todos."    :path "/active"})
-(rf/reg-route :todo/completed {:doc "Show completed todos." :path "/completed"})
+(rf/reg-route :todo/all       {:doc "Show all todos."} "/")
+(rf/reg-route :todo/active    {:doc "Show active todos."} "/active")
+(rf/reg-route :todo/completed {:doc "Show completed todos."} "/completed")
 
 ;; Required by Spec 012 §Route-not-found. Unmatched URLs land here; we treat
 ;; them as "show all" so a stray hash never breaks the app.
-(rf/reg-route :rf.route/not-found {:doc "Fallback." :path "/_404"})
+(rf/reg-route :rf.route/not-found {:doc "Fallback."} "/_404")
 
 (defn- allocate-next-id [todos]
   ((fnil inc 0) (last (keys todos))))

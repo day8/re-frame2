@@ -400,7 +400,7 @@
   fn directly (rather than `dispatch-sync`) keeps the test substrate-free:
   the `:params`-schema reject short-circuits before any push/scroll fx."
   [params-schema]
-  (rf/reg-route :sec/route {:path "/doc/:doc" :params params-schema})
+  (rf/reg-route :sec/route {:params params-schema} "/doc/:doc")
   (let [traces (atom [])
         kw     (keyword "rf2-zsm03" (name (gensym "nav")))]
     (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
@@ -484,7 +484,7 @@
   (testing "rf2-zsm03 — the route-url validation throw's ex-data DOES embed
             the failing param value (the sentinel); without redaction the
             navigate :error slot would ship it"
-    (rf/reg-route :sec/raw-route {:path "/doc/:doc" :params sensitive-params-schema})
+    (rf/reg-route :sec/raw-route {:params sensitive-params-schema} "/doc/:doc")
     (let [ex (try
                (registry/route-url :sec/raw-route {:doc sentinel})
                nil

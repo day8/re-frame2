@@ -309,8 +309,7 @@
                                                 :url    (str "/api/articles/" slug)}})})
   ;; :routes — a route fact (runtime-db / on-route), owning the resource.
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :resources [{:resource :article/by-slug :blocking? true}]})
+                {:resources [{:resource :article/by-slug :blocking? true}]} "/articles/:slug")
   ;; :machines — a process node (runtime-db / on-transition) with an `:after`
   ;; timer (→ `:scheduled` in the policy set).
   (rf/reg-machine :upload/main
@@ -870,7 +869,7 @@
   ;; under a FRESH nav-token, and the route-A owner identity is no longer the
   ;; live owner (released by supersession).
   (register-one-of-each!)
-  (rf/reg-route :route/about {:path "/about"})
+  (rf/reg-route :route/about {} "/about")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
   (let [g-a   (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g-a) :rf/route)]

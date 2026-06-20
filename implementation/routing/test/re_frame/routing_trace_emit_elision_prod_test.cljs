@@ -110,7 +110,7 @@
             by the gate inside `trace/emit!`."
     (let [seen (listener-fixture
                  (fn []
-                   (rf/reg-route :prod-elision/landing {:path "/"})
+                   (rf/reg-route :prod-elision/landing {} "/")
                    (rf/dispatch-sync
                      [:rf.route/handle-url-change "/"])))]
       (is (empty? seen)
@@ -133,7 +133,7 @@
                  (fn []
                    ;; Register a not-found route so the malformed-url
                    ;; path lands somewhere; the warn trace must elide.
-                   (rf/reg-route :rf.route/not-found {:path "/*splat"})
+                   (rf/reg-route :rf.route/not-found {} "/*splat")
                    (rf/dispatch-sync
                      [:rf.route/handle-url-change "%E0%A4%A"])))]
       (is (empty? seen)
@@ -151,9 +151,8 @@
                  (fn []
                    (rf/reg-sub :prod/leaver-can? (fn [_db _q] false))
                    (rf/reg-route :prod/leaver
-                                 {:path      "/leaver"
-                                  :can-leave :prod/leaver-can?})
-                   (rf/reg-route :prod/dest {:path "/dest"})
+                                 {:can-leave :prod/leaver-can?} "/leaver")
+                   (rf/reg-route :prod/dest {} "/dest")
                    ;; Settle on the leaver route first.
                    (rf/dispatch-sync
                      [:rf.route/handle-url-change "/leaver"])
@@ -177,7 +176,7 @@
             informational); the trace fan-out elides."
     (let [seen (listener-fixture
                  (fn []
-                   (rf/reg-route :prod/shadow-a {:path "/x"})
-                   (rf/reg-route :prod/shadow-b {:path "/x"})))]
+                   (rf/reg-route :prod/shadow-a {} "/x")
+                   (rf/reg-route :prod/shadow-b {} "/x")))]
       (is (empty? seen)
           "no :rf.warning/route-shadowed-by-equal-score under prod"))))

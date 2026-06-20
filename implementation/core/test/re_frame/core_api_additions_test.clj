@@ -527,7 +527,7 @@
   (testing "(rf/clear-route id) removes a registered route — the renamed
             declarative-removal surface (rf2-sd6amv)"
     (require 're-frame.routing :reload)
-    (rf/reg-route :rn/route {:path "/rn"})
+    (rf/reg-route :rn/route {} "/rn")
     (is (some? (routing/match-url "/rn")) "route registered + matchable")
     (routing/clear-route :rn/route)
     (is (nil? (routing/match-url "/rn"))

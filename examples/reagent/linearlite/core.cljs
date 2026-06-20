@@ -459,15 +459,13 @@
 
 (rf/reg-route :linearlite.app/board
   {:doc   "The issue board — ensures the :linearlite/board resource on entry."
-   :path  "/"
    :resources
    [{:resource  :linearlite/board
      :params    (fn [_route] {})
-     :blocking? true}]})
+     :blocking? true}]} "/")
 
 (rf/reg-route :rf.route/not-found
-  {:doc  "Fallback for unmatched URLs."
-   :path "/_404"})
+  {:doc  "Fallback for unmatched URLs."} "/_404")
 
 ;; ============================================================================
 ;; VIEWS — passive board read + watched mutation instances

@@ -743,8 +743,8 @@
             (not just explicit :head)."
     (rf/reg-head :head/variant-a (fn [_db _route] {:title "Route head A"}))
     (rf/reg-head :head/variant-b (fn [_db _route] {:title "Route head B"}))
-    (rf/reg-route :route/head-a {:doc "A" :path "/" :head :head/variant-a})
-    (rf/reg-route :route/head-b {:doc "B" :path "/" :head :head/variant-b})
+    (rf/reg-route :route/head-a {:doc "A" :head :head/variant-a} "/")
+    (rf/reg-route :route/head-b {:doc "B" :head :head/variant-b} "/")
     (rf/reg-event :init/seed-head-a
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-a})}))
@@ -778,8 +778,8 @@
                  (fn [_db _route] {:title "T" :html-attrs {:lang "en"}}))
     (rf/reg-head :head/attrs-b
                  (fn [_db _route] {:title "T" :html-attrs {:lang "fr"}}))
-    (rf/reg-route :route/attrs-a {:doc "A" :path "/" :head :head/attrs-a})
-    (rf/reg-route :route/attrs-b {:doc "B" :path "/" :head :head/attrs-b})
+    (rf/reg-route :route/attrs-a {:doc "A" :head :head/attrs-a} "/")
+    (rf/reg-route :route/attrs-b {:doc "B" :head :head/attrs-b} "/")
     (rf/reg-event :init/seed-attrs-a
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-a})}))
@@ -1539,8 +1539,7 @@
                  (fn [_db _route] {:title "From head fragment"}))
     (rf/reg-route :route/x
                   {:doc  "Route x"
-                   :path "/"
-                   :head :head/main})
+                   :head :head/main} "/")
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
     (rf/reg-event :init/seed-route
       (fn [{rt :rf.db/runtime} _]
@@ -1592,8 +1591,7 @@
                  (fn [_db _route] {})) ; no :title key
     (rf/reg-route :route/no-title
                   {:doc  "Route no-title"
-                   :path "/"
-                   :head :head/no-title})
+                   :head :head/no-title} "/")
     (rf/reg-event :init/seed-no-title
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-title})}))
@@ -1626,8 +1624,7 @@
   (rf/reg-head :head/with-attrs (fn [_db _route] head-model))
   (rf/reg-route :route/with-attrs
                 {:doc  "Route exercising :html-attrs / :body-attrs"
-                 :path "/"
-                 :head :head/with-attrs})
+                 :head :head/with-attrs} "/")
   (rf/reg-event :init/seed-attrs-route
     (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/with-attrs})}))
   (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
@@ -2252,8 +2249,7 @@
                                  {:reason :test}))))
   (rf/reg-route :route/head-throws
                 {:doc  "Route whose head fn throws"
-                 :path "/head-throws"
-                 :head :head/throws})
+                 :head :head/throws} "/head-throws")
   (rf/reg-event :init/seed-throwing-head-route
     {:platforms #{:server}}
     (fn [{rt :rf.db/runtime} _]
