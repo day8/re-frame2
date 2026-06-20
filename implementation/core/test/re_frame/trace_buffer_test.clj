@@ -617,6 +617,29 @@
     (is (= [] (rf/trace-buffer :tool/inspector))
         "tool-frame's ring stays empty")))
 
+(deftest destroy-clears-trace-disabled-flag
+  ;; rf2-zcl055: `reg-frame` adds a `:rf.trace/frame-no-emit? true` frame to
+  ;; the process-global trace-disabled set; `destroy-frame!` must remove it
+  ;; (the teardown counterpart to `set-frame-no-emit!`, symmetric with the
+  ;; per-frame trace-ring release). Without the fix the destroyed frame's id
+  ;; lingers permanently in `trace/trace-disabled-frames` — a process-global
+  ;; id leak (one keyword per destroyed-and-never-re-registered tool frame).
+  (testing "a destroyed trace-disabled frame leaves no entry in the trace-disabled set"
+    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (is (trace/frame-trace-disabled? :tool/inspector)
+        "reg-frame marked the tool frame trace-disabled")
+    (frame/destroy-frame! :tool/inspector)
+    (is (not (trace/frame-trace-disabled? :tool/inspector))
+        "destroy-frame! removed the frame id from trace-disabled-frames (no process-global leak)"))
+  (testing "destroying one tool frame does not disturb another's trace-disabled flag"
+    (rf/reg-frame :tool/a {:rf.trace/frame-no-emit? true})
+    (rf/reg-frame :tool/b {:rf.trace/frame-no-emit? true})
+    (frame/destroy-frame! :tool/a)
+    (is (not (trace/frame-trace-disabled? :tool/a))
+        "destroyed frame's flag is cleared")
+    (is (trace/frame-trace-disabled? :tool/b)
+        "the surviving tool frame's flag is untouched")))
+
 ;; ---- 6. B4 hot-reload dedup-by-shape ------------------------------------
 
 (deftest hot-reload-unchanged-handler-emits-zero-traces

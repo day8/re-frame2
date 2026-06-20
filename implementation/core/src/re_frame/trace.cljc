@@ -223,6 +223,20 @@
   (reset! trace-disabled-frames #{})
   nil)
 
+(defn clear-frame-no-emit-for!
+  "Remove `frame-id` from the trace-disabled set. Per-frame teardown
+  counterpart to `set-frame-no-emit!` — routed into `destroy-frame!`
+  alongside the per-frame trace-ring release so a destroyed tool /
+  inspector frame (e.g. `:rf/xray`) does not leave a permanent entry in
+  this process-global atom (rf2-zcl055). `clear-frame-no-emit!` resets
+  the WHOLE set; this removes one id. Idempotent — a no-op when the id is
+  absent (the common application-frame case). Equivalent to
+  `(set-frame-no-emit! frame-id false)`; named for symmetry with the
+  destroy-time call site."
+  [frame-id]
+  (swap! trace-disabled-frames disj frame-id)
+  nil)
+
 (defn- tagged-frame-trace-disabled?
   "True when `tags` carries a `:frame` that is registered trace-disabled.
   The empty-set common case (no tool frame mounted) short-circuits

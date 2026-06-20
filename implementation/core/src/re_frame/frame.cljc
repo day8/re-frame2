@@ -2052,6 +2052,18 @@
         ;; still flows through the live stream cleanly. Routed via
         ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
         (safe-call-hook! :trace.tooling/release-frame-ring! id)
+        ;; rf2-zcl055: release the destroyed frame's trace-emission gate
+        ;; flag — the teardown counterpart to `reg-frame`'s
+        ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
+        ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
+        ;; leaves a permanent entry in trace.cljc's process-global
+        ;; `trace-disabled-frames` set (the ring IS freed above; the flag
+        ;; was not — a teardown asymmetry). Called directly (not via a
+        ;; tooling hook) because `trace.cljc` is always loaded — the set +
+        ;; predicate live on the core trace surface, same as the `reg-frame`
+        ;; registration call. Idempotent no-op for application frames (the
+        ;; common case, where the id was never added).
+        (trace/clear-frame-no-emit-for! id)
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS
         ;; the forget. The frame's resolved generation rides the record's
         ;; `:generation` slot, so dropping the record drops it too — no separate
