@@ -1,5 +1,5 @@
 (ns re-frame.testbed.story-host-cljs-test
-  "Focused unit tests for `re-frame.testbed.story-host` (rf2-liive).
+  "Focused unit tests for `re-frame.testbed.story-host`.
 
   ## What this pins
 
@@ -13,18 +13,18 @@
   repeatedly tearing down/remounting the Story shell on the same `#app` node
   (lost shell state, leaked shell listeners/polls, React `createRoot` churn).
 
-  ## Why the OLD code was unsound (the bug these tests lock out)
+  ## The unsound pattern these tests lock out
 
-  The previous implementation installed the top-level `on-hash-change!`
-  `defn` as the listener and relied on the browser to no-op a *repeat*
-  `addEventListener` of the same fn reference. But a CLJS hot-reload
-  recompiles the namespace, rebinding the `on-hash-change!` `defn` to a
-  FRESH function object. So the post-reload re-`run` passed a DIFFERENT
-  reference — the browser did not dedupe, and a second listener stacked.
-  The documented \"idempotent across hot-reload\" contract was therefore
-  false for every Story showcase that consumes the helper.
+  Installing the top-level `on-hash-change!` `defn` as the listener and
+  relying on the browser to no-op a *repeat* `addEventListener` of the same
+  fn reference is unsound: a CLJS hot-reload recompiles the namespace,
+  rebinding the `on-hash-change!` `defn` to a FRESH function object. So the
+  post-reload re-`run` passes a DIFFERENT reference — the browser does not
+  dedupe, and a second listener stacks, making the \"idempotent across
+  hot-reload\" contract false for every Story showcase that consumes the
+  helper.
 
-  The fix mirrors the adjacent React-root store/remove discipline
+  The host instead mirrors the adjacent React-root store/remove discipline
   (`app-root` / `tear-down-app-root!`): the installed listener handle is
   stashed in the `defonce` `hash-listener*` atom and explicitly REMOVED
   before the next one is installed.
@@ -53,8 +53,8 @@
 ;; Holds a `hashchange`-listener registry (a JS Set of installed fns) plus a
 ;; mutable `location.hash`. `addEventListener` / `removeEventListener` mutate
 ;; that set with reference identity — the exact semantics the browser uses and
-;; the exact thing the fix depends on. We count ACTIVE listeners by the set's
-;; size, so a stacked duplicate (the bug) shows up as size 2.
+;; the exact thing the remove-then-add discipline depends on. We count ACTIVE
+;; listeners by the set's size, so a stacked duplicate shows up as size 2.
 ;; ---------------------------------------------------------------------------
 
 (defn- make-fake-window
@@ -84,7 +84,7 @@
 ;; `:node-test` target a bare-`window` `set!` is a strict-mode write to an
 ;; undeclared global and throws `ReferenceError`, whereas `goog.global` is a
 ;; real object we may add a property to — the same `goog.global` slot the
-;; xray keybinding tests stub `js/document` through (rf2-higwg). Reads of
+;; xray keybinding tests stub `js/document` through. Reads of
 ;; `js/window` inside `story-host` then see the fake.
 (def ^:private real-window (when (exists? js/window) js/window))
 
@@ -201,16 +201,16 @@
            single active listener, not an N-deep stack"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-77wqzi — the host owns Story-host open-in-editor project-root config.
+;; The host owns Story-host open-in-editor project-root config.
 ;;
 ;; Story stamps each registered source-coord with a CLASSPATH-RELATIVE
 ;; `:file` slot (e.g. `login/stories.cljs`); the open-in-editor chip
-;; prepends an on-disk project-root to build a real editor URI. The two
-;; `examples/reagent` Story showcases previously mounted the shell fine but
-;; NEVER configured a root, so their Story source links resolved against a
-;; nil root and OS editor handlers could not open the file (a false green).
+;; prepends an on-disk project-root to build a real editor URI. A consumer
+;; that mounts the shell without configuring a root leaves its Story source
+;; links resolving against a nil root, so OS editor handlers cannot open the
+;; file (a false green).
 ;;
-;; The fix moved project-root config onto the host: a consumer declares its
+;; The host owns project-root config: a consumer declares its
 ;; tool-relative source subdir via the `:source-subdir` opt and
 ;; `mount-with-hash-routing!` resolves the on-disk root (through the shared
 ;; `re-frame.testbed.config` build-env / `?checkout-root=` mechanism) and

@@ -1,5 +1,6 @@
 (ns day8.re-frame2-template.template-test
-  "JVM tests for the deps-new template body (rf2-c2770, rf2-dolpf §2.2-2.4).
+  "JVM tests for the deps-new template body (003-DepsNew-Rebuild-Plan.md
+   §2.2-2.4).
 
    Strategy:
 
@@ -17,9 +18,7 @@
             day8/re-frame2-story coord
           - true on non-Reagent substrates throws with a clear message
 
-   Mirrors the surface checks that previously lived in the clj-new test
-   suite at `test/clj/new/re_frame2_test.clj` (removed in rf2-40vmd /
-   §2.5 along with the clj-new template body)."
+   Covers the same generated-surface checks across the substrate matrix."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
@@ -30,8 +29,7 @@
 ;; --- Test helpers ----------------------------------------------------------
 ;;
 ;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
-;; read-edn / file-exists? live in the shared `test-support` ns
-;; (rf2-5v619, D1; read-edn + file-exists? lifted in rf2-ee38b.23).
+;; read-edn / file-exists? live in the shared `test-support` ns.
 
 ;; --- The expected per-substrate shape ------------------------------------
 
@@ -41,14 +39,14 @@
    "package.json"
    "README.md"
    ".gitignore"
-   ;; Dev ergonomics bundle (rf2-r2jqo).
+   ;; Dev ergonomics bundle.
    ".editorconfig"
    ".clj-kondo/config.edn"
-   ;; Formatter config (rf2-5ecqj).
+   ;; Formatter config.
    ".cljfmt.edn"
-   ;; Git pre-commit hook config (rf2-s8xee).
+   ;; Git pre-commit hook config.
    "lefthook.yml"
-   ;; Baseline CI workflow (rf2-k2z79).
+   ;; Baseline CI workflow.
    ".github/workflows/ci.yml"
    "dev/user.clj"
    "dev/scratch.cljs"
@@ -94,7 +92,7 @@
           ;; The literal pin VALUE is owned by version_lockstep_test.clj
           ;; (reads repo-root VERSION on disk); asserting a hard-coded
           ;; "0.0.1.alpha" here would duplicate it and false-fail the
-          ;; moment VERSION bumps (rf2-5v619, D3). Present-check only.
+          ;; moment VERSION bumps. Present-check only.
           (is (some? (get-in deps [:deps 'day8/re-frame2 :mvn/version]))
               "core coord carries an :mvn/version pin"))
 
@@ -111,30 +109,30 @@
               "shadow-cljs.edn :source-paths includes \"test\" so the emitted test file is discoverable")
           (is (= :node-test (:target tst))
               "shadow-cljs :test build targets :node-test")
-          ;; Xray preload (rf2-y9zqc).
+          ;; Xray preload.
           (is (some #{'day8.re-frame2-xray.preload}
                     (get-in app [:devtools :preloads]))
               "shadow-cljs :app :devtools/preloads wires Xray"))
 
-        ;; -- Xray coord in deps.edn (rf2-y9zqc) --
+        ;; -- Xray coord in deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]
           (is (contains? (:deps deps) 'day8/re-frame2-xray)
               "deps.edn references day8/re-frame2-xray")
-          ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
+          ;; Pin value owned by version_lockstep_test.clj.
           (is (some? (get-in deps [:deps 'day8/re-frame2-xray :mvn/version]))
               "Xray coord carries an :mvn/version pin"))
 
-        ;; -- Schemas coord in deps.edn (rf2-48mij) --
+        ;; -- Schemas coord in deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]
           (is (contains? (:deps deps) 'day8/re-frame2-schemas)
               "deps.edn references day8/re-frame2-schemas (best-practice
                whole-app-db schema needs the artefact on the classpath
                for CLJS validation to fire)")
-          ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
+          ;; Pin value owned by version_lockstep_test.clj.
           (is (some? (get-in deps [:deps 'day8/re-frame2-schemas :mvn/version]))
               "schemas coord carries an :mvn/version pin"))
 
-        ;; -- Best-practice surface in events.cljs + schema.cljs (rf2-48mij) --
+        ;; -- Best-practice surface in events.cljs + schema.cljs --
         (let [events-text (slurp (io/file root "src/acme/my_app/events.cljs"))
               schema-text (slurp (io/file root "src/acme/my_app/schema.cljs"))
               core-text   (slurp (io/file root "src/acme/my_app/core.cljs"))]
@@ -162,12 +160,12 @@
               "schema.cljs registers a whole-app-db schema")
           (is (.contains schema-text "CounterDb")
               "schema.cljs ships the CounterDb Malli schema")
-          ;; -- Emitted source must not teach the retired positional
-          ;;    reg-app-schema grammar (rf2-wvh95f F2 :schema-in-metadata).
+          ;; -- Emitted source must not teach the positional
+          ;;    reg-app-schema grammar (schema-in-metadata).
           ;; The schema lives in the metadata map's :schema key; a bare
-          ;; positional schema now throws :rf.error/bad-app-schema-metadata.
-          ;; Scan emitted source comments too — events.cljs's schema-load
-          ;; comment previously cited the stale (reg-app-schema [] CounterDb).
+          ;; positional schema throws :rf.error/bad-app-schema-metadata.
+          ;; Scan emitted source comments too, so events.cljs's schema-load
+          ;; comment cannot cite the stale (reg-app-schema [] CounterDb).
           (is (not (.contains events-text "(reg-app-schema [] CounterDb)"))
               "events.cljs must NOT cite the retired positional
                (reg-app-schema [] CounterDb) form in a comment — the
@@ -182,7 +180,7 @@
                (rf/reg-app-schema [] {:schema CounterDb})")
 
           ;; -- EP-0011: HTTP exemplar names the uniform reply envelope
-          ;;    lowering + the compat-sugar distinction (rf2-rzsxrk) --
+          ;;    lowering + the compat-sugar distinction --
           ;; The exemplar must say the (:rf/reply msg)/{:kind …} payload is
           ;; managed-HTTP public compatibility SUGAR that lowers onto the
           ;; framework-wide uniform reply envelope, and must name the
@@ -205,13 +203,12 @@
               "events.cljs HTTP exemplar names the canonical :completed-at
                reply fact (EP-0011 — rf2-rzsxrk)")
 
-          ;; -- EP-0015: events.cljs decode-body classification guidance
-          ;;    (rf2-7i66d0) --
+          ;; -- EP-0015: events.cljs decode-body classification guidance --
           ;; The :decode :auto exemplar must say it is the simple
           ;; non-sensitive case and point real bodies at a :decode SCHEMA
           ;; with :sensitive? / :large? props + the unschematized
-          ;; fail-closed posture, so the scaffold cannot drift back to the
-          ;; pre-EP-0015 "decode :auto is the whole story" framing.
+          ;; fail-closed posture, so the scaffold cannot drift to a
+          ;; "decode :auto is the whole story" framing.
           (is (.contains events-text ":sensitive?")
               "events.cljs decode note names per-slot :sensitive? schema
                props for sensitive HTTP response bodies (EP-0015 — rf2-7i66d0)")
@@ -220,7 +217,7 @@
                whole-sensitive / fail-closed (EP-0015 — rf2-7i66d0)")
 
           ;; -- EP-0015: frame-owned classification pointer at the reg-frame
-          ;;    site + schema-is-shape-not-egress note (rf2-7i66d0) --
+          ;;    site + schema-is-shape-not-egress note --
           ;; core.cljs must point the user at frame-owned egress
           ;; classification where it registers :rf/default, and schema.cljs
           ;; must state that schemas validate shape, NOT durable app-db
@@ -250,12 +247,12 @@
             :helix   (is (.contains views-text "defnc")
                          "Helix views.cljs uses defnc")))
 
-        ;; -- Per-substrate README badge (rf2-sufwn) --
+        ;; -- Per-substrate README badge --
         ;;
-        ;; The badge LINE varies by substrate, so it stays in the
+        ;; The badge LINE varies by substrate, so it lives in the
         ;; per-substrate shape test. The substrate-INVARIANT README/CI/
-        ;; security text moved to `root-content-test` below — it comes
-        ;; from `root/` and was needlessly re-run 3× (rf2-5v619, L3).
+        ;; security text lives in `root-content-test` below — it comes
+        ;; from `root/`, so it is asserted once rather than per substrate.
         (let [readme-text (slurp (io/file root "README.md"))]
           (is (.contains readme-text
                          (case substrate
@@ -276,7 +273,7 @@
     (let [tmp (tmp-dir "rf2-template-root-content-")]
       (try
         (let [root (run-template! tmp "acme/my-app" :reagent)]
-          ;; -- README best-practice + naming sections (rf2-48mij) --
+          ;; -- README best-practice + naming sections --
           (let [readme-text (slurp (io/file root "README.md"))]
             (is (.contains readme-text "Best practices baked into the scaffold")
                 "README has a Best practices section")
@@ -291,12 +288,12 @@
             (is (.contains readme-text "spec/Conventions.md")
                 "README links to spec/Conventions.md for the normative catalogue"))
 
-          ;; -- README Hot reload — accurate reg-* cleanup claim (rf2-n70mno) --
+          ;; -- README Hot reload — accurate reg-* cleanup claim --
           ;; The runtime registry only adds / same-id-replaces on reload; a
           ;; deleted or renamed reg-* form's old (kind, id) is NOT pruned by
           ;; a plain shadow-cljs reload — it lingers until a browser/dev-
-          ;; process refresh. The README previously over-promised that a
-          ;; rename/remove "drops the old registration". Reject the stale
+          ;; process refresh. The README must not over-promise that a
+          ;; rename/remove "drops the old registration". Reject that
           ;; phrase and positively require the explicit-refresh recovery.
           ;; Scope the assertions to the Hot reload section.
           (let [readme-text (slurp (io/file root "README.md"))
@@ -324,7 +321,7 @@
                  browser/dev-process refresh rebuilds the registry from
                  an empty slate (rf2-n70mno)"))
 
-          ;; -- README EP-0015 privacy/egress classification (rf2-7i66d0) --
+          ;; -- README EP-0015 privacy/egress classification --
           ;; The README must carry a concise privacy/egress section that
           ;; distinguishes app-db schemas (shape) from frame-owned durable
           ;; classification (:sensitive / :large on reg-frame), and shows
@@ -354,7 +351,7 @@
                 "README privacy section links Spec 015 for the normative
                  classification model (EP-0015 — rf2-7i66d0)"))
 
-          ;; -- README EP-0011 HTTP reply-envelope lowering (rf2-rzsxrk) --
+          ;; -- README EP-0011 HTTP reply-envelope lowering --
           ;; The README HTTP section must name the lowering: the {:kind …}
           ;; payload is managed-HTTP compatibility sugar over the uniform
           ;; reply envelope, mapping HTTP outcomes onto canonical :status
@@ -389,14 +386,14 @@
                 "README HTTP section names :decode-schema :sensitive? props
                  for sensitive response bodies (EP-0015 — rf2-7i66d0)"))
 
-          ;; -- README substrate-invariant badges (rf2-sufwn) --
+          ;; -- README substrate-invariant badges --
           (let [readme-text (slurp (io/file root "README.md"))]
             (is (.contains readme-text "img.shields.io/badge/built")
                 "README ships a 'built with re-frame2' badge")
             (is (.contains readme-text "License-MIT")
                 "README ships a License badge"))
 
-          ;; -- README hot-reload contract accuracy (rf2-8n4s71 #2) --
+          ;; -- README hot-reload contract accuracy --
           ;; The generated README MUST describe the ACTUAL rf/init!
           ;; contract (implementation/core/src/re_frame/core.cljc init!;
           ;; pinned by implementation/core/test/re_frame/boot_test.clj):
@@ -406,13 +403,12 @@
           ;; init! docstring). The scaffold's core/init registers the frame
           ;; explicitly via (rf/reg-frame :rf/default {}) after init!. A
           ;; second init! call does NOT re-install the adapter, snapshot the
-          ;; registrar, or reset app-db. The earlier README overstated this
+          ;; registrar, or reset app-db. The README must NOT overstate this
           ;; ("each call to init! snapshots the registrar, re-installs the
-          ;; adapter, and resets the frame's app-db") AND wrongly claimed
-          ;; init! "ensures the :rf/default frame exists" (rf2-frex1l) —
-          ;; both teach a false mental model. The reset boundary is the
-          ;; starter's explicit dispatch-sync [:counter/initialise] in
-          ;; core.cljs, not init!.
+          ;; adapter, and resets the frame's app-db") NOR claim init!
+          ;; "ensures the :rf/default frame exists" — both teach a false
+          ;; mental model. The reset boundary is the starter's explicit
+          ;; dispatch-sync [:counter/initialise] in core.cljs, not init!.
           (let [readme-text (slurp (io/file root "README.md"))
                 ;; Scope the false-claim greps to the Hot reload section
                 ;; (from its heading to the next ## heading) so an honest
@@ -443,7 +439,7 @@
                 "README Hot reload section must NOT claim rf/init! resets
                  app-db by itself — the explicit dispatch-sync
                  [:counter/initialise] is the reset boundary (rf2-8n4s71 #2)")
-            ;; -- README init!/:rf/default contract (rf2-frex1l) --
+            ;; -- README init!/:rf/default contract --
             ;; init! does NOT create :rf/default (EP-0002); the scaffold's
             ;; core/init registers it explicitly via reg-frame. core.cljc
             ;; init! docstring + the emitted core.cljs pin this.
@@ -457,7 +453,7 @@
                  :rf/default frame and that reg-frame registers it explicitly
                  (EP-0002; rf2-frex1l)"))
 
-          ;; -- README schema registration is frame-scoped (rf2-frex1l) --
+          ;; -- README schema registration is frame-scoped --
           ;; reg-app-schema is frame-local (EP-0002); a frameless ns-load
           ;; call raises :rf.error/no-frame-context (schemas/storage.cljc
           ;; reg-app-schema). The emitted schema.cljs wraps it in
@@ -484,13 +480,13 @@
                  a register-schema! fn called under (with-frame :rf/default …)
                  (mirrors the emitted schema.cljs / core.cljs; rf2-frex1l)"))
 
-          ;; -- README Xray host wording — right-side, not left (rf2-8n4s71 #3) --
+          ;; -- README Xray host wording — right-side, not left --
           ;; The emitted index.html orders <main id="app"> BEFORE
           ;; <aside data-rf-xray-host> and app.css documents/implements a
           ;; RIGHT-side host (pinned by the Xray layout-host audit in
           ;; template_emission_test.clj; matches
-          ;; tools/xray/spec/011-Launch-Modes.md). The README must agree
-          ;; — it previously said "left layout column", contradicting the
+          ;; tools/xray/spec/011-Launch-Modes.md). The README must agree:
+          ;; a "left layout column" description would contradict the
           ;; emitted layout + the Xray spec.
           (let [readme-text (slurp (io/file root "README.md"))]
             (is (not (.contains readme-text "left layout column"))
@@ -502,7 +498,7 @@
                  (matches the emitted index.html/app.css + Xray spec —
                  rf2-8n4s71 #3)"))
 
-          ;; -- Baseline CI workflow (rf2-k2z79) --
+          ;; -- Baseline CI workflow --
           (let [ci-text (slurp (io/file root ".github/workflows/ci.yml"))]
             (is (.contains ci-text "name: ci")
                 ".github/workflows/ci.yml declares the ci workflow")
@@ -527,8 +523,7 @@
             ;; `${{ … }}` expressions untouched because no subst key
             ;; matches the spaced inner token. Pin that invariant so a
             ;; future data key collision or substitution-engine change
-            ;; that corrupts the workflow expressions is caught here
-            ;; (rf2-ee38b.23 / correctness P3).
+            ;; that corrupts the workflow expressions is caught here.
             (is (.contains ci-text "${{ runner.os }}")
                 "ci.yml's GitHub `${{ runner.os }}` expression survives
                  substitution verbatim (not eaten by deps-new {{key}}
@@ -537,14 +532,14 @@
                 "ci.yml's GitHub `${{ hashFiles(...) }}` expression
                  survives substitution verbatim"))
 
-          ;; -- Security baseline (rf2-sh3l8; CSP-runtime parity rf2-l4prz) --
+          ;; -- Security baseline (CSP-runtime parity) --
           (let [index-text  (slurp (io/file root "resources/public/index.html"))
                 ;; The actual CSP policy is the `content="…"` attribute of
                 ;; the CSP meta tag — NOT the surrounding HTML comment
                 ;; (which legitimately discusses directives like
                 ;; frame-ancestors). Pull just the policy string so the
                 ;; directive assertions below test the live policy, not
-                ;; documentation prose (rf2-l4prz).
+                ;; documentation prose.
                 csp-policy  (some-> (re-find #"http-equiv=\"Content-Security-Policy\"\s+content=\"([^\"]*)\""
                                              index-text)
                                     second)
@@ -560,7 +555,7 @@
             (is (.contains index-text "data-rf-xray-host")
                 "index.html provides Xray's default true-inline layout host")
 
-            ;; rf2-l4prz Finding 2 — the dev meta CSP MUST permit inline
+            ;; The dev meta CSP MUST permit inline
             ;; styles: the generated views use inline :style props and the
             ;; default-on Xray surface injects <style> blocks + inline
             ;; styles. A strict `style-src 'self'` would emit CSP
@@ -572,13 +567,12 @@
                  views + default-on Xray both rely on them — rf2-l4prz
                  Finding 2)")
 
-            ;; rf2-l4prz Finding 3 — `frame-ancestors` delivered via a
-            ;; <meta> tag is IGNORED by browsers; only a response header
-            ;; honours it. Asserting it on the meta tag (as the old test
-            ;; did) was a false anti-clickjacking pass. The CSP POLICY must
-            ;; NOT carry frame-ancestors; the anti-clickjacking contract
-            ;; lives in the README's response-header snippets, asserted
-            ;; below. (The HTML comment may mention it — we test the
+            ;; `frame-ancestors` delivered via a <meta> tag is IGNORED by
+            ;; browsers; only a response header honours it. Asserting it on
+            ;; the meta tag would be a false anti-clickjacking pass. The CSP
+            ;; POLICY must NOT carry frame-ancestors; the anti-clickjacking
+            ;; contract lives in the README's response-header snippets,
+            ;; asserted below. (The HTML comment may mention it — we test the
             ;; policy string, not the file.)
             (is (not (.contains csp-policy "frame-ancestors"))
                 "index.html meta CSP policy does NOT carry frame-ancestors —
@@ -623,7 +617,7 @@
   (testing ":substrate :helix produces the expected tree"
     (assert-shape! :helix)))
 
-;; --- Name derivation (rf2-ynjts.22) --------------------------------------
+;; --- Name derivation -----------------------------------------------------
 ;;
 ;; Every other test in this suite scaffolds `acme/my-app` — a project
 ;; name with a single-segment group (no dots) and a single-dash artifact.
@@ -725,8 +719,8 @@
             coercion replaces the earlier forgiving-input posture)."
     (let [tmp (tmp-dir "rf2-template-non-kw-")]
       (try
-        ;; String form — previously coerced silently to :reagent;
-        ;; now rejected so registration errors surface immediately.
+        ;; String form — rejected so registration errors surface
+        ;; immediately rather than being coerced silently to :reagent.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #":rf\.error/template-substrate-must-be-keyword"
                               (run-template! tmp "acme/my-app" "reagent"))
@@ -744,7 +738,7 @@
         (finally
           (delete-recursively tmp))))))
 
-;; --- :include-story? flag (rf2-t009p / rf2-dolpf §2.4) -------------------
+;; --- :include-story? flag (003-DepsNew-Rebuild-Plan.md §2.4) -------------
 
 (deftest default-path-emits-no-story-files-test
   (testing "default path (no :include-story?) does not emit stories.cljs
@@ -804,13 +798,11 @@
                 pkg-txt (slurp (io/file root "package.json"))]
             (is (contains? (:deps deps) 'day8/re-frame2-story)
                 "deps.edn references day8/re-frame2-story")
-            ;; Pin value owned by version_lockstep_test.clj (rf2-5v619, D3).
+            ;; Pin value owned by version_lockstep_test.clj.
             (is (some? (get-in deps [:deps 'day8/re-frame2-story :mvn/version]))
                 "story coord carries an :mvn/version pin")
-            ;; rf2-ymnfx Issue B retired the Share popover (and the
-            ;; vendored qrcode-generator npm dep that backed its local
-            ;; QR encoder); the with-Story template no longer declares
-            ;; any Story-specific npm dependency.
+            ;; The with-Story template declares no Story-specific npm
+            ;; dependency — there is no vendored qrcode-generator dep.
             (is (not (.contains pkg-txt "\"qrcode-generator\""))
                 "package.json does NOT declare qrcode-generator (Share
                  popover + QR encoder retired in rf2-ymnfx Issue B)"))
@@ -825,7 +817,7 @@
             (is (.contains core-text "acme.my-app.stories")
                 "with-stories core.cljs requires the stories ns so its
                  reg-* calls fire at boot")
-            ;; rf2-l4prz Finding 4 — `init` runs on every hot-reload, and
+            ;; `init` runs on every hot-reload, and
             ;; the hashchange listener's closure identity changes per
             ;; rebuild. Without a defonce-held listener + removeEventListener
             ;; before re-adding, reloads accumulate stale listeners (each
@@ -865,9 +857,9 @@
         (finally
           (delete-recursively tmp))))))
 
-;; --- with-Story release elision: config ⇆ docs agreement (rf2-l4prz) -----
+;; --- with-Story release elision: config ⇆ docs agreement -----------------
 ;;
-;; Finding 1: the with-Story core docstring + the generated README must
+;; The with-Story core docstring + the generated README must
 ;; NOT claim that `npx shadow-cljs release app` elides Story
 ;; automatically / for free. It does NOT — `re-frame.story.config/enabled?`
 ;; defaults true and the emitted shadow-cljs.edn sets no `:release`
@@ -882,9 +874,9 @@
 ;;       docs would need to flip to "automatic" and this test reminds us);
 ;;   (b) the with-Story core docstring + README both carry the exact
 ;;       opt-in closure-define string AND flag it as opt-in;
-;;   (c) neither doc carries the retired false-automatic claims
+;;   (c) neither doc carries a false-automatic claim
 ;;       ("inherits that elision automatically" / "costs nothing in
-;;       production") that asserted free release elision.
+;;       production") that would promise free release elision.
 
 (deftest with-story-release-elision-docs-config-agree-test
   (testing "with-Story scaffold: the release-elision docs (core docstring
@@ -926,11 +918,11 @@
                 (str label " marks Story release elision as OPT-IN "
                      "(not automatic) (rf2-l4prz Finding 1)")))
 
-          ;; (c) The retired false-automatic claims must be gone from both
-          ;;     docs — these asserted free/automatic release elision.
+          ;; (c) The false-automatic claims must be absent from both
+          ;;     docs — they would assert free/automatic release elision.
           ;;     `inherits that elision automatically` (whitespace-folded)
-          ;;     and `costs nothing in production` were the two phrases
-          ;;     that promised a free/automatic release elision.
+          ;;     and `costs nothing in production` are the two phrases
+          ;;     that would promise a free/automatic release elision.
           (doseq [[label text] [["with-Story core.cljs" core-text]
                                 ["README" readme]]]
             (let [folded (clojure.string/replace text #"\s+" " ")]
@@ -944,7 +936,7 @@
         (finally
           (delete-recursively tmp))))))
 
-;; --- package.json one-source byte-exact contract (rf2-sqqxj) -------------
+;; --- package.json one-source byte-exact contract -------------------------
 ;;
 ;; The template emits package.json from a SINGLE `_shared/package.json`
 ;; source whose `description` parenthetical rides the `{{story-tag}}`
@@ -1067,7 +1059,7 @@
         (finally
           (delete-recursively tmp))))))
 
-;; --- argument-key gate (rf2-qck7t7 Finding #1) ----------------------------
+;; --- argument-key gate ----------------------------------------------------
 ;;
 ;; The substrate posture fails closed on bad VALUES; these tests pin the
 ;; complementary strictness on the KEY set. Reserved-but-unimplemented

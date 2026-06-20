@@ -1,36 +1,25 @@
-// Regression test for the hermetic orchestrator's ASYNC teardown contract
-// (rf2-7ckmwx finding 1).
+// Regression test for the hermetic orchestrator's ASYNC teardown contract.
 //
 // Uses Node's built-in `node:test` (same posture as
 // `runner-watchdog.test.cjs` / `hermetic-setup-timeout.test.cjs` — no extra
 // dev-dependency). Runs in-process: `makeCleanup` is a pure factory with no
 // `process.exit`, so unlike the watchdog harness it does NOT need a child.
 //
-// ## The bug this pins
+// ## The contract this pins
 //
-// The pre-fix `cleanup` in
-// `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` was SYNCHRONOUS:
-//
-//   const cleanup = () => {
-//     if (browser) { try { browser.close(); } catch {} }   // NOT awaited
-//     if (shadow && !shadowExited) {
-//       shadow.kill('SIGTERM');
-//       setTimeout(() => shadow.kill('SIGKILL'), 5000).unref();  // fire-and-forget
-//     }
-//   };
-//
-// Every caller — the `finally` path, the SIGINT/SIGTERM handlers, and the
-// hard watchdog — invoked it and then `process.exit`'d immediately. So:
-//   - Playwright's promise-returning `browser.close()` could still be in
-//     flight when the process exited (the close never settled).
-//   - The shadow SIGKILL fallback was on an UNREF'd timer, so once
-//     `process.exit` ran it was abandoned: a shadow-cljs JVM that ignored
-//     SIGTERM was never actually SIGKILL'd by us.
-//
-// The fix (`makeCleanup`) returns an idempotent promise that AWAITS the
+// `cleanup` in `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` is
+// ASYNC. `makeCleanup` returns an idempotent promise that AWAITS the
 // browser close (bounded) and the shadow SIGTERM→exit, escalating to a
-// SIGKILL it then ALSO awaits. Callers `await` it (the `finally` path) or
-// race it against a hard cap (signal / watchdog paths).
+// SIGKILL it then ALSO awaits. Every caller — the `finally` path, the
+// SIGINT/SIGTERM handlers, and the hard watchdog — `await`s it (the
+// `finally` path) or races it against a hard cap (signal / watchdog paths)
+// BEFORE `process.exit`. That ordering is the contract this guards:
+//   - Playwright's promise-returning `browser.close()` is awaited, so it
+//     settles before the process exits rather than being abandoned in
+//     flight.
+//   - The shadow SIGKILL fallback is awaited too, so a shadow-cljs JVM
+//     that ignores SIGTERM is actually SIGKILL'd by us rather than left to
+//     an unref'd timer that a synchronous `process.exit` would abandon.
 //
 // ## What this test drives
 //
@@ -111,7 +100,7 @@ test('makeCleanup AWAITS a slow promise-returning browser.close() (rf2-7ckmwx fi
 
   assert.ok(closeStarted, 'browser.close() was never called by cleanup');
   // THE load-bearing assertion: cleanup did not resolve until the
-  // promise-returning close had SETTLED. Pre-fix (sync, no await) cleanup
+  // promise-returning close had SETTLED. A synchronous, un-awaited cleanup
   // would have returned before this flag flipped.
   assert.ok(
     closeSettled,
@@ -144,8 +133,8 @@ test('makeCleanup escalates SIGTERM→SIGKILL and AWAITS the eventual exit (rf2-
       'signals seen: ' + JSON.stringify(shadow.killSignals),
   );
   // THE load-bearing assertion: cleanup awaited the post-SIGKILL exit.
-  // Pre-fix the SIGKILL was on an unref'd fire-and-forget timer that the
-  // immediate process.exit abandoned.
+  // An unref'd fire-and-forget SIGKILL timer would instead be abandoned by
+  // the immediate process.exit.
   assert.ok(
     shadow.exited,
     'cleanup resolved before the shadow child exited after SIGKILL — the ' +

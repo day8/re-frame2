@@ -1,9 +1,9 @@
 // Cross-platform exec-resolution and filesystem-cleanup safety helpers
-// for the mcp-conformance harness. Source: rf2-33vvc.
+// for the mcp-conformance harness.
 //
 // ## Why this exists
 //
-// Two accident classes the audit (rf2-33vvc) flagged:
+// These helpers gate two accident classes:
 //
 //   1. **Windows command-hijack accident** — bare executable names
 //      (`npm`, `npx`, `clojure`) invoked with `shell: true` and `cwd`
@@ -37,7 +37,7 @@
 //
 // `resolveTrustedExe` only matters for **system-wide binaries** that
 // the OS finds via PATH walk. Two postures sit alongside the helper in
-// this artefact (rf2-i3ffz F-COUPLE-1):
+// this artefact:
 //
 //   - **`story-mcp` harness** uses `resolveTrustedExe('clojure', ...)`.
 //     The JVM binary lives in `/usr/local/bin/clojure` (or wherever
@@ -81,8 +81,8 @@
 //       the file doesn't exist. Throws on symlink-escape — the SAME
 //       containment check `safeUnlinkInside` enforces, so a candidate the
 //       cleanup step refused to unlink can NEVER be silently trusted as a
-//       read source (rf2-khav7l: the "refuse-delete-but-trust-read"
-//       split). Read failures other than ENOENT (e.g. EACCES) propagate.
+//       read source (the "refuse-delete-but-trust-read" split). Read
+//       failures other than ENOENT (e.g. EACCES) propagate.
 //
 // All three helpers are pure-Node, no external deps; they're test-only
 // fixtures (bundle-isolated by construction — `tools/mcp-conformance/`
@@ -260,7 +260,7 @@ function resolveTrustedExe(name, opts) {
  * and verify it stays under `realpath(allowedRoot)`. This is the SINGLE
  * containment check both `safeUnlinkInside` (cleanup) and
  * `safeReadFileInside` (port-file read) share — keeping them in one
- * place is what closes the rf2-khav7l "refuse-delete-but-trust-read"
+ * place is what closes the "refuse-delete-but-trust-read"
  * split: a candidate the cleanup step refused to unlink resolves to the
  * exact same escaped path here, so the read MUST refuse it too.
  *
@@ -378,7 +378,7 @@ function safeUnlinkInside(candidatePath, allowedRoot) {
  * `realpath(allowedRoot)`. Symlink-safe via the SAME containment check
  * `safeUnlinkInside` enforces (`resolveContainedLeaf`), so a candidate
  * the cleanup step refused to unlink cannot be silently trusted as a
- * read source — the rf2-khav7l "refuse-delete-but-trust-read" split.
+ * read source — the "refuse-delete-but-trust-read" split.
  *
  * @param {string} candidatePath
  * @param {string} allowedRoot

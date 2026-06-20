@@ -1,31 +1,31 @@
 // Live-re-frame2-pair MCP-client conformance variant pinning the EP-0018
 // unified event-registration metadata on the real MCP SDK boundary.
-// Source: rf2-z0owya (senior-review coverage gap, tracking rf2-6ktv66).
 //
-// ## The hole this closes
+// ## What this test guards
 //
-// EP-0018 consolidated public event registration to ONE `rf/reg-event`
-// (semantically reg-event-fx) and removed the event sub-kind split: a
-// `reg-event` entry is simply kind `:event`; the public `:event/kind :db
-// | :fx | :ctx` sub-tag is gone; the per-kind handler wrappers
-// (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`) collapse to
-// ONE `:rf/event-handler` interceptor (carrying `:rf/default? true`). The
-// EP-0018 §Conformance clause requires `handler-meta :event id` to surface
-// the metadata + effective interceptor chain with that unified wrapper.
+// EP-0018 consolidates public event registration to ONE `rf/reg-event`
+// (semantically reg-event-fx) with no event sub-kind split: a `reg-event`
+// entry is simply kind `:event`; there is no public `:event/kind :db |
+// :fx | :ctx` sub-tag; the per-kind handler wrappers (`:rf/db-handler` /
+// `:rf/fx-handler` / `:rf/ctx-handler`) are one `:rf/event-handler`
+// interceptor (carrying `:rf/default? true`). The EP-0018 §Conformance
+// clause requires `handler-meta :event id` to surface the metadata +
+// effective interceptor chain with that unified wrapper.
 //
-// Before this gate, `tools/mcp-conformance` SDK-called `handler-meta` /
-// `list-handlers` ONLY in DEGRADED mode (`end-to-end-re-frame2-pair.cjs`),
-// where the server's `degraded-handler` short-circuits every live-runtime
-// tool to the SAME `:nrepl-port-not-found` envelope. That proves the
-// descriptor + CallToolResult wiring, but it NEVER inspects the live
-// pair-MCP wire output for event introspection — so a wire-layer
-// regression that reintroduced or decorated stale event-sub-kind metadata
-// (`:event/kind`) or an old wrapper id (`:rf/db-handler` …) on the MCP
-// response would ship GREEN.
+// The degraded-mode coverage (`end-to-end-re-frame2-pair.cjs`) SDK-calls
+// `handler-meta` / `list-handlers` where the server's `degraded-handler`
+// short-circuits every live-runtime tool to the SAME
+// `:nrepl-port-not-found` envelope — proving the descriptor +
+// CallToolResult wiring but never inspecting the live pair-MCP wire output
+// for event introspection. So a wire-layer regression that reintroduced
+// or decorated stale event-sub-kind metadata (`:event/kind`) or an old
+// wrapper id (`:rf/db-handler` …) on the MCP response would ship GREEN
+// there.
 //
-// This gate fills that gap: with a live runtime attached it drives the
-// EP-0018 event-metadata surface over the SDK boundary and pins both the
-// presence of the unified shape AND the absence of every retired marker.
+// This gate covers that surface: with a live runtime attached it drives
+// the EP-0018 event-metadata surface over the SDK boundary and pins both
+// the presence of the unified shape AND the absence of every retired
+// marker.
 //
 // ## What this test drives (across the MCP boundary, via the SDK Client)
 //

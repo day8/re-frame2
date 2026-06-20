@@ -1,4 +1,4 @@
-// Unit tests for `lib/exec-safety.cjs` (rf2-33vvc).
+// Unit tests for `lib/exec-safety.cjs`.
 //
 // Uses Node's built-in `node:test` so the harness picks up no extra
 // dev-dependency. Runs quiet on success (per docs/quiet-tests.md):
@@ -379,7 +379,7 @@ test('safeUnlinkInside: rejects empty / missing inputs', () => {
 });
 
 // ---------------------------------------------------------------------
-// safeReadFileInside (rf2-khav7l)
+// safeReadFileInside
 //
 // The read-side counterpart to safeUnlinkInside: a port-file candidate
 // the cleanup step refused to UNLINK (because its realpath escapes the
@@ -427,7 +427,7 @@ test('safeReadFileInside: honors an encoding-string option', () => {
 });
 
 test('safeReadFileInside: rejects when realpath escapes allowed root (symlinked leaf)', { skip: process.platform === 'win32' }, () => {
-  // The exact rf2-khav7l shape: a leaf `nrepl.port` inside the allowed
+  // The hostile read shape: a leaf `nrepl.port` inside the allowed
   // root that is itself a symlink to an EXTERNAL port file. A naive
   // `fs.readFileSync` would follow the link and trust the external
   // port; safeReadFileInside must refuse, the same way safeUnlinkInside
@@ -481,7 +481,7 @@ test('safeReadFileInside: rejects when parent dir is a symlink escaping root', {
 });
 
 test('safeReadFileInside: a candidate refused by safeUnlinkInside is also refused on read (rf2-khav7l parity)', { skip: process.platform === 'win32' }, () => {
-  // The crux of rf2-khav7l: prove the SAME escaped candidate that
+  // The read/unlink parity contract: prove the SAME escaped candidate that
   // safeUnlinkInside refuses to delete is ALSO refused by
   // safeReadFileInside. A future cleanup refactor cannot reintroduce the
   // "refuse delete but trust read" split as long as this parity holds.

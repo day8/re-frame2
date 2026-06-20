@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.diff-encode
-  "Path-keyed structural diff for epoch records (rf2-1wdzp) projected
-  into path-headed cluster sections (rf2-qeous).
+  "Path-keyed structural diff for epoch records projected
+  into path-headed cluster sections.
 
   ## What this does
 
@@ -30,16 +30,15 @@
   patch in order via `assoc-in` / `update-in` to reconstruct
   `:db-after`.
 
-  ## Why sections-per-cluster (rf2-qeous)
+  ## Why sections-per-cluster
 
   Agent queries like 'what did this cascade do?' want scoped
   cluster summaries — the path breadcrumb signals 'these N changes
-  belong together'. The flat patch list (the predecessor shape)
-  forced agents to re-cluster mentally. The sections projection
-  mirrors Xray's panel `sections-per-cluster` decomposition
-  (rf2-gfxmk Phase 1 of rf2-abts7) — same path-headed clusters; only
-  the per-section body shape differs (patches here vs annotated
-  subtree there).
+  belong together', so an agent reads cluster intent without
+  re-clustering a flat patch list mentally. The sections projection
+  mirrors Xray's panel `sections-per-cluster` decomposition — same
+  path-headed clusters; only the per-section body shape differs
+  (patches here vs annotated subtree there).
 
   The patch list is preserved per-section as the round-trip
   primitive: concatenating every section's `:patches` reproduces
@@ -65,7 +64,7 @@
   INDEX path (`[[:items 0 :qty] :assoc 2]`), which carries the position
   explicitly and never relies on a positional `nil` sentinel.
 
-  ## Vectors: same-length structural diff, length changes whole-leaf (rf2-cwhod2)
+  ## Vectors: same-length structural diff, length changes whole-leaf
 
   Maps recurse key-by-key; SAME-LENGTH vectors recurse element-by-element
   under numeric-INDEX paths. A single item update inside a large
@@ -82,7 +81,7 @@
   grammar's numeric `:assoc` reaches an index via `assoc-in` (which only
   overwrites-in-place or grows by one at the tail — it has no shift
   primitive) and `[<index-path> :dissoc]` is a documented no-op against a
-  vector parent (`dissoc-in` dissocs only into a MAP parent, rf2-ykv9a0).
+  vector parent (`dissoc-in` dissocs only into a MAP parent).
   Same-length diffing is lossless for in-place updates; a length delta
   falls back to the unambiguous whole-vector replacement rather than ship
   a half-designed splice encoding. Non-vector sequentials (lists, lazy
@@ -92,11 +91,11 @@
   ## Cross-MCP vocabulary
 
   The `:rf.mcp/diff-from` marker key follows the same `:rf.mcp/*`
-  namespace convention as `:rf.mcp/overflow` (rf2-rvyzy),
-  `:rf.mcp/summary` (rf2-tygdv), and `:rf.mcp/dedup-table` (rf2-lwgg8
-  mechanism 5). Agents recognise the family once.
+  namespace convention as `:rf.mcp/overflow`,
+  `:rf.mcp/summary`, and `:rf.mcp/dedup-table`. Agents recognise the
+  family once.
 
-  ## Patch grammar pinned via Malli (rf2-rgg7d)
+  ## Patch grammar pinned via Malli
 
   The patch tuple grammar is pinned as a Malli schema (`patch-schema`).
   Each `collect-patches` emission is validated at the encoder boundary
@@ -158,8 +157,7 @@
   [:sequential patch-schema])
 
 (def section-schema
-  "Malli schema for one section in the path-headed cluster projection
-  (rf2-qeous).
+  "Malli schema for one section in the path-headed cluster projection.
 
   Shape:
 
@@ -269,7 +267,7 @@
 
   `where` is the calling-site symbol threaded through to the ex-info
   `:where` slot so it reflects the ACTUAL wire boundary that tripped
-  (rf2-4ypau) rather than a hardcoded one side.
+  rather than a hardcoded one side.
 
   ## Egress-safe diagnostics (EP-0015)
 
@@ -309,8 +307,8 @@
   validator).
 
   `where` is the calling-site symbol threaded in by the caller so the
-  ex-info `:where` reflects the ACTUAL wire boundary that tripped
-  (rf2-4ypau): `'mcp-base/diff-encode-db-after` from the encoder,
+  ex-info `:where` reflects the ACTUAL wire boundary that tripped:
+  `'mcp-base/diff-encode-db-after` from the encoder,
   `'mcp-base/apply-patches` from the decoder. Both boundaries call
   this; hardcoding one side misattributes a decode-side throw to the
   encoder and misleads operator triage about which side of the wire
@@ -328,9 +326,9 @@
   `validate-patches!`.
 
   `where` is the calling-site symbol threaded in by the caller so the
-  ex-info `:where` reflects the ACTUAL wire boundary that tripped
-  (rf2-4ypau): `'mcp-base/diff-encode-db-after` from the encoder
-  (after the section-grouping pass, rf2-qeous), `'mcp-base/decode-db-after`
+  ex-info `:where` reflects the ACTUAL wire boundary that tripped:
+  `'mcp-base/diff-encode-db-after` from the encoder
+  (after the section-grouping pass), `'mcp-base/decode-db-after`
   from the decoder. Both boundaries call this; hardcoding one side
   misattributes a decode-side throw to the encoder. The thrown
   diagnostic is value-free (EP-0015): it reports the first bad section's
@@ -350,13 +348,13 @@
   patches for added / changed keys (recursing on map/map pairs), then
   walks `a` once to emit `:dissoc` patches for keys absent from `b`.
 
-  Threading the accumulator (rf2-c2k9k / F12) avoids the intermediate
-  patches vector each recursion site previously allocated for `into
-  acc` — on deep app-db diffs (5-10 nesting levels typical) every
-  recursion now `conj`s directly into the parent accumulator rather
-  than allocating a fresh vector and copying it back. Big-O is
-  unchanged; the saving is allocation pressure, mostly visible on the
-  hot `watch-epochs` / `trace-window` slice."
+  Threading the accumulator avoids an intermediate patches vector at
+  each recursion site — on deep app-db diffs (5-10 nesting levels
+  typical) every recursion `conj`s directly into the parent
+  accumulator rather than allocating a fresh vector and copying it
+  back. Big-O is the same as a copy-back approach; the saving is
+  allocation pressure, mostly visible on the hot `watch-epochs` /
+  `trace-window` slice."
   [acc a b path]
   (let [after-assocs
         (reduce-kv
@@ -369,8 +367,8 @@
                 (conj acc [p :assoc bv])
                 ;; A changed EXISTING key: delegate to `collect-patches-into`
                 ;; so the dispatch is decided in ONE place — two maps recurse
-                ;; key-by-key, two same-length vectors recurse element-wise
-                ;; (rf2-cwhod2), anything else (incl. an unchanged value,
+                ;; key-by-key, two same-length vectors recurse element-wise,
+                ;; anything else (incl. an unchanged value,
                 ;; which short-circuits to a no-op) is a single leaf
                 ;; `[p :assoc bv]` replacement.
                 :else
@@ -387,7 +385,7 @@
 
 (defn- collect-vector-patches-into
   "Structurally diff two SAME-LENGTH vectors element-by-element, threading
-  the accumulator (rf2-cwhod2). Each element pair recurses through
+  the accumulator. Each element pair recurses through
   `collect-patches-into` under the numeric-INDEX path `(conj path i)`, so
   a single changed element inside a long vector yields an index-headed
   `[[:items 0 :qty] :assoc 2]` patch instead of replacing the whole
@@ -403,7 +401,7 @@
   numeric `:assoc` reaches an index via `assoc-in` (which both grows a
   vector by one at the tail and overwrites in place) but has no shift
   primitive, and `[<index-path> :dissoc]` is a documented no-op against a
-  vector parent (`dissoc-in` dissocs only into a MAP parent, rf2-ykv9a0).
+  vector parent (`dissoc-in` dissocs only into a MAP parent).
   Same-length diffing covers the dominant in-place-update case losslessly;
   a length delta falls back to the unambiguous whole-vector replacement
   rather than risk a half-designed shift/splice encoding.
@@ -437,7 +435,7 @@
   call this for each map-into-map / same-length-vector descent, sharing
   the parent's accumulator rather than allocating a fresh sub-vector.
 
-  Recursion arms (rf2-cwhod2 added the same-length-vector arm):
+  Recursion arms:
     - two maps                       → `collect-map-patches-into`
     - two SAME-LENGTH vectors        → `collect-vector-patches-into`
       (element-wise, numeric-index paths)
@@ -454,7 +452,7 @@
 (defn collect-patches
   "Patch-list factory. Two maps recurse via `collect-map-patches-into`;
   two same-length vectors recurse element-wise via
-  `collect-vector-patches-into` (numeric-index paths, rf2-cwhod2); any
+  `collect-vector-patches-into` (numeric-index paths); any
   other shape change (a length-changed vector, a non-vector sequential,
   a scalar↔collection flip, the root) is a single whole-leaf `:assoc`
   replacement. Exposed for tests and for advanced consumers that want to
@@ -464,7 +462,7 @@
 
 (defn- dissoc-in
   "Remove the key at `path` (a non-empty path vector) from `m`, a
-  no-op when the path's parent is absent or is not a map (rf2-ykv9a0).
+  no-op when the path's parent is absent or is not a map.
 
   The spec contract for `[<path> :dissoc]` is 'remove the key at
   `path`; a no-op if it does not exist'. The naive
@@ -502,7 +500,7 @@
   "Set the value at `path` (a non-empty path vector) in `m` to `v`,
   raising a structured `:rf.error/bad-diff-replay` ex-info — never a
   raw host exception — when an intermediate parent is present but
-  non-associative (rf2-glybzz).
+  non-associative.
 
   The spec contract for `[<path> :assoc v]` is 'set the value at
   `path`, creating the slot if it didn't exist'. The naive `assoc-in`
@@ -519,14 +517,14 @@
       `IllegalArgumentException` (`(assoc-in {:a [1 2]} [:a :b] 9)`).
 
   This is the `:assoc` peer of `dissoc-in`'s missing-/scalar-parent
-  guard (rf2-ykv9a0): `apply-patches`'s grammar gate pins the patch
+  guard: `apply-patches`'s grammar gate pins the patch
   SHAPE but cannot prove a patch's parent path is associative in THIS
   `base`. A malformed / corrupt / third-party diff replayed against a
   mismatched base is exactly the case this guards — including via
   `decode-db-after`, whose non-validating `apply-patches*` replay
   routes here.
 
-  Policy (acceptance, rf2-glybzz): a non-associative intermediate
+  Policy (acceptance): a non-associative intermediate
   parent is a base/patch MISMATCH, not a no-op. Unlike `:dissoc`
   (where 'remove a key from a non-map' is naturally a no-op), silently
   dropping an `:assoc` would discard the requested change (data loss),
@@ -534,7 +532,7 @@
   base into a shape neither encoder side emitted (data corruption).
   Neither silent outcome is safe, so we surface the drift as a
   structured failure rather than guess. The ex-info names the ACTUAL
-  decode-side boundary via `where` (rf2-4ypau — `'mcp-base/apply-patches`
+  decode-side boundary via `where` (`'mcp-base/apply-patches`
   from the public validating decoder, `'mcp-base/decode-db-after` from
   the section decoder), carries `:recovery :no-recovery`, and reports
   the offending `:patch-path` plus the `:at` prefix where traversal hit
@@ -577,9 +575,9 @@
   outright (for `:assoc`) or are a no-op (for `:dissoc`, by
   convention). Nested `:dissoc` routes through `dissoc-in`, whose
   missing-/scalar-parent no-op honours the spec contract (no
-  nil-branch manufacture, no host `ClassCastException` — rf2-ykv9a0).
+  nil-branch manufacture, no host `ClassCastException`).
   Nested `:assoc` routes through `assoc-in-safe`, the `:assoc` peer
-  guard (rf2-glybzz): a missing parent auto-vivifies (intended
+  guard: a missing parent auto-vivifies (intended
   create-if-absent grammar), but a PRESENT non-associative intermediate
   parent raises a structured `:rf.error/bad-diff-replay` ex-info rather
   than leak the raw host `ClassCastException` `assoc-in` would throw.
@@ -589,14 +587,14 @@
   gate walks each section's nested `:patches` against `patches-schema`
   via `section-schema`) replay through here directly rather than
   re-validating the flattened list a second time on the JVM decode hot
-  path (rf2-pfy8e). The public `apply-patches` validates first, then
+  path. The public `apply-patches` validates first, then
   delegates here.
 
-  `where` (rf2-glybzz) is the boundary symbol threaded into a
+  `where` is the boundary symbol threaded into a
   `:rf.error/bad-diff-replay` ex-info if a nested `:assoc` lands on a
   non-associative intermediate parent, so the error attributes the
   ACTUAL decode-side boundary that replayed the mismatched patch
-  (rf2-4ypau) — `'mcp-base/apply-patches` from the public decoder,
+  — `'mcp-base/apply-patches` from the public decoder,
   `'mcp-base/decode-db-after` from the section decoder. The 2-arity
   defaults to the public-decoder boundary."
   ([base patches] (apply-patches* base patches 'mcp-base/apply-patches))
@@ -621,7 +619,7 @@
   patches (path `[]`) replace `base` outright (for `:assoc`) or are a
   no-op (for `:dissoc`, by convention).
 
-  ## Decoder-boundary validation (rf2-8e61v)
+  ## Decoder-boundary validation
 
   `apply-patches` is the wire-decoder entry point: a malformed patch
   reaching this fn is a contract violation by an upstream encoder (a
@@ -629,14 +627,13 @@
   shape, a transport corruption). Mirror `diff-encode-db-after`'s
   encoder-boundary gate: validate `patches` against `patches-schema`
   and throw `:rf.error/bad-diff-patches` ex-info on mismatch. The
-  ex-info names `'mcp-base/apply-patches` as the decode-side boundary
-  (rf2-4ypau).
+  ex-info names `'mcp-base/apply-patches` as the decode-side boundary.
 
-  The encoder side already pinned the grammar; this is the symmetric
+  The encoder side pins the grammar; this is the symmetric
   decode-side gate so the cross-MCP wire convention surfaces the
-  drift rather than silently no-op'ing on the malformed tuple (the
-  previous behaviour fell through the `cond` to `:else acc` and
-  dropped corrupted patches without a peep).
+  drift rather than silently no-op'ing on the malformed tuple.
+  Without the gate, a malformed tuple would fall through the `cond` to
+  `:else acc` and drop corrupted patches without a peep.
 
   Soft-pass behaviour mirrors the encoder: when Malli is not
   resolvable on the runtime classpath, validation is skipped. The
@@ -647,7 +644,7 @@
   `:sections` (whose nested `:patches` are walked against the same
   `patches-schema`) and replays via the non-validating `apply-patches*`
   to avoid a redundant second Malli walk of every patch tuple on the
-  JVM decode hot path (rf2-pfy8e)."
+  JVM decode hot path."
   [base patches]
   (validate-patches! patches 'mcp-base/apply-patches)
   (apply-patches* base patches))
@@ -655,7 +652,7 @@
 (defn diff-encode-db-after
   "Replace an epoch's `:db-after` with a path-headed cluster
   projection of a path-keyed structural diff against its own
-  `:db-before` (rf2-qeous). Returns the epoch with `:db-after`
+  `:db-before`. Returns the epoch with `:db-after`
   shaped as
   `{:rf.mcp/diff-from :db-before :sections [{...}{...}]}`.
 
@@ -677,8 +674,8 @@
           _        (validate-patches! patches 'mcp-base/diff-encode-db-after)
           ;; Thread `:db-before` so section classification can prove a
           ;; container is genuinely NEW before claiming `:added` — patch
-          ;; shape alone cannot (`:assoc` covers both insert and change,
-          ;; rf2-ykv9a0). Without this an existing parent whose direct
+          ;; shape alone cannot (`:assoc` covers both insert and
+          ;; change). Without this an existing parent whose direct
           ;; child changed would be mislabelled `:added` to the agent.
           sections (sg/group-patches-into-sections
                      patches {:db-before (:db-before epoch)})
@@ -689,7 +686,7 @@
 
 (defn- validate-diff-marker-body!
   "Enforce the CLOSED marker-body contract on a `:db-after` map that
-  carries `vocab/diff-from-key` (rf2-71kxvb). A structural check — pure
+  carries `vocab/diff-from-key`. A structural check — pure
   Clojure, no Malli — so it fires on BOTH hosts regardless of Malli
   presence or the `validate-patches?` `goog-define` (mirroring
   `assoc-in-safe`'s replay guard, not the Malli `validate-sections!`
@@ -698,26 +695,25 @@
   The wire contract (mcp-conformance `DiffFromBody`, a CLOSED map) is:
   a diff marker is EXACTLY `{:rf.mcp/diff-from :db-before, :sections [...]}` —
   two top-level keys, the marker value restricted to `:db-before`.
-  `decode-db-after` previously recognized a marker ONLY when the value
-  was exactly `:db-before` and then validated ONLY the raw `:sections`
-  slot. Two boundary gaps followed (both forbidden by the conformance
-  contract, both silent):
+  Presence of the marker key signals INTENT to be a diff marker, so the
+  body must satisfy the closed two-key contract. The guard closes two
+  boundary cases the conformance contract forbids (both otherwise
+  silent):
 
     - an EXTRA sibling key — `{:rf.mcp/diff-from :db-before :sections []
-      :sneaky :key}` — slipped past, the `:sections` gate ignoring the
-      stray key entirely (a mixed-envelope `:db-after` the encoder never
+      :sneaky :key}` — a `:sections`-only gate would ignore the stray
+      key entirely (a mixed-envelope `:db-after` the encoder never
       emits);
     - an UNSUPPORTED marker value — `{:rf.mcp/diff-from :db-later ...}` —
-      was treated as 'not a diff' and passed THROUGH unchanged, so a
-      corrupt / third-party marker survived the decoder unflagged rather
-      than surfacing a decoder-boundary contract error.
+      treating it as 'not a diff' would pass it THROUGH unchanged, so a
+      corrupt / third-party marker would survive the decoder unflagged
+      rather than surfacing a decoder-boundary contract error.
 
-  This guard closes both: presence of the marker key signals INTENT to be
-  a diff marker, so the body must satisfy the closed two-key contract or
-  the decode boundary surfaces a structured `:rf.error/bad-diff-marker`
-  ex-info naming the actual decode-side `where` (rf2-4ypau),
-  `:recovery :no-recovery`, and value-free diagnostics only (the offending
-  key set / marker-value type — never the app-db payload, EP-0015)."
+  On either case the decode boundary surfaces a structured
+  `:rf.error/bad-diff-marker` ex-info naming the actual decode-side
+  `where`, `:recovery :no-recovery`, and value-free diagnostics only
+  (the offending key set / marker-value type — never the app-db
+  payload, EP-0015)."
   [db-after where]
   (let [ks       (set (keys db-after))
         expected #{vocab/diff-from-key :sections}
@@ -749,29 +745,28 @@
   input unchanged when `:db-after` isn't a diff). Provided for
   agent-host round-trip parity and for the unit tests.
 
-  ## Decoder-boundary section validation (rf2-j6oay / rf2-y3qpv)
+  ## Decoder-boundary section validation
 
   Mirrors the encoder's `validate-sections!` gate. `sections->patches`
   is a permissive `mapcat :patches` — a section with malformed
   `:section-path` / `:section-kind` slots, or extra/missing slots,
   would slip through to a patch replay whose grammar gate only covers
   the flattened `:patches` list. Validating `sections` here gives
-  encoder/decoder symmetry per the rf2-8e61v argument: the cross-MCP
+  encoder/decoder symmetry: the cross-MCP
   wire convention surfaces drift on the receiving side too, rather
   than silently passing the cosmetic `:section-kind` / `:section-path`
   slots through to an agent-host UI that paints them as truth. The
-  ex-info names `'mcp-base/decode-db-after` as the decode-side boundary
-  (rf2-4ypau).
+  ex-info names `'mcp-base/decode-db-after` as the decode-side boundary.
 
   The gate validates the RAW `:sections` slot — it does NOT default a
-  missing / `nil` / `false` slot to `[]` (rf2-y3qpv). A diff marker
+  missing / `nil` / `false` slot to `[]`. A diff marker
   always carries an explicit `:sections` vector; coercing an absent or
-  falsey slot to an empty vector before the gate let a malformed
+  falsey slot to an empty vector before the gate would let a malformed
   `{:rf.mcp/diff-from :db-before}` marker decode to a no-op (an empty
   seq satisfies `[:sequential section-schema]`), silently ERASING the
   epoch's real `:db-after` change in diagnostics — the exact silent
   pass-through this boundary posture forbids. `sections-schema`
-  rejects `nil` / `false` (neither is sequential), so wire drift now
+  rejects `nil` / `false` (neither is sequential), so wire drift
   trips `:rf.error/bad-diff-sections` when Malli is present. An
   explicit `:sections []` — a genuine no-change diff — still validates
   and replays to `:db-before` unchanged.
@@ -779,7 +774,7 @@
   Soft-pass + `goog-define`-elidable by construction — reuses the
   same `validate-sections!` helper as the encoder.
 
-  ## Single validation pass (rf2-pfy8e)
+  ## Single validation pass
 
   `section-schema` nests `patches-schema`, so the `validate-sections!`
   gate above already Malli-walks every section's `:patches` against the
@@ -790,7 +785,7 @@
   `apply-patches*` rather than the public `apply-patches`."
   [epoch]
   (let [db-after (when (map? epoch) (:db-after epoch))]
-    ;; rf2-71kxvb — a map is a diff marker iff it carries `diff-from-key`.
+    ;; A map is a diff marker iff it carries `diff-from-key`.
     ;; Detect on the KEY's PRESENCE (intent), not on the value being exactly
     ;; `:db-before`: a marker whose value is unsupported (or which carries an
     ;; extra sibling key) is corrupt wire drift the decoder MUST flag, not a
@@ -800,21 +795,21 @@
                  (contains? db-after vocab/diff-from-key))
       epoch
       ;; The map intends to be a diff marker: enforce the CLOSED two-key body
-      ;; contract + the supported `:db-before` marker value FIRST (rf2-71kxvb),
+      ;; contract + the supported `:db-before` marker value FIRST,
       ;; so an extra sibling key or an unsupported marker value surfaces a
       ;; structured `:rf.error/bad-diff-marker` rather than slipping through.
       (do
         (validate-diff-marker-body! db-after 'mcp-base/decode-db-after)
         ;; Validate the RAW `:sections` value — do NOT default a
-        ;; missing / nil / false slot to `[]` before the gate (rf2-y3qpv).
+        ;; missing / nil / false slot to `[]` before the gate.
         ;; A diff marker carries an EXPLICIT `:sections` vector; coercing
-        ;; an absent or falsey slot to an empty vector slipped a malformed
+        ;; an absent or falsey slot to an empty vector would slip a malformed
         ;; `{:rf.mcp/diff-from :db-before}` marker past `validate-sections!`
         ;; (an empty seq satisfies `[:sequential section-schema]`) and
-        ;; replayed it as a no-op, silently ERASING the epoch's real
+        ;; replay it as a no-op, silently ERASING the epoch's real
         ;; `:db-after` change in diagnostics. `sections-schema` rejects
         ;; `nil` / `false` (neither is sequential) so the decoder-boundary
-        ;; gate now trips `:rf.error/bad-diff-sections` on wire drift, while
+        ;; gate trips `:rf.error/bad-diff-sections` on wire drift, while
         ;; an explicit `:sections []` (a genuine no-change diff) still
         ;; validates and replays to `:db-before` unchanged.
         (let [sections  (:sections db-after)
@@ -833,7 +828,7 @@
 
   `mode` is one of:
     :diff — default. Each `:db-after` becomes a structural diff.
-    :full — pass through (legacy behaviour, opt-in)."
+    :full — pass through unchanged (opt-in)."
   [epochs mode]
   (if (= mode :full)
     epochs

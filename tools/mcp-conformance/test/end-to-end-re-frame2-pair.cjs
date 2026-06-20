@@ -24,7 +24,7 @@
 // The test runs in degraded mode (no nREPL on $SHADOW_CLJS_NREPL_PORT)
 // — same shape as the upstream stdio-roundtrip — so it stays
 // self-contained and reproducible on CI without needing a live
-// shadow-cljs runtime. Source: rf2-cum40.
+// shadow-cljs runtime.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -41,61 +41,59 @@ const {
 const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
 const SERVER = path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js');
 
-// Per-tool annotation-classification ratchet (rf2-yi451). Pins each
-// descriptor's EXACT readOnly/destructive posture + budget-hint prose so
-// a tool silently re-classified (a destructive write re-labelled
-// readOnly — a trust-boundary regression an agent host would auto-approve)
-// turns this gate RED for an unchanged tool-set. Sourced from this
-// slice's own fixture (mirrors tools/re-frame2-pair-mcp/tool-descriptors.edn).
+// Per-tool annotation-classification ratchet. Pins each descriptor's
+// EXACT readOnly/destructive posture + budget-hint prose so a tool
+// silently re-classified (a destructive write re-labelled readOnly — a
+// trust-boundary regression an agent host would auto-approve) turns this
+// gate RED for an unchanged tool-set. Sourced from this slice's own
+// fixture (mirrors tools/re-frame2-pair-mcp/tool-descriptors.edn).
 const EXPECTED_CLASSIFICATIONS = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 're-frame2-pair-classifications.json'), 'utf8'),
 );
 
 // Canonical tool-name list — sourced from re-frame2-pair-mcp's own fixture
-// (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so this conformance
-// harness and the upstream `tools/re-frame2-pair-mcp/test/stdio-roundtrip.js`
-// agree on the expected `tools/list` response without two hand-
-// maintained lists drifting. A registry change updates one file.
+// (mirrors story-mcp's fixture pattern) so this conformance harness and
+// the upstream `tools/re-frame2-pair-mcp/test/stdio-roundtrip.js` agree on
+// the expected `tools/list` response without two hand-maintained lists
+// drifting. A registry change updates one file.
 const EXPECTED_TOOLS = JSON.parse(
   fs.readFileSync(path.join(RE_FRAME2_PAIR_MCP_DIR, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
 ).names;
 
 // Force degraded mode: empty out $SHADOW_CLJS_NREPL_PORT and boot from
-// a tmpdir so the port-file probe misses. Pre-rf2-umoz2 that was
-// sufficient; the cwd-relative file scan was the last discovery step.
-// rf2-umoz2 added a shadow HTTP probe (default port 9630) that would
-// otherwise resolve a port whenever shadow happens to be running on the
-// CI agent's loopback — so we pin --http-port to a port we know is
-// closed (port 1, IANA-reserved + never bound) which makes the probe's
-// ECONNREFUSED short-circuit deterministic on every host.
+// a tmpdir so the port-file probe misses. The server also runs a shadow
+// HTTP probe (default port 9630) that would otherwise resolve a port
+// whenever shadow happens to be running on the CI agent's loopback — so
+// we pin --http-port to a port we know is closed (port 1, IANA-reserved
+// + never bound) which makes the probe's ECONNREFUSED short-circuit
+// deterministic on every host.
 const env = { ...process.env };
 delete env.SHADOW_CLJS_NREPL_PORT;
 
-// SDK callTool() coverage tracking (rf2-ke5n56) via the shared `track`
-// helper (_runner.cjs): every tool driven through `Client.callTool()`
-// records its name into the returned `called` Set; the coverage ratchet at
-// the end of the body fails if any ADVERTISED tool is neither recorded nor
-// in the reviewed exclusion table.
+// SDK callTool() coverage tracking via the shared `track` helper
+// (_runner.cjs): every tool driven through `Client.callTool()` records
+// its name into the returned `called` Set; the coverage ratchet at the
+// end of the body fails if any ADVERTISED tool is neither recorded nor in
+// the reviewed exclusion table.
 
 // Advertised pair-mcp tools intentionally NOT SDK-call-covered by THIS
-// degraded harness, each with a rationale naming WHERE its coverage lives
-// (rf2-ke5n56). The pair-mcp conformance surface is split: this
-// end-to-end runs DEGRADED (no nREPL), where every tool returns the same
+// degraded harness, each with a rationale naming WHERE its coverage
+// lives. The pair-mcp conformance surface is split: this end-to-end runs
+// DEGRADED (no nREPL), where every tool returns the same
 // `:nrepl-port-not-found` envelope (except the two gated writes, refused
 // pre-connection) — so a degraded probe proves the descriptor reaches the
 // SDK, the dispatch-table entry is wired, the arg shape is accepted, and
 // the SDK's CallToolResultSchema parses the envelope. The genuinely
 // LIVE-only behaviours (streaming progress frames, overflow markers,
 // redaction, the eval/write gates' SUCCESS/refusal under a real runtime)
-// are pinned by the gated live harnesses. This table is currently EMPTY:
-// rf2-ke5n56 added a cheap degraded probe for every previously
-// descriptor-only tool, so all 28 advertised tools are now SDK-called
-// here. The table is wired through `assertCallCoverageRatchet` so a
-// FUTURE tool that is genuinely unreachable degraded has a reviewed home
-// (e.g. `{ 'some-live-only-tool': 'live-only; covered by
-// live-re-frame2-pair-<x>.cjs under a real nREPL' }`) instead of silently
-// dropping out of coverage. A blank/stale/contradictory row trips the
-// ratchet.
+// are pinned by the gated live harnesses. This table is EMPTY: the
+// degraded walk below drives a cheap probe for every advertised tool, so
+// all 28 are SDK-called here. The table is wired through
+// `assertCallCoverageRatchet` so a FUTURE tool that is genuinely
+// unreachable degraded has a reviewed home (e.g. `{ 'some-live-only-tool':
+// 'live-only; covered by live-re-frame2-pair-<x>.cjs under a real nREPL'
+// }`) instead of silently dropping out of coverage. A
+// blank/stale/contradictory row trips the ratchet.
 const PAIR_CALL_EXCLUSIONS = {};
 
 runWithWatchdog(
@@ -110,7 +108,7 @@ runWithWatchdog(
     },
   },
   async (rawClient) => {
-    // Wrap the SDK client in the coverage tracker (rf2-ke5n56): every
+    // Wrap the SDK client in the coverage tracker: every
     // `client.callTool({name,…})` below records `name` for the callTool
     // coverage ratchet at the end of this body. All other client members
     // delegate transparently.
@@ -137,21 +135,21 @@ runWithWatchdog(
     console.log('OK   tools/list -> ' + names.length + ' tools advertised:', names.join(', '));
 
     // 2b-2d. Descriptor-shape conformance — inputSchema type=object +
-    // max-tokens (rf2-i3ffz F-GAP-2 / TOKEN-BUDGETS.md), :outputSchema
-    // (rf2-3l3be), and an :annotations classification hint (rf2-94p8q).
-    // The shared `assertDescriptorShape` helper pins all three; pair-mcp
-    // permits `openWorldHint` as a classifier (its eval-cljs / dispatch
-    // tools touch an open world), so `allowOpenWorld: true`. See
-    // _runner.cjs for the per-invariant rationale (rf2-80y2h dedup).
+    // max-tokens (TOKEN-BUDGETS.md), :outputSchema, and an :annotations
+    // classification hint. The shared `assertDescriptorShape` helper pins
+    // all three; pair-mcp permits `openWorldHint` as a classifier (its
+    // eval-cljs / dispatch tools touch an open world), so
+    // `allowOpenWorld: true`. See _runner.cjs for the per-invariant
+    // rationale.
     assertDescriptorShape(listed.tools, { allowOpenWorld: true });
     console.log(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
 
-    // 2e. Per-tool classification CONTENT ratchet (rf2-yi451). The shape
-    // check above pins that SOME classifier is set; this pins WHICH —
-    // the exact readOnly/destructive posture per tool + the budget-hint
-    // prose. A destructive write tool (dispatch, eval-cljs, restore-epoch,
+    // 2e. Per-tool classification CONTENT ratchet. The shape check above
+    // pins that SOME classifier is set; this pins WHICH — the exact
+    // readOnly/destructive posture per tool + the budget-hint prose. A
+    // destructive write tool (dispatch, eval-cljs, restore-epoch,
     // replace-app-db) silently re-classified readOnly would ship green
     // under the shape check (readOnlyHint alone satisfies "≥1 set") but
     // turns RED here. See _runner.cjs for the per-posture rationale.
@@ -178,29 +176,24 @@ runWithWatchdog(
     //
     //   - dispatch          write-shaped tool. The MCP inputSchema names
     //                        the slot `event` — a single EDN-vector
-    //                        string parsed server-side (rf2-vflrg).
-    //                        (Degraded-mode returns :nrepl-port-not-found
-    //                        regardless of args, so the pre-rf2-zb5z6
-    //                        `event-v` typo went unobserved here; the
-    //                        live subscribe gate surfaced it.)
+    //                        string parsed server-side. (Degraded-mode
+    //                        returns :nrepl-port-not-found regardless of
+    //                        args, so arg-shape regressions surface in the
+    //                        live subscribe gate, not here.)
     //   - watch-epochs       pull-mode tool.
     //   - snapshot           mega-op tool.
     //   - subscribe          streaming-shaped tool. In connected mode it
     //                        would open a notification stream; degraded it
     //                        returns the same error envelope.
     //   - list-subscriptions lists the LIVE reactive sub-cache for a frame
-    //                        (rf2-qicji repointed it here from the
-    //                        streaming-tap registry; it now reads the same
-    //                        source as `snapshot :sub-cache` via the
-    //                        runtime's `sub-cache-info` fn). Pure-read,
-    //                        optional :frame / :include-values.
-    //   - list-streams       the streaming-tap diagnostic list-subscriptions
-    //                        formerly carried (rf2-qicji split). Wraps
-    //                        `re-frame2-pair.runtime/subscription-info`
-    //                        (runtime fn keeps the historical name) so AI
-    //                        clients can list active streaming subscriptions
-    //                        without an eval-cljs round-trip. Pure-read,
-    //                        optional :topic / :sub-id filters.
+    //                        — the same source as `snapshot :sub-cache`,
+    //                        via the runtime's `sub-cache-info` fn.
+    //                        Pure-read, optional :frame / :include-values.
+    //   - list-streams       the streaming-tap diagnostic list. Wraps
+    //                        `re-frame2-pair.runtime/subscription-info` so
+    //                        AI clients can list active streaming
+    //                        subscriptions without an eval-cljs round-trip.
+    //                        Pure-read, optional :topic / :sub-id filters.
     const DEGRADED_TOOLS = [
       { name: 'dispatch', arguments: { event: '[:rf-conformance/probe]' } },
       { name: 'watch-epochs', arguments: { 'max-ms': 50 } },
@@ -208,25 +201,23 @@ runWithWatchdog(
       { name: 'subscribe', arguments: { topic: 'trace' } },
       { name: 'list-subscriptions', arguments: {} },
       { name: 'list-streams', arguments: {} },
-      // rf2-r5erl — read-dom (and its read-ui sibling + orient) MUST
-      // produce an SDK-valid result envelope, never a null
-      // structuredContent that the SDK's outputSchema validation rejects
-      // at the transport layer (`expected record at structuredContent,
-      // received null`). The bug surfaced on a LIVE read-dom whose
-      // browser eval came back blank; degraded mode exercises the same
-      // envelope-assembly path (the eval short-circuits at
-      // :nrepl-port-not-found through wire/err-text). Including them here
-      // pins the read-family envelope shape at the authoritative SDK
-      // layer, not just a unit proxy.
+      // read-dom (and its read-ui sibling + orient) MUST produce an
+      // SDK-valid result envelope, never a null structuredContent that the
+      // SDK's outputSchema validation rejects at the transport layer
+      // (`expected record at structuredContent, received null`). A LIVE
+      // read-dom whose browser eval comes back blank hits this path;
+      // degraded mode exercises the same envelope-assembly path (the eval
+      // short-circuits at :nrepl-port-not-found through wire/err-text).
+      // Including them here pins the read-family envelope shape at the
+      // authoritative SDK layer, not just a unit proxy.
       { name: 'read-dom', arguments: { selector: 'body', limit: 1 } },
       { name: 'read-ui', arguments: { selector: 'body' } },
       { name: 'orient', arguments: {} },
-      // rf2-ke5n56 — close the descriptor-only gap. Every advertised
-      // pair-mcp tool below was LISTED (descriptor + classification
-      // metadata checked) but never SDK-CALLED, so a regression in its
-      // callTool envelope / outputSchema / structuredContent shape /
-      // argument handling shipped green. In degraded mode (no nREPL) each
-      // routes through `ensure-connection!` first and returns the SAME
+      // Every advertised pair-mcp tool below is SDK-CALLED so a regression
+      // in its callTool envelope / outputSchema / structuredContent shape
+      // / argument handling turns RED rather than shipping green under a
+      // descriptor-only check. In degraded mode (no nREPL) each routes
+      // through `ensure-connection!` first and returns the SAME
       // `:nrepl-port-not-found` envelope — which still proves, per tool:
       // (a) the descriptor reaches the SDK, (b) the dispatch-table entry
       // is wired (an unwired name surfaces a different error), (c) the arg
@@ -240,13 +231,12 @@ runWithWatchdog(
       // appear here: dispatch still routes them through ensure-connection!,
       // which rejects degraded before the inline body runs.
       { name: 'discover-app', arguments: {} },
-      // eval-cljs is default-ON post-rf2-a0z0h (no pre-connection gate
-      // unless --no-eval), so degraded it routes through ensure-connection!
-      // and returns the shared :nrepl-port-not-found envelope. Its LIVE
-      // success / overflow behaviour is covered by
-      // live-re-frame2-pair-overflow.cjs and its --no-eval refusal by
-      // live-re-frame2-pair-subscribe.cjs; this degraded probe pins the
-      // callTool envelope + dispatch wiring.
+      // eval-cljs is default-ON (no pre-connection gate unless --no-eval),
+      // so degraded it routes through ensure-connection! and returns the
+      // shared :nrepl-port-not-found envelope. Its LIVE success / overflow
+      // behaviour is covered by live-re-frame2-pair-overflow.cjs and its
+      // --no-eval refusal by live-re-frame2-pair-subscribe.cjs; this
+      // degraded probe pins the callTool envelope + dispatch wiring.
       { name: 'eval-cljs', arguments: { form: '(+ 1 2)' } },
       { name: 'dispatch-dry-run', arguments: { event: '[:rf-conformance/probe]' } },
       { name: 'get-operating-frame', arguments: {} },
@@ -255,9 +245,9 @@ runWithWatchdog(
       { name: 'get-stream-controls', arguments: {} },
       { name: 'handler-meta', arguments: { kind: 'event', id: ':rf-conformance/probe' } },
       { name: 'list-handlers', arguments: { kind: 'event' } },
-      // rf2-jyxmtq — EP-0017 cofx introspection over the SDK wire. The
-      // `cofx` kind is one of the closed-v1 registrar kinds `handler-meta`
-      // / `list-handlers` advertise (tool-descriptors.edn). Degraded mode
+      // EP-0017 cofx introspection over the SDK wire. The `cofx` kind is
+      // one of the closed-v1 registrar kinds `handler-meta` /
+      // `list-handlers` advertise (tool-descriptors.edn). Degraded mode
       // routes both through `ensure-connection!` to the shared
       // :nrepl-port-not-found envelope — which still proves the `cofx` kind
       // is ACCEPTED into the envelope (an unsupported kind would return
@@ -267,11 +257,12 @@ runWithWatchdog(
       // hermetic live-re-frame2-pair-cofx.cjs gate.
       { name: 'handler-meta', arguments: { kind: 'cofx', id: ':rf/time-ms' } },
       { name: 'list-handlers', arguments: { kind: 'cofx' } },
-      // rf2-srobm0 — describe-image reads a frame's running image generation
-      // over the public rf/frame-generation facade read. Degraded mode routes
-      // it through ensure-connection! to the shared :nrepl-port-not-found
-      // envelope (proving the callTool wiring); the LIVE generation projection
-      // is the runtime preload's concern, pinned by the bb structural test
+      // describe-image reads a frame's running image generation over the
+      // public rf/frame-generation facade read. Degraded mode routes it
+      // through ensure-connection! to the shared :nrepl-port-not-found
+      // envelope (proving the callTool wiring); the LIVE generation
+      // projection is the runtime preload's concern, pinned by the bb
+      // structural test
       // skills/re-frame2-pair/tests/runtime/frame_registrar_test.clj.
       { name: 'describe-image', arguments: { frame: ':rf/default' } },
       { name: 'read-recording', arguments: { 'recording-id': 'rf2-conformance-no-such' } },
@@ -288,16 +279,15 @@ runWithWatchdog(
       },
     ];
 
-    // Universal isError <-> :ok? cross-check (rf2-87h71e). The spec
-    // contract (spec/003-Tool-Catalogue.md §381) is universal: EVERY
-    // `:ok? false` structuredContent MUST carry `isError === true`, and
-    // every `:ok? true` MUST carry a falsy isError. Before this assertion
-    // every isError check in the corpus was tool-specific +
-    // outcome-specific, so the sibling pair-mcp read-dom/read-ui gap
-    // (rf2-q7cavs — an `:ok? false` runtime failure envelope shipping
-    // `isError:false`) shipped GREEN. This cross-check pins the contract
-    // for an ARBITRARY structured envelope at the SDK boundary, catching
-    // any tool that decouples its isError flag from its `:ok?` slot.
+    // Universal isError <-> :ok? cross-check. The spec contract
+    // (spec/003-Tool-Catalogue.md §381) is universal: EVERY `:ok? false`
+    // structuredContent MUST carry `isError === true`, and every
+    // `:ok? true` MUST carry a falsy isError. This cross-check pins the
+    // contract for an ARBITRARY structured envelope at the SDK boundary —
+    // a single gate covering every tool, rather than tool-specific +
+    // outcome-specific checks — catching any tool that decouples its
+    // isError flag from its `:ok?` slot (the class the pair-mcp
+    // read-dom/read-ui envelope belongs to).
     //
     // Reads `:ok?` from the namespace-faithful structuredContent slot
     // (`qualify-keywords` renders `:ok?` as the JS key "ok?"). Tolerates
@@ -350,24 +340,22 @@ runWithWatchdog(
       degradedResp[tool.name] = await assertDegraded(tool);
     }
 
-    // 3c. Gated WRITE tools — pre-connection refusal (rf2-ke5n56). The two
+    // 3c. Gated WRITE tools — pre-connection refusal. The two
     // state-mutating tools `restore-epoch` and `replace-app-db` are gated
-    // behind `--allow-writes` (default OFF, rf2-ee38b.18). This server
-    // booted WITHOUT the flag, so `writes/refuse-pre-connection` short-
-    // circuits BOTH to the `:rf.error/writes-disabled` envelope BEFORE
-    // `ensure-connection!` runs (rf2-wz66k7) — so unlike every other tool
-    // they do NOT return `:nrepl-port-not-found` in degraded mode; they
-    // return the write-gate refusal. These were advertised but never
-    // SDK-called by this harness. Probing them here pins the default-safe
-    // write posture at the real MCP boundary (the env that ships) — a
-    // regression that flipped the default ON, renamed the gate flag, or
-    // dropped the pre-connection guard surfaces RED. The args are
-    // well-formed but inert: the guard fires before the arg is read or any
-    // nREPL touched. (The LIVE, non-degraded refusal — gate-OFF with a
-    // runtime attached — is additionally pinned by
-    // live-re-frame2-pair-subscribe.cjs, which also asserts the `:tool`
-    // slot; here we pin the degraded/pre-connection path the live test
-    // cannot reach.)
+    // behind `--allow-writes` (default OFF). This server booted WITHOUT
+    // the flag, so `writes/refuse-pre-connection` short-circuits BOTH to
+    // the `:rf.error/writes-disabled` envelope BEFORE `ensure-connection!`
+    // runs — so unlike every other tool they do NOT return
+    // `:nrepl-port-not-found` in degraded mode; they return the write-gate
+    // refusal. Probing them here pins the default-safe write posture at
+    // the real MCP boundary (the env that ships) — a regression that
+    // flipped the default ON, renamed the gate flag, or dropped the
+    // pre-connection guard surfaces RED. The args are well-formed but
+    // inert: the guard fires before the arg is read or any nREPL touched.
+    // (The LIVE, non-degraded refusal — gate-OFF with a runtime attached —
+    // is additionally pinned by live-re-frame2-pair-subscribe.cjs, which
+    // also asserts the `:tool` slot; here we pin the degraded/pre-connection
+    // path the live test cannot reach.)
     for (const probe of [
       { name: 'restore-epoch', arguments: { 'epoch-id': '0' } },
       { name: 'replace-app-db', arguments: { db: '{}' } },
@@ -390,7 +378,7 @@ runWithWatchdog(
         );
       }
       // The pre-connection refusal must NOT leak a misleading
-      // :nrepl-port-not-found (rf2-wz66k7 — the guard runs before discovery).
+      // :nrepl-port-not-found — the guard runs before discovery.
       if (text.includes('nrepl-port-not-found')) {
         throw new Error(
           probe.name + ' write-gate refusal MUST NOT mention ' +
@@ -404,20 +392,19 @@ runWithWatchdog(
       );
     }
 
-    // 3c-quater. Unknown tool name — pre-connection refusal (rf2-4mc6q1).
-    // Symmetric with the gated-write pre-connection guard above: a name
-    // absent from the registry (a typo or a removed alias) is rejected by
+    // 3c-quater. Unknown tool name — pre-connection refusal. Symmetric
+    // with the gated-write pre-connection guard above: a name absent from
+    // the registry (a typo or a removed alias) is rejected by
     // `tools/refuse-unknown-tool` in `server.cljs/handle-call` BEFORE
     // `ensure-connection!` runs discovery. So in degraded mode (no nREPL)
     // an unknown tool returns the recovery-shaped `:unknown-tool` envelope,
-    // NOT `:nrepl-port-not-found`. Before this guard the discovery step
-    // rejected first and masked the unknown name behind a transport error,
-    // hiding the recovery affordances (`tools/list` hint + `:available-
-    // tools` catalogue) for exactly the fresh/misconfigured-session case
-    // they were built for — and the conformance harness, which drives the
-    // compiled server WITHOUT a live nREPL, would have shipped that drift
-    // green. A regression that drops the guard or re-orders it after
-    // discovery surfaces RED here.
+    // NOT `:nrepl-port-not-found`. The guard surfaces the recovery
+    // affordances (`tools/list` hint + `:available-tools` catalogue) for
+    // the fresh/misconfigured-session case they serve, even though this
+    // conformance harness drives the compiled server WITHOUT a live nREPL.
+    // A regression that drops the guard or re-orders it after discovery —
+    // which would mask the unknown name behind a transport error — surfaces
+    // RED here.
     {
       const resp = await client.callTool({
         name: 'no-such-tool-xyz',
@@ -456,8 +443,8 @@ runWithWatchdog(
     }
 
     // 3c-ter. EP-0017 reproducible-dispatch `cofx` argument — degraded
-    // accept (rf2-jyxmtq). The `dispatch` tool advertises a `cofx`
-    // input-key (an EDN map of scripted recordable coeffects, e.g.
+    // accept. The `dispatch` tool advertises a `cofx` input-key (an EDN
+    // map of scripted recordable coeffects, e.g.
     // `"{:rf/time-ms 1781078400123}"`) for deterministic replay. In
     // degraded mode the server's `degraded-handler` short-circuits the
     // tool to the shared `:nrepl-port-not-found` envelope BEFORE the tool
@@ -488,12 +475,12 @@ runWithWatchdog(
     }
 
     // 3c-bis. Universal isError <-> :ok? cross-check across the whole
-    // degraded walk (rf2-87h71e). Every degraded / write-gate envelope
-    // collected above carries `:ok? false` and MUST be isError:true; this
-    // sweeps them ALL through the contract assertion (not just the
-    // tool-specific :nrepl-port-not-found / :writes-disabled checks). A
-    // server that decoupled isError from `:ok?` on ANY tool — the class
-    // the sibling read-dom/read-ui gap belonged to — trips RED here.
+    // degraded walk. Every degraded / write-gate envelope collected above
+    // carries `:ok? false` and MUST be isError:true; this sweeps them ALL
+    // through the contract assertion (not just the tool-specific
+    // :nrepl-port-not-found / :writes-disabled checks). A server that
+    // decoupled isError from `:ok?` on ANY tool — the class the sibling
+    // read-dom/read-ui envelope belongs to — trips RED here.
     for (const [label, resp] of Object.entries(degradedResp)) {
       assertIsErrorMatchesOk('tools/call ' + label + ' (degraded)', resp);
     }
@@ -501,7 +488,7 @@ runWithWatchdog(
       'OK   every :ok? false envelope is isError:true (universal cross-check, rf2-87h71e)',
     );
 
-    // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every
+    // 3d. structuredContent dual-slot conformance. Every
     // pair-mcp result envelope MUST carry BOTH the wire-canonical
     // `:content [{:type "text"}]` slot AND a `:structuredContent`
     // slot — the canonical mcp-builder pattern. The SDK already
@@ -518,8 +505,8 @@ runWithWatchdog(
       'snapshot',
       'subscribe',
       'list-subscriptions',
-      // rf2-r5erl — the read-family envelopes must carry a non-null
-      // object structuredContent through the SDK like every other tool.
+      // the read-family envelopes must carry a non-null object
+      // structuredContent through the SDK like every other tool.
       'read-dom',
       'read-ui',
       'orient',
@@ -535,7 +522,7 @@ runWithWatchdog(
       // array. `typeof [] === 'object'`, so the bare typeof check admits
       // a vector `structuredContent`; the MCP `structuredContent` slot is
       // contractually a JSON object. Reject arrays explicitly so a server
-      // that regressed to emitting a vector there is caught (rf2-ee38b.20).
+      // that emits a vector there is caught.
       if (
         typeof resp.structuredContent !== 'object' ||
         Array.isArray(resp.structuredContent)
@@ -553,21 +540,20 @@ runWithWatchdog(
       'OK   every tool envelope carries :structuredContent (rf2-hj3pi)',
     );
 
-    // 4. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Asserts
-    // re-frame2-pair-mcp emits the canonical codes from `mcp-base/vocab.cljc`
-    // for unknown-method + malformed-params. The runner-side helper
-    // pins the shared contract; same call appears in end-to-end-story.
+    // 4. JSON-RPC error-code conformance. Asserts re-frame2-pair-mcp emits
+    // the canonical codes from `mcp-base/vocab.cljc` for unknown-method +
+    // malformed-params. The runner-side helper pins the shared contract;
+    // same call appears in end-to-end-story.
     await assertJsonRpcErrorCodes(client);
     console.log(
       'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
     );
 
-    // 4b. callTool() coverage ratchet (rf2-ke5n56). Every advertised
-    // pair-mcp tool MUST have been driven through `Client.callTool()`
-    // above (recorded in `called` by the `track` proxy) or carry a
-    // reviewed exclusion in `PAIR_CALL_EXCLUSIONS`. A NEW advertised tool
-    // the workflow forgets to probe trips RED here — closing the
-    // descriptor-only false-green the senior review flagged.
+    // 4b. callTool() coverage ratchet. Every advertised pair-mcp tool MUST
+    // have been driven through `Client.callTool()` above (recorded in
+    // `called` by the `track` proxy) or carry a reviewed exclusion in
+    // `PAIR_CALL_EXCLUSIONS`. A NEW advertised tool the workflow forgets
+    // to probe trips RED here — closing the descriptor-only false-green.
     assertCallCoverageRatchet({
       advertised: names,
       called,

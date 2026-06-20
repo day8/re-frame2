@@ -1,11 +1,11 @@
 (ns re-frame.mcp-base.cljs-branches-cljs-test
-  "CLJS-only coverage for re-frame2-mcp-base (rf2-80y2h).
+  "CLJS-only coverage for re-frame2-mcp-base.
 
   mcp-base ships as `.cljc` and both MCP servers consume it in CLJS
   (re-frame2-pair-mcp is a Node script). The canonical JVM suite
-  (`clojure -M:test`) can only exercise the `:clj` reader-conditional
-  arms, AND it always has Malli on the classpath — so three CLJS
-  behaviours had ZERO executing coverage on any platform:
+  (`clojure -M:test`) only exercises the `:clj` reader-conditional
+  arms, AND it always has Malli on the classpath — so this suite owns
+  three CLJS behaviours that only run here:
 
     1. The library actually loads and the diff algorithm round-trips
        under a CLJS runtime (not just the JVM).
@@ -105,7 +105,7 @@
         "no Malli ⇒ no section-validation throw; patches replay regardless")))
 
 ;; ---------------------------------------------------------------------------
-;; 4. The cap pipeline (the extracted two-stage gate, rf2-80y2h) runs
+;; 4. The cap pipeline (the extracted two-stage gate) runs
 ;;    under CLJS too. `over-cap?` / `reported-count` are pure CLJC; pin
 ;;    that the secondary char gate trips in isolation on the CLJS side
 ;;    as well — both servers cap on the wire.
@@ -139,11 +139,11 @@
       (is (identical? r out)))))
 
 ;; ---------------------------------------------------------------------------
-;; 4b. structuredContent must count toward the budget on the CLJS/pair path
-;;     (rf2-13wbe). re-frame2-pair-mcp's `wire/ok-text` / `err-text` emit
+;; 4b. structuredContent must count toward the budget on the CLJS/pair path.
+;;     re-frame2-pair-mcp's `wire/ok-text` / `err-text` emit
 ;;     a `:structuredContent` JS projection alongside the `:content[*].text`
 ;;     EDN on EVERY result — the SAME payload, twice on the wire. The
-;;     mcp-base `wire-payload-strings` contract (rf2-mzndx / rf2-13wbe) requires a
+;;     mcp-base `wire-payload-strings` contract requires a
 ;;     dual-coding consumer to surface a stable string of that slot too;
 ;;     otherwise the cap undercounts by ~50% and a small-`:content` /
 ;;     huge-`:structuredContent` response slips past the overflow marker.
@@ -167,8 +167,8 @@
   "Pair-shaped reify that HONOURS the dual-slot contract: `wire-payload-strings`
   surfaces both the `#js`-array `:text` slots AND a `js/JSON.stringify`
   of the `:structuredContent` JS object — the exact bytes the npm SDK
-  serialises. This is the shape pair-mcp's `result-io` must adopt
-  (rf2-13wbe). Mirrors story-mcp's `structured-io` on the JS side."
+  serialises. This is the shape pair-mcp's `result-io` must adopt.
+  Mirrors story-mcp's `structured-io` on the JS side."
   (reify cap/ResultIO
     (wire-payload-strings [_ result]
       (let [sc      (.-structuredContent ^js result)
@@ -180,10 +180,9 @@
            :structuredContent (clj->js marker)})))
 
 (def ^:private content-only-pair-io
-  "Pair-shaped reify that IGNORES `:structuredContent` (the pre-rf2-13wbe
-  pair-mcp behaviour). Used only to demonstrate the undercount the
-  contract forbids — the same payload passes the cap here while
-  `structured-pair-io` trips it."
+  "Pair-shaped reify that IGNORES `:structuredContent`. Used only to
+  demonstrate the undercount the contract forbids — the same payload
+  passes the cap here while `structured-pair-io` trips it."
   (reify cap/ResultIO
     (wire-payload-strings [_ result]
       (js-text-slots (.-content ^js result)))
@@ -214,8 +213,8 @@
           "structuredContent-blind reify under-counts and lets the over-budget payload through unchanged"))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. Cross-host strict integer-parse contract (rf2-ee38b.19). The string
-;;    arm of `parse-int*` previously diverged: raw `js/parseInt` parses a
+;; 5. Cross-host strict integer-parse contract. The string
+;;    arm of `parse-int*` could diverge: raw `js/parseInt` parses a
 ;;    numeric PREFIX (`"12abc"` ⇒ 12) while JVM `Long/parseLong` rejects
 ;;    trailing garbage and falls back to default. This pins the CLJS half
 ;;    of the contract; the JVM half lives in args_test.clj. Both MUST
@@ -237,10 +236,10 @@
     (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50)))))
 
 ;; ---------------------------------------------------------------------------
-;; 5b. Cross-runtime finite/range guard on numeric arg coercion (rf2-ykv9a0).
-;;     The numeric arm previously called `(long raw)` with no guard:
+;; 5b. Cross-runtime finite/range guard on numeric arg coercion.
+;;     A bare `(long raw)` with no guard is unsafe:
 ;;     on the JVM `##Inf` / `1.0E20` THROW and `##NaN` truncates to a real
-;;     value, while CLJS would silently coerce. The fix routes both hosts
+;;     value, while CLJS would silently coerce. Both hosts route
 ;;     through one safe-integer-windowed guard so out-of-domain numerics
 ;;     DEFAULT (never crash, never become a real value) IDENTICALLY. These
 ;;     CLJS assertions mirror the JVM ones in args_test / cap_test.

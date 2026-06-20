@@ -1,16 +1,15 @@
-// Child harness for `runner-watchdog.test.cjs` (rf2-wqi4n4 finding 1).
+// Child harness for `runner-watchdog.test.cjs`.
 //
 // Pins the bare-`connectServer` connect-hang teardown contract in
 // `end-to-end-flag-gates.cjs`. That module does NOT use `runWithWatchdog`
 // (it needs three fresh in-process JVM boots, which the single-boot runner
 // can't serve); it runs its OWN module-scope watchdog over an
-// `activeFlagGateClient` handle. Pre-fix that handle was assigned only AFTER
-// `await connectServer(...)` RESOLVED — so a story-mcp JVM that spawns and
-// then HANGS mid-`initialize` (connect never resolving) left
-// `activeFlagGateClient === null` when the watchdog fired, and the
-// watchdog's `else` branch `process.exit(2)`'d WITHOUT tearing the hung JVM
-// down. The fix publishes the handle via `connectServer`'s `onClient`
-// callback BEFORE connect awaits.
+// `activeFlagGateClient` handle. That handle is published via
+// `connectServer`'s `onClient` callback BEFORE connect awaits, so a
+// story-mcp JVM that spawns and then HANGS mid-`initialize` (connect never
+// resolving) still leaves `activeFlagGateClient` set when the watchdog
+// fires — the watchdog tears the hung JVM down rather than `process.exit(2)`'ing
+// WITHOUT reaping it.
 //
 // This harness is HERMETIC: it stubs the SDK so the first (and only)
 // `connect()` NEVER resolves, points `$STORY_MCP_CMD` at the running node
@@ -69,7 +68,6 @@ process.env.FLAG_GATE_WATCHDOG_MS = '200';
 
 // Requiring the module runs its `main()` (the three gate probes). The first
 // `withStoryServer` boot's connect hangs, so `main()` never progresses; the
-// 200ms module-scope watchdog is the only exit path. With the fix it tears
-// the (stubbed) hung JVM client down — printing CLOSE_MARKER — before
-// `process.exit(2)`.
+// 200ms module-scope watchdog is the only exit path. It tears the (stubbed)
+// hung JVM client down — printing CLOSE_MARKER — before `process.exit(2)`.
 require(path.join(__dirname, 'end-to-end-flag-gates.cjs'));

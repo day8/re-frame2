@@ -5,8 +5,7 @@
   ## What spec/009 mandates
 
   Framework-published forwarders — Sentry / Honeybadger, re-frame2-pair server,
-  Story-MCP (xray-mcp was dropped in rf2-bu21t; xray now ships as a
-  Clojars-only library, not an MCP server) — MUST default-drop trace events whose
+  Story-MCP — MUST default-drop trace events whose
   registration declared `:sensitive? true`. The runtime stamps the
   flag at the top level of every emitted trace event inside such a
   registration's handler scope; the forwarder's job is to gate egress
@@ -24,9 +23,8 @@
   predicate-style `?` is rejected there. The predicate FUNCTION name
   `include-sensitive?` retains its `?` (the idiom belongs on the
   predicate, not on a data key whose wire form disallows it).
-  Both servers now ship the unqualified wire-key: story-mcp (rf2-y710n)
-  and re-frame2-pair-mcp (rf2-ihq4d) — the cross-server arg name is
-  uniform.
+  Both servers ship the unqualified wire-key — story-mcp and
+  re-frame2-pair-mcp alike — so the cross-server arg name is uniform.
 
   ## Why this ns is zero-dep
 
@@ -36,26 +34,22 @@
   (`(and (map? ev) (sensitive-stamp? (:sensitive? ev)))`) is
   conservative and matches the spirit of `re-frame.privacy/sensitive?`.
   Per the spec the runtime always stamps the literal boolean; if a
-  transport bug delivers any other truthy value (rf2-ih7g4 fail-closed
+  transport bug delivers any other truthy value (fail-closed
   posture) we drop the event AND log so the contract drift is
   visible.")
 
 ;; ---------------------------------------------------------------------------
-;; Fail-closed predicate (rf2-ih7g4)
+;; Fail-closed predicate
 ;; ---------------------------------------------------------------------------
 ;;
-;; Spec/009 declares `:sensitive?` as a boolean. The previous
-;; implementation matched only the literal `true` — any other truthy
-;; value (string `\"true\"`, keyword `:yes`, non-empty collection,
-;; number) passed through as if the event were non-sensitive. That is
-;; fail-OPEN on contract drift: an upstream serialisation bug that
-;; coerces the boolean into a string silently leaks every sensitive
-;; event past the wire-egress filter.
-;;
-;; The fix is fail-CLOSED: any truthy non-boolean stamp is treated as
+;; Spec/009 declares `:sensitive?` as a boolean. The predicate is
+;; fail-CLOSED: any truthy non-boolean stamp is treated as
 ;; "claim to be sensitive, but malformed" — we drop AND log so the
 ;; drift surfaces in operator output. Only an explicit `false` /
-;; absent / nil stamp passes.
+;; absent / nil stamp passes. Matching only the literal `true` would
+;; fail OPEN on contract drift: an upstream serialisation bug that
+;; coerces the boolean into a string would silently leak every
+;; sensitive event past the wire-egress filter.
 
 #?(:clj  (defonce ^:private ^java.util.concurrent.atomic.AtomicLong
            malformed-counter
@@ -65,17 +59,15 @@
 (defn malformed-count
   "Read the count of malformed `:sensitive?` stamps observed since
   process start (or since the last `reset-malformed-count!`). The
-  fail-closed posture (rf2-ih7g4) is silent on the wire — the counter
+  fail-closed posture is silent on the wire — the counter
   is the operator-surface observability hook. Public so operator
   dashboards and tests can read the gate's activity.
 
-  This is a faithful PER-EVENT metric (rf2-el9sw): the egress walkers
+  This is a faithful PER-EVENT metric: the egress walkers
   (`strip-sensitive` / `scrub-snapshot`) classify each event exactly
   once, so a single dropped malformed event bumps the counter exactly
-  once. (Pre-rf2-el9sw `strip-sensitive` ran the predicate twice per
-  event — `some` pre-scan + `filterv` drop-scan — so one malformed
-  event over-counted ~2×.) Direct `sensitive-event?` / `sensitive-stamp?`
-  calls still bump once per call, as before.
+  once. Direct `sensitive-event?` / `sensitive-stamp?` calls bump once
+  per call.
 
   Returns a non-negative integer."
   []
@@ -102,7 +94,7 @@
 (defn- stamp-type-tag
   "A NON-sensitive, value-free class/type tag for a malformed stamp.
   Logged in place of the raw stamp so the contract-drift warning stays
-  fail-CLOSED at the log boundary (rf2-el9sw): an operator sees the
+  fail-CLOSED at the log boundary: an operator sees the
   shape of the drift (`String`, `Keyword`, …) and a fixed reason, but
   never the payload, which on a serialisation bug could carry a secret.
   Returns a short type-name string — never any of the stamp's data."
@@ -128,7 +120,7 @@
   the source. Stderr / `console.warn` keep the warning out of the MCP
   wire response.
 
-  FAIL-CLOSED AT THE LOG BOUNDARY (rf2-el9sw): logs are an egress
+  FAIL-CLOSED AT THE LOG BOUNDARY: logs are an egress
   boundary on this privacy surface. A malformed stamp is wire-adjacent,
   untrusted data; if a serialisation bug puts a secret-bearing
   string/map/vector in `:sensitive?`, echoing it with `pr-str` would
@@ -150,7 +142,7 @@
                       "type=" tag " value=:rf/redacted"))))))
 
 (defn sensitive-stamp?
-  "Classify a sensitive-rollup slot value. Fail-closed posture (rf2-ih7g4):
+  "Classify a sensitive-rollup slot value. Fail-closed posture:
 
     - boolean `true`           ⇒ drop (the documented spec/009 path).
     - boolean `false` / nil    ⇒ pass (non-sensitive).
@@ -160,7 +152,7 @@
 
   Public so consumers that read a DIFFERENT rollup key than the
   trace-event `:sensitive?` stamp — e.g. re-frame2-pair-mcp's epoch-record
-  rollup `:rf.epoch/sensitive?` (rf2-5613h) — can route their stamp
+  rollup `:rf.epoch/sensitive?` — can route their stamp
   through the SAME fail-closed classifier rather than re-deriving a
   divergent `(true? ...)` check that fails OPEN on contract drift.
   `sensitive-event?` is the convenience wrapper that reads the
@@ -183,7 +175,7 @@
   "Does this event carry the top-level `:sensitive? true` stamp (or a
   fail-closed malformed-truthy variant)?
 
-  Fail-closed (rf2-ih7g4): the literal `true` value drops (the
+  Fail-closed: the literal `true` value drops (the
   spec/009 path), AND any other truthy non-boolean value drops too
   (with a stderr warning). The `:rf/trace-event` schema types
   `:sensitive?` as a boolean (Spec 009 + Spec-Schemas); a non-boolean
@@ -203,7 +195,7 @@
   §Privacy. Apply it to any vector of trace-event-shaped maps before
   the result crosses the MCP boundary into the agent surface.
 
-  ## Fast-path + single-classification (rf2-0q30r, rf2-el9sw)
+  ## Fast-path + single-classification
 
   The docstring promises identical-vector return when no events drop.
   The implementation honours that with a SINGLE linear pass that
@@ -211,12 +203,9 @@
   tracking whether anything dropped, and returns the original `events`
   (identity preserved, no `filterv` allocation) when nothing dropped.
 
-  Why exactly once matters (rf2-el9sw): `sensitive-event?` is
+  Why exactly once matters: `sensitive-event?` is
   SIDE-EFFECTING on the malformed-truthy path — it bumps
-  `malformed-count` and logs a contract-drift warning. The previous
-  two-pass shape (`some` pre-scan THEN `filterv` drop-scan) ran the
-  predicate over each event up to twice, so a single malformed event
-  bumped the counter ~2× and emitted the warning twice. One pass ⇒ one
+  `malformed-count` and logs a contract-drift warning. One pass ⇒ one
   classification ⇒ one bump + one warning per malformed event, so
   `malformed-count` is a faithful per-event metric for operator
   dashboards.
@@ -258,22 +247,22 @@
   snapshot privacy boundary. Sensitive trace events are stripped from
   the `:traces` and `:epochs` slices, but the value-carrying slices
   `:app-db`, `:sub-cache`, and `:machines` are LEFT ALONE: the walk is
-  shallow by design (rf2-zq0n1 / rf2-3cted) and does NOT descend into
+  shallow by design and does NOT descend into
   arbitrary sub-trees or redact app-db values.
 
   Consequently the OUTPUT is NOT already-projected full-snapshot output.
   Per EP-0015 the public privacy model is registration-owned `:sensitive`
   / `:large` classification plus centralized `project-egress` (under a
-  named `:rf.egress/*` profile) at the egress boundary — the write-time
-  `redact-interceptor` that earlier owned app-db payload redaction has
-  been REMOVED. So the CALLER's egress pipeline must run `project-egress`
+  named `:rf.egress/*` profile) at the egress boundary — app-db payload
+  redaction is owned by `project-egress`, not by any write-time
+  interceptor. So the CALLER's egress pipeline must run `project-egress`
   over the non-trace slices with the frame's known policy BEFORE the
   snapshot crosses an MCP/tool boundary; do not treat `scrub-snapshot`
   output as sufficient and do not look for a write-time interceptor to
   have handled it. Re-asserted by the snapshot-scrubber tests in every
   MCP that emits per-frame snapshots.
 
-  ## Strip-fn parameter (rf2-zpmmr)
+  ## Strip-fn parameter
 
   Two-arity form `[snapshot include?]` uses the base
   `strip-sensitive` predicate (spec/009 §Privacy stamp check).
@@ -284,7 +273,7 @@
   sensitive-epoch?`). The default arity preserves the
   trace-event-only filter for story-mcp consumers.
 
-  ## Slice-shape discipline + fail-closed (rf2-wm9kp)
+  ## Slice-shape discipline + fail-closed
 
   A `:traces` / `:epochs` slice is a SEQUENTIAL batch of trace-event maps
   (a vector in the typical runtime emission, or a lazy seq when composed
@@ -292,11 +281,11 @@
   runs `strip-fn` on a genuinely `sequential?` slice. A non-sequential
   slice (nil, a scalar, a string, or a single event MAP) is NOT a batch,
   so it passes through UNCHANGED — honouring the documented contract
-  (`Non-map slices … pass through unchanged`). The prior unconditional
-  `(vec …)` mangled these shapes: `nil → []`, `\"oops\" → [\\o \\o …]`, and
-  a single event map → a vector of map-entries — which silently lost the
-  event shape, reported zero drops, AND carried any secret in that map
-  straight past the filter.
+  (`Non-map slices … pass through unchanged`). Guarding on `sequential?`
+  matters: an unconditional `(vec …)` would mangle these shapes
+  (`nil → []`, `\"oops\" → [\\o \\o …]`, a single event map → a vector of
+  map-entries), silently losing the event shape, reporting zero drops,
+  AND carrying any secret in that map straight past the filter.
 
   Fail-CLOSED exception: a single MAP slice that the caller-supplied
   `strip-fn` classifies as sensitive is DROPPED, not passed through —
@@ -307,7 +296,7 @@
   union-signal sensitivity the caller's predicate catches (e.g.
   re-frame2-pair-mcp's `:rf.epoch/sensitive? true` epoch rollup, carrying
   no unqualified `:sensitive?` stamp) is honoured on the single-map shape
-  too (rf2-li6y2.1)."
+  too."
   ([snapshot include?]
    (scrub-snapshot snapshot include? strip-sensitive))
   ([snapshot include? strip-fn]
@@ -337,14 +326,14 @@
                    ;; event is NOT a batch and would leak its secret if
                    ;; shipped raw — drop it (empty batch) and count it.
                    ;; Classify via the SAME caller-supplied `strip-fn` the
-                   ;; sequential branch uses (rf2-li6y2.1) — NOT the base
+                   ;; sequential branch uses — NOT the base
                    ;; `sensitive-event?`. Otherwise a single-map slice that
                    ;; is sensitive ONLY by a union signal the caller's
                    ;; predicate catches (e.g. re-frame2-pair-mcp's epoch
                    ;; rollup `:rf.epoch/sensitive? true`, with no unqualified
                    ;; `:sensitive?` stamp) would slip past this guard to the
-                   ;; `:else` arm and ship RAW — the rf2-5613h leak class
-                   ;; re-surfacing inside the rf2-wm9kp defensive guard.
+                   ;; `:else` arm and ship RAW — leaking past the defensive
+                   ;; single-map guard.
                    (map? slice)
                    (let [[_ n] (strip-fn [slice] false)]
                      (if (pos? n)

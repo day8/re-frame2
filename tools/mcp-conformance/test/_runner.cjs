@@ -14,16 +14,15 @@
 //   - on watchdog: print the timeout, TEAR THE SPAWNED CHILD DOWN
 //     (`client.close()` closes its transport, killing the stdio child),
 //     then `process.exit(2)` — a hard-exit fallback fires after a short
-//     grace window so a hung close can't keep the process alive. Pre-fix
-//     the watchdog exited directly and orphaned the child (rf2-voux7
-//     finding 5; the hermetic orchestrator already fixes the same class
-//     via rf2-e6enf).
+//     grace window so a hung close can't keep the process alive. Tearing
+//     the child down on the timeout keeps it from being orphaned (the
+//     hermetic orchestrator guards the same class).
 //
-// Source: rf2-sems4. The split was originally three near-identical
-// ~40-LoC blocks of pure framing code; centralising the framing here
-// shrinks each test body to the workflow steps that actually differ.
-// Adding another Node-side conformance test (a third re-frame2-pair variant)
-// becomes ~30 LoC instead of ~110.
+// Centralising the framing here shrinks each test body to the workflow
+// steps that actually differ — the framing is otherwise a near-identical
+// ~40-LoC block of pure ceremony per test. Adding another Node-side
+// conformance test (a third re-frame2-pair variant) becomes ~30 LoC
+// instead of ~110.
 //
 // ## Contract
 //
@@ -42,11 +41,11 @@
 // The SDK `Client.version` slot is pinned at `'0.1.0'` for every
 // conformance harness — none of the callers override it and the
 // server's `initialize` handler treats client version as informational.
-// Promoting it to a parameter would be slot-soup (rf2-i3ffz F-GAP-6).
+// Promoting it to a parameter would be slot-soup.
 //
-// `runWithWatchdog` performs the SDK connect handshake itself (every
-// historical caller did it as the first line of the body) and passes
-// the connected `client` + `transport` to `body`. Tests that want to
+// `runWithWatchdog` performs the SDK connect handshake itself (so each
+// body starts already connected) and passes the connected `client` +
+// `transport` to `body`. Tests that want to
 // skip (no-op exit 0) call `runWithWatchdog.skip(reason)` BEFORE
 // invoking this function — that prints a uniform `SKIP <reason>`
 // banner and exits 0 without spawning a child or installing a
@@ -67,7 +66,7 @@
 // primitive — the exact spawn+stderr-pipe+Client+connect ceremony this
 // header describes — and tear down with `closeQuietly(client)`.
 // `runWithWatchdog` is itself just `connectServer` wrapped in the
-// watchdog + exit-code framing, so the framing has one home (rf2-0ogn7).
+// watchdog + exit-code framing, so the framing has one home.
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
@@ -77,7 +76,7 @@ const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
 const CLIENT_VERSION = '0.1.0';
 
 // ---------------------------------------------------------------------
-// Shared SDK-spawn primitive (rf2-0ogn7 dedup).
+// Shared SDK-spawn primitive.
 //
 // Spawn one MCP server over a `StdioClientTransport`, pipe its stderr
 // to ours, construct an SDK `Client` with the pinned conformance
@@ -93,11 +92,11 @@ const CLIENT_VERSION = '0.1.0';
 //   - `live-re-frame2-pair-redaction.cjs` boots a second server with
 //     `--allow-sensitive-reads` to pin the gate-ON direction.
 //
-// Both previously hand-rolled this exact transport+client+stderr-pipe+
-// connect ceremony. Centralising it here means the framing the runner's
-// header documents has ONE home; a caller that needs a bare boot calls
-// `connectServer` + `closeQuietly`, and `runWithWatchdog` itself is just
-// `connectServer` wrapped in the watchdog + exit-code framing.
+// Centralising the transport+client+stderr-pipe+connect ceremony here
+// means the framing the runner's header documents has ONE home; a caller
+// that needs a bare boot calls `connectServer` + `closeQuietly`, and
+// `runWithWatchdog` itself is just `connectServer` wrapped in the
+// watchdog + exit-code framing.
 //
 //   - `transportSpec`  — `{ command, args, cwd, env }` forwarded to
 //                        `StdioClientTransport` (`stderr: 'pipe'` is
@@ -117,9 +116,9 @@ const CLIENT_VERSION = '0.1.0';
 //                        HANGS during the initialize handshake (connect
 //                        never resolving, never throwing) is still torn
 //                        down by the timeout path instead of orphaning
-//                        the child (rf2-2js41 finding 2; the connect
-//                        try/catch below only covers a connect that
-//                        THROWS — a connect that hangs never reaches it).
+//                        the child. The connect try/catch below only
+//                        covers a connect that THROWS — a connect that
+//                        hangs never reaches it.
 // ---------------------------------------------------------------------
 async function connectServer({ transportSpec, clientName, stderrPrefix = '[server]', onClient }) {
   const transport = new StdioClientTransport({ ...transportSpec, stderr: 'pipe' });
@@ -128,21 +127,18 @@ async function connectServer({ transportSpec, clientName, stderrPrefix = '[serve
   // BEFORE the connect handshake. The child has already been spawned by
   // the transport construction above, so a connect that hangs (server
   // boots but never finishes `initialize`) would otherwise leave the
-  // watchdog with no client to close (rf2-2js41 finding 2). `onClient`
-  // closes that window: the watchdog captures `client` here, not after
-  // `connect` resolves.
+  // watchdog with no client to close. `onClient` closes that window: the
+  // watchdog captures `client` here, not after `connect` resolves.
   if (onClient) onClient(client);
-  // Pipe the child's stderr to ours with the (prefixed) tag. Same shape
-  // every historical caller used; the closure captures the transport
-  // reference cleanly.
+  // Pipe the child's stderr to ours with the (prefixed) tag. The closure
+  // captures the transport reference cleanly.
   transport.stderr?.on('data', (d) => process.stderr.write(stderrPrefix + ' ' + d.toString()));
   // Initialize handshake. SDK validates the result against
   // InitializeResultSchema; a malformed envelope throws here. On a
   // connect-throw, tear the half-open transport down before re-throwing
-  // so the spawned child can't leak — the historical inline form reached
-  // the caller's `finally { client.close() }` on this path, and
-  // `client.close()` closes its transport. Mirror that here so callers
-  // need no transport handle to clean up a failed boot.
+  // so the spawned child can't leak — `client.close()` closes its
+  // transport, so callers need no transport handle to clean up a failed
+  // boot.
   try {
     await client.connect(transport);
   } catch (connectErr) {
@@ -156,7 +152,7 @@ async function connectServer({ transportSpec, clientName, stderrPrefix = '[serve
 // purely cosmetic — it's independent of whatever outcome the caller
 // already recorded — so we log it and swallow it. Shared by every
 // teardown path (the runner's `finally`, the flag-gate per-boot
-// `finally`, the redaction gate-ON arm's `finally`). rf2-0ogn7.
+// `finally`, the redaction gate-ON arm's `finally`).
 async function closeQuietly(client) {
   try {
     await client.close();
@@ -166,17 +162,18 @@ async function closeQuietly(client) {
 }
 
 // Module-scope set of SECONDARY MCP clients the watchdog must ALSO tear
-// down on a timeout (rf2-wqi4n4 finding 1). `runWithWatchdog` owns at most
-// ONE primary client (`activeClient`); but two gates boot ADDITIONAL
-// in-process servers via bare `connectServer` INSIDE the body
+// down on a timeout. `runWithWatchdog` owns at most ONE primary client
+// (`activeClient`); but two gates boot ADDITIONAL in-process servers via
+// bare `connectServer` INSIDE the body
 // (`live-re-frame2-pair-redaction.cjs`'s inner-projection + gate-ON arms),
-// and those were never reachable by the outer watchdog — a hang in a
-// secondary boot or a later secondary tool call orphaned that child despite
-// the harness reporting a watchdog timeout. A body registers each secondary
-// client here (via `registerAuxClient`, fired the instant the client is
-// constructed) and deregisters it on teardown; the watchdog drains every
-// surviving member so EVERY spawned child the conformance process owns is
-// reachable by the timeout path from the moment it can exist until teardown.
+// which the outer watchdog cannot reach through `activeClient` alone — a
+// hang in a secondary boot or a later secondary tool call would orphan
+// that child despite the harness reporting a watchdog timeout. A body
+// registers each secondary client here (via `registerAuxClient`, fired
+// the instant the client is constructed) and deregisters it on teardown;
+// the watchdog drains every surviving member so EVERY spawned child the
+// conformance process owns is reachable by the timeout path from the
+// moment it can exist until teardown.
 const AUX_CLIENTS = new Set();
 
 // Register a secondary client so the active watchdog reaps it on a timeout.
@@ -196,46 +193,43 @@ function unregisterAuxClient(client) {
 
 async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) {
   // The watchdog must OWN the active client so a timeout tears the
-  // spawned child down instead of orphaning it (rf2-voux7 finding 5).
-  // `activeClient` is the closure handle the watchdog reads; it is
-  // assigned via `connectServer`'s `onClient` callback the moment the
-  // client is constructed — BEFORE the `await client.connect()`
-  // handshake — so a hang ANYWHERE after spawn (during `initialize`,
-  // inside `body`, inside a slow tool call) is cleaned up. Pre-fix
-  // (rf2-2js41 finding 2) `activeClient` was assigned only AFTER
-  // `connectServer` RESOLVED, i.e. after `connect` completed; a server
-  // that spawned and then hung mid-handshake (connect never resolving,
-  // never throwing) left the watchdog with no client and the timeout
-  // path orphaned the child — the exact orphan class this watchdog
+  // spawned child down instead of orphaning it. `activeClient` is the
+  // closure handle the watchdog reads; it is assigned via
+  // `connectServer`'s `onClient` callback the moment the client is
+  // constructed — BEFORE the `await client.connect()` handshake — so a
+  // hang ANYWHERE after spawn (during `initialize`, inside `body`,
+  // inside a slow tool call) is cleaned up. Assigning at construction
+  // time (not after connect resolves) keeps a server that spawns and
+  // then hangs mid-handshake (connect never resolving, never throwing)
+  // reachable by the timeout path — the exact orphan class this watchdog
   // exists to prevent.
   //
-  // Pre-fix the watchdog called `process.exit(2)` directly, leaving the
-  // spawned MCP server (Node bundle or JVM) running — it can keep the
-  // CI step's log pipes / ports held past the node exit, the exact
-  // orphan class the hermetic orchestrator (rf2-e6enf) already fixes.
-  // `client.close()` closes its transport, which kills the stdio child
-  // (the same teardown `closeQuietly` performs on the normal paths). We
-  // hold the exit a short grace window so the close lands, then exit
-  // with code 2 regardless (a wedged child must not keep us alive).
+  // On a timeout the watchdog tears the spawned MCP server (Node bundle
+  // or JVM) down rather than letting it keep the CI step's log pipes /
+  // ports held past the node exit (the same orphan class the hermetic
+  // orchestrator guards). `client.close()` closes its transport, which
+  // kills the stdio child (the same teardown `closeQuietly` performs on
+  // the normal paths). We hold the exit a short grace window so the
+  // close lands, then exit with code 2 regardless (a wedged child must
+  // not keep us alive).
   let activeClient;
   // Install the watchdog FIRST so even a hang inside transport
   // construction (rare but possible: bad cwd, env corruption) gets
   // killed. The `finally` below clears the timer on every exit path —
-  // including the case where `client.close()` itself throws (per
-  // rf2-i3ffz F-CORR-3: the historical shape did cleanup inside the
-  // `try`, so a throw on the success-path teardown would invert the
-  // log to a FAIL and lose the body's success state).
+  // including the case where `client.close()` itself throws. Keeping the
+  // teardown out of the `try` means a throw on the success-path teardown
+  // does not invert the log to a FAIL and lose the body's success state.
   const watchdog = setTimeout(() => {
     console.error('FAIL: watchdog timeout (' + watchdogMs + 'ms)');
-    // Tear the spawned child down before exiting (rf2-voux7 finding 5).
-    // `closeQuietly` never throws; the `.then`/`.catch` both arm the
-    // hard-exit fallback so a hung close can't keep the process alive.
+    // Tear the spawned child down before exiting. `closeQuietly` never
+    // throws; the `.then`/`.catch` both arm the hard-exit fallback so a
+    // hung close can't keep the process alive.
     const hardExit = setTimeout(() => process.exit(2), 2000);
     hardExit.unref();
-    // Close the primary AND every registered secondary client (rf2-wqi4n4
-    // finding 1) so a hang in ANY in-process MCP child the body spawned is
-    // reaped, not just the runner-managed primary. `closeQuietly` never
-    // throws; wait for all closes to settle before the exit.
+    // Close the primary AND every registered secondary client so a hang
+    // in ANY in-process MCP child the body spawned is reaped, not just
+    // the runner-managed primary. `closeQuietly` never throws; wait for
+    // all closes to settle before the exit.
     const toClose = [];
     if (activeClient) toClose.push(activeClient);
     for (const aux of AUX_CLIENTS) toClose.push(aux);
@@ -250,7 +244,7 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
 
   // Spawn + connect via the shared primitive. A throw here (bad cwd, a
   // malformed initialize envelope) is caught below and surfaces as
-  // exit 1, exactly as the historical inline form did.
+  // exit 1.
   let client;
   let exitCode;
   let bodyError;
@@ -258,10 +252,10 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
     let transport;
     // Capture the teardown handle via `onClient` — fired the instant the
     // client is constructed, BEFORE connect awaits — so a hang during the
-    // initialize handshake is still reachable by the watchdog (rf2-2js41
-    // finding 2). The post-resolve `activeClient = client` below is now
-    // redundant on the happy path but kept as a belt-and-braces guarantee
-    // (and to leave `client` bound for the `finally` teardown).
+    // initialize handshake is still reachable by the watchdog. The
+    // post-resolve `activeClient = client` below is redundant on the
+    // happy path but kept as a belt-and-braces guarantee (and to leave
+    // `client` bound for the `finally` teardown).
     ({ client, transport } = await connectServer({
       transportSpec,
       clientName,
@@ -291,7 +285,7 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
 }
 
 // ---------------------------------------------------------------------
-// Pre-flight skip helper (rf2-i3ffz F-HYG-2).
+// Pre-flight skip helper.
 //
 // Conformance tests gate on environment / server-implementation status
 // (`live-re-frame2-pair-overflow.cjs` requires `$SHADOW_CLJS_NREPL_PORT`).
@@ -307,14 +301,14 @@ runWithWatchdog.skip = function skip(reason) {
 };
 
 // ---------------------------------------------------------------------
-// JSON-RPC error-code conformance gate (rf2-i3ffz F-GAP-3).
+// JSON-RPC error-code conformance gate.
 //
 // `mcp-base/vocab.cljc` pins the five JSON-RPC 2.0 §5.1 codes the
 // MCP servers route against (`-32700` ParseError, `-32600` InvalidRequest,
 // `-32601` MethodNotFound, `-32602` InvalidParams, `-32603`
-// InternalError). Before this gate landed no test asserted either
-// server's actual on-the-wire emission — a regression that swapped
-// `-32602` and `-32603` would have shipped unobserved.
+// InternalError). This gate asserts each server's actual on-the-wire
+// emission, so a regression that swapped `-32602` and `-32603` turns
+// RED rather than shipping unobserved.
 //
 // Coverage today: two of the five codes are reliably reachable from
 // the SDK Client.
@@ -411,32 +405,28 @@ async function assertJsonRpcErrorCodes(client) {
 }
 
 // ---------------------------------------------------------------------
-// Tool-descriptor shape gate (rf2-80y2h).
+// Tool-descriptor shape gate.
 //
-// Both `end-to-end-re-frame2-pair.cjs` and `end-to-end-story.cjs` ran four
-// near-identical `for (const t of listed.tools)` loops over the
-// catalogue, pinning cross-MCP-convention invariants the SDK's
-// ListToolsResultSchema does NOT model:
+// Both `end-to-end-re-frame2-pair.cjs` and `end-to-end-story.cjs` walk the
+// catalogue with this shared gate, pinning cross-MCP-convention
+// invariants the SDK's ListToolsResultSchema does NOT model:
 //
 //   1. inputSchema.type === 'object'        (NAMING.md catalogue surface)
 //   2. inputSchema.properties has max-tokens (TOKEN-BUDGETS.md MUST)
-//   3. an :outputSchema map is declared      (rf2-3l3be)
+//   3. an :outputSchema map is declared
 //   4. an :annotations map with at least one classification hint set
-//      (rf2-94p8q)
 //
-// The two copies (~60 LoC each) differed in EXACTLY one place: the
-// annotations classification set — whether `openWorldHint` counts as a
-// classifier. Both servers now pass `allowOpenWorld: true`:
-// re-frame2-pair-mcp's eval-cljs / dispatch tools touch an open world,
-// and story-mcp's `run-variant` / `preview-variant` run the variant
-// author's lifecycle events/fx which can reach external systems unless
-// stubbed (rf2-e6knrq finding 2 — story-mcp is no longer wholly
+// The two servers differ in EXACTLY one place: the annotations
+// classification set — whether `openWorldHint` counts as a classifier.
+// Both pass `allowOpenWorld: true`: re-frame2-pair-mcp's eval-cljs /
+// dispatch tools touch an open world, and story-mcp's `run-variant` /
+// `preview-variant` run the variant author's lifecycle events/fx which
+// can reach external systems unless stubbed (so story-mcp is not wholly
 // closed-world). The PER-TOOL open-world VALUES are pinned exactly by
 // `assertClassificationRatchet`'s `closed-world` list, so `allowOpenWorld`
 // only sets the "at-least-one-classifier" floor; it does not let a
-// closed-world tool flip open undetected. Extracting the loops here with
-// the flag collapses that drift to a single maintained gate; a new
-// invariant is added once, not twice.
+// closed-world tool flip open undetected. Sharing the loop here keeps the
+// gate single-maintained; a new invariant is added once, not twice.
 //
 // Throws on the first violation with a descriptive, server-agnostic
 // message (the tool name + the failed invariant). Returns nothing.
@@ -464,7 +454,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
     }
   }
 
-  // 3. outputSchema declared (rf2-3l3be).
+  // 3. outputSchema declared.
   for (const t of tools) {
     if (!t.outputSchema || typeof t.outputSchema !== 'object') {
       throw new Error(
@@ -474,7 +464,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
     }
   }
 
-  // 4. annotations map with at least one classification hint (rf2-94p8q).
+  // 4. annotations map with at least one classification hint.
   // openWorldHint counts as a classifier only when `allowOpenWorld` is
   // set — the single per-server difference between the two harnesses.
   for (const t of tools) {
@@ -502,7 +492,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
 }
 
 // ---------------------------------------------------------------------
-// Per-descriptor CONTENT ratchet (rf2-yi451).
+// Per-descriptor CONTENT ratchet.
 //
 // `assertDescriptorShape` (above) pins that EVERY descriptor carries
 // SOME classification hint and a `max-tokens` PROP — but never WHICH
@@ -531,7 +521,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
 //                      openWorldHint; pinning `neither` catches a
 //                      side-effecting tool that wrongly gained
 //                      readOnlyHint, masking its effect)
-//   - `closed-world`  — the EXHAUSTIVE open-world partition (rf2-ppk6hy):
+//   - `closed-world`  — the EXHAUSTIVE open-world partition:
 //                       tools listed here MUST carry `openWorldHint:false`
 //                       (inline / no-runtime-reach tools, e.g.
 //                       get-re-frame2-pair-instructions); EVERY tool NOT
@@ -630,15 +620,15 @@ function assertClassificationRatchet(tools, expected) {
       );
     }
 
-    // 2. openWorld posture — BOTH sides of the partition (rf2-ppk6hy).
-    // The fixture's `closed-world` list IS the exhaustive partition: a
-    // tool is closed-world (no runtime reach) OR open-world (reaches the
-    // live browser/nREPL — an external process). Asserting only the
-    // `false` side left a hole — a read-only/destructive tool that
-    // reaches the runtime could DROP `openWorldHint:true` (or set it
-    // false) and still ship GREEN, mislabelling a live-reaching tool as
-    // contained and weakening the MCP client trust/confirmation boundary.
-    // Pin both sides so the complement can't regress.
+    // 2. openWorld posture — BOTH sides of the partition. The fixture's
+    // `closed-world` list IS the exhaustive partition: a tool is
+    // closed-world (no runtime reach) OR open-world (reaches the live
+    // browser/nREPL — an external process). Pinning only the `false` side
+    // would leave a hole — a read-only/destructive tool that reaches the
+    // runtime could DROP `openWorldHint:true` (or set it false) and still
+    // ship GREEN, mislabelling a live-reaching tool as contained and
+    // weakening the MCP client trust/confirmation boundary. Pinning both
+    // sides means the complement can't regress.
     if (closedWorld.has(t.name)) {
       // 2a. Closed-world (inline / no runtime reach) — these ship static /
       // inline / server-local content; openWorldHint MUST be false so a
@@ -655,8 +645,7 @@ function assertClassificationRatchet(tools, expected) {
       // nREPL — an external process) — openWorldHint MUST be true so a
       // host applies the appropriate confirmation ceremony instead of
       // treating the call as contained on-box. A missing or false hint on
-      // a live-reaching tool is the exact false-green this side closes
-      // (rf2-ppk6hy).
+      // a live-reaching tool is the exact false-green this side closes.
       if (a.openWorldHint !== true) {
         throw new Error(
           'tool ' + t.name + ' is open-world (reaches the live browser / ' +
@@ -688,7 +677,7 @@ function assertClassificationRatchet(tools, expected) {
 }
 
 // ---------------------------------------------------------------------
-// SDK callTool() coverage ratchet (rf2-ke5n56).
+// SDK callTool() coverage ratchet.
 //
 // The name ratchet (`tool-names.json`) pins WHICH tools the catalogue
 // advertises; `assertDescriptorShape` / `assertClassificationRatchet`
@@ -697,10 +686,10 @@ function assertClassificationRatchet(tools, expected) {
 // so a regression in a tool's callTool envelope, outputSchema /
 // structuredContent shape, or argument handling ships GREEN for any
 // advertised tool the conformance workflow only LISTS but never CALLS.
-// This was the false-green class the senior review flagged: several
-// advertised Story + Pair tools were descriptor-only in conformance.
+// That is the false-green class this ratchet exists to catch: an
+// advertised Story or Pair tool that is descriptor-only in conformance.
 //
-// This ratchet closes it. The harness records every tool name it
+// The harness records every tool name it
 // drove through `callTool()` (in a `Set`), then calls this gate with:
 //
 //   - `advertised`  — the live `tools/list` names (sourced from the
@@ -792,11 +781,11 @@ function assertCallCoverageRatchet({ advertised, called, exclusions = {} }) {
 }
 
 // ---------------------------------------------------------------------
-// Envelope readers / coverage tracker (rf2-9hkwkp dedup).
+// Envelope readers / coverage tracker.
 //
-// Three SDK-envelope-shape helpers that every conformance body re-rolled
-// identically. None pins a per-test contract — they are pure mechanics
-// feeding the shared ratchets above, so they live here once.
+// Three SDK-envelope-shape helpers shared by every conformance body.
+// None pins a per-test contract — they are pure mechanics feeding the
+// shared ratchets above, so they live here once.
 // ---------------------------------------------------------------------
 
 // Concatenate the `.text` of every content block from an SDK callTool
@@ -811,7 +800,7 @@ function responseText(resp) {
     .join('\n');
 }
 
-// SDK callTool() coverage tracker (rf2-ke5n56). Wrap the raw SDK client
+// SDK callTool() coverage tracker. Wrap the raw SDK client
 // in a Proxy that records the tool name on each `callTool({name,…})` into
 // a fresh `called` Set and transparently delegates every other client
 // member (listTools, getServerVersion, request, close, …) to the real

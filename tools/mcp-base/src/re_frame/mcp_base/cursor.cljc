@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.cursor
-  "Shared cursor-pagination machinery for the MCP pair (rf2-ee38b.19).
+  "Shared cursor-pagination machinery for the MCP pair.
 
   Per `spec/Principles.md` §Pagination and `spec/Tool-Pair.md`
   §Cursor pagination, every read tool whose return size is a function
@@ -10,23 +10,20 @@
 
   ## Why this ns
 
-  Both servers previously hand-rolled the SAME machinery:
+  Both servers need the SAME machinery:
 
-    - `tools/story-mcp/.../cursor.cljc`     (offset/total/sig over
-                                             append-mostly registries)
-    - `tools/re-frame2-pair-mcp/.../cursor.cljs` (after-id/ms over the
-                                             bounded epoch ring)
+    - story-mcp     — offset/total/sig over append-mostly registries
+    - re-frame2-pair-mcp — after-id/ms over the bounded epoch ring
 
   The cursor PAYLOAD differs by domain — story carries
   `{:offset :total :sig}`, pair carries `{:after-id :ms :until-ms
   :frame}` — but the base64 codec, the EDN read with ALL-tagged-literal
   rejection (built-in `#inst`/`#uuid` included) + size guard, the
   `::malformed` recovery contract, the `:limit` clamp, and the
-  `cursor-stale-result` envelope are identical.
-  Earlier the README argued the codec was consumer-side because
-  `js/Buffer` vs `java.util.Base64` differ — but story-mcp's
-  `cursor.cljc` already proved the codec lifts cleanly as a `.cljc`
-  reader-conditional, so it lives here now.
+  `cursor-stale-result` envelope are identical, so they live here once.
+  The codec is a `.cljc` reader-conditional even though `js/Buffer` and
+  `java.util.Base64` differ — the reader-conditional bridges the two
+  hosts cleanly, so the codec stays shared rather than consumer-side.
 
   ## What is parameterised vs fixed
 
@@ -178,7 +175,7 @@
   `:rf.error/mcp-cursor-bad-edn-tag` on every remaining unregistered
   tag.
 
-  ## One form, EOF-exhausted (rf2-ykv9a0, hardened rf2-rtg9t1)
+  ## One form, EOF-exhausted
 
   A cursor is ONE opaque payload map; a token whose decoded text is a
   valid map FOLLOWED by a second form — e.g.
@@ -188,14 +185,14 @@
   trailing object and weaken the opacity / corruption guard). A plain
   `read-string` reads only the FIRST form and never checks exhaustion.
 
-  The earlier fix wrapped the text in `[ … ]` and accepted a
-  ONE-element vector. That guard was bypassable by `]`-INJECTION
-  (rf2-rtg9t1): attacker text `{…valid map…}] <junk>` wraps to
-  `[{…}] <junk>]`, where the injected `]` closes the wrapper early —
-  `read-string` reads the clean 1-element vector `[{…}]`, returns the
-  inner map, and SILENTLY DISCARDS everything after the injected `]`.
+  A naive guard that wrapped the text in `[ … ]` and accepted a
+  ONE-element vector would be bypassable by `]`-INJECTION: attacker text
+  `{…valid map…}] <junk>` wraps to `[{…}] <junk>]`, where the injected
+  `]` closes the wrapper early — `read-string` reads the clean
+  1-element vector `[{…}]`, returns the inner map, and SILENTLY DISCARDS
+  everything after the injected `]`.
 
-  We close that by asserting reader EXHAUSTION via an appended sentinel:
+  So instead this asserts reader EXHAUSTION via an appended sentinel:
   wrap as `[ <text> <eof-sentinel> ]` and require the read to yield
   EXACTLY `[<one-form> <eof-sentinel>]` — a 2-element vector whose
   SECOND element is the sentinel. The sentinel can only land as the
@@ -234,7 +231,7 @@
                       `valid?`-passing payload map: it failed to
                       base64/EDN-decode, carried a tagged literal,
                       decoded to MORE THAN ONE EDN form (a trailing
-                      object after the payload map — rf2-ykv9a0),
+                      object after the payload map),
                       exceeded `max-cursor-bytes`, or its payload map
                       failed the consumer's `valid?` predicate. Callers
                       treat `::malformed` exactly like a STALE cursor —

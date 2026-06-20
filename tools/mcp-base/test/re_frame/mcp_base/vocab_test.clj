@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.vocab-test
-  "Pins the wire-vocabulary constants (rf2-vw4sq). The marker keys are
+  "Pins the wire-vocabulary constants. The marker keys are
   the cross-MCP convention that an agent learns once — a rename here
   is a wire-protocol break. These tests fail loud when that happens."
   (:require [clojure.test :refer [deftest is]]
@@ -12,12 +12,11 @@
   (is (= :rf.mcp/cursor-stale  vocab/cursor-stale-reason))
   (is (= :rf.mcp/cache-hit     vocab/cache-hit-key))
   (is (= :rf.mcp/summary       vocab/summary-key))
-  ;; rf2-y3qpv: the test stopped at :summary and omitted these two
-  ;; reserved wire-vocabulary markers, so a rename could slip past the
-  ;; base unit gate. :rf.mcp/invalid-arg is the per-call arg-rejection
-  ;; wrapper (rf2-5rdit); :rf.mcp/result is the wire-fidelity typed
-  ;; eval/handler result envelope (rf2-qobqy) that pair-mcp actively
-  ;; emits — both are cross-MCP convention an agent learns once.
+  ;; These two reserved wire-vocabulary markers are pinned too, so a
+  ;; rename cannot slip past the base unit gate. :rf.mcp/invalid-arg is
+  ;; the per-call arg-rejection wrapper; :rf.mcp/result is the
+  ;; wire-fidelity typed eval/handler result envelope that pair-mcp
+  ;; actively emits — both are cross-MCP convention an agent learns once.
   (is (= :rf.mcp/invalid-arg   vocab/invalid-arg-key))
   (is (= :rf.mcp/result        vocab/result-key)))
 
@@ -32,7 +31,7 @@
 
 (deftest envelope-indicator-slots-pinned
   ;; Cross-MCP indicator-field vocabulary per Conventions §Cross-MCP
-  ;; indicator-field vocabulary (rf2-2499j). The two slots are
+  ;; indicator-field vocabulary. The two slots are
   ;; **unqualified** — they ride the tool's own envelope, not under a
   ;; reserved namespace. A drift to `:rf.size/elided-large` or
   ;; `:elided-large?` is a wire-protocol break.

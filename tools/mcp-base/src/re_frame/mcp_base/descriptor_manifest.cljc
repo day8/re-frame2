@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.descriptor-manifest
-  "Shared MCP tool-descriptor manifest generator + drift-check (rf2-sofwv —
-  follow-on to the rf2-3nbl5.2 API-governance keystone).
+  "Shared MCP tool-descriptor manifest generator + drift-check, a
+  companion to the API-governance keystone.
 
   THE PROBLEM. Each MCP server has ONE truth — its tool registry (the
   ordered `tools` / `tool-registry` vector that bundles every tool's
@@ -38,15 +38,16 @@
   size-conscious args. That is precisely the surface that goes stale
   when a tool is added / removed / renamed, its input surface changes,
   an argument silently flips required↔optional, or a token-budget hint
-  drifts — the drift the bead targets. The full descriptor's wire
+  drifts — the drift this gate targets. The full descriptor's wire
   validity is already pinned by the MCP-SDK conformance harness
   (`tools/mcp-conformance/`); this manifest pins the catalogue identity.
 
-  REQUIRED + TYPICALTOKENS (rf2-cwhod2). `:required` and `:typicalTokens`
-  join the projection so the gate guards the live API-semantics facets
-  the narrow `:input-keys` / `:output?` / `:annotations` set missed: a
-  tool could silently move an argument between required and optional, or
-  drift its token-budget hint, without tripping drift. `:required` is
+  REQUIRED + TYPICALTOKENS. `:required` and `:typicalTokens`
+  are part of the projection so the gate guards the live API-semantics
+  facets alongside `:input-keys` / `:output?` / `:annotations`: without
+  them a tool could silently move an argument between required and
+  optional, or drift its token-budget hint, without tripping drift.
+  `:required` is
   the SORTED subset of input keys the descriptor's `:inputSchema
   :required` marks mandatory (empty when none); `:typicalTokens` is the
   integer ballpark of the response payload size (nil when a tool
@@ -58,7 +59,7 @@
   raw shape forces it, since the two slots are read from independent
   descriptor sources.
 
-  WIRE-SPLICED INPUTS (rf2-cwhod2). re-frame2-pair-mcp splices the
+  WIRE-SPLICED INPUTS. re-frame2-pair-mcp splices the
   universal `max-tokens` (and, for read tools, `cache`) knobs onto every
   descriptor's `:inputSchema :properties` at `tools/list` time, AFTER
   the raw registry descriptor (`tools/descriptors.cljs` —
@@ -72,16 +73,16 @@
   `schemas/with-max-tokens`, so its raw descriptor already carries it —
   no generator-side splice needed.)
 
-  GATED INPUTS (rf2-qo3wvp). A descriptor input key can be present on a
+  GATED INPUTS. A descriptor input key can be present on a
   PRIVILEGED `tools/list` profile yet stripped from the DEFAULT one by an
   operator-only gate. story-mcp's `:include-sensitive` knob is the live
   case: six value-surfacing tools bake it into their static descriptor,
   but `registry/tool-descriptors` strips it from the default wire surface
   whenever the `--allow-sensitive-reads` gate is closed (the closed-by-
-  default posture). Projecting the raw descriptor put `:include-sensitive`
-  in `:input-keys`, so the governance artefact advertised an input the
-  DEFAULT surface deliberately hides — the manifest disagreed with the
-  surface it claims to guard.
+  default posture). Projecting the raw descriptor would put
+  `:include-sensitive` in `:input-keys`, so the governance artefact would
+  advertise an input the DEFAULT surface deliberately hides — the
+  manifest disagreeing with the surface it claims to guard.
 
   The row models that explicitly with `:gated-input-keys` — the SORTED
   subset of `:input-keys` that the default profile gates OFF. `:input-keys`
@@ -98,7 +99,7 @@
   deterministic. Generators pass the gated-key set as the optional 3rd arg
   to `build-manifest` (story-mcp passes `#{\"include-sensitive\"}`; pair-mcp
   passes nothing → the empty default). A drift in which inputs are gated —
-  a tool newly gating an input, or a gate lifted — now trips the gate.
+  a tool newly gating an input, or a gate lifted — trips the gate.
 
   DRIFT-CHECK. `check` regenerates the manifest in memory from the live
   registry and compares it to the committed file (LF-normalised). Any
@@ -158,17 +159,17 @@
   carry these slots (story-mcp lifts :outputSchema + :annotations via
   cond->; pair-mcp declares them per-tool).
 
-  `:required` (rf2-cwhod2) is the SORTED subset of input keys the
+  `:required` is the SORTED subset of input keys the
   descriptor marks mandatory via `:inputSchema :required` — empty when
   the tool declares none. Guarding it surfaces an argument silently
   flipping required↔optional.
 
-  `:typicalTokens` (rf2-cwhod2) is the integer response-payload token
+  `:typicalTokens` is the integer response-payload token
   hint, passed through verbatim (nil when a tool declares no hint —
   forward-compatible; the slot still renders so every row shares one
   shape). Guarding it surfaces a token-budget hint drifting.
 
-  `:gated-input-keys` (rf2-qo3wvp) is the SORTED subset of `:input-keys`
+  `:gated-input-keys` is the SORTED subset of `:input-keys`
   the DEFAULT `tools/list` profile gates off behind an operator-only gate
   (the intersection of the descriptor's actual input keys with the
   caller-supplied `gated-keys` set). The default surface is therefore
@@ -194,7 +195,7 @@
   inconsistent row (`:input-keys [\"known\"]` with `:required
   [\"missing\"]`), blessing a mandatory argument the input surface never
   declares and breaking the default/gate-open surface derivation
-  downstream. This fn now ENFORCES the invariant: a descriptor whose
+  downstream. This fn ENFORCES the invariant: a descriptor whose
   required keys are not a subset of its property keys is REJECTED with an
   `ex-info` naming the offending tool + the missing keys, rather than
   emitting a self-inconsistent row."
@@ -224,7 +225,7 @@
   ordering, is what this gate guards; the wire-surface ordering is
   pinned separately by the per-server order-sensitive tests).
 
-  The optional `gated-keys` set (rf2-qo3wvp) names the input keys the
+  The optional `gated-keys` set names the input keys the
   server's DEFAULT `tools/list` profile gates off (e.g. story-mcp's
   `#{\"include-sensitive\"}`); it is threaded to every row's
   `descriptor->row` so each `:gated-input-keys` is the per-tool
@@ -316,7 +317,7 @@
   descriptor maps + a server id keyword/string. The value `render-edn`
   serialises and `check` compares.
 
-  The optional `gated-keys` set (rf2-qo3wvp) names the input keys the
+  The optional `gated-keys` set names the input keys the
   server's DEFAULT `tools/list` profile gates off (story-mcp passes
   `#{\"include-sensitive\"}`); it is threaded to `build-rows` so each
   row's `:gated-input-keys` distinguishes the default surface from the
@@ -361,17 +362,17 @@
   failure message names exactly which tool drifted — same affordance
   the keystone's `check!` prints.
 
-  ## Row-level `:changed` identity (rf2-y3qpv)
+  ## Row-level `:changed` identity
 
   `:added` / `:removed` only name tools whose IDENTITY entered or left
   the catalogue. When an EXISTING tool's `:description`, `:input-keys`,
   `:gated-input-keys`, `:required`, `:output?`, `:annotations`, or
-  `:typicalTokens` drifts, neither set names it — the CI
-  guard went red with `{:ok? false :added [] :removed []}` and the
-  consumer generator could only print a generic \"tool set identical;
-  descriptor changed\" message, forcing a maintainer to manually diff
-  the whole manifest. `:changed` closes that gap: for every name present
-  in BOTH manifests whose row differs, it carries
+  `:typicalTokens` drifts, neither set names it — without a row-level
+  diff the CI guard would go red with `{:ok? false :added [] :removed []}`
+  and the consumer generator could only print a generic \"tool set
+  identical; descriptor changed\" message, forcing a maintainer to
+  manually diff the whole manifest. `:changed` closes that gap: for
+  every name present in BOTH manifests whose row differs, it carries
   `{:name <str> :old <committed-row> :new <generated-row>}` so the
   failure message can name exactly which existing tool drifted and how.
   An in-sync manifest (`:ok? true`) and a missing-file result both carry

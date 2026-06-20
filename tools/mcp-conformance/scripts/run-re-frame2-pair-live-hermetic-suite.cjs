@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
- * Hermetic orchestrator for the re-frame2-pair LIVE conformance SUITE
- * (rf2-uw6d6, follow-on from rf2-ynaoc).
+ * Hermetic orchestrator for the re-frame2-pair LIVE conformance SUITE.
  *
  * This is the CI entry point for the WHOLE hermetic live suite — it runs
  * EVERY live inner test in the `INNER_TESTS` inventory (see ~:200), not
@@ -44,10 +43,11 @@
  *   7. Tearing down browser + shadow-cljs cleanly on success, failure,
  *      or signal.
  *
- * Per rf2-kp1d8: pre-fix the script only waited on the nREPL port file
- * (at the wrong path) and the browser sentinel; the missing bundle-
- * compile and shadow-runtime gates surfaced as a 6-minute timeout on
- * CI even after rf2-papcw landed the deterministic catalogue fix.
+ * All six boot gates (port file at the right path, TCP listener, fixture
+ * HTTP, bundle compile, browser sentinel, shadow-runtime addressable) are
+ * required: each one closes a window in which the live path would fire
+ * before the runtime is genuinely ready, which would surface as a long CI
+ * timeout rather than a clean conformance result.
  *
  * Exit codes:
  *   0  hermetic conformance passed
@@ -60,14 +60,14 @@
  * browser are killed in the `finally`; SIGINT/SIGTERM also wire to the
  * same cleanup.
  *
- * Per rf2-wqi4n4 finding 2: the fixture `npm install` setup runs under an
- * ASYNC spawn with its own `SETUP_COMMAND_TIMEOUT_MS` cap (see
- * `runTrusted`). A synchronous `crossSpawn.sync` there would block the
- * event loop for the install's whole lifetime — during which the
- * HERMETIC_TIMEOUT_MS watchdog (and signal handlers) physically cannot
- * fire — so a hung `npm install` would have wedged the run past the outer
- * CI job timeout. The async spawn keeps the loop live so BOTH the
- * per-command timeout AND the whole-run watchdog stay armed across setup.
+ * The fixture `npm install` setup runs under an ASYNC spawn with its own
+ * `SETUP_COMMAND_TIMEOUT_MS` cap (see `runTrusted`). A synchronous
+ * `crossSpawn.sync` there would block the event loop for the install's
+ * whole lifetime — during which the HERMETIC_TIMEOUT_MS watchdog (and
+ * signal handlers) physically cannot fire — so a hung `npm install` would
+ * wedge the run past the outer CI job timeout. The async spawn keeps the
+ * loop live so BOTH the per-command timeout AND the whole-run watchdog
+ * stay armed across setup.
  */
 'use strict';
 
@@ -89,8 +89,8 @@ const {
 // `shell: false` since the CVE-2024-27980 fix (EINVAL). cross-spawn
 // dispatches to cmd.exe under the hood when the resolved target ends
 // in `.cmd`, escapes arguments correctly, and — load-bearing for the
-// rf2-33vvc audit fix — does NOT do a cwd-prefixed PATH walk when the
-// command argument is an absolute path (see `which`'s
+// command-hijack accident-gating — does NOT do a cwd-prefixed PATH walk
+// when the command argument is an absolute path (see `which`'s
 // `cmd.match(/\//)` short-circuit). The accident-gating contract is
 // preserved by passing an absolute path resolved via the host's
 // PATH-only scan (see `lib/exec-safety.cjs`).
@@ -119,7 +119,7 @@ const {
 const VERBOSE_TESTS = isVerboseTests();
 const DIAGNOSTICS = createDiagnosticBuffer();
 
-// Module-scope handle to the in-flight teardown closure (rf2-e6enf).
+// Module-scope handle to the in-flight teardown closure.
 // `main()` assigns this once it has spawned shadow-cljs / Chromium so
 // the hard watchdog below can tear those children down BEFORE
 // `process.exit` — without it, a watchdog-elapse would orphan the
@@ -133,10 +133,9 @@ let activeCleanup = null;
 // configs used `target/shadow-cljs/`; nrepl itself drops `.nrepl-port`.
 // re-frame2-pair-mcp's runtime probe (`re_frame2_pair_mcp/nrepl.cljs`
 // `port-file-candidates`) walks the same list — keep them in lockstep.
-// Per rf2-kp1d8: the orchestrator previously only watched the legacy
-// `target/shadow-cljs/nrepl.port` path; shadow-cljs 3.4.10 wrote to
-// `.shadow-cljs/nrepl.port` and the harness timed out at 360s waiting
-// for a file that was never going to arrive.
+// The orchestrator watches every candidate path so it binds to whichever
+// one the active shadow-cljs version writes (shadow-cljs 3.x defaults to
+// `.shadow-cljs/nrepl.port`), rather than gambling on a single location.
 const NREPL_PORT_FILE_CANDIDATES = [
   path.join(FIXTURE_DIR, '.shadow-cljs', 'nrepl.port'),
   path.join(FIXTURE_DIR, 'target', 'shadow-cljs', 'nrepl.port'),
@@ -154,18 +153,18 @@ const FIXTURE_BUNDLE_PATH = path.join(FIXTURE_DIR, 'public', 'out', 'main.js');
 // fixture's :local/root deps (core + reagent + epoch + schemas +
 // machines + Reagent/Malli trees). The CI workflow's
 // `mcp-conformance-re-frame2-pair` job hashes those
-// inputs into its actions/cache key (rf2-c565x), so this stopgap only
+// inputs into its actions/cache key, so this headroom only
 // kicks in on the truly cold path; warm-cache runs still bind the
 // nREPL port in <60s.
 const SHADOW_BOOT_TIMEOUT_MS = 360_000;
 const RUNTIME_PRELOAD_TIMEOUT_MS = 60_000;
 const HERMETIC_TIMEOUT_MS = 540_000;
-// Bounded waits for the async teardown (rf2-7ckmwx finding 1). `cleanup`
+// Bounded waits for the async teardown. `cleanup`
 // awaits Playwright's promise-returning `browser.close()` (capped so a
 // wedged browser-close can't hang the teardown) and SIGTERM→exit of the
 // shadow-cljs child (escalating to SIGKILL after the grace, then observing
 // the final exit). `$HERMETIC_CLEANUP_*_MS` shrink these caps for the
-// finding-1 regression harness only (`runner-cleanup.test.cjs`); production
+// teardown regression harness only (`runner-cleanup.test.cjs`); production
 // CI never sets them.
 const CLEANUP_BROWSER_CLOSE_TIMEOUT_MS =
   Number(process.env.HERMETIC_CLEANUP_BROWSER_MS) || 15_000;
@@ -182,10 +181,10 @@ const CLEANUP_HARD_CAP_MS =
 // listener, fixture HTTP, bundle compile, runtime sentinel, shadow
 // runtime addressable). Each gate latches as soon as it flips, so the
 // poll interval is pure resolution latency on the critical path: a warm
-// cache boot is gated by `~6 * POLL_MS` of cumulative wait. Per rf2-i3ffz
-// F-PERF-2: 500 → 100 trims ~2-3s off warm-cache CI runs (the gates
-// check cheap filesystem/TCP probes — increased poll rate doesn't
-// meaningfully raise cold-cache load).
+// cache boot is gated by `~6 * POLL_MS` of cumulative wait. A tight 100ms
+// cadence keeps warm-cache CI runs fast (the gates check cheap
+// filesystem/TCP probes, so the high poll rate doesn't meaningfully raise
+// cold-cache load).
 const POLL_MS = 100;
 
 // Inner tests the orchestrator boots shadow-cljs for. Each runs with
@@ -193,13 +192,12 @@ const POLL_MS = 100;
 // and the live path fires. Run sequentially against the same booted
 // runtime — the cold-boot cost amortises across every test.
 //
-// Per rf2-i3ffz F-GAP-1: `live-re-frame2-pair-subscribe.cjs` joined the suite
-// to pin the `notifications/progress` streaming wire surface
-// (rf2-zb5z6). The orchestrator's name keeps `overflow` for backward
-// compatibility with the workflow YAML's script reference; the
-// `INNER_TESTS` list IS the authoritative inventory.
+// `live-re-frame2-pair-subscribe.cjs` pins the `notifications/progress`
+// streaming wire surface. The orchestrator's name keeps `overflow` to
+// match the workflow YAML's script reference; the `INNER_TESTS` list IS
+// the authoritative inventory.
 //
-// Per rf2-ybiz0: each entry carries the test's success `sentinel` — the
+// Each entry carries the test's success `sentinel` — the
 // `... CONFORMANCE GREEN` line it prints ONLY on a real (non-skipped)
 // pass. The hermetic env guarantees `$SHADOW_CLJS_NREPL_PORT` is set, so
 // the inner test's SKIP gate MUST NOT fire here — yet a SKIP still
@@ -221,31 +219,30 @@ const INNER_TESTS = [
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN',
   },
   {
-    // rf2-q4o83 — egress-protection regression net for the pull-mode
-    // epoch tools (trace-window / watch-epochs). Drives a declared-
-    // sensitive app-db slot through both tools across the MCP wire and
-    // asserts the sensitive epoch is WHOLE-DROPPED gate-OFF (default,
-    // rf2-5613h) / shipped gate-ON. This is the gate that would have
-    // caught rf2-6wvh5 RED (and now pins the rf2-5613h whole-drop).
+    // Egress-protection regression net for the pull-mode epoch tools
+    // (trace-window / watch-epochs). Drives a declared-sensitive app-db
+    // slot through both tools across the MCP wire and asserts the
+    // sensitive epoch is WHOLE-DROPPED gate-OFF (the default) and shipped
+    // gate-ON. This is the gate that pins the whole-drop behaviour.
     name: 'live egress-protection conformance (pull-mode epoch tools)',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-redaction.cjs'),
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE EGRESS-PROTECTION CONFORMANCE GREEN',
   },
   {
-    // rf2-87h71e — pin the universal `:ok? false ⇒ isError:true` contract
+    // Pin the universal `:ok? false ⇒ isError:true` contract
     // on the read-family GENUINE error envelopes (read-dom/read-ui
     // bad-selector). Drives a malformed CSS selector against the live
     // runtime so `querySelectorAll` throws and the runtime fn returns a
     // structured `{:ok? false :reason :rf.error/...-bad-selector}` — then
     // asserts the SDK response is isError. This is the live SDK-boundary
-    // gate that would have caught rf2-q7cavs RED (the degraded walk only
-    // ever exercised the :nrepl-port-not-found shape).
+    // gate for the error path; the degraded walk only exercises the
+    // :nrepl-port-not-found shape, so the live runtime is required here.
     name: 'live isError-on-:ok?-false conformance (read-dom/read-ui bad selector)',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-iserror.cjs'),
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE ISERROR-ON-OK-FALSE CONFORMANCE GREEN',
   },
   {
-    // rf2-jyxmtq — EP-0017 recordable-coeffects (`cofx`) over the live MCP
+    // EP-0017 recordable-coeffects (`cofx`) over the live MCP
     // wire. Dispatches the fixture's [:counter/stamp] (a reg-event
     // declaring `:rf.cofx/requires [:rf/time-ms]`) with a scripted
     // `cofx "{:rf/time-ms <N>}"` and proves the supplied fact reaches the
@@ -260,12 +257,13 @@ const INNER_TESTS = [
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE COFX CONFORMANCE GREEN',
   },
   {
-    // rf2-z0owya — EP-0018 unified event-registration metadata over the
+    // EP-0018 unified event-registration metadata over the
     // live MCP wire. Inspects a fixture `rf/reg-event` id (`:counter/inc`)
     // via `list-handlers`/`handler-meta {kind "event"}` and pins the
     // unified shape (`:ok? true`, `:kind :event`, `:id`, the
-    // `:rf/event-handler` wrapper) AND the absence of every retired marker
-    // (`:event/kind`, `:rf/db-handler`/`:rf/fx-handler`/`:rf/ctx-handler`).
+    // `:rf/event-handler` wrapper) AND the absence of any of the markers
+    // that must not appear (`:event/kind`,
+    // `:rf/db-handler`/`:rf/fx-handler`/`:rf/ctx-handler`).
     // The degraded gate only proves the descriptor/CallToolResult wiring —
     // this proves the live event-metadata wire reflects EP-0018.
     name: 'live EP-0018 event-metadata conformance (unified reg-event shape)',
@@ -327,7 +325,6 @@ function sleep(ms) {
 // teardown step that rejects is treated as "settled" (we tried, we move
 // on), not as a reason to abandon the rest of cleanup. The timeout timer is
 // unref'd so it can't itself keep the loop alive past a clean exit.
-// rf2-7ckmwx finding 1.
 function settledWithin(promise, ms) {
   return new Promise((resolve) => {
     let done = false;
@@ -347,8 +344,7 @@ function settledWithin(promise, ms) {
 // Resolve when `child` has emitted `exit` (or already has). Returns a
 // promise that never rejects; pair it with `settledWithin` for a bounded
 // wait. `hasExited` is the caller's already-tracked exit flag so a child
-// that exited before we attach still resolves immediately. rf2-7ckmwx
-// finding 1.
+// that exited before we attach still resolves immediately.
 function waitForChildExit(child, hasExited) {
   if (hasExited()) return Promise.resolve();
   return new Promise((resolve) => {
@@ -356,8 +352,8 @@ function waitForChildExit(child, hasExited) {
   });
 }
 
-// Build the idempotent async teardown (rf2-7ckmwx finding 1). Extracted to
-// module scope so the finding-1 regression harness
+// Build the idempotent async teardown. Lives at
+// module scope so the teardown regression harness
 // (`runner-cleanup.test.cjs`) can drive the REAL teardown logic against a
 // fake promise-returning browser and a slow-exiting fake child — proving
 // the awaited-close + SIGTERM→exit→SIGKILL contract holds without booting
@@ -446,7 +442,7 @@ function makeCleanup(deps) {
 // resolves OUTSIDE FIXTURE_DIR) from a benign fs failure (EACCES, EBUSY
 // — a Windows lock, a permission quirk). The exec-safety helpers tag
 // every escape with the `symlink-escape accident-gating` marker; benign
-// failures carry an errno `code` and no such marker. rf2-khav7l: only an
+// failures carry an errno `code` and no such marker. Only an
 // escape is fatal — a transient lock must not abort the whole run.
 function isContainmentEscape(e) {
   return !!(e && typeof e.message === 'string' &&
@@ -454,7 +450,7 @@ function isContainmentEscape(e) {
 }
 
 // `candidates` + `fixtureDir` are parameterised (defaulting to the
-// module constants) so the rf2-khav7l call-site regression test can drive
+// module constants) so the call-site regression test can drive
 // this exact function against a temp fixture with a symlinked
 // `.shadow-cljs` — proving the poller refuses an external port file
 // without booting shadow-cljs + Chromium.
@@ -468,18 +464,17 @@ function readPortFile(
   // satisfied the wait — useful when shadow-cljs's default cache-root
   // moves between versions.
   //
-  // Per rf2-khav7l: route the read through `safeReadFileInside` — the
+  // Route the read through `safeReadFileInside` — the
   // SAME containment check the cleanup loop's `safeUnlinkInside` uses.
-  // Pre-fix this did a raw `fs.readFileSync` with NO realpath check, so
-  // a candidate (or candidate parent) symlinked OUTSIDE FIXTURE_DIR that
-  // the cleanup step CORRECTLY refused to delete could still be trusted
-  // as the live nREPL source — a stale external `nrepl.port` could then
-  // satisfy the port-file wait and steer the inner conformance tests at
-  // an unrelated runtime (false-red / false-green). `safeReadFileInside`
-  // THROWS on a containment escape; we let that propagate so an escaped
-  // candidate is a FATAL orchestration error, not a silently-trusted
-  // read. A candidate that simply doesn't exist yet returns `null` —
-  // try the next.
+  // This refuses any candidate (or candidate parent) symlinked OUTSIDE
+  // FIXTURE_DIR: such a file is exactly what the cleanup step refuses to
+  // delete, and trusting it as the live nREPL source would let a stale
+  // external `nrepl.port` satisfy the port-file wait and steer the inner
+  // conformance tests at an unrelated runtime (false-red / false-green).
+  // `safeReadFileInside` THROWS on a containment escape; we let that
+  // propagate so an escaped candidate is a FATAL orchestration error, not
+  // a silently-trusted read. A candidate that simply doesn't exist yet
+  // returns `null` — try the next.
   for (const p of candidates) {
     let txt;
     try {
@@ -525,7 +520,7 @@ function probeHttp(port, hostname = '127.0.0.1') {
 // for unknown paths. Used to wait for the bundle to compile before
 // Chromium navigates; without this gate the page loads while shadow is
 // still on its first compile, the runtime preload never runs, and the
-// sentinel-wait times out (rf2-kp1d8).
+// sentinel-wait times out.
 //
 // We accept the response iff the Content-Type starts with
 // `application/javascript` (shadow's dev-http sets this for .js files
@@ -663,7 +658,7 @@ async function waitUntil(label, predicate, timeoutMs) {
 // Resolve `npm` / `npx` / etc. to a single trusted absolute path via
 // PATH search, refusing any candidate that resolves under REPO_ROOT.
 // Cached per-name so the PATH walk runs once. See `lib/exec-safety.cjs`
-// for the rationale (rf2-33vvc Windows command-hijack accident-gating).
+// for the rationale (Windows command-hijack accident-gating).
 const TRUSTED_EXE_CACHE = new Map();
 function trustedExe(name) {
   if (TRUSTED_EXE_CACHE.has(name)) return TRUSTED_EXE_CACHE.get(name);
@@ -675,13 +670,13 @@ function trustedExe(name) {
 // Hard cap on any trusted SETUP command (fixture `npm install`). Generous
 // enough for a cold-cache install of the tiny fixture's deps on a slow CI
 // runner, but bounded so a wedged package-manager child can't wedge the
-// whole hermetic run (rf2-wqi4n4 finding 2). Distinct from
+// whole hermetic run. Distinct from
 // `HERMETIC_TIMEOUT_MS` (the whole-run cap) — this is the per-setup-command
 // cap that the whole-run watchdog physically CANNOT enforce while a
 // synchronous child blocks the event loop.
 //
-// `$HERMETIC_SETUP_TIMEOUT_MS` overrides the cap for the rf2-wqi4n4
-// finding-2 regression harness ONLY (`hermetic-setup-timeout.test.cjs`
+// `$HERMETIC_SETUP_TIMEOUT_MS` overrides the cap for the
+// setup-timeout regression harness ONLY (`hermetic-setup-timeout.test.cjs`
 // drives `runTrusted` against a never-exiting child under a tiny cap to
 // prove the timeout/kill path fires and the loop stays live). Production
 // CI never sets it, so the 300s cap stands.
@@ -689,7 +684,7 @@ const SETUP_COMMAND_TIMEOUT_MS =
   Number(process.env.HERMETIC_SETUP_TIMEOUT_MS) || 300_000;
 
 // Grace between the timeout SIGTERM and the SIGKILL escalation for a hung
-// setup child (rf2-i4d5wr). A well-behaved child reaps on SIGTERM within
+// setup child. A well-behaved child reaps on SIGTERM within
 // this window; a SIGTERM-ignoring child gets SIGKILLed after it. This grace
 // is AWAITED (not a fire-and-forget `setTimeout` that the reject could
 // cancel), so a setup child that ignores SIGTERM is GUARANTEED to receive
@@ -703,16 +698,15 @@ const SETUP_SIGKILL_GRACE_MS =
 // workspace via `trustedExe`) under an ASYNC spawn with an explicit
 // child-level timeout/kill.
 //
-// Per rf2-wqi4n4 finding 2: the pre-fix shape used `crossSpawn.sync`, which
-// SYNCHRONOUSLY blocks the Node event loop for the child's entire lifetime.
+// The spawn is ASYNC (not `crossSpawn.sync`): a synchronous spawn would
+// SYNCHRONOUSLY block the Node event loop for the child's entire lifetime.
 // While blocked, Node delivers no signals and runs no timers — so the
 // `HERMETIC_TIMEOUT_MS` `setTimeout` watchdog (and the SIGINT/SIGTERM
-// handlers) CANNOT fire. A hung `npm install` (stuck registry fetch, a
-// package-manager prompt, a lock contention) would therefore wedge the
+// handlers) could NOT fire, and a hung `npm install` (stuck registry
+// fetch, a package-manager prompt, a lock contention) would wedge the
 // whole hermetic job until the OUTER CI job timeout, bypassing this
-// script's own hard time-cap and diagnostics. This is the SAME failure
-// mode the inner-test spawn already documents + avoids (rf2-i3ffz F-PERF-1,
-// `crossSpawn(...)` async there); the setup command had the same hole.
+// script's own hard time-cap and diagnostics. The inner-test spawn uses
+// the same async shape for the same reason.
 //
 // The async spawn keeps the event loop live, so both the per-command
 // timeout below AND the whole-run watchdog stay armed. On timeout we
@@ -721,17 +715,14 @@ const SETUP_SIGKILL_GRACE_MS =
 // — surfacing as exit 2 (orchestration failure) shortly after
 // `SETUP_COMMAND_TIMEOUT_MS` rather than the multi-minute CI job timeout.
 //
-// rf2-i4d5wr: the pre-fix shape armed the SIGKILL as a fire-and-forget
-// `setTimeout` (`killTimer`) and then immediately `settle(reject, ...)`d.
-// But `settle` cleared `killTimer`, so the SIGKILL fallback was CANCELLED
-// on the very path that scheduled it. A setup child that ignored SIGTERM
-// would survive after the orchestrator reported "setup command hung —
-// killed", leaking npm/node children that hold locks/pipes. The fix makes
-// the SIGTERM→SIGKILL escalation an AWAITED sequence (the same shape the
-// teardown `makeCleanup` uses): the child is reaped (or has demonstrably
-// received SIGKILL) BEFORE the timeout promise rejects, and the reject no
-// longer cancels the kill. The happy path still settles promptly the moment
-// the child exits normally.
+// The SIGTERM→SIGKILL escalation is an AWAITED sequence (the same shape
+// the teardown `makeCleanup` uses): the child is reaped (or has
+// demonstrably received SIGKILL) BEFORE the timeout promise rejects, and
+// the reject does not cancel the kill. A setup child that ignores SIGTERM
+// is therefore guaranteed to receive SIGKILL — the orchestrator never
+// reports "setup command hung — killed" while leaking a still-alive
+// npm/node child that holds locks/pipes. The happy path still settles
+// promptly the moment the child exits normally.
 function runTrusted(name, args, cwd) {
   const bin = trustedExe(name);
   // cross-spawn (async) handles the `.cmd` -> cmd.exe dispatch on Windows
@@ -764,7 +755,7 @@ function runTrusted(name, args, cwd) {
     // bounded by a grace, SIGKILL if it ignored SIGTERM, then reject as an
     // orchestration failure.
     //
-    // rf2-i4d5wr: the escalation is an AWAITED sequence, NOT a fire-and-
+    // The escalation is an AWAITED sequence, NOT a fire-and-
     // forget `setTimeout` that `settle(reject)` could cancel. A child that
     // ignores SIGTERM is therefore GUARANTEED to receive SIGKILL before the
     // promise rejects; we never report "killed" while the child is still
@@ -826,13 +817,13 @@ function runTrusted(name, args, cwd) {
     child.on('exit', (code, signal) => {
       // Record the exit so the timeout path's awaited grace
       // (`waitForChildExit(child, () => childExited)`) sees a child that
-      // exited before/while we waited and stops escalating. rf2-i4d5wr.
+      // exited before/while we waited and stops escalating.
       childExited = true;
       if (timedOut) {
         // Our own timeout SIGTERM/SIGKILL reaped it. Defer the rejection to
         // the timeout IIFE so the attribution is the timeout message, and so
         // the awaited escalation observes this exit (it `await`s
-        // `waitForChildExit`, which resolves on this event). rf2-i4d5wr.
+        // `waitForChildExit`, which resolves on this event).
         return;
       }
       if (signal) {
@@ -905,18 +896,16 @@ async function main() {
   // ALL candidate paths so a stale entry at one location can't shadow
   // the fresh file at another.
   //
-  // Per rf2-33vvc: route every unlink through `safeUnlinkInside` so a
+  // Route every unlink through `safeUnlinkInside` so a
   // symlinked candidate (or symlinked parent directory) that escapes
   // FIXTURE_DIR can't be coerced into deleting a file outside the
   // fixture tree.
   //
-  // Per rf2-khav7l: a symlink-ESCAPE refusal on a load-bearing stale
+  // A symlink-ESCAPE refusal on a load-bearing stale
   // port candidate is FATAL — we do NOT log-and-continue and then later
-  // read that same escaped file as the live nREPL source. (Pre-fix the
-  // cleanup logged "continuing" on the escape and `readPortFile` then
-  // raw-read the same path with no containment check.) A BENIGN unlink
+  // read that same escaped file as the live nREPL source. A BENIGN unlink
   // failure (EACCES / EBUSY — a Windows file lock, a permission quirk)
-  // is still tolerated: it doesn't widen trust, and the read path now
+  // is tolerated: it doesn't widen trust, and the read path
   // re-checks containment regardless. `isContainmentEscape` discriminates
   // the two so a transient lock doesn't abort the whole run while a real
   // escape does.
@@ -949,10 +938,10 @@ async function main() {
   }
 
   // ---- Install fixture deps --------------------------------------------
-  // `await` the async spawn (rf2-wqi4n4 finding 2): the setup command now
-  // runs under a live event loop with its own hard timeout, so a hung
-  // `npm install` is bounded by `SETUP_COMMAND_TIMEOUT_MS` instead of
-  // wedging the whole run past the outer CI job cap.
+  // `await` the async spawn: the setup command runs under a live event
+  // loop with its own hard timeout, so a hung `npm install` is bounded by
+  // `SETUP_COMMAND_TIMEOUT_MS` instead of wedging the whole run past the
+  // outer CI job cap.
   if (!exists(path.join(FIXTURE_DIR, 'node_modules'))) {
     log(`installing fixture deps in ${FIXTURE_DIR}`);
     await runTrusted('npm', ['install', '--no-audit', '--no-fund'], FIXTURE_DIR);
@@ -962,9 +951,9 @@ async function main() {
   // Resolve `npx` to a trusted absolute path (rejected if it lives
   // inside REPO_ROOT) and route the spawn through cross-spawn so the
   // `.cmd`-on-Windows shape works without re-introducing the shell.
-  // Per rf2-33vvc: the pre-fix shape passed `npx.cmd` + `shell: true`
-  // + `cwd = FIXTURE_DIR`, which would have happily executed a
-  // fixture-local `npx.cmd` if one ever landed in the checkout.
+  // Passing the trusted absolute path (rather than a bare `npx.cmd` with
+  // `shell: true` + `cwd = FIXTURE_DIR`) means a fixture-local `npx.cmd`
+  // that ever landed in the checkout can never be executed.
   const npxBin = trustedExe('npx');
   log(`spawning shadow-cljs watch app in ${FIXTURE_DIR} (npx=${npxBin})`);
   const shadow = crossSpawn(npxBin, ['shadow-cljs', 'watch', 'app'], {
@@ -986,23 +975,21 @@ async function main() {
 
   let browser = null;
 
-  // Idempotent async teardown (rf2-7ckmwx finding 1). The pre-fix `cleanup`
-  // was synchronous: it called Playwright's promise-returning
-  // `browser.close()` WITHOUT awaiting it and scheduled the shadow SIGKILL
-  // on an unref'd timer, so every caller (`finally`, signal handlers, the
-  // hard watchdog) could `process.exit` BEFORE the browser-close promise
-  // settled and BEFORE shadow-cljs had actually exited — abandoning exactly
-  // the children the teardown exists to reap. `makeCleanup` (module scope,
-  // unit-tested by `runner-cleanup.test.cjs`) returns an idempotent promise
-  // that awaits the browser close (bounded) and SIGTERM→exit→SIGKILL of
-  // shadow. `getBrowser`/`getShadow` read the live closure vars so the
-  // teardown sees `browser` even though it's assigned later in `main()`.
+  // Idempotent async teardown. `makeCleanup` (module scope, unit-tested by
+  // `runner-cleanup.test.cjs`) returns an idempotent promise that AWAITS
+  // the browser close (bounded) and SIGTERM→exit→SIGKILL of shadow, so
+  // every caller (`finally`, signal handlers, the hard watchdog) waits for
+  // the browser-close promise to settle and for shadow-cljs to actually
+  // exit before `process.exit` — the children the teardown exists to reap
+  // are reaped, not abandoned. `getBrowser`/`getShadow` read the live
+  // closure vars so the teardown sees `browser` even though it's assigned
+  // later in `main()`.
   const cleanup = makeCleanup({
     getBrowser: () => browser,
     getShadow: () => shadow,
     hasShadowExited: () => shadowExited,
   });
-  // Expose the teardown to the module-scope hard watchdog (rf2-e6enf)
+  // Expose the teardown to the module-scope hard watchdog
   // so a watchdog-elapse kills shadow-cljs + Chromium rather than
   // orphaning them.
   activeCleanup = cleanup;
@@ -1011,8 +998,8 @@ async function main() {
       logErr(`caught ${sig} — tearing down`);
       // Race the async cleanup against a hard cap: an interrupted run still
       // exits promptly (CLEANUP_HARD_CAP_MS) even if a child refuses to die,
-      // but we no longer fire-and-exit before the teardown has had any
-      // chance to settle (rf2-7ckmwx finding 1).
+      // while still giving the teardown a real chance to settle before the
+      // process exits.
       settledWithin(cleanup(), CLEANUP_HARD_CAP_MS).then((settled) => {
         if (!settled) {
           logErr(
@@ -1074,10 +1061,10 @@ async function main() {
     // public/index.html references `/out/main.js`; if Chromium navigates
     // before that file exists the bundle 404s, no CLJS runs, and the
     // preload sentinel never lands. We poll the asset URL until it
-    // returns 200, then navigate. The first cold compile on CI runs
-    // 10–20s after the watch is up; rebuilds on a warm cache are <1s.
-    // Per rf2-kp1d8 — the earlier shape navigated immediately and then
-    // waited 60s for the sentinel, which never arrived.
+    // returns 200, then navigate — so navigation always happens against a
+    // compiled bundle, and the sentinel wait can succeed. The first cold
+    // compile on CI runs 10–20s after the watch is up; rebuilds on a warm
+    // cache are <1s.
     await waitUntil(
       `fixture bundle at ${FIXTURE_URL}out/main.js`,
       () => probeBundleReady(FIXTURE_HTTP_PORT),
@@ -1133,7 +1120,7 @@ async function main() {
     // `:runtime-not-preloaded` (the .catch in `tools/probe.cljs`
     // swallows the underlying nREPL error). Poll the same probe re-frame2-pair-mcp
     // uses until it returns true, so we hand off to the live test only
-    // after the runtime is actually addressable. Per rf2-kp1d8.
+    // after the runtime is actually addressable.
     log('waiting for shadow :app runtime to register');
     await waitUntil(
       'shadow :app runtime addressable via cljs-eval',
@@ -1148,7 +1135,7 @@ async function main() {
     // booted runtime. Sequential execution keeps cold-boot cost
     // amortised; tests are short relative to shadow-cljs boot.
     //
-    // Per rf2-i3ffz F-PERF-1: spawn ASYNC, not via `crossSpawn.sync`.
+    // Spawn ASYNC, not via `crossSpawn.sync`.
     // The sync form synchronously blocks the event loop for the inner
     // test's entire watchdog window — during which the
     // `SIGINT`/`SIGTERM`/`SIGHUP` handlers wired above CANNOT fire (Node
@@ -1172,7 +1159,7 @@ async function main() {
       log(`running ${testFile} - ${test.name}`);
       // Capture the inner test's stdout so we can assert it actually RAN
       // (printed its GREEN sentinel) — not merely exited 0 (a SKIP also
-      // exits 0). Per rf2-ybiz0.
+      // exits 0).
       let stdoutText = '';
       const testStatus = await new Promise((resolve, reject) => {
         const child = crossSpawn(process.execPath, [test.path], {
@@ -1212,7 +1199,7 @@ async function main() {
         err.exitCode = testStatus;
         throw err;
       }
-      // ---- Observable-SKIP guard (rf2-ybiz0) ------------------------------
+      // ---- Observable-SKIP guard ------------------------------------------
       // The inner test exited 0 — but a SKIP also exits 0. The hermetic
       // env sets $SHADOW_CLJS_NREPL_PORT, so the inner test's SKIP gate
       // MUST NOT have fired. Assert it printed its success sentinel AND
@@ -1247,10 +1234,10 @@ async function main() {
     log('RE-FRAME2-PAIR-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
       INNER_TESTS.length + ' inner tests)');
   } finally {
-    // Await the async teardown before `main()` resolves/rejects (rf2-7ckmwx
-    // finding 1): the normal-exit path must not report success and
-    // `process.exit(0)` while the browser-close promise is still settling or
-    // shadow-cljs has not yet exited.
+    // Await the async teardown before `main()` resolves/rejects: the
+    // normal-exit path must not report success and `process.exit(0)` while
+    // the browser-close promise is still settling or shadow-cljs has not
+    // yet exited.
     await cleanup();
   }
 }
@@ -1259,17 +1246,14 @@ async function main() {
 // so CI gets a deterministic failure instead of waiting on the job
 // timeout. Length set to cover cold Maven cache + cold chromium boot.
 //
-// Per rf2-e6enf: tear down shadow-cljs + Chromium BEFORE exiting. The
-// pre-fix watchdog called `process.exit(2)` directly, orphaning the
-// spawned JVM (and any launched Chromium); orphans that inherited the
-// step's stdio can keep the CI step's log pipes open past the node
-// exit, which is part of why the gate appeared to hang well past the
-// orchestrator's own cap.
+// On elapse it tears down shadow-cljs + Chromium BEFORE exiting, rather
+// than calling `process.exit(2)` directly: a direct exit would orphan the
+// spawned JVM (and any launched Chromium), and orphans that inherited the
+// step's stdio can keep the CI step's log pipes open past the node exit,
+// making the gate appear to hang well past the orchestrator's own cap.
 //
-// Per rf2-7ckmwx finding 1: `activeCleanup` is now async (awaited
-// browser.close + SIGTERM→exit→SIGKILL of shadow). The pre-fix watchdog
-// invoked it fire-and-forget and exited on a fixed 1s timer regardless of
-// whether the teardown had settled. We now RACE the async cleanup against
+// `activeCleanup` is async (awaited browser.close + SIGTERM→exit→SIGKILL
+// of shadow). The watchdog RACES the async cleanup against
 // `CLEANUP_HARD_CAP_MS`: the teardown gets a real chance to reap the
 // children, but the process still exits within the cap if a child refuses
 // to die. `activeCleanup` is null only if the watchdog fires before
@@ -1301,7 +1285,7 @@ const watchdog = setTimeout(() => {
 watchdog.unref();
 
 // Only auto-run the orchestrator when invoked as the entry-point. Required
-// as a module (by the rf2-wqi4n4 finding-2 `runTrusted` regression test),
+// as a module (by the `runTrusted` regression test),
 // it exports the unit under test WITHOUT kicking off the whole hermetic run
 // (which would spawn shadow-cljs + Chromium). Guarding the run here keeps
 // the watchdog timer from arming on `require` too.
@@ -1329,15 +1313,15 @@ if (require.main === module) {
   clearTimeout(watchdog);
 }
 
-// Exported for the rf2-wqi4n4 finding-2 + rf2-i4d5wr regression harness.
+// Exported for the setup-command regression harness.
 // `runTrusted` is the async, timeout-bounded setup-command spawn; the test
 // drives it against (a) a never-exiting child to prove a hung setup command
 // is killed within `SETUP_COMMAND_TIMEOUT_MS` instead of wedging the event
 // loop, and (b) a SIGTERM-IGNORING child to prove the timeout path AWAITS
-// the SIGTERM grace then SIGKILLs it (the reject no longer cancels the
+// the SIGTERM grace then SIGKILLs it (the reject does not cancel the
 // fallback) so the child is actually reaped, not leaked.
 //
-// `readPortFile` + `isContainmentEscape` are exported for the rf2-khav7l
+// `readPortFile` + `isContainmentEscape` are exported for the
 // call-site regression harness (`port-file-escape.test.cjs`): it drives
 // `readPortFile` against a temp fixture whose `.shadow-cljs` is symlinked
 // outside, proving the poller REFUSES an external port file (throws)
@@ -1345,7 +1329,7 @@ if (require.main === module) {
 // cleanup loop's escape-refusal be safe.
 //
 // `makeCleanup` + `settledWithin` + `waitForChildExit` are exported for the
-// rf2-7ckmwx finding-1 regression harness (`runner-cleanup.test.cjs`): it
+// teardown regression harness (`runner-cleanup.test.cjs`): it
 // drives the REAL teardown against a fake promise-returning browser and a
 // slow-exiting fake child, proving the awaited browser-close + the
 // SIGTERM→exit→SIGKILL escalation are WAITED for (or hard-capped), never

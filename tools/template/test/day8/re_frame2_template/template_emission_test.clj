@@ -1,6 +1,5 @@
 (ns day8.re-frame2-template.template-emission-test
-  "Static-parse tests for the template's emitted cljs scaffold (rf2-owbpr,
-   rf2-c2770 port to deps-new).
+  "Static-parse tests for the template's emitted cljs scaffold.
 
    The sibling `template_test.clj` verifies the generated file *shape*:
    names, deps.edn coords, shadow-cljs.edn wiring. It does NOT verify
@@ -27,9 +26,9 @@
      3. Repeats step 2 for `events.cljs`, `subs.cljs`, and `views.cljs`
         — same drift hazard, no extra harness cost.
 
-   The deeper-fidelity option (option (a) in the bead — run shadow-cljs
-   on the generated app) is left for after alpha publish; until then,
-   static parse catches the most likely regression."
+   The deeper-fidelity option (run shadow-cljs on the generated app) is
+   left for after alpha publish; until then, static parse catches the
+   most likely regression."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
@@ -42,7 +41,7 @@
 ;; --- Helpers ---------------------------------------------------------------
 ;;
 ;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
-;; repo-root live in the shared `test-support` ns (rf2-5v619, D1).
+;; repo-root live in the shared `test-support` ns.
 
 ;; --- Static-parse machinery ----------------------------------------------
 
@@ -81,11 +80,11 @@
   requires (no `:as`) still count as 'required' for the purpose of the
   load-order assertion below.
 
-  Both `:require` and `:require-macros` are walked (rf2-3uqbd.2): the
-  Reagent scaffold brings `reg-view` in via `:require-macros [re-frame.core
-  :refer [reg-view]]` and calls it bare, so a `:require`-only parse left
-  that central macro invisible to the surface-drift audit. `:refer`-ed
-  symbols from either clause now feed the bare-symbol audit below."
+  Both `:require` and `:require-macros` are walked: the Reagent scaffold
+  brings `reg-view` in via `:require-macros [re-frame.core :refer
+  [reg-view]]` and calls it bare, so walking `:require-macros` too keeps
+  that central macro visible to the surface-drift audit. `:refer`-ed
+  symbols from either clause feed the bare-symbol audit below."
   [ns-form]
   (let [clauses    (drop 2 ns-form) ;; skip `ns` + ns-sym
         require?   #(and (sequential? %)
@@ -132,10 +131,9 @@
 
 (defn- collect-bare-symbols
   "Walk `forms` and collect every unqualified symbol (no namespace
-  component). Returns a set. Used (rf2-3uqbd.2) to detect bare,
-  `:refer`-ed framework symbols — e.g. the Reagent scaffold's
-  `(reg-view …)` calls, which are unqualified and therefore invisible to
-  `collect-qualified-symbols`."
+  component). Returns a set. Used to detect bare, `:refer`-ed framework
+  symbols — e.g. the Reagent scaffold's `(reg-view …)` calls, which are
+  unqualified and therefore invisible to `collect-qualified-symbols`."
   [forms]
   (let [acc (volatile! #{})]
     (walk/postwalk
@@ -208,32 +206,30 @@
   ;; (`^:private`, `^:no-doc`, `^{...}`, `^TypeHint`) between the
   ;; defining form and the symbol name.
   ;;
-  ;; Compiled once at ns-load — the previous shape rebuilt the
-  ;; java.util.regex.Pattern per call (×N framework files × N
-  ;; references × 3 substrates = thousands of compiles per suite run).
+  ;; Compiled once at ns-load — the audit loop scans each framework file
+  ;; many times (×N framework files × N references × 3 substrates =
+  ;; thousands of scans per suite run), so the pattern is built once.
   ;; The `^{...}` metadata-map alternative tolerates ONE level of brace
   ;; nesting (`\{(?:[^{}]++|\{[^{}]*+\})*+\}`) so a `def` whose docstring
   ;; embeds a literal map — e.g. `frame-provider`'s `Usage: [rf/frame-provider
-  ;; {:frame :todo} …]` — is still detected. The earlier `\{[^}]*\}` stopped
-  ;; at the FIRST inner `}`, so such a def's symbol was missed and any
-  ;; template reference to it tripped the audit (rf2-9o48ih: the EP-0002
-  ;; carried-frame scaffold references `rf/frame-provider`, the first
-  ;; template surface whose framework def carries an embedded-brace
-  ;; docstring).
+  ;; {:frame :todo} …]` — is still detected. A naive `\{[^}]*\}` would stop
+  ;; at the FIRST inner `}`, missing such a def's symbol so that any
+  ;; template reference to it would trip the audit (the carried-frame
+  ;; scaffold references `rf/frame-provider`, whose framework def carries
+  ;; an embedded-brace docstring).
   ;;
-  ;; POSSESSIVE quantifiers (rf2-uzne0p). The nested `(?:…|…)*` shape is a
-  ;; classic catastrophic-backtracking hazard: on a large source file
-  ;; (`re-frame.core/core.cljc`, ~3.1K lines) the greedy form recurses deep
-  ;; enough to throw `StackOverflowError` once any audited emitted file
+  ;; POSSESSIVE quantifiers. The nested `(?:…|…)*` shape is a classic
+  ;; catastrophic-backtracking hazard: on a large source file
+  ;; (`re-frame.core/core.cljc`, ~3.1K lines) a greedy form can recurse deep
+  ;; enough to throw `StackOverflowError` when an audited emitted file
   ;; references a `re-frame.core` symbol whose scan pushes the call stack a
-  ;; little further (the strict-mint-policy scaffold added a `rf/reg-frame`
-  ;; reference to events_test.cljs, tipping it over). Making the inner
-  ;; alternation (`[^{}]++` / `[^{}]*+`) and the outer meta-clause repetition
-  ;; (`*+`) POSSESSIVE means the engine never backtracks into already-matched
-  ;; metadata — the match is linear and stack-flat, with identical match
-  ;; semantics (the language matched is unchanged; only the backtracking is
-  ;; removed). `def`/`defn` names are `\s+`-terminated, so a possessive
-  ;; meta-clause never over-consumes the symbol it must capture.
+  ;; little further. Making the inner alternation (`[^{}]++` / `[^{}]*+`) and
+  ;; the outer meta-clause repetition (`*+`) POSSESSIVE means the engine
+  ;; never backtracks into already-matched metadata — the match is linear
+  ;; and stack-flat, with identical match semantics (the language matched is
+  ;; unchanged; only the backtracking is removed). `def`/`defn` names are
+  ;; `\s+`-terminated, so a possessive meta-clause never over-consumes the
+  ;; symbol it must capture.
   (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{(?:[^{}]++|\\{[^{}]*+\\})*+\\})\\s+)*+"
         sym-char    "[a-zA-Z*+!?<>=$%_\\-][\\w*+!?<>=$%\\-]*"]
     (re-pattern
@@ -321,7 +317,7 @@
                      substrate ") uses alias " alias-sym
                      " but no matching :as is declared in the ns form"))))))))
 
-;; --- Strict EP-0017 cofx mint policy guard (rf2-uzne0p) --------------------
+;; --- Strict EP-0017 cofx mint policy guard ---------------------------------
 ;;
 ;; EP-0017's strict-test posture: a generated app that later adds a
 ;; generator-backed recordable coeffect must not be able to write a green
@@ -332,8 +328,8 @@
 ;; sets `:rf.cofx/mint-policy :strict`) or an explicit
 ;; `:rf.cofx/mint-policy :strict`. This guard reads the emitted file and
 ;; fails if the strict posture is dropped, or if the supply-data /
-;; explicit-live testing idiom is no longer documented for the user. It also
-;; locks out the retired EP-0017/EP-0018 vocabulary (`:rf.world/inputs`,
+;; explicit-live testing idiom is not documented for the user. It also
+;; locks out non-EP-0017/EP-0018 vocabulary (`:rf.world/inputs`,
 ;; grouped/nested cofx, `inject-cofx`).
 
 (defn- assert-events-test-strict-mint-policy!
@@ -368,7 +364,7 @@
                  "`:rf.cofx/mint-policy :explicit-live` opt-out — the per-call "
                  "escape a test uses when it INTENTIONALLY accepts "
                  "nondeterministic generation."))
-        ;; (4) No legacy EP-0017/EP-0018 vocabulary leaks into the scaffold.
+        ;; (4) No non-EP-0017/EP-0018 vocabulary leaks into the scaffold.
         (doseq [[re what]
                 [[#":rf\.world/inputs" ":rf.world/inputs (retired — declare :rf.cofx/requires)"]
                  [#"inject-cofx"        "inject-cofx (removed — declare :rf.cofx/requires)"]]]
@@ -409,7 +405,7 @@
 
     1. `<alias>/<sym>` qualified references whose alias resolves to a
        `re-frame.*` ns (e.g. `rf/dispatch`).
-    2. Bare, `:refer`-ed framework symbols (rf2-3uqbd.2) whose source ns
+    2. Bare, `:refer`-ed framework symbols whose source ns
        is `re-frame.*` (e.g. the Reagent scaffold's `(reg-view …)`,
        brought in via `:require-macros [re-frame.core :refer [reg-view]]`
        and called unqualified). Without this, a rename of `reg-view`
@@ -458,11 +454,10 @@
         (audit-framework-symbol! substrate file root target-ns sym
                                  "refers (bare)")))))
 
-;; --- scratch.cljs with-frame shape audit (rf2-ah0gi / rf2-twoc5) -----------
+;; --- scratch.cljs with-frame shape audit -----------------------------------
 ;;
 ;; The emitted dev/scratch.cljs is the user's REPL on-ramp. The two
-;; frame-scope macros are non-overlapping (per rf2-twoc5, Mike-approved
-;; 2026-05-28):
+;; frame-scope macros are non-overlapping:
 ;;
 ;;   `with-frame`     — pin form: first arg MUST be a keyword (or
 ;;                      keyword-resolving symbol). Vector arg is a
@@ -491,8 +486,8 @@
        (= "with-new-frame" (name (first form)))))
 
 (defn- valid-with-frame-first-arg?
-  "Pin form: keyword or symbol (resolves to keyword). Vector is the
-  compile-time error rf2-twoc5 added."
+  "Pin form: keyword or symbol (resolves to keyword). A vector arg is a
+  compile-time error."
   [arg]
   (or (keyword? arg) (symbol? arg)))
 
@@ -548,7 +543,7 @@
                    "keyword argument is a compile-time error; use "
                    "`with-frame` to pin to an existing frame-id.")))))))
 
-;; --- scratch.cljs frame-context audit (rf2-f37lul) -------------------------
+;; --- scratch.cljs frame-context audit --------------------------------------
 ;;
 ;; EP-0002 removed the implicit `:rf/default` floor: a frame-scoped call
 ;; (`dispatch` / `dispatch-sync` / `subscribe`) evaluated with no
@@ -659,8 +654,8 @@
     @acc))
 
 (defn- assert-scratch-frame-context!
-  "Reject any frameless frame-scoped REPL call in the emitted scratch.cljs
-  (rf2-f37lul). Complements the first-arg shape audit above."
+  "Reject any frameless frame-scoped REPL call in the emitted scratch.cljs.
+  Complements the first-arg shape audit above."
   [substrate ^java.io.File root]
   (let [scratch (io/file root "dev/scratch.cljs")]
     (is (.isFile scratch)
@@ -678,7 +673,7 @@
                "dispatch / dispatch-sync, or the 2-arity "
                "(subscribe <frame-id> [query]) form for subscribe.")))))
 
-;; --- Xray layout-host contract audit (rf2-29zmf) ---------------------------
+;; --- Xray layout-host contract audit ---------------------------------------
 ;;
 ;; The scaffold ships an Xray layout host in the emitted
 ;; `resources/public/index.html` (`<aside data-rf-xray-host>`) and sizes
@@ -698,8 +693,8 @@
 ;;
 ;; This audit reads the *generated* HTML/CSS (not the template resource
 ;; directly) so it also catches a future templating step that mangles
-;; the host. It fails on the stale `flex: 0 0 420px` / left-column shape
-;; the scaffold shipped before rf2-29zmf.
+;; the host. It fails on a stale `flex: 0 0 420px` / left-column shape,
+;; which is not the right-side host contract.
 
 (defn- assert-xray-host-contract!
   [substrate ^java.io.File root]
@@ -771,16 +766,15 @@
                  "collapse so release builds (no Xray preload) don't ship "
                  "a blank gutter."))))))
 
-;; --- Stale Xray-layout-wording scan (rf2-qck7t7 Finding #2) ----------------
+;; --- Stale Xray-layout-wording scan ----------------------------------------
 ;;
 ;; `assert-xray-host-contract!` above pins the RUNTIME shape (DOM order +
 ;; resize CSS var) for index.html / app.css only. The prose in the other
-;; emitted text files (deps.edn / shadow-cljs.edn comments) escaped that
-;; net: they kept describing the host as a "left layout column" / "left
-;; column" long after the runtime moved to the right-side layout-host
-;; contract. This guard scans EVERY emitted text file for the stale
-;; left-side wording so a future prose regression can't ship green while
-;; the narrow runtime tests stay happy.
+;; emitted text files (deps.edn / shadow-cljs.edn comments) sits outside
+;; that net: a "left layout column" / "left column" description there would
+;; contradict the right-side layout-host contract. This guard scans EVERY
+;; emitted text file for the stale left-side wording so a prose regression
+;; can't ship green while the narrow runtime tests stay happy.
 
 (def ^:private stale-xray-wording-re
   #"(?i)left[- ]?(layout )?column")
@@ -831,19 +825,19 @@
       (finally
         (delete-recursively tmp)))))
 
-;; --- Normative spec-prose Xray-host drift guard (rf2-7s8ou3) ----------------
+;; --- Normative spec-prose Xray-host drift guard ----------------------------
 ;;
 ;; `assert-xray-host-contract!` pins the RUNTIME shape of the EMITTED
 ;; index.html / app.css, and `assert-no-stale-xray-wording!` scans the
 ;; EMITTED text tree. But the template's OWN normative capability doc —
 ;; `tools/template/spec/002-Generated-Shape.md` §Xray devtools — is not an
-;; emitted artefact, so it escaped both nets. It shipped a stale contract
-;; long after the runtime moved to the right-side host: a `[data-rf-xray-host]`
-;; `<aside>` "inside a .rf2-app-shell with .rf2-xray-host fixed at 420px and
-;; #app taking the remaining width". That left the user-facing scaffold spec
-;; describing a layout the scaffold no longer emits, while the emitted-file
-;; tests stayed green. This guard scans the spec prose directly so the stale
-;; 420px / left-side wording cannot be reintroduced into the normative doc.
+;; emitted artefact, so it sits outside both nets. A stale contract there —
+;; a `[data-rf-xray-host]` `<aside>` "inside a .rf2-app-shell with
+;; .rf2-xray-host fixed at 420px and #app taking the remaining width" —
+;; would leave the user-facing scaffold spec describing a layout the
+;; scaffold does not emit, while the emitted-file tests stay green. This
+;; guard scans the spec prose directly so the stale 420px / left-side
+;; wording cannot be reintroduced into the normative doc.
 ;;
 ;; The doc must match the published right-side host contract
 ;; (tools/xray/spec/011-Launch-Modes.md §Layout host contract), which the
@@ -863,9 +857,9 @@
         (subs doc start end)))))
 
 (deftest spec-002-xray-host-prose-current-test
-  ;; rf2-7s8ou3 — normative scaffold-contract doc must describe the
-  ;; CURRENT right-side Xray layout host, not the stale fixed-420px /
-  ;; left-column shape the scaffold shipped before rf2-29zmf.
+  ;; The normative scaffold-contract doc must describe the CURRENT
+  ;; right-side Xray layout host, not a stale fixed-420px / left-column
+  ;; shape.
   (testing "002-Generated-Shape.md §Xray devtools matches the emitted right-side host contract"
     (let [doc-file (io/file (repo-root)
                             "tools/template/spec/002-Generated-Shape.md")]
@@ -926,7 +920,7 @@
   (testing "Helix-substrate emission has well-formed ns requires and no surface drift"
     (run-for-substrate! :helix)))
 
-;; --- :include-story? (rf2-t009p) -----------------------------------------
+;; --- :include-story? -----------------------------------------------------
 ;;
 ;; The with-stories core variant and the emitted stories.cljs both
 ;; pull on `re-frame.story` — the same drift hazard as the rest of the

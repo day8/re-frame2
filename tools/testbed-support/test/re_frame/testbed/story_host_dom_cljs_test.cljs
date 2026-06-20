@@ -1,5 +1,5 @@
 (ns re-frame.testbed.story-host-dom-cljs-test
-  "Browser-level handoff test for `re-frame.testbed.story-host` (rf2-fzgcii).
+  "Browser-level handoff test for `re-frame.testbed.story-host`.
 
   ## Why this exists (the gap the node suite cannot close)
 
@@ -22,8 +22,8 @@
   `rdc/create-root` on that same node — otherwise React 19 emits the
   \"You are calling ReactDOMClient.createRoot() on a container that has
   already been passed to createRoot() before\" warning, and roots leak.
-  rf2-fq1yg was exactly that class of bug (passing the DOM node, not the
-  root handle, to `unmount` — a silent no-op that left the shell root alive).
+  A subtle way to violate it is passing the DOM node, not the root handle,
+  to `unmount` — a silent no-op that leaves the shell root alive.
   Only a test that drives the REAL handoff on a REAL node can lock it out.
 
   ## What this test does

@@ -1,29 +1,27 @@
-// Unit tests for the Node-side dedup-envelope decoder (rf2-87h71e LOW).
+// Unit tests for the Node-side dedup-envelope decoder.
 //
 // Uses Node's built-in `node:test` (same posture as the other
 // `*.test.cjs` unit suites — no extra dev-dependency).
 //
-// ## The bug this pins
+// ## The contract this pins
 //
 // `lib/dedup-envelope.cjs` `expandCache` reconstructs the day8/de-dupe
 // structural-dedup cache (`:rf.mcp/dedup-table`) the MCP servers emit on
-// the wire. Pre-fix, the cycle-guard set `memo.set(cacheId, undefined)`
-// before recursing, so a cache ref that re-entered an in-progress entry
-// (a CYCLE) resolved to `undefined` — SILENT corruption (a stray
-// `undefined` hole in the reconstruction) rather than a loud error. Real
-// de-dupe caches are acyclic (refs always point at strictly-smaller
-// subtrees), so this is latent — but a conformance decoder MUST fail loud
-// on malformed / adversarial input, not silently emit garbage.
-//
-// The fix installs a distinct in-progress sentinel and throws `cyclic
-// dedup cache` when a ref resolves to it. These tests pin:
+// the wire. The cycle-guard installs a distinct in-progress sentinel and
+// throws `cyclic dedup cache` when a ref resolves to it, so a cache ref
+// that re-enters an in-progress entry (a CYCLE) fails LOUD rather than
+// resolving to `undefined` (silent corruption — a stray `undefined` hole
+// in the reconstruction). Real de-dupe caches are acyclic (refs always
+// point at strictly-smaller subtrees), so a cycle is adversarial input —
+// and a conformance decoder MUST fail loud on malformed / adversarial
+// input, not silently emit garbage. These tests pin:
 //
 //   1. a cyclic cache table THROWS (with a `cyclic` message) — the
-//      regression this closes; the decoder no longer returns `undefined`.
-//   2. the acyclic happy path (shared subtrees, nested refs) still
-//      reconstructs correctly — the fix doesn't break real caches.
-//   3. a dangling ref (no matching entry) still throws its own distinct
-//      error (unchanged behaviour, pinned alongside).
+//      decoder rejects it rather than returning an `undefined` hole.
+//   2. the acyclic happy path (shared subtrees, nested refs)
+//      reconstructs correctly — real caches decode cleanly.
+//   3. a dangling ref (no matching entry) throws its own distinct
+//      error, pinned alongside.
 
 'use strict';
 

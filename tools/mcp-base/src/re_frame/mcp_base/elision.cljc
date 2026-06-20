@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.elision
-  "Wire-boundary elision-marker walker (rf2-9fz64).
+  "Wire-boundary elision-marker walker.
 
   Per `spec/009` §Size elision in traces, the framework's
   `rf/elide-wire-value` walker substitutes over-threshold leaves with
@@ -8,15 +8,15 @@
   surfaces a scalar count of those substitutions on its response
   envelope (the unqualified `:elided-large` slot — see
   `vocab/elided-large-key` and Conventions §Cross-MCP indicator-field
-  vocabulary, MUST-level per rf2-2499j).
+  vocabulary, MUST-level).
 
   ## Why this ns
 
   `vocab.cljc` is the constants catalogue — namespaced keys, JSON-RPC
-  codes, envelope-slot names. A runtime tree-walker is not a constant
-  and was crowding the catalogue's mandate. The walker lives here so
-  the elision concern has a clear home; sibling elision-side runtime
-  fns land here too as the vocabulary grows.
+  codes, envelope-slot names. A runtime tree-walker is not a constant,
+  so it lives here instead, giving the elision concern a clear home;
+  sibling elision-side runtime fns land here too as the vocabulary
+  grows.
 
   ## Cousin to `re-frame.mcp-base.sensitive`
 
@@ -24,8 +24,8 @@
   `:dropped-sensitive` envelope slot; `count-elided-markers` returns
   the integer for the `:elided-large` slot. Both indicators ride the
   response envelope together per the cross-MCP indicator-field
-  parity (one without the other is the round-2 audit fix the
-  conformance gate enforces).
+  parity — emitting one without the other is the failure the
+  conformance gate catches.
 
   ## Cross-platform
 

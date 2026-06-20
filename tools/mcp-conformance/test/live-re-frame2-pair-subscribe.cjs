@@ -1,19 +1,18 @@
 // Live-re-frame2-pair MCP-client conformance variant exercising the
 // `notifications/progress` streaming wire surface.
-// Source: rf2-zb5z6 (rf2-i3ffz F-GAP-1 follow-on).
 //
 // ## What this test guards
 //
 // The sibling `end-to-end-re-frame2-pair.cjs` runs `subscribe` only in
 // *degraded* mode (no nREPL → every response is the same
 // `:nrepl-port-not-found` error envelope). The live overflow harness
-// (`live-re-frame2-pair-overflow.cjs`) only exercises `eval-cljs`. Before this
-// gate landed, **no test ever observed a real
-// `notifications/progress` frame from the server** — re-frame2-pair-mcp's
-// streaming surface (per NAMING.md §"subscribe / unsubscribe": one
-// progress frame per matching batch) had zero wire conformance.
+// (`live-re-frame2-pair-overflow.cjs`) only exercises `eval-cljs`. This
+// variant is the one that observes a real `notifications/progress` frame
+// from the server — pinning re-frame2-pair-mcp's streaming surface (per
+// NAMING.md §"subscribe / unsubscribe": one progress frame per matching
+// batch) on the wire.
 //
-// This variant fills that gap. With a real nREPL connected:
+// With a real nREPL connected:
 //
 //   1. We pass a request-scoped `onprogress` callback to the SDK
 //      `tools/call` — the same progress path a real MCP-aware
@@ -23,16 +22,16 @@
 //      terminal summary.
 //   3. While subscribe streams, we `tools/call dispatch` the fixture's
 //      `[:counter/inc "<NONCE>"]` event — repeatedly, on a short cadence,
-//      until a progress frame carrying that per-run NONCE is observed
-//      (rf2-x0pr0). The trace bus emission for the cascade WE caused flows
-//      back through subscribe's drain loop. Re-dispatching removes the
-//      timing race: the subscription is installed asynchronously
+//      until a progress frame carrying that per-run NONCE is observed.
+//      The trace bus emission for the cascade WE caused flows back through
+//      subscribe's drain loop. Re-dispatching removes the timing race:
+//      the subscription is installed asynchronously
 //      (ensure-runtime! → signal-runtime! → subscribe! eval), so the
 //      FIRST probe to land after registration produces the causal frame —
 //      readiness is PROVEN by the observed nonce, never assumed by a clock.
 //   4. We assert (a) the observed cascade is CAUSALLY ours — at least one
 //      frame's `:message` carries the dispatched NONCE, so an unrelated bus
-//      emission can no longer false-green the gate — and (b) every collected
+//      emission cannot false-green the gate — and (b) every collected
 //      progress frame passes the canonical
 //      `ReFrame2PairProgressNotificationParams` shape pinned by `wire-vocab/`
 //      (the JVM-side schema). A drift between the JS-side assertion
@@ -50,19 +49,19 @@
 //     mangled token fails to route and zero frames arrive, tripping the
 //     "at least one frame" gate. The slot is unobservable in the
 //     `onprogress` callback (the SDK strips it before invoking us), so a
-//     direct JS-side presence check would be vacuous (rf2-ee38b.20).
+//     direct JS-side presence check would be vacuous.
 //   - `_meta.data` slot shape drift (`:dropped-events`, `:dropped-bytes`,
 //     `:overflow-reason` are the documented contract slots).
 //   - subscribe entirely failing to emit a progress frame on a
 //     well-formed dispatch (e.g. drain loop regression).
 //   - the subscribe→dispatch→drain CAUSAL path silently breaking: a frame
 //     that does NOT correspond to our dispatched event (e.g. the cascade
-//     for `:counter/inc` never reaches the sub's queue) no longer passes,
+//     for `:counter/inc` never reaches the sub's queue) does not pass,
 //     because the NONCE assertion requires the observed frame to be the
-//     cascade we caused (rf2-x0pr0).
+//     cascade we caused.
 //   - a refused / failed dispatch silently passing: the probe's `isError`
-//     is now FATAL, so a dispatch that never landed fails the gate rather
-//     than riding alongside an unrelated frame (rf2-x0pr0).
+//     is FATAL, so a dispatch that never landed fails the gate rather
+//     than riding alongside an unrelated frame.
 //
 // ## Flag-gate WIRE riders (eval + writes)
 //
@@ -76,13 +75,12 @@
 // end-to-end never reaches these gates):
 //
 //   - `eval-cljs` with `--no-eval` ⇒ isError + `:rf.error/eval-cljs-disabled`
-//     (rf2-a0z0h — the opt-out post-default-ON eval gate).
+//     (the opt-out eval gate; eval-cljs is ON by default).
 //   - `restore-epoch` / `replace-app-db` with `--allow-writes` ABSENT ⇒
-//     isError + `:rf.error/writes-disabled` (rf2-ee38b.18 default-OFF
-//     write gate; coverage added rf2-6r5qe.1). This pins the pair-mcp
-//     half of the NAMING.md cross-server write-gate contract that was
-//     doc-only before — a default-flip / flag-rename / dropped gate-check
-//     for either state-mutating tool now ships RED.
+//     isError + `:rf.error/writes-disabled` (the default-OFF write gate).
+//     This pins the pair-mcp half of the NAMING.md cross-server write-gate
+//     contract — a default-flip / flag-rename / dropped gate-check for
+//     either state-mutating tool ships RED.
 //
 // ## Gating
 //
@@ -94,7 +92,7 @@
 // (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`) wires the env when
 // run as part of the hermetic suite.
 
-// ## DRY-on-3 resolution (rf2-1bwph → rf2-0ogn7)
+// ## DRY-on-3 resolution
 //
 // This file and its `live-re-frame2-pair-*.cjs` siblings (overflow,
 // redaction) share the nREPL SKIP-gate (via $SHADOW_CLJS_NREPL_PORT) and
@@ -124,16 +122,16 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // re-frame2-pair-mcp's spec the four valid topics are `trace | epoch | fx | error`.
 const TOPIC = 'trace';
 
-// Per-run unique nonce (rf2-x0pr0). We dispatch `[:counter/inc
+// Per-run unique nonce. We dispatch `[:counter/inc
 // "<NONCE>"]` — the `:counter/inc` event-db handler ignores its event
 // args, so the extra string is inert, but the FULL event vector rides
 // into the trace cascade's `:event` slot and is `pr-str`'d into the
 // progress frame's `:message`. Asserting at least one progress frame's
 // `message` carries this nonce makes the gate CAUSAL: it proves the
 // observed frame is the cascade from OUR dispatch, not an unrelated bus
-// emission that happened to arrive during the window. Before this, the
-// gate accepted ANY progress frame (`frames.length > 0`), so a spurious
-// emission while our dispatch raced / failed could false-green it.
+// emission that happened to arrive during the window. A bare
+// `frames.length > 0` check would false-green on a spurious emission
+// while our dispatch raced / failed; requiring the nonce rules that out.
 const NONCE = 'rf2-subscribe-probe-' + crypto.randomUUID();
 const PROBE_EVENT = '[:counter/inc "' + NONCE + '"]';
 
@@ -151,8 +149,8 @@ const MAX_MS = 1500;
 // greps for each row's literal source form. A row renamed/deleted
 // trips the JVM gate.
 //
-// `progressToken` is deliberately ABSENT from this table (rf2-ee38b.20
-// correctness fix). The MCP SDK's `_onprogress` destructures
+// `progressToken` is deliberately ABSENT from this table. The MCP SDK's
+// `_onprogress` destructures
 // `progressToken` OUT of `notification.params` before invoking this
 // callback (`@modelcontextprotocol/sdk/.../shared/protocol.js`:
 // `const { progressToken, ...params } = notification.params`), so the
@@ -238,12 +236,12 @@ runWithWatchdog(
     transportSpec: {
       command: process.execPath,
       // re-frame2-pair-mcp's subscribe tool is unaffected by the eval
-      // gate. We boot with `--no-eval` (the opt-out post-rf2-a0z0h)
-      // because the eval-cljs WIRE check below asserts the
+      // gate. We boot with `--no-eval` (the opt-out; eval-cljs is ON by
+      // default) because the eval-cljs WIRE check below asserts the
       // disabled-envelope crosses the wire when eval has been opted
       // OUT — that is the only configuration where the disabled gate
-      // is reachable post-default-flip. The streaming bus surface is
-      // the load-bearing test target; the eval probe rides alongside.
+      // is reachable. The streaming bus surface is the load-bearing
+      // test target; the eval probe rides alongside.
       args: [SERVER, '--no-eval'],
       cwd: os.tmpdir(),
       env: { ...process.env },
@@ -268,7 +266,7 @@ runWithWatchdog(
       // implicitly by the "at least one frame arrived" gate below (a
       // renamed / dropped token fails the SDK's numeric correlation →
       // zero frames). See the REQUIRED_PARAMS comment for why a JS-side
-      // `progressToken` presence check would be vacuous (rf2-ee38b.20).
+      // `progressToken` presence check would be vacuous.
       frames.push(params);
     };
 
@@ -287,38 +285,36 @@ runWithWatchdog(
       { onprogress: onProgress },
     );
 
-    // ---- Causality-based readiness, NOT a fixed-sleep proxy (rf2-x0pr0) ----
+    // ---- Causality-based readiness, NOT a fixed-sleep proxy ----
     //
-    // Pre-fix, the test slept a fixed 100ms and then dispatched ONCE,
-    // TREATING the sleep as proof the subscription was installed. But the
-    // server only registers the runtime subscription after `ensure-runtime!`
-    // + `signal-runtime!` + the `subscribe!` nREPL eval all complete — on a
-    // cold runtime that can exceed 100ms. If the single dispatch raced ahead
-    // of registration its cascade was lost and the gate either flaked (zero
-    // frames) or, worse, false-greened on an unrelated frame.
+    // The server registers the runtime subscription only after
+    // `ensure-runtime!` + `signal-runtime!` + the `subscribe!` nREPL eval
+    // all complete — on a cold runtime that can exceed any fixed sleep, and
+    // a single dispatch that raced ahead of registration would lose its
+    // cascade (zero frames, or a false-green on an unrelated frame).
     //
-    // We now drive readiness CAUSALLY: re-dispatch the nonce-tagged probe
+    // So we drive readiness CAUSALLY: re-dispatch the nonce-tagged probe
     // event on a short cadence until a progress frame carrying our NONCE is
     // observed (`sawNonceFrame()`), or the subscribe window is nearly closed.
     // Each `[:counter/inc "<nonce>"]` is a harmless idempotent increment, so
     // repeating it is safe; the FIRST one to land after registration produces
     // the causal frame and the loop stops. There is no fixed-time assumption
     // — registration completing late just means a later probe is the one that
-    // lands. This is the "deterministic 'subscription installed' signal" the
-    // acceptance criterion asks for: the installed state is proven by the
-    // observed cascade, not assumed by a clock.
+    // lands. This is the deterministic "subscription installed" signal: the
+    // installed state is proven by the observed cascade, not assumed by a
+    // clock.
     const sawNonceFrame = () =>
       frames.some(
         (f) => typeof f.message === 'string' && f.message.includes(NONCE),
       );
 
     // The event arg slot is `event` (a single EDN-vector string parsed
-    // server-side per rf2-vflrg). The event-id MUST be a REGISTERED fixture
+    // server-side). The event-id MUST be a REGISTERED fixture
     // handler — `:counter/inc` (counter/core.cljs, a pure `(update :count
     // inc)`) — so the dispatch actually lands and the trace bus emits. An
     // unregistered id would be refused (no cascade). `:queued true` routes
     // through the runtime `pair-dispatch!` transport-ack path rather than the
-    // default `dispatch-consequence!` (rf2-3bu3d.2): the re-frame2-pair fixture
+    // default `dispatch-consequence!`: the re-frame2-pair fixture
     // boots with epoch recording at depth 0, so the consequence path would
     // report `:no-epoch-recorded` even though the event dispatched and the
     // TRACE cascade fired. The trace bus is independent of epoch recording, so
@@ -343,16 +339,15 @@ runWithWatchdog(
     while (Date.now() < RETRY_DEADLINE && !sawNonceFrame()) {
       lastDispatchResp = await dispatchProbe();
       dispatchCount++;
-      // ---- Dispatch result is FATAL on refusal (rf2-x0pr0) ----
+      // ---- Dispatch result is FATAL on refusal ----
       //
-      // Pre-fix a dispatch `isError` was logged-and-ignored ("non-fatal").
-      // That was a false-green vector: a REFUSED dispatch (parse error,
-      // `:runtime-not-preloaded`, nREPL flap, an unknown event-id) means OUR
-      // cascade never ran, yet the old "at least one frame" gate would still
-      // pass on an unrelated emission. `:queued` returns `{:ok? true
-      // :queued? true ...}` on a real enqueue; the server maps a runtime
-      // `:ok? false` (or any failure) to an `isError` envelope
-      // (`runtime-envelope->result`, rf2-ldfnx). So `isError` here is exactly
+      // A REFUSED dispatch (parse error, `:runtime-not-preloaded`, nREPL
+      // flap, an unknown event-id) means OUR cascade never ran, so treating
+      // `isError` as fatal stops the gate from limping on toward a frame
+      // assertion an unrelated emission could satisfy. `:queued` returns
+      // `{:ok? true :queued? true ...}` on a real enqueue; the server maps a
+      // runtime `:ok? false` (or any failure) to an `isError` envelope
+      // (`runtime-envelope->result`). So `isError` here is exactly
       // "the dispatch did not land" — fatal. (The benign
       // `:no-epoch-recorded`/`:settled? false` posture does NOT surface as
       // isError under `:queued`, so we stay decoupled from the fixture's
@@ -407,16 +402,15 @@ runWithWatchdog(
       'OK   notifications/progress -> ' + frames.length + ' frame(s) received',
     );
 
-    // ---- LOAD-BEARING CAUSALITY ASSERTION (rf2-x0pr0) ----
+    // ---- LOAD-BEARING CAUSALITY ASSERTION ----
     //
-    // Pre-fix the gate stopped at "at least one frame arrived" — which a
-    // spurious, unrelated bus emission during the window could satisfy
-    // even if OUR dispatch raced ahead of subscription registration or
-    // failed silently. The `:trace` topic carries EVERY dispatch on the
-    // runtime, so "a frame" is NOT proof the frame is the cascade we
-    // caused.
+    // "At least one frame arrived" alone is NOT proof the frame is the
+    // cascade we caused: a spurious, unrelated bus emission during the
+    // window could satisfy it even if OUR dispatch raced ahead of
+    // subscription registration or failed silently, because the `:trace`
+    // topic carries EVERY dispatch on the runtime.
     //
-    // We now require at least ONE frame whose `:message` (the EDN-printed
+    // So we require at least ONE frame whose `:message` (the EDN-printed
     // batch — on `:trace` a `:cascades` vector, each bundle carrying its
     // `:event` slot = the dispatched event vector) contains our per-run
     // NONCE. Since we dispatched `[:counter/inc "<NONCE>"]`, the cascade's
@@ -458,14 +452,14 @@ runWithWatchdog(
       'OK   every frame validates against ReFrame2PairProgressNotificationParams',
     );
 
-    // ---- Operator-opt-out flag-gate WIRE conformance (rf2-a0z0h) ----
+    // ---- Operator-opt-out flag-gate WIRE conformance ----
     //
     // This server booted WITH `--no-eval` (see transportSpec above) AND
     // has a live runtime attached — so it is NOT in degraded mode. The
-    // eval-cljs gate flipped to default-ON in rf2-a0z0h; the disabled
-    // envelope is now reachable only when the operator explicitly opts
-    // OUT. The call reaches the tool body, the gate (flipped OFF by
-    // --no-eval) short-circuits BEFORE touching nREPL, and the
+    // eval-cljs gate is default-ON; the disabled envelope is reachable
+    // only when the operator explicitly opts OUT. The call reaches the
+    // tool body, the gate (flipped OFF by --no-eval) short-circuits BEFORE
+    // touching nREPL, and the
     // canonical `:rf.error/eval-cljs-disabled` envelope crosses the
     // wire. (In degraded mode the server's `degraded-handler`
     // short-circuits every tool to `:nrepl-port-not-found` before the
@@ -499,9 +493,9 @@ runWithWatchdog(
         ':rf.error/eval-cljs-disabled (live, non-degraded)',
     );
 
-    // ---- Default-OFF write-gate WIRE conformance (rf2-6r5qe.1) ----
+    // ---- Default-OFF write-gate WIRE conformance ----
     //
-    // The pair-mcp `--allow-writes` gate (rf2-ee38b.18) guards the two
+    // The pair-mcp `--allow-writes` gate guards the two
     // state-mutating tools `restore-epoch` (time-travel undo) and
     // `replace-app-db` (state injection). It is DEFAULT-OFF — the
     // published-build posture — and this server booted WITHOUT
@@ -511,12 +505,11 @@ runWithWatchdog(
     // `{:ok? false :reason :rf.error/writes-disabled :tool "<name>"}`
     // envelope WITHOUT touching the nREPL socket.
     //
-    // Until this probe landed, that refusal had ZERO wire-level
-    // conformance coverage (rf2-6r5qe.1): NAMING.md §"Operator-opt-in CLI
-    // flag vocabulary" pins it as a cross-server contract (pair-mcp's
-    // half of the same gate story story-mcp's --allow-writes covers in
-    // end-to-end-flag-gates.cjs), yet no test asserted the pair-mcp
-    // envelope on the wire. The existing gates all miss it:
+    // This probe is the wire-level conformance coverage for that refusal:
+    // NAMING.md §"Operator-opt-in CLI flag vocabulary" pins it as a
+    // cross-server contract (pair-mcp's half of the same gate story
+    // story-mcp's --allow-writes covers in end-to-end-flag-gates.cjs).
+    // The other gates do not reach it:
     //   - end-to-end-re-frame2-pair.cjs runs DEGRADED — the
     //     degraded-handler short-circuits every tools/call to
     //     :nrepl-port-not-found in `ensure-connection!` BEFORE the tool

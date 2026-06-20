@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.envelope-test
-  "Tests for the shared response-envelope helpers (rf2-ee38b.19) —
+  "Tests for the shared response-envelope helpers —
   the indicator-field 'omit when zero' splice and the wire-bounded
   marker detection."
   (:require [clojure.test :refer [deftest is testing]]
@@ -63,7 +63,7 @@
   (is (some #(= % "#:rf.mcp{:cache-hit") envelope/marker-prefixes)))
 
 (deftest marker-text?-only-matches-leading-marker-not-embedded-key
-  ;; Coverage gap (rf2-ynjts.17): `marker-text?` is `starts-with?`, not
+  ;; `marker-text?` is `starts-with?`, not
   ;; `includes?` — the marker key must be the LEADING top-level key for
   ;; the text to count as a boundary marker. The comment block in
   ;; envelope.cljc justifies the prefix-match precisely on this ground:
@@ -87,7 +87,7 @@
           "overflow key present but not the leading key ⇒ not a marker"))))
 
 (deftest marker-text?-empty-and-blank-strings-are-not-markers
-  ;; Boundary pin (rf2-ynjts.17): the empty string and whitespace are
+  ;; Boundary pin: the empty string and whitespace are
   ;; strings (so they pass the `string?` guard) but match no prefix.
   (is (false? (envelope/marker-text? "")))
   (is (false? (envelope/marker-text? "   ")))
@@ -107,13 +107,12 @@
     (is (true? (envelope/marker-text? "{:rf.mcp/cache-hit {:tool \"x\"}}")))))
 
 (deftest marker-text?-requires-exact-marker-key-not-prefix
-  ;; rf2-3xd9i9 regression: the detector matched on `starts-with?` of the
-  ;; marker-key PREFIX, so a LOOKALIKE leading key whose name merely
-  ;; begins with a real marker key (`:rf.mcp/overflowed`,
-  ;; `:rf.mcp/cache-hit-extra`) was wrongly classified as an already-
-  ;; bounded marker — letting an over-budget payload bypass cap
-  ;; enforcement. The fix requires the marker key to END exactly at the
-  ;; prefix (terminated by an EDN token terminator), so a strict
+  ;; A bare `starts-with?` of the marker-key PREFIX would classify a
+  ;; LOOKALIKE leading key whose name merely begins with a real marker
+  ;; key (`:rf.mcp/overflowed`, `:rf.mcp/cache-hit-extra`) as an
+  ;; already-bounded marker — letting an over-budget payload bypass cap
+  ;; enforcement. The detector requires the marker key to END exactly at
+  ;; the prefix (terminated by an EDN token terminator), so a strict
   ;; prefix-superset key is NOT a marker.
   (testing "strict prefix-superset of a marker key ⇒ NOT a marker (flat form)"
     (is (false? (envelope/marker-text? "{:rf.mcp/overflowed {:x 1}}"))
@@ -121,7 +120,7 @@
     (is (false? (envelope/marker-text? "{:rf.mcp/cache-hit-extra {:x 1}}"))
         "':rf.mcp/cache-hit-extra' merely starts with ':rf.mcp/cache-hit'")
     ;; A real payload over budget whose first key is a lookalike: the
-    ;; exact realistic cap-bypass shape the bead calls out.
+    ;; realistic cap-bypass shape this guard prevents.
     (is (false? (envelope/marker-text?
                   (pr-str (array-map :rf.mcp/overflowed {:limit :reached :token-count 9000}))))))
   (testing "strict prefix-superset of a marker key ⇒ NOT a marker (namespaced-map form)"

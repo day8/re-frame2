@@ -1,7 +1,6 @@
 (ns re-frame.testbed.story-host
   "Shared Story-host helper — the live-app ↔ Story-shell hash-toggle host
-  harness the Story showcase testbeds copied verbatim (rf2-tq26t /
-  rf2-uv7sn).
+  harness the Story showcase testbeds share.
 
   ## Why this exists
 
@@ -22,17 +21,15 @@
   `ensure-app-root!` / `tear-down-app-root!` / `mount-app!` /
   `mount-stories!`, and the `hashchange` listener — is pure React-DOM-root
   juggling, identical across every testbed but for the live-app root view
-  (the frame subtree above).
-  Five copies (`counter_with_stories`, `login_form`, the `login` and
-  `nine_states` examples, plus the template scaffolding) invited drift:
-  they already diverged in their `run` boot specifics (CI hooks, elision
-  listener, `:fx-overrides`) while carrying byte-identical host blocks.
+  (the frame subtree above). Centralising it here keeps each testbed's `run`
+  free to carry only its own boot specifics (CI hooks, elision listener,
+  `:fx-overrides`) without re-stating the host block.
 
   ## What it owns
 
   This namespace owns the React-root handle and the hash router ONLY — the
-  documented mount-handle exception to the app-db+events+subs rule
-  (rf2-5sjbg). Both the React-root atom and the installed-`hashchange`-listener
+  documented mount-handle exception to the app-db+events+subs rule. Both the
+  React-root atom and the installed-`hashchange`-listener
   handle are `defonce` atoms here, so a testbed's hot-reload re-`run` reuses
   the one root and replaces the one listener rather than leaking a fresh root
   or STACKING a duplicate listener per reload (the explicit store/remove
@@ -48,21 +45,20 @@
   so consuming testbeds need no build-wiring change. Bundle-isolation holds:
   nothing under `implementation/` `:require`s it (it lives under tools/).
 
-  ## The open-in-editor project-root (rf2-77wqzi)
+  ## The open-in-editor project-root
 
   Story stamps each registered source-coord with a CLASSPATH-RELATIVE
   `:file` slot (e.g. `login/stories.cljs`); the 'open in editor' chip
   prepends an on-disk *project-root* to turn it into a real editor URI
   (`re-frame.story.config/set-project-root!`). That root is per-build
   (it differs per clone), so it cannot be baked in — the host must hand
-  it to `story/configure!` at boot. Leaving that call inline in every
-  consuming `run` invited exactly the omission rf2-77wqzi found: the
-  two `examples/reagent` Story showcases mounted the shell fine but
-  never configured a root, so their Story source links resolved against
-  a nil root and OS editor handlers could not open the file (a false
-  green — the shell loads, the chip shows, the link is dead).
+  it to `story/configure!` at boot. Carrying that call inline in every
+  consuming `run` makes it easy to mount the shell while silently
+  forgetting the root: the shell loads and the chip shows, but the source
+  links resolve against a nil root and OS editor handlers cannot open the
+  file (a false green — the link is dead).
 
-  To make that impossible to forget, the project-root config is now a
+  To make that impossible to forget, the project-root config is a
   HOST responsibility: a consumer declares its tool-relative source
   subdir via the `:source-subdir` opt and `mount-with-hash-routing!`
   resolves the root (through the shared `re-frame.testbed.config`
@@ -88,8 +84,7 @@
 ;; before mounting the other so React owns the target node exclusively.
 ;;
 ;; `defonce` so a testbed's hot-reload re-`run` reuses the same root rather
-;; than leaking a fresh one per reload (the contract every per-file copy
-;; encoded).
+;; than leaking a fresh one per reload.
 
 (defonce ^:private app-root (atom nil))
 
@@ -141,15 +136,14 @@
       (mount-stories!)
       (mount-app!))))
 
-;; -- Open-in-editor project-root (rf2-77wqzi) ------------------------------
+;; -- Open-in-editor project-root -------------------------------------------
 ;;
 ;; A consumer declares its tool-relative source subdir (e.g.
 ;; `"examples/reagent"` or `"tools/story/testbeds"`) and the host resolves
 ;; the on-disk root through the shared cross-platform mechanism and hands it
 ;; to `story/configure!`. Centralising it here means a Story-host consumer
 ;; can no longer mount the shell while silently forgetting the project-root
-;; config — the omission rf2-77wqzi found in the two `examples/reagent`
-;; showcases. A blank subdir, or a checkout where neither the build-time
+;; config. A blank subdir, or a checkout where neither the build-time
 ;; define nor a `?checkout-root=` override is present, resolves to nil and
 ;; configures no root (graceful no-op, matching `set-project-root!`).
 
@@ -212,7 +206,7 @@
     `?checkout-root=` override, cross-platform) and calls `story/configure!`
     with `:rf.story/project-root` — which also bridges the root into Xray's
     slot. This is the ONE host-owned contract for Story-host project-root
-    config (rf2-77wqzi): declare the subdir and the host wires the rest, so
+    config: declare the subdir and the host wires the rest, so
     a consumer can no longer mount the shell while silently forgetting it.
     Omit the opt (or pass a 1-arity call) when the consumer configures
     `story/configure!` itself.

@@ -1,5 +1,4 @@
-// Unit test for the per-tool annotation CLASSIFICATION ratchet
-// (rf2-yi451; open-world complement closed in rf2-ppk6hy).
+// Unit test for the per-tool annotation CLASSIFICATION ratchet.
 //
 // `assertClassificationRatchet` is itself a conformance gate — it is the
 // teeth that turn a per-tool annotation regression (a flipped read-only /
@@ -14,11 +13,11 @@
 // The end-to-end harnesses (`end-to-end-story.cjs` /
 // `end-to-end-re-frame2-pair.cjs`) exercise the GREEN path live (every
 // advertised tool's real wire descriptor). This test pins the RED paths
-// the green runs never hit — in particular the rf2-ppk6hy open-world hole:
-// before the fix the ratchet asserted only the `closed-world` (false) side
-// of the openWorld partition, so a read-only or destructive tool that
-// reaches the live browser / nREPL could drop (or false) `openWorldHint`
-// and still ship GREEN, mislabelling a live-reaching tool as contained.
+// the green runs never hit — in particular the open-world side of the
+// partition: a read-only or destructive tool that reaches the live
+// browser / nREPL must carry `openWorldHint:true`. Dropping (or falsing)
+// that hint mislabels a live-reaching tool as contained, and the ratchet
+// must turn that RED.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -75,7 +74,7 @@ test('GREEN: the legitimate open/closed partition ⇒ no throw', () => {
   );
 });
 
-// --- rf2-ppk6hy: the open-world complement (the regression this fix adds) ---
+// --- the open-world complement: live-reaching tools MUST flag openWorldHint ---
 
 test('RED: a read-only live tool that DROPS openWorldHint ⇒ throws + names it', () => {
   const tools = greenTools();
@@ -99,7 +98,7 @@ test('RED: a read-only live tool with openWorldHint:false ⇒ throws (mislabelle
 test('RED: a DESTRUCTIVE live tool that drops openWorldHint ⇒ throws (the trust-boundary case)', () => {
   const tools = greenTools();
   // write-live is destructive AND reaches the runtime; dropping the
-  // open-world hint without this complement would ship GREEN pre-fix.
+  // open-world hint on a live-reaching destructive tool must trip the gate.
   tools[1].annotations = { destructiveHint: true };
   assert.throws(
     () => assertClassificationRatchet(tools, FIXTURE),
@@ -116,7 +115,7 @@ test('RED: a `neither` live tool that drops openWorldHint ⇒ throws', () => {
   );
 });
 
-// --- the closed-world (false) side still holds (rf2-yi451) ---
+// --- the closed-world (false) side holds: inline tools MUST NOT claim reach ---
 
 test('RED: a closed-world tool that flips openWorldHint:true ⇒ throws', () => {
   const tools = greenTools();
@@ -137,7 +136,7 @@ test('RED: a closed-world tool that drops openWorldHint ⇒ throws', () => {
   );
 });
 
-// --- the read-only / destructive posture axis still holds (rf2-yi451) ---
+// --- the read-only / destructive posture axis ---
 
 test('RED: a destructive tool re-labelled read-only ⇒ throws', () => {
   const tools = greenTools();

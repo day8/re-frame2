@@ -6,12 +6,11 @@
   All three tests share the same surface posture: grep source files at
   the repo root for canonical literal strings, validate authored
   fixtures against Malli schemas, and pin per-server presence /
-  absence invariants. The classpath-derived `repo-root` and the
-  `read-source` slurp helper were duplicated verbatim across the
-  three test namespaces before this helper landed (rf2-113ti); the
-  `known-servers` set was duplicated across two of them. Centralising
-  here removes ~60 LoC of ceremony and reduces the per-new-test-ns
-  surface to one `:require`.
+  absence invariants. The classpath-derived `repo-root`, the
+  `read-source` slurp helper, and the `known-servers` set are
+  centralised here so each test namespace pulls them in via one
+  `:require` rather than re-deriving the classpath-walk + slurp
+  ceremony.
 
   ## What this ns owns
 
@@ -25,15 +24,14 @@
     needs the test to surface it.
   - **`known-servers`** — the canonical `#{:re-frame2-pair-mcp :story-mcp}`
     pair. A typo in any test's `:servers` set surfaces against this.
-    (xray-mcp was dropped in rf2-bu21t — xray now ships as a
-    Clojars-only library, not an MCP server.)
+    (xray ships as a Clojars-only library, not an MCP server.)
 
   ## What this ns does NOT own
 
   Per-marker schemas + the `canonical-markers` catalogue live in
   `wire_vocab/schemas.clj`; the shared source-text pin inventories +
-  near-miss helpers live in `wire_vocab/source_pins.clj` (both split out
-  of `wire_vocab_test.clj` by rf2-7ckmwx). Marker-family-LOCAL schemas +
+  near-miss helpers live in `wire_vocab/source_pins.clj`.
+  Marker-family-LOCAL schemas +
   fixtures (`ResultEnvelope`, `CascadeBundle`, and the per-family fixture
   maps) stay co-located with their tests in the focused `*_test.clj`
   namespaces — they ARE the contract for that family, not boilerplate.

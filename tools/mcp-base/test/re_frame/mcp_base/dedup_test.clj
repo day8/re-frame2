@@ -1,7 +1,7 @@
 (ns re-frame.mcp-base.dedup-test
-  "Tests for the lifted wire-boundary dedup encode step (rf2-ttspi7).
+  "Tests for the shared wire-boundary dedup encode step.
 
-  Pins the byte-identical forward direction both MCP servers now
+  Pins the byte-identical forward direction both MCP servers
   delegate to: the `empty-payload?` short-circuit, the cross-MCP wrap
   shape, the opt-out, and round-trip exactness via `de-dupe.core/expand`
   (the inverse the agent host calls — NOT a base surface)."

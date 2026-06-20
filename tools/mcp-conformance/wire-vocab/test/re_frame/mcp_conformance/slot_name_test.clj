@@ -1,11 +1,10 @@
 (ns re-frame.mcp-conformance.slot-name-test
-  "Cross-MCP slot-name conformance (rf2-zvv65).
+  "Cross-MCP slot-name conformance.
 
   Pins the cross-server **argument-slot vocabulary** that an agent
   learns once and recognises identically across every MCP server in
-  the re-frame2 pair (re-frame2-pair-mcp, story-mcp). (xray-mcp was dropped
-  in rf2-bu21t — xray now ships as a Clojars-only library, not an
-  MCP server.)
+  the re-frame2 pair (re-frame2-pair-mcp, story-mcp). (xray ships as a
+  Clojars-only library, not an MCP server.)
 
   Sibling to:
 
@@ -31,20 +30,19 @@
   ... and the same vocabulary works on every server. Cross-server
   divergence on any of these slot names breaks the agent's mental
   model in the cross-MCP workflow (chained re-frame2-pair-mcp + story-mcp in
-  one session). The audit (rf2-m9yoi §TE2) called out that the
-  cross-server promise was **unenforced** before this gate landed —
-  multiple Principles.md sections claim identity but no test
-  actually pinned the wire-level agreement.
+  one session). The cross-server promise needs this gate: multiple
+  Principles.md sections claim identity, and this test pins the
+  wire-level agreement that backs the claim.
 
-  Composes on the indicator-field gate pattern from rf2-6m8tq
-  (#866) and the wire-vocab marker gate from rf2-j2z7o.
+  Composes on the indicator-field gate pattern and the wire-vocab
+  marker gate.
 
   ## What this test guards
 
   1. **Tool-arg slot-name parity** — `:include-sensitive` /
      `:max-tokens` literals appear as INPUT-arg keys in every server's
      descriptor source and arg-parsing source. A rename on any server
-     trips this gate. The wire-key drops the trailing `?` (per rf2-y710n)
+     trips this gate. The wire-key drops the trailing `?`
      because Anthropic's tool-input-schema regex
      `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`; the predicate FUNCTION name
      `include-sensitive?` keeps its `?` — the idiom belongs on the
@@ -76,8 +74,7 @@
             [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
-;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
-;; (rf2-113ti).
+;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
@@ -117,8 +114,8 @@
     :sources  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
                            "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"]
                ;; story-mcp's `:include-sensitive` parsing lives in
-               ;; `args.cljc` (rf2-73wuj / rf2-8yvyp — the cross-MCP
-               ;; `args/parse-boolean` reader) and the slot schema lives in
+               ;; `args.cljc` (the cross-MCP `args/parse-boolean` reader)
+               ;; and the slot schema lives in
                ;; `schemas.cljc` (`include-sensitive-schema` injector).
                ;; No `sensitive.cljc` (the path was a stale guess from
                ;; the re-frame2-pair-mcp shape that doesn't apply to story-mcp).
@@ -152,13 +149,11 @@
                when the rendered payload exceeds the cap (cross-server)."}])
 
 ;; ---------------------------------------------------------------------------
-;; Historical note — the size-elision opt-out divergence pin
-;; (`:include-large?` vs re-frame2-pair-mcp's `:elision`) lived here while
-;; xray-mcp shipped as an MCP server (rf2-8xzoe T-Insp cluster). The
-;; rf2-bu21t drop reverted xray-mcp; the divergence collapsed to a
-;; single-server re-frame2-pair-mcp `:elision` form. If a future MCP server
-;; adopts `:include-large?` (per the canonical reserved spelling in
-;; `mcp-base/vocab.cljc`), restore the divergence pin so the
+;; Note — the size-elision opt-out is a single-server re-frame2-pair-mcp
+;; `:elision` form. xray is not an MCP server, so there is no second
+;; emitter to pin the `:include-large?` divergence against. If a future
+;; MCP server adopts `:include-large?` (per the canonical reserved
+;; spelling in `mcp-base/vocab.cljc`), add a divergence pin so the
 ;; cross-server choice surfaces explicitly instead of drifting
 ;; silently.
 ;; ---------------------------------------------------------------------------
@@ -183,7 +178,7 @@
   framework keys, NOT wire keys, so they retain the predicate `?`)
   PLUS the unqualified MCP-surface form (`:include-sensitive` — no
   `?` because the wire-key MUST omit `?` per Anthropic's tool input
-  schema regex `^[a-zA-Z0-9_.-]{1,64}$`; rf2-y710n)."
+  schema regex `^[a-zA-Z0-9_.-]{1,64}$`)."
   #{":rf.size/include-large?"
     ":rf.size/include-sensitive?"
     ":include-sensitive"})
@@ -236,8 +231,7 @@
 ;; that isn't a keyword-extender.
 ;; ---------------------------------------------------------------------------
 
-;; `variant-regex` lives in `re-frame.mcp-conformance.fixtures`
-;; (rf2-qnmne) — promoted from a private defn here so
+;; `variant-regex` lives in `re-frame.mcp-conformance.fixtures` so
 ;; `indicator_field_test.clj`'s inline-emit anti-pin can share the same
 ;; keyword-extender-aware pattern.
 
@@ -248,12 +242,12 @@
   list is curated so a docstring or unrelated symbol can't trip a
   false positive.
 
-  The `?`-suffix variant (rf2-ihq4d): for a slot whose canonical form
-  has NO trailing `?` (e.g. the wire-key `:include-sensitive` per
-  rf2-y710n), an added `?` is exactly the bug pattern that bricked
+  The `?`-suffix variant: for a slot whose canonical form
+  has NO trailing `?` (e.g. the wire-key `:include-sensitive`),
+  an added `?` is exactly the bug pattern that bricks
   re-frame2-pair-mcp's tool surface — Anthropic's tool-input-schema regex
   `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`. Adding `:include-sensitive?`
-  back into any wire-surface source today trips this near-miss check."
+  into any wire-surface source trips this near-miss check."
   [slot]
   (let [nm       (name slot)
         nm-no-q  (str/replace nm #"\?$" "")           ; strip predicate `?`
@@ -268,8 +262,8 @@
       (str/ends-with? nm "?")
       (conj (str ":" nm-no-q))
 
-      ;; added predicate `?` (rf2-ihq4d) — fires when the canonical
-      ;; form does NOT end in `?`. Pins the rf2-y710n decision: the
+      ;; added predicate `?` — fires when the canonical
+      ;; form does NOT end in `?`. Pins the decision: the
       ;; wire-key must NEVER carry `?` because Anthropic's regex
       ;; rejects it.
       (not (str/ends-with? nm "?"))
@@ -300,16 +294,16 @@
 ;; FULL KEYWORD TOKEN in at least one of each server's named source
 ;; files.
 ;;
-;; Why full-token, not `str/includes?` (rf2-ihq4d): `str/includes?`
+;; Why full-token, not `str/includes?`: `str/includes?`
 ;; treats canonical literals as substrings. `:include-sensitive` is a
 ;; prefix of `:include-sensitive?`, so an `str/includes?` check passes
 ;; even when a server's wire-key still carries the trailing `?` —
-;; exactly the rf2-y710n bug that the rf2-ihq4d worker surfaced as
-;; latent in re-frame2-pair-mcp at the time of #1494. The full-token regex
+;; exactly the bug pattern this gate guards against in
+;; re-frame2-pair-mcp. The full-token regex
 ;; (via `fx/variant-regex`, the same keyword-extender-aware pattern
 ;; the near-miss gate uses) pins the literal as a complete keyword:
 ;; matched only when not immediately followed by a keyword-extender
-;; character. Adding `:include-sensitive?` to any wire-surface today
+;; character. Adding `:include-sensitive?` to any wire-surface
 ;; trips this gate.
 ;; ---------------------------------------------------------------------------
 
@@ -357,7 +351,7 @@
          ;; story-mcp's `:include-sensitive` parsing / schema lives in
          ;; `args.cljc` + `schemas.cljc` (no `sensitive.cljc` —
          ;; that's re-frame2-pair-mcp's shape). The canonical story-mcp
-         ;; tool-source inventory lives in `fixtures.clj` (rf2-ee38b.20)
+         ;; tool-source inventory lives in `fixtures.clj`
          ;; so a new tool file added in one tripwire's list can't escape
          ;; the others.
          :story-mcp fx/story-mcp-tool-source-files}]
@@ -378,16 +372,16 @@
                    "it in the divergence pin section of this test.")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 4 — divergence pin (HISTORICAL).
+;; Gate 4 — divergence pin.
 ;;
-;; This slot was the `:include-large?` (xray-mcp) vs `:elision`
-;; (re-frame2-pair-mcp) divergence pin. With xray-mcp removed in rf2-bu21t,
-;; re-frame2-pair-mcp is the sole live emitter; the divergence collapses to a
-;; single-server `:elision` spelling. The canonical
-;; `:rf.size/include-large?` form remains reserved in
-;; `mcp-base/vocab.cljc` for any future MCP server adoption — restore
-;; the divergence pin (data + assertion) when a second server lands
-;; on either spelling so the cross-server choice surfaces explicitly.
+;; The size-elision opt-out has a single live emitter: re-frame2-pair-mcp's
+;; `:elision` spelling. With only re-frame2-pair-mcp + story-mcp as MCP
+;; servers, there is no second emitter for an `:include-large?` vs
+;; `:elision` divergence. The canonical `:rf.size/include-large?` form
+;; remains reserved in `mcp-base/vocab.cljc` for any future MCP server
+;; adoption — add a divergence pin (data + assertion) when a second
+;; server lands on either spelling so the cross-server choice surfaces
+;; explicitly.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
@@ -408,13 +402,11 @@
                  "the literal or update this test."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 6 — xray-mcp impl-landed pin (HISTORICAL).
+;; Gate 6 — no xray-mcp wire surface.
 ;;
-;; This row was a `xray-mcp-tools-directory-present` structural-floor
-;; assertion under the T-Insp tool cluster (rf2-8xzoe.14..22). The
-;; rf2-bu21t drop removed `tools/xray-mcp/` entirely; the directory
-;; is now legitimately absent and the assertion is no longer
-;; applicable.
+;; There is no `tools/xray-mcp/` directory: xray ships as a Clojars-only
+;; library, not an MCP server, so there is no xray-mcp tool surface to
+;; pin a structural-floor assertion against.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------

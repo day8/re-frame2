@@ -1,13 +1,12 @@
-// Child harness for `runner-watchdog.test.cjs` (rf2-2js41 finding 2).
+// Child harness for `runner-watchdog.test.cjs`.
 //
-// Simulates the exact failure mode finding 2 describes: an MCP server
-// that SPAWNS and then HANGS during the `initialize` handshake — i.e.
+// Simulates the connect-hang failure mode: an MCP server that SPAWNS and
+// then HANGS during the `initialize` handshake — i.e.
 // `client.connect(transport)` neither resolves nor rejects. The watchdog
-// in `runWithWatchdog` is the only escape from that hang; the bug was
-// that `activeClient` (the watchdog's teardown handle) was assigned only
-// AFTER `connectServer` resolved, so a connect that hangs left the
-// watchdog with no client and the timeout path orphaned the spawned
-// child.
+// in `runWithWatchdog` is the only escape from that hang. `activeClient`
+// (the watchdog's teardown handle) is published BEFORE the connect await,
+// so a connect that hangs still leaves the watchdog a client to tear down
+// rather than orphaning the spawned child on the timeout path.
 //
 // This harness is HERMETIC: it does NOT require the real
 // `@modelcontextprotocol/sdk` package. A `Module._load` override
@@ -25,14 +24,15 @@
 // The harness installs the override, requires the real `_runner.cjs`
 // (so the production teardown path under test is exercised verbatim),
 // and calls `runWithWatchdog` with a short `watchdogMs`. Expected
-// behaviour with the fix: the watchdog fires, sees `activeClient` (set
-// via the new `onClient` callback BEFORE connect awaited), calls
+// behaviour: the watchdog fires, sees `activeClient` (set via the
+// `onClient` callback BEFORE connect awaited), calls
 // `closeQuietly(activeClient)` which invokes our stub `close()` (printing
 // the marker), then `process.exit(2)`. The parent asserts exit code 2
 // AND the marker line — i.e. teardown ran before exit.
 //
-// Without the fix `activeClient` would be undefined when the watchdog
-// fires, the marker would NOT print, and the child would be orphaned.
+// Were `activeClient` undefined when the watchdog fires, the marker would
+// NOT print and the child would be orphaned — which is the regression
+// this harness guards against.
 
 'use strict';
 

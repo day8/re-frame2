@@ -1,18 +1,15 @@
-// Child harness for `runner-watchdog.test.cjs` (rf2-wqi4n4 finding 1).
+// Child harness for `runner-watchdog.test.cjs`.
 //
 // Simulates the SECONDARY-client orphan the redaction live test could hit:
 // `runWithWatchdog` boots its primary client fine, but the body then boots
 // an ADDITIONAL in-process server (the inner-projection / gate-ON arms in
 // `live-re-frame2-pair-redaction.cjs`) whose connect HANGS during the
-// `initialize` handshake. Pre-fix, the outer watchdog only owned the
-// PRIMARY client — a hang in (or after) a secondary boot was unreachable by
-// the timeout path, so the secondary child was orphaned despite the harness
-// reporting a watchdog timeout.
-//
-// The fix registers each secondary client with the outer watchdog (via
-// `registerAuxClient`, fired from a bare `connectServer`'s `onClient`
-// BEFORE connect awaits), so the watchdog drains the primary AND every
-// secondary on a timeout.
+// `initialize` handshake. Each secondary client registers with the outer
+// watchdog (via `registerAuxClient`, fired from a bare `connectServer`'s
+// `onClient` BEFORE connect awaits), so the watchdog drains the primary AND
+// every secondary on a timeout — a hang in (or after) a secondary boot is
+// reachable by the timeout path rather than orphaning the secondary child
+// despite the harness reporting a watchdog timeout.
 //
 // This harness is HERMETIC: it stubs the three SDK specifiers `_runner.cjs`
 // requires. The PRIMARY connect resolves cleanly (so the body runs and gets

@@ -1,5 +1,5 @@
 (ns day8.re-frame2-template.hooks
-  "deps-new hooks for day8/re-frame2-template (rf2-dolpf §2.2-2.4).
+  "deps-new hooks for day8/re-frame2-template.
 
    `template.edn` declares this ns's `data-fn`, `template-fn`, and
    `post-process-fn`. deps-new invokes them in that order:
@@ -11,7 +11,7 @@
                             (e.g. dotfile renames deps-new can't do
                             natively).
 
-   Current scope (§2.2-2.4, rf2-c2770):
+   Current scope (003-DepsNew-Rebuild-Plan.md §2.2-2.4):
 
      - Substrates: Reagent / UIx / Helix (full matrix).
      - Flags: `:include-story?` (Reagent-only in v1; UIx + Helix variants
@@ -38,12 +38,12 @@
    `package.json` is the exception. Its sole per-flag delta — the
    `description` parenthetical naming the Story playground — is small
    enough to carry as the `{{story-tag}}` subst var, so a single
-   `_shared/package.json` source serves both paths (rf2-sqqxj). No
+   `_shared/package.json` source serves both paths. No
    second `package_with_story.json` source exists.
 
    The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
    §1) is the same matrix; additional flags (`:css`, `:include-ssr?`)
-   slot in here once their upstream gates clear (rf2-gthro, rf2-0m5ea)."
+   slot in here once their upstream gates clear."
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
@@ -76,8 +76,8 @@
   — anything else is a registration error and we throw with a clear
   message naming the valid set.
 
-  Tightened from the earlier kw/string/symbol forgiving-input posture
-  to the SOTA pre-alpha contract (rf2-h0imw / rf2-c8tmc Finding #3)."
+  The contract is keyword-only: string and symbol inputs are rejected
+  rather than coerced, matching the SOTA pre-alpha fail-closed posture."
   [raw]
   (let [substrate-kw (cond
                        (nil? raw)     :reagent
@@ -113,12 +113,12 @@
 ;; (the project-name derivations + run metadata) with whatever top-level
 ;; k/v args the caller passed. We accept exactly two template-specific
 ;; flags today (`:substrate`, `:include-story?`); the `:css` / `:include-ssr?`
-;; flags are reserved-but-unimplemented (gated on rf2-gthro / rf2-0m5ea).
+;; flags are reserved-but-unimplemented (gated on their upstream verification).
 ;;
 ;; The substrate posture already fails closed on bad values; this gate
 ;; extends that strictness to the *key set* so a flag typo
 ;; (`:include-story`) or a documented-future flag (`:css :tailwind`) can't
-;; fail open into a misleading vanilla scaffold (rf2-qck7t7 Finding #1).
+;; fail open into a misleading vanilla scaffold.
 ;;
 ;; HOW WE DISTINGUISH HARNESS KEYS FROM TEMPLATE KEYS: deps-new's
 ;; `preprocess-options` (org.corfield.new.impl) populates a fixed, known
@@ -285,7 +285,7 @@
   [data]
   ;; Fail closed on reserved + unknown arguments BEFORE any coercion, so a
   ;; flag typo or a documented-future flag never produces a misleading
-  ;; vanilla scaffold (rf2-qck7t7 Finding #1).
+  ;; vanilla scaffold.
   (gate-arg-keys! data)
   (let [substrate       (coerce-substrate (:substrate data))
         include-story?  (coerce-include-story? (:include-story? data))]
@@ -318,7 +318,7 @@
        ;; package.json `description` suffix — the single per-flag delta
        ;; between the default and with-Story descriptions. Emitting it as
        ;; a subst var lets one `_shared/package.json` source serve both
-       ;; paths (rf2-sqqxj — collapsed the byte-identical second file).
+       ;; paths from a single file.
        :story-tag           (if include-story? ", with Story playground" "")
        :namespace           (str top-ns "." main-ns)
        :nested-dirs         (str top-file "/" main-file)
@@ -329,7 +329,7 @@
        ;; shadow-cljs / react pins) by
        ;; `test/day8/re_frame2_template/version_lockstep_test.clj`. Bumping
        ;; them here in isolation will fail that test. The §3 release pipeline
-       ;; (rf2-dolpf) updates all four in lockstep.
+       ;; updates all four in lockstep.
        :rf2-version         "0.0.1.alpha"
        :shadow-version      "3.4.10"
        :react-version       "19.2.0"})))
@@ -424,7 +424,7 @@
         ;; per-flag variation is its `description` parenthetical, carried
         ;; by the `{{story-tag}}` subst var (see data-fn), so a single
         ;; `_shared/package.json` source serves both the default and the
-        ;; with-Story path (rf2-sqqxj).
+        ;; with-Story path.
         ;; Shared transforms — renames only. `:only` skips the bulk
         ;; copy of `_shared/*`, so source files that don't appear in
         ;; the file-map below DO NOT emit. Add explicit entries if

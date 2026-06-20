@@ -1,6 +1,5 @@
 (ns day8.re-frame2-template.release-gate-test
-  "Workflow-sanity coverage for `.github/workflows/template-release.yml`
-   (rf2-ek857f F1).
+  "Workflow-sanity coverage for `.github/workflows/template-release.yml`.
 
    The tag-triggered template release runs a pre-release test gate
    (`test-template`) before cutting a GitHub Release. The gate is only
@@ -14,13 +13,13 @@
      2. a populated `implementation/node_modules` (`npm ci` in
         `implementation`) so the emitted bundle's React imports resolve.
 
-   Before rf2-ek857f the release job ran a plain `clojure -M:test` with
-   neither — so a `template-v…` tag could publish a scaffold that fails
-   to compile / run / release, even though the PR + nightly template
-   gates (test.yml / expensive-tests.yml) would have caught it.
+   A plain `clojure -M:test` with neither would let a `template-v…` tag
+   publish a scaffold that fails to compile / run / release, even though
+   the PR + nightly template gates (test.yml / expensive-tests.yml) would
+   have caught it.
 
    These tests pin the release gate's shape so it cannot silently
-   regress back to a fast-loop-only run. They read the workflow YAML as
+   regress to a fast-loop-only run. They read the workflow YAML as
    text (no YAML parser dependency — the assertions are on stable
    substrings, mirroring how the sibling shape/static-parse tests assert
    on emitted source). They run in the default `clojure -M:test` (no

@@ -52,31 +52,30 @@
   Shape (per the shared `mcp-base.cap/apply-cap` → `overflow/overflow-payload`
   builder, emitted by BOTH re-frame2-pair-mcp and story-mcp):
     `{:rf.mcp/overflow {:limit :reached :token-count N :cap-tokens M
-                        :tool \"<name>\" :hint \"...\"}}`.
-  Per rf2-rvyzy."
+                        :tool \"<name>\" :hint \"...\"}}`."
   :rf.mcp/overflow)
 
 (def dedup-table-key
   "Top-level marker on a structurally-deduped payload. The value is the
   de-dupe library's flat cache map; the agent expands locally via
   `de-dupe.core/expand`.
-  Shape: `{:rf.mcp/dedup-table <cache-map>}`. Per rf2-obpa9."
+  Shape: `{:rf.mcp/dedup-table <cache-map>}`."
   :rf.mcp/dedup-table)
 
 (def diff-from-key
   "Marker on an epoch's `:db-after` slot indicating it is a structural
   diff against a sibling slot. The value names the source slot
-  (`:db-before`). Shape (path-headed cluster projection, rf2-qeous):
+  (`:db-before`). Shape (path-headed cluster projection):
     `{:db-after {:rf.mcp/diff-from :db-before
                  :sections [{:section-path [...] :section-kind <kw>
                              :patches [...]} ...]}}`.
-  Per rf2-1wdzp / rf2-qeous. See `re-frame.mcp-base.diff-encode` and
+  See `re-frame.mcp-base.diff-encode` and
   `re-frame.mcp-base.section-grouping`."
   :rf.mcp/diff-from)
 
 (def cursor-stale-reason
   "Structured error-result `:reason` value indicating the cursor's
-  epoch-id is no longer in the runtime ring. Per rf2-kbqq3.
+  epoch-id is no longer in the runtime ring.
 
   Agents pattern-match on this `:reason` to either drop the cursor
   and restart, or widen the window to recover."
@@ -84,7 +83,7 @@
 
 (def cache-hit-key
   "Top-level marker on a response that short-circuited via the
-  per-session cache (rf2-3rt1f, rf2-36xod). Shape:
+  per-session cache. Shape:
     `{:rf.mcp/cache-hit {:tool ... :digest ... :hint ...}}`. The agent
   re-uses the previously-shipped payload (the marker is content-free —
   the agent host correlates by cache key)."
@@ -92,7 +91,7 @@
 
 (def summary-key
   "Top-level marker on a lazy-summary response (snapshot mode
-  `:summary`). Per rf2-tygdv / rf2-u2029. Shape:
+  `:summary`). Shape:
     `{:rf.mcp/summary {...tree-summary...}}`. The summary is a
   deliberately small tree-keyed projection; agents drill in via
   `get-path` once they know the key of interest."
@@ -100,7 +99,7 @@
 
 (def invalid-arg-key
   "Top-level marker on an error-result rejecting a malformed per-call
-  argument at the wire boundary (rf2-5rdit). Shape:
+  argument at the wire boundary. Shape:
     `{:rf.mcp/invalid-arg {:arg <kw> :value <supplied> :hint <str>}}`.
 
   Unlike `:rf.mcp/cursor-stale` (a `:reason` value on a generic
@@ -108,7 +107,7 @@
   payload of an `isError: true` tool-result — an honest, recoverable
   rejection the agent reads and corrects, not a server fault.
 
-  First emitter (rf2-5rdit): `cap/max-tokens` rejects a NEGATIVE
+  First emitter: `cap/max-tokens` rejects a NEGATIVE
   `:max-tokens` arg here rather than resolving it to a negative cap
   (which would over-trip `apply-cap` and lock the agent out of every
   response). The cross-MCP `:rf.mcp/*` namespace reserves the key for
@@ -116,8 +115,8 @@
   :rf.mcp/invalid-arg)
 
 (def result-key
-  "Top-level discriminator key for a wire-FIDELITY typed result envelope
-  (rf2-qobqy). Where the size markers above shrink an over-budget
+  "Top-level discriminator key for a wire-FIDELITY typed result envelope.
+  Where the size markers above shrink an over-budget
   payload, this one TYPES the outcome of an evaluation so a genuine
   `nil`, a thrown eval-error, and an unserializable value
   (`#object`/`#js`/Function) stop collapsing to a bare `null`. Shape:
@@ -145,7 +144,7 @@
     `{:rf.size/large-elided {:bytes N :type \"...\"
                              :handle [:rf.elision/at <path>]}}`.
   Agents drill back into the slot via `get-path` using the handle's
-  path. Reserved per Conventions §Reserved namespaces. Per rf2-urjnc."
+  path. Reserved per Conventions §Reserved namespaces."
   :rf.size/large-elided)
 
 (def redacted-sentinel
@@ -181,8 +180,8 @@
 (def include-sensitive-opt
   "The framework opt that controls whether sensitive payloads emit
   the marker. Surfaced by every MCP server uniformly as the
-  `:include-sensitive` wire-arg (story-mcp per rf2-y710n,
-  re-frame2-pair-mcp per rf2-ihq4d). Per the Anthropic tool-input-schema regex
+  `:include-sensitive` wire-arg (story-mcp and re-frame2-pair-mcp
+  alike). Per the Anthropic tool-input-schema regex
   `^[a-zA-Z0-9_.-]{1,64}$`, wire-keys MUST omit the trailing `?`.
   The walker option keyword (this one, `:rf.size/include-sensitive?`)
   is a NAMESPACED framework key — internal, not a wire-key — so it
@@ -204,7 +203,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field slots (Conventions §Cross-MCP indicator-field
 ;; vocabulary; Spec 009 §Size elision in traces — Indicator field on tool
-;; responses). MUST-level pin per rf2-2499j: every tool that returns a
+;; responses). MUST-level pin per Conventions §Cross-MCP indicator-field
+;; vocabulary: every tool that returns a
 ;; structured response map and walks a tree-typed payload carries BOTH
 ;; counts on the envelope (omit when zero, alongside the qualified wire
 ;; markers `:rf/redacted` / `:rf.size/large-elided` at the leaf-

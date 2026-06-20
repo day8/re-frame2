@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.cap
-  "Wire-boundary token-budget cap pipeline (rf2-rvyzy / rf2-eyelu).
+  "Wire-boundary token-budget cap pipeline.
 
   Per `spec/Principles.md` §\"Tight token budget per response\", every
   MCP `tools/call` response is bounded at ~5,000 tokens by default. When
@@ -24,13 +24,13 @@
   3. Under-budget responses pass through unchanged; over-budget
      responses are replaced with a fresh result carrying the marker.
 
-  Until rf2-eyelu this pipeline was duplicated near-identically in
-  re-frame2-pair-mcp (CLJS, `#js {:content #js [...]}`-shaped results) and
-  story-mcp (CLJ, `{:content [...] :structuredContent ...}`-shaped
-  results). The only structural difference between the two
-  implementations was the SHAPE of the result map and the platform-
-  appropriate accessor used to read its `:text` slots. The algorithm
-  itself was a single design.
+  This pipeline is the single shared implementation both servers route
+  through: re-frame2-pair-mcp (CLJS, `#js {:content #js [...]}`-shaped
+  results) and story-mcp (CLJ, `{:content [...] :structuredContent
+  ...}`-shaped results). The only structural difference between the two
+  is the SHAPE of the result map and the platform-appropriate accessor
+  used to read its `:text` slots; the algorithm is one design, factored
+  behind the `ResultIO` protocol.
 
   ## Per-server specialisation hook — the `ResultIO` protocol
 
@@ -56,11 +56,10 @@
   ## Single strategy today: truncate-with-marker
 
   The only strategy wired is drop-the-payload-and-emit-the-overflow-
-  marker. When future strategies land (path-slicing rf2-tygdv, lazy
-  summary rf2-u2029, diff encoding rf2-rl7y) the pluggable hook gets
-  reintroduced here. Until then `apply-cap` calls
-  `build-overflow-result` directly — no `case` dispatcher pretending
-  there's more than one branch (pre-alpha YAGNI).
+  marker. Future strategies (path-slicing, lazy summary, diff encoding)
+  would add a pluggable hook here. For the single strategy `apply-cap`
+  calls `build-overflow-result` directly — no `case` dispatcher
+  pretending there's more than one branch (pre-alpha YAGNI).
 
   ## Cross-platform
 
@@ -96,8 +95,8 @@
     without a `:text` slot are skipped. Implementations stay nil-safe:
     a nil `result` or empty content yields an empty seq.
 
-    CONTRACT — count every payload-bearing slot, not only `:content`
-    (rf2-mzndx / rf2-13wbe): a consumer whose result envelope DUPLICATES
+    CONTRACT — count every payload-bearing slot, not only `:content`:
+    a consumer whose result envelope DUPLICATES
     the payload into a second wire slot — most commonly a
     `:structuredContent` JSON projection emitted alongside the
     `:content[*].text` EDN on EVERY result (both re-frame2-pair-mcp's
@@ -127,16 +126,16 @@
 
 (def ^:const invalid-arg-hint
   "Recovery hint embedded in the `:rf.mcp/invalid-arg` rejection when a
-  caller supplies an out-of-domain `:max-tokens` — a negative (rf2-5rdit),
-  a fractional positive in (0,1) that would floor to a 0-cap lockout
-  (rf2-li6y2.2), or a non-finite / out-of-range value (`##Inf`, `##NaN`,
-  `1.0E20`) that would crash or truncate `(long raw)` (rf2-ykv9a0).
+  caller supplies an out-of-domain `:max-tokens` — a negative,
+  a fractional positive in (0,1) that would floor to a 0-cap lockout,
+  or a non-finite / out-of-range value (`##Inf`, `##NaN`,
+  `1.0E20`) that would crash or truncate `(long raw)`.
   States the valid domain AND the disable sentinel so the agent's next
   call is correct."
   "max-tokens must be an integer >= 1; 0 disables the cap")
 
 (defn invalid-arg-marker
-  "Build the `{:rf.mcp/invalid-arg {...}}` rejection payload (rf2-5rdit)
+  "Build the `{:rf.mcp/invalid-arg {...}}` rejection payload
   for a malformed per-call argument. `arg` is the offending arg keyword,
   `value` the rejected value, `hint` the recovery prose.
 
@@ -163,10 +162,10 @@
   "Resolve the per-call cap from an ALREADY-EXTRACTED raw value.
   Returns the integer cap in tokens, `nil` when the cap is disabled
   (caller passed `0`), `overflow/default-max-tokens` when absent or
-  not a number, or — for an out-of-domain number (a NEGATIVE, rf2-5rdit;
-  a fractional positive in (0,1) that would floor to a 0-cap lockout,
-  rf2-li6y2.2; or a NON-FINITE / OUT-OF-RANGE value — `##Inf`, `##NaN`,
-  `1.0E20` — that would crash or truncate `(long raw)`, rf2-ykv9a0) — an
+  not a number, or — for an out-of-domain number (a NEGATIVE;
+  a fractional positive in (0,1) that would floor to a 0-cap lockout;
+  or a NON-FINITE / OUT-OF-RANGE value — `##Inf`, `##NaN`,
+  `1.0E20` — that would crash or truncate `(long raw)`) — an
   `{:rf.mcp/invalid-arg {...}}` REJECTION marker.
 
   Each consumer extracts the raw value from its platform-specific args
@@ -184,25 +183,25 @@
     OR supplied a non-number. The default applies.
   - positive integer return ⇒ caller supplied a custom cap.
   - `{:rf.mcp/invalid-arg {...}}` return ⇒ caller supplied an out-of-domain
-    number: a NEGATIVE (rf2-5rdit), a fractional positive in (0,1) that
-    would floor to a real 0-cap lockout (rf2-li6y2.2), or a NON-FINITE /
-    OUT-OF-RANGE value (`##Inf` / `##NaN` / past the safe-integer window —
-    rf2-ykv9a0). The consumer surfaces this as an `isError: true` result
+    number: a NEGATIVE, a fractional positive in (0,1) that
+    would floor to a real 0-cap lockout, or a NON-FINITE /
+    OUT-OF-RANGE value (`##Inf` / `##NaN` / past the safe-integer
+    window). The consumer surfaces this as an `isError: true` result
     (test via `invalid-arg?`) and MUST NOT
     pass it to `apply-cap`.
 
-  ## Why negatives are rejected, not clamped (rf2-5rdit)
+  ## Why negatives are rejected, not clamped
 
-  A negative cap used to fall through to `(long raw)`, producing a
-  negative ceiling. `apply-cap`'s `over-cap?` then trips on ANY
-  non-negative token count, so every response — even a 2-character
-  one — was replaced by the `:rf.mcp/overflow` marker, locking the
+  A negative cap, left unguarded, would fall through to `(long raw)`,
+  producing a negative ceiling. `apply-cap`'s `over-cap?` then trips on
+  ANY non-negative token count, so every response — even a 2-character
+  one — would be replaced by the `:rf.mcp/overflow` marker, locking the
   agent out of all tool data until it changed the arg, and emitting a
-  nonsensical `:cap-tokens -1`. Mike ruled (2026-06-01) for an honest,
-  recoverable rejection at the AI/MCP boundary over silently clamping
-  or treating-as-default — the masterpiece CORRECTNESS posture: a
-  malformed cap is an agent error worth telling the agent about, not a
-  value to paper over."
+  nonsensical `:cap-tokens -1`. So the resolver makes an honest,
+  recoverable rejection at the AI/MCP boundary rather than silently
+  clamping or treating-as-default — the masterpiece CORRECTNESS
+  posture: a malformed cap is an agent error worth telling the agent
+  about, not a value to paper over."
   [raw]
   (cond
     (nil? raw)                       overflow/default-max-tokens
@@ -212,10 +211,10 @@
     ;; A fractional positive in (0,1) — e.g. 0.5 — would `(long …)` floor
     ;; to a REAL 0 cap (non-nil, NOT the disable sentinel). `apply-cap`
     ;; then over-trips on EVERY non-empty payload, locking the agent out —
-    ;; the exact lockout class rf2-5rdit rejected for negatives (rf2-li6y2.2).
-    ;; Reject it honestly rather than silently flooring to a 0-cap lockout.
+    ;; the same lockout class negatives hit. Reject it honestly rather
+    ;; than silently flooring to a 0-cap lockout.
     (< raw 1)                        (invalid-arg-marker :max-tokens raw invalid-arg-hint)
-    ;; Finite/range guard BEFORE `(long raw)` (rf2-ykv9a0). `##Inf` and a
+    ;; Finite/range guard BEFORE `(long raw)`. `##Inf` and a
     ;; finite magnitude past the safe-integer window (`1.0E20`) THROW
     ;; `IllegalArgumentException` on `(long raw)` (JVM); `##NaN` truncates
     ;; to a real `0` cap — the exact 0-cap lockout this resolver exists to
@@ -266,7 +265,7 @@
   "Sum the character count across every wire payload string the
   consumer's `wire-payload-strings` surfaces for `result` (every
   serialized payload-bearing slot, not only `:text`), accessed via `io`.
-  Used by the secondary byte cap (rf2-ih7g4) — the primary
+  Used by the secondary byte cap — the primary
   `sum-payload-tokens` divides by 4 (Anthropic's English-rule-of-thumb),
   which materially undercounts CJK, emoji, base64, and dense code. A
   char-count secondary gate catches payloads that escape the quotient
@@ -280,7 +279,7 @@
   (sum-payload-by io result count))
 
 (def ^:const byte-cap-multiplier
-  "Secondary byte-cap multiplier (rf2-ih7g4). `cap * multiplier` is the
+  "Secondary byte-cap multiplier. `cap * multiplier` is the
   hard char-count ceiling — a defence-in-depth gate against payloads
   that escape the primary `(quot count 4)` token heuristic (CJK,
   emoji, base64, dense code). Set high enough that an English / EDN
@@ -294,7 +293,7 @@
 ;; Over-budget decision — extracted from `apply-cap`'s inline `let` so the
 ;; two-stage gate is unit-trippable in isolation.
 ;;
-;; ## Why the secondary char gate is load-bearing today (rf2-of2cd)
+;; ## Why the secondary char gate is load-bearing today
 ;;
 ;; `apply-cap` derives BOTH sums from the SAME `wire-payload-strings` seq:
 ;; `tokens = Σ (token-estimate s)`, `chars = Σ (count s)`. A NAIVE reading
@@ -332,13 +331,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn over-cap?
-  "Two-stage over-budget predicate (rf2-ih7g4). True when EITHER the
+  "Two-stage over-budget predicate. True when EITHER the
   token sum exceeds `cap` OR the char sum exceeds `cap *
   byte-cap-multiplier`. Pure over already-summed counts so the
   secondary char gate is unit-trippable in isolation (see the comment
   block above for why the per-string floor in `token-estimate` makes
   this gate load-bearing through the live `apply-cap` path today —
-  rf2-of2cd — not merely a future-proofing branch)."
+  not merely a future-proofing branch)."
   [tokens chars cap]
   (or (> tokens cap)
       (> chars (* cap byte-cap-multiplier))))
@@ -349,7 +348,7 @@
   number for the payload that escaped the token heuristic), else the
   token sum. Pure companion to `over-cap?` — unit-tested directly in
   isolation AND reached through the live `apply-cap` path by a content
-  vector of many sub-4-char strings (rf2-of2cd)."
+  vector of many sub-4-char strings."
   [tokens chars cap]
   (if (> chars (* cap byte-cap-multiplier))
     chars
@@ -384,9 +383,8 @@
     ;; the `over-cap?` comment block above for why the char disjunct is
     ;; load-bearing through this very path (the per-string `token-estimate`
     ;; floor lets many sub-4-char slots trip the char gate while the token
-    ;; sum stays quiet — rf2-of2cd), and rf2-hyp0z for why both sums fold
-    ;; in ONE walk (avoids materialising story-mcp's `:structuredContent`
-    ;; twice).
+    ;; sum stays quiet). Both sums fold in ONE walk to avoid materialising
+    ;; story-mcp's `:structuredContent` twice.
     (let [{:keys [tokens chars]}
           (transduce (filter string?)
                      (completing

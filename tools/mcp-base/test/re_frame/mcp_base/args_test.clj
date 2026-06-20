@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.args-test
-  "Tests for the shared MCP argument-coercion helpers (rf2-vw4sq)."
+  "Tests for the shared MCP argument-coercion helpers."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.args :as args]))
 
@@ -72,11 +72,11 @@
   (is (zero? (args/parse-non-negative-int -5 5000))))
 
 ;; ---------------------------------------------------------------------------
-;; Cross-host strict-parse contract (rf2-ee38b.19).
+;; Cross-host strict-parse contract.
 ;;
-;; Pin the trailing-garbage case that previously diverged: JVM
-;; `Long/parseLong` threw on a non-numeric tail and fell back to the
-;; default, while raw CLJS `js/parseInt` parsed a numeric PREFIX
+;; Pin the trailing-garbage case where the hosts could diverge: JVM
+;; `Long/parseLong` throws on a non-numeric tail and falls back to the
+;; default, while raw CLJS `js/parseInt` parses a numeric PREFIX
 ;; (`"12abc"` ⇒ 12). The strict `int-string-re` guard makes both hosts
 ;; fall back to `default`. The mirror CLJS assertions live in
 ;; `re-frame.mcp-base.cljs-branches-cljs-test` so the same expectations
@@ -109,14 +109,14 @@
   (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50))))
 
 ;; ---------------------------------------------------------------------------
-;; Cross-runtime finite/range guard (rf2-ykv9a0).
+;; Cross-runtime finite/range guard.
 ;;
-;; The numeric arm called `(long raw)` with no finite/range guard. On the
+;; A bare `(long raw)` with no finite/range guard is unsafe. On the
 ;; JVM `(long ##Inf)` / `(long 1.0E20)` THROW IllegalArgumentException and
 ;; `(long ##NaN)` truncates to a real `0` — neither the recoverable
-;; default nor a crash-free, host-consistent result. The string arm
-;; diverged across hosts at the JS safe-integer ceiling. The fix routes
-;; both arms through one safe-integer-windowed guard so an out-of-domain
+;; default nor a crash-free, host-consistent result; and the string arm
+;; would diverge across hosts at the JS safe-integer ceiling. Both arms
+;; route through one safe-integer-windowed guard so an out-of-domain
 ;; numeric / string DEFAULTS (never throws, never truncates to a real
 ;; value) identically on JVM and CLJS. The CLJS mirror lives in
 ;; cljs_branches_cljs_test.
@@ -143,20 +143,19 @@
       "the safe-integer ceiling itself is in-domain"))
 
 (deftest parse-positive-int-string-threshold-aligns-to-safe-integer
-  ;; rf2-ykv9a0 — the string arm previously diverged: the JVM
-  ;; `Long/parseLong` accepted "9007199254740992" (a valid long, just
-  ;; past the JS safe-integer ceiling) while CLJS rejected it via
-  ;; Number.isSafeInteger. Aligning the JVM arm to the SAME safe-integer
-  ;; window makes the two hosts agree (the cross-runtime contract). The
-  ;; CLJS mirror asserts the identical value in cljs_branches_cljs_test.
+  ;; The string arm could diverge: the JVM `Long/parseLong` accepts
+  ;; "9007199254740992" (a valid long, just past the JS safe-integer
+  ;; ceiling) while CLJS rejects it via Number.isSafeInteger. The JVM
+  ;; arm is held to the SAME safe-integer window so the two hosts agree
+  ;; (the cross-runtime contract). The CLJS mirror asserts the identical
+  ;; value in cljs_branches_cljs_test.
   (is (= 50 (args/parse-positive-int "9007199254740992" 50))
       "one past the safe-integer ceiling defaults on BOTH hosts now (was parsed on JVM)")
   (is (= 9007199254740991 (args/parse-positive-int "9007199254740991" 50))
       "exactly the safe-integer ceiling is still accepted on both hosts"))
 
 ;; ---------------------------------------------------------------------------
-;; fresh-keyword — positive-named intern for operator-gated write paths
-;; (rf2-xxtrz, the successor to the retired `parse-keyword`).
+;; fresh-keyword — positive-named intern for operator-gated write paths.
 ;; ---------------------------------------------------------------------------
 
 (deftest fresh-keyword-passes-through-keywords
@@ -200,7 +199,7 @@
         "fresh-keyword MUST intern — that's the entire point of the primitive")))
 
 ;; ---------------------------------------------------------------------------
-;; fresh-keyword-checked — grammar-gated intern (rf2-tag30h). Validates the
+;; fresh-keyword-checked — grammar-gated intern. Validates the
 ;; STRING shape BEFORE interning so a rejected id leaves NO keyword.
 ;; ---------------------------------------------------------------------------
 
@@ -257,11 +256,11 @@
   (is (= :full (args/parse-mode "full" :diff #{:diff :full}))))
 
 (deftest parse-mode-strips-leading-colon
-  ;; Regression pin (rf2-wnyy9 / round-2 F2): `parse-mode` must accept
+  ;; Regression pin: `parse-mode` must accept
   ;; agent-supplied `":diff"` the same way the read path accepts
-  ;; `":foo"`. Before the fix this silently default-fell-back — the
-  ;; agent saw `:diff` returned but the value was the function's
-  ;; default, not a recognised match.
+  ;; `":foo"`. Without the leading-colon strip this would silently
+  ;; default-fall-back — the agent would see `:diff` returned but the
+  ;; value would be the function's default, not a recognised match.
   (is (= :diff (args/parse-mode ":diff" :full #{:diff :full})))
   (is (= :full (args/parse-mode ":full" :diff #{:diff :full})))
   (is (= :rf/foo (args/parse-mode ":rf/foo" :default #{:rf/foo :rf/bar}))
@@ -275,7 +274,7 @@
   (is (= :diff (args/parse-mode :unknown :diff #{:diff :full}))))
 
 ;; ---------------------------------------------------------------------------
-;; safe-keyword — bounded-allowlist gate (rf2-ih7g4).
+;; safe-keyword — bounded-allowlist gate.
 ;; ---------------------------------------------------------------------------
 
 (deftest safe-keyword-allowed-keyword-passes
@@ -312,9 +311,9 @@
   (is (nil? (args/safe-keyword ":" #{:diff :full}))))
 
 (deftest safe-keyword-disallowed-NAMESPACED-string-returns-nil-and-does-not-intern
-  ;; Coverage gap (rf2-ynjts.17): the existing no-intern pin
+  ;; The companion no-intern pin
   ;; (`safe-keyword-disallowed-string-returns-nil-and-does-not-intern`)
-  ;; exercises only the BARE-name arm (`find-keyword name-part`). The
+  ;; exercises the BARE-name arm (`find-keyword name-part`). The
   ;; NAMESPACED arm (`find-keyword ns-part name-part`) is a distinct
   ;; branch in `normalise-keyword-string` → `safe-keyword`, and it is
   ;; the branch the registry-backed frame-id / `:rf.assert/*` coercions
@@ -355,15 +354,14 @@
   (is (nil? (args/safe-keyword {:k :diff} #{:diff :full}))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-mode no-intern on rejection (rf2-ih7g4).
+;; parse-mode no-intern on rejection.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-mode-unknown-string-does-not-intern
-  ;; Regression pin (rf2-ih7g4): `parse-mode` previously routed every
-  ;; string input through an interning helper and then membership-
-  ;; checked the result. With the fix, the membership check happens
-  ;; BEFORE intern. A rejected string MUST leave the keyword table
-  ;; untouched.
+  ;; Regression pin: `parse-mode` routes string input so the membership
+  ;; check happens BEFORE any intern. A rejected string MUST leave the
+  ;; keyword table untouched — routing through an interning helper first
+  ;; and membership-checking after would grow the table on every typo.
   (let [novel-name "rf2-ih7g4-parse-mode-novel-name-do-not-intern"]
     (is (nil? (find-keyword novel-name))
         "precondition: the novel name is not in the keyword table")

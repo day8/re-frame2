@@ -1,26 +1,14 @@
 #!/usr/bin/env node
 /*
- * Sequential orchestrator for the mcp-conformance test suite (rf2-i3ffz
- * F-HYG-3). Spawns each conformance test in sequence with structured
- * per-test exit-code reporting; replaces a five-deep `&&` chain in the
- * `npm test` script.
+ * Sequential orchestrator for the mcp-conformance test suite. Spawns each
+ * conformance test in sequence with structured per-test exit-code
+ * reporting; it is the implementation behind the `npm test` script.
  *
- * Why an orchestrator: the historical `npm test` was
- *
- *     node --test test/exec-safety.test.cjs
- *     && node test/end-to-end-re-frame2-pair.cjs
- *     && node test/live-re-frame2-pair-overflow.cjs
- *     && node test/end-to-end-story.cjs
- *
- * compressed into one quoted JSON string. Failure attribution required
- * reading the chain backwards from the exit code; a real failure in
- * `exec-safety.test.cjs` was the only thing the chain caught early,
- * with every downstream test hidden until the upstream link recovered.
- *
- * This orchestrator runs each test in sequence, records its exit
- * status, and prints a structured summary at the end. It still bails
- * on the first failure (so CI fails fast) but the summary makes
- * failure attribution one-glance instead of one-grep.
+ * Why an orchestrator: it runs each test in sequence, records its exit
+ * status, and prints a structured summary at the end. It bails on the
+ * first failure (so CI fails fast), and the summary makes failure
+ * attribution one-glance instead of one-grep — each test's pass/fail and
+ * exit code is listed by name rather than buried in a chained exit code.
  *
  * Exit codes:
  *   0  every test passed (some may have SKIPped — they still exit 0)
@@ -48,7 +36,7 @@ const ROOT = path.resolve(HERE, '..');
 // runners can select a subset without re-listing — notably
 // `scripts/test-unit.cjs`, which runs the pure-Node unit cluster
 // (every row whose `argv[0] === '--test'`) in one `node --test`
-// invocation for the PR CI Node-regression gate (rf2-md05gp). Because
+// invocation for the PR CI Node-regression gate. Because
 // that runner DERIVES its set from this array, a new `--test` row added
 // here is automatically picked up by PR CI — no second list to keep in
 // sync.
@@ -135,9 +123,8 @@ function main() {
   for (const test of TESTS) {
     banner('▶ ' + test.name + '\n  ' + test.argv.join(' '));
     // `process.execPath` is always absolute; `spawnSync` inherits stdio
-    // so the child's stdout/stderr stream through verbatim (matching
-    // every historical caller's posture). `shell: false` keeps the
-    // accident-gating from the lib/exec-safety.cjs preamble: no
+    // so the child's stdout/stderr stream through verbatim. `shell: false`
+    // keeps the accident-gating from the lib/exec-safety.cjs preamble: no
     // shell-interpolation of test names.
     const child = spawnSync(process.execPath, test.argv, {
       cwd: ROOT,

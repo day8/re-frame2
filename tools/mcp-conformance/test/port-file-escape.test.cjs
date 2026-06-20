@@ -1,23 +1,21 @@
-// Call-site regression for the hermetic orchestrator's port-file poller
-// (rf2-khav7l).
+// Call-site regression for the hermetic orchestrator's port-file poller.
 //
 // Uses Node's built-in `node:test` (same posture as
 // `exec-safety.test.cjs` / `hermetic-setup-timeout.test.cjs` — no extra
 // dev-dependency).
 //
-// ## The bug this pins
+// ## The contract this pins
 //
 // `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` wipes stale
-// nREPL port files through `safeUnlinkInside`, which CORRECTLY refuses
-// (throws) when a candidate (or its parent dir) is a symlink whose
-// realpath escapes FIXTURE_DIR. Pre-fix, the cleanup logged that refusal
-// and CONTINUED; the poller's `readPortFile` then raw-read the SAME
-// candidate with a bare `fs.readFileSync` and NO containment check. A
-// stale `nrepl.port` living behind a symlinked `.shadow-cljs` (or any
-// escaped candidate) could therefore satisfy the port-file wait and
-// steer the inner conformance tests at an UNRELATED runtime — false-red
-// or false-green live conformance, undermining the accident-gating the
-// runner exists to provide ("refuse delete but trust read" split).
+// nREPL port files through `safeUnlinkInside`, which refuses (throws)
+// when a candidate (or its parent dir) is a symlink whose realpath
+// escapes FIXTURE_DIR. The poller's `readPortFile` applies the SAME
+// containment check on the READ side, so a stale `nrepl.port` living
+// behind a symlinked `.shadow-cljs` (or any escaped candidate) cannot
+// satisfy the port-file wait and steer the inner conformance tests at an
+// UNRELATED runtime. Both the delete and the read paths reject the same
+// escape — closing the "refuse delete but trust read" split that would
+// otherwise undermine the accident-gating the runner exists to provide.
 //
 // ## What this test drives
 //
@@ -106,7 +104,7 @@ test('readPortFile: refuses an external port file behind a symlinked .shadow-clj
       () => readPortFile([candidate], fixture),
       (err) => {
         thrown = err;
-        // Must name the candidate and the rf2-khav7l rationale.
+        // Must name the candidate and the containment-escape rationale.
         assert.match(err.message, /khav7l/);
         return true;
       },

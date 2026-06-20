@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.cap-test
-  "Unit tests for the cross-MCP cap pipeline (rf2-eyelu).
+  "Unit tests for the cross-MCP cap pipeline.
 
   Exercises the algorithm via a mock `ResultIO` reifying the protocol
   over CLJ maps. The per-server IO instances (re-frame2-pair-mcp's JS-object
@@ -54,8 +54,8 @@
 
 (deftest max-tokens-only-zero-disables-not-other-numbers
   ;; ONLY a literal `0` disables the cap (returns nil). A NEGATIVE number
-  ;; is neither a disable signal nor a passthrough cap — per Mike's
-  ;; rf2-5rdit ruling it is REJECTED as an out-of-domain arg (see
+  ;; is neither a disable signal nor a passthrough cap — it is REJECTED
+  ;; as an out-of-domain arg (see
   ;; `max-tokens-negative-rejected-with-invalid-arg` below). Smallest
   ;; positive passes through unchanged.
   (is (nil? (cap/max-tokens 0)) "0 is the sole disable signal")
@@ -64,13 +64,14 @@
       "a negative number is NOT a disable signal and NOT a cap — it is rejected"))
 
 (deftest max-tokens-negative-rejected-with-invalid-arg
-  ;; rf2-5rdit — Mike ruled A (REJECT). A negative `:max-tokens` used to
+  ;; A negative `:max-tokens` is REJECTED. Left unguarded it would
   ;; fall through to `(long raw)`, producing a negative cap that
-  ;; over-tripped `apply-cap`'s `over-cap?` so EVERY response (even a
-  ;; 2-char one) was replaced by the overflow marker — locking the agent
-  ;; out of all tool data and emitting a nonsensical `:cap-tokens -1`.
-  ;; The resolver now returns an `{:rf.mcp/invalid-arg {...}}` rejection
-  ;; the consumer surfaces as an `isError: true` result.
+  ;; over-trips `apply-cap`'s `over-cap?` so EVERY response (even a
+  ;; 2-char one) would be replaced by the overflow marker — locking the
+  ;; agent out of all tool data and emitting a nonsensical
+  ;; `:cap-tokens -1`. The resolver returns an `{:rf.mcp/invalid-arg
+  ;; {...}}` rejection the consumer surfaces as an `isError: true`
+  ;; result.
   (let [out (cap/max-tokens -1)]
     (is (cap/invalid-arg? out)
         "negative max-tokens resolves to an :rf.mcp/invalid-arg rejection, NOT a negative cap")
@@ -85,12 +86,12 @@
   (is (cap/invalid-arg? (cap/max-tokens -1.5)) "negative doubles reject too"))
 
 (deftest max-tokens-fractional-positive-rejected-with-invalid-arg
-  ;; rf2-li6y2.2 — a fractional positive in (0,1) — e.g. 0.5 — is neither
-  ;; caught by (zero? raw) nor (neg? raw); pre-fix it fell to (long raw),
-  ;; flooring to a REAL 0 cap (non-nil, NOT the disable sentinel). That 0
-  ;; then over-tripped `apply-cap`'s `over-cap?` on EVERY non-empty payload,
-  ;; locking the agent out — the exact lockout class rf2-5rdit rejected for
-  ;; negatives. The resolver now rejects it honestly as an
+  ;; A fractional positive in (0,1) — e.g. 0.5 — is neither
+  ;; caught by (zero? raw) nor (neg? raw); left unguarded it would fall
+  ;; to (long raw), flooring to a REAL 0 cap (non-nil, NOT the disable
+  ;; sentinel). That 0 would then over-trip `apply-cap`'s `over-cap?` on
+  ;; EVERY non-empty payload, locking the agent out — the same lockout
+  ;; class negatives hit. The resolver rejects it honestly as an
   ;; `{:rf.mcp/invalid-arg {...}}` marker rather than flooring to a 0-cap
   ;; lockout.
   (let [out (cap/max-tokens 0.5)]
@@ -130,11 +131,11 @@
   (is (integer? (cap/max-tokens 1000.0))))
 
 (deftest max-tokens-non-finite-out-of-range-rejected-not-crash-not-0-cap
-  ;; rf2-ykv9a0 — `(long raw)` is UNSAFE on non-finite / out-of-range
-  ;; numerics. Pre-fix, on the JVM `##Inf` and `1.0E20` THREW
+  ;; `(long raw)` is UNSAFE on non-finite / out-of-range
+  ;; numerics. On the JVM `##Inf` and `1.0E20` THROW
   ;; IllegalArgumentException (a crash at the wire boundary), and `##NaN`
-  ;; truncated to a real `0` cap — the exact 0-cap lockout shape rf2-5rdit
-  ;; / rf2-li6y2.2 refused. The resolver now rejects each honestly as an
+  ;; truncates to a real `0` cap — the same 0-cap lockout shape negatives
+  ;; and fractionals hit. The resolver rejects each honestly as an
   ;; {:rf.mcp/invalid-arg} marker, the recoverable cross-runtime posture.
   (doseq [[label raw] [["##Inf" ##Inf]
                        ["##NaN" ##NaN]
@@ -249,7 +250,7 @@
     (is (contains? (:marker out) vocab/overflow-key))))
 
 ;; ---------------------------------------------------------------------------
-;; Secondary char-byte cap (rf2-ih7g4) — defence in depth against the
+;; Secondary char-byte cap — defence in depth against the
 ;; `(quot count 4)` token undercount on CJK / emoji / base64 / dense
 ;; code. `sum-payload-tokens` divides by 4; a payload where 1 char ≈ 2-3
 ;; tokens still trips the cap because the secondary char check uses
@@ -274,9 +275,8 @@
   ;; rule but each glyph carries ~2-3 tokens on a real tokenizer ⇒
   ;; the heuristic under-reports. The cap MUST still trip over-budget
   ;; CJK content under the current rule (the heuristic is not exact,
-  ;; but the absolute count grows with input size). Regression pin
-  ;; for rf2-ih7g4: a CJK payload of 5000 glyphs at cap=100 trips
-  ;; overflow.
+  ;; but the absolute count grows with input size). Regression pin:
+  ;; a CJK payload of 5000 glyphs at cap=100 trips overflow.
   (let [big-cjk (apply str (repeat 5000 \日))
         r       {:content [{:type "text" :text big-cjk}]}
         out     (cap/apply-cap map-io r {:tool "cjk-test" :cap 100})
@@ -285,7 +285,7 @@
     (is (pos? (:token-count body)))))
 
 (deftest byte-cap-multiplier-and-char-sum-are-pinned
-  ;; Defence-in-depth shape pin (rf2-ih7g4 / rf2-8cpsg / F18). The
+  ;; Defence-in-depth shape pin. The
   ;; secondary byte cap is `cap * byte-cap-multiplier` and reads from
   ;; the same `wire-payload-strings` seq the token sum does.
   ;;
@@ -298,25 +298,23 @@
     (is (= 25 (cap/sum-payload-tokens map-io r)))))
 
 ;; ---------------------------------------------------------------------------
-;; Two-stage gate, unit-trippable in isolation (rf2-80y2h) + reachable
-;; through the live `apply-cap` path (rf2-of2cd).
+;; Two-stage gate, unit-trippable in isolation + reachable through the
+;; live `apply-cap` path.
 ;;
 ;; The `over-cap?` / `reported-count` predicates are extracted as pure fns
 ;; over already-summed tokens/chars so the secondary char gate is
 ;; trippable in ISOLATION (feed decoupled sums directly), independent of
 ;; how `apply-cap` happens to derive the sums.
 ;;
-;; rf2-of2cd CORRECTION: an earlier comment here claimed the char gate was
-;; NOT genuinely reachable through `apply-cap` because "an IO cannot
-;; return chars without proportional tokens". That is WRONG. `token-estimate`
-;; floors PER STRING, so `Σ (quot len_i 4)` collapses toward 0 for a
-;; content vector of many sub-4-char slots while the char sum stays large.
-;; `apply-cap-many-short-strings-trips-char-gate` below exercises the
-;; char-gated arm THROUGH the live `apply-cap` path — no custom-sum trick,
-;; just a realistic many-small-slots payload (the `watch-epochs` /
-;; `trace-window` slice shape). The isolation tests remain valuable (they
-;; pin both disjuncts crisply); the char gate is simply load-bearing now,
-;; not merely future defence-in-depth.
+;; The char gate IS genuinely reachable through `apply-cap`:
+;; `token-estimate` floors PER STRING, so `Σ (quot len_i 4)` collapses
+;; toward 0 for a content vector of many sub-4-char slots while the char
+;; sum stays large. `apply-cap-many-short-strings-trips-char-gate` below
+;; exercises the char-gated arm THROUGH the live `apply-cap` path — no
+;; custom-sum trick, just a realistic many-small-slots payload (the
+;; `watch-epochs` / `trace-window` slice shape). The isolation tests
+;; remain valuable (they pin both disjuncts crisply); the char gate is
+;; load-bearing, not merely future defence-in-depth.
 ;; ---------------------------------------------------------------------------
 
 (deftest over-cap?-primary-token-gate-trips
@@ -372,9 +370,8 @@
         "apply-cap's reported :token-count matches reported-count over the same sums")))
 
 (deftest apply-cap-many-short-strings-trips-char-gate
-  ;; rf2-of2cd regression pin. The secondary char gate is reachable
-  ;; through the LIVE `apply-cap` path, contradicting the earlier
-  ;; "structurally dominated / not reachable by construction" claim.
+  ;; Regression pin: the secondary char gate is reachable through the
+  ;; LIVE `apply-cap` path, not merely in isolation.
   ;;
   ;; `token-estimate` floors PER STRING: 3000 slots of 3 chars each give
   ;; `tokens = Σ (quot 3 4) = 0` while `chars = 9000`. With `cap = 1` the
@@ -400,7 +397,7 @@
       (is (= cap-toks (:cap-tokens body))))))
 
 ;; ---------------------------------------------------------------------------
-;; structuredContent counted toward the budget (rf2-ih7g4) — story-mcp
+;; structuredContent counted toward the budget — story-mcp
 ;; pattern: its reify surfaces `:structuredContent` as one extra
 ;; `pr-str`-ed string in `wire-payload-strings`. Pin the contract via a
 ;; mirror reify here.

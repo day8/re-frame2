@@ -1,22 +1,17 @@
 (ns day8.re-frame2-template.test-support
-  "Shared harness for the tools/template JVM test suite (rf2-5v619, D1).
+  "Shared harness for the tools/template JVM test suite.
 
    The four sibling test files
    (`template_test.clj` / `template_emission_test.clj` /
-   `emitted_test_run_test.clj` / `version_lockstep_test.clj`) each used
-   to carry their own copies of `tmp-dir` / `delete-recursively` /
-   `template-resource-dir` / `run-template!` / `repo-root` — ~250 lines
-   of duplicated, stateless harness with three slightly-different
-   `repo-root` impls that drifted independently. These are pure
-   functions with no top-level mutable state, so the earlier
-   'kept-independent-to-avoid-state-sharing' rationale didn't hold;
-   they belong in one place.
+   `emitted_test_run_test.clj` / `version_lockstep_test.clj`) all draw
+   `tmp-dir` / `delete-recursively` / `template-resource-dir` /
+   `run-template!` / `repo-root` from here. These are pure functions with
+   no top-level mutable state, so a single shared copy is the right home.
 
-   `repo-root` is unified to a single walk-up that anchors on
-   `implementation/core/src/re_frame` (the strongest, deepest marker
-   the old impls used). The version-lockstep test previously anchored
-   on `implementation/package.json`; both files live under the same
-   repo root, so the deeper marker subsumes it."
+   `repo-root` is a single walk-up that anchors on
+   `implementation/core/src/re_frame` — the strongest, deepest repo
+   marker. `implementation/package.json` lives under the same repo root,
+   so this deeper marker subsumes it for every caller."
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as string]
@@ -28,9 +23,8 @@
 ;; --- emitted-file readers --------------------------------------------------
 ;;
 ;; `read-edn` / `file-exists?` are tiny one-liners that every test which
-;; walks an emitted project re-implements. Homed here (rf2-ee38b.23,
-;; clarity P3) so the next "read the emitted deps.edn" call doesn't
-;; re-inline `slurp` + `read-string`.
+;; walks an emitted project needs. Homed here so the next "read the
+;; emitted deps.edn" call doesn't re-inline `slurp` + `read-string`.
 
 (defn read-edn
   "Parse `f` (a `java.io.File`) as a single EDN value."
@@ -120,7 +114,7 @@
   `clojure -X:test` invocation must also work — so we walk up from
   `user.dir` until we find a directory with a
   `implementation/core/src/re_frame` child (the deepest, most
-  unambiguous repo marker the old per-file impls used)."
+  unambiguous repo marker)."
   []
   (loop [d (io/file (System/getProperty "user.dir"))]
     (cond
@@ -177,9 +171,9 @@
   "Like `run-template!`, but merges `extra-opts` straight onto the
   deps-new opts map — so a test can pass arbitrary template arguments
   (reserved flags, typo keys, …) that the positional `run-template!`
-  arity can't express. Used by the argument-gate negative tests
-  (rf2-qck7t7): they assert reserved / unknown keys fail closed before
-  any scaffold is emitted."
+  arity can't express. Used by the argument-gate negative tests: they
+  assert reserved / unknown keys fail closed before any scaffold is
+  emitted."
   [tmp project-name extra-opts]
   (let [dir-str   (.toString ^Path tmp)
         dir-name  (-> project-name name (string/replace #"^.*?/" ""))

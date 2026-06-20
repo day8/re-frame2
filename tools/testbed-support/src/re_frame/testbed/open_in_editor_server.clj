@@ -1,5 +1,5 @@
 (ns re-frame.testbed.open-in-editor-server
-  "Dev-server 'open in editor' endpoint (Option B, rf2-wn3bh).
+  "Dev-server 'open in editor' endpoint (Option B).
 
   The JS-ecosystem standard for jump-to-source is a dev-server endpoint:
   Vite's `/__open-in-editor`, react-dev-utils' `launchEditorEndpoint`,
@@ -26,14 +26,14 @@
 
   ## Why server-side beats the editor:// URI scheme
 
-  The historic open-in-editor path (still kept as the fallback — see
+  The editor:// open-in-editor path (kept as the fallback — see
   `day8.re-frame2-xray.open-in-editor` / `re-frame.story.ui.open-in-editor`)
   builds an `editor://file/<abs-path>:<line>:<column>` URI and hands it to
   `window.location`. That works zero-config for the common local-build
-  case (rf2-wvsxg bakes the absolute path in at macro-expansion time), but
-  it has two residual gaps Option B closes:
+  case (`absolutise-file` bakes the absolute path in at macro-expansion
+  time), but it has two residual gaps Option B closes:
 
-    1. `absolutise-file` (rf2-wvsxg) can only absolutise coords whose
+    1. `absolutise-file` can only absolutise coords whose
        sources are classpath `file:` resources — sources consumed as JARs
        / in-jar / unusual classpaths leave a RELATIVE `:file` that needs a
        manual `:project-root`. This endpoint resolves the relative file
@@ -60,7 +60,7 @@
   and passes the resolved `<abs-path>:<line>:<column>` string plus an
   optional editor-command hint. `launch-editor` parses the `:line:column`
   suffix itself and builds the per-editor argument shape (it handles every
-  OS + editor, superseding the per-editor `editor://` scheme table). The
+  OS + editor, so no per-editor `editor://` scheme table is needed). The
   editor hint maps the configured editor keyword (`:vscode`/`:cursor`/…)
   to the editor's launch command; when no hint is given launch-editor
   auto-detects the running editor (and honours `$LAUNCH_EDITOR`)."
@@ -106,7 +106,7 @@
   (when (and (string? editor) (not (str/blank? editor)))
     (get editor-command-by-keyword (str/lower-case (str/trim editor)))))
 
-;; ---- runtime :file resolution (mirrors absolutise-file, rf2-wvsxg) -------
+;; ---- runtime :file resolution (mirrors absolutise-file) ------------------
 ;;
 ;; The server runs on the dev JVM with the full shadow-cljs classpath, so
 ;; a classpath-relative `:file` (the common macro-captured shape — e.g.
@@ -280,8 +280,8 @@
 ;;      a `http://localhost:8042` Origin and passes. (A same-origin POST may
 ;;      omit Origin entirely, which is allowed once 1 + 2 hold.)
 ;;
-;; CORS is then reflected to the validated loopback Origin only — never the
-;; old `*` wildcard.
+;; CORS is then reflected to the validated loopback Origin only — never a
+;; `*` wildcard.
 
 (defn ^:private loopback-host?
   "True when `host` (a `Host`-header value, optionally `name:port`, or the
@@ -353,8 +353,8 @@
 (defn ^:private allow-origin
   "The `access-control-allow-origin` value to reflect: the request's own
   Origin when it is a validated loopback origin (so a legitimate cross-PORT
-  dev request gets a usable CORS header), else `\"null\"` (deny). Never the
-  old `*` wildcard."
+  dev request gets a usable CORS header), else `\"null\"` (deny). Never a
+  `*` wildcard."
   [{:keys [headers]}]
   (let [origin (get-header headers "origin")]
     (if (and origin (loopback-host? (origin-host origin)))
