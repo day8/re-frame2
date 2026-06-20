@@ -1515,10 +1515,41 @@ requires frame agreement when both the cascade and focus carry a
 frame). The spine's own step path resolves the stepped row as a whole
 cascade record (`spine/step-cascade`) so its `:frame` comes from the
 exact row stepped to rather than an id-only re-resolution that could
-land on a foreign frame's same-id cascade. Test gate:
-`routing_helpers_cljs_test.cljc` pins two same-id cross-frame cascades
-selecting the focused frame; the trace / managed-fx / spine suites carry
-the same cross-frame fixture shape.
+land on a foreign frame's same-id cascade.
+
+The CURRENT-position end of the step is frame-strict too (rf2-xj3kbn).
+Two coupled lookups must agree on `[frame dispatch-id]`, not the bare
+id, or the walk starts from the wrong row when the focused id also
+occurs in an earlier frame:
+
+1. **`compose-focus` head-frame resolution.** When focus auto-tracks
+   the head (LIVE, or a snap-to-head fallback) with no picker frame
+   stored, the effective `:frame` is taken from the actual head cascade
+   RECORD (`spine/head-cascade` — the last focusable row), not from an
+   id-only `cascade-by-id` that returns the FIRST same-id row's frame.
+   So `:rf.xray/focus` reports `[head-id, head-frame]` in lockstep even
+   when `head-id` collides with an earlier frame's id.
+2. **`spine/step-cascade` current index.** The 4-arity
+   `[cascades current-frame current-id delta]` matches the current
+   position by `[current-frame current-id]` when a frame is known
+   (falling back to id-only for genuinely frameless focus, or when no
+   frame-matching current row exists). `focus-step-reducer` threads the
+   composed focus's `:frame` in, so `prev`/`next` from a colliding-id
+   head step from the RIGHT row instead of an earlier frame's same-id
+   row — which previously produced a false boundary no-op (the L2
+   `[◀ ▶]` controls skipping/failing) or a step from a foreign
+   neighbour. The boundary no-op test is likewise frame-strict: a
+   genuine edge means the same `[frame dispatch-id]` coordinate, so
+   stepping onto a same-id cascade in another frame is a real move.
+
+Test gates: `routing_helpers_cljs_test.cljc` pins two same-id
+cross-frame cascades selecting the focused frame; the trace / managed-fx
+/ spine suites carry the same cross-frame fixture shape;
+`spine_cljs_test.cljs` adds the rf2-xj3kbn current-position cases
+(`step-cascade` 4-arity frame-strict lookup +
+`focus-step-reducer` prev from a colliding-id LIVE head landing on the
+immediate previous row in the head's frame, with the stepped row's
+epoch resolved).
 
 ---
 
