@@ -138,11 +138,10 @@
     ;; than from a positional event arg.
     ;;
     ;; EP-0001: the framework route slice lives in the
-    ;; runtime-db partition at `[:rf.runtime/routing :current]`, NOT under a
-    ;; legacy app-db `:rf/runtime` root (which is now a hard error). This
-    ;; example's render never reads the route slice, so the vestigial
-    ;; pre-EP `:db` write is simply dropped — the server flow only needs to
-    ;; kick off the managed-HTTP article fetch.
+    ;; runtime-db partition at `[:rf.runtime/routing :current]`. This
+    ;; example's render never reads the route slice, so the `:db` write is
+    ;; simply dropped — the server flow only needs to kick off the
+    ;; managed-HTTP article fetch.
     {:db db
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/articles"}

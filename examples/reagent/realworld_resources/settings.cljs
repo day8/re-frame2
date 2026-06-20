@@ -25,14 +25,13 @@
    superseded reply never fires it (the mandatory stale-suppression boundary,
    inherited for free).
 
-   This is the idiom that replaced the variant's earlier off-render Form-3
-   `reagent.ratom/run!` settle reaction: before `:reply-to` existed, a mutation
-   had no reply-side hook and the only sanctioned way to react to settlement
-   was to mount a reaction watching `[:rf.mutation/state …]`. `:reply-to` is the
-   reply-side continuation the mutation surface was missing — a CAUSAL EVENT
+   `:reply-to` is the mutation's reply-side continuation — a CAUSAL EVENT
    TARGET (an ordinary event through the tape / interceptors / replay), not a
-   callback. The view is now a plain Form-1: a pure function of subs that never
-   dispatches out of band.
+   callback. It keeps the view a plain Form-1: a pure function of subs that
+   never dispatches out of band. The alternative — an off-render Form-3
+   `reagent.ratom/run!` reaction watching `[:rf.mutation/state …]` for
+   settlement — pulls a side-effecting reaction into the view; `:reply-to`
+   gives the same settle hook as a declarative, replayable event target.
 
    Compare the `:rf.http/managed` sibling (`examples/reagent/realworld/`): its
    settings submit gets the continuation via the request's `:on-success

@@ -36,16 +36,15 @@
    (no refetch — `:rf.resource/cache-hit`); the manual Refresh forces a
    refetch regardless.
 
-   STATUS. Resources is a POST-V1 optional artefact and the read-resource
-   runtime has LANDED (EP-0003): `reg-resource`, the `:rf.resource/*` passive
+   Resources is a POST-V1 optional artefact. The read-resource runtime
+   (EP-0003) provides `reg-resource`, the `:rf.resource/*` passive
    subs, route `:resources` metadata, and the causal `:rf.resource/ensure` /
    `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
-   `:rf.resource/release-owner` event bodies are all real and operational.
-   This example covers the READ side only; mutations (`reg-mutation` /
-   `:rf.mutation/execute`) have also landed but live in the guide
-   (docs/guide/concepts/server-state.md §Writes invalidate by tag) and the migration walkthrough.
-   GraphQL is a deferred later phase. The example tree is test-free;
-   resource-contract coverage lives in
+   `:rf.resource/release-owner` event bodies. This example covers the READ
+   side only; mutations (`reg-mutation` / `:rf.mutation/execute`) are covered
+   in the guide (docs/guide/concepts/server-state.md §Writes invalidate by
+   tag) and the migration walkthrough. GraphQL is a deferred later phase. The
+   example tree is test-free; resource-contract coverage lives in
    `implementation/resources/test/` and the conformance fixtures."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -315,7 +314,7 @@
 ;; subs LAYERED over the passive `[:rf.resource/data …]` sub (Spec 016 §No
 ;; :select key), NOT a resource-local hook. The EP-0004 input-fn is a pure
 ;; `(fn [query-v])` returning a VECTOR OF QUERY VECTORS — never a deref'd
-;; subscribe (the v1 signal-fn idiom, which raises
+;; subscribe (a deref'd-subscribe input-fn raises
 ;; :rf.error/sub-input-fn-bad-return). The compute fn then receives the
 ;; resolved input values positionally: `[[articles] _]`.
 (rf/reg-sub :resources.app/first-slug

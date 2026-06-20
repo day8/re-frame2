@@ -32,8 +32,7 @@
 
 (def tick-ms
   "Wall-clock delay between successive timer ticks. Kebab-case per the
-   sibling `examples/reagent/long_running_work` convention; the
-   SCREAMING-CASE here was a v1 holdover."
+   sibling `examples/reagent/long_running_work` convention."
   100)
 
 ;; ============================================================================

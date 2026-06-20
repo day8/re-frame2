@@ -30,8 +30,7 @@
 
    For the `:rf.http/managed` counterpart (schema-driven decode, retry/abort,
    the classification order, optimistic rollback against managed HTTP), see the
-   sibling `examples/reagent/realworld/` — kept intact as the canonical Spec
-   014 demo."
+   sibling `examples/reagent/realworld/` — the canonical Spec 014 demo."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Managed HTTP — the single built-in resource/mutation transport.

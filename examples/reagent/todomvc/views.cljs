@@ -45,7 +45,7 @@
               (save)))})])))
 
 (defn todo-item [dispatch]
-  ;; editing? is local component state by design — matches v1 TodoMVC; not in app-db so it isn't persisted/inspected (TodoMVC tradeoff).
+  ;; editing? is local component state by design — matches the canonical TodoMVC; not in app-db so it isn't persisted/inspected (TodoMVC tradeoff).
   (let [editing? (reagent/atom false)]
     (fn [_dispatch {:keys [id title completed]}]
       [:li {:class (str/join " " (cond-> []

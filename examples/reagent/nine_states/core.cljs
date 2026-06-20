@@ -627,9 +627,9 @@
 ;;
 ;; The form and control panel use `(rf/machine-has-tag? :ui/nine-states
 ;; :mode/read-only)` to disable themselves when the :mode region is
-;; :done. The legacy variant queried `:ui.state/done?` for the same
-;; thing; tags are cleaner because the view doesn't need to know
-;; *which* state of which region carries the read-only intent.
+;; :done. Querying by tag is cleaner than querying a specific state
+;; (`:ui.state/done?`): the view doesn't need to know *which* state of
+;; which region carries the read-only intent.
 
 (reg-view ^{:doc "Form for adding a todo. Drives the form region (states 7 & 8)."}
           new-todo-form []

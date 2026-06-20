@@ -8,7 +8,7 @@
    accumulation driven by a CAUSAL `:rf.resource/load-more` event. There is no
    app-db list slice, no `:loading-more?` flag, no cursor threading, and no
    append reducer — the runtime owns all of it (that is the whole point of the
-   primitive; before EP-0021 an app hand-rolled every one of those by hand).
+   primitive: without it, an app hand-rolls every one of those by hand).
 
    It teaches, in one cohesive app, the four facts the primitive surfaces:
 
