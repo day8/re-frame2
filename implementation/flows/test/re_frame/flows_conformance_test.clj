@@ -744,6 +744,23 @@
     (let [all     @results
           passed  (filter :passed? all)
           failed  (remove :passed? all)]
+      ;; rf2-3hamsq — non-empty floor. This runner has no skip bucket:
+      ;; every discovered flow-*.edn fixture is runnable (an out-of-claim
+      ;; capability or unclaimed spec-version is a FAILURE, not a skip),
+      ;; so `all` IS the executed set. The lone (zero? (count failed))
+      ;; below passes GREEN over an empty / orphaned corpus (wrong cwd or
+      ;; a fixtures-dir rename emptying file-seq) — verifying NOTHING.
+      ;; Assert that fixtures actually executed:
+      ;;   - (pos? (count all)) catches the fully-empty case;
+      ;;   - the expected-minimum (>= 7) catches partial mass-orphaning
+      ;;     without pinning an exact count (today's count is 9 flow-*.edn
+      ;;     fixtures; the set grows).
+      (is (pos? (count all))
+          "at least one flow-*.edn fixture must have executed")
+      (is (>= (count all) 7)
+          (str "flows corpus fixture floor (>= 7): only "
+               (count all) " executed — a fixtures-dir/cwd fault has "
+               "orphaned the corpus."))
       ;; Silent-on-success: the summary prints only on failure.
       ;; No skip bucket: a flow fixture this runner cannot run — load error,
       ;; unclaimed spec-version, out-of-claim capability — is a FAILURE, not a

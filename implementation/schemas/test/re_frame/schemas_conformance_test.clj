@@ -621,6 +621,21 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
+      ;; rf2-3hamsq — non-empty floor. A lone (zero? (count failed))
+      ;; passes GREEN over an empty / fully-skipped / orphaned corpus
+      ;; (a wrong cwd, a fixtures-dir rename, or a capability-vocab
+      ;; rename that moves every fixture out of claim) — the gate then
+      ;; verifies NOTHING. Assert that fixtures actually executed:
+      ;;   - (pos? (count run)) catches the fully-empty case;
+      ;;   - the expected-minimum (>= 4) catches partial mass-orphaning
+      ;;     without pinning an exact count (today's runnable count is 5:
+      ;;     the four Spec 010 validation points + error-schema-failure).
+      (is (pos? (count run))
+          "at least one claim-runnable schemas conformance fixture must have executed")
+      (is (>= (count run) 4)
+          (str "schemas corpus runnable-fixture floor (>= 4): only "
+               (count run) " executed — a fixtures-dir/cwd fault or a "
+               "capability-vocab rename has orphaned the corpus."))
       ;; Silent-on-success (rf2-try1x): summary prints only on failure.
       (when (seq failed)
         (println)
