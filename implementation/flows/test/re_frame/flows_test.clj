@@ -76,8 +76,13 @@
                   :output-path   [:rect :area]})
     (is (contains? (get (flows/flows-snapshot) :rf/default) :area)
         "the flow lives under :rf/default's slot of the per-frame registry")
-    (is (some? (registrar/lookup :flow :area))
-        "the flow is also discoverable via the :flow registrar kind")))
+    ;; Per rf2-en00bk the per-frame `flows` store is the SOLE store — the flow
+    ;; is introspectable via the frame-scoped `flow-meta-at`, NOT a frame-blind
+    ;; registrar `:flow` slot (which is RESERVED-but-empty).
+    (is (some? (flows/flow-meta-at :area {:frame :rf/default}))
+        "the flow is discoverable via the frame-scoped flow-meta-at")
+    (is (nil? (registrar/lookup :flow :area))
+        "the :flow registrar kind is RESERVED-but-empty — no slot is written (rf2-en00bk)")))
 
 (deftest clear-flow-removes-from-registry-and-vacates-output-slot
   (testing "clear-flow removes the flow and dissoc-in's its output path"
@@ -690,9 +695,10 @@
             "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
         (is (identical? original-b-output (:derive b-after))
             "prior :b's :derive fn has the SAME identity (not the rejected new fn)"))
-      ;; And the registrar slot — flow-id-keyed — must still resolve.
-      (is (some? (registrar/lookup :flow :b))
-          "the :flow registrar slot for :b is still populated"))))
+      ;; And the per-frame store — the single source of truth (rf2-en00bk) —
+      ;; must still resolve the prior :b for this frame.
+      (is (some? (flows/flow-meta-at :b {:frame :rf/default}))
+          "the per-frame flow store for :b is still populated"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Dirty-check / re-evaluation
@@ -936,18 +942,25 @@
         "the :dispatch [:wizard/settle] re-triggered the drain, so the flow computed 3 + 4 = 7")))
 
 ;; ---------------------------------------------------------------------------
-;; 6. clear-all / clean-state interaction with :flow registrar slot
+;; 6. clean-state interaction: the per-frame store is the single source of
+;;    truth (rf2-en00bk — the `:flow` registrar slot is RESERVED-but-empty)
 ;; ---------------------------------------------------------------------------
 
-(deftest clear-all-clears-flow-registrar-slot
-  (testing "registrar/clear-all! removes the :flow kind so subsequent reg-flow starts clean"
+(deftest flow-store-is-the-single-source-of-truth
+  (testing "reg-flow writes ONLY the per-frame `flows` store, never a registrar :flow slot; reset-flows! clears it"
     (rf/reg-flow {:id :one :inputs [[:a]] :derive identity :output-path [:slots :one]})
     (rf/reg-flow {:id :two :inputs [[:a]] :derive identity :output-path [:slots :two]})
-    (is (some? (registrar/lookup :flow :one)))
-    (is (some? (registrar/lookup :flow :two)))
-    (registrar/clear-all!)
-    (is (nil? (registrar/lookup :flow :one)))
-    (is (nil? (registrar/lookup :flow :two)))))
+    ;; The flows live in the per-frame store, introspectable via flow-meta-at.
+    (is (some? (flows/flow-meta-at :one {:frame :rf/default})))
+    (is (some? (flows/flow-meta-at :two {:frame :rf/default})))
+    ;; The registrar `:flow` slot is RESERVED-but-empty — never written.
+    (is (nil? (registrar/lookup :flow :one))
+        ":flow registrar slot is empty — flows own their per-frame store (rf2-en00bk)")
+    (is (nil? (registrar/lookup :flow :two)))
+    ;; `reset-flows!` (NOT registrar/clear-all!) is what clears the flow store.
+    (flows/reset-flows!)
+    (is (nil? (flows/flow-meta-at :one {:frame :rf/default})))
+    (is (nil? (flows/flow-meta-at :two {:frame :rf/default})))))
 
 (deftest reset-flows-clears-both-flows-and-last-inputs
   ;; `reset-flows!` resets BOTH the flow registry AND the dirty-check
@@ -1089,20 +1102,25 @@
     (is (= 700 (:result (rf/app-db-value :right)))
         ":right's :compute still active — 7 * 100 = 700"))
 
-  (testing "the :flow registrar slot survives clear-from-one-frame (multi-frame retention)"
-    ;; Branch 2: the "last-frame-holding-id" check — the registrar slot is
-    ;; flow-id-keyed and shared across frames. Clearing on :left while
-    ;; :right still registers the same id MUST keep the slot populated so
-    ;; hot-reload tracking continues to work for :right's copy.
-    (is (some? (registrar/lookup :flow :compute))
-        "the :flow registrar slot is still populated — :right still holds the id"))
+  (testing "single-store (rf2-en00bk): clear on :left leaves :right's per-frame entry intact; no frame-blind slot to realign"
+    ;; Under the per-frame single store, :right's entry is authoritative in
+    ;; place — there is no shared registrar `:flow` slot to keep aligned. Per-
+    ;; frame introspection shows :left cleared, :right still owning the id.
+    (is (nil? (flows/flow-meta-at :compute {:frame :left}))
+        ":left's per-frame flow entry is gone after the clear")
+    (is (some? (flows/flow-meta-at :compute {:frame :right}))
+        ":right's per-frame flow entry is intact — it still registers the id")
+    (is (nil? (registrar/lookup :flow :compute))
+        "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk)"))
 
-  (testing "clearing from the second (last) frame finally unregisters the registrar slot"
+  (testing "clearing from the second (last) frame drops the final per-frame entry"
     (flows/clear-flow :compute {:frame :right})
     (is (not (contains? (get (flows/flows-snapshot) :right) :compute))
         ":right's slot is now gone")
+    (is (nil? (flows/flow-meta-at :compute {:frame :right}))
+        ":right's per-frame flow entry is gone")
     (is (nil? (registrar/lookup :flow :compute))
-        "registrar slot was unregistered once the LAST frame released the id")))
+        "the :flow registrar slot stays empty — single-store, nothing to unregister (rf2-en00bk)")))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. `_hot-reload-hook` defonce-idempotency on namespace reload
@@ -1184,122 +1202,92 @@
           ":right's last-inputs row is PRESERVED — re-registration on :left did not invalidate :right (rf2-jfpf3)"))))
 
 ;; ---------------------------------------------------------------------------
-;; 9b. :flow registrar slot carries last-registered frame's metadata
-;;     (Spec 013 §Frame-scoping line 105).
+;; 9b. SINGLE-STORE (rf2-en00bk): per-frame entries are independent and
+;;     authoritative; there is no frame-blind registrar `:flow` slot.
 ;;
-;; Spec 013 §Frame-scoping line 105 states: "the registrar slot carries
-;; the most-recently-registered frame's flow-map with `:frame frame-id`
-;; stamped into the metadata". The destroy-frame teardown tests
-;; (flows_destroy_frame_teardown_test.clj) exercise registrar prune
-;; behaviour; this pins the "last-registration-wins" invariant for the
-;; metadata's `:frame` slot. A registrar-write order that only stamped on
-;; first registration would silently break Xray / re-frame-10x's per-flow
-;; frame attribution.
+;; The double-store kept a frame-BLIND registrar `:flow` slot carrying the
+;; MOST-RECENTLY-REGISTERED frame's metadata, which had to be hand-realigned to
+;; a surviving owner on clear / destroy — a workaround forced ONLY because the
+;; single slot could not represent FRAME-DIVERGENT-PER-ID flows. With the
+;; per-frame `flows` atom as the SOLE store (the rf2-0frdi schemas precedent
+;; applied to flows), each frame's entry is authoritative in place: the SAME
+;; flow-id registered against two frames returns each frame's OWN divergent
+;; definition via `flow-meta-at`, and a clear / destroy on one frame never
+;; disturbs the other. The frame-attribution + `:different-fn?` hot-reload
+;; signals the realignment used to serve are now driven directly by `reg-flow`
+;; (see `flow-hot-reload-different-fn?-reflects-real-body-swap`). The whole
+;; realignment cluster of tests is REPLACED by the single-store invariant
+;; below.
 ;; ---------------------------------------------------------------------------
 
-(deftest registrar-slot-carries-last-registered-frame-metadata
-  (testing "the :flow registrar slot's metadata reflects the most-recently-registered frame (Spec 013 §Frame-scoping line 105)"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
-    ;; First registration against :left — metadata's :frame should be :left.
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:result]}
-                 {:frame :left})
-    (is (= :left (:frame (registrar/lookup :flow :shared)))
-        ":left's metadata wins after first registration (the slot is empty before, so first-write wins)")
-    ;; Re-register against :right — metadata's :frame must now be :right.
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 100 (or n 0)))
-                  :output-path   [:result]}
-                 {:frame :right})
-    (is (= :right (:frame (registrar/lookup :flow :shared)))
-        ":right's metadata wins after second registration — last-registration-wins per Spec 013 line 105")
-    ;; Sanity: both frames still hold the flow in their per-frame registry.
-    (is (contains? (get (flows/flows-snapshot) :left)  :shared)
-        ":left still carries :shared in its per-frame registry")
-    (is (contains? (get (flows/flows-snapshot) :right) :shared)
-        ":right carries :shared in its per-frame registry too")))
-
-;; ---------------------------------------------------------------------------
-;; 9b-i. Registrar slot re-points to a LIVE owner when the slot's current
-;;       (last-registered) frame is cleared / destroyed.
-;;
-;; The `:flow` registrar slot carries the most-recently-registered frame's
-;; metadata (Spec 013 §Frame-scoping line 105). When THAT frame is cleared /
-;; destroyed while a sibling still holds the id, the slot re-points to a
-;; surviving owner (or unregisters when none survive). Leaving it pointing at
-;; the dead frame would stale registrar-backed tooling / hot-reload, and the
-;; next surviving-frame re-registration would compute `:different-fn?` against
-;; the dead frame's stale `:handler-fn` / metadata.
-;; ---------------------------------------------------------------------------
-
-(deftest clear-flow-of-registrar-owner-repoints-to-surviving-frame
-  (testing "Per rf2-73pi1: clearing the slot's current owner re-points the
-            registrar to a surviving frame; a subsequent surviving-frame
-            body change then computes :different-fn? against the LIVE body"
+(deftest per-frame-store-keeps-frame-divergent-definitions
+  (testing "the SAME flow-id registered against two frames returns each frame's OWN divergent definition via flow-meta-at; no frame-blind registrar slot"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
     (let [f-left  (fn [n] (* 2 (or n 0)))
           f-right (fn [n] (* 100 (or n 0)))]
-      ;; :left registers first, then :right — so the slot's :frame is :right.
+      (rf/reg-flow {:id :shared :inputs [[:n]] :derive f-left
+                    :output-path [:result-left]}
+                   {:frame :left})
+      (rf/reg-flow {:id :shared :inputs [[:m]] :derive f-right
+                    :output-path [:result-right]}
+                   {:frame :right})
+      ;; Each frame's flow-meta-at returns its OWN divergent definition — the
+      ;; very thing a frame-blind slot could never represent.
+      (is (= f-left  (:derive (flows/flow-meta-at :shared {:frame :left})))
+          ":left's flow-meta-at carries :left's :derive")
+      (is (= f-right (:derive (flows/flow-meta-at :shared {:frame :right})))
+          ":right's flow-meta-at carries :right's :derive (divergent, not overwritten)")
+      (is (= [:result-left]  (:output-path (flows/flow-meta-at :shared {:frame :left}))))
+      (is (= [:result-right] (:output-path (flows/flow-meta-at :shared {:frame :right}))))
+      ;; The registrar `:flow` slot is RESERVED-but-empty throughout.
+      (is (nil? (registrar/lookup :flow :shared))
+          "no frame-blind registrar :flow slot is written (rf2-en00bk)"))))
+
+(deftest clear-flow-of-one-frame-leaves-sibling-authoritative-in-place
+  (testing "clearing one frame's entry leaves the sibling's per-frame entry intact and authoritative; no slot to re-point (rf2-en00bk)"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    (let [f-left  (fn [n] (* 2 (or n 0)))
+          f-right (fn [n] (* 100 (or n 0)))]
       (rf/reg-flow {:id :shared :inputs [[:n]] :derive f-left  :output-path [:result]}
                    {:frame :left})
       (rf/reg-flow {:id :shared :inputs [[:n]] :derive f-right :output-path [:result]}
                    {:frame :right})
-      (is (= :right (:frame (registrar/lookup :flow :shared)))
-          "precondition: slot's metadata names :right (last-registration-wins)")
-      ;; Clear :right — the slot's current owner. :left still holds :shared.
+      ;; Clear :right. :left still holds :shared — its entry is unchanged.
       (flows/clear-flow :shared {:frame :right})
-      (let [slot (registrar/lookup :flow :shared)]
-        (is (some? slot)
-            "slot survives — :left still registers :shared")
-        (is (= :left (:frame slot))
-            "slot re-pointed to the SURVIVING owner :left (not the dead :right)")
-        (is (= f-left (:handler-fn slot))
-            "slot's :handler-fn is :left's LIVE body — not :right's stale one"))
-      ;; Now re-register on :left with a genuinely different body. The
-      ;; registrar's :different-fn? must compare against :left's live body
-      ;; (f-left), so the change is detected as real.
-      (let [seen (atom [])]
-        (registrar/add-replacement-hook!
-          (fn [m] (when (and (= :flow (:kind m)) (= :shared (:id m)))
-                    (swap! seen conj m))))
-        (rf/reg-flow {:id :shared :inputs [[:n]]
-                      :derive (fn [n] (* 9 (or n 0))) :output-path [:result]}
-                     {:frame :left})
-        (is (= 1 (count @seen))
-            "the :left re-registration fired the replacement hook")
-        (is (true? (:different-fn? (first @seen)))
-            ":different-fn? true — computed against :left's LIVE body, not the dead frame's stale :handler-fn (rf2-73pi1)")))))
+      (is (nil? (flows/flow-meta-at :shared {:frame :right}))
+          ":right's per-frame entry is gone")
+      (is (= f-left (:derive (flows/flow-meta-at :shared {:frame :left})))
+          ":left's entry is intact and authoritative IN PLACE — no realignment needed")
+      (is (nil? (registrar/lookup :flow :shared))
+          "registrar :flow slot stays empty (rf2-en00bk)"))))
 
-(deftest clear-flow-non-owner-frame-leaves-registrar-slot-pointing-at-owner
-  (testing "Per rf2-73pi1: clearing a NON-owner frame leaves the registrar
-            slot pointing at its existing (still-live) owner — no churn"
+(deftest clear-flow-non-owner-frame-leaves-owner-intact
+  (testing "clearing a frame that does NOT register the id leaves the registering frame's entry untouched (rf2-en00bk)"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    ;; :left first, :right last → slot names :right.
-    (rf/reg-flow {:id :shared :inputs [[:n]] :derive (fn [n] n) :output-path [:result]}
-                 {:frame :left})
     (rf/reg-flow {:id :shared :inputs [[:n]] :derive (fn [n] n) :output-path [:result]}
                  {:frame :right})
-    (is (= :right (:frame (registrar/lookup :flow :shared))))
-    ;; Clear :left — NOT the slot owner. The slot must keep naming :right.
+    ;; :left never registered :shared — clearing it is a frame-local no-op for
+    ;; :right's entry.
     (flows/clear-flow :shared {:frame :left})
-    (is (= :right (:frame (registrar/lookup :flow :shared)))
-        "slot still names the live owner :right — clearing a non-owner frame caused no re-point")))
+    (is (some? (flows/flow-meta-at :shared {:frame :right}))
+        ":right's entry survives — the clear on :left could not touch it")
+    (is (nil? (flows/flow-meta-at :shared {:frame :left}))
+        ":left never held :shared")))
 
-(deftest clear-flow-last-owner-still-unregisters-slot
-  (testing "Per rf2-73pi1: when the cleared frame was the LAST owner, the
-            registrar slot is unregistered (the realign helper preserves
-            the prior last-owner-release behaviour)"
+(deftest clear-flow-last-frame-drops-the-final-per-frame-entry
+  (testing "clearing the only registering frame drops the final per-frame entry; the registrar slot was empty all along (rf2-en00bk)"
     (rf/reg-flow {:id :solo :inputs [[:n]] :derive (fn [n] n) :output-path [:result]})
-    (is (some? (registrar/lookup :flow :solo)))
-    (flows/clear-flow :solo)
+    (is (some? (flows/flow-meta-at :solo {:frame :rf/default})))
     (is (nil? (registrar/lookup :flow :solo))
-        "registrar slot unregistered — no surviving frame holds :solo")))
+        "registrar :flow slot is RESERVED-but-empty even while the flow is live")
+    (flows/clear-flow :solo)
+    (is (nil? (flows/flow-meta-at :solo {:frame :rf/default}))
+        "the per-frame entry is gone after the clear")
+    (is (nil? (registrar/lookup :flow :solo))
+        "registrar :flow slot remains empty — nothing to unregister (rf2-en00bk)")))
 
 ;; ---------------------------------------------------------------------------
 ;; 9b-ii. Same-frame re-registration with a CHANGED :output-path vacates the

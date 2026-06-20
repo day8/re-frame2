@@ -941,6 +941,14 @@
     (rf/reg-route :rf2-o1bp/route1 {} "/rf2-o1bp/landing")
 
     ;; ---- :flow --------------------------------------------------------
+    ;; Per rf2-en00bk flows live OUTSIDE the registrar — `reg-flow` writes
+    ;; only to the flows artefact's own per-frame store (`flows`, keyed
+    ;; `{frame-id {flow-id flow-map}}`), the single source of truth. The
+    ;; `:flow` registrar kind stays RESERVED-but-empty (like `:http-
+    ;; interceptor`); introspection of registered flows goes through
+    ;; `flows/flow-meta-at` / `flows/flows-snapshot`, asserted in the flows
+    ;; artefact's own tests. The fixture's ambient `(with-frame :rf/default …)`
+    ;; scope resolves the frame this registers against.
     (rf/reg-flow {:id     :rf2-o1bp/flow1
                   :inputs []
                   :derive (fn [_inputs] :computed)
@@ -976,6 +984,11 @@
             cofx-ids        (rf/handler-ids :cofx)
             view-ids        (rf/handler-ids :view)
             route-ids       (rf/handler-ids :route)
+            ;; Per rf2-en00bk `:flow` is a RESERVED-but-empty registrar kind —
+            ;; reg-flow writes only to the flows artefact's per-frame store, so
+            ;; the registrar handler-ids :flow set is empty (same pattern as
+            ;; `:http-interceptor`). Flow introspection reads
+            ;; `flows/flow-meta-at` / `flows/flows-snapshot`.
             flow-ids        (rf/handler-ids :flow)
             ep-ids          (rf/handler-ids :error-projector)]
         (is (set? event-ids) "handler-ids returns a set")
@@ -988,7 +1001,14 @@
         (is (contains? cofx-ids :rf2-o1bp/cofx1))
         (is (contains? view-ids :rf2-o1bp/view1))
         (is (contains? route-ids :rf2-o1bp/route1))
-        (is (contains? flow-ids :rf2-o1bp/flow1))
+        ;; Per rf2-en00bk `:flow` is RESERVED-but-empty — the registrar
+        ;; handler-ids :flow set does NOT carry the flow (it lives in the
+        ;; flows artefact's per-frame store). Asserted via `flows/flow-meta-at`
+        ;; below instead.
+        (is (not (contains? flow-ids :rf2-o1bp/flow1))
+            "registrar handler-ids :flow is empty — flows own their per-frame store (rf2-en00bk)")
+        (is (some? (flows/flow-meta-at :rf2-o1bp/flow1))
+            "the flow IS introspectable via flows/flow-meta-at (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))
         ;; Per rf2-cq1ak `:app-schema` is NOT a registrar kind — no
         ;; assertion here. App-db schema introspection goes through
@@ -1023,8 +1043,12 @@
       (let [m (rf/handler-meta :route :rf2-o1bp/route1)]
         (is (= "/rf2-o1bp/landing" (:path m))
             ":route metadata carries :path"))
-      ;; Flows carry :output-path and :inputs.
-      (let [m (rf/handler-meta :flow :rf2-o1bp/flow1)]
+      ;; Flows carry :output-path and :inputs. Per rf2-en00bk they are NOT in
+      ;; the registrar (`handler-meta :flow` is nil); the per-frame store is
+      ;; the single source of truth, read via `flows/flow-meta-at`.
+      (is (nil? (rf/handler-meta :flow :rf2-o1bp/flow1))
+          "registrar handler-meta :flow is nil — flows are not a registrar slot (rf2-en00bk)")
+      (let [m (flows/flow-meta-at :rf2-o1bp/flow1)]
         (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))
       ;; Unknown id → nil.

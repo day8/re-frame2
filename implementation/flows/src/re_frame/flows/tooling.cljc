@@ -27,8 +27,7 @@
   projected Malli shapes in [Spec-Schemas
   §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.derivation.node :as node]
-            [re-frame.flows.registry :as registry]
-            [re-frame.registrar :as registrar]))
+            [re-frame.flows.registry :as registry]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -90,38 +89,32 @@
   [flow]
   (mapv declared-input (:inputs flow)))
 
-(defn- frame-matched-source-coords
-  "Return the `:ns` / `:line` / `:file` source-coordinate map for `flow-id`
-  on `frame-id`, or `nil` when none apply. The per-frame `flows` registry
-  stores the raw flow-map WITHOUT source coords — `reg-flow` runs the flow
-  through `source-coords/merge-coords` only when stamping the `:flow`
-  registrar slot. So coords are read (READ-only) from that slot.
+(defn- flow-source-coords
+  "Return the `:ns` / `:line` / `:file` source-coordinate map for a flow-map,
+  or `nil` when none apply.
 
-  The `:flow` registrar slot is keyed by flow-id ALONE and holds the
-  MOST-RECENTLY-REGISTERED frame's metadata (Spec 013 §Frame-scoping), so it
-  is frame-blind. To stay frame-SAFE we attach the coords only when the
-  slot's stamped `:frame` matches THIS node's frame — a different frame's
-  same-id flow never inherits the wrong source location. A frame whose
-  same-id flow is not the slot's current owner simply carries no `:source`
-  (the conservative, never-wrong choice over a cross-frame mis-attribution)."
-  [frame-id flow-id]
-  (let [slot (registrar/lookup :flow flow-id)]
-    (when (= frame-id (:frame slot))
-      (let [source (node/source-coords slot)]
-        (when (seq source) source)))))
+  SINGLE-STORE (rf2-en00bk): `reg-flow` stamps `source-coords/merge-coords`
+  into the value stored in the per-frame `flows` registry — the SOLE store —
+  so coords are read straight off the frame-scoped flow-map. This is
+  frame-SAFE by construction: each `(frame-id, flow-id)` entry carries its OWN
+  registration's coords, so a different frame's same-id flow never inherits the
+  wrong source location. The previous frame-blind registrar `:flow` slot — and
+  the frame-matching dance it forced — are gone."
+  [flow]
+  (let [source (node/source-coords flow)]
+    (when (seq source) source)))
 
 (defn- with-metadata
   "Attach source coordinates, the `:schema` fact, the `:doc`, and the opaque
-  `:derive` body token to a node when present. `:schema` / `:doc` are
-  user-supplied flow-map keys, read straight off the frame-scoped flow-map
-  (frame-safe). The `:source` coords are read frame-matched from the
-  registrar slot (the only place `reg-flow` records them). The `:derive` fn
+  `:derive` body token to a node when present. `:schema` / `:doc` / the
+  `:source` coords are ALL read straight off the frame-scoped flow-map
+  (frame-safe) — the per-frame `flows` store is the single source of truth
+  (rf2-en00bk), and `reg-flow` stamps the coords into it. The `:derive` fn
   is the flow's whole-value derivation — surfaced under `:derive` as an
   opaque token so a tool can show the function identity / source without it
   being serialized."
-  [node frame-id flow]
-  (let [flow-id (:id flow)
-        source  (frame-matched-source-coords frame-id flow-id)]
+  [node _frame-id flow]
+  (let [source (flow-source-coords flow)]
     (cond-> node
       (some? source)           (assoc :source source)
       (contains? flow :schema) (assoc :schema (:schema flow))

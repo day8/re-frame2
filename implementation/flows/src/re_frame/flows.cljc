@@ -60,6 +60,15 @@
 (def flows-snapshot       registry/flows-snapshot)
 (def ^:no-doc last-inputs-snapshot registry/last-inputs-snapshot)
 
+;; The canonical per-frame flow introspection surface — the
+;; `(handler-meta :flow flow-id)` replacement (rf2-en00bk, applying the
+;; rf2-0frdi `schemas/app-schema-meta-at` precedent). The per-frame `flows`
+;; atom is the SINGLE source of truth; the registrar `:flow` kind is
+;; RESERVED-but-empty. Pair-tools / 10x panels / source-coord tests read
+;; `flow-meta-at` (frame-divergent-per-id correct) rather than the frame-blind
+;; registrar slot. Mirrors `re-frame.schemas/app-schema-meta-at`.
+(def flow-meta-at       registry/flow-meta-at)
+
 (def reg-flow           registry/reg-flow)
 (def clear-flow         registry/clear-flow)
 (def reset-flows!       registry/reset-flows!)
@@ -704,9 +713,11 @@
 (late-bind/set-fn! :flows/restore-abandoned-paths!  registry/restore-abandoned-output-paths!)
 ;; Frame-destroy teardown hook (symmetric with the machines
 ;; `:machines/teardown-on-frame-destroy!` hook). `frame/destroy-frame!`
-;; invokes this hook so per-frame flow-registry entries, the matching
-;; `last-inputs` rows, and any `:flow` registrar slots whose last owning frame
-;; was destroyed all clear in one step. Without the hook a long-running SSR
-;; JVM (per-request frame churn) would leak flow state indefinitely.
+;; invokes this hook so the destroyed frame's per-frame flow-registry entries
+;; and the matching `last-inputs` rows clear in one step. SINGLE-STORE
+;; (rf2-en00bk): the per-frame `flows` atom is the sole store, so there is no
+;; frame-blind registrar `:flow` slot to realign — dropping the frame's
+;; per-frame entries is the whole job. Without the hook a long-running SSR JVM
+;; (per-request frame churn) would leak flow state indefinitely.
 (late-bind/set-fn! :flows/teardown-on-frame-destroy!
                    registry/teardown-on-frame-destroy!)

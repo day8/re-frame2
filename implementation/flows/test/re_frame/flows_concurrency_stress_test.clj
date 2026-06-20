@@ -358,10 +358,13 @@
                 (str "Cycle-probe id " cyc-b " never registered "
                      "(cycle rolled back per rf2-7csri); must not "
                      "appear in `last-inputs`"))
+            ;; SINGLE-STORE (rf2-en00bk): the `:flow` registrar slot is
+            ;; RESERVED-but-empty — never written — so it is `nil` throughout,
+            ;; not "vacated on last release". The per-frame store check above is
+            ;; the real cleanup assertion.
             (is (nil? (registrar/lookup :flow flow-id))
-                (str ":flow registrar slot for " flow-id " must be "
-                     "vacated — the LAST frame holding the id "
-                     "released it"))
+                (str ":flow registrar slot for " flow-id
+                     " is RESERVED-but-empty (rf2-en00bk)"))
             (is (nil? (registrar/lookup :flow cyc-a))
                 (str ":flow registrar slot for cycle-probe " cyc-a
-                     " must be vacated"))))))))
+                     " is RESERVED-but-empty (rf2-en00bk)"))))))))

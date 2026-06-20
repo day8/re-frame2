@@ -21,14 +21,15 @@
 
     SURFACE 2 (re-registration skips recompute). A same-frame `reg-flow`
     REPLACEMENT publishes the new flow into `flows` (visible to a drain) in
-    the `swap!`, and the stale-`last-inputs` invalidation fires via
-    `registrar/register!` → `invalidate-flow-on-replace!`. A drain
-    interleaving after the new flow was visible but before `last-inputs` was
-    dropped would see the new flow with the OLD input cache and skip recompute
-    on `=`-equal inputs, keeping the stale output (violating Spec 013's
-    re-registration contract that the new flow re-evaluates on the next event
-    regardless of input equality). Serializing the whole publish→invalidate
-    sequence makes that window unreachable too.
+    the `swap!`, then drops the stale `last-inputs` row DIRECTLY via the
+    private `drop-frame-flow-row!` (rf2-en00bk single-store — the former
+    `registrar/register!` → `invalidate-flow-on-replace!` indirection is gone).
+    A drain interleaving after the new flow was visible but before
+    `last-inputs` was dropped would see the new flow with the OLD input cache
+    and skip recompute on `=`-equal inputs, keeping the stale output (violating
+    Spec 013's re-registration contract that the new flow re-evaluates on the
+    next event regardless of input equality). Serializing the whole
+    publish→invalidate sequence makes that window unreachable too.
 
   (Reentrant: a mid-drain `:rf.fx/clear-flow` / `:rf.fx/reg-flow` runs
   directly inside the single-drainer window rather than self-deadlocking on
@@ -171,7 +172,7 @@
                "drain did NOT re-commit the vacated :out. Pre-fix it would "
                "hold the stale value " (:out (rf/app-db-value :rf/default))))
       (is (nil? (registrar/lookup :flow :doubled))
-          "the :flow registrar slot was vacated (last owner released the id)"))))
+          "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Surface 2 — a re-registration must re-evaluate on the next drain even when
@@ -180,20 +181,25 @@
 
 (deftest re-registration-recomputes-when-a-drain-races-the-invalidate-window
   ;; Pause the `reg-flow` REPLACEMENT after it has published the new flow into
-  ;; `flows` but BEFORE `registrar/register!` fires the
-  ;; `invalidate-flow-on-replace!` hook that drops the stale `last-inputs`
-  ;; row, dispatch an UNRELATED event on another thread, then resume and
-  ;; assert the first post-replacement drain materialises the NEW output.
+  ;; `flows` but BEFORE the DIRECT `drop-frame-flow-row!` drops the stale
+  ;; `last-inputs` row (rf2-en00bk single-store: the invalidation is no longer
+  ;; routed through `registrar/register!` — it is a direct frame-scoped drop
+  ;; inside the serialized `reg-flow` thunk). Dispatch an UNRELATED event on
+  ;; another thread, then resume and assert the first post-replacement drain
+  ;; materialises the NEW output.
   ;;
-  ;; The pause is injected by redefining `registrar/register!` to signal
-  ;; "published" then block on a release latch on the `:flow` kind only — so
-  ;; reg-flow parks in the window while still HOLDING the drain-lock. The
-  ;; racing dispatch on thread B cannot acquire the lock and run until
+  ;; The pause is injected by redefining the PRIVATE
+  ;; `re-frame.flows.registry/drop-frame-flow-row!` (the fn the replacement
+  ;; calls to drop the stale row) to signal "published" then block on a release
+  ;; latch — so reg-flow parks in the window while still HOLDING the drain-lock.
+  ;; The racing dispatch on thread B cannot acquire the lock and run until
   ;; reg-flow completes its invalidation; the drain then sees the new flow
   ;; with a DROPPED last-inputs row and recomputes regardless of input
-  ;; equality.
+  ;; equality. (Only the replacement under redef calls `drop-frame-flow-row!`
+  ;; here — the original `reg-flow` is a first-time registration and the seed
+  ;; dispatch advances the row directly, neither routing through this fn.)
   (testing "an unrelated dispatch racing the invalidate window still gets a fresh recompute"
-    (let [orig-register registrar/register!
+    (let [orig-drop @#'registry/drop-frame-flow-row!
           published     (CountDownLatch. 1)
           raced         (CountDownLatch. 1)
           release       (CountDownLatch. 1)]
@@ -208,19 +214,15 @@
       (is (= 10 (:out (rf/app-db-value :rf/default)))
           "precondition: the original flow materialised :out = 2 × :n = 10")
 
-      (with-redefs [registrar/register!
-                    (fn [kind id metadata]
-                      (if (= kind :flow)
-                        (do
-                          ;; The new flow is ALREADY published into `flows`
-                          ;; by reg-flow's swap! before this call; parking
-                          ;; here opens the publish→invalidate window.
-                          ;; Signal, block, THEN run the real register!
-                          ;; (which fires invalidate-flow-on-replace!).
-                          (.countDown published)
-                          (await! release "reg-flow release")
-                          (orig-register kind id metadata))
-                        (orig-register kind id metadata)))]
+      (with-redefs [registry/drop-frame-flow-row!
+                    (fn [frame-id flow-id]
+                      ;; The new flow is ALREADY published into `flows` by
+                      ;; reg-flow's swap! before this call; parking here opens
+                      ;; the publish→invalidate window. Signal, block, THEN run
+                      ;; the real drop (the stale-`last-inputs` invalidation).
+                      (.countDown published)
+                      (await! release "reg-flow release")
+                      (orig-drop frame-id flow-id))]
         (let [;; Thread A: re-register :scaled as :out = 100 × :n. Publishes
               ;; the new flow, then parks at register! under the drain-lock.
               replacer
@@ -368,7 +370,7 @@
       (is (not (contains? (flows/last-inputs-snapshot) :scaled))
           "last-inputs row gone")
       (is (nil? (registrar/lookup :flow :scaled))
-          "the :flow registrar slot was vacated (last owner released)")
+          "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)")
       ;; THE LOAD-BEARING ASSERT: clear-flow vacated the REPLACEMENT's live
       ;; path (:out-b), not the stale pre-lock :out-a. A stale pre-lock read
       ;; would leave :out-b lingering (500) after the flow was removed from
