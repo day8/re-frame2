@@ -389,9 +389,10 @@
 ;; `:rf/time-ms` via `:rf.cofx/requires` (rf2-abyycr / rf2-601ife). Their
 ;; handlers read the recorded allocation FLAT under `:coeffects
 ;; :rf.resource/generation-allocation` (`{:generation N :counter N}`) and the
-;; causal time FLAT under `:coeffects :rf/time-ms` — they no longer re-mint
-;; `(inc snapshot)` from an ambient read NOR reach through the whole `:rf.cofx`
-;; token for the time fact. The allocation is recorded on the token
+;; causal time FLAT under `:coeffects :rf/time-ms` — the generation comes
+;; from the recorded allocation rather than an ambient `(inc snapshot)`, and
+;; the time fact is read directly from the coeffects, not through the whole
+;; `:rf.cofx` token. The allocation is recorded on the token
 ;; (generator-backed recordable cofx) so replay reproduces an identical
 ;; generation; the host high-water advances via the
 ;; `:rf.resource/commit-generation` fx (`max`).

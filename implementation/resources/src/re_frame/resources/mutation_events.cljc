@@ -86,9 +86,8 @@
 ;; token's `:rf/time-ms` (rf2-dsyqmz); the terminal `:settled-at` + any patch /
 ;; populate `:loaded-at` is the reply token's completion time (`:completed-at`,
 ;; the reply event's causal `:rf/time-ms`, rf2-40dqi6 / rf2-r65m41). No ambient
-;; clock is read at a durable write site, so this ns no longer defines a
-;; `now-ms` helper (the remaining timer DELAYS are advisory host transients
-;; computed from the durable absolute timestamps).
+;; clock is read at a durable write site (the timer DELAYS are advisory host
+;; transients computed from the durable absolute timestamps).
 ;;
 ;; The pure stale / timer helpers a patched / populated entry reads
 ;; (`stale-at-for` / `positive-or-nil` / `server-frame?`) live in `state.cljc`

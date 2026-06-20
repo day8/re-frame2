@@ -187,13 +187,13 @@
   the first such scope, or nil when no other scope for this resource is active.
 
   rf2-tluunj — visits ONLY entries that currently hold an active owner, via the
-  `owner-index` (`{<owner> #{<key-id> …}}`), instead of scanning the WHOLE
-  `:entries` map on every `:rf.resource/state` sub recompute. The heuristic
-  only ever fires on an ACTIVE entry (`entry-active?`), and an entry is active
-  IFF it is a member of some owner-index bucket, so the owner-index members are
-  exactly the candidate set — every entry the old full scan would have passed
-  the `entry-active?` test for, and no more. Resolving each member to its entry
-  via `entry-path-by-id` keeps the rest of the predicate identical. Pure."
+  `owner-index` (`{<owner> #{<key-id> …}}`), so a `:rf.resource/state` sub
+  recompute never scans the WHOLE `:entries` map. The heuristic only ever
+  fires on an ACTIVE entry (`entry-active?`), and an entry is active IFF it is
+  a member of some owner-index bucket, so the owner-index members are exactly
+  the candidate set — every entry that passes the `entry-active?` test, and no
+  more. Resolving each member to its entry via `entry-path-by-id` keeps the
+  rest of the predicate identical. Pure."
   [resources-subtree sub-key]
   (let [[sub-scope rid _params] sub-key
         entries     (:entries resources-subtree)
