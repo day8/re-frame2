@@ -10,8 +10,8 @@
   Built via the `->interceptor` macro (`re-frame.core`, captures the
   definition-site `:source-coord` for jump-to-source per Spec 001) or
   the `->interceptor*` fn (this ns; HoF / programmatic, no coord
-  capture). A captured `:source-coord` rides the error-record (per
-  rf2-siheh) so tooling can jump to the throwing interceptor's source.
+  capture). A captured `:source-coord` rides the error-record so
+  tooling can jump to the throwing interceptor's source.
 
   The 'context' is a map with :coeffects (inputs) and :effects (outputs).
   The chain runs :before in order, then the handler, then :after in
@@ -138,14 +138,11 @@
   `classify-pipeline-exception` reads `:id` to attribute the throw to the
   event handler (a handler-wrapping `:id`) or a user interceptor.
 
-  EP-0017 removed `inject-cofx` — the only mechanism that stamped
-  `:rf/cofx-id` on an interceptor — and moved coeffect-supplier-throw
-  handling to context assembly (`re-frame.cofx`, BEFORE the chain runs).
-  No interceptor carries `:rf/cofx-id` anymore, so the old conditional
-  copy of it onto this record was permanently dead and has been removed
-  (rf2-oky3gt).
+  No interceptor carries `:rf/cofx-id`: coeffect delivery happens during
+  context assembly (`re-frame.cofx`, BEFORE the chain runs), so a
+  coeffect-supplier throw is handled there rather than on this record.
 
-  Per rf2-siheh the record carries the throwing interceptor's
+  The record carries the throwing interceptor's
   `:source-coord` when one was captured (the `->interceptor` macro
   stamps it from `(meta &form)`). The router threads it onto the
   `:rf.error/interceptor-exception` trace so the Xray Epoch INTERCEPTOR
@@ -219,7 +216,7 @@
   portable. Returns nil when the `:after` was a no-op (returned the
   context unchanged) so the caller can skip stashing the row entirely
   — the Xray AFTER INTERCEPTORS section renders nothing for no-op
-  interceptors. Per rf2-9dk9y."
+  interceptors."
   [before after]
   (let [slots (reduce (fn [acc seg]
                         (if-let [d (segment-delta (get before seg)
@@ -234,21 +231,19 @@
   "True iff `x` is a framework-installed scaffolding interceptor VALUE —
   the framework's own appended handler-wrapper, stamped `:rf/default?
   true` (see `re-frame.events/register-event!`). Two callers share this
-  one predicate (rf2-ih437c):
+  one predicate:
 
     - `invoke-after` (this ns) skips its ctx-delta capture for these —
       they are framework machinery, not user-meaningful interceptors on
       the Xray AFTER INTERCEPTORS surface.
     - `re-frame.interceptor-registry/resolve-chain` lets this ONE inline
-      value pass through a chain untouched (the reference-only flip,
-      rf2-0adhqs.9, rejects every other inline value). `interceptor-
-      registry` already `:require`s this ns, so it calls here rather than
-      keeping a second copy.
+      value pass through a chain untouched (chains are reference-only and
+      reject every other inline value). `interceptor-registry` already
+      `:require`s this ns, so it calls here rather than keeping a second
+      copy.
 
-  EP-0017 removed `inject-cofx`; no interceptor carries `:rf/cofx-id`
-  anymore (coeffect delivery moved to context assembly), so the old
-  `:rf/cofx-id` skip-clause was permanently dead and has been removed
-  (rf2-oky3gt) — the predicate is the `:rf/default?` check alone.
+  No interceptor carries `:rf/cofx-id` (coeffect delivery happens during
+  context assembly), so the predicate is the `:rf/default?` check alone.
 
   The `(map? x)` guard makes the predicate total over a chain entry of
   ANY shape (the registry calls it on raw chain entries that may be
@@ -259,7 +254,7 @@
 
 (defn- invoke-after [context interceptor]
   (if-let [f (:after interceptor)]
-    (let [;; Dev-only ctx-delta capture per rf2-9dk9y. The snapshot ride
+    (let [;; Dev-only ctx-delta capture. The snapshot ride
           ;; the same `interop/debug-enabled?` gate as the trace surface
           ;; so production CLJS bundles DCE the capture. Framework
           ;; defaults (`:rf/default?`) are skipped — they are not

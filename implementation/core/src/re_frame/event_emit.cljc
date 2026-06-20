@@ -38,9 +38,9 @@
   drops the record entirely — framework-internal bookkeeping handlers
   (Xray, Story) are not user-domain observable signal.
 
-  NOTE: handler-meta `:sensitive?` is no longer consulted here.
-  Sensitive data marking is path-based per the upcoming data-
-  classification mechanism (separate spec doc; in progress)."
+  Sensitive data marking is path-based per the data-classification
+  mechanism (separate spec doc); handler-meta `:sensitive?` is not
+  consulted here."
   (:require [re-frame.elision       :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.late-bind     :as late-bind]
@@ -63,8 +63,7 @@
 (def register-event-listener!
   "Register a listener `f` under `id`. Re-registering the same id
   replaces. `f` receives a single event-record map (see ns docstring
-  §Record shape); its return value is ignored. Returns `id`. Per
-  rf2-rirbq."
+  §Record shape); its return value is ignored. Returns `id`."
   (:register registry))
 
 (def unregister-event-listener!
@@ -85,7 +84,7 @@
 
   Short-circuits to a no-op when the registry is empty (one deref +
   empty-map check). Otherwise looks up the event's handler-meta and
-  drops the record when `:rf.trace/no-emit?` (rf2-qsjda) is set.
+  drops the record when `:rf.trace/no-emit?` is set.
   Surviving records run through `re-frame.elision/elide-wire-value`
   ONCE with off-box defaults (large → `:rf.size/large-elided`;
   sensitive paths → `:rf/redacted`), then fan out through the emit-
@@ -114,7 +113,6 @@
 ;;
 ;; `router.cljc` invokes `dispatch-on-event!` once per processed event.
 ;; The router looks the fn up through the late-bind hook table at call
-;; time rather than `:require`ing this namespace directly. Per
-;; rf2-rirbq.
+;; time rather than `:require`ing this namespace directly.
 
 (late-bind/set-fn! :event-emit/dispatch-on-event dispatch-on-event!)

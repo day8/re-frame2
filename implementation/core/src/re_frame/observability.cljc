@@ -34,7 +34,7 @@
     `error-emit/dispatch-error-record!` calls [[route-error-record!]] for
     the EP-0008 NON-EVENT union records (the frame-teardown report, the
     promoted SSR categories) — BOTH ALONGSIDE the always-on error-emit
-    listener fan-out (rf2-ntv9i9.1).
+    listener fan-out.
 
   This is the THIRD of the three observation streams (Spec 015 §The three
   observation streams) — the bounded, projected, frame-`:observability`-
@@ -256,22 +256,21 @@
         (route-stream! frame-id record entries))))
   nil)
 
-;; ---- non-event union record route (EP-0008, rf2-ntv9i9.1) -----------------
+;; ---- non-event union record route (EP-0008) -------------------------------
 ;;
 ;; `route-error!` (above) is the EVENT-centric route: its positional signature
 ;; `[error-kw event event-id frame-id exception elapsed-ms time correlation]`
 ;; builds an `:rf.observe/error` record from a dispatched-event / subscribe
-;; failure. But the EP-0008 NON-EVENT always-on records — the frame-teardown
+;; failure. The EP-0008 NON-EVENT always-on records — the frame-teardown
 ;; report (`:hook-failures`) and the promoted SSR categories (`:phase` /
 ;; `:reason` / `:projector-id` / …) — do NOT fit that positional shape: they
 ;; are pre-built union records with flat category-specific slots and no
-;; `:event` / `:event-id`. Before rf2-ntv9i9.1 these reached ONLY the
-;; corpus-wide `register-error-listener!` registry (the advanced integration
-;; API) and BYPASSED the frame-owned `:observability :errors` sinks — yet Spec
-;; 015 §Frame-owned observability sink policy says EVERY production-reachable
-;; `:rf.error/*` site routes to the frame sinks ALONGSIDE the listener fan-out.
-;; That left the NORMAL production sink model (the Datadog/Sentry story) blind
-;; to EP-0008's flagship teardown report. `route-error-record!` closes the gap.
+;; `:event` / `:event-id`. `route-error-record!` is their route to the
+;; frame-owned `:observability :errors` sinks, so that — per Spec 015
+;; §Frame-owned observability sink policy — EVERY production-reachable
+;; `:rf.error/*` site reaches the frame sinks ALONGSIDE the corpus-wide
+;; `register-error-listener!` fan-out, keeping the production sink model (the
+;; Datadog/Sentry story) fed with EP-0008's teardown report.
 
 (def ^:private error-record-summary-keys
   "Slots of a non-event union error record that map onto the canonical

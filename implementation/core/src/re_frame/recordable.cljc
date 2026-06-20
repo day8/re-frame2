@@ -1,5 +1,5 @@
 (ns re-frame.recordable
-  "Internal DATA-ONLY recordable-value predicate (EP-0017 erratum rf2-rmroo4).
+  "Internal DATA-ONLY recordable-value predicate (EP-0017 erratum).
 
   ## Purpose — \"can this value be recorded and read back as ordinary data?\"
 
@@ -65,8 +65,7 @@
   it as a non-recordable host handle so the failure surfaces AT THE SOURCE
   coeffect (via `explain-non-recordable`) rather than far away at replay /
   Xray / SSR / epoch-export time. Authors who genuinely need to record an
-  instant convert to `java.util.Date` (`Date/from`) at the boundary
-  (rf2-3az1vn P2)."
+  instant convert to `java.util.Date` (`Date/from`) at the boundary."
   [x]
   #?(:clj  (instance? Date x)
      :cljs (instance? js/Date x)))

@@ -1,7 +1,7 @@
 (ns re-frame.path
   "Internal path algebra for `:rf/path` — the shared lightweight-optics
-  vocabulary every path-shaped re-frame2 fact inherits (EP-0012,
-  ACCEPTED ruling rf2-s7xshi). The normative contract lives in
+  vocabulary every path-shaped re-frame2 fact inherits (EP-0012). The
+  normative contract lives in
   [`spec/Conventions.md` §The `:rf/path` algebra]; this namespace is the
   reference implementation.
 
@@ -85,7 +85,7 @@
   normalize to a vector (Conventions §Path shape).
 
   The root path is the EXPLICIT empty vector `[]`; a nil path FAILS CLOSED
-  with `:rf.error/bad-path` (EP-0012 fail-closed boundary, rf2-w9x5fv). An
+  with `:rf.error/bad-path` (EP-0012 fail-closed boundary). An
   omitted path is NOT silently the whole value: a caller that legitimately
   has no path handles that absence BEFORE normalization (e.g. an `or`-default
   to `[]` at its own boundary, where targeting the root is the deliberate
@@ -126,13 +126,13 @@
   validation: `normalize-concrete` THROWS on a bad segment; `segment?`
   answers the same membership question without throwing, for a consumer
   that builds its own diagnostic (e.g. flows' `reg-flow` validator names
-  the offending entries under `:bad-elements` — rf2-t3cfil). A subsystem
+  the offending entries under `:bad-elements`). A subsystem
   that needs a NARROWER domain composes its own predicate ON TOP of this
   one (e.g. `(and (segment? x) (not (nil? x)))`), so the shared upper bound
   stays the single definition and no consumer re-enumerates the host-type
   discrimination.
 
-  rf2-ujmc3u: an INTEGER segment must be inside the CEDN-1 safe-integer
+  An INTEGER segment must be inside the CEDN-1 safe-integer
   range — the shared path vocabulary MUST NOT be wider than canonical EDN
   identity, or a consumer keying off `segment?` could admit an integer
   (`9007199254740992`) that cannot be portably compared, printed, routed,
@@ -157,7 +157,7 @@
   "Normalize a path to the canonical vector form AND validate that every
   segment is a concrete EDN identity value (Conventions §Segment domain).
 
-  This is the VALIDATED concrete boundary (EP-0012 rf2-w9x5fv item 2):
+  This is the VALIDATED concrete boundary (EP-0012 item 2):
   `normalize` coerces container shape only; `normalize-concrete` additionally
   fails closed with `:rf.error/bad-path` on any segment outside the concrete
   domain — an opaque host object, a function, a template-parameter segment
@@ -388,12 +388,12 @@
   `instantiate` is a CONCRETE-path PRODUCER: its result is meant to be fed
   to `get` / `put` / `over` as a runtime path, so it routes the substituted
   result through `normalize-concrete` — the SAME validated boundary frame
-  classification and resource scope use (rf2-w9x5fv). A binding whose VALUE
+  classification and resource scope use. A binding whose VALUE
   is outside the concrete-segment domain — a function, host object, or a
   composite (vector / map / set), including a literal `[:rf.path/param …]`
   data form — FAILS CLOSED with `:rf.error/bad-path` rather than silently
-  smuggling a non-portable segment into a path presented as concrete
-  (rf2-ehkut7). A present-`nil` binding is a legal concrete segment and
+  smuggling a non-portable segment into a path presented as concrete.
+  A present-`nil` binding is a legal concrete segment and
   passes (the missing-binding case is the fail-closed
   `:rf.error/missing-path-param` above)."
   [path-or-decl bindings]

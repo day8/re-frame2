@@ -8,10 +8,10 @@
     :event :sub :fx :cofx :interceptor :view :frame :route :head
     :error-projector :flow :resource
 
-  Machine guards and actions are NOT a registrar kind (rf2-ftrcv,
-  supersedes rf2-ypu5i / rf2-npvsx). Per Spec 005 the machine spec's
-  `:guards` / `:actions` maps are the single source of truth — the
-  runtime resolves them through the machine spec, never the registrar.
+  Machine guards and actions are NOT a registrar kind. Per Spec 005 the
+  machine spec's `:guards` / `:actions` maps are the single source of
+  truth — the runtime resolves them through the machine spec, never the
+  registrar.
   Their dev-only fn-source handler-meta surface (`(rf/handler-meta
   :machine-guard [machine-id guard-id])`, consumed by Xray's
   focused-transition lens + re-frame-pair source-jump) is DERIVED on
@@ -22,7 +22,7 @@
   per Spec 009 §Production builds (the macro emits no `:source-*` slots
   under `goog.DEBUG=false`, so the derivation returns nil).
 
-  App-db schemas are NOT a registrar kind (rf2-cq1ak). `reg-app-schema`
+  App-db schemas are NOT a registrar kind. `reg-app-schema`
   writes only to the schemas artefact's own per-frame side-table
   (`schemas/schemas-by-frame`), which is the single source of truth.
   Tools introspecting app-db schemas go through `schemas/app-schemas`
@@ -36,7 +36,7 @@
   metadata map allocation all disappear from `:advanced` production
   bundles where `goog.DEBUG` is `false`.
 
-  ## Pure-documentation metadata elision (rf2-9wwkcm)
+  ## Pure-documentation metadata elision
 
   Per Spec 001 §Production elision contract, a registration-metadata key
   is **elidable** in production iff it has ZERO production runtime use AND
@@ -75,29 +75,29 @@
 (def kinds
   "The closed set of registry kinds for v1. Adding a new kind is a Spec change.
 
-  Machine guards/actions are NOT registrar kinds (rf2-ftrcv, supersedes
-  rf2-ypu5i / rf2-npvsx) — the runtime resolves them through the machine
-  spec's `:guards` / `:actions` maps, and their dev-only fn-source
-  handler-meta is DERIVED from the machine's `:event` registration spec
-  (see `re-frame.core-machines/machine-handler-meta`), not stored here.
+  Machine guards/actions are NOT registrar kinds — the runtime resolves
+  them through the machine spec's `:guards` / `:actions` maps, and their
+  dev-only fn-source handler-meta is DERIVED from the machine's `:event`
+  registration spec (see `re-frame.core-machines/machine-handler-meta`),
+  not stored here.
 
-  App-db schemas (rf2-cq1ak) are NOT a registrar kind — they live in the
-  schemas artefact's per-frame side-table (`schemas/schemas-by-frame`).
+  App-db schemas are NOT a registrar kind — they live in the schemas
+  artefact's per-frame side-table (`schemas/schemas-by-frame`).
   Introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`.
 
-  `:resource` (rf2-p10npe, Spec 016 §Registration) is the resources
+  `:resource` (Spec 016 §Registration) is the resources
   artefact's registrar kind — `reg-resource` registers a resource spec
   under it. Deliberately `:resource`, NOT `:query` (which would collide
   with route query-params + prior-art names). Reserved whether or not the
   Resources artefact ships.
 
-  `:mutation` (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations,
+  `:mutation` (Spec 016 §Deferred slices / EP-0003 §Mutations,
   the first public-beta gate) is the resources artefact's mutation
   registrar kind — `reg-mutation` registers a mutation spec under it (the
   causal-write counterpart of `:resource`). Reserved whether or not the
   Resources artefact ships.
 
-  `:resource-scope` (rf2-hls77w, Spec 016 §Named resource-scope resolvers /
+  `:resource-scope` (Spec 016 §Named resource-scope resolvers /
   EP-0016 D3) is the resources artefact's THIRD kind — `reg-resource-scope`
   registers a pure named scope resolver under it (the one scope-resolution
   currency reused by resource registration, route resources, ensure /
@@ -105,7 +105,7 @@
   distinct kind, not folded into `:resource`. Reserved whether or not the
   Resources artefact ships.
 
-  `:interceptor` (rf2-0adhqs.2, Spec 001 §Interceptors / EP-0022) is the
+  `:interceptor` (Spec 001 §Interceptors / EP-0022) is the
   registered-interceptor registrar kind — `reg-interceptor` stores an
   interceptor DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` /
   `{:factory}`) under it, keyed by a qualified keyword id. Event/frame
@@ -139,8 +139,8 @@
 ;; `*registrar*` is a rebindable seam an alternate-registrar seating could bind
 ;; to redirect the `reg-*` lowering path to a different `(kind, id) → metadata`
 ;; table without re-plumbing an argument through `re-frame.events` / `.subs` /
-;; `.fx` / `.cofx`. No live caller binds it today (the EP-0013 install seating
-;; path was removed); outside any binding it is nil and the default path holds.
+;; `.fx` / `.cofx`. No live caller binds it; outside any binding it is nil and
+;; the default path holds.
 (def ^:dynamic *registrar*
   "The active registrar atom, or nil for the process-default
   `kind->id->metadata`. A rebindable seam; no live caller binds it (nil ⇒ the
@@ -157,9 +157,9 @@
   (or *registrar* kind->id->metadata))
 
 ;; ---- the active resolved image GENERATION (EP-0023 §Frame-derived live
-;;      registration resolution, rf2-32siq3.9) --------------------------------
+;;      registration resolution) ------------------------------------------------
 ;;
-;; EP-0023 restates the a15n62 invariant in image/frame terms:
+;; EP-0023 states the resolution invariant in image/frame terms:
 ;;
 ;;     target frame -> resolved image generation -> registration resolution
 ;;
@@ -176,11 +176,11 @@
 ;; subscribe / fx / cofx / view / resource lookup is in flight against an
 ;; EP-0023 frame object), `lookup` / `handler` / `registrations` / `ids`
 ;; resolve through the generation's resolver FIRST instead of the registrar
-;; atom. When nil — the absence-is-default path, EVERY existing caller (the
-;; EP-0013 realm-routed dispatch and the single-realm default path alike) — the
-;; reads target `active-registrar`'s atom exactly as before, byte-identical.
-;; This var is consulted with ONE nil check on the read hot path; the dominant
-;; production path leaves it unbound and pays a single `nil?` branch.
+;; atom. When nil — the absence-is-default path, taken by EVERY caller that is
+;; not resolving against a frame object (the realm-routed dispatch and the
+;; single-realm default path alike) — the reads target `active-registrar`'s
+;; atom. This var is consulted with ONE nil check on the read hot path; the
+;; dominant production path leaves it unbound and pays a single `nil?` branch.
 ;;
 ;; PERF / coherence: like `*registrar*`, the binding is established ONCE per
 ;; cascade / subscribe-build by `re-frame.live-frame/call-with-frame-resolution`
@@ -200,8 +200,8 @@
   subscribe / fx / cofx / view / resource resolution targeting an EP-0023 frame
   OBJECT, so `(kind, id)` lookups resolve through the frame's OWN image
   generation rather than the global/default registrar (EP-0023 §Frame-derived
-  live registration resolution, rf2-32siq3.9). nil ⇒ the absence-is-default
-  registrar-atom path — byte-identical for every existing caller."
+  live registration resolution). nil ⇒ the absence-is-default
+  registrar-atom path, taken by every caller not resolving against a frame."
   nil)
 
 (defn- generation-resolver
@@ -248,7 +248,7 @@
   ;; first-time registration). Registered by namespaces that need to
   ;; validate cross-id invariants at registration time (e.g. routing's
   ;; `:url-bound?` "only one frame owns the URL" rule per Spec 012
-  ;; §Multi-frame routing — rf2-w50qm). Fires AFTER the slot is written
+  ;; §Multi-frame routing). Fires AFTER the slot is written
   ;; so the hook can inspect the final registry state.
   (atom []))
 
@@ -269,7 +269,7 @@
 ;; `:trace/emit!` (re-frame.trace depends on re-frame.registrar, so
 ;; `:require` would cycle). `:trace/emit!` is published once at
 ;; re-frame.trace load and never withdrawn, so the resolution is sticky
-;; — `late-bind/get-fn-cached` memoises it (rf2-f72pd).
+;; — `late-bind/get-fn-cached` memoises it.
 ;;
 ;; Each call site keeps its OUTERMOST `(when interop/debug-enabled? ...)`
 ;; gate. That gate is the load-bearing condition Closure constant-folds
@@ -281,9 +281,8 @@
 
 (defn- emit!
   "Invoke `:trace/emit!` with the `:rf.registry` op-type, memoising the
-  late-bind resolution through `late-bind/get-fn-cached` (rf2-f72pd —
-  this fn previously held its own per-key `emit!-cache` atom; that
-  pattern is now generalised in `re-frame.late-bind`). Callers MUST
+  late-bind resolution through `late-bind/get-fn-cached` (the shared
+  memoisation pattern lives in `re-frame.late-bind`). Callers MUST
   wrap invocations in `(when interop/debug-enabled? ...)` so Closure
   DCE elides the call and its literal args under `:advanced +
   goog.DEBUG=false`."
@@ -293,7 +292,7 @@
 
 (defn- dedup-allow?
   "Consult the B4 hot-reload dedup-by-shape table (per Spec 009
-  §Hot-reload dedup — re-emits suppressed by shape, rf2-g1b2m). Returns
+  §Hot-reload dedup — re-emits suppressed by shape). Returns
   true if the emit should proceed; false if the prior emit for this
   `(kind, id)` already carried an identical shape (so this re-emit
   carries no new signal).
@@ -411,12 +410,12 @@
   hot reload; a different ns for the same `(kind, id)` is the
   image-isolation collision case).
 
-  Comparing fn IDENTITY (the prior implementation) mis-detected: a
-  same-file save-and-re-eval yields a FRESH fn instance, so identity
-  always differs and the warning fired on every hot reload — exactly the
-  false positive the spec says MUST be silent. Comparing provenance
-  instead, the same source site re-evaluates to the same `(ns, file,
-  line)` and is correctly silent.
+  Provenance is the right basis, NOT fn identity: a same-file
+  save-and-re-eval yields a FRESH fn instance, so an identity comparison
+  always differs and would fire the warning on every hot reload — exactly
+  the false positive the spec says MUST be silent. Comparing provenance,
+  the same source site re-evaluates to the same `(ns, file, line)` and is
+  correctly silent.
 
   Absent provenance on EITHER side (a programmatic / REPL `register!`
   that bypassed the macro path — no coords captured) is NOT a collision:
@@ -462,7 +461,7 @@
                          (source-coords new-meta) (assoc :source-coords
                                                          (source-coords new-meta))))))))
 
-;; ---- pure-documentation metadata elision (rf2-9wwkcm) ----------------------
+;; ---- pure-documentation metadata elision ----------------------------------
 
 (def pure-documentation-keys
   "The registration-metadata keys that are PURE documentation — zero
@@ -489,7 +488,7 @@
   "Drop the pure-documentation keys (`pure-documentation-keys`) from a
   registration `metadata` map in production builds (`interop/debug-enabled?`
   false). Returns `metadata` unchanged in dev. Per Spec 001 §Production
-  elision contract (rf2-9wwkcm).
+  elision contract.
 
   The `interop/debug-enabled?` gate is the OUTERMOST form so Closure
   constant-folds it under `:advanced` + `goog.DEBUG=false`: the dev arm
@@ -520,7 +519,7 @@
   devtools refresh their view from this event). The trace's `:tags`
   carry `:different-fn?` so tooling can branch idempotent reloads from
   real fn-identity changes without re-emitting through a separate
-  surface — `(rf2-6w7zn)`."
+  surface."
   [kind id metadata]
   (when-not (valid-kind? kind)
     (error/throw-error!
@@ -530,7 +529,7 @@
       {:recovery :fix-registration
        :extra    {:kind kind
                   :id   id}}))
-  ;; Always-on error-coord parallel registry (rf2-3un2g §Production
+  ;; Always-on error-coord parallel registry (§Production
   ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
   ;; carries the captured coord-map (slim in CLJS prod — no `:column`).
   ;; The error-emit substrate looks coords up via
@@ -542,7 +541,7 @@
   ;; itself guards against nil.
   (when-let [pc source-coords/*pending-coords*]
     (source-coords/remember-error-coords! kind id pc))
-  ;; Pure-documentation metadata elision (rf2-9wwkcm). Under `:advanced` +
+  ;; Pure-documentation metadata elision. Under `:advanced` +
   ;; `goog.DEBUG=false` strip the pure-documentation keys (`:doc`) BEFORE the
   ;; metadata is stored, so `(rf/handler-meta kind id)` carries no `:doc` in
   ;; production — consistent with source-coords already being absent there
@@ -557,7 +556,7 @@
         reg      (active-registrar)
         previous (-> @reg (get kind) (get id))]
     (swap! reg assoc-in [kind id] metadata)
-    ;; EP-0023 provenance-preserving source store (rf2-32siq3.2). In addition
+    ;; EP-0023 provenance-preserving source store. In addition
     ;; to the resolver-map write above (the unchanged default-image runtime
     ;; path), record the descriptor in the source store keyed by
     ;; [kind id provenance-namespace]. Cross-namespace duplicate `(kind, id)`
@@ -581,11 +580,11 @@
           (try (f {:kind kind :id id :was previous :now metadata
                    :different-fn? different?})
                (catch #?(:clj Throwable :cljs :default) _ nil)))
-        ;; Per Spec 001 §Hot-reload trace surface (rf2-6w7zn): emit
+        ;; Per Spec 001 §Hot-reload trace surface: emit
         ;; `:rf.registry/handler-replaced` on EVERY re-registration —
         ;; not only when the handler-fn changes. Kinds like `:frame`
-        ;; replace the slot without rotating `:handler-fn`, so a
-        ;; `different?`-gated emit dropped legitimate re-registration
+        ;; replace the slot without rotating `:handler-fn`, so gating the
+        ;; emit on `different?` would drop legitimate re-registration
         ;; events on the floor. The `:different-fn?` tag is preserved
         ;; for tools that want to suppress idempotent-reload noise on
         ;; their side.
@@ -595,7 +594,7 @@
         ;; branch (per Spec 009 §Production builds).
         ;;
         ;; Per Spec 009 §Hot-reload dedup — re-emits suppressed by shape
-        ;; (B4 ruling, rf2-g1b2m): consult the dedup table. Identical
+        ;; (B4 ruling): consult the dedup table. Identical
         ;; shape on re-register (a hot-reload that didn't actually
         ;; change the handler) emits ZERO `:rf.registry/handler-replaced`
         ;; trace events; a real edit emits exactly one.
@@ -604,32 +603,32 @@
             (emit! :rf.registry/handler-replaced
                    {:kind kind :id id :different-fn? different?}))
           ;; Per Spec 001 §Re-registration of a different function —
-          ;; collision warning (rf2-45kaz). Decoupled from the
-          ;; handler-replaced dedup gate (rf2-3az1vn P2): the collision
-          ;; warning detects a CROSS-SOURCE id clash by PROVENANCE
-          ;; (different `(ns, file, line)`), not by handler-fn shape, and
-          ;; carries its OWN per-(kind, id) suppression (`collision-warned`).
-          ;; Nesting it inside the `dedup-allow?` (handler-replaced) gate
-          ;; meant a kind with no rotating `:handler-fn` — `:frame`,
-          ;; `:route`, `:head` — could be deduped-away by shape and so a
-          ;; GENUINE cross-source clash for those kinds never warned. Call
-          ;; it independently (still under `interop/debug-enabled?` for
-          ;; production elision); `collision?` keeps a same-source hot-reload
-          ;; re-eval silent, and the warn-once cache keeps the dev stream
-          ;; readable across reload churn.
+          ;; collision warning. Decoupled from the handler-replaced dedup
+          ;; gate: the collision warning detects a CROSS-SOURCE id clash by
+          ;; PROVENANCE (different `(ns, file, line)`), not by handler-fn
+          ;; shape, and carries its OWN per-(kind, id) suppression
+          ;; (`collision-warned`). It must run independently of the
+          ;; `dedup-allow?` (handler-replaced) gate: a kind with no rotating
+          ;; `:handler-fn` — `:frame`, `:route`, `:head` — can be deduped-away
+          ;; by shape, so nesting the collision check inside that gate would
+          ;; let a GENUINE cross-source clash for those kinds go unwarned.
+          ;; Called here independently (still under `interop/debug-enabled?`
+          ;; for production elision); `collision?` keeps a same-source
+          ;; hot-reload re-eval silent, and the warn-once cache keeps the dev
+          ;; stream readable across reload churn.
           (maybe-emit-collision! kind id previous metadata)))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
       ;; this to track when fresh ids appear in the registry. The B4
       ;; dedup table is also consulted here so the FIRST emit per
       ;; (kind, id) records the baseline shape for subsequent re-emit
-      ;; suppression (rf2-g1b2m). A first registration always allows
+      ;; suppression. A first registration always allows
       ;; (no prior entry to compare against).
       :else
       (when interop/debug-enabled?
         (when (dedup-allow? :rf.registry/handler-registered kind id metadata)
           (emit! :rf.registry/handler-registered {:kind kind :id id}))))
-    ;; Per Spec 001 §`:doc` is dev-warned when absent (rf2-45kaz). Fires
+    ;; Per Spec 001 §`:doc` is dev-warned when absent. Fires
     ;; on every reg-* call whose final metadata-map carries no usable
     ;; `:doc`, once per (kind, id) within the runtime process. Production
     ;; elides via the outer `interop/debug-enabled?` gate (Spec 009
@@ -639,7 +638,7 @@
     ;; without `:doc` does NOT re-fire the warning.
     (when interop/debug-enabled?
       (maybe-emit-missing-doc! kind id metadata))
-    ;; Always-on registration hooks (rf2-w50qm): fire on BOTH first-time
+    ;; Always-on registration hooks: fire on BOTH first-time
     ;; and re-registration so cross-id invariants (e.g. routing's
     ;; `:url-bound?` exclusivity per Spec 012 §Multi-frame routing) can
     ;; be validated at the moment of any registration. Hooks run isolated
@@ -666,7 +665,7 @@
     ;; fires on explicit removal so hot-reload tools can update their
     ;; views. Only emit when something was actually present.
     ;;
-    ;; Per Spec 009 §Hot-reload dedup (B4 ruling, rf2-g1b2m): a clear
+    ;; Per Spec 009 §Hot-reload dedup (B4 ruling): a clear
     ;; of an id the dedup table thinks is already absent (a double-
     ;; clear) is suppressed. The first clear records the `::cleared`
     ;; sentinel; subsequent re-clears emit nothing.
@@ -694,13 +693,13 @@
     ;; `(swap! (active-source-store) dissoc kind)` here would NOT bump the
     ;; generation, leaving the resolved-image-generation cache (keyed on the
     ;; source-store generation) to HIT and return a stale generation that still
-    ;; resolves the just-cleared `(kind, id)`s (rf2-32siq3.34).
+    ;; resolves the just-cleared `(kind, id)`s.
     (source-store/clear-kind! kind)
     (swap! missing-doc-warned clear-kind)
     (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires for each id so consumers see consistent registry transitions.
-    ;; B4 dedup (rf2-g1b2m): a clear-of-a-cleared id is suppressed; the
+    ;; B4 dedup: a clear-of-a-cleared id is suppressed; the
     ;; first clear records the `::cleared` sentinel.
     (when interop/debug-enabled?
       (when (seq previous-ids)
@@ -718,7 +717,7 @@
   this, a test that re-registers an already-warned (kind, id) pair
   would silently miss the warning under suppression.
 
-  Per Spec 009 §Hot-reload dedup (B4 ruling, rf2-g1b2m): also clears
+  Per Spec 009 §Hot-reload dedup (B4 ruling): also clears
   the dev-only `:rf.registry/*` dedup-by-shape table via the
   trace.tooling sibling's clearance hook — a test fixture targeting
   the registry must start each case from a clean dedup slate so the
@@ -732,7 +731,7 @@
   ;; namespace-string pool) in lockstep with the process-default resolver map,
   ;; so a test fixture starts each case from a clean state on both surfaces.
   (source-store/clear-all!)
-  ;; Also clear the always-on error-coord parallel registry (rf2-3un2g)
+  ;; Also clear the always-on error-coord parallel registry
   ;; so test cases start from a clean state on both surfaces.
   (source-coords/forget-error-coords!)
   ;; Clear the B4 dedup table when the trace.tooling sibling is loaded.
@@ -749,7 +748,7 @@
 (defn lookup
   "Return the metadata map registered for (kind, id), or nil.
 
-  EP-0023 §Frame-derived live registration resolution (rf2-32siq3.9): when an
+  EP-0023 §Frame-derived live registration resolution: when an
   EP-0023 frame OBJECT's image generation is in scope (`*generation*` bound by
   `re-frame.live-frame/call-with-frame-resolution`), the `(kind, id)` resolves
   through the FRAME'S OWN generation resolver — so two frames running different
@@ -757,12 +756,13 @@
   generation's resolver is keyed `[kind id]`; the descriptor is the same
   registration-metadata shape `register!` stores (the source store records it
   verbatim), so the return value is byte-shape-identical to the registrar path.
-  When `*generation*` is unbound — the absence-is-default path, EVERY existing
-  caller (single-realm + the a15n62 realm-routed dispatch) — resolution targets
-  the `active-registrar` atom exactly as before, one `nil?` branch on the read.
+  When `*generation*` is unbound — the absence-is-default path, taken by every
+  caller not resolving against a frame object (single-realm + the realm-routed
+  dispatch) — resolution targets the `active-registrar` atom, one `nil?` branch
+  on the read.
 
   Uses paired `get` calls rather than `(get-in ... [kind id])` — `get-in`
-  allocates a path vector per call (rf2-mqv4m), and `lookup` runs per
+  allocates a path vector per call, and `lookup` runs per
   dispatch (event handler), per fx (handler), and per sub (handler)."
   [kind id]
   (if-let [resolver (generation-resolver)]
@@ -800,12 +800,12 @@
   custom slots (id-by-keyword filtering composes via the caller's own
   `filter` over the result map's keys when needed).
 
-  EP-0023 (rf2-32siq3.9): when a frame generation is in scope (`*generation*`
-  bound), the `{id metadata}` map is PROJECTED from the generation's resolver
-  for `kind` — only the ids the frame's OWN image carries, so a generation-
-  scoped query (a per-frame fx walk, a view-id resolution) sees the frame's
-  registration universe, not the global registrar's. Unbound ⇒ the registrar
-  atom path, byte-identical."
+  EP-0023 §Frame-derived live registration resolution: when a frame generation
+  is in scope (`*generation*` bound), the `{id metadata}` map is PROJECTED from
+  the generation's resolver for `kind` — only the ids the frame's OWN image
+  carries, so a generation-scoped query (a per-frame fx walk, a view-id
+  resolution) sees the frame's registration universe, not the global
+  registrar's. Unbound ⇒ the registrar atom path."
   ([kind]
    (if-let [resolver (generation-resolver)]
      (kind-registrations-from-resolver resolver kind)

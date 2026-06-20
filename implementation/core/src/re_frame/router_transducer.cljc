@@ -1,8 +1,8 @@
 (ns re-frame.router-transducer
-  "Phase-1 reference scaffold for the v1.1 transducer-shaped router design
-  (rf2-cl8me). Non-normative: this namespace is NOT wired into the live
-  runtime. It exists so the design in spec/Design-TransducerRouter.md is
-  exercisable from the REPL and pinned by a CLJS/CLJ unit-test surface.
+  "Reference scaffold for the transducer-shaped router design. Non-normative:
+  this namespace is NOT wired into the live runtime. It exists so the design
+  in spec/Design-TransducerRouter.md is exercisable from the REPL and pinned
+  by a CLJS/CLJ unit-test surface.
 
   The design intent:
    - `frame-transducer-factory` returns a transducer that maps dispatch

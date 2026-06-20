@@ -19,26 +19,23 @@
           :time         <millis>
           :exception    <ex>
           :elapsed-ms   <int>
-          :source-coord {:ns :file :line}  ;; rf2-3un2g; absent if
-                                           ;; the failing handler was
-                                           ;; registered programmatically
+          :source-coord {:ns :file :line}  ;; absent if the failing
+                                           ;; handler was registered
+                                           ;; programmatically
                                            ;; (no macro capture)
           }
 
     For off-box observability shippers (Sentry, Honeybadger,
-    Rollbar). Per rf2-3un2g the `:source-coord` slot rides the
-    always-on parallel `error-coords-by-id` registry so it survives
-    CLJS `:advanced` + `goog.DEBUG=false` builds where public
-    registry-meta has been stripped of coord-keys.
+    Rollbar). The `:source-coord` slot rides the always-on parallel
+    `error-coords-by-id` registry so it survives CLJS `:advanced` +
+    `goog.DEBUG=false` builds where public registry-meta carries no
+    coord-keys.
 
   Observability is the only concern here — there is no app-steering
   recovery policy. Recovery is framework-owned: the per-category typed
   defaults (frame-destroyed recovers + emits, sub-exception returns nil,
-  handler-exception fails loud without crashing the app). The per-frame
-  `:on-error` recovery policy was REMOVED (rf2-hiqtk8, superseding the
-  rf2-2hvga axis-2 / recovery-policy-eligible column): recovery is not a
-  framework app-policy concern, and the policy's return value was never
-  read or applied — a documented-but-fictional contract.
+  handler-exception fails loud without crashing the app). Recovery is
+  not a framework app-policy concern.
 
   A LISTENER throw is silently dropped (a sibling-isolation concern, not
   a framework error). Each listener invocation is try/catch wrapped.
@@ -47,11 +44,10 @@
   belt-and-braces gate alongside an explicit config flag. The substrate
   proper carries no gate.
 
-  NOTE: handler-meta `:sensitive?` is no longer consulted here.
-  Sensitive data marking is path-based per the upcoming data-
-  classification mechanism (separate spec doc; in progress) — the
-  per-path elision wire-walker is the load-bearing redaction surface
-  on this path."
+  Sensitive data marking is path-based per the data-classification
+  mechanism (separate spec doc); handler-meta `:sensitive?` is not
+  consulted here. The per-path elision wire-walker is the load-bearing
+  redaction surface on this path."
   (:require [re-frame.elision        :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.late-bind      :as late-bind]
@@ -74,8 +70,7 @@
 (def register-error-listener!
   "Register a listener `f` under `id`. Re-registering the same id
   replaces. `f` receives a single error-record map (see ns docstring
-  §Record shape); its return value is ignored. Returns `id`. Per
-  rf2-bacs4."
+  §Record shape); its return value is ignored. Returns `id`."
   (:register registry))
 
 (def unregister-error-listener!
@@ -87,7 +82,7 @@
   code should never call this. Returns nil."
   (:clear registry))
 
-;; ---- kind-aware source-coord lookup (rf2-bxud9v) --------------------------
+;; ---- kind-aware source-coord lookup --------------------------------------
 ;;
 ;; The always-on `error-coords-by-id` parallel registry is keyed by
 ;; `[registry-kind id]` — the SAME `kind` the public reg-* macro path
@@ -112,11 +107,11 @@
 
 (def ^:private sub-error-categories
   "Categories whose `:event-id` slot carries a SUB id — their source
-  coords live under `[:sub sub-id]` in the always-on registry. Per
-  rf2-bxud9v: `dispatch-on-error!` looked these up under `[:event …]`
-  (the hardcoded default), so the always-on production error records
-  for the parametric input-fn failures (and the reactive sub-exception)
-  omitted the failing sub's `:source-coord`."
+  coords live under `[:sub sub-id]` in the always-on registry, so
+  `dispatch-on-error!` resolves them there rather than under the
+  `[:event …]` default. Covers the parametric input-fn failures and
+  the reactive sub-exception, so the always-on production error records
+  carry the failing sub's `:source-coord`."
   #{:rf.error/sub-input-fn-exception
     :rf.error/sub-input-fn-bad-return
     :rf.error/sub-exception
@@ -125,7 +120,7 @@
 (defn- error-source-coord
   "Resolve the `{:ns :file :line}` source-coord for the failing `id` of an
   `error-kw` category, pivoting on the registry kind the `id` was
-  registered with (rf2-bxud9v). Returns nil when no coords were captured
+  registered with. Returns nil when no coords were captured
   (programmatic registration that bypassed the macro path, or an id that
   was never registered) — the caller `cond->`s the slot in, so nil means
   the `:source-coord` slot is ABSENT from the record rather than nil.
@@ -164,9 +159,7 @@
   machine-unresolved-guard — stay dev-trace-only and do NOT call
   this fn; that is correct, not a gap.)
 
-  There is no app-steering recovery policy: the per-frame `:on-error`
-  recovery policy was REMOVED (rf2-hiqtk8, superseding the rf2-2hvga
-  axis-2 / recovery-policy-eligible column). Recovery is framework-owned
+  There is no app-steering recovery policy. Recovery is framework-owned
   (the per-category typed defaults); observability is this listener.
 
   Builds the tight error-record ONCE, runs
@@ -184,10 +177,10 @@
   app-db slice. Sensitive-data redaction on this path is path-based:
   the per-frame `:rf.runtime/elision` registry's `:sensitive-
   declarations` drive the wire-walker's per-slot substitutions.
-  Handler-meta `:sensitive?` is no longer consulted (path-marked
-  classification is the v2 mechanism; separate spec doc; in progress).
+  Handler-meta `:sensitive?` is not consulted; path-marked
+  classification is the mechanism (separate spec doc).
 
-  ## Component attribution (rf2-n4x74b)
+  ## Component attribution
 
   `attrs` is an OPTIONAL trailing map carrying the component-attributed
   slots `{:failing-id <kw> :reason <string>}`. For the categories whose
@@ -212,7 +205,7 @@
   ([error-kw event event-id frame-id exception elapsed-ms time]
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]
-  (let [;; Per rf2-3un2g §Always-on error-coord registry: source-coords
+  (let [;; Always-on error-coord registry: source-coords
         ;; for the failing handler/sub ride the always-on parallel
         ;; registry (NOT the public registry-meta — which is stripped of
         ;; coord-keys under CLJS `:advanced + goog.DEBUG=false`). The
@@ -221,7 +214,7 @@
         ;; programmatic registrations that bypassed the macro path —
         ;; that's fine; the slot is absent from the record rather than nil.
         ;;
-        ;; Per rf2-bxud9v the lookup is KIND-AWARE: the registry is keyed
+        ;; The lookup is KIND-AWARE: the registry is keyed
         ;; by `[registry-kind id]`, so a sub-id (`:rf.error/sub-*`
         ;; categories) must resolve under `[:sub …]`, not the hardcoded
         ;; `[:event …]`. See [[error-source-coord]] / [[sub-error-categories]].
@@ -230,7 +223,7 @@
         ;; via the per-frame `:rf.runtime/elision` registry get their
         ;; per-path substitutions.
         elided-event (elision/elide-wire-value event {:frame frame-id})
-        ;; rf2-n4x74b: lift the component-attributed slots into the always-on
+        ;; Lift the component-attributed slots into the always-on
         ;; record so an off-box shipper sees WHICH interceptor / cofx failed in
         ;; production (the `:event-id` slot carries the EVENT id for these
         ;; categories; the failing component id would otherwise ride only the
@@ -251,7 +244,7 @@
                        (some? reason)     (assoc :reason reason))]
     ;; Corpus-wide listeners fan out (the ADVANCED integration registry).
     ((:fan-out registry) record)
-    ;; EP-0015 §9 (rf2-t55hxg.7): the frame-owned observability sink route —
+    ;; EP-0015 §9: the frame-owned observability sink route —
     ;; the NORMAL production error-observation surface (Spec 015 §Frame-owned
     ;; observability sink policy). Parallel to the corpus-wide listener
     ;; fan-out above: routes the error record to THIS frame's declared
@@ -269,26 +262,23 @@
                     time nil))
    nil)))
 
-;; ---- the two-channel fan-out helper (rf2-c4oycd) --------------------------
+;; ---- the two-channel fan-out helper ---------------------------------------
 ;;
 ;; EVERY production-reachable runtime `:rf.error/*` site fans the SAME category
 ;; out along BOTH error channels in lock-step: the always-on
 ;; `dispatch-on-error!` listener registry (axis 1 — production-survivable; the
 ;; off-box-shipper / SSR-projector source of truth) AND the dev-only
 ;; `trace/emit-error!` surface (axis 2 — DCE'd under CLJS `:advanced` +
-;; `goog.DEBUG=false`). Before this helper that two-step was open-coded at ~12
-;; emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics`
-;; (reaching `dispatch-on-error!` through the `:error-emit/dispatch-on-error`
-;; late-bind hook) plus 4 bespoke `router` wrappers (which static-require this
-;; ns and call `dispatch-on-error!` directly) and `fx`'s `emit-fx-error!`. The
-;; shape never varied — same positional record + the category-specific dev-trace
-;; `tags` map — so `emit-fx-error!` had already factored it locally (the proof
-;; the abstraction was wanted, just not shared). This is the ONE shared helper
-;; those sites collapse onto.
+;; `goog.DEBUG=false`). This is the ONE shared helper those sites use: the
+;; ~12 emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics`
+;; (reaching it through the `:error-emit/emit-error-both` late-bind hook), the
+;; 4 `router` wrappers (which static-require this ns), and `fx`'s
+;; `emit-fx-error!` — all the same positional record + the category-specific
+;; dev-trace `tags` map.
 
 (defn emit-error-both!
   "Fan a runtime `:rf.error/*` `category` out through BOTH error channels in one
-  call (rf2-c4oycd): the always-on corpus-wide [[dispatch-on-error!]] listener
+  call: the always-on corpus-wide [[dispatch-on-error!]] listener
   registry (axis 1 — production-survivable; survives CLJS `:advanced` +
   `goog.DEBUG=false`, the off-box-shipper + SSR-error-projector source of truth)
   AND the dev-only `re-frame.trace/emit-error!` surface (axis 2 — DCE'd in CLJS
@@ -301,18 +291,18 @@
   [[dispatch-on-error!]] — `event` is elided by the wire-walker there, `time` is
   the emit instant in millis, `elapsed-ms` is `0` at the non-timed invalid-op
   sites and the measured duration at the router's timed pipeline/flow paths).
-  `trace-tags` is the category-specific dev-trace tag map — passed UNCHANGED to
-  `trace/emit-error!`, so dev-trace consumers see exactly the shape they did
-  before (the map is still built at the call site and threaded here).
+  `trace-tags` is the category-specific dev-trace tag map — built at the call
+  site and passed UNCHANGED to `trace/emit-error!`, so dev-trace consumers see
+  exactly that shape.
 
-  Per rf2-n4x74b the COMPONENT-ATTRIBUTED slots `:failing-id` / `:reason` are
+  The COMPONENT-ATTRIBUTED slots `:failing-id` / `:reason` are
   ALSO lifted out of `trace-tags` onto the always-on record (axis 1) — but ONLY
   when the `:failing-id` is present AND DISTINCT from `:event-id`. That is the
   case exactly for the categories whose failing component is not the dispatched
   event: a user interceptor (`:rf.error/interceptor-exception`) or a coeffect
   supplier (`:rf.error/coeffect-exception`), where `:event-id` carries the EVENT
-  id and the interceptor / cofx id rode only the DCE'd dev-trace tags. For
-  handler-exception and the sub-* categories the failing id already EQUALS
+  id and the interceptor / cofx id would otherwise ride only the DCE'd dev-trace
+  tags. For handler-exception and the sub-* categories the failing id already EQUALS
   `:event-id`, so nothing extra is stamped and the tight record is unchanged.
   The off-box shipper now learns WHICH interceptor / cofx failed in production.
 
@@ -322,7 +312,7 @@
   load cycle through `elision` → `frame`)."
   [category event event-id frame exception elapsed-ms time trace-tags]
   ;; Axis 1 — always-on corpus-wide listener (+ EP-0015 frame-owned sink).
-  ;; rf2-n4x74b: lift the component-attributed `:failing-id` / `:reason` from
+  ;; Lift the component-attributed `:failing-id` / `:reason` from
   ;; the trace-tags onto the always-on record when the failing component is
   ;; DISTINCT from the dispatched event (interceptor / cofx categories). The
   ;; distinct-from-event-id guard keeps the record tight for the categories
@@ -348,9 +338,9 @@
 ;; flow categories — failures of a DISPATCHED EVENT or a SUBSCRIBE.
 ;;
 ;; But not every always-on `:rf.error/*` is an event failure. The
-;; frame-teardown report (rf2-ini4wr) was the FIRST non-event always-on
-;; record — a destroy-time fact with a `:hook-failures` vector, no event, no
-;; `:event-id`. The EP-0008 SSR promotion (rf2-hhutya) adds six more:
+;; frame-teardown report is a non-event always-on record — a destroy-time
+;; fact with a `:hook-failures` vector, no event, no `:event-id`. The EP-0008
+;; SSR promotion adds six more:
 ;; render-time / writer-phase / head-resolution / projector-fallback /
 ;; hydration-parse failures, each carrying its OWN flat category keys
 ;; (`:exception` / `:phase` / `:reason` / `:projector-id` / …) and either a
@@ -359,8 +349,8 @@
 ;; precedent — a frameless always-on record IS supported).
 ;;
 ;; `dispatch-error-record!` is the GENERAL always-on emit these share: it
-;; takes a PRE-BUILT union record and fans it out unchanged. The union shape
-;; (settled jointly with the teardown report, NOT a second ad-hoc shape):
+;; takes a PRE-BUILT union record and fans it out unchanged. The one union
+;; shape every non-event always-on record uses:
 ;;
 ;;     {:error <kw>          ;; the :rf.error/* category (REQUIRED)
 ;;      :frame <id-or-nil>   ;; the owning frame, or nil (frameless)
@@ -410,18 +400,15 @@
   ;; exception / stack), NOT privacy-gated like the dev trace; the caller is
   ;; contracted to keep identifiers tight and carry no raw app-db slice.
   ((:fan-out registry) record)
-  ;; EP-0015 §9 / Spec 015 §Frame-owned observability sink policy
-  ;; (rf2-ntv9i9.1): the frame-owned `:observability :errors` sink route — the
+  ;; EP-0015 §9 / Spec 015 §Frame-owned observability sink policy:
+  ;; the frame-owned `:observability :errors` sink route — the
   ;; NORMAL production error-observation surface. Parallel to the corpus-wide
   ;; fan-out above, exactly as the event-centric `dispatch-on-error!` routes to
   ;; `route-error!`: a NON-EVENT union record carrying a resolvable `:frame`
   ;; ALSO routes to that frame's declared error sinks, PROJECTED under the
   ;; frame's classification + the sink's egress profile (the flat category
   ;; slots ride `:tags` → redacted; `:exception` drops under
-  ;; `:rf.egress/public-error`). Before this, the teardown report + the EP-0008
-  ;; SSR promotions reached ONLY the low-level listener registry and bypassed
-  ;; the frame-sink model — leaving the flagship teardown report invisible to
-  ;; the normal Datadog/Sentry sink story. Late-bound (the static
+  ;; `:rf.egress/public-error`). Late-bound (the static
   ;; `error-emit` → `observability` → `projection` → `elision` require would
   ;; re-enter this ns's own require graph); the hook is nil (no-op) until
   ;; `re-frame.observability` loads. Fail-closed + sibling-isolated inside
@@ -479,9 +466,7 @@
   (when (seq hook-failures)
     ;; The bounded report is itself a non-event union record — fan it out
     ;; through the shared general helper so the teardown report and the
-    ;; EP-0008 SSR promotions ride ONE fan-out path / ONE record shape, not
-    ;; two ad-hoc ones (rf2-hhutya / rf2-ini4wr — settle one union shape
-    ;; jointly).
+    ;; EP-0008 SSR promotions ride ONE fan-out path / ONE record shape.
     (dispatch-error-record!
       {:error          :rf.error/frame-teardown-failed
        :frame          frame-id
@@ -497,30 +482,28 @@
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; `router.cljc` already statically `:require`s this namespace (per
-;; rf2-hqbeh; the substrate is a foundational always-on surface
-;; alongside the router itself), so a late-bind hook isn't strictly
-;; needed here. We publish one anyway for symmetry with rf2-rirbq's
+;; `router.cljc` statically `:require`s this namespace (the substrate is a
+;; foundational always-on surface alongside the router itself), so a late-bind
+;; hook isn't strictly needed here. We publish one anyway for symmetry with the
 ;; `:event-emit/dispatch-on-event` hook and to keep the substrate
 ;; addressable from other artefacts that may want to fire error
 ;; records without static-requiring this ns.
 
 (late-bind/set-fn! :error-emit/dispatch-on-error dispatch-on-error!)
 
-;; The shared two-channel fan-out (rf2-c4oycd). `fx` / `subs` / `subs.memo` /
+;; The shared two-channel fan-out. `fx` / `subs` / `subs.memo` /
 ;; `cofx` / `router.diagnostics` reach it through this hook — they cannot
-;; static-require this ns (the `error-emit` → `elision` → `frame` load cycle),
-;; exactly as they reached `dispatch-on-error!` through its hook before.
+;; static-require this ns (the `error-emit` → `elision` → `frame` load cycle).
 (late-bind/set-fn! :error-emit/emit-error-both emit-error-both!)
 
 ;; The frame-teardown report fires from `frame/destroy-frame!`'s finally-
 ;; shaped flush. `frame` MUST reach it via late-bind: a static
 ;; `re-frame.frame` → `re-frame.error-emit` require closes a load cycle
-;; (`error-emit` → `elision` → `frame`). Per EP-0008 / rf2-ini4wr.
+;; (`error-emit` → `elision` → `frame`). Per EP-0008.
 (late-bind/set-fn! :error-emit/dispatch-frame-teardown-report
                    dispatch-frame-teardown-report!)
 
-;; The general non-event always-on record helper (rf2-hhutya). The EP-0008
+;; The general non-event always-on record helper. The EP-0008
 ;; SSR error-emit promotions (`:rf.error/ssr-render-failed`,
 ;; `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-
 ;; payload` — incl. the pre-frame FRAMELESS parse path, `:rf.error/ssr-head-
@@ -534,13 +517,12 @@
 ;; published through late-bind so `frame.cljc` can install a TRANSIENT
 ;; always-on error listener around the `:on-destroy` dispatch without a
 ;; static require (the same `error-emit` → `elision` → `frame` load cycle).
-;; This is the production-survivable replacement for the dev-only
-;; `:trace.tooling/register-listener!` capture the common `:on-destroy`-throw
-;; path used before EP-0008 / rf2-87f7fb: the router fans the handler throw
-;; out as `:rf.error/handler-exception` on THIS always-on axis, so a
-;; transient listener here observes it under `goog.DEBUG=false` where the
-;; dev trace is DCE'd. Survives `:advanced` + `goog.DEBUG=false` — these are
-;; the same surfaces `rf/register-error-listener!` exports, just addressable
-;; from a non-requiring artefact.
+;; This is the production-survivable capture for the common `:on-destroy`-throw
+;; path: the router fans the handler throw out as
+;; `:rf.error/handler-exception` on THIS always-on axis, so a transient
+;; listener here observes it under `goog.DEBUG=false` where the dev trace is
+;; DCE'd. Survives `:advanced` + `goog.DEBUG=false` — these are the same
+;; surfaces `rf/register-error-listener!` exports, just addressable from a
+;; non-requiring artefact.
 (late-bind/set-fn! :error-emit/register-error-listener!   register-error-listener!)
 (late-bind/set-fn! :error-emit/unregister-error-listener! unregister-error-listener!)

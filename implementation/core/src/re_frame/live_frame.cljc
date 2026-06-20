@@ -1,5 +1,5 @@
 (ns re-frame.live-frame
-  "EP-0023 image-loading + EP-0024 (rf2-tu2vr7) the unified frame collapse: the
+  "EP-0023 image-loading + EP-0024 unified frame model: the
   ONE public `rf/make-frame` constructor over the ONE `re-frame.frame/frames`
   registry. `make-frame` accepts `:images` (always a vector) — resolving those
   image values into ONE sealed image generation (via

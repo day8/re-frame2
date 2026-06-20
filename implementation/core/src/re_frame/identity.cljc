@@ -1,8 +1,8 @@
 (ns re-frame.identity
-  "Internal canonical-EDN-identity algebra (EP-0012, ACCEPTED ruling
-  rf2-s7xshi). The normative contract lives in [`spec/Conventions.md`
-  §Canonical EDN identity]; this namespace is the reference
-  implementation of the `CEDN-1` encoding.
+  "Internal canonical-EDN-identity algebra (EP-0012). The normative
+  contract lives in [`spec/Conventions.md` §Canonical EDN identity];
+  this namespace is the reference implementation of the `CEDN-1`
+  encoding.
 
   ## Status — INTERNAL (EP-0012 disposition 1)
 
@@ -95,7 +95,7 @@
   "True iff `n` is an integer inside the CEDN-1 portable safe-integer range
   `[-9007199254740991, 9007199254740991]` (the ECMAScript safe-integer
   range). This is the SHARED predicate the CEDN-1 encoder and the `:rf/path`
-  concrete-segment domain both key off (rf2-ujmc3u): the shared path
+  concrete-segment domain both key off: the shared path
   vocabulary MUST NOT be wider than canonical EDN identity, so an integer
   that cannot be portably compared / printed / routed / digested is not a
   valid concrete path segment either. `re-frame.path/segment?` composes this
@@ -203,7 +203,7 @@
   ;; instant are distinct JVM map keys (`=` does not equate them) yet render
   ;; the identical `t:<utc>` token. Emitting both would produce a structurally
   ;; ambiguous identity; instead we reject the whole identity closed
-  ;; (rf2-w9x5fv item 3) rather than silently serialize colliding key tokens.
+  ;; rather than silently serialize colliding key tokens.
   (let [entries (->> m
                      (map (fn [[k v]] [(encode k) (encode v)]))
                      (sort-by first))
@@ -243,7 +243,7 @@
     (map? x)            (encode-map x)
     ;; `seq?` subsumes `list?` (every list is a seq; lazy seqs are seq? but
     ;; not list?) and both encode identically, so one `seq?` branch covers
-    ;; the whole list-kind (fe3a9q: the prior `list?` branch was dead).
+    ;; the whole list-kind.
     (seq? x)            (str "l(" (encode-elements x) ")")
     :else               (reject! x :unsupported-host-value)))
 
@@ -270,8 +270,7 @@
   canonicalization (\"Duplicate canonical keys are invalid and MUST be
   rejected before the value becomes a cache key, route identity, or work
   id\") this rejects the whole identity closed — the same fail-closed rule
-  `canonical-bytes` enforces, so the two surfaces never diverge (rf2-w9x5fv
-  item 3)."
+  `canonical-bytes` enforces, so the two surfaces never diverge."
   [m]
   (let [out (reduce-kv (fn [acc k v]
                          (let [ck (canonical k)]
@@ -292,7 +291,7 @@
   canonical value. Instants normalize to a single representation
   (millisecond-precision UTC), so `canonical` and `canonical-bytes` share ONE
   canonical form — a value stored via `canonical` and a value compared via
-  `canonical-bytes` can never disagree (rf2-w9x5fv item 3). Fails closed with
+  `canonical-bytes` can never disagree. Fails closed with
   `:rf.error/non-edn-identity` for any out-of-domain value — the validation
   walk runs eagerly so a host handle buried anywhere in the structure is
   rejected, never host-stringified — and for a map carrying DUPLICATE
@@ -314,7 +313,7 @@
     ;; moment are NOT `=`, so preserving the host object would give two
     ;; unequal canonical values for one identity fact. Normalize both to the
     ;; single CEDN-1 UTC text so `canonical` and `canonical-bytes` agree on a
-    ;; single canonical form (rf2-w9x5fv item 3).
+    ;; single canonical form.
     (instant-value? value) (instant->utc-millis-string value)
     (symbol? value)    value
     (integer? value)   (if (and (not (bad-number? value)) (safe-integer? value))
@@ -324,7 +323,7 @@
     (vector? value)    (mapv canonical value)
     (set? value)       (into #{} (map canonical) value)
     (map? value)       (canonical-map value)
-    ;; `seq?` subsumes `list?` (fe3a9q) — one branch covers list-kind.
+    ;; `seq?` subsumes `list?` — one branch covers list-kind.
     (seq? value)       (apply list (map canonical value))
     :else              (reject! value :unsupported-host-value)))
 

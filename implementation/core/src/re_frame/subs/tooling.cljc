@@ -4,20 +4,19 @@
   tools (Xray, re-frame2-pair-mcp, re-frame-10x) query but no production
   application code reads.
 
-  Per rf2-bmzq0 (audit rf2-53tcf §Part 4 P2): keeping these fns in
-  `re-frame.subs` paid for their bodies in every CLJS bundle that
-  loaded the subs ns, even though no production code path reaches
-  them. Splitting them off lets `:advanced` + `goog.DEBUG=false` DCE
-  the bodies wholesale (the sibling ns is loaded only when a test
-  fixture, tool, or dev preload requires it).
+  These fns live here, not in `re-frame.subs`, so that `:advanced` +
+  `goog.DEBUG=false` DCE their bodies wholesale: no production code path
+  reaches them, and this sibling ns is loaded only when a test fixture,
+  tool, or dev preload requires it. A production counter bundle never
+  loads this ns.
 
-  Mirrors the rf2-qwm0a `re-frame.trace.tooling` split:
+  Surface shape, mirroring the `re-frame.trace.tooling` split:
     - CLJS consumers needing the surface call
       `re-frame.subs.tooling/<name>` directly. Production counter
       bundles never load this ns and DCE the bodies wholesale.
-    - JVM consumers keep the legacy `re-frame.subs/<name>` /
-      `rf/sub-topology` / `rf/sub-cache` shape via the convenience
-      aliases in `re-frame.subs` and `re-frame.core` (gated under
+    - JVM consumers reach the same fns via the `re-frame.subs/<name>` /
+      `rf/sub-topology` / `rf/sub-cache` convenience aliases in
+      `re-frame.subs` and `re-frame.core` (gated under
       `#?(:clj ...)`). JVM has no bundle to protect; the aliases
       cost nothing.
 
@@ -100,9 +99,9 @@
               ;; (args preserved); `:parametric` reports the `:parametric`
               ;; sentinel (the realized edge set is per-concrete-query-v
               ;; runtime state, not statically enumerable); `:db` and
-              ;; `:runtime-db` (single-source layer-1-shaped readers — EP-0001
-              ;; rf2-vzld77, the latter reading the runtime-db projection) and
-              ;; any legacy registration without a discriminator report `[]`.
+              ;; `:runtime-db` (single-source layer-1-shaped readers — the
+              ;; latter reading the runtime-db projection) and any
+              ;; registration without a discriminator report `[]`.
               inputs     (case input-kind
                            :parametric :parametric
                            :static     (vec (:input-signals meta))
@@ -182,10 +181,10 @@
      :clj
      nil))
 
-;; ---- algebra views (EP-0014 slice-2) -------------------------------------
+;; ---- algebra views -------------------------------------------------------
 ;;
-;; Per [Derivations.md] (graduated from EP-0014) and the projected Malli
-;; shapes in [Spec-Schemas §`:rf/derivation-node`]. Every subscription —
+;; Per [Derivations.md] and the projected Malli shapes in
+;; [Spec-Schemas §`:rf/derivation-node`]. Every subscription —
 ;; `reg-sub` (layer-1 `:db`, static `:<-`, parametric input-fn),
 ;; `reg-runtime-sub`, `reg-frame-state-sub`, and each live sub-cache entry —
 ;; is an instance of the derivation/process algebra: a `:derivation`
@@ -193,13 +192,11 @@
 ;; is an ephemeral fact, evaluated on-demand, owned by its
 ;; subscription-cache entry.
 ;;
-;; This is the *registrar-derived* slice (Derivations §The EP-0013
-;; relocation seam): the algebra view is assembled from registration
-;; metadata at the surface that registers each source form, NOT (yet) from
-;; an EP-0013 app value. It feeds the later internal graph-inspection helper
-;; (EP-0014 bead-plan item 7); slice-2 ships NO public accessor — these
-;; functions live in the bundle-isolated tooling sibling, consumed by Xray
-;; and conformance fixtures.
+;; This is the *registrar-derived* view: it is assembled from registration
+;; metadata at the surface that registers each source form, not from a
+;; durable app value. It feeds the internal graph-inspection helper. These
+;; functions ship NO public accessor — they live in the bundle-isolated
+;; tooling sibling, consumed by Xray and conformance fixtures.
 ;;
 ;; The five fixed classifications for EVERY subscription node (the worked
 ;; equivalence in Derivations §Worked equivalence — subscriptions are the
@@ -320,8 +317,7 @@
 
 (defn sub-algebra-view
   "Return the STATIC derivation/process algebra view of every registered
-  subscription (EP-0014 slice-2; [Derivations.md], [Spec-Schemas
-  §`:rf/derivation-node`]).
+  subscription ([Derivations.md], [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the registrar — no app-db, no per-frame cache, no reactive
   runtime. The algebra-view companion to `sub-topology`: where `sub-topology`
@@ -359,10 +355,9 @@
   one-arity form returns the single node for `sub-id`, or `nil` if it is not
   registered. JVM-runnable — the registration metadata is partition-agnostic.
 
-  Slice-2 ships NO public accessor (EP-0014 issue-1 disposition): this lives
-  in the bundle-isolated tooling sibling and is consumed by Xray + the
-  conformance fixtures; the public name is deferred until a third consumer
-  needs it."
+  Ships NO public accessor: this lives in the bundle-isolated tooling
+  sibling and is consumed by Xray + the conformance fixtures; the public
+  name is deferred until a third consumer needs it."
   ([]
    (let [subs-meta (registrar/registrations :sub)]
      (reduce-kv
@@ -376,8 +371,8 @@
 
 (defn sub-cache-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's sub-cache —
-  one `:rf/derivation-node` per concrete cached entry (EP-0014 slice-2;
-  [Derivations.md] §Static and live graphs).
+  one `:rf/derivation-node` per concrete cached entry ([Derivations.md]
+  §Static and live graphs).
 
   The live counterpart to `sub-algebra-view`: where the static view reports
   the `:parametric` marker for an input-fn sub, the live view reports the
@@ -450,7 +445,7 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-bmzq0: `implementation/scripts/check-bundle-isolation.cjs`
+;; `implementation/scripts/check-bundle-isolation.cjs`
 ;; greps the counter bundle for this exact string. The string lives
 ;; ONLY in this file's source body — no other namespace, no docstring,
 ;; no test fixture references it — so its presence in the production

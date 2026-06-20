@@ -11,10 +11,9 @@
       failure for off-box exception shippers.
 
   Survives `:advanced` + `goog.DEBUG=false`. Parallel to (not a
-  fallback for) the dev-only `re-frame.trace` surface. Per rf2-ic1sv:
-  consolidated naming · dev/prod axis encoded in the namespace
-  (`re-frame.trace/*` = dev-only / DCE'd; `re-frame.emit/*` = always-
-  on / survives prod).
+  fallback for) the dev-only `re-frame.trace` surface. The dev/prod
+  axis is encoded in the namespace (`re-frame.trace/*` = dev-only /
+  DCE'd; `re-frame.emit/*` = always-on / survives prod).
 
   Public surface:
 
