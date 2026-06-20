@@ -502,3 +502,374 @@ issues before marking the EP final. The cleaned-up model is smaller and more
 data-oriented: namespace selection imports behavior, `:registrations` defines
 local behavior, explicit layer order decides intentional shadowing, and
 `:rf.cofx` remains the causal input channel.
+
+## Design Review
+
+This is an adversarial review by a skeptical senior re-frame2/Clojure designer.
+The job is not to ratify the EP; it is to find where the proposed surface still
+costs more than it should, where the semantics are underspecified, and where a
+better shape exists. The EP is directionally right — it deletes levers and pulls
+overrides toward data — but three of its moves are softer than the prose admits,
+and one of them (the cross-scope overlay unification) is the kind of "obvious
+simplification" that quietly adds surface area instead of removing it.
+
+Findings are grouped by lens, each with a severity (**blocker** / **major** /
+**minor**) and a concrete fix or an honest "unresolved." A closing subsection
+proposes alternatives. The proposal is grounded in what actually ships today:
+`rf/image` is a plain `defn`, not a macro (`implementation/core/src/re_frame/image.cljc`);
+inline `:registrations` already exist and are stamped with `:rf.provenance/image`
++ `:rf.provenance/inline` but carry no source coordinates; frame-local and
+dispatch-level `:registrations` do **not** exist yet; collisions already fail
+loud in `image_assembly.cljc`; and dispatch-time overrides today are
+`:fx-overrides` / `:interceptor-overrides` with a three-tier merge in
+`router.cljc`.
+
+### Design smells
+
+**1. The cross-scope overlay unification is the largest hidden cost, not a
+simplification. (major)**
+
+The EP's headline win is "one registration-shaped overlay vocabulary" reused at
+image, frame, and dispatch scope. That reads as collapse, but it is mostly
+*expansion*: image inline `:registrations` already ship; frame `:registrations`
+and dispatch `:registrations` are both **new** surfaces. The EP is adding two
+override mechanisms while retiring one (`:replace`). The net key count is not
+obviously smaller — it is rebalanced.
+
+The deeper smell is that the three scopes are not the same fact. An image
+`:registrations` is *definition* — it is a permanent part of a composable value
+and participates in collision/replacement reasoning. A dispatch `:registrations`
+is *masking* — a throwaway behavior swap that lives for one cascade and is
+explicitly forbidden from touching the image or frame. Giving definition and
+ephemeral masking the same spelling is exactly the move EP-0023 warned against
+when it kept `:replace` loud: "Silent last-writer-wins would reintroduce the
+global-registrar failure mode with a more modern API shape." Per-dispatch
+`:registrations` is per-cascade last-writer-wins by construction. The EP's own
+Open Issue 1 (can dispatch override the triggering event handler?) is the smell
+surfacing: when the same word means "define" and "secretly replace the thing
+about to run," you immediately need a special rule carving out the dangerous
+case.
+
+*Fix:* keep the **shape** uniform (a registrar-keyed tuple map is a good value),
+but do not pretend the three scopes are one concept. Name the lifetime in the
+key, not only in the surrounding form. Two viable spellings:
+
+```clojure
+;; image: definitions (collision-checked, composable, part of the value)
+{:registrations {:reg-fx [[:checkout.http/post post-fx]]}}
+
+;; frame / dispatch: overlays (masking, last-writer-wins within scope, never
+;; collision-checked against the image — that is the point of a stub)
+{:overrides {:reg-fx [[:checkout.http/post recording-fx]]}}
+```
+
+`:overrides` says "I am shadowing, on purpose, locally." `:registrations` stays
+the word for definitions that earn collision checking. This is *more* honest to
+the Clojure ethos than reusing one name, because the two facts behave
+differently and the reader should not have to infer the difference from the
+enclosing form.
+
+**2. `rf/image` becoming a macro is a real ergonomic regression the EP
+understates. (major)**
+
+Today `rf/image` is a plain function: you can `(rf/image some-spec-map)`, build
+specs programmatically, thread them, `map` over a vector of feature specs, and
+generate them. Making it a macro to get source-stamping makes the *common
+runtime path a fallback*: §`rf/image` is an authoring macro says non-literal
+specs "may fall back to the runtime constructor, but source-stamping guarantees
+then apply only to the literal parts it can inspect." So the most idiomatic
+Clojure usage — data-driven image construction — silently loses the very
+property the macro exists to add. That is a sharp corner: the macro is best
+exactly where humans hand-write literals and worst exactly where the language is
+at its best (programmatic data).
+
+This trades a clean value-returning function for compile-time magic to chase a
+benefit (source jumps to an inline handler) that EP-0023 explicitly says is the
+*minority* path: "Most human-authored code should stay close to ordinary `reg-*`
+forms." We are macro-fying the surface that the EP itself recommends people not
+lean on.
+
+*Fix (preferred):* keep `rf/image` a function. Solve source-stamping where it
+already lives: the inline handler bodies are nearly always literal `fn` forms,
+and the existing `reg-*` macros already capture coords via `*pending-coords*`
+(`source_coords.cljc`). Provide a tiny `rf/reg` reader/quote helper, or let the
+inline tuple optionally carry a coords map the way `reg-interceptor` accepts a
+migration `:id` at its boundary. If a macro is genuinely wanted, make it
+`rf/image-literal` (or document the fallback as first-class and *equal*, not
+degraded) so the plain `rf/image` value path is not quietly demoted. The EP
+should not bury "the data path loses stamping" in one sentence; that is a
+headline tradeoff.
+
+**3. Dispatch-level overlays are an unproven feature riding in on the
+simplification. (major)**
+
+The EP admits dispatch `:registrations` is "the determinate part" only after an
+operator ruling (Open Issues 1–2). But it is presented in the Specification body
+with worked examples, as though it were part of the simplification. A reader
+will copy `(rf/dispatch-sync [...] {:registrations {...}})` from the spec
+section. An EP at `proposal` that puts not-yet-ruled surface in normative-voiced
+examples invites exactly the stale-example problem the Backwards Compatibility
+section worries about.
+
+Crucially, dispatch-level **registration** overlays do not exist today at all —
+the shipped surface is `:fx-overrides` / `:interceptor-overrides`. So this is
+not "simplify the existing dispatch override" — it is "design a new dispatch
+override and fold the old two into it." That is a meatier change than the EP's
+framing suggests, and it is the part most likely to break replayability (see
+Correctness #2).
+
+*Fix:* move all dispatch-level overlay material into Open Issues / a follow-on
+EP. Let EP-0026 ship the determinate wins — `:select-ns`, drop `:replace`, drop
+`:rf.image/requires`, frame-local overrides — and explicitly defer dispatch
+overlays. The EP even says it should "narrow its normative surface" if an answer
+is deferred; it should take its own advice in the body, not only in the Open
+Issues.
+
+### Correctness
+
+**1. Trading `:replace` for layer order loses per-coordinate provenance and the
+EP does not fully replace what it removes. (major)**
+
+EP-0023's `:replace` is a *declaration*: "this `[kind id]` collides, and this
+exact source wins." Assembly proves the collision was real and the winner
+resolves to exactly one descriptor — three fail-loud checks
+(`image_assembly.cljc` `resolve-replacement-winner`). EP-0026 replaces that with
+"later image in the `:images` vector wins." The EP claims the mitigation is that
+"order is explicit in `:images`" and "shadowed descriptors remain visible."
+
+That mitigation is weaker than it sounds. Under `:replace`, an *accidental*
+cross-image collision still fails loud unless you declared it. Under pure
+layer-order shadowing, **every** cross-image collision is silently resolved by
+position. The EP says collisions "inside one selection clause still fail loud,"
+but cross-image is the case `:replace` was built for, and that is precisely the
+case now made silent. A typo that makes `product-image` accidentally re-register
+`:auth/login` will be silently shadowed by `story-image` with no error — the
+opposite of EP-0023's "a bad image should fail while it is being assembled."
+
+*Fix:* keep layer order as the *default winner rule*, but require an explicit
+acknowledgment for cross-image shadowing the way EP-0023 required `:replace` for
+cross-namespace collisions. A minimal data shape preserves the loud property
+without reintroducing coordinate maps:
+
+```clojure
+(rf/make-frame
+  {:images [base product story]
+   ;; cross-image shadowing must be acknowledged by [kind id];
+   ;; an unacknowledged cross-image collision still fails assembly.
+   :shadows #{[:fx :checkout.http/post]
+              [:event :auth/login]}})
+```
+
+This keeps the win (no per-coordinate winner *source* map — order decides the
+source) while keeping the safety (intent is declared; accidents fail loud). If
+Mike wants the pure-order model anyway, the EP must state plainly that it is
+*accepting silent cross-image shadowing* as a deliberate regression from
+EP-0023's loud collision rule, and justify it — right now it claims the safety
+is preserved when it is not.
+
+**2. Dispatch-level behavior overlays threaten replayability — the EP's own
+core principle. (blocker if dispatch overlays ship as specified)**
+
+re-frame2's replay story (EP-0010 / EP-0017) rests on: durable state is a fold
+of the event stream plus recorded coeffects, and *behavior is resolved through
+the frame's sealed generation*. A dispatch-level `:registrations` overlay breaks
+that: the same event token, replayed against the same frame, can now resolve to
+a *different effect/handler* depending on an overlay that lived only in the
+original dispatch envelope and is **not** part of the frame's recorded
+construction (the EP requires it "must not update the frame's recorded
+construction data"). The EP carefully keeps `:rf.cofx` as the recordable channel
+and says `:registrations` "stubs behavior" — but a recorded event replayed later
+has no way to know which behavior was active, because the overlay was ephemeral
+and unrecorded.
+
+This is the sharpest correctness issue in the EP and it is not named. The EP
+draws the line `:registrations` = behavior / `:rf.cofx` = facts, but the whole
+point of recordable coeffects is that *facts are recorded so the fold is
+reproducible*. An unrecorded behavior overlay is the one thing that makes a
+recorded cascade non-reproducible.
+
+*Fix:* either (a) forbid dispatch-level behavior overlays entirely (frame-level
+overlays are recorded in frame construction and so are replayable; that may be
+sufficient for every real test/story need), or (b) if dispatch overlays are
+kept, require that the active overlay be captured in the cascade's trace/epoch
+record so a replay can reconstitute it — i.e. make the overlay a *recorded*
+fact, not an ephemeral one. Option (a) is the smaller, safer ship and likely
+covers the motivating cases (tests/stories construct a frame anyway). This is a
+graduation blocker as currently written.
+
+**3. `:select-ns` clause semantics under cross-clause overlap are
+underspecified. (minor)**
+
+The EP says clause results union, and exclusions are clause-local. But it does
+not say what happens when clause A includes `app.todo.**` (no exclude) and
+clause B includes `app.todo.detail.**` with `:exclude ["app.todo.detail.dev.**"]`.
+A descriptor in `app.todo.detail.dev` is selected by A and excluded by B. Union
+of clause results means it is **selected** (A had no exclude). Is that intended?
+Under EP-0023's single global include/exclude, the dev namespace would be
+excluded. The new clause-local model can therefore *re-admit* a namespace a
+sibling clause tried to drop. That is a real behavior change and a footgun
+(Xray's image uses exactly this pattern — broad `**` include plus `*-cljs-test`
+exclude; `tools/xray`).
+
+*Fix:* state the rule explicitly and pick the safe default. The least
+surprising rule is "a descriptor is selected iff some clause includes it **and
+no clause excludes it**" — i.e. excludes are honored across the union, not
+strictly clause-local. That keeps the EP-0023 guard behavior (one `:exclude`
+reliably drops a namespace) while still allowing per-clause includes. If the
+EP truly wants clause-local excludes, it must show the overlap example and say
+"yes, a sibling clause can re-admit." Right now the reader cannot tell.
+
+**4. `:select-ns` zero-match-per-clause vs. the EP-0023 zero-match contract is
+ambiguous. (minor)**
+
+EP-0023: each `:include-ns` pattern must match ≥1 descriptor or assembly fails.
+EP-0026 says "an include pattern that matches no registration source namespace
+fails image assembly." Per *pattern*, per *clause*, or per the union? Consider a
+clause `{:include ["app.a.**" "app.b.**"]}` where `app.b` is legitimately not
+loaded in this build (platform-conditional). Under per-pattern fail-loud, this
+forces the author to split into conditional images — fine, that is EP-0023's
+documented stance. But the EP should say so, because a clause with multiple
+includes reads like "match any of these." State explicitly: each include
+pattern within a clause is individually zero-match-fail-loud (preserving
+EP-0023), not "the clause as a whole matched something."
+
+### Clarity
+
+**1. The precedence pseudo-block is grammatically broken and order-ambiguous.
+(minor but real)**
+
+```text
+dispatch-local registration overlay
+  dominates frame registration overlay
+  dominate image inline registrations, later image wins inside the tier
+  dominate image namespace-selected registrations, later image wins inside the tier
+```
+
+"dominates" then "dominate ... dominate" reads as a typo and the indentation
+implies frame/inline/selected are siblings under dispatch, when they are a
+strict descending chain. A normative precedence rule must be unambiguous. Render
+it as an explicit ordered list, highest-wins:
+
+```text
+1. dispatch overlay        (highest — masks everything below, this cascade only)
+2. frame overlay
+3. image inline :registrations   (later image in :images wins within this tier)
+4. image :select-ns selections   (later image in :images wins within this tier)
+```
+
+And state the within-tier rule once, not twice with a copy-paste verb error.
+
+**2. "later image wins inside the tier" vs. "duplicate inline registrations …
+fail loud" need reconciling for the same id across tiers. (minor)**
+
+Within one image, two inline `:reg-fx` for `:x` fail loud. Across two images,
+two inline `:reg-fx` for `:x` → later wins. So the *same* duplication is an error
+intra-image and a silent win inter-image. That is defensible (intra-image is
+almost always a mistake; inter-image is the composition story) but the EP states
+the two rules paragraphs apart and never says "yes, this asymmetry is
+deliberate." Say it explicitly with a one-line example, or a reader will read it
+as inconsistency.
+
+**3. "source-stamped authoring quality" is asserted, not specified. (minor)**
+
+The EP says inline registrations get "the same source-stamped authoring quality
+as the `reg-*` macros" and lists `:rf.provenance/image` / `:rf.provenance/inline`.
+But the actual `reg-*` coords are `:ns` / `:file` / `:line` / `:column` (dev,
+elided in prod per `source_coords.cljc`). The EP should name the exact keys it
+promises and confirm the same dev/prod elision applies, or "authoring quality"
+is unverifiable by a worker. Today inline descriptors carry the image/inline
+provenance but **not** the file/line coords; that gap is the whole reason for
+this part of the EP and it should be stated as the concrete deliverable.
+
+### Clojure ethos
+
+**Mostly aligned, with one regression.** Data-over-objects: the value-returning
+inline grammar and "image is inert data" are good. Small orthogonal ops:
+dropping `:replace` / `:replace-standard` / `:rf.image/requires` is genuine
+surface reduction and well-justified — `:rf.image/requires` in particular looks
+like leftover composition vocabulary with no live consumer, and removing it is
+correct. Clear errors: retired-key rejection with actionable diagnostics is
+right.
+
+The regression is the macro turn (Finding #2): macro-fying a value constructor
+is *less* Clojure-idiomatic, not more, and it makes the data-driven path
+second-class. The whole appeal of "image is a value" is that values compose with
+ordinary functions; a macro fights that. The simplest-thing-that-works here is a
+function plus a coords-carrying tuple option, not a compile-time walker with a
+degraded runtime fallback.
+
+One more ethos point in the EP's favor: keeping `:rf.cofx` strictly separate
+from `:registrations` is exactly right and should be louder — it is the cleanest
+data/behavior cut in the proposal.
+
+### re-frame2 ethos
+
+**Isolated execution / introspection:** the requirement that shadowed
+descriptors stay inspectable by Xray/Pair is correct and must not be softened —
+it is the price of dropping the coordinate-precise `:replace` report. **Effects
+as data:** folding `:fx-overrides` into `:registrations` is attractive but note
+it *removes* a working, shipped, replay-safe mechanism (`:fx-overrides` is
+frame-recorded and lexically scoped via `with-fx-overrides`) in favor of an
+overlay that, at dispatch scope, is **not** replay-safe (Correctness #2). The EP
+should not retire `:fx-overrides` / `with-fx-overrides` until the replacement is
+proven to preserve their replay and lexical-scope properties.
+
+**Retired realm vocabulary:** clean. EP-0026 contains no `realm` / `app-value`
+references, and the realm/app composition surface was already removed from the
+public facade (EP-0023; `spec/API.md`) and the multi-realm substrate collapsed
+(rf2-afdlyr). Good — but a graduation note: because the EP amends a `final`,
+graduated EP (EP-0023) and the normative homes it lists are live spec files, the
+graduating worker must touch `spec/002-Frames.md` / `spec/Conventions.md` and
+remove the EP-0023 `:include-ns` / `:exclude-ns` / `:replace` text in the same
+pass, or the spec will carry two contradictory image grammars. The EP's Bead
+Plan step 9 mentions tooling/guide but not the spec-text supersession; add it.
+
+### Creative alternatives
+
+**A. Split overlay from definition by name, not by scope (preferred).** As in
+Smell #1: `:registrations` = definitions (image only, collision-checked);
+`:overrides` = masking (frame + dispatch, last-writer-wins, never
+collision-checked). This keeps one *tuple grammar* but two *concepts*, which is
+the honest cut. It also dissolves Open Issue 1 cleanly: `:overrides` can
+naturally forbid `:reg-event` of the triggering id (an override that swaps the
+running handler is a different, scarier operation than overriding an fx it
+calls).
+
+**B. Keep `:replace` as an optional loud-acknowledgment, default to order.**
+(Correctness #1.) Layer order is the default winner; `:shadows #{[kind id]…}`
+acknowledges intentional cross-image shadowing; unacknowledged cross-image
+collision fails loud. You get the smaller data shape *and* keep EP-0023's
+fail-loud-by-default safety. This is strictly safer than pure order and barely
+larger.
+
+**C. Frame-only overlays for v1; dispatch overlays deferred.** Ship the
+replay-safe, frame-recorded overlay now; defer the dispatch overlay (the
+unproven, replay-risky one) to a follow-on EP with its recording story worked
+out. This is the EP's own "narrow the surface if deferred" rule applied to the
+body.
+
+**D. Function `rf/image` + coords-carrying tuples instead of a macro.** Let an
+inline entry optionally carry a coords map (`[id {:rf/coords {…}} body]`),
+populated by a thin reader macro or by the `reg-*` machinery, so the value
+constructor stays a function and programmatic image construction keeps stamping.
+The macro becomes opt-in sugar, never a demotion of the data path.
+
+### Verdict
+
+The direction is sound and three of its moves are clear wins: scoped
+`:select-ns`, dropping `:replace`/`:replace-standard` from the ordinary surface,
+and removing `:rf.image/requires`. But as written the EP (1) silently changes
+cross-image collisions from fail-loud to position-resolved while claiming the
+safety is preserved, (2) introduces a dispatch-level behavior overlay that
+breaks replayability and is not even named as a risk, (3) over-unifies three
+different lifetimes under one word, and (4) macro-fies a value constructor in a
+way that demotes the idiomatic data path. None of these is fatal to the
+direction; all are fixable with the alternatives above.
+
+**Recommendation: needs-rework before graduation** — specifically: adopt the
+loud cross-image acknowledgment (B), name overlays distinctly from definitions
+(A), defer or recording-prove dispatch overlays (C / Correctness #2), and keep
+`rf/image` a function (D). With those four changes the EP becomes a clean,
+data-oriented, replay-safe simplification worth graduating. Without them, it
+trades EP-0023's hard-won fail-loud and replay guarantees for a smaller-looking
+surface that is actually riskier.
