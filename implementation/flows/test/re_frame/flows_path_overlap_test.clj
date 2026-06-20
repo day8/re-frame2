@@ -1,23 +1,19 @@
 (ns re-frame.flows-path-overlap-test
-  "Per rf2-um6d9 — overlapping output `:output-path`s between sibling flows are
-  rejected at registration.
+  "Overlapping output `:output-path`s between sibling flows are rejected at
+  registration.
 
-  THE FINDING (senior-dev review rf2-y7lm8): the topo dependency rule
-  (`topo/depends-on?`, Spec 013 §Topological sort) compares ONLY flow A's
-  `:output-path` against flow B's `:inputs` — never `:output-path` vs `:output-path`. So two
-  flows in the SAME frame whose OUTPUT `:output-path`s overlap (one a prefix of
-  the other, identical included) but whose `:inputs` are disjoint from
-  each other's outputs get NO dependency edge. Both are 'ready' at
-  topo-sort start; their relative evaluation order falls out of
-  `(keys flow-map)` map-iteration order — a non-contract — so the shared
-  app-db slot is written last-write-wins, non-deterministically, with no
-  detection and no warning.
-
-  THE FIX: detect-and-reject at `reg-flow`, symmetric with the existing
-  cycle check and inside the same atomic `swap!` — two registered flows on
-  the same frame with overlapping output `:output-path`s is an error
-  (`:rf.error/flow-path-overlap`). See `topo/detect-output-path-overlap!`
-  and the registry `reg-flow` update fn.
+  The topo dependency rule (`topo/depends-on?`, Spec 013 §Topological sort)
+  compares ONLY flow A's `:output-path` against flow B's `:inputs` — never
+  `:output-path` vs `:output-path`. So two flows in the SAME frame whose OUTPUT
+  `:output-path`s overlap (one a prefix of the other, identical included) but
+  whose `:inputs` are disjoint from each other's outputs would get NO
+  dependency edge: both 'ready' at topo-sort start, their relative evaluation
+  order falling out of `(keys flow-map)` map-iteration order — a non-contract —
+  so the shared app-db slot would be written last-write-wins,
+  non-deterministically. So `reg-flow` detect-and-rejects such a pair,
+  symmetric with the cycle check and inside the same atomic `swap!`
+  (`:rf.error/flow-path-overlap`). See `topo/detect-output-path-overlap!` and
+  the registry `reg-flow` update fn.
 
   This file pins both ends:
     - the pure `topo` helpers (`output-paths-overlap?` /
@@ -26,11 +22,10 @@
       registration, the prior registration survives, and DISJOINT
       sibling outputs (the common, valid case) still register cleanly.
 
-  TERMINATION NOTE (rf2-um6d9 redo): `detect-output-path-overlap!` scans
-  the upper triangle of the frame's flow pairs via `(some ... (for ...))`
-  — terminating by construction. The disjoint-map and disjoint-sibling
-  tests below are the explicit regression guard: pre-fix the scan looped
-  forever on any frame with ≥2 disjoint flows, hanging the whole JVM suite."
+  TERMINATION NOTE: `detect-output-path-overlap!` scans the upper triangle of
+  the frame's flow pairs via `(some ... (for ...))` — terminating by
+  construction. The disjoint-map and disjoint-sibling tests below are the
+  explicit guard that the scan terminates on any frame with ≥2 disjoint flows."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
@@ -52,8 +47,8 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
+  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
+  ;; under no scope raises :rf.error/no-frame-context. Pin
   ;; :rf/default (an ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
@@ -101,9 +96,8 @@
 
 (deftest detect-output-path-overlap!-passes-disjoint-map
   (testing "a frame map of pairwise-disjoint output paths passes (returns the map unchanged) — and TERMINATES"
-    ;; REGRESSION GUARD (rf2-um6d9 redo): pre-fix the scan looped forever on
-    ;; a ≥2-flow disjoint map; this assertion only completes if the scan
-    ;; terminates.
+    ;; TERMINATION GUARD: the scan must terminate on a ≥2-flow disjoint map;
+    ;; this assertion only completes if it does.
     (let [flow-map {:a {:id :a :inputs [[:w]] :derive identity :output-path [:x :a]}
                     :b {:id :b :inputs [[:h]] :derive identity :output-path [:x :b]}
                     :c {:id :c :inputs [[:q]] :derive identity :output-path [:y]}}]
@@ -164,15 +158,15 @@
           "repeated detection yields an identical :overlap (deterministic ordering)"))))
 
 (deftest detect-output-path-overlap!-pair-ordering-invariant-to-iteration-order
-  ;; rf2-tx1ub — the reported :overlap pair must be GENUINELY deterministic
-  ;; across runs, not merely run-stable. The prior `sort-by hash` tie-break
-  ;; left the lo/hi assignment undefined on a hash collision: `sort-by` is
-  ;; stable and would fall back to the INPUT (map-iteration) order, which is
-  ;; not a cross-run contract for Clojure hash-maps. The `(juxt hash str)`
-  ;; tie-break makes the result depend only on the ids' VALUES, so feeding
-  ;; the same logical pair in opposite iteration orders MUST yield the same
-  ;; reported pair. Insertion-ordered array-maps below stand in for the two
-  ;; possible cross-run iteration orders.
+  ;; The reported :overlap pair must be GENUINELY deterministic across runs,
+  ;; not merely run-stable. A bare `sort-by hash` tie-break would leave the
+  ;; lo/hi assignment undefined on a hash collision: `sort-by` is stable and
+  ;; would fall back to the INPUT (map-iteration) order, which is not a
+  ;; cross-run contract for Clojure hash-maps. The `(juxt hash str)` tie-break
+  ;; makes the result depend only on the ids' VALUES, so feeding the same
+  ;; logical pair in opposite iteration orders MUST yield the same reported
+  ;; pair. Insertion-ordered array-maps below stand in for the two possible
+  ;; cross-run iteration orders.
   (testing "the reported pair is invariant to flow-map iteration order"
     (let [flow-a {:id :a :inputs [[:w]] :derive identity :output-path [:x]}
           flow-b {:id :b :inputs [[:h]] :derive identity :output-path [:x]}
@@ -214,12 +208,11 @@
 
 (deftest reg-flow-rejects-overlapping-output-paths-with-disjoint-inputs
   (testing "rf2-um6d9 — two same-frame flows whose OUTPUT :paths overlap but whose INPUTS are disjoint are rejected at registration"
-    ;; This is the exact silent-footgun shape: A reads [:src-a] writes
-    ;; [:dest]; B reads [:src-b] writes [:dest]. Inputs are disjoint
-    ;; (neither reads the other's output) so the topo dependency rule
-    ;; produces NO edge — pre-fix both were 'ready' and the shared slot
-    ;; [:dest] was written in undefined order. Post-fix the second
-    ;; registration is rejected.
+    ;; The silent-footgun shape: A reads [:src-a] writes [:dest]; B reads
+    ;; [:src-b] writes [:dest]. Inputs are disjoint (neither reads the other's
+    ;; output) so the topo dependency rule produces NO edge — both would be
+    ;; 'ready' and the shared slot [:dest] would be written in undefined order.
+    ;; So the second registration is rejected.
     (rf/reg-flow {:id :a :inputs [[:src-a]] :derive identity :output-path [:dest]})
     (let [thrown (try
                    (rf/reg-flow {:id :b :inputs [[:src-b]] :derive identity :output-path [:dest]})
@@ -240,8 +233,8 @@
 
 (deftest reg-flow-allows-disjoint-sibling-output-paths
   (testing "rf2-um6d9 — flows writing to DISJOINT sibling paths under a shared parent register cleanly (the common valid case is unaffected) — and TERMINATES"
-    ;; REGRESSION GUARD (rf2-um6d9 redo): the integrated equivalent of the
-    ;; disjoint-map test — pre-fix this reg-flow call hung the suite.
+    ;; TERMINATION GUARD: the integrated equivalent of the disjoint-map test —
+    ;; this reg-flow call must complete, not hang the suite.
     (rf/reg-flow {:id :w :inputs [[:in-w]] :derive identity :output-path [:rect :w]})
     (rf/reg-flow {:id :h :inputs [[:in-h]] :derive identity :output-path [:rect :h]})
     (let [committed (get (flows/flows-snapshot) :rf/default)]

@@ -1,16 +1,13 @@
 (ns re-frame.flows-destroy-frame-teardown-test
-  "Per rf2-wbtjn — `destroy-frame!` must clean up the per-frame flow
-  state (registry slot, `last-inputs` rows, owning-frame registrar
-  entries). Symmetric with the machines `:machines/teardown-on-frame-destroy!`
-  hook (rf2-vsigt).
+  "`destroy-frame!` cleans up the per-frame flow state (registry slot,
+  `last-inputs` rows, owning-frame registrar entries). Symmetric with the
+  machines `:machines/teardown-on-frame-destroy!` hook.
 
-  Pre-rf2-wbtjn the implementation tore down sub-cache, machine
-  cascade, SSR side-channels, schemas and epoch state on
-  `destroy-frame!` but left flows untouched — `flows[frame-id]`,
-  `last-inputs[flow-id][frame-id]` and any `:flow` registrar slots
-  whose last owning frame was destroyed all retained references.
-  Memory leak class: long-running SSR JVM (per-request frame churn),
-  pair-tool time-travel, `make-frame` ephemeral usage.
+  Without this teardown, `flows[frame-id]`, `last-inputs[flow-id][frame-id]`
+  and any `:flow` registrar slots whose last owning frame was destroyed would
+  retain references — a memory leak class for the long-running SSR JVM
+  (per-request frame churn), pair-tool time-travel, and `make-frame` ephemeral
+  usage.
 
   These JVM-side tests run on the plain-atom substrate against the
   late-bound `:flows/teardown-on-frame-destroy!` hook the flows
@@ -40,9 +37,9 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
+  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
+  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
+  ;; ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
     (test-fn)))
@@ -160,7 +157,7 @@
         "registrar slot survives because frame B still registers :shared")))
 
 ;; ---- registrar slot re-points to a LIVE owner when the slot's current ----
-;;      (last-registered) frame is destroyed (rf2-73pi1 finding 1).
+;;      (last-registered) frame is destroyed.
 
 (deftest destroy-frame-of-registrar-owner-repoints-to-surviving-frame
   (testing "Per rf2-73pi1: destroying the frame whose metadata currently
@@ -246,7 +243,7 @@
     (is (nil? (registrar/lookup :flow :area))
         "the new frame has no inherited :flow registrar slot")))
 
-;; ---- rf2-yt5bbl: flow-output elision marks ride the frame-record drop -----
+;; ---- flow-output elision marks ride the frame-record drop ----------------
 ;;
 ;; `clear-flow` scrubs ONE flow's `:source :flow` elision declarations via
 ;; `clear-flow-output-marks!` while its frame lives on. Frame-destroy does NOT
@@ -322,14 +319,14 @@
     (is (not (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token]))
         "specifically: the first incarnation's [:auth :token] mark did not survive")))
 
-;; ---- rf2-zbxvqj: reg-flow must not resurrect stale flows on a dead frame --
+;; ---- reg-flow must not resurrect stale flows on a dead frame -------------
 ;;
-;; Pre-fix, `reg-flow` against an absent/destroyed frame ran the registration
-;; thunk DIRECTLY (call-serialized-with-drain! runs the thunk in-line for a
-;; non-live frame), installing a `flows` row, an elision declaration, and a
-;; `:flow` registrar slot stamped with the dead frame-id. A later `reg-frame`
-;; reusing that id then inherited the resurrected flow. The fix rejects the
-;; registration BEFORE any state mutates.
+;; `reg-flow` against an absent/destroyed frame is rejected BEFORE any state
+;; mutates. `call-serialized-with-drain!` runs the registration thunk in-line
+;; for a non-live frame, so without the guard the registration would install a
+;; `flows` row, an elision declaration, and a `:flow` registrar slot stamped
+;; with the dead frame-id — and a later `reg-frame` reusing that id would
+;; inherit the resurrected flow.
 
 (deftest reg-flow-against-destroyed-frame-rejects-and-mutates-nothing
   (testing "Per rf2-zbxvqj: reg-flow on a DESTROYED frame throws a stable
