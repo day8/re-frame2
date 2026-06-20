@@ -18,7 +18,8 @@
   the handler fns only.
 
   Per the rf2-gxgo7 split of re-frame.ssr."
-  (:require [re-frame.error :as error]
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -169,16 +170,21 @@
   per-tool reimplementation prohibited; sinks consume already-projected
   records only) under the off-box-observability profile, seeded at the
   rejected `frame`, BEFORE the record fans out. A frame that declares the
-  `:rf/frame-id` path `:sensitive` redacts it; an unresolvable / FRAMELESS
-  frame fails CLOSED (the whole `extra` value redacts to `:rf/redacted`
-  rather than ride raw — EP-0002 / EP-0015 issue 1). The dev-trace axis
-  (DCE'd in production) keeps the raw `extra` for local Xray fidelity — the
-  leak is off-box, not the local trace. `:reason` is framework-AUTHORED
-  prose (the slice-shape / frame-id-mismatch sentences, interpolating a
-  value TYPE or the structural frame ids, never a raw app value), so it
-  rides as the framework's own diagnostic — it is NOT a deserialised payload
-  slot, and routing it would over-redact the operator's diagnostic with no
-  security gain (a frameless reject would lose the reason entirely)."
+  `:payload-frame-id` path `:sensitive` redacts it; an unresolvable /
+  FRAMELESS frame fails CLOSED (the whole `extra` value redacts to
+  `:rf/redacted` rather than ride raw — EP-0002 / EP-0015 issue 1). The
+  dev-trace axis (DCE'd in production) keeps the raw `extra` + raw `:reason`
+  for local Xray fidelity — the leak is off-box, not the local trace.
+
+  `:reason` is framework-AUTHORED prose, BUT the frame-id-mismatch sentence
+  INTERPOLATES the untrusted `:payload-frame-id` into its text (`'<value>'`),
+  so a corpus listener reading the always-on record's `:reason` would see the
+  raw value the structural `:payload-frame-id` slot just redacted. The off-box
+  record therefore SCRUBS the redacted value's rendering out of the reason
+  (replacing the raw `pr-str` occurrence with the `:rf/redacted` sentinel)
+  whenever the projection redacted that slot — so the value cannot leak via
+  the prose copy either. When the projection did NOT redact it (a frame that
+  does not declare the path sensitive), the reason rides as authored."
   ([error-id frame reason] (emit-rejected-hydration! error-id frame reason nil))
   ([error-id frame reason extra]
    (let [base {:where      'rf.ssr/hydrate
@@ -200,15 +206,30 @@
      ;; Fail-closed on an unresolvable / frameless frame (whole-value redact).
      (when-let [dispatch-error-record!
                 (late-bind/get-fn :error-emit/dispatch-error-record)]
-       (let [safe-extra (when (seq extra)
-                          (projection/project-egress
-                            extra
-                            {:frame             frame
-                             :rf.egress/profile :rf.egress/off-box-observability}))]
+       (let [safe-extra  (when (seq extra)
+                           (projection/project-egress
+                             extra
+                             {:frame             frame
+                              :rf.egress/profile :rf.egress/off-box-observability}))
+             ;; The reason prose interpolates the raw `:payload-frame-id` (via
+             ;; string concatenation: `'<value>'`). If the projection redacted
+             ;; that slot, scrub the raw value's rendering out of the reason so
+             ;; it does not leak via the prose copy. Matches the `str`-form the
+             ;; mismatch sentence interpolates (`'" payload-frame-id "'`).
+             raw-pfid    (:payload-frame-id extra)
+             redacted?   (and (contains? extra :payload-frame-id)
+                              (not= raw-pfid (:payload-frame-id safe-extra)))
+             safe-reason (if (and redacted? (string? reason) (some? raw-pfid))
+                           (str/replace reason
+                                        (str "'" raw-pfid "'")
+                                        (str ":rf/redacted"))
+                           reason)]
          (dispatch-error-record!
-           (merge {:error error-id
-                   :time  (interop/now-ms)}
-                  base safe-extra)))))))
+           (merge {:error  error-id
+                   :time   (interop/now-ms)}
+                  base
+                  {:reason safe-reason}
+                  safe-extra)))))))
 
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with

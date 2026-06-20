@@ -390,3 +390,115 @@
           tags       (:tags (first (:trace-events projected)))]
       (is (= cursor-secret (:page-param tags))
           "raw cursor rides with :include-sensitive?"))))
+
+;; ---------------------------------------------------------------------------
+;; (rf2-7qbxbm) :error / :page-error HTTP failure envelope — the raw server
+;; response body (echoing submitted form fields) MUST NOT egress off-box raw.
+;; ---------------------------------------------------------------------------
+
+(def ^:private http-error-envelope
+  "An `:rf.http/*` failure envelope as the resource/mutation FAILURE rows carry
+  it under `:error` / `:page-error` — the raw server response whose `:body-text`
+  echoes a submitted form field quoting a secret. This is the C2/D1 leak vector
+  rf2-7qbxbm names: it is NOT a scoped key, NOT a cursor, so it fell through the
+  projector's `:else` verbatim and reached the epoch/MCP off-box channel raw."
+  {:status    422
+   :body      {:errors {:auth-token (str "value '" secret "' is already taken")}}
+   :body-text (str "{\"auth-token\":\"" secret "\"}")
+   :detail    :rf.http/http-4xx})
+
+(deftest off-box-redacts-resource-failed-error-envelope
+  (testing "rf2-7qbxbm — a :rf.resource/failed first-load row's :error HTTP
+            failure envelope (raw response body echoing a submitted secret) is
+            tokenized off-box; the structural status tags survive; no raw secret
+            egresses"
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/failed
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :work/id [:rf.work/resource 1] :generation 1
+                                :status-before :loading :status-after :error
+                                :error http-error-envelope})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:error tags))
+          "the HTTP failure envelope is tokenized off-box")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural status attribution survives"
+        (is (= :loading (:status-before tags)))
+        (is (= :error (:status-after tags)))
+        (is (= :secret/article (second (:resource/key tags)))))
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+(deftest off-box-redacts-page-failed-page-error-envelope
+  (testing "rf2-7qbxbm — a :rf.resource/page-failed load-more row's :page-error
+            HTTP failure envelope is tokenized off-box (the third error channel)"
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/page-failed
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :work/id [:rf.work/resource 1] :generation 2
+                                :status-before :loaded :status-after :loaded
+                                :page-error http-error-envelope})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:page-error tags))
+          "the load-more failure envelope is tokenized off-box")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+(deftest off-box-redacts-mutation-failed-error-envelope
+  (testing "rf2-7qbxbm — a :rf.mutation/failed settlement row's :error HTTP
+            failure envelope is tokenized off-box"
+    (let [record    (record-with
+                      [(event :rf.mutation/failed
+                              {:rf.frame/id :test/rt :instance 7 :mutation :m/save
+                               :work/id [:rf.work/mutation :m/save 7] :generation 1
+                               :error http-error-envelope})])
+          projected (epoch/projected-record record)
+          tags      (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:error tags))
+          "the mutation failure envelope is tokenized off-box")
+      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+      (testing "the structural attribution survives"
+        (is (= :m/save (:mutation tags)))
+        (is (= 7 (:instance tags))))
+      (testing "NO raw secret survives anywhere in the projected record"
+        (is (not (contains-secret? projected)))))))
+
+(deftest off-box-fail-closed-on-unknown-map-slot
+  (testing "rf2-7qbxbm structural — the flipped fail-CLOSED :else: an UNKNOWN
+            map-shaped slot a future row might add WITHOUT a projector clause is
+            tokenized by default, so it cannot leak app data the way :error did.
+            Scalar structural facts on the SAME row still ride verbatim."
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
+          record     (record-with
+                       [(event :rf.resource/failed
+                               {:rf.frame/id :test/rt :resource/key scoped-key
+                                :generation 5 :cause :ensure
+                                ;; a hypothetical future map slot with NO clause
+                                :future-detail {:hidden (str secret "-future")}})])
+          projected  (epoch/projected-record record)
+          tags       (:tags (first (:trace-events projected)))]
+      (is (redacted-component? (:future-detail tags))
+          "an unknown MAP slot is tokenized by the fail-closed default")
+      (testing "scalar structural facts on the same row ride verbatim"
+        (is (= 5 (:generation tags)))
+        (is (= :ensure (:cause tags))))
+      (testing "NO raw future secret survives"
+        (is (not (contains-secret? projected)))))))
+
+(deftest trusted-local-include-sensitive-keeps-raw-error-envelope
+  (testing "rf2-7qbxbm — the trusted-local :include-sensitive? opt-in keeps the
+            raw HTTP failure envelope (the local-raw boundary — the off-box
+            redaction is the DEFAULT, not an unconditional strip)"
+    (let [record    (record-with
+                      [(event :rf.resource/failed
+                              {:rf.frame/id :test/rt :status-after :error
+                               :error http-error-envelope})])
+          projected (epoch/projected-record record {:include-sensitive? true})
+          tags      (:tags (first (:trace-events projected)))]
+      (is (= http-error-envelope (:error tags))
+          "the raw envelope rides with :include-sensitive?"))))
