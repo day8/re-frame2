@@ -34,6 +34,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.subs :as subs]
             [re-frame.subs.cache :as subs-cache]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -335,3 +336,106 @@
             "an emit landed — JVM dev path is wired")
         (finally
           (rf/unregister-listener! :trace ::elision-pin))))))
+
+;; ---- per-input dispose-throw is surfaced + isolated (rf2-is8ov5) ----------
+;;
+;; A layer-2+ reaction's disposal releases its `:<-` input refs by calling
+;; `unsubscribe` once per input. Before rf2-is8ov5 a throw from ONE input's
+;; release was caught and DISCARDED — the remaining inputs still released
+;; (good) but the throw vanished with no trace, so a ref-count leak from a
+;; buggy custom-substrate `-dispose` was invisible. The fix routes the
+;; swallowed throw through the dev trace as the diagnostic-channel category
+;; `:rf.warning/sub-input-dispose-exception` (Spec 009 §Error event
+;; catalogue) while preserving best-effort release of the remaining inputs.
+
+(defn- dispose-exception-events
+  [traces]
+  (filterv #(= :rf.warning/sub-input-dispose-exception (:operation %)) traces))
+
+(deftest input-dispose-throw-is-surfaced-and-isolated
+  (testing "when ONE `:<-` input's unsubscribe throws during a layer-2
+            reaction's recursive disposal, a
+            :rf.warning/sub-input-dispose-exception trace is emitted for
+            the failing input AND the remaining inputs STILL release
+            (the failing release does not abort the walk) — rf2-is8ov5"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
+    (rf/reg-sub :sub/a (fn [db _] (:a db)))
+    (rf/reg-sub :sub/b (fn [db _] (:b db)))
+    (rf/reg-sub :sub/sum
+      :<- [:sub/a]
+      :<- [:sub/b]
+      (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+    (let [acc       (collect-traces! ::input-dispose-throw)
+          ;; The REAL unsubscribe — `re-frame.subs/unsubscribe`. `rf/unsubscribe`
+          ;; is a `(def ... subs/unsubscribe)` defalias that captured this fn
+          ;; VALUE at load, so `with-redefs` on the var below does NOT touch
+          ;; `rf/unsubscribe` — only the var-reference calls inside the on-
+          ;; dispose callback (which reads the `subs/unsubscribe` var) see the
+          ;; redef. We trigger the parent dispose through this captured original
+          ;; so the parent itself releases normally; the parent's dispose
+          ;; callback then hits the redefed per-input releases.
+          real-unsub @#'subs/unsubscribe
+          cache      (:sub-cache (frame/frame :rf/default))]
+      (try
+        ;; Hold the layer-2 sub (which subscribes both inputs, bumping their
+        ;; ref-counts to 1 apiece).
+        (let [r (rf/subscribe [:sub/sum])]
+          (is (= 5 @r))
+          (is (contains? @cache [:sub/a]) "input :sub/a slot is live")
+          (is (contains? @cache [:sub/b]) "input :sub/b slot is live")
+          ;; Make the FIRST input's (`[:sub/a]`) release throw; every other
+          ;; query-v (the parent's own trigger goes through `real-unsub`
+          ;; directly, and `[:sub/b]` here) delegates to the real fn.
+          (with-redefs [subs/unsubscribe
+                        (fn [frame-id query-v]
+                          (if (= query-v [:sub/a])
+                            (throw (ex-info "boom: custom adapter -dispose threw"
+                                            {:query-v query-v}))
+                            (real-unsub frame-id query-v)))]
+            ;; Trigger the parent's 1 → 0 dispose via the captured original,
+            ;; so the PARENT disposes (its on-dispose callback runs the
+            ;; per-input release walk against the redefed `subs/unsubscribe`).
+            (real-unsub :rf/default [:sub/sum])))
+        ;; Assertion 1 — the throw is SURFACED (not discarded): exactly one
+        ;; :rf.warning/sub-input-dispose-exception for the failing input,
+        ;; carrying the diagnostic tags (frame, the failing query-v, the
+        ;; exception, the release site, recovery).
+        (let [warns (dispose-exception-events @acc)]
+          (is (= 1 (count warns))
+              "exactly one dispose-exception trace for the throwing input")
+          (let [[ev]  warns
+                tags  (:tags ev)]
+            ;; The envelope is built by `trace/emit-error!` → `build-event
+            ;; :error`, so the runtime `:op-type` is `:error` and the
+            ;; warning category rides `:operation` + `[:tags :category]`
+            ;; (the catalogue's `:op-type :warning` column is the SEMANTIC
+            ;; channel classification, not the envelope op-type — mirrors
+            ;; `:rf.warning/teardown-hook-exception`, also emitted via
+            ;; `emit-error!`). Asserting the tag/operation shape, not a
+            ;; `:warning` envelope op-type, matches the existing precedent.
+            (is (= :rf.warning/sub-input-dispose-exception (:operation ev)))
+            (is (= :rf.warning/sub-input-dispose-exception (:category tags))
+                ":category carries the warning id (build-event :error merge)")
+            (is (= :rf/default (:frame tags))
+                ":frame is the disposing frame")
+            (is (= [:sub/a] (:rf.sub/query-v tags))
+                ":rf.sub/query-v is the input whose release threw")
+            (is (some? (:exception tags))
+                "the swallowed exception is carried, not discarded")
+            (is (= :on-dispose (:where tags))
+                ":where pins the cached-reaction on-dispose release site")
+            ;; `:recovery` is hoisted to the TOP LEVEL by `build-event`
+            ;; (the error path always stamps it), NOT left under `:tags`.
+            (is (= :ignored (:recovery ev))
+                ":recovery :ignored — best-effort release")))
+        ;; Assertion 2 — the remaining input STILL released despite the
+        ;; sibling throw: `:sub/b`'s slot is gone (the walk did not abort on
+        ;; the `:sub/a` throw). `:sub/a`'s slot leaks (its release threw) —
+        ;; that leak is exactly the invisible failure the warning now surfaces.
+        (is (not (contains? @cache [:sub/b]))
+            ":sub/b released — the walk continued past the :sub/a throw")
+        (is (not (contains? @cache [:sub/sum]))
+            "the parent layer-2 slot was evicted")
+        (finally
+          (rf/unregister-listener! :trace ::input-dispose-throw))))))
