@@ -127,6 +127,20 @@ from typing import Iterable, NamedTuple
 # `docs/api`/`docs/guide`-sibling tree, but every EP doc is allowlisted below.)
 DEFAULT_SCAN_DIRS = ("docs/api", "docs/guide", "docs/EP", "spec", "skills")
 
+# rf2-lq99wc — the per-tool spec trees (`tools/<tool>/spec/`) are a teaching
+# surface too: the Xray / Pair-MCP / Story tool specs document the host model a
+# tool reads, and the rf2-6sefiu.5 audit found a deleted-substrate-as-live class
+# there is exactly what the expanded guard now gates. The tool set varies, so
+# the dirs are DISCOVERED at runtime by globbing `tools/*/spec` under the repo
+# root (see `_tool_spec_scan_dirs`) and unioned into the default scan. (Tool
+# specs are NOT mirrored into the staged docs site, so they are not double-
+# counted by the docs/spec exclusion.)
+_TOOL_SPEC_GLOB = "tools/*/spec"
+
+# A repo-relative path under any `tools/<tool>/spec/` tree — the panel-convention
+# surface where bare `install!` / `reinstall!` is exempted (rf2-7gmtz5).
+_TOOL_SPEC_REL_RE = re.compile(r"^tools/[^/]+/spec/")
+
 _DOC_SUFFIXES = (".md",)
 
 # rf2-2c8zq6 — root-support surfaces the dir-tree scan above DOES NOT reach.
@@ -278,6 +292,19 @@ _STRONG_SYMBOLS = (
     "frame-realm",
 )
 
+# rf2-lq99wc / rf2-7gmtz5 — `install!` / `reinstall!` are the only two strong
+# symbols whose BARE spelling collides with a LIVE, sanctioned convention: the
+# Xray / Story tools name each panel's registration entry point `install!`
+# (`(defn install! [] (subs/install!) (events/install!) nil)` — dozens of live
+# source files; the tool specs document the convention). NONE of those are the
+# retired EP-0013 `rf/install!` facade constructor (verified: zero co-occur with
+# realm/app-value). So on the TOOL-SPEC surface (`tools/*/spec`) a bare
+# install!/reinstall! is the panel convention, not drift, and is exempted there.
+# The REALM-SPECIFIC retired symbols below still fire EVERYWHERE (incl. tool
+# specs) — they have no live-convention collision. (On the framework doc surface
+# bare install!/reinstall! still fires: there it reads as the retired verb.)
+_TOOL_CONVENTION_SYMBOLS = frozenset({"install!", "reinstall!"})
+
 # Build one alternation. The optional namespace qualifier is CAPTURED so the
 # matcher (`_strong_hits` below) can keep ONLY the facade forms (bare or `rf/`)
 # and reject any other qualifier (`re-frame.realm/realm-ids` internal substrate,
@@ -288,7 +315,7 @@ _STRONG_SYMBOLS = (
 # preceding identifier char.
 _STRONG_ALT = "|".join(re.escape(s) for s in _STRONG_SYMBOLS)
 _STRONG_RE = re.compile(
-    rf"(?<![{_SYM}])(?P<ns>[{_SYM}]+/)?(?:{_STRONG_ALT})(?![{_SYM}])"
+    rf"(?<![{_SYM}])(?P<ns>[{_SYM}]+/)?(?P<sym>{_STRONG_ALT})(?![{_SYM}])"
 )
 
 # The retired SYMBOLS are `re-frame.core` (`rf/`) FACADE exports. The drift is
@@ -316,17 +343,26 @@ _STRONG_RE = re.compile(
 _FACADE_NS_QUALIFIERS = frozenset({"", "rf/"})
 
 
-def _strong_hits(line: str) -> bool:
+def _strong_hits(line: str, tool_spec_surface: bool = False) -> bool:
     """True iff `line` carries a retired strong-symbol drift (bare or `rf/`).
 
     A match qualified by any namespace OTHER than `rf/` (e.g. the internal
     `re-frame.realm/`, or an app's own `counter/`) names a different symbol
     that merely shares the bare name, and is NOT drift.
+
+    On the TOOL-SPEC surface (`tool_spec_surface=True`) the panel-convention
+    symbols `install!` / `reinstall!` (`_TOOL_CONVENTION_SYMBOLS`) are exempted —
+    there they are the Xray/Story per-panel registration entry point, not the
+    retired `rf/install!` facade constructor (rf2-7gmtz5). The realm-specific
+    retired symbols still fire everywhere.
     """
     for m in _STRONG_RE.finditer(line):
         ns = m.group("ns") or ""
-        if ns in _FACADE_NS_QUALIFIERS:
-            return True
+        if ns not in _FACADE_NS_QUALIFIERS:
+            continue
+        if tool_spec_surface and m.group("sym") in _TOOL_CONVENTION_SYMBOLS:
+            continue
+        return True
     return False
 
 # (b) Retired conceptual-noun facade CALLS: `(rf/app ...)`, `(rf/module ...)`,
@@ -368,11 +404,26 @@ _RETIRED_PROSE_RE = re.compile(
 # retired prose phrase on that line is a name being named, not live teaching.
 # Mirrors the symbol rules' removed-context tolerance (prose + masked comments
 # never fire there either).
+#
+# The base set covers the architecture-prose family (event-program / realm-
+# routing). The `gone` / `deleted` / `there is no` / bare `no` markers are added
+# (rf2-lq99wc) so the deleted-substrate families below — which fire on a CLAIM
+# that the deleted realm/app-value/migration substrate is retained/live — stay
+# GREEN wherever the sentence is DISCUSSING the deletion ("the realm machinery
+# was deleted in full", "there is no `re-frame.realm` namespace", "no installed-
+# app value, no `re-frame.realm/installed-app` seam", "is **gone** with the
+# substrate it read"). A bare `\bno\b` is a strong enough removed-context signal
+# for these families because the deleted-substrate signal they fire on is itself
+# very specific (a `re-frame.realm/`-class read or a "retained realm substrate"
+# claim) — "no realm coordinate", "no re-frame.realm namespace", "no installed-
+# app value" are all the removal being stated.
 _REMOVED_CONTEXT_RE = re.compile(
-    r"\b(?:retired|removed|remove|no longer|"
+    r"\b(?:retired|removed?|removal|"
+    r"deleted?|delete|gone|absent|eliminated?|dropped?|"
+    r"no longer|there\s+is\s+no|there\s+are\s+no|is\s+no\b|are\s+no\b|"
+    r"\bno\b|"
     r"collapsed?|superseded?|supersedes|deprecated?|"
     r"renamed|was\s+the|formerly|legacy|"
-    r"no\s+(?:realm[- ]routing|event[- ]program)|"
     r"not?\s+(?:a\s+)?(?:realm[- ]routing|event[- ]program))\b",
     re.IGNORECASE,
 )
@@ -396,20 +447,144 @@ def _prose_hits(line: str, context: str = "") -> bool:
     return not _REMOVED_CONTEXT_RE.search(haystack)
 
 
-# Each family is a (kind, predicate) pair where the predicate maps a single
-# (masked) line to True iff it carries that family's drift. The strong family
-# uses `_strong_hits` (capture + internal-namespace filter); the facade-noun
-# family is a plain regex search. The prose family (`_prose_hits`) runs over
-# PROSE lines (outside fenced code) on the root-support surfaces, not the
-# fenced-code lines the symbol families consume.
+# (d) DELETED-SUBSTRATE-AS-LIVE prose families (rf2-lq99wc). The
+#     architecture-prose family (c) only fires on two phrases (`event-program`
+#     / `realm-routing`) and only over the root-support surfaces, so it MISSED a
+#     whole residue class the rf2-6sefiu.5 audit surfaced on the teaching
+#     surface (spec/API.md, the tool specs, the api-manifest): prose that
+#     RE-LEGITIMIZES the deleted EP-0013 realm/app-value/migration substrate as
+#     still-present internal machinery. EP-0024 DELETED that substrate in full
+#     (#4811) — there is no `re-frame.realm` namespace, no installed-app value,
+#     no migration-map, no realm-scoped reader. Two distinctive shapes:
+#
+#       (d1) "retained-internal" / "retained as internal substrate" / "realm
+#            machinery … retained" / "realm-scoped readers … remain" — a CLAIM
+#            that the deleted realm/app-value/module substrate survives as a
+#            live internal seam. The phrase must co-occur with the SUBSTRATE
+#            noun (`realm` / `app-value` / `app value` / `module` / installed-
+#            app) so the EP-0018 `reg-event-ctx` "the … mechanism is retained
+#            internally" note (a DIFFERENT subject — no realm/app-value
+#            adjacency) does NOT fire.
+#
+#       (d2) a DELETED-NAMESPACE read named as a CURRENT seam:
+#            `re-frame.realm/<sym>`, `re-frame.app-value/<sym>`, or
+#            `re-frame.migration/migration-map`. These namespaces no longer
+#            exist, so naming one as a live read/import is drift. (The LIVE
+#            internal namespaces a tool legitimately reads — `re-frame.registrar`
+#            / `re-frame.frame` / `re-frame.live-frame` / `re-frame.image` —
+#            are NOT in this set and never fire.)
+#
+#     BOTH are suppressed by the (extended) removed-context window: a sentence
+#     that says the substrate "was deleted in full", "there is no
+#     `re-frame.realm` namespace", "no `re-frame.realm/installed-app` seam", or
+#     "is **gone** with the substrate it read" is DISCUSSING the deletion, not
+#     teaching a live seam — exactly the same removed-context tolerance the
+#     symbol + architecture-prose families grant. Unlike the architecture-prose
+#     family these run over the FULL doc surface (not just root-support),
+#     because the residue the audit found lives in spec/ + the tool specs.
+#
+#     NOTE (d2 does NOT mask inline `code spans`): a deleted namespace named in
+#     an inline span AS A LIVE SEAM ("the realm-scoped readers
+#     (`re-frame.realm/realm-registrations`) remain for tooling") is precisely
+#     the residue, so d2 scans the RAW line and relies on removed-context
+#     suppression — the deleted-namespace signal is specific enough that a span
+#     mention without a removal marker IS drift.
+
+# (d1) The retained-internal-substrate CLAIM. `retained[- ]internal`, "retained
+#      … internal substrate", "realm machinery … retained", or "… readers …
+#      remain" — required to co-occur with a realm/app-value/module substrate
+#      noun on the same line so the EP-0018 reg-event-ctx "retained internally"
+#      note (no realm adjacency) stays green.
+_RETAINED_CLAIM_RE = re.compile(
+    r"retained[- ]internal"
+    r"|retained\s+(?:as\s+)?(?:an?\s+)?internal\s+substrate"
+    r"|(?:realm|app[- ]value|module)\s+(?:machinery|substrate|readers?|"
+    r"surface|reader)\b[^.\n]*?\bretain"
+    r"|retained?\b[^.\n]*?\b(?:realm|app[- ]value)\s+(?:machinery|substrate)"
+    r"|(?:realm[- ]scoped|realm)\s+readers?\b[^.\n]*?\bremain",
+    re.IGNORECASE,
+)
+
+# A realm/app-value/module SUBSTRATE noun the (d1) claim must touch — guards the
+# narrow co-occurrence requirement so a generic "retained internally" note
+# (EP-0018 reg-event-ctx) does not fire.
+_SUBSTRATE_NOUN_RE = re.compile(
+    r"\b(?:realm|app[- ]value|installed[- ]app|module)\b",
+    re.IGNORECASE,
+)
+
+# (d2) A DELETED-NAMESPACE read. These namespaces were removed in full by
+#      EP-0024; naming one as a live seam is drift. `re-frame.migration/` is
+#      scoped to `migration-map` specifically (the disposition source the
+#      retired manifest-hygiene gate tracked) to keep the family tight.
+_DELETED_NS_READ_RE = re.compile(
+    r"re-frame\.realm/[\w.+!?<>=-]+"
+    r"|re-frame\.app-value/[\w.+!?<>=-]+"
+    r"|re-frame\.migration/migration-map\b",
+)
+
+
+def _retained_substrate_hits(line: str, context: str = "") -> bool:
+    """True iff `line` claims the deleted realm/app-value substrate is live.
+
+    Fires on a `retained-internal` / "realm machinery … retained" / "readers …
+    remain" claim that ALSO names a realm/app-value/module substrate noun (so
+    the EP-0018 reg-event-ctx "retained internally" note stays green), UNLESS a
+    removed-context marker appears in `context` (line + immediate neighbours).
+    """
+    if not _RETAINED_CLAIM_RE.search(line):
+        return False
+    if not _SUBSTRATE_NOUN_RE.search(line):
+        return False
+    haystack = context if context else line
+    return not _REMOVED_CONTEXT_RE.search(haystack)
+
+
+def _deleted_ns_read_hits(line: str, context: str = "") -> bool:
+    """True iff `line` names a DELETED namespace as a live read seam.
+
+    Fires on a `re-frame.realm/` / `re-frame.app-value/` /
+    `re-frame.migration/migration-map` mention (raw line — inline spans are NOT
+    masked, since a span naming a deleted ns as a live seam IS the residue),
+    UNLESS a removed-context marker appears in `context`.
+    """
+    if not _DELETED_NS_READ_RE.search(line):
+        return False
+    haystack = context if context else line
+    return not _REMOVED_CONTEXT_RE.search(haystack)
+
+
+# Each family is a (kind, predicate) pair where the predicate maps a
+# (masked-line, tool_spec_surface) pair to True iff it carries that family's
+# drift. The strong family uses `_strong_hits` (capture + internal-namespace
+# filter + the tool-spec install!-convention exemption); the facade-noun family
+# is a plain regex search (surface-independent). The prose family (`_prose_hits`)
+# runs over PROSE lines (outside fenced code) on the root-support surfaces, not
+# the fenced-code lines the symbol families consume.
 _RETIRED_PATTERNS = (
-    ("retired-construction-symbol", _strong_hits),
-    ("retired-facade-noun-call", lambda line: bool(_RETIRED_FACADE_CALL_RE.search(line))),
+    ("retired-construction-symbol",
+     lambda line, tool_spec: _strong_hits(line, tool_spec_surface=tool_spec)),
+    ("retired-facade-noun-call",
+     lambda line, _tool_spec: bool(_RETIRED_FACADE_CALL_RE.search(line))),
 )
 
 # The prose family is scanned separately (over non-fenced lines), so it is its
 # own (kind, predicate) entry rather than part of `_RETIRED_PATTERNS`.
+# `_prose_hits` is ROOT-SUPPORT-only (event-program / realm-routing teaching);
+# the deleted-substrate families below run over the FULL doc surface.
 _PROSE_PATTERN = ("retired-architecture-prose", _prose_hits)
+
+# The deleted-substrate families (rf2-lq99wc) — each a (kind, context-predicate)
+# pair. They take the (line, context) signature so the removed-context window
+# can read the immediate neighbours (prose wraps across lines). They run over
+# the PROSE of EVERY scanned file (not just root-support), because the residue
+# the rf2-6sefiu.5 audit found lives on the spec + tool-spec teaching surface.
+# Note: these consume the RAW prose line (inline spans NOT masked) — a deleted
+# namespace named as a live seam inside an inline span IS the residue.
+_DELETED_SUBSTRATE_PATTERNS = (
+    ("retired-substrate-retained-claim", _retained_substrate_hits),
+    ("retired-deleted-namespace-read", _deleted_ns_read_hits),
+)
 
 
 class Finding(NamedTuple):
@@ -499,13 +674,16 @@ def _mask_inline_code(line: str) -> str:
     return _INLINE_CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
 
 
-def _prose_lines(text: str) -> list[tuple[int, str]]:
-    """Return (1-based-line-no, masked-content) for PROSE lines (outside fences).
+def _prose_lines(text: str, mask_inline: bool = True) -> list[tuple[int, str]]:
+    """Return (1-based-line-no, content) for PROSE lines (outside fences).
 
     The complement of `_code_fence_lines`: lines INSIDE a fenced code block are
-    omitted (the symbol families own those), and on the prose lines inline code
-    spans are masked (a `code-span` mention is a name, not live model prose).
-    Used only by the prose-architecture family on the root-support surfaces.
+    omitted (the symbol families own those). With `mask_inline=True` (the
+    default — used by the architecture-prose family) inline code spans are
+    masked (a `code-span` mention is a name, not live model prose). With
+    `mask_inline=False` (used by the deleted-namespace family) the RAW prose
+    line is returned, since a deleted namespace named as a live seam INSIDE a
+    span is the residue.
     """
     out: list[tuple[int, str]] = []
     in_fence = False
@@ -530,13 +708,30 @@ def _prose_lines(text: str) -> list[tuple[int, str]]:
             # A content line inside a fence: not prose.
             continue
         if not in_fence:
-            out.append((line_no, _mask_inline_code(raw)))
+            out.append((line_no, _mask_inline_code(raw) if mask_inline else raw))
     return out
 
 
 # --------------------------------------------------------------------------
 # File iteration
 # --------------------------------------------------------------------------
+
+
+def _tool_spec_scan_dirs(repo_root: Path) -> list[str]:
+    """Discover the per-tool spec dirs (`tools/*/spec`) present in the repo.
+
+    Returns repo-relative forward-slash dir strings for every existing
+    `tools/<tool>/spec/` directory, sorted. Empty if `tools/` is absent (a
+    consumer repo need not carry the dev tools). Unioned into the default scan
+    so tool-spec drift is gated (rf2-lq99wc).
+    """
+    if not (repo_root / "tools").is_dir():
+        return []
+    out: list[str] = []
+    for spec_dir in sorted(repo_root.glob(_TOOL_SPEC_GLOB)):
+        if spec_dir.is_dir():
+            out.append(spec_dir.relative_to(repo_root).as_posix())
+    return out
 
 
 def _iter_doc_files(scan_root: Path, repo_root: Path) -> Iterable[Path]:
@@ -579,13 +774,51 @@ def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
         return []
     findings: list[Finding] = []
     raw = text.splitlines()
+    # The tool-spec surface (`tools/*/spec/...`) exempts the bare install!/
+    # reinstall! panel convention (rf2-7gmtz5); the realm-specific symbols still
+    # fire there. `_TOOL_SPEC_REL_RE` matches the discovered scan dirs.
+    tool_spec_surface = bool(_TOOL_SPEC_REL_RE.match(rel_posix))
     for line_no, masked in _code_fence_lines(text):
         for kind, predicate in _RETIRED_PATTERNS:
-            if predicate(masked):
+            if predicate(masked, tool_spec_surface):
                 snippet = raw[line_no - 1].strip() if 0 <= line_no - 1 < len(raw) else ""
                 findings.append(Finding(path, line_no, f"live-retired:{kind}", snippet))
+    # The deleted-substrate prose families (rf2-lq99wc) run over the prose of
+    # EVERY scanned file — markdown OR a non-markdown root-support script (whose
+    # whole body is the prose surface). The residue the audit found lives on the
+    # spec + tool-spec teaching surface, not just root-support.
+    findings.extend(_scan_deleted_substrate_prose(path, text))
     if rel_posix in _ROOT_SUPPORT_PROSE_FILES:
         findings.extend(_scan_root_support_prose(path, text, rel_posix))
+    return findings
+
+
+def _scan_deleted_substrate_prose(path: Path, text: str) -> list[Finding]:
+    """Scan a file's prose for deleted-realm/app-value-substrate-as-live drift.
+
+    Runs the `_DELETED_SUBSTRATE_PATTERNS` families over the RAW prose lines
+    (inline spans NOT masked — a deleted namespace named as a live seam in a
+    span is the residue). For a markdown file the fenced-code blocks are
+    excluded (`_prose_lines(..., mask_inline=False)`); a non-markdown script has
+    no markdown fences, so every line is prose. Each family suppresses on a
+    removed-context marker in the line + its immediate neighbours.
+    """
+    raw = text.splitlines()
+    is_markdown = path.suffix in _DOC_SUFFIXES
+    if is_markdown:
+        lines = _prose_lines(text, mask_inline=False)
+    else:
+        lines = list(enumerate(raw, start=1))
+    by_no = {ln: s for ln, s in lines}
+    findings: list[Finding] = []
+    for line_no, line in lines:
+        context = " ".join(
+            by_no.get(n, "") for n in (line_no - 1, line_no, line_no + 1)
+        )
+        for kind, predicate in _DELETED_SUBSTRATE_PATTERNS:
+            if predicate(line, context):
+                snippet = raw[line_no - 1].strip() if 0 <= line_no - 1 < len(raw) else ""
+                findings.append(Finding(path, line_no, f"live-retired:{kind}", snippet))
     return findings
 
 
@@ -695,6 +928,31 @@ _FIX_HINTS = {
         "('retired', 'removed', 'no longer', 'no realm-routing', …) and the "
         "gate will treat it as removed-context."
     ),
+    "retired-substrate-retained-claim": (
+        "A prose CLAIM that the deleted EP-0013 realm / app-value / module "
+        "substrate is 'retained internal substrate' / 'retained internally' / "
+        "that the realm machinery or realm-scoped readers 'remain' as a live "
+        "internal seam. EP-0024 DELETED that substrate IN FULL (#4811): there "
+        "is no `re-frame.realm` namespace, no installed-app value, no realm-"
+        "scoped reader. Frame resolution routes through the process registrar "
+        "(`re-frame.registrar` / `re-frame.frame` / `re-frame.image`), not a "
+        "retained realm seam. Rewrite the sentence to the current model. If it "
+        "is DISCUSSING the deletion ('deleted in full', 'there is no "
+        "re-frame.realm namespace', 'gone with the substrate it read'), say so "
+        "on the line and the gate treats it as removed-context."
+    ),
+    "retired-deleted-namespace-read": (
+        "A DELETED namespace named as a live read seam: `re-frame.realm/...`, "
+        "`re-frame.app-value/...`, or `re-frame.migration/migration-map`. These "
+        "namespaces were removed in full by EP-0024 — they no longer exist, so "
+        "naming one as a current read/import is drift. A tool reads the host "
+        "registrations through the LIVE process registrar (`re-frame.registrar` "
+        "/ `re-frame.frame` / `re-frame.image`), not a realm coordinate. If the "
+        "sentence is DISCUSSING the removal ('there is no `re-frame.realm` "
+        "namespace', 'no `re-frame.realm/installed-app` seam', '... was "
+        "removed'), say so on the line and the gate treats it as "
+        "removed-context."
+    ),
 }
 
 
@@ -780,7 +1038,13 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    scan_dirs = args.scan_dir or list(DEFAULT_SCAN_DIRS)
+    # The default scan = the doc-surface dirs UNION the discovered per-tool spec
+    # trees (rf2-lq99wc). An explicit --scan-dir is a targeted run and uses
+    # exactly what was passed (tool specs are not auto-added there).
+    if args.scan_dir:
+        scan_dirs = list(args.scan_dir)
+    else:
+        scan_dirs = list(DEFAULT_SCAN_DIRS) + _tool_spec_scan_dirs(repo_root)
     all_findings: list[Finding] = []
     for d in scan_dirs:
         scan_root = repo_root / d
@@ -941,7 +1205,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             failures += 1
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        # rel_posix=README.md makes `_scan_text` run the prose family.
+        # rel_posix=README.md makes _scan_text run the prose-architecture family.
         got = len(_scan_text(path, text, rel_posix="README.md"))
         if got == expected:
             if verbose:
@@ -955,10 +1219,89 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # rf2-lq99wc — the DELETED-SUBSTRATE families (retained-internal claim +
+    # deleted-namespace read). These run over the prose of EVERY scanned file in
+    # `_scan_text`, so a plain non-allowlisted rel_posix activates them. The
+    # positives plant the audit-found residue class (a "retained internal
+    # substrate" claim; a `re-frame.realm/...` live read); the negatives prove
+    # the removed-context window keeps the legitimate deletion-discussion shapes
+    # (spec/Conventions.md / the Xray specs / the api-manifest) GREEN, and that
+    # the EP-0018 `reg-event-ctx` "retained internally" note (different subject,
+    # no realm adjacency) does NOT fire.
+    deleted_substrate_cases: list[tuple[str, int]] = [
+        # --- positives: live deleted-substrate-as-live drift must FIRE ---
+        ("positive/live_retained_internal_substrate.md", 1),
+        ("positive/live_deleted_namespace_read.md",      1),
+        # --- negatives: removed-context / different-subject stay GREEN ---
+        ("negative/removed_context_deleted_substrate.md", 0),
+        ("negative/reg_event_ctx_retained_internally.md", 0),
+        # the pre-existing internal-substrate fixture reads the LIVE namespaces
+        # (`re-frame.registrar/` / `re-frame.frame/`), NOT a deleted one — still 0.
+        ("negative/internal_substrate_ns_reads.md",       0),
+    ]
+    for fixture, expected in deleted_substrate_cases:
+        path = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not path.is_file():
+            sys.stderr.write(
+                f"self-test FAIL: deleted-substrate fixture {fixture!r} missing "
+                f"at {path}\n"
+            )
+            failures += 1
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        # A plain non-allowlisted rel_posix runs the deleted-substrate families.
+        got = len(_scan_text(path, text, rel_posix=fixture))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: {fixture} (deleted-substrate findings={got})\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected deleted-substrate "
+                f"findings={expected}, got {got}\n"
+            )
+            failures += 1
+
+    # rf2-7gmtz5 — the TOOL-SPEC install!-convention exemption. Scanned AS IF the
+    # fixture lived under `tools/xray/spec/` so `_scan_text` lights the
+    # tool_spec_surface flag: a bare `install!` / `reinstall!` panel convention
+    # stays GREEN, but a realm-specific retired symbol still FIRES there.
+    tool_spec_cases: list[tuple[str, int]] = [
+        ("negative/tool_panel_install_convention.md",   0),
+        ("positive/tool_spec_realm_symbol_fires.md",    1),
+    ]
+    for fixture, expected in tool_spec_cases:
+        path = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not path.is_file():
+            sys.stderr.write(
+                f"self-test FAIL: tool-spec fixture {fixture!r} missing at "
+                f"{path}\n"
+            )
+            failures += 1
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        # A tools/<tool>/spec/ rel_posix lights the tool_spec_surface flag.
+        got = len(_scan_text(
+            path, text, rel_posix=f"tools/xray/spec/{Path(fixture).name}"
+        ))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: {fixture} (tool-spec findings={got})\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected tool-spec findings="
+                f"{expected}, got {got}\n"
+            )
+            failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
-    total = len(cases) + 1 + len(prose_cases)
+    total = (len(cases) + 1 + len(prose_cases) + len(deleted_substrate_cases)
+             + len(tool_spec_cases))
     if verbose:
         sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
