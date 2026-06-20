@@ -23,17 +23,20 @@
      intentionally modeled with handler metadata because it is not an
      app-db path-scoped write.
 
-  3. **`:large?` schema-meta slot** — the `:user/avatar-pdf` schema
-     entry carries `{:large? true :hint \"Avatar PDF blob\"}`. When
-     `rf/elide-wire-value` walks an app-db payload that includes
-     this slot at its declared path, the value is replaced with a
-     `{:rf.size/large-elided {:bytes … :path … :hint …}}` marker.
-     The `:hint` propagates verbatim — AI consumers (re-frame2-pair-mcp,
-     Xray) see the orienting string without drilling into the
-     blob.
+  3. **`:large` frame-owned app-db slot** — the `:user/avatar-pdf`
+     slot is nominated as durable-large on the testbed's `:rf/default`
+     frame via `reg-frame {:large {:app-db [[:user/avatar-pdf]]}}`
+     (EP-0015 §8 — durable app-db egress is FRAME-owned, not a schema
+     prop). When `rf/elide-wire-value` walks an app-db payload that
+     includes this slot at its declared path, the value is replaced
+     with a `{:rf.size/large-elided {:bytes … :path … :reason :frame}}`
+     marker. The marker's `:reason :frame` records the install-time
+     provenance; there is no schema-attached `:hint` to propagate (the
+     schema describes shape only).
 
   4. **Always-on `event-emit` listener** — the demo registers a
-     console-logger via `register-event-listener!`. The
+     console-logger via `register-listener!` (the `:events`
+     channel). The
      listener receives one record per processed event and
      demonstrates the production-survivable substrate the chapter-22
      Datadog recipe pivots around: the listener fires under `:advanced`
@@ -53,17 +56,19 @@
 
   - **Click 'Upload large avatar (inline)'** — dispatches
     `:user.avatar/upload` with a 20 kB string in the event payload.
-    The console line from the listener shows the inline blob
-    visible in the event payload; schema `:large?` applies to app-db
-    slots, not arbitrary event-vector blobs.
+    The console line from the listener shows the inline blob raw and
+    intact: Path D removed runtime size auto-elision, so an
+    unschema'd / unnominated inline blob is never substituted. Large
+    egress is declared on app-db slots via the frame's `:large`
+    classification, not auto-detected on arbitrary event-vector blobs.
 
   - **Click 'Walk app-db through elision'** — runs
     `rf/elide-wire-value` over a snapshot of the live frame's
     app-db. The console shows the `:user/avatar-pdf` slot replaced
-    by the `:rf.size/large-elided` marker, with `:hint \"Avatar PDF
-    blob\"` propagated verbatim from the schema declaration. This
-    is the SCHEMA-driven branch — the same substitution Xray
-    applies when it renders `app-db` in its inspector panel.
+    by the `:rf.size/large-elided` marker, carrying `:reason :frame`
+    (the frame-owned classification provenance). This is the
+    FRAME-driven branch — the same substitution Xray applies when it
+    renders `app-db` in its inspector panel.
 
   Pre-alpha."
   (:require [reagent.core :as r]
@@ -77,13 +82,14 @@
 ;; SCHEMAS  (Spec 010 §`:large?` per-slot meta)
 ;; ============================================================================
 ;;
-;; The `:user/avatar-pdf` slot is declared `:large?` so the
-;; wire-walker substitutes its value with the `:rf.size/large-elided`
-;; marker (carrying byte-count + path + hint) whenever any wire
-;; consumer walks app-db through `rf/elide-wire-value`. The `:hint`
-;; propagates verbatim into the marker — Spec 010 §`:large?`
-;; schema-driven size-elision nomination calls this the AI-consumer
-;; orientation hook.
+;; The `:user/avatar-pdf` slot is nominated durable-large on the
+;; testbed's `:rf/default` frame (`reg-frame {:large {:app-db …}}` in
+;; `core/run`), so the wire-walker substitutes its value with the
+;; `:rf.size/large-elided` marker (carrying byte-count + path +
+;; `:reason :frame`) whenever any wire consumer walks app-db through
+;; `rf/elide-wire-value`. EP-0015 §8: durable app-db egress
+;; classification is FRAME-owned, not a schema prop — the schema below
+;; describes SHAPE only.
 
 ;; Schema describes SHAPE only (EP-0015 §8): `:user/avatar-pdf` is an
 ;; optional string. Durable app-db egress classification is FRAME-owned —
@@ -141,10 +147,11 @@
                  :submitted? true})}))
 
 (rf/reg-event :user.avatar-pdf/set
-  {:doc "Demo: write a synthetic large blob into the `:large?`-flagged
-         schema slot. Walking app-db through `rf/elide-wire-value`
+  {:doc "Demo: write a synthetic large blob into the frame-nominated
+         `:large` app-db slot. Walking app-db through `rf/elide-wire-value`
          substitutes the slot value with a `:rf.size/large-elided`
-         marker, with the schema's `:hint` propagated verbatim."}
+         marker carrying `:reason :frame` (the frame-owned classification
+         provenance)."}
   (fn [{:keys [db]} [_ {:keys [bytes]}]]
     {:db (assoc db :user/avatar-pdf (str/join (repeat (or bytes 5000) "A")))}))
 
@@ -158,12 +165,13 @@
 
 (rf/reg-event :user.avatar/upload
   {:doc "Demo: dispatch a 20 kB blob INLINE inside the event vector.
-         The event-emit listener's `elide-wire-value` pass auto-
-         detects the leaf string (over the default 16 kB threshold)
-         and substitutes it with `:rf.size/large-elided` BEFORE the
-         listener receives the record. Demonstrates the runtime
-         auto-detect branch of the wire walker — orthogonal to the
-         schema-driven branch above."}
+         The blob is NOT declared large anywhere — Path D removed
+         runtime size auto-elision, so an unschema'd / unnominated
+         inline payload rides through the event-emit listener UNCHANGED
+         (no `:rf.size/large-elided` substitution). Large-value egress
+         is declared, not auto-detected: nominate app-db slots on the
+         frame (`:large {:app-db …}`), the contrast to the frame-driven
+         branch above."}
   (fn [{:keys [db]} [_ {:keys [_blob]}]]
     ;; We don't keep the blob; the point is the elision at the wire
     ;; boundary. Bump a counter so the UI has something to render.
@@ -201,7 +209,9 @@
 ;;
 ;; This demo registers a console-logger flavour at boot — UNGATED
 ;; — so visitors can see the listener fire and observe the wire
-;; walker's auto-detect substitution. The substrate is the same one
+;; walker's frame-driven substitution (declared-large app-db slots
+;; become markers; unschema'd inline payloads ride through raw). The
+;; substrate is the same one
 ;; Datadog / Honeycomb / Sentry attach to in production — but in
 ;; production you AND the listener with `goog.DEBUG=false` per the
 ;; recipe above so dev-laptop traffic never leaks.
@@ -211,8 +221,9 @@
 (defn- log-record! [record]
   ;; Format the record terse for browser-console readability. The
   ;; `:event` slot has already been passed through
-  ;; `rf/elide-wire-value` with off-box defaults — large leaves are
-  ;; markers; declared-sensitive paths are :rf/redacted.
+  ;; `rf/elide-wire-value` with off-box defaults — declared-sensitive
+  ;; paths are :rf/redacted; unschema'd / unnominated large leaves ride
+  ;; through raw (Path D removed runtime size auto-elision).
   (js/console.log "[event-emit demo]" (pr-str record)))
 
 (defn install-listener!
@@ -234,7 +245,7 @@
   (rf/unregister-listener! :events listener-id))
 
 ;; ============================================================================
-;; APP-DB ELISION INSPECTOR  (the schema-driven branch surface)
+;; APP-DB ELISION INSPECTOR  (the frame-driven branch surface)
 ;; ============================================================================
 ;;
 ;; The visitor clicks 'Walk app-db' and we run the whole live frame's
@@ -287,7 +298,7 @@
                   " — trace surface redacted, [● REDACTED N] in Xray")
              "dispatch :auth/sign-in — handler :sensitive? escape hatch")]]
 
-         ;; -- 2. inline large payload (wire-walker auto-detect) ---
+         ;; -- 2. inline large payload (rides through raw — no auto-detect) ---
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"
                         :margin-bottom "0.6em"}}
           [:button {:on-click   #(dispatch
@@ -298,10 +309,10 @@
            "Upload large avatar (inline)"]
           [:span {:style {:font-size "12px" :color "#595959"}}
            (if (pos? uploads)
-             (str uploads " uploads — listener saw the blob as a marker")
-             "dispatch a 20 kB inline blob — auto-detect fires")]]
+             (str uploads " uploads — listener saw the blob raw (not elided)")
+             "dispatch a 20 kB inline blob — rides through raw, no auto-detect")]]
 
-         ;; -- 3. :large? schema-driven path (app-db walk) ---------
+         ;; -- 3. :large frame-owned path (app-db walk) ------------
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"
                         :margin-bottom "0.6em"}}
           [:button {:on-click   #(dispatch [:user.avatar-pdf/set {:bytes 5000}])
@@ -316,8 +327,8 @@
              "Clear"])
           [:span {:style {:font-size "12px" :color "#595959"}}
            (if avatar-size
-             (str avatar-size " bytes in app-db — schema-declared :large?")
-             "write blob to :large? schema-flagged app-db slot")]]
+             (str avatar-size " bytes in app-db — frame-declared :large")
+             "write blob to a :large frame-nominated app-db slot")]]
 
          ;; -- 4. inspect via elide-wire-value ----------------------
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"}}
@@ -327,4 +338,4 @@
            "Walk app-db through elision"]
           [:span {:style {:font-size "12px" :color "#595959"}}
            "console.log app-db after rf/elide-wire-value — :user/avatar-pdf "
-           "becomes the marker map with the schema's :hint propagated"]]]))))
+           "becomes the marker map carrying :reason :frame"]]]))))
