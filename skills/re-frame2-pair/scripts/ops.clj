@@ -10,13 +10,13 @@
 ;;;; that exec's `bb ops.clj <subcommand> [args...]` and forwards the edn
 ;;;; printed on stdout.
 ;;;;
-;;;; Transport status — the bash-shim is **retired from the skill's tool
+;;;; Transport status — the bash-shim is **not part of the skill's tool
 ;;;; surface** (the `allowed-tools:` frontmatter carries no shell tool, so
 ;;;; an agent cannot run it). It is NOT a skill-facing fallback transport.
 ;;;; The MCP server in `tools/re-frame2-pair-mcp/` is the only skill-facing
 ;;;; transport; it holds a single nREPL connection per session (~14× faster
 ;;;; than the per-call connect/disconnect this file performs). These shims
-;;;; remain on disk only for the project's own test harness (`tests/shim/`,
+;;;; live on disk for the project's own test harness (`tests/shim/`,
 ;;;; `tests/e2e/`) and ad-hoc shell use OUTSIDE the skill. Op semantics are
 ;;;; identical between the shim and the MCP surface — see
 ;;;; `skills/re-frame2-pair/references/ops.md` for the full op catalogue
@@ -60,17 +60,16 @@
 ;;;;
 ;;;; Runtime preload requirement
 ;;;; ---------------------------
-;;;; The runtime is no longer injected at first connect — it ships into
-;;;; the consumer app via shadow-cljs's `:devtools :preloads` mechanism.
-;;;; See `skills/re-frame2-pair/SKILL.md` (§Setup) for the one-line
-;;;; preload entry. `discover` refuses with `:reason :runtime-not-preloaded`
-;;;; when the namespace isn't present.
+;;;; The runtime ships into the consumer app via shadow-cljs's
+;;;; `:devtools :preloads` mechanism. See `skills/re-frame2-pair/SKILL.md`
+;;;; (§Setup) for the one-line preload entry. `discover` refuses with
+;;;; `:reason :runtime-not-preloaded` when the namespace isn't present.
 ;;;;
 ;;;; All ops return edn on stdout. Shells capture and forward.
 
 ;; The minimal bencode codec is shared with the test stub
 ;; (tests/shim/stub_nrepl.clj); it lives in scripts/bencode.clj and is
-;; loaded off this file's own location so cwd doesn't matter (rf2-qq7w2k).
+;; loaded off this file's own location so cwd doesn't matter.
 (load-file (str (.getParent (java.io.File. *file*)) "/bencode.clj"))
 
 (ns ops
@@ -164,8 +163,8 @@
    Picking by mtime — rather than first-in-list — is what makes this
    robust: the live dev build rewrites its port file on every (re)start,
    so the freshest file is the live one. A stale repo-root
-   `.shadow-cljs/nrepl.port` left over from an earlier run can no longer
-   shadow the live `implementation/.shadow-cljs/nrepl.port`."
+   `.shadow-cljs/nrepl.port` cannot shadow the live
+   `implementation/.shadow-cljs/nrepl.port`."
   []
   (or (when-let [p (System/getenv "SHADOW_CLJS_NREPL_PORT")]
         (Integer/parseInt p))
@@ -228,15 +227,15 @@
       :else
       (let [outer (safe-edn (str (:value res)))]
         (cond
-          ;; rf2-n58jxo (mirrors the MCP-side rf2-mvdwv fix in nrepl.cljs) —
-          ;; a populated `:err` on shadow's outer response is an analyzer
+          ;; A populated `:err` on shadow's outer response is an analyzer
           ;; warning (unresolved symbol) or a compile error. It MUST surface
           ;; even though shadow ALSO pushes a "nil" into `:results`: peeking
-          ;; `:results` FIRST (the pre-fix order) swallowed the compile
-          ;; failure as a silent nil — the CLI eval reported success-shaped
-          ;; while the form never produced a real value. The `:err` branch
-          ;; now takes precedence so a compile error/warning is DISTINCT from
-          ;; a runtime throw (`:eval-error`, the `:ex` path above).
+          ;; `:results` first would swallow the compile failure as a silent
+          ;; nil, and the CLI eval would report success-shaped while the form
+          ;; never produced a real value. So the `:err` branch takes
+          ;; precedence, keeping a compile error/warning DISTINCT from a
+          ;; runtime throw (`:eval-error`, the `:ex` path above). Mirrors the
+          ;; same precedence on the MCP side in nrepl.cljs.
           (and (map? outer) (not (str/blank? (str (:err outer)))))
           (throw (ex-info "cljs eval compile error/warning"
                           {:reason :cljs-eval-error
@@ -304,7 +303,7 @@
   (cljs-eval-value build-id "(re-frame2-pair.runtime/health)"))
 
 ;; ---------------------------------------------------------------------------
-;; Running-build enumeration + fail-loud build resolution (rf2-ivlb3).
+;; Running-build enumeration + fail-loud build resolution.
 ;;
 ;; Mirrors `tools/re-frame2-pair-mcp/src/.../tools/probe.cljs`'s
 ;; `running-builds` / `resolve-build!` / `resolve-and-preflight!`. Both
@@ -443,7 +442,7 @@
 (defn- explicit-build?
   "True iff the caller passed an explicit `--build=` flag or set
    $SHADOW_CLJS_BUILD_ID — vs. relying on the bare `:app` fallback in
-   `default-build-id`. The eval-path resolver (rf2-ivlb3) auto-detects
+   `default-build-id`. The eval-path resolver auto-detects
    the running build ONLY when the build is the bare default."
   [args]
   (boolean (or (some #(str/starts-with? % "--build=") args)
@@ -457,10 +456,10 @@
         build-id  (build-id-from-args rest-args)
         explicit? (explicit-build? rest-args)]
     (try
-      ;; rf2-ivlb3: resolve the build (auto-detect the single running one
-      ;; when no explicit --build was passed) and confirm a live runtime
-      ;; BEFORE eval'ing. Never emit `:ok? true :value nil` for a build
-      ;; with no runtime — that's indistinguishable from a genuine nil.
+      ;; Resolve the build (auto-detect the single running one when no
+      ;; explicit --build was passed) and confirm a live runtime BEFORE
+      ;; eval'ing. Never emit `:ok? true :value nil` for a build with no
+      ;; runtime — that's indistinguishable from a genuine nil.
       (let [resolved (resolve-and-preflight! build-id explicit?)]
         (emit {:ok? true :value (cljs-eval-value resolved form) :build resolved}))
       (catch Exception e
@@ -581,13 +580,11 @@
       (= a "--origin")          (recur (rest more) (assoc pred :origin (->kw (first more))))
       (= a "--frame")           (recur (rest more) (assoc pred :frame (->kw (first more))))
 
-      ;; --custom (arbitrary CLJS predicate form) was advertised
-      ;; in earlier docs but never implemented. Implementing it requires
-      ;; designing the predicate-fn surface (security implications: the
-      ;; transport would eval untrusted CLJS), so it is removed from the
-      ;; documented surface for now. The flag is rejected with an
-      ;; explanatory error rather than silently skipped, so any stale
-      ;; caller surfaces clearly.
+      ;; --custom (arbitrary CLJS predicate form) is not supported.
+      ;; Supporting it requires designing the predicate-fn surface
+      ;; (security implications: the transport would eval untrusted CLJS).
+      ;; The flag is rejected with an explanatory error rather than
+      ;; silently skipped, so any caller passing it surfaces clearly.
       (= a "--custom")
       (do
         (emit {:ok? false
@@ -615,7 +612,7 @@
         ;;   --window-ms alone: run for N ms, no count limit.
         ;;   --count alone:     run until N matches, no window timeout.
         ;;   both set:          first to fire wins (race).
-        ;;   neither set:       default to a 30s window (back-compat).
+        ;;   neither set:       default to a 30s window.
         window-raw   (flag-value args "--window-ms" nil)
         count-raw    (flag-value args "--count" nil)
         window-ms    (when window-raw (Long/parseLong window-raw))
