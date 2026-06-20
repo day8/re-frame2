@@ -33,16 +33,16 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (flows/reset-last-inputs!)
-  ;; Per rf2-bacs4: the error-emit listener registry is a `defonce`
-  ;; atom that survives test re-runs. Clear before each test so a
-  ;; listener registered by one test doesn't leak into the next.
+  ;; The error-emit listener registry is a `defonce` atom that survives test
+  ;; re-runs. Clear before each test so a listener registered by one test
+  ;; doesn't leak into the next.
   (error-emit/clear-error-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
+  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
+  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
+  ;; ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (let [captured (atom [])]
     (binding [*captured*           captured
@@ -66,17 +66,16 @@
   [op]
   (filterv #(= op (:operation %)) @*captured*))
 
-;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
-;; frame-owned (`reg-frame` `:sensitive` / `:large {:app-db …}`, installed
-;; by `re-frame.frame-classification` under `:source :frame`); schema-
-;; attached `{:sensitive? true}` / `{:large? true}` slot props no longer
-;; feed the frame elision registry the walker reads. These helpers seed the
-;; classification via the frame-owned path — the successor to the removed
-;; schema→elision population — preserving each test's real intent.
+;; EP-0015 §8: durable app-db egress classification is frame-owned
+;; (`reg-frame` `:sensitive` / `:large {:app-db …}`, installed by
+;; `re-frame.frame-classification` under `:source :frame`). Schema-attached
+;; `{:sensitive? true}` / `{:large? true}` slot props do not feed the frame
+;; elision registry the walker reads. These helpers seed the classification
+;; via the frame-owned path.
 
 (defn- install-large!
   "Seed the frame's large app-db classification (frame-owned, `:source
-  :frame`). Marker `:reason` for these paths is now `:frame`."
+  :frame`). Marker `:reason` for these paths is `:frame`."
   [frame-id & paths]
   (frame-class/install! frame-id
     (frame-class/validate+extract frame-id
@@ -248,19 +247,18 @@
           (is (= 12            (:result tags))           ":result is the computed value")
           (is (= [:rect :area] (:path tags)))
           (is (= :rf/default   (:frame tags)))
-          ;; Per rf2-qlzh4: :before carries the value at :output-path
-          ;; immediately BEFORE this flow's write. On the first
-          ;; compute the slot has never been written, so :before is
-          ;; nil. The KEY must be present so consumers can rely on
-          ;; uniform shape (rather than discriminating between
+          ;; :before carries the value at :output-path immediately BEFORE
+          ;; this flow's write. On the first compute the slot has never been
+          ;; written, so :before is nil. The KEY is always present so consumers
+          ;; can rely on uniform shape (rather than discriminating between
           ;; absent-key and explicit-nil).
           (is (contains? tags :before)
               ":before key present on every :rf.flow/computed trace")
           (is (nil? (:before tags))
               "first compute — :output-path has never been written; :before is nil")
-          ;; rf2-hhh92: per-op DURATION — the flow :derive recompute's
-          ;; wall-clock, dev-only, so the Trace panel's DURATION column
-          ;; reads it off :rf.flow/computed.
+          ;; Per-op DURATION — the flow :derive recompute's wall-clock,
+          ;; dev-only, so the Trace panel's DURATION column reads it off
+          ;; :rf.flow/computed.
           (is (contains? tags :elapsed-ms)
               ":elapsed-ms present on every :rf.flow/computed trace")
           (is (number? (:elapsed-ms tags))
@@ -269,7 +267,7 @@
               ":elapsed-ms is non-negative"))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2b. :before slot tracks the pre-write value across drains (rf2-qlzh4)
+;; 2b. :before slot tracks the pre-write value across drains
 ;;
 ;; Per Spec 013 §Flow tracing: `:rf.flow/computed` carries `:before`
 ;; — the value at the flow's `:output-path` immediately before this drain's
@@ -405,8 +403,8 @@
         (is (= :inputs-value-equal (:reason tags))
             ":reason names the suppression cause (rf2-719e value-equal recompute suppression)")
         (is (= :rf/default         (:frame tags)))
-        ;; Per rf2-931pm: `:input-paths-unchanged` names every input
-        ;; db-path whose value was `=` to the previous run — the cascade
+        ;; `:input-paths-unchanged` names every input db-path whose value was
+        ;; `=` to the previous run — the cascade
         ;; DAG consumer reads this to render the "considered, no recompute"
         ;; branch dimmed. For a value-equal skip every input is by
         ;; definition unchanged, so the tag carries the FULL input-path
@@ -504,8 +502,8 @@
           ":rf.flow/failed fires once on the first drain (initial evaluation throws)")
       (let [tags (:tags (first evs))]
         (is (= :boom (:flow-id tags)))
-        ;; rf2-iqh5yf: the raw Throwable `:ex` slot is GONE — replaced by a
-        ;; structured, EDN-safe exception summary (`:exception-message` plain
+        ;; No raw Throwable `:ex` slot — the failure carries a structured,
+        ;; EDN-safe exception summary instead (`:exception-message` plain
         ;; string + `:exception-data` ex-data map). No raw Throwable rides the
         ;; trace bus / epoch capture / tooling listeners by default.
         (is (not (contains? tags :ex))
@@ -525,18 +523,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5b. :rf.error/flow-eval-exception routes through the always-on
-;;     error-emit substrate (rf2-hrt5c — security audit follow-up).
+;;     error-emit substrate.
 ;;
-;; Pre-fix, `run-flows!` caught flow throws and called
-;; `trace/emit-error!` ONLY. In CLJS production builds, that path is
-;; DCE'd by `goog.DEBUG=false` — flow failures became silent to
-;; corpus-wide error listeners (Sentry / Honeybadger / Rollbar
-;; shippers registered via `register-error-listener!`). The
-;; handler-exception path (`emit-handler-exception!`) had ALREADY been
-;; routed through the always-on substrate; flow-eval was asymmetric.
-;; This test pins the symmetric routing: a flow-eval throw must surface
-;; on the listener registry record in JVM dev AND survive prod elision
-;; in CLJS.
+;; A flow-eval throw routes through the always-on error-emit substrate, not
+;; just `trace/emit-error!` — which is DCE'd by `goog.DEBUG=false` in CLJS
+;; production builds, where it would leave flow failures silent to corpus-wide
+;; error listeners (Sentry / Honeybadger / Rollbar shippers registered via
+;; `register-error-listener!`). This matches the handler-exception path
+;; (`emit-handler-exception!`). This test pins the routing: a flow-eval throw
+;; surfaces on the listener registry record in JVM dev AND survives prod
+;; elision in CLJS.
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-eval-exception-routes-through-error-emit-substrate
@@ -584,16 +580,13 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5b'. The flow-eval boundary re-throw carries the CANONICAL thrown-error
-;;      shape (rf2-cjr635).
+;;      shape.
 ;;
-;; Pre-fix, `evaluate-flow!`'s catch re-threw a hand-rolled ex-info carrying
-;; ONLY `:rf.flow/failed-id` — NO `:rf.error/id`, no `:where`, no
-;; `:recovery` — and a `(or <native-msg> ":rf.error/flow-eval-exception")`
-;; message form that DODGED `check_thrown_error_messages.py` (it is not a
-;; bare-literal first arg) so it could silently regress to the keyword-only
-;; shape. A tool reading `(:rf.error/id (ex-data e))` got nil (a Machine-
-;; readable-errors violation). The fix routes through `error/throw-error!`
-;; like every other flows throw. The router surfaces the rethrown ex-info
+;; `evaluate-flow!`'s catch re-throws through `error/throw-error!` like every
+;; other flows throw, so the rethrown ex-info carries the full canonical shape
+;; (`:rf.error/id` / `:where` / `:recovery` / a human message bearing the
+;; greppability token) — a tool reading `(:rf.error/id (ex-data e))` gets the
+;; machine discriminator, not nil. The router surfaces the rethrown ex-info
 ;; ITSELF as the `:exception` slot of the cascade-level
 ;; `:rf.error/flow-eval-exception` record, so we inspect its ex-data there.
 ;; ---------------------------------------------------------------------------
@@ -630,26 +623,20 @@
         ;; Spec 009 §The thrown-error shape rule 4: trailing greppability token.
         (is (re-find #"\[:rf\.error/flow-eval-exception\]" (ex-message thrown))
             "the derived message carries the [:rf.error/<id>] token")
-        ;; And it is NOT the retired keyword-only message shape.
+        ;; And it is a human sentence, not the bare keyword.
         (is (not= ":rf.error/flow-eval-exception" (ex-message thrown))
             "message is a human sentence, not the bare keyword")))))
 
 ;; ---------------------------------------------------------------------------
-;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit (rf2-eb4lp)
+;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit
 ;;
-;; Pre-fix, a cycle introduced through `:rf.fx/reg-flow` from a handler's
-;; `:fx` raised `:rf.error/flow-cycle` synchronously inside the reserved-
-;; fx body, the throw bubbled uncaught up the drain stack, and the drain
-;; emergency-release re-threw. The typed `:rf.error/flow-cycle` ex-data
-;; (carrying the `:cycle` closing-repeat vector tools render) never
-;; reached the error-emit substrate. In CLJS production the runtime
-;; cycle was silently lost.
-;;
-;; Post-fix: `handle-one-fx`'s reserved-fx branch catches
-;; `:rf.error/flow-cycle` and routes through `error-emit/dispatch-on-
-;; error!` with the `:cycle` ex-data preserved, plus the dev-side trace
-;; emit. Mirrors the rf2-hrt5c handler-exception and rf2-fslx0 flow-eval
-;; routings.
+;; A cycle introduced through `:rf.fx/reg-flow` from a handler's `:fx` raises
+;; `:rf.error/flow-cycle`; `handle-one-fx`'s reserved-fx branch catches it and
+;; routes through `error-emit/dispatch-on-error!` with the `:cycle` ex-data
+;; (the closing-repeat vector tools render) preserved, plus the dev-side trace
+;; emit. This mirrors the handler-exception and flow-eval routings, so the
+;; runtime cycle reaches corpus-wide error listeners even in CLJS production
+;; (where a dev-only trace emit would be DCE'd).
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-reg-flow-cycle-routes-through-error-emit-substrate
@@ -745,16 +732,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 7. Wire-bearing flow trace payloads ride through `elide-wire-value`
-;;    (rf2-vkqkk — pins Spec 009 §Size elision in traces / §Privacy contract
-;;    for the flow trace surface).
+;;    (Spec 009 §Size elision in traces / §Privacy contract for the flow
+;;    trace surface).
 ;;
 ;; `:rf.flow/computed` carries `:input-values` and `:result`; `:rf.flow/failed`
 ;; carries `:inputs`. Per Spec 009 the wire-bearing payload of every tracer
-;; surface MUST pass through the elision walker (the single normative emission
-;; site for `:rf.size/large-elided` and `:rf/redacted`). Pre-fix, the flow
-;; tracer bypassed the walker — a flow reading or producing a large value
-;; surfaced raw on the trace bus while sibling tracers (event-emit, error-
-;; emit, dispatch trace) honoured the contract. These tests pin the routing.
+;; surface passes through the elision walker (the single normative emission
+;; site for `:rf.size/large-elided` and `:rf/redacted`), so a flow reading or
+;; producing a large value is elided on the trace bus exactly as the sibling
+;; tracers (event-emit, error-emit, dispatch trace) do. These tests pin the
+;; routing.
 ;; ---------------------------------------------------------------------------
 
 (deftest computed-trace-elides-large-result
@@ -763,10 +750,9 @@
     ;; contract a `:db` return replaces ONLY the app-db partition, so the
     ;; frame-installed elision registry — which lives in the runtime-db
     ;; partition at `[:rf.runtime/elision]` — survives untouched for the
-    ;; flow's evaluate-time registry read. (Pre-migration the registry sat
-    ;; in app-db under `:rf/runtime`, where a replacing handler WOULD have
-    ;; clobbered it; that footgun is structurally gone — see
-    ;; `re-frame.events/reject-legacy-runtime-root!`.)
+    ;; flow's evaluate-time registry read. A replacing handler cannot reach
+    ;; the runtime-db partition (see
+    ;; `re-frame.events/reject-legacy-runtime-root!`).
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
@@ -923,14 +909,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 7c-bis. Failed-flow rolls back the output-declaration refresh — two-
-;; partition atomicity (rf2-gdzv6o).
+;; partition atomicity.
 ;;
 ;; `run-flows-on-db` refreshes each flow's `:source :flow` output elision
-;; declarations BEFORE the flow walk (rf2-ihfz9o), writing the frame's
-;; runtime-db elision registry IMMEDIATELY via `swap-elision-slot!`. A flow
-;; throw is a PRE-INSTALL throw: the event aborts wholesale, app-db rolls
-;; back and the dirty-check rolls back — but pre-fix the refresh's runtime-db
-;; write SURVIVED, leaving the elision declarations ahead of the committed
+;; declarations BEFORE the flow walk, writing the frame's runtime-db elision
+;; registry IMMEDIATELY via `swap-elision-slot!`. A flow throw is a
+;; PRE-INSTALL throw: the event aborts wholesale, app-db rolls back, the
+;; dirty-check rolls back, AND the refresh's runtime-db write rolls back too —
+;; otherwise the elision declarations would be left ahead of the committed
 ;; (rolled-back) frame state. Spec 013:284,288 requires a pre-install flow
 ;; throw to leave BOTH partitions unchanged. This deftest pins that the
 ;; runtime-db elision declarations are EXACTLY unchanged after a throw, in
@@ -1087,10 +1073,10 @@
 ;; analytics — would escape) AND the handler's own `:db` write must NOT
 ;; land (no partial commit).
 ;;
-;; Per rf2-u0zz5: the flow transform is the outermost `:after`; on a
-;; throw it `dissoc`-es the pending `:db` effect and stashes
-;; `:rf/flow-error` on the context, so the install is a no-op and
-;; `commit-and-flow!` skips `run-fx-effects!`.
+;; The flow transform is the outermost `:after`; on a throw it
+;; `dissoc`-es the pending `:db` effect and stashes `:rf/flow-error` on the
+;; context, so the install is a no-op and `commit-and-flow!` skips
+;; `run-fx-effects!`.
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-does-not-run-after-flow-throws
@@ -1104,8 +1090,8 @@
                           :fx [[:dispatch [:after-throw]]]}))
       ;; Register a flow that throws. The flow runs as the outermost
       ;; :after — after the handler, BEFORE :db install and BEFORE :fx
-      ;; walks (rf2-u0zz5); a throw aborts the event, so :after-throw
-      ;; must NOT dispatch and the handler's :db must NOT install.
+      ;; walks; a throw aborts the event, so :after-throw must NOT dispatch
+      ;; and the handler's :db must NOT install.
       (rf/reg-flow {:id     :boom
                     :inputs [[:n]]
                     :derive (fn [_] (throw (ex-info "boom" {:why :test})))
@@ -1166,7 +1152,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 7e. An fx throw does NOT wind back app-db — the POST-commit boundary
-;;     (atomicity contract, Mike 2026-05-24; rf2-q1sbo).
+;;     (atomicity contract).
 ;;
 ;; `:fx` is the ONLY post-install stage. By the time it walks, the
 ;; deferred (flow-augmented) `:db` has ALREADY committed: an fx throw
@@ -1174,9 +1160,7 @@
 ;; (HTTP, navigation, dispatch) may already have fired and are
 ;; irreversible, so unwinding the db would desync state from the world.
 ;; This is the mirror of `fx-does-not-run-after-flow-throws` (a PRE-commit
-;; throw aborts wholesale): a POST-commit throw leaves everything
-;; committed. Previously this was covered only by a machine-proxy test;
-;; this pins the flow-specific case directly.
+;; throw aborts wholesale): a POST-commit throw leaves everything committed.
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-throw-does-not-wind-back-handler-db-or-flow-output
@@ -1212,7 +1196,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 7f. No spurious `:rf.event/db-changed` on a no-write event — the
-;;     deferred-install contract (rf2-q1sbo).
+;;     deferred-install contract.
 ;;
 ;; A `reg-event` handler that returns NO `:db` (only `:fx`), whose
 ;; flows' inputs are all unchanged (so every flow SKIPS), produces no
@@ -1313,8 +1297,7 @@
 ;; level of every `:rf.flow/*` trace event when the in-scope handler's
 ;; cascade is sensitive — "the flow itself does not declare `:sensitive?`
 ;; directly; the marker rides the cascade." Sensitivity is frame-
-;; classification-derived (EP-0015 §8, rf2-d2r3um — the successor to the
-;; schema-derived overlap of rf2-hjs2d): a handler scoped (`rf/path`) over a
+;; classification-derived (EP-0015 §8): a handler scoped (`rf/path`) over a
 ;; frame-owned `:sensitive {:app-db …}` slot makes the router bind
 ;; `:rf/sensitive? true` into the handler scope. Flows run inside that scope
 ;; (`commit-and-flow!` sits inside `run-handler-cascade!`'s
@@ -1372,11 +1355,10 @@
           ":rf.flow/failed carries the top-level `:sensitive? true` stamp too"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-iqh5yf — `:rf.flow/failed` must NOT deliver a raw Throwable, and a
-;; sensitive flow's exception ex-data must be redacted before the trace
-;; crosses the bus / epoch capture / tooling listeners. The throwing flow's
-;; ex-data carries a secret; assert it is redacted while flow-id / frame
-;; attribution is preserved.
+;; `:rf.flow/failed` must NOT deliver a raw Throwable, and a sensitive flow's
+;; exception ex-data must be redacted before the trace crosses the bus / epoch
+;; capture / tooling listeners. The throwing flow's ex-data carries a secret;
+;; assert it is redacted while flow-id / frame attribution is preserved.
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-failed-emits-structured-summary-not-raw-throwable
@@ -1535,8 +1517,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 8b. Strict trace-stream ordering on a flow throw — atomicity contract
-;;     (Spec 013 §Failure semantics / §Trace stream ordering on a flow
-;;     throw; rf2-u0zz5, Mike 2026-05-24).
+;;     (Spec 013 §Failure semantics / §Trace stream ordering on a flow throw).
 ;;
 ;; A flow throw is a PRE-INSTALL throw: the event aborts. The router
 ;; DISCARDS the pending `:db` effect, so NO `:rf.event/db-changed` is
@@ -1604,8 +1585,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 8c. Strict trace-stream ordering on the CLEAN (success) path — pins the
-;;     Spec 009 §Canonical per-event trace sequence diagram against the impl
-;;     (rf2-q1sbo follow-up to rf2-u0zz5, Mike 2026-05-24).
+;;     Spec 009 §Canonical per-event trace sequence diagram against the impl.
 ;;
 ;; The load-bearing fact the 009 diagram encodes: `:rf.event/run-end` is a
 ;; CASCADE-TAIL trace — the router emits it in `emit-cascade-trailers!`
@@ -1615,9 +1595,8 @@
 ;;   :rf.flow/computed → :rf.event/db-changed → :rf.fx/handled
 ;;     → :rf.fx/do-fx (terminating fx-walk marker) → :rf.event/run-end (LAST)
 ;;
-;; Pre-rf2-u0zz5 the diagram had `:rf.event/run-end` BEFORE
-;; `:rf.event/db-changed`; this test conformance-checks the corrected
-;; ordering so the diagram can't silently drift back.
+;; This test conformance-checks that ordering so the diagram can't silently
+;; drift.
 ;; ---------------------------------------------------------------------------
 
 (deftest clean-path-trace-stream-run-end-fires-last
