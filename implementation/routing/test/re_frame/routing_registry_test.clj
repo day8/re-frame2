@@ -1294,7 +1294,7 @@
 ;; `:query-defaults` / `:query-retain` — author-named intent is the
 ;; trust boundary. Symmetrical to the rf2-3k3o7 value-side fix: hostile
 ;; URLs composed of N-unique keys would otherwise burn N permanent JVM
-;; keyword slots, and a bare `(reg-route :route/x {:path "/x"})` is the
+;; keyword slots, and a bare `(reg-route :route/x {} "/x")` is the
 ;; high-cardinality public-surface case where the DoS hits hardest.
 
 (deftest rf2-5ifai-no-vocabulary-route-keeps-all-keys-as-strings
@@ -2075,3 +2075,32 @@
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (= :rf.error/invalid-route-metadata (:rf.error/id (ex-data ex)))
           "non-map metadata surfaces the same canonical error id"))))
+
+(deftest reg-route-rejects-path-inside-metadata-map
+  (testing "rf2-wvh95f F1 / rf2-2u6s4b: under the canonical 3-slot grammar the
+            path pattern is the THIRD slot, so a `:path` LEFT INSIDE the
+            metadata map is a mislocated key and MUST be rejected loudly with
+            the structured `:rf.error/invalid-route-metadata` — NOT silently
+            accepted, downgraded to the generic unknown-bare-key path, or
+            allowed to throw a raw exception. Pins registry.cljc's
+            `(contains? metadata :path)` guard so a later refactor cannot
+            silently degrade it. The 3rd-slot value is intentionally distinct
+            from the metadata `:path` so the test proves the guard fires on the
+            METADATA key, not on the value slot."
+    (let [ex (try
+               (rf/reg-route :route/bad {:path "/bad"} "/ignored")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "reg-route THROWS when :path is left inside the metadata map")
+      (let [data (ex-data ex)]
+        (is (= :rf.error/invalid-route-metadata (:rf.error/id data))
+            "the canonical structured error id (not the generic unknown-key path)")
+        (is (= 'rf/reg-route (:where data))
+            ":where names the public surface fn")
+        (is (= :route/bad (:route-id data))
+            ":route-id names the offending route")
+        (is (= [:path] (:keys data))
+            ":keys names exactly the mislocated key")
+        (is (= "/bad" (:value data))
+            ":value carries the misplaced path verbatim (the metadata :path, not the value slot)")))))
