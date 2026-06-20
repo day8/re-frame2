@@ -12,7 +12,7 @@ Proves re-frame2 + Helix can build a substantive UI.
 - **Signal-graph subscriptions** — filter chips → visible process
   list; process selection → relevant log slice. Two independent
   inputs into the sub graph; views read the projections.
-- **Recurring `:dispatch-later` tick** — `:monitor/tick` appends
+- **Recurring `:dispatch-later` tick** — `:process-monitor/tick` appends
   synthetic log lines every interval. Proves a real reactive loop
   (not a static screenshot): the log pane updates live as new lines
   arrive.
@@ -103,7 +103,7 @@ you touch this example's markup, CSS, or dataflow:
    Neither pane is empty; the `_shared` "Editorial Warm" stylesheet is
    applied (warm paper background, not unstyled white).
 2. **Live tick loop** — the log pane gains a fresh line every ~1.8s
-   without interaction (`:monitor/tick`). It updates live; it is not a
+   without interaction (`:process-monitor/tick`). It updates live; it is not a
    static screenshot.
 3. **Filter chips interact** — clicking the `info` / `warn` / `error`
    chips toggles them (`is-on` class) and removes/restores matching log
