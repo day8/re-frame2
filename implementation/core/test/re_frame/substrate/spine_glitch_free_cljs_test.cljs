@@ -30,6 +30,7 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.disposable :as rf-disposable]
             [re-frame.substrate.spine :as spine]))
 
 ;; ---- harness --------------------------------------------------------------
@@ -192,6 +193,71 @@
           "layer-3 notified once with the value computed against the
            settled layer-2 — no spurious extra notification cascaded down")
       (is (= 2200 @l3)))))
+
+;; ---- dispose mid-cascade does NOT recompute the disposed reaction ---------
+;; (rf2-jgzica)
+
+(deftest disposed-layer-2-flush-mid-cascade-does-not-recompute
+  (testing "a layer-2 derived value disposed AFTER it is marked dirty but
+            BEFORE the scheduler drains its queued flush must NOT re-run its
+            compute-fn (the user sub body) — the queued thunk is already on
+            the shared epoch scheduler and cannot be dequeued, so flush!
+            itself must short-circuit on the disposed guard. Without the
+            guard the memo wrapper recomputes and (in dev) emits a spurious
+            :rf.sub/run for a reaction whose watchers are already cleared —
+            the redundant-recompute class the epoch scheduler exists to
+            prevent (rf2-i21f5). (rf2-jgzica)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1a    (make-derived [root] (fn [db] (:a db)))
+          l1b    (make-derived [root] (fn [db] (:b db)))
+          ;; Layer-2 over BOTH layer-1 inputs. Its compute-fn stands in for
+          ;; the user sub body; every invocation increments the counter just
+          ;; as a real body would emit :rf.sub/run.
+          body-runs (atom 0)
+          l2     (make-derived [l1a l1b]
+                   (fn [a b] (swap! body-runs inc) (+ a b)))]
+      ;; Establish the lazy baseline (the sub-cache reads on subscribe), then
+      ;; zero the counter so we only measure cascade-time body runs.
+      (is (= 11 @l2) "baseline: 1 + 10")
+      (reset! body-runs 0)
+      ;; Arm the mid-cascade dispose. During the epoch drain l1a's flush
+      ;; notifies first → l2 marks dirty and ENQUEUES its flush. l1b's flush
+      ;; runs next; this extra watcher on l1b fires during that notify —
+      ;; AFTER l2 is already queued but BEFORE l2's own flush drains — and
+      ;; disposes l2. The queued l2 flush then runs against a disposed
+      ;; reaction.
+      (add-watch l1b :dispose-l2 (fn [_ _ _ _] (rf-disposable/-dispose l2)))
+      ;; ONE app-db write changes BOTH inputs, so both l1a and l1b flush and
+      ;; the dispose lands between l2's mark-dirty and its queued flush.
+      (replace! root {:a 2 :b 20})
+      (is (= 0 @body-runs)
+          "the disposed layer-2 reaction's body did NOT re-run during the
+           drain — flush! short-circuited on @disposed? (no spurious
+           recompute / :rf.sub/run)"))))
+
+(deftest direct-dispose-then-flush-does-not-recompute
+  (testing "a focused variant with no cascade: a derived value is marked
+            dirty (its source changes inside an epoch), disposed while the
+            epoch is still open, and the queued flush must not recompute it.
+            Drives the dispose deterministically by nesting it inside the
+            same open epoch via a re-entrant replace! on an unrelated source
+            watch — keeping the queued l1 flush pending until the outer epoch
+            closes. (rf2-jgzica)"
+    (let [{:keys [make-derived replace! root scheduler]} (build-graph)
+          body-runs (atom 0)
+          l1     (make-derived [root]
+                   (fn [db] (swap! body-runs inc) (:a db)))]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      (reset! body-runs 0)
+      ;; Open an epoch, mark l1 dirty (enqueues its flush), dispose l1 while
+      ;; the epoch is still open (queue not yet drained), then let the epoch
+      ;; close and drain. The queued l1 flush must skip the recompute.
+      (#'spine/with-epoch scheduler
+        (fn []
+          (reset! root {:a 99 :b 10})   ;; marks l1 dirty, enqueues flush
+          (rf-disposable/-dispose l1))) ;; dispose before the drain
+      (is (= 0 @body-runs)
+          "the disposed reaction's flush did not recompute on drain"))))
 
 ;; ---- direct source mutation outside an epoch ------------------------------
 

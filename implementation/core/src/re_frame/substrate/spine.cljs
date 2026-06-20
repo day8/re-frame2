@@ -393,11 +393,30 @@
                                (vreset! prev-state v))
                              v))
           flush!         (fn flush! []
+                           ;; Disposed-tombstone guard (rf2-jgzica). A
+                           ;; derived value's `mark-dirty!` enqueues this
+                           ;; thunk on the SHARED epoch scheduler; the drain
+                           ;; runs at epoch close. If the reaction is disposed
+                           ;; BETWEEN mark-dirty and the drain (a cascade where
+                           ;; a downstream unsubscribe drives a sibling
+                           ;; ref-count to 0 and disposes a reaction whose
+                           ;; flush is already queued), the queued thunk still
+                           ;; fires. `-dispose` clears `watchers`, so the
+                           ;; `notify` fan-out is already a no-op — but
+                           ;; `recompute` is the memo wrapper, so without this
+                           ;; guard it re-runs the user sub body and (in dev)
+                           ;; emits a spurious `:rf.sub/run`: the exact
+                           ;; redundant-recompute the epoch scheduler exists to
+                           ;; prevent (rf2-i21f5). The scheduler cannot dequeue
+                           ;; a single thunk, so the disposed reaction skips it
+                           ;; here instead. Also reset `dirty?` so a re-marked-
+                           ;; then-disposed entry leaves a clean guard.
                            (vreset! dirty? false)
-                           (let [new-derived  (recompute)
-                                 prev-derived @prev-state]
-                             (vreset! prev-state new-derived)
-                             (notify prev-derived new-derived)))
+                           (when-not @disposed?
+                             (let [new-derived  (recompute)
+                                   prev-derived @prev-state]
+                               (vreset! prev-state new-derived)
+                               (notify prev-derived new-derived))))
           mark-dirty!    (fn mark-dirty! []
                            (when-not @dirty?
                              (vreset! dirty? true)
