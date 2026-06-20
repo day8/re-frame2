@@ -1,35 +1,26 @@
 (ns re-frame.flows-per-frame-last-inputs-test
-  "Per rf2-94ol5 — the failed-flow rollback in `run-flows-on-db` must be
-  scoped to the DRAINING frame's own `last-inputs` container and MUST NOT
-  clobber a concurrently-draining sibling frame's dirty-check rows.
+  "The failed-flow rollback in `run-flows-on-db` is scoped to the DRAINING
+  frame's own `last-inputs` container and MUST NOT clobber a
+  concurrently-draining sibling frame's dirty-check rows.
 
-  THE BUG (pre-fix). `last-inputs` was a single global atom shaped
-  `{flow-id {frame-id inputs}}`. `run-flows-on-db` snapshotted the WHOLE
-  atom (all frames' rows) at drain start and, on a flow throw, `reset!`-
-  restored the whole thing. Correct for the draining frame, but over-broad:
-  it reverted EVERY frame's rows. Drain-locks are PER-FRAME (no global
-  cross-frame serialization — Spec 002 rule 1 + the flows concurrency
-  stress test rely on frames draining in parallel on different JVM
-  threads), so:
+  Each frame owns its OWN `last-inputs` container (`atom {flow-id inputs}`),
+  held in the flows registry's `frame-last-inputs` map keyed by frame-id. The
+  rollback snapshots / restores ONLY the draining frame's atom — a sibling's
+  container is a different atom and is structurally untouchable. Cross-frame
+  interference is impossible BY CONSTRUCTION, not merely avoided.
 
-    1. Frame A drain (thread 1) snapshots the global atom (B's row = V1).
-    2. Frame B drain (thread 2) advances B's row to V2 and commits.
-    3. Frame A's flow throws → reset! reverts the global atom → B's row
-       reverts to V1.
-
-  Consequence: B's app-db is correctly committed but its dirty-check row
-  is stale (V1). On B's NEXT drain with the SAME inputs (V2), `(= V2 V1)`
-  is false → the flow recomputes the same value, re-emits
-  `:rf.flow/computed`, produces a no-op `:db` write → spurious
-  `:rf.event/db-changed` + reactive sub invalidation. A frame-isolation
-  contract violation (Spec 002 §Rules rule 1 / Spec 013 §Frame-scoping).
-
-  THE FIX (Mike ruled B, 2026-06-01). Each frame owns its OWN `last-inputs`
-  container (`atom {flow-id inputs}`), held in the flows registry's
-  `frame-last-inputs` map keyed by frame-id. The rollback snapshots /
-  restores ONLY the draining frame's atom — a sibling's container is a
-  different atom and is structurally untouchable. Cross-frame interference
-  is impossible BY CONSTRUCTION, not merely avoided.
+  Why this matters under concurrency: drain-locks are PER-FRAME (no global
+  cross-frame serialization — Spec 002 rule 1 + the flows concurrency stress
+  test rely on frames draining in parallel on different JVM threads). A
+  rollback that reverted EVERY frame's rows would be wrong: while frame A's
+  drain is between snapshot and throw, frame B could advance and commit its
+  own row on another thread, and A's restore would revert B's just-advanced
+  row. B's app-db would be correctly committed but its dirty-check row stale —
+  so B's next drain with the SAME inputs would see `(= V2 V1)` false, recompute
+  the same value, re-emit `:rf.flow/computed`, produce a no-op `:db` write, and
+  trigger a spurious `:rf.event/db-changed` + reactive sub invalidation: a
+  frame-isolation contract violation (Spec 002 §Rules rule 1 / Spec 013
+  §Frame-scoping). Per-frame containers make that scenario unreachable.
 
   CLJS is single-threaded; the concurrency surface is JVM-only by design.
   This namespace is JVM-only (`.clj`)."
@@ -73,11 +64,11 @@
 ;; 1. Deterministic unit-level repro — the rollback must touch ONLY the
 ;;    draining frame's container (no thread interleaving needed).
 ;;
-;; This is the bead's "easiest unit-level repro": seed frame B's row to V2
-;; directly (simulating B's just-committed advance), then drive frame A's
-;; throwing-flow drain via the late-bound `run-flows-on-db`. A's drain-start
-;; snapshot predates nothing of B's — B lives in its own atom. Assert B's
-;; row is NOT reverted. Pre-fix the global `reset!` would have clobbered it.
+;; The easiest unit-level repro of the isolation invariant: seed frame B's
+;; row to V2 directly (simulating B's just-committed advance), then drive
+;; frame A's throwing-flow drain via the late-bound `run-flows-on-db`. A's
+;; drain-start snapshot touches nothing of B's — B lives in its own atom.
+;; Assert B's row is NOT reverted; a global rollback would clobber it.
 ;; ---------------------------------------------------------------------------
 
 (deftest rollback-does-not-clobber-sibling-frame-row-deterministic
@@ -151,7 +142,7 @@
           ":B never advanced (it threw)"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. JVM concurrency stress — the gap that hid the bug.
+;; 3. JVM concurrency stress — the interleaving the isolation guards.
 ;;
 ;; Frame A repeatedly drains a flow that ALWAYS throws; frame B repeatedly
 ;; drains a SUCCESSFUL flow whose inputs are STABLE after the first drain.
@@ -161,11 +152,11 @@
 ;; Invariant: B's flow `:derive` fires EXACTLY ONCE across all of B's
 ;; drains. The first drain recomputes (input changed from absent → [7]);
 ;; every subsequent drain has IDENTICAL inputs ([7] each time) so the
-;; dirty-check MUST skip. Pre-fix, frame A's concurrent throwing-drain
-;; would `reset!` the global atom and clobber B's just-advanced row, so
-;; B's next same-input drain would spuriously recompute — driving the
-;; `:derive` count above 1. With per-frame containers B's row is in its
-;; own atom and A's rollback can't reach it, so the count stays at 1.
+;; dirty-check MUST skip. A global-atom rollback would let frame A's
+;; concurrent throwing-drain clobber B's just-advanced row, so B's next
+;; same-input drain would spuriously recompute — driving the `:derive` count
+;; above 1. With per-frame containers B's row is in its own atom and A's
+;; rollback can't reach it, so the count stays at 1.
 ;;
 ;; A secondary invariant pins the consequence chain: B emits exactly ONE
 ;; `:rf.flow/computed` trace (the first, genuine recompute) — never a
@@ -245,8 +236,8 @@
 
           (trace/unregister-listener! ::b-computed-watch)
 
-          ;; THE INVARIANT: B's :derive fired exactly once. Pre-fix, A's
-          ;; concurrent rollback clobbering B's row would push this above 1.
+          ;; THE INVARIANT: B's :derive fired exactly once. A concurrent
+          ;; rollback clobbering B's row would push this above 1.
           (is (= 1 (.get b-output-calls))
               (str "B's flow :derive must fire EXACTLY once (the genuine "
                    "first recompute); every later same-input drain must "
