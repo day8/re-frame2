@@ -202,6 +202,96 @@
   [frame-id prior]
   (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
 
+;; ---- pending abandoned output paths (rf2-z980k8) -------------------------
+;;
+;; A same-frame `reg-flow` REPLACEMENT that MOVES the output to a new `:path`
+;; must vacate the OLD path from the frame's app-db (Spec 013
+;; §Re-registration — otherwise the previous definition's last write lingers
+;; at the abandoned slot as stale derived state). `vacate-output-path!`
+;; (below) does that with a DIRECT app-db write, which is correct for an
+;; OUT-of-drain call.
+;;
+;; But when `reg-flow` runs IN-drain — reentrantly from inside an event
+;; handler or a `:rf.fx/reg-flow` effect — the direct write is CLOBBERED. The
+;; drain runs flows over the PENDING `:db` (the handler's returned value,
+;; which still carries the old path) and the router's single deferred commit
+;; PUBLISHES that pending value AFTER the reentrant `reg-flow` returned —
+;; overwriting the direct vacate and RESURRECTING the old output (rf2-z980k8).
+;;
+;; The fix: when in-drain, record the abandoned path here instead of writing
+;; app-db directly. `re-frame.flows/run-flows-on-db` drains this set at the
+;; START of the pending-`:db` transform (before the flow walk) and dissocs
+;; each path from the PENDING db — so the vacate participates in the SAME
+;; value the deferred commit publishes and the handler's returned `:db`
+;; cannot resurrect the old path. Per-frame (rf2-94ol5 idiom): each frame
+;; owns its own inner atom; a sibling frame draining concurrently on another
+;; thread holds a different atom and is structurally untouched.
+
+(defonce
+  ^{:doc     "frame-id → (atom #{abandoned-output-path ...}). Per-frame set
+              of OLD output paths recorded by an IN-DRAIN same-frame
+              `reg-flow` `:path` move, pending vacate by the current drain's
+              `run-flows-on-db` pending-`:db` transform (rf2-z980k8)."
+    :private true}
+  frame-abandoned-output-paths
+  (atom {}))
+
+(defn- ensure-frame-abandoned-paths-atom!
+  "Return `frame-id`'s inner abandoned-output-paths atom, creating (and
+  registering) it on first touch under a single `swap!` so concurrent
+  first-touches converge on ONE atom (mirrors
+  `ensure-frame-last-inputs-atom!`)."
+  [frame-id]
+  (or (get @frame-abandoned-output-paths frame-id)
+      (get (swap! frame-abandoned-output-paths
+                  (fn [m]
+                    (if (contains? m frame-id)
+                      m
+                      (assoc m frame-id (atom #{})))))
+           frame-id)))
+
+(defn ^:no-doc record-abandoned-output-path!
+  "Record `path` as a pending abandoned output path for `frame-id` — to be
+  vacated from the pending `:db` by the current drain's `run-flows-on-db`
+  (rf2-z980k8). Called by `reg-flow`'s in-drain `:path`-move branch instead
+  of the direct app-db write the OUT-of-drain branch uses. Frame-local."
+  [frame-id path]
+  (swap! (ensure-frame-abandoned-paths-atom! frame-id) conj path))
+
+(defn ^:no-doc abandoned-output-paths-snapshot
+  "Return `frame-id`'s pending abandoned output paths as a plain set (the
+  drain-start snapshot for the failed-flow / post-commit rollback). Empty set
+  when the frame has no container yet. Frame-local."
+  [frame-id]
+  (if-let [a (get @frame-abandoned-output-paths frame-id)]
+    @a
+    #{}))
+
+(defn ^:no-doc drain-abandoned-output-paths!
+  "Atomically read-and-clear `frame-id`'s pending abandoned output paths,
+  returning the set that was pending (rf2-z980k8). The current drain's
+  `run-flows-on-db` consumes these once — dissocing each from the pending
+  `:db` BEFORE the flow walk — and a throw / post-commit rollback re-records
+  them via `restore-abandoned-output-paths!` so the move re-attempts cleanly
+  next drain. Frame-local: returns an empty set when the frame has no
+  container."
+  [frame-id]
+  (when-let [a (get @frame-abandoned-output-paths frame-id)]
+    (let [drained (volatile! #{})]
+      (swap! a (fn [s] (vreset! drained s) #{}))
+      @drained)))
+
+(defn ^:no-doc restore-abandoned-output-paths!
+  "Restore `frame-id`'s pending abandoned output paths to `prior` (its
+  drain-start snapshot). Called when a flow throws mid-cascade
+  (`run-flows-on-db`'s catch arm) or a POST-commit schema / machine-data
+  validation rolls the event back — the pending `:db` (carrying the vacated
+  state) was discarded, so the abandoned paths must re-attempt next drain.
+  Frame-local (rf2-94ol5): a concurrently-draining sibling's container is a
+  different atom and is untouched."
+  [frame-id prior]
+  (reset! (ensure-frame-abandoned-paths-atom! frame-id) (set prior)))
+
 ;; ---- last-inputs row maintenance (rf2-94ol5) -----------------------------
 ;;
 ;; With per-frame `last-inputs` containers, dropping one flow's dirty-check
@@ -1099,10 +1189,28 @@
            ;; commit above already installed the new definition, so the new
            ;; path recomputes on the next drain. First-time registration and
            ;; same-path hot-reload leave app-db untouched.
+           ;;
+           ;; rf2-z980k8: the vacate is routed by call shape.
+           ;;  - OUT of a drain (a top-level / `:rf.fx`-post-commit lifecycle
+           ;;    call): write app-db DIRECTLY — there is no pending commit to
+           ;;    clobber it and the change is durable immediately.
+           ;;  - IN a drain (reentrant from an event handler / `:rf.fx/reg-flow`
+           ;;    mid-cascade): a direct write would be OVERWRITTEN by the single
+           ;;    deferred commit that later publishes the handler's returned
+           ;;    `:db` (which still carries the old path) — resurrecting the old
+           ;;    output. So RECORD the abandoned path instead; the current
+           ;;    drain's `run-flows-on-db` dissocs it from the PENDING `:db`
+           ;;    before the flow walk, so the vacate rides the SAME value the
+           ;;    deferred commit publishes and the handler's `:db` cannot
+           ;;    resurrect it. (`call-serialized-with-drain!` already ran this
+           ;;    thunk reentrantly when in-drain, so `frame/in-drain?` here is
+           ;;    the matching discriminator.)
            (when-let [prior @prior-on-frame]
              (let [old-path (:path prior)]
                (when (not= old-path (:path flow))
-                 (vacate-output-path! frame-id old-path))))
+                 (if (frame/in-drain? frame-id)
+                   (record-abandoned-output-path! frame-id old-path)
+                   (vacate-output-path! frame-id old-path)))))
            ;; Spec 015 §7 / rf2-ouemt + rf2-ihfz9o: install this flow's output
            ;; data-classification marks (EXPLICIT ∪ PROPAGATED-from-inputs)
            ;; into the frame's app-db elision registry, rooted at `(:path
@@ -1234,6 +1342,26 @@
       (not (map? parent)) db
       :else (update-in db parent-path dissoc leaf))))
 
+(defn ^:no-doc vacate-path-in-db
+  "Pure `db → db` removal of a flow output `:path`'s LEAF — the value
+  transform shared by `vacate-output-path!` (which writes the result to the
+  live app-db) and `run-flows-on-db`'s in-drain pending-`:db` vacate
+  (rf2-z980k8, which dissocs abandoned paths from the PENDING value the
+  deferred commit publishes). Returns `db` unchanged (often `identical?`)
+  when the dissoc is a no-op (missing key, unmaterialised parent, non-map
+  intermediate).
+
+  `validate-flow` guarantees `:path` is a non-empty vector at registration,
+  so a `:path` read back out of the registry always carries one. rf2-aqt7:
+  a single-element vector `[:k]` is dissoc'd directly (`(update-in db []
+  dissoc :k)` would write `{... nil nil}`); a `(>= 2)` path routes through
+  `dissoc-in-safe` (unmaterialised-parent / non-map-intermediate safe, per
+  audit rf2-q25os)."
+  [db path]
+  (if (= 1 (count path))
+    (dissoc db (first path))
+    (dissoc-in-safe db path)))
+
 (defn- vacate-output-path!
   "Dissoc a flow's output `:path` from `frame-id`'s app-db (only that
   frame's container). Shared by `clear-flow` (full deregistration) and
@@ -1269,9 +1397,7 @@
   preserved by computing `new-db` first and only swapping when it changed."
   [frame-id path]
   (when-let [db (frame/frame-app-db-value frame-id)]
-    (let [new-db (if (= 1 (count path))
-                   (dissoc db (first path))
-                   (dissoc-in-safe db path))]
+    (let [new-db (vacate-path-in-db db path)]
       (when-not (identical? new-db db)
         (frame/swap-frame-db! frame-id (constantly new-db))))))
 
@@ -1500,6 +1626,10 @@
       ;; rows ARE its inner atom, so removing the frame-keyed slot drops
       ;; every row at once and cannot touch any sibling frame's container.
       (swap! frame-last-inputs dissoc frame-id)
+      ;; rf2-z980k8: drop the destroyed frame's pending abandoned-output-paths
+      ;; container too (same per-frame storage idiom). The frame is gone, so
+      ;; any recorded-but-undrained path move is moot.
+      (swap! frame-abandoned-output-paths dissoc frame-id)
       ;; Registrar realignment (rf2-73pi1): for each flow-id the destroyed
       ;; frame owned, either unregister the `:flow` slot (no surviving
       ;; owner) or re-point it to a surviving owner when the destroyed
@@ -1572,8 +1702,14 @@
   single sound invariant — anything calling `reset-flows!` wants flow
   state cleared, and `last-inputs` is downstream cache for the same
   registry. Per rf2-94ol5 the dirty-check reset now drops every
-  per-frame `last-inputs` container (the `frame-last-inputs` registry)."
+  per-frame `last-inputs` container (the `frame-last-inputs` registry).
+
+  rf2-z980k8: ALSO drops every per-frame pending abandoned-output-paths
+  container — a `reset-flows!` caller wants ALL flow-derived per-frame state
+  cleared, and a leftover undrained path move from a sibling test must not
+  leak into the next."
   []
   (reset! flows {})
   (reset! frame-last-inputs {})
+  (reset! frame-abandoned-output-paths {})
   nil)

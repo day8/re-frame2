@@ -1087,6 +1087,24 @@
     #?(:clj  (identical? in-drain (Thread/currentThread))
        :cljs (true? in-drain))))
 
+(defn in-drain?
+  "True when the calling thread is `frame-id`'s currently-active drainer —
+  i.e. THIS call is happening reentrantly inside the frame's single-drainer
+  window (e.g. a `reg-flow` / `clear-flow` issued from an event HANDLER or a
+  `:rf.fx/reg-flow` effect mid-cascade). Public wrapper over the same
+  `:in-drain?` thread marker `call-serialized-with-drain!` reads.
+
+  rf2-z980k8: `reg-flow`'s same-frame `:path`-change vacate must DEFER to the
+  drain's pending-`:db` transform when in-drain (a direct app-db write made
+  here is clobbered by the deferred commit that publishes the handler's
+  returned `:db`), but may vacate directly when OUT of a drain (no pending
+  commit to clobber it). Returns false for an absent frame (nothing can be
+  draining it)."
+  [frame-id]
+  (boolean
+    (when-let [frame-record (frame frame-id)]
+      (current-thread-is-drainer? frame-record))))
+
 (defn call-serialized-with-drain!
   "Run thunk `f` serialized against `frame-id`'s event drain, returning its
   value (rf2-2woz9). Used by per-frame registry mutations that must not

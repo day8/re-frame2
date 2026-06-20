@@ -571,7 +571,20 @@
             ;; violating the all-or-nothing two-partition contract (Spec
             ;; 013:284,288 — a pre-install flow throw leaves BOTH partitions
             ;; unchanged). Frame-scoped (rf2-94ol5); restored in the catch.
-            decls-before       (registry/flow-output-declarations-snapshot frame-id)]
+            decls-before       (registry/flow-output-declarations-snapshot frame-id)
+            ;; rf2-z980k8: DRAIN (read-and-clear) this frame's pending abandoned
+            ;; output paths — recorded by an IN-DRAIN same-frame `reg-flow`
+            ;; `:path` move (a direct app-db write would be clobbered by the
+            ;; deferred commit). `abandoned-before` is the snapshot the catch /
+            ;; post-commit rollback re-records (the move re-attempts next drain
+            ;; if the event aborts); `abandoned-paths` is the SAME set, consumed
+            ;; here exactly once. They are dissoc'd from the pending `:db` below,
+            ;; BEFORE the flow walk, so the vacate rides the value the deferred
+            ;; commit publishes (the handler's returned `:db` cannot resurrect
+            ;; the old path) and the new flow's recompute lands on a clean slot.
+            ;; Frame-scoped (rf2-94ol5).
+            abandoned-before   (registry/abandoned-output-paths-snapshot frame-id)
+            abandoned-paths    (registry/drain-abandoned-output-paths! frame-id)]
         ;; rf2-ihfz9o: refresh each flow's output data-classification
         ;; declarations BEFORE the flow walk so a propagated (input-
         ;; inherited) sensitive mark is in the frame's elision registry
@@ -615,7 +628,16 @@
           ;; (the per-flow `:rf.flow/skip` / `:rf.flow/computed` traces carry
           ;; the dirty/clean signal tools actually read).
           (loop [remaining ordered
-                 db        db]
+                 ;; rf2-z980k8: vacate the IN-DRAIN abandoned output paths from
+                 ;; the pending `:db` FIRST — before any flow computes — so the
+                 ;; old path is gone from the value the deferred commit
+                 ;; publishes (the handler's returned `:db` carried it, but this
+                 ;; transform is applied to that SAME value, so it cannot
+                 ;; resurrect it) and a flow newly owning the slot recomputes
+                 ;; onto a clean base. Each `vacate-path-in-db` is a pure
+                 ;; `db → db` LEAF dissoc (no-op-safe). No-op set ⇒ `db`
+                 ;; unchanged. (`abandoned-paths` was read-and-cleared above.)
+                 db        (reduce registry/vacate-path-in-db db abandoned-paths)]
             (if (empty? remaining)
               db
               (let [flow         (flow-map (first remaining))
@@ -637,6 +659,13 @@
             ;; unchanged for router attribution.
             (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
             (registry/restore-flow-output-declarations! frame-id decls-before)
+            ;; rf2-z980k8: re-record the IN-DRAIN abandoned output paths drained
+            ;; above. A flow throw aborts the event — the pending `:db` (which
+            ;; carried the vacated state) is discarded — so the path move must
+            ;; re-attempt next drain rather than be silently lost. Frame-scoped
+            ;; (rf2-94ol5). The post-COMMIT rollback mirror lives in
+            ;; `commit-frame-effects!` via `:flows/restore-abandoned-paths!`.
+            (registry/restore-abandoned-output-paths! frame-id abandoned-before)
             (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
@@ -677,6 +706,19 @@
 ;; structurally incapable of touching a sibling frame's container.
 (late-bind/set-fn! :flows/snapshot-last-inputs registry/frame-last-inputs-snapshot)
 (late-bind/set-fn! :flows/restore-last-inputs!  registry/reset-frame-last-inputs-to!)
+;; rf2-z980k8 — the abandoned-output-paths rollback pair, the exact mirror of
+;; the `last-inputs` pair above but for the IN-DRAIN `reg-flow` `:path`-move
+;; vacate. `run-flows-on-db` DRAINS (read-and-clears) the pending abandoned
+;; paths and dissocs them from the pending `:db`; its OWN throw arm re-records
+;; them. But a POST-commit schema / machine-data rollback lands AFTER the
+;; chain, in `commit-frame-effects!`, OUTSIDE `run-flows-on-db` — and discards
+;; the pending `:db` (which carried the vacated state). Without these hooks the
+;; abandoned path would be drained-and-cleared yet never durably vacated, so
+;; the move is silently lost. The router snapshots the pending set BEFORE the
+;; flow transform and, on a rollback, re-records it — the same boundary the
+;; `last-inputs` mirror covers. Frame-scoped (rf2-94ol5).
+(late-bind/set-fn! :flows/snapshot-abandoned-paths registry/abandoned-output-paths-snapshot)
+(late-bind/set-fn! :flows/restore-abandoned-paths!  registry/restore-abandoned-output-paths!)
 ;; Per rf2-wbtjn — frame-destroy teardown hook (symmetric with the
 ;; machines `:machines/teardown-on-frame-destroy!` hook landed by
 ;; rf2-vsigt). `frame/destroy-frame!` invokes this hook so per-frame

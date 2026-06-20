@@ -326,12 +326,17 @@
       ;; flow still live), then on resume re-register :scaled to :out-b. The
       ;; reg-flow runs reentrantly inside the single-drainer window; the
       ;; drain's flow transform then materialises :out-b = 100 × :n = 500.
-      ;; The handler dissocs the OLD output (:out-a) from its returned db so
-      ;; the deferred `:db` commit reflects the path change (the abandoned
-      ;; old-path value does not survive the move — mirrors what the path-
-      ;; change vacate intends; the reentrant vacate writes the container
-      ;; directly, but the drain's deferred commit installs THIS db, so the
-      ;; dissoc here is what makes the move durable through the drain).
+      ;;
+      ;; rf2-z980k8: the handler returns its db UNCHANGED — a PLAIN
+      ;; replacement, NO `(dissoc db :out-a)` workaround. The IN-DRAIN
+      ;; `reg-flow` `:path` move now records :out-a as a pending abandoned
+      ;; path; the drain's flow transform dissocs it from the pending `:db`
+      ;; BEFORE the deferred commit publishes that value, so the old-path
+      ;; value cannot be resurrected by the handler's returned db. The fact
+      ;; that the `:out-a absent` assertion below still holds with a plain
+      ;; handler is the load-bearing regression proof for the bug. (Pre-fix
+      ;; the only way to keep :out-a gone was the manual dissoc — the
+      ;; reentrant DIRECT vacate write was clobbered by this deferred commit.)
       (rf/reg-event :replace-scaled
                        (fn [{:keys [db]} _]
                          (.countDown in-handler)
@@ -341,7 +346,7 @@
                                        :output (fn [n] (* 100 (or n 0)))
                                        :path   [:out-b]}
                                       {:frame :rf/default})
-                         {:db (dissoc db :out-a)}))
+                         {:db db}))
 
       (let [;; Thread A: the replacement drain. Parks in the handler holding
             ;; the drain-lock with the OLD flow still live.
@@ -383,3 +388,91 @@
                (:out-b (rf/app-db-value :rf/default)) " in app-db."))
       (is (not (contains? (rf/app-db-value :rf/default) :out-a))
           ":out-a also absent (the replacement vacated it on the path change)"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-z980k8 — an IN-DRAIN same-frame `reg-flow` `:path` move must NOT
+;; resurrect the OLD output through the deferred `:db` commit.
+;; ---------------------------------------------------------------------------
+
+(deftest reg-flow-path-move-in-drain-does-not-resurrect-old-output
+  ;; THE behavioral bug (rf2-z980k8). A same-frame `reg-flow` REPLACEMENT
+  ;; that MOVES the output `:path` from [:out-a] to [:out-b], issued from
+  ;; INSIDE an event handler (reentrantly, mid-drain), must vacate [:out-a].
+  ;;
+  ;; Pre-fix the `:path`-move vacate was a DIRECT app-db write made during the
+  ;; reentrant `reg-flow`. But the router runs flows over the PENDING `:db`
+  ;; (the handler's returned value, which still carries :out-a) and PUBLISHES
+  ;; that pending value via its single DEFERRED commit AFTER the handler
+  ;; returned — overwriting the direct vacate and RESURRECTING :out-a. The
+  ;; handler here returns its db UNCHANGED (no manual `(dissoc db :out-a)`),
+  ;; so the only thing that can keep :out-a gone is the framework making the
+  ;; vacate participate in the pending-`:db` transform the commit publishes.
+  ;;
+  ;; Single-threaded — no race, no latch: the resurrection is deterministic on
+  ;; the drain thread (the reentrant write then the deferred commit on the
+  ;; same thread). This is the load-bearing regression: PRE-FIX :out-a = 10
+  ;; survives; POST-FIX :out-a is absent and :out-b = 500 is present.
+  (testing "in-drain reg-flow :path move vacates the old path through the deferred commit"
+    (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
+    ;; OLD flow: :out-a = 2 × :n.
+    (rf/reg-flow {:id     :scaled
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:out-a]})
+    (rf/dispatch-sync [:seed])
+    (is (= 10 (:out-a (rf/app-db-value :rf/default)))
+        "precondition: the OLD flow materialised :out-a = 2 × :n = 10")
+
+    ;; A handler that, mid-drain, re-registers :scaled to move its output to
+    ;; [:out-b] (100 × :n) and returns its db UNCHANGED — a PLAIN replacement.
+    (rf/reg-event :move-scaled
+                  (fn [{:keys [db]} _]
+                    (rf/reg-flow {:id     :scaled
+                                  :inputs [[:n]]
+                                  :output (fn [n] (* 100 (or n 0)))
+                                  :path   [:out-b]}
+                                 {:frame :rf/default})
+                    {:db db}))
+    (rf/dispatch-sync [:move-scaled] {:frame :rf/default})
+
+    (let [db (rf/app-db-value :rf/default)]
+      (is (not (contains? db :out-a))
+          (str ":out-a ABSENT — the in-drain :path move vacated the old path "
+               "through the deferred commit. Pre-fix the direct vacate was "
+               "clobbered by the handler's returned :db and :out-a resurrected "
+               "as " (:out-a db) "."))
+      (is (= 500 (:out-b db))
+          ":out-b = 100 × :n = 500 — the moved flow materialised on its new path")
+      (is (= [:out-b] (:path (get-in (flows/flows-snapshot) [:rf/default :scaled])))
+          "the live registry points :scaled at its new path [:out-b]"))))
+
+(deftest reg-flow-path-move-out-of-drain-vacates-directly
+  ;; The OUT-of-drain branch is unchanged by rf2-z980k8: a top-level (not
+  ;; reentrant) `reg-flow` `:path` move vacates the old path with a DIRECT
+  ;; app-db write — there is no pending deferred commit to clobber it. Pins
+  ;; that the call-shape split (`frame/in-drain?`) did not regress the
+  ;; existing direct-vacate path (rf2-73pi1).
+  (testing "out-of-drain reg-flow :path move vacates the old path immediately"
+    (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
+    (rf/reg-flow {:id     :scaled
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:out-a]})
+    (rf/dispatch-sync [:seed])
+    (is (= 10 (:out-a (rf/app-db-value :rf/default)))
+        "precondition: :out-a = 10")
+
+    ;; Top-level re-registration (NOT inside a drain) that moves the path.
+    (rf/reg-flow {:id     :scaled
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 (or n 0)))
+                  :path   [:out-b]}
+                 {:frame :rf/default})
+    (is (not (contains? (rf/app-db-value :rf/default) :out-a))
+        ":out-a vacated immediately by the direct out-of-drain write")
+
+    ;; The new path materialises on the next drain.
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
+    (rf/dispatch-sync [:touch] {:frame :rf/default})
+    (is (= 500 (:out-b (rf/app-db-value :rf/default)))
+        ":out-b materialised on the next drain after the move")))

@@ -251,6 +251,14 @@
     :producer-ns 're-frame.flows
     :design-bead "rf2-4wqu6"
     :description "Restore a frame's dirty-check (`last-inputs`) rows to a previously-captured snapshot. Invoked by `commit-db-effect!` when post-commit validation rolls app-db back to its pre-handler value — without it the eagerly-advanced rows survive a rollback and the next clean drain skips the flow on `=`-equal inputs, never re-materialising the output. Frame-scoped (rf2-94ol5)."}
+   {:key         :flows/snapshot-abandoned-paths
+    :producer-ns 're-frame.flows
+    :design-bead "rf2-z980k8"
+    :description "Snapshot a frame's pending abandoned output paths (recorded by an in-drain same-frame `reg-flow` `:path` move). The router's flows-after-interceptor captures this BEFORE the flow transform drains/clears them so a post-commit schema/machine-data rollback can re-record them in lock-step with the discarded pending `:db` (paired with `:flows/restore-abandoned-paths!`). Frame-scoped (rf2-94ol5)."}
+   {:key         :flows/restore-abandoned-paths!
+    :producer-ns 're-frame.flows
+    :design-bead "rf2-z980k8"
+    :description "Re-record a frame's pending abandoned output paths from a previously-captured snapshot. Invoked by `commit-db-effect!` when post-commit validation rolls app-db back — the pending `:db` that carried the vacated state is discarded, so a drained-but-not-durably-vacated `:path` move must re-attempt next drain rather than be silently lost. Frame-scoped (rf2-94ol5)."}
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
     :description "Clear the per-frame flow registry (test isolation)."}
