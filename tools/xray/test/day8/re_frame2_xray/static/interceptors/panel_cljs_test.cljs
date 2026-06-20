@@ -195,52 +195,6 @@
     (is (false? (:before? row)) "unresolved ref reports no hooks")))
 
 ;; -------------------------------------------------------------------------
-;; (1c) a15n62 realm-aware collection (rf2-dfaey7)
-;; -------------------------------------------------------------------------
-
-(deftest collect-by-realm-single-realm-renders-unchanged
-  (testing "rf2-dfaey7 — one (default) realm pair → rows carry NO realm
-            (absence is the default), no row is cross-realm"
-    (let [pairs [[:rf.realm/default sample-events-with-chains]]
-          rows  (panel/collect-interceptors-by-realm pairs)
-          by-id (into {} (map (juxt :id identity) rows))]
-      (is (= 3 (count rows)) "same row count as the default-realm browse")
-      (is (every? (fn [r] (nil? (:realm r))) rows)
-          "the default realm renders unqualified — no :realm on any row")
-      (is (not-any? :cross-realm? rows) "single realm → no cross-realm flag")
-      (is (= 2 (get-in by-id [:my/logging :chain-count]))
-          "chain-count is preserved through the realm path"))))
-
-(deftest collect-by-realm-attributes-owning-realm
-  (testing "rf2-dfaey7 — a non-default realm's rows carry its :rf.realm/id"
-    (let [pairs [[:rf.realm/default {:counter/inc
-                                     {:interceptors [:default/only
-                                                     {:id :rf/event-handler :rf/default? true}]}}]
-                 [:tenant/acme {:acme/save
-                                {:interceptors [:acme/audit
-                                                {:id :rf/event-handler :rf/default? true}]}}]]
-          rows  (panel/collect-interceptors-by-realm pairs)
-          by-key (into {} (map (juxt (juxt :id :realm) identity) rows))]
-      (is (nil? (get-in by-key [[:default/only nil] :realm]))
-          "the default-realm interceptor carries no realm label")
-      (is (= :tenant/acme (get-in by-key [[:acme/audit :tenant/acme] :realm]))
-          "the acme-realm interceptor is attributed to :tenant/acme")
-      ;; the framework wrapper exists in BOTH realms → cross-realm
-      (let [wrapper-rows (filterv #(= :rf/event-handler (:id %)) rows)]
-        (is (= 2 (count wrapper-rows)) "one wrapper row per realm")
-        (is (every? :cross-realm? wrapper-rows)
-            ":rf/event-handler spans both realms → flagged cross-realm")))))
-
-(deftest realm-haystack-finds-by-realm
-  (testing "rf2-dfaey7 — a multi-realm row is findable by its owning realm"
-    (let [pairs [[:tenant/acme {:acme/save
-                                {:interceptors [:acme/audit
-                                                {:id :rf/event-handler :rf/default? true}]}}]]
-          rows  (panel/collect-interceptors-by-realm pairs)]
-      (is (seq (panel/filter-rows rows "acme"))
-          "search matches the owning realm id"))))
-
-;; -------------------------------------------------------------------------
 ;; (2) registry wiring
 ;; -------------------------------------------------------------------------
 

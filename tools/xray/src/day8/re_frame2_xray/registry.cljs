@@ -979,13 +979,11 @@
     ;; redaction is `derivation-graph-helpers/redact-graph-for-egress`.
     ;; Read-only: assembling the graph pins nothing, dispatches nothing.
     (derivation-graph/install!)
-    ;; Module-view tab (EP-0013 disposition 6, rf2-wtg9z4) — Dynamic L4
-    ;; tab: the per-module ownership/capability/provenance read off the default
-    ;; realm's installed app value (`re-frame.realm/installed-app`, the internal
-    ;; substrate — EP-0023 retained-internal, pl97nd.2). The disposition-6
-    ;; demand-trigger surface. The (realm, frame) address-space view was removed
-    ;; under rf2-70owfr (afdlyr single-default-realm collapse). Read-only:
-    ;; reading the installed app value pins nothing, dispatches nothing.
+    ;; Module-view tab (rf2-32siq3.12) — Dynamic L4 tab: the EP-0023
+    ;; `image -> frame -> event stream` public model — every live image-loaded
+    ;; frame as an execution context carrying its resolved image's [kind id]
+    ;; descriptors. Read-only: enumerating live frames + reading sealed
+    ;; generations pins nothing, dispatches nothing.
     (module-view/install!)
     ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
