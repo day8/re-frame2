@@ -157,6 +157,20 @@
   / `:rf.frame/id` / …) — only the body-bearing envelope is tokenized."
   #{:error :page-error})
 
+(def ^:private sibling-owned-slot
+  "Tag slots OWNED by the SIBLING `:rf.resource/scope-resolved` projector
+  (`re-frame.resources.scope-registry/project-scope-resolved-egress`), which the
+  epoch tool-pair runs BEFORE this family projector on the SAME row
+  (`omit-off-box-resource-scope-values` → `omit-off-box-resource-trace-keys`).
+  That projector already classifies these resolver-owned slots — redacting them
+  for a sensitive resolver, but leaving them VERBATIM for an explicitly
+  `:rf.egress/public` (declassified) resolver (rf2-84l82t, the enumerable
+  declassification surface). They must therefore PASS THROUGH this projector's
+  fail-closed map default unchanged — re-tokenizing a declassified `:input-
+  values` map here would undo the sibling's deliberate declassification
+  (rf2-7qbxbm)."
+  #{:input-values :scope})
+
 (def ^:private cursor-slot
   "Tag slots that carry the load-more PAGINATION CURSOR as a FREE scalar tag
   (not a scoped key): the `:rf.resource/load-more` row's `:page-param` (the
@@ -298,19 +312,27 @@
                 ;; (`{:rf/redacted …}`) map is itself a map, so it is guarded
                 ;; FIRST and rides as-is (idempotent — never re-digested).
                 ;;
-                ;; SCALARS and scalar-collections ride verbatim through the final
-                ;; `:else`: structural facts (keywords / numbers / booleans /
-                ;; short id strings — `:rf.frame/id`, `:cause`, `:decision`,
-                ;; `:generation`, `:work/id`, `:delay-ms`, `:status-before` /
-                ;; `:status-after`, counts) and app-defined TAG-keyword vectors
+                ;; SCALARS, scalar-collections, and SIBLING-OWNED slots ride
+                ;; verbatim through the final `:else`: structural facts
+                ;; (keywords / numbers / booleans / short id strings —
+                ;; `:rf.frame/id`, `:cause`, `:decision`, `:generation`,
+                ;; `:work/id`, `:delay-ms`, `:status-before` / `:status-after`,
+                ;; counts) and app-defined TAG-keyword vectors
                 ;; (`:invalidated-tags`) are not app-data payloads, and
                 ;; tokenizing them would destroy attribution / a tool's joins
-                ;; with no security gain. The genuine app-data leak vectors are
-                ;; the scoped keys (handled above), the cursor (handled above),
-                ;; and the MAP-shaped HTTP envelope (handled here) — the
-                ;; conservative fail-closed scope the audit ruled.
+                ;; with no security gain; the scope-resolved sibling projector's
+                ;; `:input-values` / `:scope` slots (`sibling-owned-slot`) were
+                ;; ALREADY classified upstream (and a `:rf.egress/public`
+                ;; resolver's ride VERBATIM by design), so re-tokenizing them
+                ;; here would undo that declassification. The genuine app-data
+                ;; leak vectors are the scoped keys (above), the cursor (above),
+                ;; and the MAP-shaped HTTP envelope (above) — the conservative
+                ;; fail-closed scope the audit ruled.
                 (redacted-token? v)
                 (do (note! true) (assoc m k v))
+
+                (sibling-owned-slot k)
+                (assoc m k v)
 
                 (map? v)
                 (do (note! true) (assoc m k (ssr/redact-value v)))
