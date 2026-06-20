@@ -1,15 +1,15 @@
 # `testbeds/tenant-switcher`
 
-A single Reagent app on a single frame (`:rf/default`) that switches the
+A single Reagent frame (`:rf/default`) that switches the
 **active principal** — an admin impersonating tenant `acme`, then `globex`,
 then back — while the scoped-cache keeps each tenant's loaded dashboard
 structurally isolated and *simultaneously live*.
 
 This is the multi-**scope** consumer the rest of the testbed tree lacks. Every
 other multi-tenant-shaped surface (e.g. `multi_frame/`) is multi-**frame**:
-one app per frame, each frame isolated. This one is multi-**scope**: one app,
-one frame, two tenant scopes coexisting in one cache, with the active scope
-deciding which entry a read can address.
+one frame per tenant, each frame isolated. This one is multi-**scope**: one
+frame, two tenant scopes coexisting in one resource cache, with the active
+scope deciding which entry a read can address.
 
 It is the live demonstrator of the guide's claim
 ([`docs/guide/concepts/server-state.md` §"The scoped key: a leak boundary that
@@ -22,8 +22,8 @@ Part-2 leak-boundary **scenario 5** (rf2-5e22yc, spun from rf2-wwhedk).
 
 - **Named scope resolver** (EP-0016 D3): `reg-resource-scope :tenant/scope`
   derives `[:rf.scope/tenant {:tenant-id …}]` from `[:viewer :active-tenant]`.
-  Pure, with declared `:inputs` so a tool can explain which app fact decides a
-  resource's identity.
+  Pure, with declared `:inputs` so a tool can explain which app-db fact decides
+  a resource's identity.
 - **Scoped resource**: `:tenant/dashboard` declares
   `:scope {:from-db :tenant/scope}`, so its cache key carries the active
   tenant structurally.

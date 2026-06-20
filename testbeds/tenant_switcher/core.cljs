@@ -3,9 +3,9 @@
 
   EP-0013/resources Part-2 leak-boundary scenario 5 (rf2-5e22yc, spun from
   rf2-wwhedk): the multi-SCOPE consumer the rest of the testbed tree lacks.
-  Every other multi-tenant-shaped surface in the repo is multi-FRAME (one app
-  per frame, each isolated). THIS one is multi-SCOPE: a SINGLE app, on a
-  SINGLE frame, switching the active principal — an admin impersonating
+  Every other multi-tenant-shaped surface in the repo is multi-FRAME (one
+  frame per tenant, each isolated). THIS one is multi-SCOPE: a SINGLE frame
+  switching the active principal — an admin impersonating
   tenant `acme`, then `globex`, then back — while the scoped-cache keeps each
   tenant's loaded dashboard structurally isolated and SIMULTANEOUSLY live.
 
@@ -88,7 +88,7 @@
 ;; The viewer's ACTIVE tenant lives at [:viewer :active-tenant]; the resolver
 ;; derives the concrete `[:rf.scope/tenant {:tenant-id …}]` from it. Pure —
 ;; it derives a scope and does nothing else. Declaring `:inputs` lets a tool
-;; explain which app fact decides a resource identity (and lets the runtime
+;; explain which app-db fact decides a resource identity (and lets the runtime
 ;; re-resolve only when that input changes). Nil when no tenant is active —
 ;; fail-closed by contract (never a silent shared/global read).
 
@@ -250,10 +250,11 @@
     (fn []
       [:div {:data-testid "tenant-switcher" :style {:font-family "sans-serif" :padding "1em"}}
        [:h1 "tenant-switcher testbed"]
-       [:p "One app, one frame. Switch the active tenant (impersonation), load
-            each tenant's dashboard, and watch the scoped-cache keep both
-            tenants' entries simultaneously live yet structurally isolated —
-            the active-scope view only ever reads the active tenant's data."]
+       [:p "One frame, two tenant scopes. Switch the active tenant
+            (impersonation), load each tenant's dashboard, and watch the
+            scoped-cache keep both tenants' entries simultaneously live yet
+            structurally isolated in one resource cache — the active-scope view
+            only ever reads the active tenant's data."]
 
        [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap :align-items :center}}
         [:span "Impersonate:"]
@@ -294,7 +295,7 @@
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence.
-  ;; `:rf/default` is this testbed's app frame, registered explicitly; the
+  ;; `:rf/default` is this testbed's frame, registered explicitly; the
   ;; boot dispatch runs under it and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
   (rf/reg-frame :rf/default {})
