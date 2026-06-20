@@ -153,9 +153,9 @@
     (is (calls? view 'rf/frame-generation)
         "frame-registry-view MUST resolve through the public rf/frame-generation read.")
     (is (calls? orient 'frame-registry-view)
-        "orient MUST re-base its :registry on the operating-frame generation (frame-registry-view), falling back to the realm view.")
-    (is (calls? orient 'realm-registry-view)
-        "orient MUST keep the realm-wide registry view as the fallback (ambiguous multi-frame / pre-EP-0023 core).")))
+        "orient MUST re-base its :registry on the operating-frame generation (frame-registry-view), falling back to the process view.")
+    (is (calls? orient 'process-registry-view)
+        "orient MUST keep the process-wide registry view as the fallback (ambiguous multi-frame / pre-EP-0023 core).")))
 
 (let [{:keys [fail error]} (run-tests 'frame-registrar-test)]
   (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
