@@ -22,6 +22,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.projection :as projection]
             [re-frame.ssr.hash :as hash]
             [re-frame.trace :as trace]))
 
@@ -152,7 +153,32 @@
   (dev trace elided) must still see it (EP-0008 rf2-hhutya). `extra` is
   merged onto the always-on record (the frame-id guard carries
   `:target-frame` / `:payload-frame-id`, mirroring the boot helper's thrown
-  ex-data); the dev-trace tags carry it too so Xray sees the same shape."
+  ex-data); the dev-trace tags carry it too so Xray sees the same shape.
+
+  EGRESS CHOKE-POINT (rf2-7qbxbm / rf2-mrtis6 census B5): `extra` lifts
+  values OUT OF the DESERIALISED, UNTRUSTED hydration payload — the
+  frame-id-mismatch guard stamps `:payload-frame-id (:rf/frame-id payload)`,
+  a value the adversary-controllable wire put there. The always-on record
+  fans out to corpus listeners (Sentry / Datadog) raw `by contract`, so a
+  payload value placed in `extra` would egress off-box UNREDACTED — the
+  identical `forgot to route through the projector` gap the conformance
+  ratchet (rf2-mrtis6) governs, on the SSR no-bead leg the design census
+  surfaced. So the untrusted `extra` slots route THROUGH the centralized
+  record-level boundary primitive `re-frame.projection/project-egress` (over
+  the shared `elide-wire-value` walker — Security.md §The privacy surface:
+  per-tool reimplementation prohibited; sinks consume already-projected
+  records only) under the off-box-observability profile, seeded at the
+  rejected `frame`, BEFORE the record fans out. A frame that declares the
+  `:rf/frame-id` path `:sensitive` redacts it; an unresolvable / FRAMELESS
+  frame fails CLOSED (the whole `extra` value redacts to `:rf/redacted`
+  rather than ride raw — EP-0002 / EP-0015 issue 1). The dev-trace axis
+  (DCE'd in production) keeps the raw `extra` for local Xray fidelity — the
+  leak is off-box, not the local trace. `:reason` is framework-AUTHORED
+  prose (the slice-shape / frame-id-mismatch sentences, interpolating a
+  value TYPE or the structural frame ids, never a raw app value), so it
+  rides as the framework's own diagnostic — it is NOT a deserialised payload
+  slot, and routing it would over-redact the operator's diagnostic with no
+  security gain (a frameless reject would lose the reason entirely)."
   ([error-id frame reason] (emit-rejected-hydration! error-id frame reason nil))
   ([error-id frame reason extra]
    (let [base {:where      'rf.ssr/hydrate
@@ -167,12 +193,22 @@
      ;; UNGATED. Union record shape via the late-bind hook. (The PRE-FRAME
      ;; parse failure in `boot/read-server-payload` is the FRAMELESS sibling
      ;; of this same category.)
+     ;;
+     ;; The untrusted payload-derived `extra` slots route through
+     ;; `project-egress` (off-box-observability, frame-seeded) so a
+     ;; deserialised payload value never fans out to a corpus listener raw.
+     ;; Fail-closed on an unresolvable / frameless frame (whole-value redact).
      (when-let [dispatch-error-record!
                 (late-bind/get-fn :error-emit/dispatch-error-record)]
-       (dispatch-error-record!
-         (merge {:error error-id
-                 :time  (interop/now-ms)}
-                base extra))))))
+       (let [safe-extra (when (seq extra)
+                          (projection/project-egress
+                            extra
+                            {:frame             frame
+                             :rf.egress/profile :rf.egress/off-box-observability}))]
+         (dispatch-error-record!
+           (merge {:error error-id
+                   :time  (interop/now-ms)}
+                  base safe-extra)))))))
 
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with

@@ -130,7 +130,32 @@
   #{:resource/keys :matched :removed :keys :exempt :committed
     :patched :populated :invalidated
     :restored :conflicted :refetched
-    :restored-keys :conflicted-keys :refetched-keys :reconciliation-refetches})
+    :restored-keys :conflicted-keys :refetched-keys :reconciliation-refetches
+    ;; `:affected-keys` — the `:rf.mutation/succeeded` / `:rf.mutation/failed`
+    ;; settlement rows' union of populated/patched/removed/stale-marked scoped
+    ;; keys (Spec 016 §Mutation completion continuations). A vector of scoped
+    ;; keys exactly like `:matched` / `:removed`, so it is PER-KEY projected
+    ;; here (preserving a tool's per-key joins) rather than falling to the
+    ;; fail-closed default below as one coarse digest (rf2-7qbxbm).
+    :affected-keys})
+
+(def ^:private error-envelope-slot
+  "Tag slots that carry an HTTP FAILURE ENVELOPE — the `:rf.http/*` reply's
+  `{:status :body :body-text :detail …}` map (rf2-7qbxbm). The
+  `:rf.resource/failed` first-load row + the `:rf.mutation/failed` settlement
+  row stamp the envelope under `:error`; the `:rf.resource/page-failed`
+  load-more row stamps it under `:page-error`. The raw response body
+  (`:body` / `:body-text` / `:detail`) routinely echoes the SUBMITTED FORM
+  FIELDS and validation text quoting user values — app-owned data the generic
+  scoped-key vocabulary is structurally blind to (it is not a scoped key, not
+  a cursor), so it slipped through the `:else` verbatim and reached the
+  epoch / MCP off-box channel UNREDACTED. It is tokenized to a content-
+  addressed `{:rf/redacted <digest>}` via the SAME `redact-value` the cursor
+  uses (distinct envelopes stay distinct, so a tool's per-failure joins
+  survive; the raw body never rides). The status/category attribution is
+  preserved on the row's OTHER scalar tags (`:status-before` / `:status-after`
+  / `:rf.frame/id` / …) — only the body-bearing envelope is tokenized."
+  #{:error :page-error})
 
 (def ^:private cursor-slot
   "Tag slots that carry the load-more PAGINATION CURSOR as a FREE scalar tag
@@ -246,6 +271,49 @@
                   (if cursor-redacts?
                     (do (note! true) (assoc m k (ssr/redact-value v)))
                     (assoc m k v)))
+
+                ;; HTTP failure envelope (`:error` / `:page-error`): the raw
+                ;; `:rf.http/*` reply map (`:body` / `:body-text` / `:detail`)
+                ;; echoes submitted form fields + validation text — app-owned
+                ;; data the scoped-key vocabulary is blind to (rf2-7qbxbm). It
+                ;; is UNCONDITIONALLY tokenized off-box (content-addressed via
+                ;; `redact-value`, the same tokenizer the cursor uses) — the
+                ;; status/category attribution survives on the row's sibling
+                ;; scalar tags. Idempotent (an already-redacted token rides
+                ;; as-is). A nil / non-payload envelope rides verbatim.
+                (and (error-envelope-slot k) (some? v))
+                (if (redacted-token? v)
+                  (do (note! true) (assoc m k v))
+                  (do (note! true) (assoc m k (ssr/redact-value v))))
+
+                ;; FAIL-CLOSED default (rf2-7qbxbm): an UNKNOWN slot whose value
+                ;; is a MAP — the unambiguous payload shape (an HTTP envelope, an
+                ;; arbitrary app result/error map the scoped-key / cursor /
+                ;; envelope vocabulary above did not recognise) — is tokenized
+                ;; rather than passed through verbatim. This flips the former
+                ;; verbatim `:else` (which fell OPEN on any unrecognised slot) to
+                ;; fail CLOSED on map payloads, so a FUTURE map-bearing slot
+                ;; added to a resource/mutation row without a projector clause
+                ;; cannot leak the same way `:error` did. An already-projected
+                ;; (`{:rf/redacted …}`) map is itself a map, so it is guarded
+                ;; FIRST and rides as-is (idempotent — never re-digested).
+                ;;
+                ;; SCALARS and scalar-collections ride verbatim through the final
+                ;; `:else`: structural facts (keywords / numbers / booleans /
+                ;; short id strings — `:rf.frame/id`, `:cause`, `:decision`,
+                ;; `:generation`, `:work/id`, `:delay-ms`, `:status-before` /
+                ;; `:status-after`, counts) and app-defined TAG-keyword vectors
+                ;; (`:invalidated-tags`) are not app-data payloads, and
+                ;; tokenizing them would destroy attribution / a tool's joins
+                ;; with no security gain. The genuine app-data leak vectors are
+                ;; the scoped keys (handled above), the cursor (handled above),
+                ;; and the MAP-shaped HTTP envelope (handled here) — the
+                ;; conservative fail-closed scope the audit ruled.
+                (redacted-token? v)
+                (do (note! true) (assoc m k v))
+
+                (map? v)
+                (do (note! true) (assoc m k (ssr/redact-value v)))
 
                 :else (assoc m k v)))
             {}

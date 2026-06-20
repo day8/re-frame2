@@ -1613,6 +1613,48 @@
     (assoc tags :offending-value privacy/redacted-sentinel)
     tags))
 
+(defn- resource-failure-op?
+  "True for the resource / mutation FAILURE trace ops whose tags carry the
+  `:rf.http/*` failure ENVELOPE under `:error` / `:page-error` (rf2-7qbxbm) —
+  `:rf.resource/failed` (first-load), `:rf.resource/page-failed` (load-more,
+  the `:page-error` channel), and `:rf.mutation/failed`. Matched by op rather
+  than by raw slot-presence so an unrelated trace that happens to carry a
+  scalar `:error` keyword (a status enum, not an HTTP envelope) is NOT
+  swept up. Keyed conservatively to the three failure ops the resources
+  artefact emits the envelope from."
+  [operation]
+  (case operation
+    (:rf.resource/failed :rf.resource/page-failed :rf.mutation/failed) true
+    false))
+
+(defn- project-resource-error-tags
+  "Walk the resource/mutation FAILURE trace tag shape (rf2-7qbxbm). The
+  `:rf.resource/failed` / `:rf.mutation/failed` rows carry the `:rf.http/*`
+  reply's failure ENVELOPE under `:error`; the load-more `:rf.resource/page-
+  failed` row carries it under `:page-error`. That envelope holds the RAW
+  server response (`:body` / `:body-text` / `:detail`), which routinely echoes
+  the SUBMITTED FORM FIELDS + validation text quoting user values — app-owned
+  data the path-keyed app-db walker cannot resolve (it is the HTTP reply, not
+  an app-db slice) and the marks cond-> had NO clause for, so it passed through
+  this on-box dev-trace chokepoint verbatim. (This is the DCE'd on-box leg of
+  rf2-7qbxbm; the production-reachable off-box leg is closed in
+  `re-frame.resources.trace-egress`.)
+
+  The envelope is observability-only — the operator needs to know a resource /
+  mutation FAILED and its status (the sibling `:status-before` / `:status-
+  after` / `:resource/key` structural tags, left intact), not the raw response
+  body — so each present envelope slot is summarized to the `:rf/redacted`
+  sentinel UNCONDITIONALLY (the body is unschematized by construction — status
+  classification runs before decode — so it is whole-sensitive off-box, the
+  same EP-0015 disposition-5 fail-closed posture the HTTP body redaction takes;
+  a scalar / nil envelope slot is left alone). The runtime never reads these
+  slots back — they are trace-only — so the strip is egress-only and changes no
+  behaviour."
+  [tags]
+  (cond-> tags
+    (some? (:error tags))      (assoc :error      privacy/redacted-sentinel)
+    (some? (:page-error tags)) (assoc :page-error privacy/redacted-sentinel)))
+
 (defn- machine-op?
   [operation]
   (let [n (and (keyword? operation) (namespace operation))]
@@ -1818,7 +1860,23 @@
                       ;; reaching here carries `:offending-value` but none of the
                       ;; earlier slot shapes.
                       (and (map? tags) (contains? tags :offending-value))
-                      (project-machine-wrote-db-tags))]
+                      (project-machine-wrote-db-tags)
+
+                      ;; rf2-7qbxbm — the resource/mutation FAILURE traces
+                      ;; (`:rf.resource/failed` / `:rf.resource/page-failed` /
+                      ;; `:rf.mutation/failed`) carry the `:rf.http/*` reply
+                      ;; failure ENVELOPE (raw `:body` / `:body-text` / `:detail`
+                      ;; — echoing submitted form fields + validation text) under
+                      ;; `:error` / `:page-error`. The app-db path walker is blind
+                      ;; to it (it is the HTTP reply, not an app-db slice) and no
+                      ;; clause above matched, so it passed through this on-box
+                      ;; dev-trace chokepoint verbatim. Keyed on the failure op so
+                      ;; a scalar `:error` status keyword on an unrelated trace is
+                      ;; not swept up; summarizes the envelope slot(s) to
+                      ;; `:rf/redacted` (DCE'd in production — the off-box
+                      ;; production leg is closed in resources.trace-egress).
+                      (and (map? tags) (resource-failure-op? operation))
+                      (project-resource-error-tags))]
       (assoc event :tags tags'))))
 
 ;; ---- late-bind hook registration ----------------------------------------
