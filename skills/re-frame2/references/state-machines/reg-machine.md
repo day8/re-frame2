@@ -40,9 +40,12 @@ The deliberate-divergence rows are catalogued in Spec 005 §Lessons from xstate 
 
 ```
 (rf/reg-machine machine-id machine-map)
+(rf/reg-machine machine-id opts machine-map)
 ```
 
-`reg-machine` is a macro (in `re-frame.core`) that stamps source coords at the call site and registers the machine as a `:event` handler whose registration metadata carries `:rf/machine? true`. The underlying registration fn `reg-machine*` lives in `re-frame.machines.lifecycle-fx.registration` (re-exported via the `re-frame.machines` facade and `re-frame.core-machines`). The machine **is** an event handler — dispatch `[machine-id [:event-name & args]]` to drive it.
+`opts` is the optional registration-metadata map — the canonical Spec 001 MIDDLE slot. It carries the event-vector `:schema` (a Malli validator for the OUTER event vector dispatched at `[machine-id [...]]`, checked at the `:where :event` boundary), not the machine's own `:data` shape (that is the spec map's `:data-schema`). The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and MUST NOT appear in `opts`.
+
+`reg-machine` is a macro (in `re-frame.core`) that stamps source coords at the call site and registers the machine as a `:event` handler whose registration metadata carries `:rf/machine? true`. The underlying registration fn `reg-machine*` lives in `re-frame.machines.lifecycle-fx.registration` (it is **not** re-exported under `re-frame.core` — `facade?=false`, front-porch shrink; reach for it as `re-frame.machines/reg-machine*`, which takes the same `(machine-id opts machine-map)` middle-slot shape). The machine **is** an event handler — dispatch `[machine-id [:event-name & args]]` to drive it.
 
 The `day8/re-frame2-machines` artefact must be on the classpath and `re-frame.machines` required at app boot; without it, calls throw `:rf.error/machines-artefact-missing` (the late-bind guard in `re-frame.core-machines`).
 
