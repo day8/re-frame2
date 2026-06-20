@@ -1,10 +1,10 @@
 ;;;; tests/runtime/_support.clj
 ;;;;
 ;;;; Shared babashka test scaffold for the `tests/runtime/*` structural
-;;;; pins (rf2-yrpt90). Every structural-pin test needs to locate, slurp
-;;;; and parse `preload/re_frame2_pair/runtime.cljs`, then walk the parsed
-;;;; forms looking for a named defn / a predicate hit. That harness was
-;;;; copy-pasted verbatim across ~12 tests; it lives here once.
+;;;; pins. Every structural-pin test needs to locate, slurp and parse
+;;;; `preload/re_frame2_pair/runtime.cljs`, then walk the parsed forms
+;;;; looking for a named defn / a predicate hit. That locate+parse+walk
+;;;; harness lives here once, shared across the runtime tests.
 ;;;;
 ;;;; Per-test ASSERTIONS stay in each test file — only the mechanical
 ;;;; locate+parse+walk harness collapses here.
@@ -29,8 +29,8 @@
 (def runtime-cljs-path
   "Absolute path to `preload/re_frame2_pair/runtime.cljs`. Resolved off
    this file's location: tests/runtime/_support.clj → skill root →
-   preload/…. Exits 2 (matching the historical per-test guard) when the
-   source can't be found, so a moved/renamed runtime fails loud."
+   preload/…. Exits 2 when the source can't be found, so a moved/renamed
+   runtime fails loud."
   (let [skill-root (-> this-file
                        .getParentFile   ;; tests/runtime/
                        .getParentFile   ;; tests/

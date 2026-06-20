@@ -2,19 +2,16 @@
 ;;;;
 ;;;; Babashka-runnable verification of the `sub-cache-info` reactive
 ;;;; sub-cache reader in `preload/re_frame2_pair/runtime.cljs` — the
-;;;; reader the re-frame2-pair MCP `list-subscriptions` tool wraps
-;;;; (rf2-qicji).
+;;;; reader the re-frame2-pair MCP `list-subscriptions` tool wraps.
 ;;;;
-;;;; ## What rf2-qicji fixed
+;;;; ## What sub-cache-info reads
 ;;;;
-;;;;   The MCP `list-subscriptions` tool used to wrap `subscription-info`
-;;;;   (the streaming-tap registry — trace/epoch/fx/error queues), so it
-;;;;   returned `{:subs []}` even when a frame had live reactive
-;;;;   subscriptions. The fix repoints `list-subscriptions` at
-;;;;   `sub-cache-info`, which reads the SAME live per-frame reactive
-;;;;   sub-cache `snapshot`'s `:sub-cache` slice reads
-;;;;   (`re-frame.subs.tooling/sub-cache-snapshot`). This test asserts
-;;;;   the reader:
+;;;;   The MCP `list-subscriptions` tool wraps `sub-cache-info`, which reads
+;;;;   the SAME live per-frame reactive sub-cache `snapshot`'s `:sub-cache`
+;;;;   slice reads (`re-frame.subs.tooling/sub-cache-snapshot`) — the live
+;;;;   reactive subscriptions, NOT the streaming-tap registry
+;;;;   (`subscription-info`, the trace/epoch/fx/error queues). This test
+;;;;   asserts the reader:
 ;;;;     - reports the cached query-vectors for a frame (the acceptance
 ;;;;       contract: `[["mounted?"]]` shows up when "mounted?" is cached);
 ;;;;     - AGREES with the sub-cache snapshot source by construction
@@ -48,8 +45,7 @@
 ;;
 ;; `frame-sub-caches` stands in for the live per-frame sub-cache the
 ;; framework's `re-frame.subs.tooling/sub-cache-snapshot` projects:
-;; `{query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}`
-;; (rf2-e3acps added the `:input-kind` + `:realized-inputs` slots).
+;; `{query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}`.
 ;; Disposing a reaction removes its entry — modelled here by `dispose-sub!`.
 ;; ---------------------------------------------------------------------------
 
@@ -64,7 +60,7 @@
 
 (defn cache-sub!
   "Cache an entry. The 4-arity defaults a layer-1 `:db` reader (no
-   realized input edges); the 6-arity sets the rf2-e3acps `:input-kind`
+   realized input edges); the 6-arity sets the `:input-kind`
    + `:realized-inputs` slots explicitly (static / parametric subs)."
   ([frame-id query-v value ref-count]
    (cache-sub! frame-id query-v value ref-count :db []))
@@ -104,7 +100,7 @@
 ;; preload/re_frame2_pair/runtime.cljs §Subscriptions.
 ;; ---------------------------------------------------------------------------
 
-;; Mirror of `ambiguous-frame-error` (rf2-n58jxo) — the load-bearing slots
+;; Mirror of `ambiguous-frame-error` — the load-bearing slots
 ;; (operation, available frames, current pin). KEEP THE SLOT CONTRACT IN SYNC.
 (defn ambiguous-frame-error [operation]
   {:ok? false :reason :ambiguous-frame :operation operation
@@ -145,8 +141,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reports-cached-query-vectors-for-the-frame
-  ;; The acceptance contract (rf2-qicji): with ["mounted?"] cached in
-  ;; :rf/default, list-subscriptions {frame :rf/default} surfaces it.
+  ;; The acceptance contract: with ["mounted?"] cached in :rf/default,
+  ;; list-subscriptions {frame :rf/default} surfaces it.
   (register-frame! :rf/default)
   (cache-sub! :rf/default ["mounted?"] true 1)
   (let [r (sub-cache-info {:frame :rf/default})]
@@ -190,9 +186,8 @@
     (is (= [] (:subs r)))))
 
 (deftest include-values-carries-value-ref-count-input-kind-realized
-  ;; rf2-e3acps — :include-values? surfaces :input-kind + :realized-inputs
-  ;; alongside :value / :ref-count. A layer-1 :db reader has no realized
-  ;; input edges.
+  ;; :include-values? surfaces :input-kind + :realized-inputs alongside
+  ;; :value / :ref-count. A layer-1 :db reader has no realized input edges.
   (register-frame! :rf/default)
   (cache-sub! :rf/default ["cart" "total"] 4200 2)
   (let [r (sub-cache-info {:frame :rf/default :include-values? true})]
@@ -201,7 +196,7 @@
            (:subs r)))))
 
 (deftest include-values-surfaces-realized-parametric-inputs
-  ;; rf2-e3acps — the egress contract: a PARAMETRIC sub's live cache entry
+  ;; The egress contract: a PARAMETRIC sub's live cache entry
   ;; surfaces its REALIZED input query-vectors (the (input-fn query-v)
   ;; result for the concrete outer query-v), the runtime counterpart to
   ;; the static sub-topology's :inputs :parametric sentinel.
@@ -240,7 +235,7 @@
     (is (false? (:ok? r)))
     (is (= :ambiguous-frame (:reason r))
         "two frames + no selection ⇒ refuse rather than silently read :rf/default")
-    ;; rf2-n58jxo — enriched: operation + the available frames the caller can pin.
+    ;; Enriched: operation + the available frames the caller can pin.
     (is (= :sub-cache-info (:operation r)))
     (is (= #{:rf/default :rf/xray} (set (:available-frames r))))))
 
