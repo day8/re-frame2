@@ -1,7 +1,7 @@
 {
   "name": "re-frame2-xray",
   "version": "0.1.0-alpha.1",
-  "description": "Read-only tour skill for Xray — the re-frame2 in-app devtools panel. Teaches launch modes, the Dynamic ↔ Static mode toggle, and the tab inventory (9 Dynamic event-spine tabs incl. Resources + the EP-0014 derivation/process Graph + the EP-0023 image→frame Modules tab (retained-internal EP-0013 realm/module substrate below) + 5 Static registry-browse tabs); defers driving / implementing Xray to sibling skills.",
+  "description": "Read-only tour skill for Xray — the re-frame2 in-app devtools panel. Teaches launch modes, the Dynamic ↔ Static mode toggle, and the tab inventory (9 Dynamic event-spine tabs incl. Resources + the EP-0014 derivation/process Graph + the EP-0023 image→frame Modules tab + 5 Static registry-browse tabs); defers driving / implementing Xray to sibling skills.",
   "skills": [
     "./SKILL.md"
   ],

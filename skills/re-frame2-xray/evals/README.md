@@ -58,7 +58,7 @@ prompts whose answer drifts fastest as the Xray UI moves:
 | 23 | `chrome-palette` | yes | Palette source kinds + representative command verbs; `Cmd/Ctrl+K` is wired (not struck). |
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |
-| 28 | `panel-route-modules` | yes | The realms / frames / modules / app-values question → the Dynamic **Modules** tab (`:module-view`, EP-0023 image→frame lens, retained-internal EP-0013 realm/module substrate below); Modules is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
+| 28 | `panel-route-modules` | yes | The which-image-loaded-which-frame / how-a-frame-resolves question → the Dynamic **Modules** tab (`:module-view`, EP-0023 image→frame lens, no realm/app/module browse dimension); Modules is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
 | 29 | `tab-inventory-count` | yes | The full ordered **9-tab** Dynamic list incl. Modules (count is 9, not 8); correct `:order`; no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
 | 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (Declared/Realized; shipped-labelled static/live), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
 | 4, 5, 6, 7, 9, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
